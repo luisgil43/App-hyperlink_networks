@@ -1,0 +1,24 @@
+{% extends 'dashboard/base.html' %}
+{% block content %}
+<h2>Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.anio }}</h2>
+
+<p>Revisa el documento antes de firmar. Al firmar, estarás aceptando el contenido de la liquidación.</p>
+
+<p>
+    <strong>Archivo Original:</strong>
+    <a href="{{ liquidacion.archivo_pdf.url }}" target="_blank">Ver PDF</a>
+</p>
+
+{% if tecnico.firma_digital %}
+    <form method="post">
+        {% csrf_token %}
+        <p>Tu firma registrada:</p>
+        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" style="max-height: 100px; border: 1px solid #ccc;">
+        <br><br>
+        <button type="submit" class="btn btn-success">Firmar y Descargar PDF</button>
+    </form>
+{% else %}
+    <p style="color: red;">No tienes una firma digital registrada. <a href="{% url 'liquidaciones:registrar_firma' %}">Haz clic aquí para crear una.</a></p>
+{% endif %}
+
+{% endblock %}

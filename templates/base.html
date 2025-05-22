@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}MV Ingeniería{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: row;
+        }
+
+        header {
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: 250px;
+            height: 50px;
+            background-color: #f1f1f1;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        header form {
+            margin: 0;
+        }
+
+        header button {
+            background: none;
+            border: none;
+            color: #e74c3c;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0;
+        }
+
+        nav {
+            width: 250px;
+            background-color: #2c3e50;
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        nav h2 {
+            color: #ecf0f1;
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        nav li {
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        nav li ul {
+            margin-top: 5px;
+            margin-left: 15px;
+            display: none;
+        }
+
+        nav li.active ul {
+            display: block;
+        }
+
+        nav li span {
+            font-weight: bold;
+        }
+
+        nav a {
+            color: #ecf0f1;
+            text-decoration: none;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        main {
+            padding: 80px 20px 20px 20px;
+            flex-grow: 1;
+            background-color: #ecf0f1;
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('li[data-toggle]').forEach(item => {
+                item.addEventListener('click', () => {
+                    item.classList.toggle('active');
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <nav>
+        <h2>Menú</h2>
+        <ul>
+            <li data-toggle><span>Operaciones</span>
+                <ul>
+                    <li><a href="{% url 'dashboard:produccion_tecnicos' %}">Producción Técnicos</a></li>
+                    <li><a href="{% url 'dashboard:produccion_tecnicos_pdf' %}" target="_blank">Descargar producción en PDF</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Documentos y Cursos</span>
+                <ul>
+                    <li><a href="#">Contrato de trabajo (PDF)</a></li>
+                    <li><a href="{% url 'dashboard:mis_cursos' %}">Mis Cursos</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Logística</span>
+                <ul>
+                    <li><a href="#">Solicitud de Materiales</a></li>
+                    <li><a href="#">Devolución de materiales</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>RR.HH</span>
+                <ul>
+                    <li><a href="#">Solicitud de Vacaciones</a></li>
+                    <li><a href="{% url 'liquidaciones:listar' %}">Liquidaciones de Sueldo</a></li>
+                    <li><a href="{% url 'liquidaciones:descargar_pdf' %}" target="_blank">Descargar Liquidaciones (PDF)</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Beneficios</span>
+                <ul>
+                    <li><a href="#">Convenios disponibles</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+
+    <header>
+        <form method="post" action="{% url 'logout_tecnico' %}">
+            {% csrf_token %}
+            <button type="submit">Cerrar Sesión</button>
+        </form>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

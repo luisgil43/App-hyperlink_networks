@@ -1,0 +1,30 @@
+{% extends 'dashboard/base.html' %}
+
+{% block content %}
+<h2>Mis Cursos</h2>
+
+<p>Técnico: {{ tecnico.user.get_full_name|default:tecnico.user.username }}</p>
+
+{% if cursos %}
+    <table border="1" cellpadding="8" cellspacing="0">
+        <thead>
+            <tr>
+                <th>Nombre del Curso</th>
+                <th>Fecha de Vencimiento</th>
+                <th>Activo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for curso in cursos %}
+                <tr>
+                    <td>{{ curso.nombre_curso }}</td>
+                    <td>{{ curso.fecha_vencimiento }}</td>
+                    <td>{{ curso.activo|yesno:"Sí,No" }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No tienes cursos asignados actualmente.</p>
+{% endif %}
+{% endblock %}

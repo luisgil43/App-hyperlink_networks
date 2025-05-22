@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Producción Técnico - PDF</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            margin: 20px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #ddd;
+        }
+        .footer {
+            text-align: center;
+            font-size: 10px;
+            margin-top: 30px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h2>Producción de {{ user.get_full_name|default:user.username }}</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Fecha de Aprobación</th>
+                <th>Descripción</th>
+                <th>Monto</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in produccion %}
+            <tr>
+                <td>{{ item.id }}</td>
+                <td>{{ item.get_status_display }}</td>
+                <td>{% if item.fecha_aprobacion %}{{ item.fecha_aprobacion|date:"d/m/Y" }}{% else %}--{% endif %}</td>
+                <td>{{ item.descripcion }}</td>
+                <td>{{ item.monto }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5">No hay producción registrada.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Documento generado por el sistema - {{ now|date:"d/m/Y H:i" }}
+    </div>
+</body>
+</html>

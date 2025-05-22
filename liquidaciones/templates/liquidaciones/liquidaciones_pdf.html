@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Liquidaciones de Sueldo - {{ tecnico.user.get_full_name|default:tecnico.user.username }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; }
+        h1 { text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>Liquidaciones de Sueldo</h1>
+    <p>Técnico: {{ tecnico.user.get_full_name|default:tecnico.user.username }}</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Mes</th>
+                <th>Monto</th>
+                <th>Fecha Emisión</th>
+                <th>Firmada</th>
+                <th>Fecha Firma</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for liquidacion in liquidaciones %}
+            <tr>
+                <td>{{ liquidacion.mes }}</td>
+                <td>{{ liquidacion.monto }}</td>
+                <td>{{ liquidacion.fecha_emision }}</td>
+                <td>{% if liquidacion.firmada %}Sí{% else %}No{% endif %}</td>
+                <td>{% if liquidacion.fecha_firma %}{{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

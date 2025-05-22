@@ -1,0 +1,61 @@
+{% extends 'dashboard/base.html' %}
+{% block content %}
+<h2>Crear Firma Digital</h2>
+
+<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
+<button onclick="clearCanvas()">Limpiar</button>
+
+<form method="post" onsubmit="guardarFirma()" id="firmaForm">
+    {% csrf_token %}
+    <input type="hidden" name="firma_digital" id="firmaInput">
+    <br>
+    <button type="submit" class="btn btn-primary">Guardar Firma</button>
+</form>
+
+{% if tecnico.firma_digital %}
+    <p>Firma actual:</p>
+    <img src="{{ tecnico.firma_digital.url }}" alt="Firma" style="max-height: 100px;">
+{% endif %}
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let painting = false;
+
+    function startPosition(e) {
+        painting = true;
+        draw(e);
+    }
+
+    function endPosition() {
+        painting = false;
+        ctx.beginPath();
+    }
+
+    function draw(e) {
+        if (!painting) return;
+        const rect = canvas.getBoundingClientRect();
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'black';
+
+        ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    function clearCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function guardarFirma() {
+        const dataURL = canvas.toDataURL('image/png');
+        document.getElementById('firmaInput').value = dataURL;
+    }
+
+    canvas.addEventListener('mousedown', startPosition);
+    canvas.addEventListener('mouseup', endPosition);
+    canvas.addEventListener('mousemove', draw);
+</script>
+{% endblock %}
