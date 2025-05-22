@@ -2,8 +2,8 @@
 {% block content %}
 <h2>Crear Firma Digital</h2>
 
-<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
-<button onclick="clearCanvas()">Limpiar</button>
+<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc; touch-action: none;"></canvas><br>
+<button type="button" onclick="clearCanvas()">Limpiar</button>
 
 <form method="post" onsubmit="guardarFirma()" id="firmaForm">
     {% csrf_token %}
@@ -22,27 +22,46 @@
     const ctx = canvas.getContext('2d');
     let painting = false;
 
-    function startPosition(e) {
-        painting = true;
-        draw(e);
+    function getPosition(e) {
+        const rect = canvas.getBoundingClientRect();
+        if (e.touches) {
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            };
+        } else {
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
     }
 
-    function endPosition() {
+    function startPosition(e) {
+        e.preventDefault();
+        painting = true;
+        const pos = getPosition(e);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+    }
+
+    function endPosition(e) {
+        e.preventDefault();
         painting = false;
         ctx.beginPath();
     }
 
     function draw(e) {
         if (!painting) return;
-        const rect = canvas.getBoundingClientRect();
+        e.preventDefault();
+        const pos = getPosition(e);
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.strokeStyle = 'black';
-
-        ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+        ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        ctx.moveTo(pos.x, pos.y);
     }
 
     function clearCanvas() {
@@ -54,8 +73,14 @@
         document.getElementById('firmaInput').value = dataURL;
     }
 
+    // Eventos para mouse
     canvas.addEventListener('mousedown', startPosition);
     canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
+
+    // Eventos para touch (móvil)
+    canvas.addEventListener('touchstart', startPosition, { passive: false });
+    canvas.addEventListener('touchend', endPosition, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
 </script>
 {% endblock %}

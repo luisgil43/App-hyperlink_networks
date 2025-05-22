@@ -62,7 +62,7 @@
 
     <div class="firma">
         {% if tecnico.firma_digital %}
-            <img src="{{ tecnico.firma_digital.path }}" alt="Firma Digital">
+            <img src="{{ tecnico.firma_digital.url }}" alt="Firma Digital">
         {% endif %}
         <div class="firmado-por">Firmado electrónicamente por {{ liquidacion.tecnico.user.get_full_name }}</div>
     </div>
