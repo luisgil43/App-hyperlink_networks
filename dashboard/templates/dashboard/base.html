@@ -1,4 +1,4 @@
-<!DOCTYPE html>  
+<!DOCTYPE html>   
 {% load static %}
 <html lang="es">
 <head>
@@ -90,6 +90,39 @@
             flex-grow: 1;
             background-color: #ecf0f1;
         }
+
+        /* Estilos para mensajes de Django */
+        .messages-container {
+            max-width: 600px;
+            margin: 0 auto 20px auto;
+        }
+
+        .alert {
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .alert-error, .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background-color: #cce5ff;
+            color: #004085;
+        }
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -127,8 +160,8 @@
                 <ul>
                     <li><a href="#">Solicitud de Vacaciones</a></li>
                     <li><a href="{% url 'liquidaciones:listar' %}">Liquidaciones de Sueldo</a></li>
-		    <li><a href="{% url 'liquidaciones:descargar_pdf' %}" target="_blank">Descargar Liquidaciones (PDF)</a></li></a></li>
-	    </ul>
+                    <li><a href="{% url 'liquidaciones:descargar_pdf' %}" target="_blank">Descargar Liquidaciones (PDF)</a></li>
+                </ul>
             </li>
             <li data-toggle><span>Beneficios</span>
                 <ul>
@@ -146,8 +179,24 @@
     </header>
 
     <main>
+        <!-- Mostrar mensajes Django -->
+        {% if messages %}
+          <div class="messages-container">
+            {% for message in messages %}
+              <div class="alert
+                {% if message.tags %}
+                  alert-{{ message.tags }}
+                {% else %}
+                  alert-info
+                {% endif %}
+              " role="alert">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
         {% block content %}{% endblock %}
     </main>
 </body>
 </html>
-

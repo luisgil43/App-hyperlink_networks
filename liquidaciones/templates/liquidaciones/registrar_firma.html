@@ -2,10 +2,10 @@
 {% block content %}
 <h2>Crear Firma Digital</h2>
 
-<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc; touch-action: none;"></canvas><br>
+<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
 <button type="button" onclick="clearCanvas()">Limpiar</button>
 
-<form method="post" onsubmit="guardarFirma()" id="firmaForm">
+<form method="post" id="firmaForm">
     {% csrf_token %}
     <input type="hidden" name="firma_digital" id="firmaInput">
     <br>
@@ -21,66 +21,58 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let painting = false;
-
-    function getPosition(e) {
-        const rect = canvas.getBoundingClientRect();
-        if (e.touches) {
-            return {
-                x: e.touches[0].clientX - rect.left,
-                y: e.touches[0].clientY - rect.top
-            };
-        } else {
-            return {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-        }
-    }
+    let hasDrawn = false;
 
     function startPosition(e) {
-        e.preventDefault();
         painting = true;
-        const pos = getPosition(e);
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
+        draw(e);
     }
 
-    function endPosition(e) {
-        e.preventDefault();
+    function endPosition() {
         painting = false;
         ctx.beginPath();
     }
 
     function draw(e) {
         if (!painting) return;
-        e.preventDefault();
-        const pos = getPosition(e);
+        hasDrawn = true;  // Marca que el usuario dibujó algo
+
+        const rect = canvas.getBoundingClientRect();
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.strokeStyle = 'black';
-        ctx.lineTo(pos.x, pos.y);
+
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+
+        ctx.lineTo(x, y);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
+        ctx.moveTo(x, y);
     }
 
     function clearCanvas() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasDrawn = false;  // Reinicia el estado de dibujo
     }
 
-    function guardarFirma() {
+    document.getElementById('firmaForm').addEventListener('submit', function (e) {
+        if (!hasDrawn) {
+            alert("Por favor dibuja tu firma antes de guardar.");
+            e.preventDefault();  // Previene el envío
+            return;
+        }
         const dataURL = canvas.toDataURL('image/png');
         document.getElementById('firmaInput').value = dataURL;
-    }
+    });
 
-    // Eventos para mouse
+    // Eventos para mouse y pantallas táctiles
     canvas.addEventListener('mousedown', startPosition);
     canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
 
-    // Eventos para touch (móvil)
-    canvas.addEventListener('touchstart', startPosition, { passive: false });
-    canvas.addEventListener('touchend', endPosition, { passive: false });
-    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchstart', startPosition);
+    canvas.addEventListener('touchend', endPosition);
+    canvas.addEventListener('touchmove', draw);
 </script>
 {% endblock %}

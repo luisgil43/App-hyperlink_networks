@@ -3,7 +3,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}MV Ingeniería{% endblock %}</title>
+    <title>{% block title %}Dashboard{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
     <style>
         body {
@@ -90,6 +90,33 @@
             flex-grow: 1;
             background-color: #ecf0f1;
         }
+
+        /* Estilos para los mensajes */
+        .messages-container {
+            margin-bottom: 1rem;
+        }
+
+        .alert {
+            padding: 12px 18px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .alert-error, .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -146,6 +173,16 @@
     </header>
 
     <main>
+        {% if messages %}
+        <div class="messages-container">
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% block content %}{% endblock %}
     </main>
 </body>

@@ -6,24 +6,32 @@
 
 <p>
     <strong>Archivo Original:</strong>
-    <a href="{{ liquidacion.archivo_pdf.url }}" target="_blank" class="btn btn-outline-primary" style="margin-top: 10px;">Ver PDF</a>
+    <a href="{{ liquidacion.archivo_pdf.url }}" target="_blank">Ver PDF</a>
 </p>
 
 {% if tecnico.firma_digital %}
-    <form method="post">
+    <form method="post" onsubmit="return validarFirmaRegistrada();">
         {% csrf_token %}
-        <div style="margin-top: 20px;">
-            <p><strong>Tu firma registrada:</strong></p>
-            <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital"
-                 style="max-height: 100px; border: 1px solid #ccc; padding: 5px; background-color: #f9f9f9;">
-        </div>
-        <br>
+        <p>Tu firma registrada:</p>
+        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" style="max-height: 100px; border: 1px solid #ccc;">
+        <br><br>
         <button type="submit" class="btn btn-success">Firmar y Descargar PDF</button>
     </form>
 {% else %}
-    <div class="alert alert-warning mt-3">
-        <strong>No tienes una firma digital registrada.</strong><br>
-        <a href="{% url 'liquidaciones:registrar_firma' %}" class="btn btn-warning mt-2">Crear Firma</a>
-    </div>
+    <p style="color: red;">No tienes una firma digital registrada. 
+        <a href="{% url 'liquidaciones:registrar_firma' %}">Haz clic aquí para crear una.</a>
+    </p>
 {% endif %}
+
+<script>
+function validarFirmaRegistrada() {
+    // Refuerzo de seguridad: si por alguna razón llega aquí sin firma, se bloquea
+    const tieneFirma = "{{ tecnico.firma_digital.url|default:'' }}";
+    if (!tieneFirma) {
+        alert("No tienes una firma digital registrada. Debes crear una antes de firmar.");
+        return false;
+    }
+    return true;
+}
+</script>
 {% endblock %}

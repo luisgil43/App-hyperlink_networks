@@ -2,15 +2,13 @@ import os
 import shutil
 import uuid
 import base64
-import tempfile
 from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse, FileResponse, Http404
+from django.http import HttpResponse, FileResponse
 from django.contrib import messages
 from django.utils import timezone
 from django.template.loader import render_to_string
-import tempfile
 from weasyprint import HTML
 import fitz
 
@@ -43,37 +41,45 @@ def firmar_liquidacion(request, pk):
     tecnico = request.user.tecnico
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
 
+    # Validación: no permitir firmar si no hay firma digital registrada
     if not tecnico.firma_digital:
-        messages.warning(request, "Debes registrar tu firma digital primero.")
+        messages.warning(
+            request, "Debes registrar tu firma digital primero para poder firmar.")
         return redirect('liquidaciones:registrar_firma')
 
-    original_path = liquidacion.archivo_pdf_liquidacion.path
-    firma_path = tecnico.firma_digital.path
+    if request.method == 'POST':
+        # Revalidar firma digital antes de firmar
+        if not tecnico.firma_digital:
+            messages.error(
+                request, "No puedes firmar sin una firma digital registrada.")
+            return redirect('liquidaciones:registrar_firma')
 
-    # Ruta donde guardar el PDF firmado
-    output_rel_path = f'liquidaciones_firmadas/liquidacion_{liquidacion.pk}_firmada.pdf'
-    output_abs_path = os.path.join(settings.MEDIA_ROOT, output_rel_path)
+        original_path = liquidacion.archivo_pdf_liquidacion.path
+        firma_path = tecnico.firma_digital.path
 
-    # Crear carpeta si no existe
-    os.makedirs(os.path.dirname(output_abs_path), exist_ok=True)
+        output_rel_path = f'liquidaciones_firmadas/liquidacion_{liquidacion.pk}_firmada.pdf'
+        output_abs_path = os.path.join(settings.MEDIA_ROOT, output_rel_path)
 
-    # Abrir y firmar el PDF
-    doc = fitz.open(original_path)
-    page = doc[-1]
-    rect = fitz.Rect(400, 700, 550, 750)
-    page.insert_image(rect, filename=firma_path)
-    doc.save(output_abs_path)
-    doc.close()
+        os.makedirs(os.path.dirname(output_abs_path), exist_ok=True)
 
-    # Guardar en el modelo
-    liquidacion.pdf_firmado.name = output_rel_path
-    liquidacion.firmada = True
-    liquidacion.fecha_firma = timezone.now()
-    liquidacion.save()
+        doc = fitz.open(original_path)
+        page = doc[-1]
+        rect = fitz.Rect(400, 700, 550, 750)
+        page.insert_image(rect, filename=firma_path)
+        doc.save(output_abs_path)
+        doc.close()
 
-    messages.success(
-        request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
-    return redirect('liquidaciones:listar')
+        liquidacion.pdf_firmado.name = output_rel_path
+        liquidacion.firmada = True
+        liquidacion.fecha_firma = timezone.now()
+        liquidacion.save()
+
+        messages.success(
+            request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
+        return redirect('liquidaciones:listar')
+
+    # Método GET, mostrar la página de firma
+    return render(request, 'liquidaciones/firma.html', {'liquidacion': liquidacion, 'tecnico': tecnico})
 
 
 @login_required
@@ -100,14 +106,17 @@ def registrar_firma(request):
     if request.method == 'POST':
         data_url = request.POST.get('firma_digital')
         if data_url:
-            format, imgstr = data_url.split(';base64,')
-            ext = format.split('/')[-1]
-            file_name = f"{uuid.uuid4()}.{ext}"
-            data = ContentFile(base64.b64decode(imgstr), name=file_name)
-            tecnico.firma_digital = data
-            tecnico.save()
-            messages.success(request, "Tu firma digital ha sido guardada.")
-            return redirect('liquidaciones:listar')
+            try:
+                format, imgstr = data_url.split(';base64,')
+                ext = format.split('/')[-1]
+                file_name = f"{uuid.uuid4()}.{ext}"
+                data = ContentFile(base64.b64decode(imgstr), name=file_name)
+                tecnico.firma_digital = data
+                tecnico.save()
+                messages.success(request, "Tu firma digital ha sido guardada.")
+                return redirect('liquidaciones:listar')
+            except Exception as e:
+                messages.error(request, "Error al procesar la firma digital.")
         else:
             messages.error(request, "No se recibió ninguna firma.")
 
@@ -123,24 +132,4 @@ def descargar_pdf(request):
 
 @login_required
 def confirmar_firma(request, pk):
-    tecnico = request.user.tecnico
-    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
-
-    preview_path = request.session.get('preview_path')
-    output_rel_path = request.session.get('output_rel_path')
-    output_abs_path = os.path.join(settings.MEDIA_ROOT, output_rel_path)
-
-    if preview_path and os.path.exists(preview_path):
-        os.makedirs(os.path.dirname(output_abs_path), exist_ok=True)
-        shutil.copy(preview_path, output_abs_path)
-
-        liquidacion.pdf_firmado.name = output_rel_path
-        liquidacion.firmada = True
-        liquidacion.fecha_firma = timezone.now()
-        liquidacion.save()
-
-        messages.success(request, "La liquidación fue firmada correctamente.")
-    else:
-        messages.error(request, "No se pudo confirmar la firma.")
-
-    return redirect('liquidaciones:listar')
+    t
