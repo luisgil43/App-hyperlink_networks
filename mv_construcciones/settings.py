@@ -19,7 +19,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'clave-insegura')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = [https://app-mv.onrender.com]
+ALLOWED_HOSTS = ['app-mv.onrender.com']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
