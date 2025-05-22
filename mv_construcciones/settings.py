@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import dj_database_url
 
 # Cargar variables de entorno desde el archivo .env
 load_dotenv()
@@ -19,6 +20,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'clave-insegura')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
+# Puedes agregar 'localhost' o '127.0.0.1' para desarrollo local
 ALLOWED_HOSTS = ['app-mv.onrender.com']
 
 INSTALLED_APPS = [
@@ -35,7 +37,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    # <-- Añadido para servir archivos estáticos
+    # <-- Para servir archivos estáticos en producción
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -65,11 +67,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mv_construcciones.wsgi.application'
 
+# Configuración de la base de datos
+# Usa DATABASE_URL si está definida (como en producción en Render), si no, usa SQLite local
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        # <-- Usado en desarrollo local automáticamente
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -97,13 +101,14 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
-STATIC_ROOT = BASE_DIR / "staticfiles"  # <-- Añadido para collectstatic
+STATIC_ROOT = BASE_DIR / "staticfiles"  # <-- Para comando collectstatic
 
-# <-- Añadido para WhiteNoise
+# <-- WhiteNoise para producción
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Configuración de correo
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587

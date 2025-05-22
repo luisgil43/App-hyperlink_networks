@@ -74,7 +74,7 @@
         {% for liquidacion in liquidaciones %}
         <tr>
             <td>{{ liquidacion.mes }}</td>
-            <td>{{ liquidacion.anio }}</td>
+            <td>{{ liquidacion.año }}</td> <!-- CORREGIDO -->
             <td>${{ liquidacion.monto|floatformat:0 }}</td>
             <td><a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank">Ver PDF</a></td>
             <td>
