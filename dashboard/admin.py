@@ -8,3 +8,4 @@ class ProduccionTecnicoAdmin(admin.ModelAdmin):
                     'fecha_aprobacion', 'descripcion', 'monto')
     fields = ('tecnico', 'id', 'status',
               'fecha_aprobacion', 'descripcion', 'monto')
+    readonly_fields = ()  # No pongas 'id' aquí, para que sea editable
