@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
-from django.conf import settings
-from django.conf.urls.static import static
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde el archivo .env
+load_dotenv()
 
 # Ruta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -9,22 +11,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# settings.py (parte relevante)
-
 LOGIN_URL = '/tecnicos/login/'
 LOGIN_REDIRECT_URL = '/tecnicos/dashboard/'
-LOGOUT_REDIRECT_URL = '/tecnicos/login/'
 LOGOUT_REDIRECT_URL = '/admin/login/'
 
-
 # Seguridad
-SECRET_KEY = 'tu-clave-secreta-aqui'  # 🔐 Cámbiala en producción
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'clave-insegura')
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-DEBUG = True
+ALLOWED_HOSTS = [https://app-mv.onrender.com]
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
-
-# Aplicaciones instaladas
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -35,10 +31,8 @@ INSTALLED_APPS = [
     'liquidaciones',
     'tecnicos',
     'dashboard',
-
 ]
 
-# Middleware (capa intermedia)
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -49,14 +43,11 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# Configuración de URLs
 ROOT_URLCONF = 'mv_construcciones.urls'
 
-# Configuración de templates
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # Directorio de tus templates personalizados
         'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -70,11 +61,8 @@ TEMPLATES = [
     },
 ]
 
-
-# Configuración WSGI
 WSGI_APPLICATION = 'mv_construcciones.wsgi.application'
 
-# Base de datos (SQLite por defecto)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -82,7 +70,6 @@ DATABASES = {
     }
 }
 
-# Validación de contraseñas
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -98,29 +85,22 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Internacionalización
 LANGUAGE_CODE = 'es-es'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
-# Archivos estáticos
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
-
-# Ruta por defecto para campos auto generados
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'tucorreo@gmail.com'
-EMAIL_HOST_PASSWORD = 'tu_contraseña_o_clave_app'
-DEFAULT_FROM_EMAIL = 'MV Construcciones <tucorreo@gmail.com>'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = f"MV Construcciones <{EMAIL_HOST_USER}>"
