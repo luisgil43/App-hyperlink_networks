@@ -4,8 +4,19 @@ from django.contrib.auth.views import LogoutView, PasswordResetView, PasswordRes
 from tecnicos.views import login_tecnico
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse  # 👈 AÑADIDO para vista de salud
+
+# 👇 AÑADIR esta función
+
+
+def health_check(request):
+    return HttpResponse("OK", status=200)
+
 
 urlpatterns = [
+    # Health check para Render
+    path('healthz', health_check),  # 👈 AÑADIDO
+
     # Admin y logout de admin
     path('admin/', admin.site.urls),
     path('admin/logout/', LogoutView.as_view(next_page='/admin/login/'),
