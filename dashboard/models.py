@@ -12,16 +12,36 @@ class ProduccionTecnico(models.Model):
 
     tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
 
-    # id definido como CharField, único y clave primaria, editable por defecto en admin
-    id = models.CharField(max_length=100, unique=True, primary_key=True)
+    # ✅ id definido como editable (ya es correcto)
+    id = models.CharField(
+        max_length=100,
+        unique=True,
+        primary_key=True,
+        verbose_name="ID de Producción"
+    )
 
-    status = models.CharField(max_length=20, choices=ESTADOS)
+    status = models.CharField(
+        max_length=20,
+        choices=ESTADOS,
+        verbose_name="Estado"
+    )
 
-    fecha_aprobacion = models.DateField(null=True, blank=True)
+    fecha_aprobacion = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Aprobación"
+    )
 
-    descripcion = models.TextField(blank=True)
+    descripcion = models.TextField(
+        blank=True,
+        verbose_name="Descripción"
+    )
 
-    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    monto = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name="Monto"
+    )
 
     def __str__(self):
         return f"{self.tecnico} - {self.id}"
