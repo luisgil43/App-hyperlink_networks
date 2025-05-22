@@ -41,6 +41,7 @@ pandas==2.2.3
 pathlib==1.0.1
 pillow==11.2.1
 prov==2.0.1
+psycopg2-binary==2.9.10
 puremagic==1.29
 pyarrow==20.0.0
 pybaseball==2.2.7
