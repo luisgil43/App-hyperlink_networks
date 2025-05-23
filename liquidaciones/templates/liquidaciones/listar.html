@@ -22,6 +22,12 @@
         color: #333;
     }
 
+    .page-title {
+        font-size: 22px;
+        margin: 20px 0;
+        color: #2c3e50;
+    }
+
     .liquidaciones-table {
         width: 100%;
         border-collapse: collapse;
@@ -53,11 +59,11 @@
 
 <!-- Encabezado con logo y nombre empresa -->
 <div class="empresa-header">
-    <img src="{% static 'img/logo.png' %}" alt="Logo Empresa">
-    <h1>MV INGENIERÍA & CONSTRUCIÓN</h1>
+    <img src="{% static 'images/logo.png' %}" alt="Logo Empresa">
+    <h1>MV INGENIERÍA & CONSTRUCCIÓN</h1>
 </div>
 
-<h2>Mis Liquidaciones de Sueldo</h2>
+<h1 class="page-title">Mis Liquidaciones de Sueldo</h1>
 
 <table class="liquidaciones-table">
     <thead>
@@ -74,7 +80,7 @@
         {% for liquidacion in liquidaciones %}
         <tr>
             <td>{{ liquidacion.mes }}</td>
-            <td>{{ liquidacion.año }}</td> <!-- CORREGIDO -->
+            <td>{{ liquidacion.año }}</td>
             <td>${{ liquidacion.monto|floatformat:0 }}</td>
             <td><a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank">Ver PDF</a></td>
             <td>
