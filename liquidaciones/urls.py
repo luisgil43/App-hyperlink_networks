@@ -12,5 +12,4 @@ urlpatterns = [
     path('descargar-pdf/', views.descargar_pdf, name='descargar_pdf'),
     path('liquidaciones/confirmar-firma/<int:pk>/',
          views.confirmar_firma, name='confirmar_firma'),
-
 ]

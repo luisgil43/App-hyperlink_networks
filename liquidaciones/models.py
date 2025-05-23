@@ -1,9 +1,5 @@
 from django.db import models
-from django.contrib.auth.models import User
-from django.contrib import admin
 from tecnicos.models import Tecnico
-
-# Importa el storage de Cloudinary
 from cloudinary_storage.storage import MediaCloudinaryStorage
 
 
@@ -14,25 +10,23 @@ class Liquidacion(models.Model):
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     firmada = models.BooleanField(default=False)
 
-    # Cambiado para usar CloudinaryStorage
     archivo_pdf_liquidacion = models.FileField(
         upload_to='pdf_originales/',
-        storage=MediaCloudinaryStorage(),  # <- agregado para Cloudinary
+        storage=MediaCloudinaryStorage(),
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo"
     )
 
-    fecha_firma = models.DateTimeField(blank=True, null=True)
-
-    # Cambiado para usar CloudinaryStorage
     pdf_firmado = models.FileField(
         upload_to='pdf_firmados/',
-        storage=MediaCloudinaryStorage(),  # <- agregado para Cloudinary
+        storage=MediaCloudinaryStorage(),
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"
     )
+
+    fecha_firma = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.tecnico} - {self.mes}/{self.año}"

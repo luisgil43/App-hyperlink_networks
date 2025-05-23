@@ -2,6 +2,8 @@ import os
 import shutil
 import uuid
 import base64
+import requests  # ✅ NUEVO
+from io import BytesIO  # ✅ NUEVO
 from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
@@ -41,35 +43,42 @@ def firmar_liquidacion(request, pk):
     tecnico = request.user.tecnico
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
 
-    # Validación: no permitir firmar si no hay firma digital registrada
     if not tecnico.firma_digital:
         messages.warning(
             request, "Debes registrar tu firma digital primero para poder firmar.")
         return redirect('liquidaciones:registrar_firma')
 
     if request.method == 'POST':
-        # Revalidar firma digital antes de firmar
         if not tecnico.firma_digital:
             messages.error(
                 request, "No puedes firmar sin una firma digital registrada.")
             return redirect('liquidaciones:registrar_firma')
 
-        original_path = liquidacion.archivo_pdf_liquidacion.path
-        firma_path = tecnico.firma_digital.path
+        # ✅ NUEVO: descarga desde Cloudinary en memoria
+        pdf_url = liquidacion.archivo_pdf_liquidacion.url
+        pdf_response = requests.get(pdf_url)
+        original_pdf = BytesIO(pdf_response.content)
 
-        output_rel_path = f'liquidaciones_firmadas/liquidacion_{liquidacion.pk}_firmada.pdf'
-        output_abs_path = os.path.join(settings.MEDIA_ROOT, output_rel_path)
+        firma_url = tecnico.firma_digital.url
+        firma_response = requests.get(firma_url)
+        firma_img = BytesIO(firma_response.content)
 
-        os.makedirs(os.path.dirname(output_abs_path), exist_ok=True)
-
-        doc = fitz.open(original_path)
+        # Editar PDF en memoria
+        doc = fitz.open(stream=original_pdf, filetype='pdf')
         page = doc[-1]
         rect = fitz.Rect(400, 700, 550, 750)
-        page.insert_image(rect, filename=firma_path)
-        doc.save(output_abs_path)
-        doc.close()
+        page.insert_image(rect, stream=firma_img)
 
-        liquidacion.pdf_firmado.name = output_rel_path
+        pdf_firmado_io = BytesIO()
+        doc.save(pdf_firmado_io)
+        doc.close()
+        pdf_firmado_io.seek(0)
+
+        # Guardar PDF firmado directamente en Cloudinary
+        file_name = f"liq_{liquidacion.pk}_firmada.pdf"
+        liquidacion.pdf_firmado.save(
+            file_name, ContentFile(pdf_firmado_io.read()))
+
         liquidacion.firmada = True
         liquidacion.fecha_firma = timezone.now()
         liquidacion.save()
@@ -78,7 +87,6 @@ def firmar_liquidacion(request, pk):
             request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
         return redirect('liquidaciones:listar')
 
-    # Método GET, mostrar la página de firma
     return render(request, 'liquidaciones/firmar.html', {'liquidacion': liquidacion, 'tecnico': tecnico})
 
 
@@ -132,4 +140,18 @@ def descargar_pdf(request):
 
 @login_required
 def confirmar_firma(request, pk):
-    t
+    tecnico = request.user.tecnico
+    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
+
+    # Aquí puedes agregar lógica para confirmar la firma si quieres
+    # Por ahora solo marca como firmada y guarda la fecha, si no está ya marcada
+
+    if not liquidacion.firmada:
+        liquidacion.firmada = True
+        liquidacion.fecha_firma = timezone.now()
+        liquidacion.save()
+        messages.success(request, "Firma confirmada correctamente.")
+    else:
+        messages.info(request, "La liquidación ya estaba firmada.")
+
+    return redirect('liquidaciones:listar')
