@@ -15,7 +15,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 
 # Seguridad
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'clave-insegura')
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = ['app-mv.onrender.com']
 
 INSTALLED_APPS = [
