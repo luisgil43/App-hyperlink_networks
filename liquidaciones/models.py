@@ -30,3 +30,23 @@ class Liquidacion(models.Model):
 
     def __str__(self):
         return f"{self.tecnico} - {self.mes}/{self.año}"
+
+    def save(self, *args, **kwargs):
+        # ✅ Verifica si el archivo original fue reemplazado
+        try:
+            old = Liquidacion.objects.get(pk=self.pk)
+        except Liquidacion.DoesNotExist:
+            old = None
+
+        if old and old.archivo_pdf_liquidacion != self.archivo_pdf_liquidacion:
+            # ✅ Si se cambió el PDF original, borrar firma anterior
+            if old.pdf_firmado:
+                old.pdf_firmado.delete(save=False)
+            self.pdf_firmado = None
+            self.firmada = False
+            self.fecha_firma = None
+
+        super().save(*args, **kwargs)
+
+        # 🔁 Código eliminado (comentado para referencia futura)
+        # No se aplicaron otras eliminaciones directas
