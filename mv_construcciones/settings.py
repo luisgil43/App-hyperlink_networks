@@ -12,6 +12,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# Si usas Cloudinary, estas líneas se reemplazan por DEFAULT_FILE_STORAGE (ver más abajo)
+# MEDIA_URL = '/media/'
+# MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 LOGIN_URL = '/tecnicos/login/'
 LOGIN_REDIRECT_URL = '/tecnicos/dashboard/'
 LOGOUT_REDIRECT_URL = '/admin/login/'
@@ -33,6 +37,8 @@ INSTALLED_APPS = [
     'liquidaciones',
     'tecnicos',
     'dashboard',
+    'cloudinary_storage',  # <-- necesario para usar Cloudinary como almacenamiento
+    'cloudinary',
 ]
 
 MIDDLEWARE = [
@@ -68,27 +74,17 @@ TEMPLATES = [
 WSGI_APPLICATION = 'mv_construcciones.wsgi.application'
 
 # Configuración de la base de datos
-# Usa DATABASE_URL si está definida (como en producción en Render), si no, usa SQLite local
 DATABASES = {
     'default': dj_database_url.config(
-        # <-- Usado en desarrollo local automáticamente
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
     )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 LANGUAGE_CODE = 'es-es'
@@ -101,9 +97,8 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
-STATIC_ROOT = BASE_DIR / "staticfiles"  # <-- Para comando collectstatic
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# <-- WhiteNoise para producción
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -116,3 +111,15 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = f"MV Construcciones <{EMAIL_HOST_USER}>"
+
+# ================================
+# ✅ Configuración para Cloudinary
+# ================================
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}

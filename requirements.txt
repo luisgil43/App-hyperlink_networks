@@ -8,6 +8,7 @@ cffi==1.17.1
 charset-normalizer==3.4.2
 ci-info==0.3.0
 click==8.2.1
+cloudinary==1.44.0
 colorama==0.4.6
 configobj==5.0.9
 configparser==7.2.0
@@ -18,6 +19,7 @@ cycler==0.12.1
 Deprecated==1.2.18
 dj-database-url==2.3.0
 Django==5.2.1
+django-cloudinary-storage==0.3.0
 et_xmlfile==2.0.0
 etelemetry==0.3.1
 filelock==3.18.0
