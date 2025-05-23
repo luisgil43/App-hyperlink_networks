@@ -14,20 +14,21 @@
     <form method="post" onsubmit="return validarFirmaRegistrada();">
         {% csrf_token %}
         <p>Tu firma registrada:</p>
-        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" style="max-height: 100px; border: 1px solid #ccc;">
+        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital del técnico {{ tecnico.user.get_full_name }}" style="max-height: 100px; border: 1px solid #ccc;">
         <br><br>
         <button type="submit" class="btn btn-success">Firmar y Descargar PDF</button>
     </form>
 {% else %}
-    <p style="color: red;">No tienes una firma digital registrada. 
+    <p style="color: red;">
+        No tienes una firma digital registrada. 
         <a href="{% url 'liquidaciones:registrar_firma' %}">Haz clic aquí para crear una.</a>
     </p>
 {% endif %}
 
 <script>
 function validarFirmaRegistrada() {
-    const tieneFirma = "{{ tecnico.firma_digital.url|default:'' }}";
-    if (!tieneFirma) {
+    const tieneFirma = "{{ tecnico.firma_digital.url|default_if_none:''|escapejs }}";
+    if (!tieneFirma.trim()) {
         alert("No tienes una firma digital registrada. Debes crear una antes de firmar.");
         return false;
     }

@@ -79,7 +79,7 @@ def firmar_liquidacion(request, pk):
         return redirect('liquidaciones:listar')
 
     # Método GET, mostrar la página de firma
-    return render(request, 'liquidaciones/firma.html', {'liquidacion': liquidacion, 'tecnico': tecnico})
+    return render(request, 'liquidaciones/firmar.html', {'liquidacion': liquidacion, 'tecnico': tecnico})
 
 
 @login_required
