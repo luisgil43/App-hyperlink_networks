@@ -65,7 +65,7 @@
             <th>Mes</th>
             <th>Año</th>
             <th>Monto</th>
-            <th>PDF Original</th>
+            <th>Liquidación sin firmar</th>
             <th>Estado</th>
             <th>Acciones</th>
         </tr>
