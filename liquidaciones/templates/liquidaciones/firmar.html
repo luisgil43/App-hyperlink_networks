@@ -1,4 +1,5 @@
 {% extends 'dashboard/base.html' %}
+
 {% block content %}
 <h2>Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.anio }}</h2>
 
@@ -25,7 +26,6 @@
 
 <script>
 function validarFirmaRegistrada() {
-    // Refuerzo de seguridad: si por alguna razón llega aquí sin firma, se bloquea
     const tieneFirma = "{{ tecnico.firma_digital.url|default:'' }}";
     if (!tieneFirma) {
         alert("No tienes una firma digital registrada. Debes crear una antes de firmar.");
@@ -33,5 +33,16 @@ function validarFirmaRegistrada() {
     }
     return true;
 }
+
+// Evita el scroll de la página mientras el usuario firma con el dedo en canvas
+document.addEventListener("touchstart", function(e) {
+    if (e.target.closest("canvas")) {
+        document.body.style.overflow = "hidden";
+    }
+}, { passive: false });
+
+document.addEventListener("touchend", function(e) {
+    document.body.style.overflow = "";
+}, { passive: false });
 </script>
 {% endblock %}

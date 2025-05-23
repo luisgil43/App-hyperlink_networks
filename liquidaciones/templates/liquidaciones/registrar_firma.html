@@ -1,4 +1,5 @@
 {% extends 'dashboard/base.html' %}
+
 {% block content %}
 <h2>Crear Firma Digital</h2>
 
@@ -35,7 +36,7 @@
 
     function draw(e) {
         if (!painting) return;
-        hasDrawn = true;  // Marca que el usuario dibujó algo
+        hasDrawn = true;
 
         const rect = canvas.getBoundingClientRect();
         ctx.lineWidth = 2;
@@ -49,30 +50,43 @@
         ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(x, y);
+
+        e.preventDefault(); // Evita el scroll durante el movimiento de la firma
     }
 
     function clearCanvas() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        hasDrawn = false;  // Reinicia el estado de dibujo
+        hasDrawn = false;
     }
 
     document.getElementById('firmaForm').addEventListener('submit', function (e) {
         if (!hasDrawn) {
             alert("Por favor dibuja tu firma antes de guardar.");
-            e.preventDefault();  // Previene el envío
+            e.preventDefault();
             return;
         }
         const dataURL = canvas.toDataURL('image/png');
         document.getElementById('firmaInput').value = dataURL;
     });
 
-    // Eventos para mouse y pantallas táctiles
+    // Eventos para firmar
     canvas.addEventListener('mousedown', startPosition);
     canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
 
-    canvas.addEventListener('touchstart', startPosition);
-    canvas.addEventListener('touchend', endPosition);
-    canvas.addEventListener('touchmove', draw);
+    canvas.addEventListener('touchstart', startPosition, { passive: false });
+    canvas.addEventListener('touchend', endPosition, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+
+    // Bloquea el scroll mientras el usuario firma
+    document.addEventListener("touchstart", function(e) {
+        if (e.target.closest("canvas")) {
+            document.body.style.overflow = "hidden";
+        }
+    }, { passive: false });
+
+    document.addEventListener("touchend", function(e) {
+        document.body.style.overflow = "";
+    }, { passive: false });
 </script>
 {% endblock %}
