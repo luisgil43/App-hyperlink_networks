@@ -50,3 +50,9 @@ class Liquidacion(models.Model):
 
         # 🔁 Código eliminado (comentado para referencia futura)
         # No se aplicaron otras eliminaciones directas
+
+
+class Meta:
+    # ✅ Agregado: evita duplicados de técnico + mes + año
+    unique_together = ('tecnico', 'mes', 'año')
+    # También puedes usar: constraints = [models.UniqueConstraint(fields=['tecnico', 'mes', 'año'], name='unique_liquidacion')]
