@@ -1,13 +1,13 @@
 {% extends 'dashboard/base.html' %}
 
 {% block content %}
-<h2>Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.anio }}</h2>
+<h2>Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.año }}</h2>
 
 <p>Revisa el documento antes de firmar. Al firmar, estarás aceptando el contenido de la liquidación.</p>
 
 <p>
     <strong>Archivo Original:</strong>
-    <a href="{{ liquidacion.archivo_pdf.url }}" target="_blank">Ver PDF</a>
+    <a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank">Ver PDF</a>
 </p>
 
 {% if tecnico.firma_digital %}
@@ -47,3 +47,4 @@ document.addEventListener("touchend", function(e) {
 }, { passive: false });
 </script>
 {% endblock %}
+
