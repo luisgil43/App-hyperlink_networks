@@ -1,11 +1,19 @@
 from django.db import models
 from django.contrib.auth.models import User
+# Importar el storage de Cloudinary para usarlo explícitamente en el campo
+from cloudinary_storage.storage import MediaCloudinaryStorage
 
 
 class Tecnico(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     firma_digital = models.ImageField(
-        upload_to='firmas/', blank=True, null=True)
+        upload_to='firmas/',
+        blank=True,
+        null=True,
+        # Agregamos storage para asegurarnos que use Cloudinary,
+        # esto puede evitar problemas si el DEFAULT_FILE_STORAGE no está funcionando bien.
+        storage=MediaCloudinaryStorage()
+    )
 
     def __str__(self):
         return self.user.get_full_name() or self.user.username
