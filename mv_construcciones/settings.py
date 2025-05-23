@@ -9,13 +9,6 @@ load_dotenv()
 # Ruta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# MEDIA_URL = '/media/'
-# MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
-# Si usas Cloudinary, estas líneas se reemplazan por DEFAULT_FILE_STORAGE (ver más abajo)
-# MEDIA_URL = '/media/'
-# MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
 LOGIN_URL = '/tecnicos/login/'
 LOGIN_REDIRECT_URL = '/tecnicos/dashboard/'
 LOGOUT_REDIRECT_URL = '/admin/login/'
@@ -23,8 +16,6 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 # Seguridad
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'clave-insegura')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
-
-# Puedes agregar 'localhost' o '127.0.0.1' para desarrollo local
 ALLOWED_HOSTS = ['app-mv.onrender.com']
 
 INSTALLED_APPS = [
@@ -38,14 +29,12 @@ INSTALLED_APPS = [
     'tecnicos',
     'dashboard',
     'cloudinary',
-    'cloudinary_storage',  # <-- necesario para usar Cloudinary como almacenamiento
-
+    'cloudinary_storage',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    # <-- Para servir archivos estáticos en producción
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # <-- WhiteNoise para producción
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,7 +63,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mv_construcciones.wsgi.application'
 
-# Configuración de la base de datos
 DATABASES = {
     'default': dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
@@ -93,18 +81,21 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Configuración de archivos estáticos
+# Archivos estáticos
 STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
-]
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# Archivos multimedia (si usas Cloudinary)
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}
 
-# Configuración de correo
+# Correo electrónico
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
@@ -113,13 +104,7 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = f"MV Construcciones <{EMAIL_HOST_USER}>"
 
-# ================================
-# ✅ Configuración para Cloudinary
-# ================================
+# HTTPS en Render (muy recomendable)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
-    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
-    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
-}
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
