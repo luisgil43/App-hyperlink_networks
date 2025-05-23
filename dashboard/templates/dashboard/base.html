@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html>    
 {% load static %}
 <html lang="es">
 <head>
@@ -18,7 +18,7 @@
             top: 0;
             left: 0;
             right: 0;
-            height: 50px;
+            height: 60px;
             background-color: #f1f1f1;
             display: flex;
             align-items: center;
@@ -31,33 +31,28 @@
         .header-left {
             display: flex;
             align-items: center;
-            gap: 10px;
         }
 
         .header-left img {
-            height: 30px;
-        }
-
-        .header-left span {
-            font-weight: bold;
-            font-size: 1.1rem;
+            height: 40px;
+            margin-right: 10px;
         }
 
         .header-right {
             display: flex;
             align-items: center;
-            gap: 15px;
         }
 
         .header-right span {
+            margin-right: 15px;
             font-weight: bold;
         }
 
-        .header-right form {
+        header form {
             margin: 0;
         }
 
-        .header-right button {
+        header button {
             background: none;
             border: none;
             color: #e74c3c;
@@ -72,8 +67,8 @@
             background-color: #2c3e50;
             color: white;
             min-height: 100vh;
-            padding: 70px 20px 20px 20px;
-            box-sizing: border-box;
+            padding: 20px;
+            margin-top: 60px;
         }
 
         nav h2 {
@@ -113,16 +108,126 @@
 
         main {
             padding: 80px 20px 20px 20px;
-            flex: 1;
+            flex-grow: 1;
             background-color: #ecf0f1;
-            min-height: 100vh;
-            overflow: auto;
+            margin-left: 250px;
+        }
+
+        .messages-container {
+            max-width: 600px;
+            margin: 0 auto 20px auto;
+        }
+
+        .alert {
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .alert-error, .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background-color: #cce5ff;
+            color: #004085;
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('li[data-toggle]').forEach(item => {
+                item.addEventListener('click', () => {
+                    item.classList.toggle('active');
+                });
+            });
+        });
+    </script>
 </head>
 <body>
-    <!-- Aquí puedes continuar con tu plantilla -->
-    {% block content %}
-    {% endblock %}
+
+    <!-- ✅ Barra superior completa -->
+    <header>
+        <div class="header-left">
+            <img src="{% static 'images/logo.png' %}" alt="Logo Empresa">
+            <strong>MV INGENIERÍA & CONSTRUCCIÓN</strong>
+        </div>
+        <div class="header-right">
+            <span>{{ request.user.get_full_name|default:request.user.username }}</span>
+            <form method="post" action="{% url 'logout_tecnico' %}">
+                {% csrf_token %}
+                <button type="submit">Cerrar Sesión</button>
+            </form>
+        </div>
+    </header>
+
+    <!-- Menú lateral -->
+    <nav>
+        <h2>Menú</h2>
+        <ul>
+            <li data-toggle><span>Operaciones</span>
+                <ul>
+                    <li><a href="{% url 'dashboard:produccion_tecnicos' %}">Producción Técnicos</a></li>
+                    <li><a href="{% url 'dashboard:produccion_tecnicos_pdf' %}" target="_blank">Descargar producción en PDF</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Documentos y Cursos</span>
+                <ul>
+                    <li><a href="#">Contrato de trabajo (PDF)</a></li>
+                    <li><a href="{% url 'dashboard:mis_cursos' %}">Mis Cursos</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Logística</span>
+                <ul>
+                    <li><a href="#">Solicitud de Materiales</a></li>
+                    <li><a href="#">Devolución de materiales</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>RR.HH</span>
+                <ul>
+                    <li><a href="#">Solicitud de Vacaciones</a></li>
+                    <li><a href="{% url 'liquidaciones:listar' %}">Liquidaciones de Sueldo</a></li>
+                    <li><a href="{% url 'liquidaciones:descargar_pdf' %}" target="_blank">Descargar Liquidaciones (PDF)</a></li>
+                </ul>
+            </li>
+            <li data-toggle><span>Beneficios</span>
+                <ul>
+                    <li><a href="#">Convenios disponibles</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Contenido -->
+    <main>
+        {% if messages %}
+          <div class="messages-container">
+            {% for message in messages %}
+              <div class="alert
+                {% if message.tags %}
+                  alert-{{ message.tags }}
+                {% else %}
+                  alert-info
+                {% endif %}
+              " role="alert">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
 </body>
 </html>
