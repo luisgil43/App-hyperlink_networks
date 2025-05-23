@@ -2,8 +2,9 @@ import os
 import shutil
 import uuid
 import base64
-import requests  # ✅ NUEVO
-from io import BytesIO  # ✅ NUEVO
+import requests
+from io import BytesIO
+from PIL import Image  # ✅ NUEVO
 from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
@@ -54,27 +55,37 @@ def firmar_liquidacion(request, pk):
                 request, "No puedes firmar sin una firma digital registrada.")
             return redirect('liquidaciones:registrar_firma')
 
-        # ✅ NUEVO: descarga desde Cloudinary en memoria
         pdf_url = liquidacion.archivo_pdf_liquidacion.url
         pdf_response = requests.get(pdf_url)
         original_pdf = BytesIO(pdf_response.content)
 
         firma_url = tecnico.firma_digital.url
         firma_response = requests.get(firma_url)
-        firma_img = BytesIO(firma_response.content)
 
-        # Editar PDF en memoria
+        try:
+            img = Image.open(BytesIO(firma_response.content))
+            if img.format not in ['PNG', 'JPEG']:
+                raise ValueError("Formato de imagen no compatible")
+
+            firma_img_io = BytesIO()
+            img.save(firma_img_io, format='PNG')
+            firma_img_io.seek(0)
+
+        except Exception as e:
+            messages.error(
+                request, "La firma digital no es una imagen válida o está dañada.")
+            return redirect('liquidaciones:registrar_firma')
+
         doc = fitz.open(stream=original_pdf, filetype='pdf')
         page = doc[-1]
         rect = fitz.Rect(400, 700, 550, 750)
-        page.insert_image(rect, stream=firma_img)
+        page.insert_image(rect, stream=firma_img_io)
 
         pdf_firmado_io = BytesIO()
         doc.save(pdf_firmado_io)
         doc.close()
         pdf_firmado_io.seek(0)
 
-        # Guardar PDF firmado directamente en Cloudinary
         file_name = f"liq_{liquidacion.pk}_firmada.pdf"
         liquidacion.pdf_firmado.save(
             file_name, ContentFile(pdf_firmado_io.read()))
@@ -115,6 +126,9 @@ def registrar_firma(request):
         data_url = request.POST.get('firma_digital')
         if data_url:
             try:
+                if not data_url.startswith('data:image/png;base64,'):
+                    raise ValueError("Formato de firma inválido.")
+
                 format, imgstr = data_url.split(';base64,')
                 ext = format.split('/')[-1]
                 file_name = f"{uuid.uuid4()}.{ext}"
@@ -124,7 +138,8 @@ def registrar_firma(request):
                 messages.success(request, "Tu firma digital ha sido guardada.")
                 return redirect('liquidaciones:listar')
             except Exception as e:
-                messages.error(request, "Error al procesar la firma digital.")
+                messages.error(
+                    request, "Error al procesar la firma digital. Asegúrate de que esté en formato PNG.")
         else:
             messages.error(request, "No se recibió ninguna firma.")
 
@@ -142,9 +157,6 @@ def descargar_pdf(request):
 def confirmar_firma(request, pk):
     tecnico = request.user.tecnico
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
-
-    # Aquí puedes agregar lógica para confirmar la firma si quieres
-    # Por ahora solo marca como firmada y guarda la fecha, si no está ya marcada
 
     if not liquidacion.firmada:
         liquidacion.firmada = True

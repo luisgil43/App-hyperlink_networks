@@ -65,8 +65,14 @@
             e.preventDefault();
             return;
         }
-        const dataURL = canvas.toDataURL('image/png');
-        document.getElementById('firmaInput').value = dataURL;
+
+        try {
+            const dataURL = canvas.toDataURL('image/png'); // Garantiza formato PNG
+            document.getElementById('firmaInput').value = dataURL;
+        } catch (error) {
+            alert("Error al procesar la firma: " + error);
+            e.preventDefault();
+        }
     });
 
     // Eventos para firmar
@@ -90,3 +96,4 @@
     }, { passive: false });
 </script>
 {% endblock %}
+
