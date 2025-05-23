@@ -1,0 +1,203 @@
+[33mcommit e37a22c824371aef829a208c1412a68352f42ddd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 12:30:53 2025 -0400
+
+    Elimina espacio vertical al lado de la barra de manu
+
+[33mcommit 1ff36ea094205df4ee41caf4a9ef4bdee12157d6[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 12:20:32 2025 -0400
+
+    Modificacion de barra superior para que salga el logo, el nombre de la empresa
+
+[33mcommit 65c0f211d0b2d7e9b17fb0b148418966db18b031[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 11:58:12 2025 -0400
+
+    Habia error en la base de dato local con datos duplicados
+
+[33mcommit 5a6b8ac99dbfc3702376adbe4664eb3c024960f8[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 11:31:56 2025 -0400
+
+    Se agrega mensaje de error para cuando el usuario este creando dos liquidaciones en el mismo mes año y el mismo usuario
+
+[33mcommit 3907fe2010295d972a71c097d33d629886537325[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 11:02:27 2025 -0400
+
+    Este cambio se hizo para evitar que el admin pueda crearle dos liquidaciones en el mismo mes al usuario
+
+[33mcommit 1b6fb2c20c7e126a7caf8f942f00c301d0d5b4bb[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 10:10:56 2025 -0400
+
+    Descripción de los cambios
+
+[33mcommit fdc24231b161e3348b15d0862c93eadb88b20c25[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 09:32:14 2025 -0400
+
+    Al insertar la imagen de la firma en el pdf estaba generando error
+
+[33mcommit a866a7b3e0c9dd437b0392d6fbca914c4fb326bc[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 02:41:53 2025 -0400
+
+    Descripción de los cambios
+
+[33mcommit 1c3e02ef30af592229420695ecb51518a9cd3a55[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 00:54:55 2025 -0400
+
+    Descripción de los cambios
+
+[33mcommit c5ba51f6ce14a78ebfadcd38931670e5bedbe04f[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Fri May 23 00:21:55 2025 -0400
+
+    Descripción de los cambios
+
+[33mcommit 430496fb513cd63633a2155191426c011e50fbec[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 23:55:25 2025 -0400
+
+    problemas con la redireccion al darle ver pdf
+
+[33mcommit f092bfafd0b9ff66ce140be763a84bb89b3148cc[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 23:02:38 2025 -0400
+
+    Configuracion de cloudinary
+
+[33mcommit 20cc9980f3b3195e8c78ef1d701837a102ba917a[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 22:38:31 2025 -0400
+
+    Agrego configuración Cloudinary y actualizo .env
+
+[33mcommit c6c13b4b5be70a0b785fa93f5a8e85d36fd78fbb[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 21:09:55 2025 -0400
+
+    Cambios en el archivo view.py en firma liquidacion
+
+[33mcommit cb4cb022f79926702a973e35d8fb8d7cf485136e[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 21:06:54 2025 -0400
+
+    Problemas con la firma y la descarga del pdf
+
+[33mcommit 7f08f8c46757f2aa7181e46ce3ce3e8e218121d2[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 20:48:50 2025 -0400
+
+    El cambio resuelve el error de que al firmar consiga la ruta
+
+[33mcommit 5a952ec11a1b82f39ee4b29b5f4bc9b71574d136[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 20:06:07 2025 -0400
+
+    Descripción de los cambios
+
+[33mcommit f100b6febc4fb4bc3b49142e3cfb855e221b5d2e[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 18:52:25 2025 -0400
+
+    Agrega creación automática de superusuario si no existe
+
+[33mcommit e1f49b7dc84046c63fbd269b6b509b4727d208e9[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 18:14:36 2025 -0400
+
+    Add script to create superuser automatically
+
+[33mcommit c72a4859adbc3f7a7e258e6867818eb3566b5d5d[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 17:35:31 2025 -0400
+
+    Agrega psycopg2-binary para soporte PostgreSQL en producción
+
+[33mcommit 8773d06c2ad00604dd6cf1154b82d9e39a5f3e6a[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 17:29:02 2025 -0400
+
+    Cambios de en el guardado, activacion de base de dato
+
+[33mcommit f10afed5d72ac4864ef3a3b886f03252bc92448e[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 16:27:52 2025 -0400
+
+    Cambios de mensaje
+
+[33mcommit e979e9c4f030933e0a85df282a1d4639457310dd[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 16:00:47 2025 -0400
+
+    No se estaba registrando la firma desde el cel
+
+[33mcommit 4d80519eeba4e7a3d46fa9755f986c6b976d89dc[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 15:14:15 2025 -0400
+
+    Mismo Admin
+
+[33mcommit 9b0038fde34249def13102a3b170341ba39fe04a[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 14:28:32 2025 -0400
+
+    Mismo caso del Admin
+
+[33mcommit 7e53ab13206f32ebd9bf448c802d5148b3dad8ef[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 13:59:12 2025 -0400
+
+    Mismo error del Id en el Admin
+
+[33mcommit 2c796452a472a2a8ea319875ce76a10d63196b48[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 13:32:27 2025 -0400
+
+    No se estaba Editanto el Id en el Admin
+
+[33mcommit 75e37152c9b528dd4821fdb75bb26277027e6525[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 12:10:00 2025 -0400
+
+    Agregar whitenoise a requirements.txt
+
+[33mcommit 0aee393767901d61d7e564a52495f0b9065f6f39[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 11:52:30 2025 -0400
+
+    Configuración estáticos y ajustes
+
+[33mcommit a205e02dc16c0c523529913cbe5962701f3e423f[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 11:25:54 2025 -0400
+
+    Agregar vista de salud /healthz para Render
+
+[33mcommit b695e3c68bee6ea8071ba02c55e85cb24191c3ac[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 11:10:27 2025 -0400
+
+    Corregir ALLOWED_HOSTS en settings.py
+
+[33mcommit b00f4bac2576be7222fe927383b8e579b8bd36db[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 10:58:57 2025 -0400
+
+    Agregar dominio de Render a ALLOWED_HOSTS
+
+[33mcommit 0a917968404adb42faa6cd4151bf1af8a5426209[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 10:48:09 2025 -0400
+
+    Agregar requirements.txt
+
+[33mcommit ebced9cbf6c14152daf7636a5d20c36c5f0584b1[m
+Author: Luis Gil <luisggil01@gmail.com>
+Date:   Thu May 22 09:30:30 2025 -0400
+
+    Primer commit
