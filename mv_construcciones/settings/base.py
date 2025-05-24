@@ -1,10 +1,14 @@
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 import dj_database_url
 
-# Cargar variables de entorno desde el archivo .env
-load_dotenv()
+# Solo carga dotenv si estás en desarrollo local
+if os.environ.get("DJANGO_DEVELOPMENT") == "true":
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        print("Advertencia: python-dotenv no está instalado. Ignorando .env.")
 
 # Ruta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -90,9 +94,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # Archivos multimedia (si usas Cloudinary)
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 # CLOUDINARY_STORAGE = {
-# 'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
-# 'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
-# 'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+#     'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+#     'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+#     'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
 # }
 
 # Correo electrónico
