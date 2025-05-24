@@ -17,3 +17,4 @@ env/
 # Archivos de configuración del editor
 *.vscode/
 *.idea/
+"staticfiles/" 
