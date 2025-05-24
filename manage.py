@@ -1,11 +1,19 @@
 import os
 import sys
-import dotenv
+
+# Solo cargar dotenv si estamos en desarrollo
+if os.environ.get("DJANGO_DEVELOPMENT") == "true":
+    try:
+        import dotenv
+        dotenv.load_dotenv()
+    except ImportError:
+        print("⚠️ 'python-dotenv' no está instalado, ignorando .env")
 
 if __name__ == '__main__':
-    dotenv.load_dotenv()
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.getenv(
-        'DJANGO_SETTINGS_MODULE', 'mv_construcciones.settings.dev'))
+    os.environ.setdefault(
+        'DJANGO_SETTINGS_MODULE',
+        os.getenv('DJANGO_SETTINGS_MODULE', 'mv_construcciones.settings.dev')
+    )
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
