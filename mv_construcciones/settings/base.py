@@ -7,7 +7,7 @@ import dj_database_url
 load_dotenv()
 
 # Ruta base del proyecto
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 LOGIN_URL = '/tecnicos/login/'
 LOGIN_REDIRECT_URL = '/tecnicos/dashboard/'
