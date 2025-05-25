@@ -3,6 +3,14 @@ from tecnicos.models import Tecnico
 from cloudinary_storage.storage import MediaCloudinaryStorage
 
 
+def ruta_archivo_sin_firmar(instance, filename):
+    return f"liquidaciones_sin_firmar/{instance.año}_{instance.mes}/{filename}"
+
+
+def ruta_archivo_firmado(instance, filename):
+    return f"liquidaciones_firmadas/{instance.año}_{instance.mes}/{filename}"
+
+
 class Liquidacion(models.Model):
     tecnico = models.ForeignKey(Tecnico, on_delete=models.CASCADE)
     mes = models.PositiveIntegerField()
@@ -11,7 +19,7 @@ class Liquidacion(models.Model):
     firmada = models.BooleanField(default=False)
 
     archivo_pdf_liquidacion = models.FileField(
-        upload_to='pdf_originales/',
+        upload_to=ruta_archivo_sin_firmar,
         storage=MediaCloudinaryStorage(),
         blank=True,
         null=True,
@@ -19,7 +27,7 @@ class Liquidacion(models.Model):
     )
 
     pdf_firmado = models.FileField(
-        upload_to='pdf_firmados/',
+        upload_to=ruta_archivo_firmado,
         storage=MediaCloudinaryStorage(),
         blank=True,
         null=True,
@@ -32,14 +40,12 @@ class Liquidacion(models.Model):
         return f"{self.tecnico} - {self.mes}/{self.año}"
 
     def save(self, *args, **kwargs):
-        # ✅ Verifica si el archivo original fue reemplazado
         try:
             old = Liquidacion.objects.get(pk=self.pk)
         except Liquidacion.DoesNotExist:
             old = None
 
         if old and old.archivo_pdf_liquidacion != self.archivo_pdf_liquidacion:
-            # ✅ Si se cambió el PDF original, borrar firma anterior
             if old.pdf_firmado:
                 old.pdf_firmado.delete(save=False)
             self.pdf_firmado = None
@@ -48,13 +54,5 @@ class Liquidacion(models.Model):
 
         super().save(*args, **kwargs)
 
-        # 🔁 Código eliminado (comentado para referencia futura)
-        # No se aplicaron otras eliminaciones directas
-
     class Meta:
-        # ✅ Agregado: evita duplicados de técnico + mes + año
         unique_together = ('tecnico', 'mes', 'año')
-        # También podrías usar esta opción en lugar de unique_together (comentada por si la prefieres)
-        # constraints = [
-        #     models.UniqueConstraint(fields=['tecnico', 'mes', 'año'], name='unique_liquidacion')
-        # ]
