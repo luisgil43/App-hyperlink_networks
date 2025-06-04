@@ -5,37 +5,82 @@
     <title>Producción Técnico - PDF</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             font-size: 12px;
-            margin: 20px;
+            color: #2c3e50;
+            margin: 30px;
         }
+
         h2 {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
+            color: #1a252f;
         }
+
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
         }
+
         th, td {
-            border: 1px solid #333;
-            padding: 6px 8px;
-            text-align: left;
+            padding: 8px 10px;
+            border: 1px solid #ccc;
         }
+
         th {
-            background-color: #ddd;
+            background-color: #f1f1f1;
+            color: #333;
+            font-weight: bold;
         }
+
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .badge.aprobado {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .badge.pendiente {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.rechazado {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
         .footer {
             text-align: center;
             font-size: 10px;
             margin-top: 30px;
-            color: #666;
+            color: #888;
+        }
+
+        .total-row td {
+            font-weight: bold;
+            background-color: #e8f5e9;
+            border-top: 2px solid #2ecc71;
         }
     </style>
 </head>
 <body>
+
     <h2>Producción de {{ user.get_full_name|default:user.username }}</h2>
+
     <table>
         <thead>
             <tr>
@@ -50,21 +95,39 @@
             {% for item in produccion %}
             <tr>
                 <td>{{ item.id }}</td>
-                <td>{{ item.get_status_display }}</td>
+                <td>
+                    {% if item.status == 'aprobado' %}
+                        <span class="badge aprobado">Aprobado</span>
+                    {% elif item.status == 'pendiente' %}
+                        <span class="badge pendiente">Pendiente</span>
+                    {% elif item.status == 'rechazado' %}
+                        <span class="badge rechazado">Rechazado</span>
+                    {% else %}
+                        {{ item.get_status_display }}
+                    {% endif %}
+                </td>
                 <td>{% if item.fecha_aprobacion %}{{ item.fecha_aprobacion|date:"d/m/Y" }}{% else %}--{% endif %}</td>
                 <td>{{ item.descripcion }}</td>
-                <td>{{ item.monto }}</td>
+                <td>${{ item.monto }}</td>
             </tr>
             {% empty %}
             <tr>
-                <td colspan="5">No hay producción registrada.</td>
+                <td colspan="5" style="text-align: center;">No hay producción registrada.</td>
             </tr>
             {% endfor %}
+            {% if produccion %}
+            <tr class="total-row">
+                <td colspan="4" style="text-align: right;">Total:</td>
+                <td>${{ total_monto|floatformat:0 }}</td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
 
     <div class="footer">
-        Documento generado por el sistema - {{ now|date:"d/m/Y H:i" }}
+        Documento generado automáticamente por el sistema - {{ now|date:"d/m/Y H:i" }}
     </div>
+
 </body>
 </html>
+

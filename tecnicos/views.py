@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from .models import Produccion, Curso, Tecnico
 from .forms import FirmaForm
+from dashboard.models import ProduccionTecnico
 
 
 def login_tecnico(request):
@@ -18,21 +19,24 @@ def login_tecnico(request):
             messages.error(request, 'Usuario o contraseña incorrectos.')
     else:
         form = AuthenticationForm()
+
     return render(request, 'tecnicos/login.html', {'form': form})
 
 
 def login_view(request):
+    form = AuthenticationForm(request, data=request.POST or None)
+
     if request.method == 'POST':
-        form = AuthenticationForm(request, data=request.POST)
         if form.is_valid():
             user = form.get_user()
             login(request, user)
-            return redirect('dashboard')
+            if user.is_superuser:
+                return redirect('dashboard_admin:home')
+            return redirect('dashboard:home')
         else:
-            messages.error(request, "Usuario o contraseña incorrectos.")
-    else:
-        form = AuthenticationForm()
-    return render(request, 'login.html', {'form': form})
+            messages.error(request, 'Credenciales inválidas')
+
+    return render(request, 'dashboard/login.html', {'form': form})
 
 
 def mis_cursos_view(request):

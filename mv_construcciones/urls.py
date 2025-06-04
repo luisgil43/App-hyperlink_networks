@@ -1,12 +1,16 @@
 from django.contrib import admin
 from django.urls import path, include
-from django.contrib.auth.views import LogoutView, PasswordResetView, PasswordResetDoneView, PasswordResetConfirmView, PasswordResetCompleteView
-from tecnicos.views import login_tecnico
+from django.contrib.auth.views import (
+    LogoutView, PasswordResetView, PasswordResetDoneView,
+    PasswordResetConfirmView, PasswordResetCompleteView
+)
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse  # 👈 AÑADIDO para vista de salud
-
-# 👇 AÑADIR esta función
+from django.http import HttpResponse
+from django.views.generic.base import RedirectView
+from django.shortcuts import redirect
+from dashboard import views as dashboard_views
+from tecnicos.views import login_view
 
 
 def health_check(request):
@@ -14,27 +18,31 @@ def health_check(request):
 
 
 urlpatterns = [
-    # Health check para Render
-    path('healthz', health_check),  # 👈 AÑADIDO
+    # Health check
+    path('healthz', health_check),
 
-    # Admin y logout de admin
-    path('admin/', admin.site.urls),
-    path('admin/logout/', LogoutView.as_view(next_page='/admin/login/'),
-         name='admin_logout'),
+    # Login unificado
+    path('login/', login_view, name='login'),
+    path('logout/', LogoutView.as_view(next_page='/login/'), name='logout'),
 
-    # Login/Logout para técnicos
-    path('tecnicos/login/', login_tecnico, name='login_tecnico'),
-    path('tecnicos/logout/', LogoutView.as_view(next_page='/tecnicos/login/'),
-         name='logout_tecnico'),
+    # Redirigir login admin a login unificado
+    path('admin/login/', lambda request: redirect('/login/'),
+         name='admin_login_redirect'),
 
-    # Dashboard para técnicos
-    path('tecnicos/dashboard/', include('dashboard.urls', namespace='dashboard')),
+    # Admin panel
+    # path('admin/', admin.site.urls),
 
-    # Liquidaciones
-    path('liquidaciones/', include(('liquidaciones.urls',
-         'liquidaciones'), namespace='liquidaciones')),
+    # Dashboard admin personalizado
+    path('dashboard_admin/', include(('dashboard_admin.urls',
+         'dashboard_admin'), namespace='dashboard_admin')),
 
-    # Recuperación de contraseña (opcional si no la estás usando aún)
+    # Dashboard técnico
+    path('dashboard/', include(('dashboard.urls', 'dashboard'), namespace='dashboard')),
+
+    # Usuarios
+    path('usuarios/', include(('usuarios.urls', 'usuarios'), namespace='usuarios')),
+
+    # Recuperación de contraseña
     path('password_reset/', PasswordResetView.as_view(), name='password_reset'),
     path('password_reset/done/', PasswordResetDoneView.as_view(),
          name='password_reset_done'),
@@ -43,9 +51,18 @@ urlpatterns = [
     path('reset/done/', PasswordResetCompleteView.as_view(),
          name='password_reset_complete'),
 
-    # Página raíz redirige a login técnico
-    path('', login_tecnico),
+    # Liquidaciones
+    path('liquidaciones/', include(('liquidaciones.urls',
+         'liquidaciones'), namespace='liquidaciones')),
+
+    # Redirección raíz a dashboard (usuarios normales)
+    path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
+
+    path("select2/", include("django_select2.urls")),
 ]
 
-# Archivos estáticos y media (solo si estás sirviendo en desarrollo)
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Archivos estáticos y media (solo en DEBUG)
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+if settings.DEBUG and settings.DEFAULT_FILE_STORAGE == 'django.core.files.storage.FileSystemStorage':
+    urlpatterns += static(settings.MEDIA_URL,
+                          document_root=settings.MEDIA_ROOT)

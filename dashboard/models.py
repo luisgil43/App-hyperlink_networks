@@ -1,19 +1,25 @@
 from django.db import models
-from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from tecnicos.models import Tecnico
 
 
 class ProduccionTecnico(models.Model):
-    # Lista desplegable para el campo status
+    tecnico = models.ForeignKey(
+        Tecnico,
+        on_delete=models.CASCADE,
+        # ⚠️ Usa un related_name distinto para evitar conflicto con otros modelos como Produccion
+        related_name='producciones_dashboard'
+    )
+
+    class Meta:
+        verbose_name = "Producción Técnica"
+        verbose_name_plural = "Producciones Técnicas"
+
     ESTADOS = [
         ('pendiente', 'Pendiente'),
         ('aprobado', 'Aprobado'),
         ('rechazado', 'Rechazado'),
     ]
 
-    tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
-
-    # id editable y único
     id = models.CharField(
         max_length=100,
         unique=True,
@@ -44,28 +50,10 @@ class ProduccionTecnico(models.Model):
         verbose_name="Monto"
     )
 
-    def clean(self):
-        # Normaliza el campo status para que coincida con las claves válidas
-        mapa = {
-            'pendiente': 'pendiente',
-            'Pendiente': 'pendiente',
-            'PENDIENTE': 'pendiente',
-            'aprobado': 'aprobado',
-            'Aprobado': 'aprobado',
-            'APROBADO': 'aprobado',
-            'rechazado': 'rechazado',
-            'Rechazado': 'rechazado',
-            'RECHAZADO': 'rechazado',
-        }
-        if self.status not in mapa.values():
-            if self.status in mapa:
-                self.status = mapa[self.status]
-            else:
-                raise ValidationError({'status': 'Estado inválido.'})
-
-    def save(self, *args, **kwargs):
-        self.clean()  # Asegura que status esté correcto antes de guardar
-        super().save(*args, **kwargs)
+    mes = models.CharField(
+        max_length=20,
+        verbose_name="Mes"
+    )
 
     def __str__(self):
         return f"{self.tecnico} - {self.id}"

@@ -1,0 +1,31 @@
+{% extends 'admin/base_site.html' %}
+{% load static %}
+
+{% block title %}Confirmar reemplazo{% endblock %}
+
+{% block content %}
+  <div class="content">
+    <h2>¿Deseas reemplazar la liquidación existente?</h2>
+    <p>Ya existe una liquidación para <strong>{{ tecnico }}</strong> correspondiente al <strong>{{ mes }}/{{ año }}</strong>.</p>
+
+    {% if pdf_name %}
+      <p>Archivo cargado: <strong>{{ pdf_name }}</strong></p>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" style="margin-top: 20px;">
+      {% csrf_token %}
+
+      <input type="hidden" name="tecnico" value="{{ tecnico_id }}">
+      <input type="hidden" name="mes" value="{{ mes }}">
+      <input type="hidden" name="año" value="{{ año }}">
+      <input type="hidden" name="monto" value="{{ monto }}">
+      <input type="hidden" name="pdf_name" value="{{ pdf_name }}">
+
+      <button type="submit" name="_reemplazar" class="default">✅ Reemplazar</button>
+      <button type="submit" name="_cancelar" class="button cancel-link">❌ Cancelar</button>
+    </form>
+  </div>
+{% endblock %}
+
+
+

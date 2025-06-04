@@ -1,0 +1,154 @@
+/* Estilo personalizado para el admin de Django */
+
+:root {
+    --main-bg: #2c3e50;
+    --main-color: #ecf0f1;
+    --hover-bg: #34495e;
+    --accent: #1abc9c;
+    --header-height: 60px;
+    --transition: 0.3s;
+}
+
+/* Fondo y tipografía base */
+body,
+.module,
+.dashboard-module {
+    background-color: #ecf0f1;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #2c3e50;
+}
+
+/* Header */
+#header {
+    background-color: var(--main-bg);
+    color: var(--main-color);
+    border-bottom: 3px solid var(--accent);
+}
+
+#branding h1,
+#branding h1 a {
+    color: var(--main-color);
+}
+
+/* Navegación lateral */
+#nav-sidebar {
+    background-color: var(--main-bg);
+    border-right: 1px solid #1a252f;
+}
+
+#nav-sidebar li a {
+    color: var(--main-color);
+    padding: 8px 12px;
+    display: block;
+    transition: background-color var(--transition);
+}
+
+#nav-sidebar li a:hover {
+    background-color: var(--hover-bg);
+    color: var(--accent);
+}
+
+/* Módulos y cajas */
+.module caption,
+.module h2,
+.inline-group h2 {
+    background-color: var(--main-bg);
+    color: var(--main-color);
+    padding: 8px;
+}
+
+.module table,
+.inline-group {
+    border: 1px solid #ccc;
+    background-color: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Botones */
+.button,
+input[type="submit"],
+input[type="button"] {
+    background-color: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: background-color var(--transition);
+}
+
+.button:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover {
+    background-color: #16a085;
+}
+
+/* Mensajes del sistema */
+.messagelist .success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.messagelist .warning {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.messagelist .error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* Formularios */
+fieldset.module,
+.inline-group {
+    border: 1px solid #ccc;
+    padding: 15px;
+    background: #ffffff;
+}
+
+/* Tablas */
+table thead th {
+    background-color: var(--main-bg);
+    color: var(--main-color);
+}
+
+table tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+table tbody tr:hover {
+    background-color: #e6f7f5;
+}
+
+/* Login del admin */
+.login #container {
+    background-color: #ecf0f1;
+    padding: 40px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+}
+
+.login #container h1 {
+    color: var(--main-bg);
+}
+
+.login #container form {
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+}
+
+.login .submit-row input {
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color var(--transition);
+}
+
+.login .submit-row input:hover {
+    background-color: #16a085;
+}

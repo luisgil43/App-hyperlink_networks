@@ -1,13 +1,11 @@
+# dashboard/admin.py
+
 from django.contrib import admin
-from .models import ProduccionTecnico
+from dashboard.models import ProduccionTecnico
+from mv_construcciones.custom_admin import custom_admin_site
 
 
-@admin.register(ProduccionTecnico)
+@admin.register(ProduccionTecnico, site=custom_admin_site)
 class ProduccionTecnicoAdmin(admin.ModelAdmin):
     list_display = ('tecnico', 'id', 'status',
                     'fecha_aprobacion', 'descripcion', 'monto')
-
-    fields = ('tecnico', 'id', 'status',
-              'fecha_aprobacion', 'descripcion', 'monto')
-
-    readonly_fields = ()  # Asegúrate de no incluir 'id' aquí para que sea editable

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Panel Admin{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+<header class="bg-white shadow-md fixed w-full z-50 h-14 flex items-center justify-between px-4">
+    <div class="flex items-center gap-3">
+        <img src="{% static 'images/logo.png' %}" alt="Logo Empresa" class="h-9">
+        <strong class="text-gray-800">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+    </div>
+    <div class="flex items-center gap-4">
+        <span>{{ request.user.get_full_name|default:request.user.username }}</span>
+        <form method="post" action="{% url 'dashboard_admin:logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
+        </form>
+    </div>
+</header>
+
+<div class="pt-14 flex min-h-screen">
+    <!-- Menú lateral -->
+    <nav class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto">
+        <ul class="space-y-4 text-base font-medium">
+
+            <li>
+                <a href="{% url 'dashboard_admin:index' %}" class="flex items-center gap-2 hover:text-emerald-400">
+                    🏠 Inicio
+                </a>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🛠 Operaciones</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Producciones</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Rendiciones</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🦺 Prevención de Riesgo</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Cursos</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🧑‍💼 RR.HH</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="{% url 'liquidaciones:admin_lista' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Contratos de trabajo</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Fichas de ingresos</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🤝 Subcontrato</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Facturas de producciones</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Contratos de trabajo</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">F30 y F30-1</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Liquidaciones de sueldos</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Cursos de los trabajadores</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Contratos de servicios</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">📦 Logística</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Materiales Solicitados</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Materiales devueltos</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Guías de despachos</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">📄 Facturación</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Facturas</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🎁 Beneficios</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
+                </ul>
+            </li>
+
+            <li class="group">
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">👤 Administración de Usuarios</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                    <li><a href="#" class="hover:text-emerald-400">Grupos</a></li>
+                    <li><a href="{% url 'dashboard_admin:listar_usuarios' %}" class="hover:text-emerald-400">Usuarios</a></li>
+                </ul>
+            </li>
+
+        </ul>
+    </nav>
+
+    <!-- Contenido principal -->
+    <main class="ml-72 flex-1 p-6">
+        {% if messages %}
+        <div class="space-y-3 mb-6">
+            {% for message in messages %}
+            <div class="p-4 rounded-lg shadow text-white
+              {% if message.tags == 'error' %}bg-red-500
+              {% elif message.tags == 'success' %}bg-green-600
+              {% elif message.tags == 'warning' %}bg-yellow-500
+              {% else %}bg-blue-500{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% block dashboard_content %}{% endblock %}
+    </main>
+</div>
+
+<!-- Script para rotar flechas -->
+<script>
+function toggleMenu(el) {
+    const submenu = el.nextElementSibling;
+    const flecha = el.querySelector(".flecha");
+    if (submenu) {
+        submenu.classList.toggle('hidden');
+        flecha.classList.toggle('rotate-90');
+    }
+}
+</script>
+
+<style>
+  .rotate-90 {
+    transform: rotate(90deg);
+  }
+</style>
+
+<!-- Select2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+{% include 'django_select2/django_select2.html' %}
+
+{% block extra_scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    $('select').select2({
+      width: '100%',
+      placeholder: 'Buscar por ID o nombre...'
+    });
+  });
+</script>
+{% endblock %}
+</body>
+</html>

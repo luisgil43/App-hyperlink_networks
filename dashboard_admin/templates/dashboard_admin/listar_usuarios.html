@@ -1,0 +1,116 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Usuarios - Admin{% endblock %}
+
+{% block dashboard_content %}
+<div class="p-6 max-w-7xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">👤 Lista de Usuarios</h1>
+
+    <a href="{% url 'dashboard_admin:crear_usuario' %}" class="mb-4 inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded">
+        ➕ Agregar Usuario
+    </a>
+
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200 text-sm text-left bg-white shadow rounded-lg">
+            <thead class="bg-gray-100">
+                <tr>
+                    <th class="px-4 py-2 font-semibold">Usuario</th>
+                    <th class="px-4 py-2">Nombre</th>
+                    <th class="px-4 py-2">Apellidos</th>
+		    <th class="px-4 py-2">ID</th>
+                    <th class="px-4 py-2">Correo</th>
+                    <th class="px-4 py-2">Activo</th>
+                    <th class="px-4 py-2">Staff</th>
+                    <th class="px-4 py-2">Superusuario</th>
+                    <th class="px-4 py-2">Grupos</th>
+                    <th class="px-4 py-2">Acciones</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for usuario in usuarios %}
+                <tr>
+                    <td class="px-4 py-2">{{ usuario.username }}</td>
+                    <td class="px-4 py-2">{{ usuario.first_name }}</td>
+                    <td class="px-4 py-2">{{ usuario.last_name }}</td>
+	            <td class="px-4 py-2">{{ usuario.identidad }}</td>
+                    <td class="px-4 py-2">{{ usuario.email }}</td>
+
+                    <td class="px-4 py-2">
+                        {% if usuario.is_active %}
+                            <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Activo</span>
+                        {% else %}
+                            <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ Inactivo</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2">
+                        {% if usuario.is_staff %}
+                            <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Sí</span>
+                        {% else %}
+                            <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ No</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2">
+                        {% if usuario.is_superuser %}
+                            <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Sí</span>
+                        {% else %}
+                            <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ No</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="px-4 py-2">
+                        {% for grupo in usuario.groups.all %}
+                            <span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-semibold">
+                                {{ grupo.name }}
+                            </span>
+                        {% empty %}
+                            <span class="text-gray-400 text-sm">Sin grupo</span>
+                        {% endfor %}
+                    </td>
+
+                    <td class="px-4 py-2 space-x-1">
+                        <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}" class="text-blue-600 hover:underline font-medium">Editar</a>
+			<a href="{% url 'dashboard_admin:eliminar_usuario' usuario.id %}"
+   class="text-red-600 hover:text-red-800 font-semibold">
+   Eliminar
+</a>
+              
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="9" class="py-4 text-center text-gray-500">No hay usuarios registrados.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal de confirmación -->
+<div id="confirmModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-lg shadow-lg max-w-sm w-full p-6">
+    <h2 class="text-xl font-semibold mb-4">Confirmar eliminación</h2>
+    <p id="modalMessage" class="mb-6 text-gray-700"></p>
+    <div class="flex justify-end space-x-4">
+      <button onclick="closeModal()" class="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 font-semibold">Cancelar</button>
+      <form id="deleteForm" method="POST" class="inline">
+        {% csrf_token %}
+        <input type="hidden" name="user_id" id="modalUserId" value="">
+        <button type="submit" name="delete_user" class="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold">Eliminar</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openModal(userId, username) {
+    document.getElementById('confirmModal').classList.remove('hidden');
+    document.getElementById('modalUserId').value = userId;
+    document.getElementById('modalMessage').textContent = `¿Estás seguro de que deseas eliminar al usuario "${username}"?`;
+  }
+
+  function closeModal() {
+    document.getElementById('confirmModal').classList.add('hidden');
+  }
+</script>
+{% endblock %}

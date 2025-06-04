@@ -1,0 +1,175 @@
+/* Estilos base para el dashboard */
+
+:root {
+    --main-bg: #2c3e50;
+    --main-color: #ecf0f1;
+    --hover-bg: #34495e;
+    --accent: #1abc9c;
+    --header-height: 60px;
+    --transition: 0.3s;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #ecf0f1;
+}
+
+header {
+    height: var(--header-height);
+    background-color: #f1f1f1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+}
+
+nav {
+    width: 320px;
+    /* o 320px si quieres más espacio */
+    background-color: var(--main-bg);
+    border-right: 1px solid #1a252f;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+    /* Sombra sutil */
+    padding: 20px;
+    transition: transform var(--transition);
+}
+
+nav h2 {
+    margin-bottom: 15px;
+    color: var(--main-color);
+    font-size: 1.2rem;
+}
+
+nav ul {
+    list-style: none;
+}
+
+nav li {
+    margin-bottom: 10px;
+}
+
+nav li>span {
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px;
+    transition: background var(--transition);
+}
+
+nav li>span:hover {
+    background-color: var(--hover-bg);
+    border-radius: 5px;
+}
+
+nav li ul {
+    margin-top: 5px;
+    margin-left: 15px;
+    display: none;
+}
+
+nav li.active ul {
+    display: block;
+}
+
+nav a {
+    color: var(--main-color);
+    text-decoration: none;
+    padding: 4px 0;
+    display: block;
+    transition: color var(--transition);
+}
+
+nav a:hover {
+    color: var(--accent);
+}
+
+.arrow {
+    margin-left: auto;
+    transition: transform var(--transition);
+}
+
+li.active .arrow {
+    transform: rotate(90deg);
+}
+
+main {
+    padding: 20px;
+    flex-grow: 1;
+    overflow-y: auto;
+    width: 100%;
+}
+
+.messages-container {
+    max-width: 600px;
+    margin: 0 auto 20px;
+}
+
+.alert {
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.alert-error,
+.alert-danger {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.alert-info {
+    background-color: #cce5ff;
+    color: #004085;
+}
+
+@media (max-width: 768px) {
+    .hamburger {
+        display: flex;
+    }
+
+    nav {
+        position: fixed;
+        top: var(--header-height);
+        left: 0;
+        height: calc(100vh - var(--header-height));
+        background-color: var(--main-bg);
+        z-index: 999;
+        transform: translateX(-100%);
+    }
+
+    nav.show {
+        transform: translateX(0);
+    }
+
+    .content-wrapper {
+        flex-direction: column;
+    }
+
+    main {
+        padding: 15px;
+    }
+}

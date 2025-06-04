@@ -1,0 +1,91 @@
+{% extends 'dashboard_admin/base.html' %}
+
+{% block dashboard_content %}
+<div class="p-6 bg-white rounded-2xl shadow-md max-w-3xl mx-auto">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+    <i class="lucide lucide-file-plus text-green-600"></i>
+    Crear Nueva Liquidación
+  </h2>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+    {{ form.media }}
+    {{ form.non_field_errors }}
+
+    {# 🔴 Muestra errores generales del formulario #}
+    {% if form.errors %}
+    <div class="bg-red-100 border border-red-300 text-red-700 p-4 rounded-xl mb-6">
+      <strong>Se encontraron errores en el formulario:</strong>
+      <ul class="list-disc pl-5 mt-2 text-sm">
+        {% for field, errors in form.errors.items %}
+        {% for error in errors %}
+        <li><strong>{{ field|capfirst }}:</strong> {{ error }}</li>
+        {% endfor %}
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div>
+      {{ form.tecnico.label_tag }}
+      {{ form.tecnico }}
+      {{ form.tecnico.errors }}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        {{ form.mes.label_tag }}
+        {{ form.mes }}
+        {{ form.mes.errors }}
+      </div>
+      <div>
+        {{ form.año.label_tag }}
+        {{ form.año }}
+        {{ form.año.errors }}
+      </div>
+    </div>
+
+    <div>
+      {{ form.monto.label_tag }}
+      {{ form.monto }}
+      {{ form.monto.errors }}
+    </div>
+
+    <div>
+      {{ form.archivo_pdf_liquidacion.label_tag }}
+      {{ form.archivo_pdf_liquidacion }}
+      {{ form.archivo_pdf_liquidacion.errors }}
+    </div>
+
+    <div class="pt-4">
+      <button type="submit"
+        class="bg-green-600 text-white font-medium px-6 py-2 rounded-xl shadow hover:bg-green-700 transition">
+        Guardar Liquidación
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ block.super }}
+{{ form.media }}
+
+<!-- Select2 desde CDN -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const selects = document.querySelectorAll('select');
+    selects.forEach(select => {
+      if (!select.classList.contains('django-select2')) {
+        $(select).select2({
+          width: '100%',
+          placeholder: 'Buscar por ID o nombre...'
+        });
+      }
+    });
+  });
+</script>
+{% endblock %}

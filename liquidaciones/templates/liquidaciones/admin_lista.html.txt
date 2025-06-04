@@ -1,0 +1,89 @@
+{% extends 'dashboard_admin/base.html' %}
+
+{% block dashboard_content %}
+<div class="p-6">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">Liquidaciones de Sueldo</h1>
+    <div class="space-x-2">
+      <a href="{% url 'liquidaciones:crear' %}" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+        Añadir Liquidación
+      </a>
+      <a href="{% url 'liquidaciones:carga_masiva' %}" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        Cargar Liquidaciones Masiva
+      </a>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto bg-white rounded-lg shadow">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">ID</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nombre y Apellido</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Mes</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Año</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Monto</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Liquidación sin firmar</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Firmado</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Fecha Firma</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Liquidación firmada</th>
+          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100 bg-white">
+        {% for l in liquidaciones %}
+        <tr class="hover:bg-gray-50 transition">
+          <td class="px-4 py-3 text-sm text-gray-900">{{ l.id }}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">{{ l.tecnico.get_full_name }}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">{{ l.mes }}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">{{ l.año }}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${{ l.monto }}</td>
+          <td class="px-4 py-3 text-sm text-center">
+  {% if l.archivo_pdf_liquidacion %}
+    <a href="{{ l.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
+      Ver PDF
+    </a>
+  {% else %}
+    <span class="text-gray-400">—</span>
+  {% endif %}
+</td>
+
+          <td class="px-4 py-3 text-center text-sm">
+            <span class="text-green-600" title="Firmado">
+              {% if l.firmada %}✅{% else %}❌{% endif %}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-sm text-gray-900">
+            {{ l.fecha_firma|date:"d/m/Y"|default:"—" }}
+          </td>
+          <td class="px-4 py-3 text-sm">
+            {% if l.pdf_firmado %}
+              <a href="{{ l.pdf_firmado.url }}" target="_blank" class="text-blue-600 hover:underline">
+                Ver
+              </a>
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-sm flex gap-3"> 
+  <a href="{% url 'liquidaciones:editar' l.id %}" class="text-blue-600 hover:underline font-medium">
+    Editar
+  </a>
+  <a href="{% url 'liquidaciones:eliminar' l.id %}" class="text-red-600 hover:underline font-medium">
+    Eliminar
+  </a>
+</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="10" class="px-4 py-6 text-center text-gray-500">
+            No hay liquidaciones registradas.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
