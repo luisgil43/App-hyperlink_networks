@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .views import UsuarioAutocomplete
+from .views import verificar_storage
 
 
 app_name = 'liquidaciones'
@@ -24,6 +25,7 @@ urlpatterns = [
     path('firmar/<int:pk>/', views.firmar_liquidacion, name='firmar_liquidacion'),
     path('editar/<int:pk>/', views.editar_liquidacion, name='editar'),
     path('eliminar/<int:pk>/', views.eliminar_liquidacion, name='eliminar'),
+    path('verificar-storage/', verificar_storage),
 
 
 ]

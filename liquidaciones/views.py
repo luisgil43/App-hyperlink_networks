@@ -29,6 +29,7 @@ from tecnicos.models import Tecnico
 from django.views.decorators.csrf import csrf_exempt
 from dal import autocomplete
 
+
 """
 Esta se activa si es sin filtro. 
 @staff_member_required
@@ -433,3 +434,10 @@ def eliminar_liquidacion(request, pk):
         return redirect("liquidaciones:admin_lista")
 
     return render(request, "liquidaciones/eliminar_confirmacion.html", {"liquidacion": liquidacion})
+
+
+def verificar_storage(request):
+    return JsonResponse({
+        "USE_CLOUDINARY": getattr(settings, 'USE_CLOUDINARY', False),
+        "STORAGE_BACKEND": getattr(settings, 'DEFAULT_FILE_STORAGE', 'No definido')
+    })
