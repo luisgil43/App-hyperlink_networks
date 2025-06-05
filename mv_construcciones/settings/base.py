@@ -17,9 +17,9 @@ if os.environ.get("DJANGO_DEVELOPMENT") == "true":
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # URL genérica para login (puede redirigir a un login común)
-LOGIN_URL = '/login/'
+LOGIN_URL = '/usuarios/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
-LOGOUT_REDIRECT_URL = '/login/'  # Después de logout, ir al login
+LOGOUT_REDIRECT_URL = '/usuarios/login/'  # Después de logout, ir al login
 AUTH_USER_MODEL = 'usuarios.CustomUser'
 
 
