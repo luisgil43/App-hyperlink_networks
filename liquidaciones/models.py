@@ -21,7 +21,7 @@ storage_backend = (
 
 
 class Liquidacion(models.Model):
-    # clave fornaea de usuario
+    # Clave foránea de usuario
     tecnico = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     mes = models.PositiveIntegerField()
@@ -75,7 +75,13 @@ class Liquidacion(models.Model):
     class Meta:
         verbose_name = "Liquidación"
         verbose_name_plural = "Liquidaciones"
-        unique_together = ('tecnico', 'mes', 'año')  # evitar duplicados
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tecnico', 'mes', 'año'],
+                name='unique_liquidacion_por_tecnico_mes_anio',
+                violation_error_message='Ya existe una liquidación para este técnico en ese mes y año.'
+            )
+        ]
 
 
 User = get_user_model()

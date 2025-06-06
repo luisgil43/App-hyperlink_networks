@@ -1,22 +1,28 @@
 {% extends 'dashboard/base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>Crear Firma Digital</h2>
+<h2 class="text-xl font-semibold mb-4">Crear Firma Digital</h2>
 
 <canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
-<button type="button" onclick="clearCanvas()">Limpiar</button>
+<button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
 
-<form method="post" id="firmaForm">
+<form method="post" id="firmaForm" class="mt-4">
     {% csrf_token %}
     <input type="hidden" name="firma_digital" id="firmaInput">
-    <br>
-    <button type="submit" class="btn btn-primary">Guardar Firma</button>
+    <button type="submit" class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+        Guardar Firma
+    </button>
 </form>
 
-{% if tecnico.firma_digital %}
-    <p>Firma actual:</p>
-    <img src="{{ tecnico.firma_digital.url }}" alt="Firma" style="max-height: 100px;">
-{% endif %}
+<div class="mt-6">
+    <p class="font-medium">Firma actual:</p>
+    {% if tecnico.firma_digital and tecnico.firma_digital.url %}
+    <img src="{{ tecnico.firma_digital.url }}" alt="Firma actual" class="max-h-24 border rounded p-1">
+    {% else %}
+    <p class="text-red-500 italic">No hay firma digital disponible.</p>
+    {% endif %}
+</div>
 
 <script>
     const canvas = document.getElementById('canvas');
@@ -51,7 +57,7 @@
         ctx.beginPath();
         ctx.moveTo(x, y);
 
-        e.preventDefault(); // Evita el scroll durante el movimiento de la firma
+        e.preventDefault();
     }
 
     function clearCanvas() {
@@ -67,7 +73,7 @@
         }
 
         try {
-            const dataURL = canvas.toDataURL('image/png'); // Garantiza formato PNG
+            const dataURL = canvas.toDataURL('image/png');
             document.getElementById('firmaInput').value = dataURL;
         } catch (error) {
             alert("Error al procesar la firma: " + error);
@@ -75,7 +81,6 @@
         }
     });
 
-    // Eventos para firmar
     canvas.addEventListener('mousedown', startPosition);
     canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
@@ -84,16 +89,14 @@
     canvas.addEventListener('touchend', endPosition, { passive: false });
     canvas.addEventListener('touchmove', draw, { passive: false });
 
-    // Bloquea el scroll mientras el usuario firma
-    document.addEventListener("touchstart", function(e) {
+    document.addEventListener("touchstart", function (e) {
         if (e.target.closest("canvas")) {
             document.body.style.overflow = "hidden";
         }
     }, { passive: false });
 
-    document.addEventListener("touchend", function(e) {
+    document.addEventListener("touchend", function (e) {
         document.body.style.overflow = "";
     }, { passive: false });
 </script>
 {% endblock %}
-

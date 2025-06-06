@@ -1,0 +1,764 @@
+2025-06-06 11:33:08,396 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 11:34:15,958 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 11:34:19,287 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 11:34:26,323 [WARNING] django.request - Not Found: /media/liquidaciones_sin_firmar/2025_1/255637991_SGPR58q.pdf
+2025-06-06 11:34:26,324 [WARNING] django.server - "GET /media/liquidaciones_sin_firmar/2025_1/255637991_SGPR58q.pdf HTTP/1.1" 404 5170
+2025-06-06 12:10:26,405 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 54, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf_firmado' not found. 'ver_pdf_firmado' is not a valid view function or pattern name.
+2025-06-06 12:10:26,455 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 213509
+2025-06-06 12:10:29,332 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 12:10:33,421 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 54, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf_firmado' not found. 'ver_pdf_firmado' is not a valid view function or pattern name.
+2025-06-06 12:10:33,429 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 213372
+2025-06-06 12:10:43,570 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 12:10:59,038 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 54, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf_firmado' not found. 'ver_pdf_firmado' is not a valid view function or pattern name.
+2025-06-06 12:10:59,046 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 213372
+2025-06-06 12:26:12,908 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 12:30:31,087 [ERROR] django.request - Internal Server Error: /liquidaciones/pdf/24/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 75, in ver_pdf_liquidacion
+    tecnico = request.user.tecnico
+              ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\utils\functional.py", line 253, in inner
+    return func(_wrapped, *args)
+AttributeError: 'CustomUser' object has no attribute 'tecnico'
+2025-06-06 12:30:31,095 [ERROR] django.server - "GET /liquidaciones/pdf/24/ HTTP/1.1" 500 77988
+2025-06-06 12:47:07,618 [WARNING] django.request - Not Found: /liquidaciones/pdf/24/
+2025-06-06 12:47:07,619 [WARNING] django.server - "GET /liquidaciones/pdf/24/ HTTP/1.1" 404 5004
+2025-06-06 12:54:59,052 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 12:55:04,106 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:25:39,643 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:25:42,161 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:29:40,574 [WARNING] django.request - Not Found: /liquidaciones/pdf/24/
+2025-06-06 14:29:40,575 [WARNING] django.server - "GET /liquidaciones/pdf/24/ HTTP/1.1" 404 9159
+2025-06-06 14:30:13,751 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf' not found. 'ver_pdf' is not a valid view function or pattern name.
+2025-06-06 14:30:13,771 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 208339
+2025-06-06 14:39:49,206 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:48:00,490 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf_admin' not found. 'ver_pdf_admin' is not a valid view function or pattern name.
+2025-06-06 14:48:00,508 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 208357
+2025-06-06 14:48:15,581 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:48:20,315 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    return render(request, 'liquidaciones/admin_lista.html', {
+        'liquidaciones': liquidaciones,
+    ...<3 lines>...
+        'montos': montos,
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'ver_pdf_admin' not found. 'ver_pdf_admin' is not a valid view function or pattern name.
+2025-06-06 14:48:20,326 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 208220
+2025-06-06 14:49:26,257 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:49:28,371 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:51:46,621 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:51:52,345 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:01,430 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:03,222 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:18,174 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:28,230 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:29,174 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:52:32,927 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:53:24,334 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:56:42,682 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:56:52,855 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:56:56,719 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:56:59,204 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:57:02,701 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:57:05,082 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 14:58:13,297 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:05:36,639 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:05:41,722 [WARNING] django.request - Not Found: /media/liquidaciones_sin_firmar/2025_1/255637991_SGPR58q.pdf
+2025-06-06 15:05:41,723 [WARNING] django.server - "GET /media/liquidaciones_sin_firmar/2025_1/255637991_SGPR58q.pdf HTTP/1.1" 404 5170
+2025-06-06 15:45:04,852 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:45:08,237 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:45:09,832 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:45:14,114 [WARNING] django.request - Not Found: /media/liquidaciones_firmadas/2025_1/liq_24_firmada.pdf
+2025-06-06 15:45:14,115 [WARNING] django.server - "GET /media/liquidaciones_firmadas/2025_1/liq_24_firmada.pdf HTTP/1.1" 404 5150
+2025-06-06 15:46:19,443 [WARNING] django.request - Not Found: /media/liquidaciones_firmadas/2025_11/liq_26_firmada.pdf
+2025-06-06 15:46:19,444 [WARNING] django.server - "GET /media/liquidaciones_firmadas/2025_11/liq_26_firmada.pdf HTTP/1.1" 404 5154
+2025-06-06 15:53:30,549 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 15:53:33,963 [ERROR] django.request - Internal Server Error: /liquidaciones/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 69, in listar_liquidaciones
+    return render(request, 'liquidaciones/listar.html', {
+        'liquidaciones': liquidaciones
+    })
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\shortcuts.py", line 25, in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader.py", line 62, in render_to_string
+    return template.render(context, request)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\backends\django.py", line 107, in render
+    return self.template.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 171, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 159, in render
+    return compiled_parent._render(context)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 163, in _render
+    return self.nodelist.render(context)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\loader_tags.py", line 65, in render
+    result = block.nodelist.render(context)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 243, in render
+    nodelist.append(node.render_annotated(context))
+                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 327, in render
+    return nodelist.render(context)
+           ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 1016, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\base.py", line 977, in render_annotated
+    return self.render(context)
+           ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\template\defaulttags.py", line 480, in render
+    url = reverse(view_name, args=args, kwargs=kwargs, current_app=current_app)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\base.py", line 98, in reverse
+    resolved_url = resolver._reverse_with_prefix(view, prefix, *args, **kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\urls\resolvers.py", line 831, in _reverse_with_prefix
+    raise NoReverseMatch(msg)
+django.urls.exceptions.NoReverseMatch: Reverse for 'descargar_pdf' with arguments '('',)' not found. 1 pattern(s) tried: ['liquidaciones/descargar\\-pdf/(?P<pk>[0-9]+)/\\Z']
+2025-06-06 15:53:33,973 [ERROR] django.server - "GET /liquidaciones/ HTTP/1.1" 500 191614
+2025-06-06 16:00:22,496 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:00:26,067 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:00:31,827 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:00:39,838 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:00:39,862 [WARNING] django.request - Not Found: /.well-known/appspecific/com.chrome.devtools.json
+2025-06-06 16:00:39,863 [WARNING] django.server - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 4864
+2025-06-06 16:01:42,828 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:01:45,949 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:01:55,342 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:01:58,740 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:02,691 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:15,155 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:16,897 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:25,593 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:31,498 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:35,860 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:49,646 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:52,543 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:53,515 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:54,605 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:55,417 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:56,787 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:57,642 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:58,599 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:02:59,520 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:00,564 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:01,230 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:02,626 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:13,960 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:26,614 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:30,391 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:39,918 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:03:39,923 [WARNING] django.request - Not Found: /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png
+2025-06-06 16:03:39,924 [WARNING] django.server - "GET /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png HTTP/1.1" 404 5146
+2025-06-06 16:03:43,883 [ERROR] liquidaciones.views - [firmar_liquidacion] Error cargando firma: [Errno 2] No such file or directory: 'C:\\Users\\luisg\\OneDrive\\Escritorio\\APP\\mv_construcciones\\media\\firmas\\9ffb99fc-22d8-4b24-b065-75614febdfb1.png'
+2025-06-06 16:03:43,883 [WARNING] django.request - Bad Request: /liquidaciones/firmar/28/
+2025-06-06 16:03:43,884 [WARNING] django.server - "POST /liquidaciones/firmar/28/ HTTP/1.1" 400 186
+2025-06-06 16:05:45,193 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:06:26,674 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:06:26,680 [WARNING] django.request - Not Found: /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png
+2025-06-06 16:06:26,681 [WARNING] django.server - "GET /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png HTTP/1.1" 404 5146
+2025-06-06 16:06:32,464 [ERROR] liquidaciones.views - [firmar_liquidacion] Error cargando firma: [Errno 2] No such file or directory: 'C:\\Users\\luisg\\OneDrive\\Escritorio\\APP\\mv_construcciones\\media\\firmas\\9ffb99fc-22d8-4b24-b065-75614febdfb1.png'
+2025-06-06 16:06:32,464 [WARNING] django.request - Bad Request: /liquidaciones/firmar/28/
+2025-06-06 16:06:32,465 [WARNING] django.server - "POST /liquidaciones/firmar/28/ HTTP/1.1" 400 186
+2025-06-06 16:31:45,137 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:32:09,518 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 16:32:17,139 [ERROR] django.request - Internal Server Error: /liquidaciones/firmar/28/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 192, in firmar_liquidacion
+    if not default_storage.exists(usuario.firma_digital.name):
+           ^^^^^^^^^^^^^^^
+NameError: name 'default_storage' is not defined
+2025-06-06 16:32:17,151 [ERROR] django.server - "GET /liquidaciones/firmar/28/ HTTP/1.1" 500 74384
+2025-06-06 17:06:41,445 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:06:46,180 [ERROR] django.request - Internal Server Error: /liquidaciones/firmar/28/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 192, in firmar_liquidacion
+    if not default_storage.exists(usuario.firma_digital.name):
+           ^^^^^^^^^^^^^^^
+NameError: name 'default_storage' is not defined
+2025-06-06 17:06:46,186 [ERROR] django.server - "GET /liquidaciones/firmar/28/ HTTP/1.1" 500 74384
+2025-06-06 17:08:55,200 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:08:58,794 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:09:00,494 [WARNING] django.request - Not Found: /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png
+2025-06-06 17:09:00,495 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:09:00,495 [WARNING] django.server - "GET /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png HTTP/1.1" 404 5146
+2025-06-06 17:15:04,325 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:15:06,949 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:15:08,239 [WARNING] django.request - Not Found: /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png
+2025-06-06 17:15:08,239 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:15:08,240 [WARNING] django.server - "GET /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png HTTP/1.1" 404 5146
+2025-06-06 17:25:41,090 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:25:43,676 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:25:44,981 [WARNING] django.request - Not Found: /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png
+2025-06-06 17:25:44,981 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:25:44,982 [WARNING] django.server - "GET /media/firmas/9ffb99fc-22d8-4b24-b065-75614febdfb1.png HTTP/1.1" 404 5146
+2025-06-06 17:26:09,458 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:26:13,308 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:26:17,503 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:26:31,253 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:26:33,887 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:30:11,819 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:30:28,196 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:30:50,184 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:32:36,190 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:33:00,016 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    montos = sorted(set(l.monto for l in liquidaciones))
+TypeError: '<' not supported between instances of 'NoneType' and 'decimal.Decimal'
+2025-06-06 17:33:00,025 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 75333
+2025-06-06 17:41:18,524 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:41:22,612 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    montos = sorted(set(l.monto for l in liquidaciones))
+TypeError: '<' not supported between instances of 'NoneType' and 'decimal.Decimal'
+2025-06-06 17:41:22,615 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 74929
+2025-06-06 17:41:37,213 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:41:38,035 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:41:40,657 [ERROR] django.request - Internal Server Error: /liquidaciones/admin/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 55, in admin_lista_liquidaciones
+    montos = sorted(set(l.monto for l in liquidaciones))
+TypeError: '<' not supported between instances of 'NoneType' and 'decimal.Decimal'
+2025-06-06 17:41:40,659 [ERROR] django.server - "GET /liquidaciones/admin/ HTTP/1.1" 500 74929
+2025-06-06 17:47:05,173 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:47:09,666 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:47:26,287 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:57:36,582 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:57:39,387 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:57:40,808 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:58:00,857 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 17:59:24,052 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:11:53,202 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:11:56,327 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:11:57,785 [ERROR] django.request - Internal Server Error: /liquidaciones/crear/
+Traceback (most recent call last):
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\luisg\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\contrib\auth\decorators.py", line 59, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\views.py", line 515, in crear_liquidacion
+    form = LiquidacionForm()
+  File "C:\Users\luisg\OneDrive\Escritorio\APP\mv_construcciones\liquidaciones\forms.py", line 74, in __init__
+    self.fields['monto'].required = True
+    ^^^^^^^^^^^
+AttributeError: 'LiquidacionForm' object has no attribute 'fields'
+2025-06-06 18:11:57,795 [ERROR] django.server - "GET /liquidaciones/crear/ HTTP/1.1" 500 78063
+2025-06-06 18:12:16,703 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:14:29,692 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:14:31,701 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-06 18:14:32,846 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969

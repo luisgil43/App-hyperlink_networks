@@ -1,4 +1,4 @@
-{% extends 'dashboard_admin/base.html' %}
+{% extends 'dashboard_admin/base.html' %} 
 
 {% block dashboard_content %}
 <div class="p-6 bg-white rounded-2xl shadow-md max-w-3xl mx-auto">
@@ -54,7 +54,12 @@
     <div>
       {{ form.archivo_pdf_liquidacion.label_tag }}
       {{ form.archivo_pdf_liquidacion }}
-      {{ form.archivo_pdf_liquidacion.errors }}
+
+      {% if form.archivo_pdf_liquidacion.errors %}
+        <p class="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">
+          {{ form.archivo_pdf_liquidacion.errors.0 }}
+        </p>
+      {% endif %}
     </div>
 
     <div class="pt-4">

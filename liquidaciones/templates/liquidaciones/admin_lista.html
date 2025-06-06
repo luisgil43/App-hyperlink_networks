@@ -1,4 +1,4 @@
-{% extends 'dashboard_admin/base.html' %} 
+{% extends 'dashboard_admin/base.html' %}
 
 {% block dashboard_content %}
 <div class="p-6">
@@ -8,7 +8,8 @@
       <a href="{% url 'liquidaciones:crear' %}" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
         Añadir Liquidación
       </a>
-      <a href="{% url 'liquidaciones:carga_masiva' %}" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+      <a href="{% url 'liquidaciones:carga_masiva' %}"
+        class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
         Cargar Liquidaciones Masiva
       </a>
     </div>
@@ -63,7 +64,11 @@
               {% endfor %}
             </select>
           </th>
-          <th></th><th></th><th></th><th></th><th></th>
+          <th></th>
+          <th></th>
+          <th></th>
+          <th></th>
+          <th></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100 bg-white">
@@ -75,12 +80,13 @@
           <td class="px-4 py-3 text-sm text-gray-900">{{ l.año }}</td>
           <td class="px-4 py-3 text-sm text-gray-900">${{ l.monto }}</td>
           <td class="px-4 py-3 text-sm text-center">
-            {% if l.archivo_pdf_liquidacion %}
-              <a href="{{ l.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
-                Ver PDF
-              </a>
+            {% if l.archivo_pdf_liquidacion and l.archivo_pdf_liquidacion.url %}
+            <a href="{% url 'liquidaciones:ver_pdf_admin' l.id %}" target="_blank"
+              class="text-blue-600 hover:underline">
+              Ver PDF
+            </a>
             {% else %}
-              <span class="text-gray-400">—</span>
+            <span class="text-red-500 italic">No disponible</span>
             {% endif %}
           </td>
           <td class="px-4 py-3 text-center text-sm">
@@ -92,15 +98,16 @@
             {{ l.fecha_firma|date:"d/m/Y"|default:"—" }}
           </td>
           <td class="px-4 py-3 text-sm">
-            {% if l.pdf_firmado %}
-              <a href="{{ l.pdf_firmado.url }}" target="_blank" class="text-blue-600 hover:underline">
-                Ver
-              </a>
+            {% if l.pdf_firmado and l.pdf_firmado.url %}
+            <a href="{% url 'liquidaciones:ver_pdf_firmado_admin' l.id %}" target="_blank"
+              class="text-blue-600 hover:underline">
+              Ver
+            </a>
             {% else %}
-              <span class="text-gray-400">—</span>
+            <span class="text-red-500 italic">No disponible</span>
             {% endif %}
           </td>
-          <td class="px-4 py-3 text-sm flex gap-3"> 
+          <td class="px-4 py-3 text-sm flex gap-3">
             <a href="{% url 'liquidaciones:editar' l.id %}" class="text-blue-600 hover:underline font-medium">
               Editar
             </a>

@@ -56,16 +56,14 @@
         <p><strong>Técnico:</strong> {{ liquidacion.tecnico.user.get_full_name }}</p>
         <p><strong>RUT:</strong> {{ liquidacion.tecnico.rut }}</p>
         <p><strong>Mes:</strong> {{ liquidacion.mes }}</p>
-        <p><strong>Año:</strong> {{ liquidacion.año }}</p>
+        <p><strong>Año:</strong> {{ liquidacion.anio }}</p>
         <p><strong>Fecha de Firma:</strong> {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</p>
     </div>
 
     <div class="firma">
-        {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-    <img src="{{ tecnico.firma_digital.url }}" alt="Firma Digital">
-{% else %}
-    <span class="text-red-500 italic">Firma no disponible</span>
-{% endif %}
+        {% if tecnico.firma_digital %}
+            <img src="{{ tecnico.firma_digital.url }}" alt="Firma Digital">
+        {% endif %}
         <div class="firmado-por">Firmado electrónicamente por {{ liquidacion.tecnico.user.get_full_name }}</div>
     </div>
 

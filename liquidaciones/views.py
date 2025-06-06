@@ -1,33 +1,37 @@
-from urllib.parse import urljoin
-import os
-import uuid
-import base64
-import requests
-import fitz  # PyMuPDF
-from io import BytesIO
-from PIL import Image
-from django.db.models import Q
-from django.utils.decorators import method_decorator
-from django.utils.timezone import now
-from django.conf import settings
-from django.contrib import messages
-from django.contrib.admin.views.decorators import staff_member_required
-from django.contrib.auth.decorators import login_required
-from django.core.files.base import ContentFile
-from django.http import HttpResponse, FileResponse, HttpResponseBadRequest
-from django.shortcuts import render, get_object_or_404, redirect
-from django.template.loader import render_to_string
-from django.utils import timezone
-from django.views.decorators.csrf import csrf_protect
-from .models import Liquidacion
-from .forms import LiquidacionForm
-from django_select2.views import AutoResponseView
-from django.contrib.auth import get_user_model
-from django.http import JsonResponse
-from .models import Liquidacion
-from tecnicos.models import Tecnico
-from django.views.decorators.csrf import csrf_exempt
 from dal import autocomplete
+from django.views.decorators.csrf import csrf_exempt
+from tecnicos.models import Tecnico
+from django.http import JsonResponse
+from django.contrib.auth import get_user_model
+from django_select2.views import AutoResponseView
+from .forms import LiquidacionForm
+from .models import Liquidacion
+from django.core.files.storage import default_storage
+from . import views
+from django.views.decorators.csrf import csrf_protect
+from django.utils import timezone
+from django.template.loader import render_to_string
+from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpResponse, FileResponse, HttpResponseBadRequest
+from django.core.files.base import ContentFile
+from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib import messages
+from django.conf import settings
+from django.utils.timezone import now
+from django.utils.decorators import method_decorator
+from django.db.models import Q
+from django.http import Http404
+from PIL import Image
+from io import BytesIO
+import fitz  # PyMuPDF
+import requests
+import base64
+import uuid
+import os
+from urllib.parse import urljoin
+import logging
+logger = logging.getLogger(__name__)
 
 
 """
@@ -48,7 +52,7 @@ def admin_lista_liquidaciones(request):
     nombres = sorted(set(l.tecnico.get_full_name() for l in liquidaciones))
     meses = sorted(set(l.mes for l in liquidaciones))
     años = sorted(set(l.año for l in liquidaciones))
-    montos = sorted(set(l.monto for l in liquidaciones))
+    montos = sorted(set(l.monto for l in liquidaciones if l.monto is not None))
 
     return render(request, 'liquidaciones/admin_lista.html', {
         'liquidaciones': liquidaciones,
@@ -70,6 +74,30 @@ def listar_liquidaciones(request):
 
 @login_required
 def ver_pdf_liquidacion(request, pk):
+    usuario = request.user
+
+    try:
+        liquidacion = Liquidacion.objects.get(pk=pk, tecnico=usuario)
+    except Liquidacion.DoesNotExist:
+        messages.error(
+            request, "La liquidación solicitada no existe o no te pertenece.")
+        return redirect('liquidaciones:listar')
+
+    archivo = liquidacion.archivo_pdf_liquidacion
+    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+        try:
+            return FileResponse(archivo.open('rb'), content_type='application/pdf')
+        except Exception:
+            messages.error(request, "No se pudo abrir el archivo PDF.")
+            return redirect('liquidaciones:listar')
+    else:
+        messages.error(request, "El archivo ya no está disponible.")
+        return redirect('liquidaciones:listar')
+
+
+"""
+@login_required
+def ver_pdf_liquidacion(request, pk):
     tecnico = request.user.tecnico
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
 
@@ -78,9 +106,10 @@ def ver_pdf_liquidacion(request, pk):
     else:
         messages.error(
             request, "No hay PDF original disponible para esta liquidación.")
-        return redirect('liquidaciones:listar')
+        return redirect('liquidaciones:listar')"""
 
 
+"""
 @login_required
 def firmar_liquidacion(request, pk):
     usuario = request.user
@@ -146,6 +175,89 @@ def firmar_liquidacion(request, pk):
     return render(request, 'liquidaciones/firmar.html', {
         'liquidacion': liquidacion,
         'tecnico': usuario
+    })"""
+
+
+@login_required
+def firmar_liquidacion(request, pk):
+    usuario = request.user
+    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=usuario)
+
+    # Validación 1: ¿el usuario tiene una firma asociada?
+    if not usuario.firma_digital or not usuario.firma_digital.name:
+        messages.warning(
+            request, "Debes registrar tu firma digital primero para poder firmar.")
+        return redirect('liquidaciones:registrar_firma')
+
+    # Validación 2: ¿el archivo físico existe?
+    if not default_storage.exists(usuario.firma_digital.name):
+        messages.warning(
+            request, "Tu firma registrada ya no está disponible. Por favor, vuelve a subirla.")
+        return redirect('liquidaciones:registrar_firma')
+
+    if request.method == 'POST':
+        try:
+            # Verifica si existe el PDF sin firmar
+            if not liquidacion.archivo_pdf_liquidacion or not liquidacion.archivo_pdf_liquidacion.name:
+                logger.warning(
+                    f"[firmar_liquidacion] PDF no encontrado para liquidación {liquidacion.pk}")
+                return HttpResponseBadRequest("No se encontró el archivo PDF.")
+
+            try:
+                pdf_path = liquidacion.archivo_pdf_liquidacion.path
+                with open(pdf_path, 'rb') as f:
+                    original_pdf = BytesIO(f.read())
+            except Exception as e:
+                logger.error(f"[firmar_liquidacion] Error cargando PDF: {e}")
+                return HttpResponseBadRequest(f"No se pudo cargar el PDF: {e}")
+
+            try:
+                firma_path = usuario.firma_digital.path
+                with open(firma_path, 'rb') as f:
+                    firma_data = BytesIO(f.read())
+            except Exception as e:
+                logger.error(f"[firmar_liquidacion] Error cargando firma: {e}")
+                return HttpResponseBadRequest(f"No se pudo cargar la firma: {e}")
+
+            # Verifica y convierte la imagen
+            img = Image.open(firma_data)
+            if img.format not in ['PNG', 'JPEG']:
+                raise ValueError("Formato de imagen no compatible")
+
+            firma_img_io = BytesIO()
+            img.save(firma_img_io, format='PNG')
+            firma_img_io.seek(0)
+
+            # Insertar firma en el PDF (última página)
+            doc = fitz.open(stream=original_pdf, filetype='pdf')
+            page = doc[-1]
+            rect = fitz.Rect(400, 700, 550, 750)
+            page.insert_image(rect, stream=firma_img_io)
+
+            # Guardar nuevo PDF firmado
+            pdf_firmado_io = BytesIO()
+            doc.save(pdf_firmado_io)
+            doc.close()
+            pdf_firmado_io.seek(0)
+
+            file_name = f"liq_{liquidacion.pk}_firmada.pdf"
+            liquidacion.pdf_firmado.save(
+                file_name, ContentFile(pdf_firmado_io.read()), save=False)
+            liquidacion.firmada = True
+            liquidacion.fecha_firma = now()
+            liquidacion.save()
+
+            messages.success(
+                request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
+            return redirect('liquidaciones:listar')
+
+        except Exception as e:
+            logger.error(f"[firmar_liquidacion] Error general al firmar: {e}")
+            return HttpResponseBadRequest(f"Error al firmar el PDF: {e}")
+
+    return render(request, 'liquidaciones/firmar.html', {
+        'liquidacion': liquidacion,
+        'tecnico': usuario
     })
 
 
@@ -200,13 +312,27 @@ def liquidaciones_pdf(request):
 
 
 @login_required
-def descargar_pdf(request):
-    filepath = os.path.join(settings.MEDIA_ROOT,
-                            'liquidaciones', 'liquidaciones_completas.pdf')
-    if os.path.exists(filepath):
-        return FileResponse(open(filepath, 'rb'), content_type='application/pdf')
+def descargar_pdf(request, pk):
+    usuario = request.user
+
+    try:
+        liquidacion = Liquidacion.objects.get(pk=pk, tecnico=usuario)
+    except Liquidacion.DoesNotExist:
+        messages.error(request, "La liquidación no existe o no te pertenece.")
+        return redirect('liquidaciones:listar')
+
+    archivo = liquidacion.pdf_firmado
+
+    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+        try:
+            response = FileResponse(archivo.open(
+                'rb'), as_attachment=True, filename=archivo.name)
+            return response
+        except Exception:
+            messages.error(request, "No se pudo abrir el archivo firmado.")
+            return redirect('liquidaciones:listar')
     else:
-        messages.error(request, "El archivo no existe.")
+        messages.error(request, "El archivo firmado ya no está disponible.")
         return redirect('liquidaciones:listar')
 
 
@@ -214,21 +340,23 @@ def descargar_pdf(request):
 def confirmar_firma(request, pk):
     user = request.user
 
-    # Verificación de rol técnico
     if user.is_staff:
         messages.error(
             request, "Solo los técnicos pueden confirmar una firma.")
         return redirect('liquidaciones:listar')
 
-    # Buscar la liquidación asociada al técnico (usuario actual)
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=user)
 
     if not liquidacion.firmada:
         liquidacion.firmada = True
         liquidacion.fecha_firma = timezone.now()
         liquidacion.save()
+        logger.info(
+            f"[confirmar_firma] Liquidación {pk} firmada por el técnico {user.pk}")
         messages.success(request, "Firma confirmada correctamente.")
     else:
+        logger.info(
+            f"[confirmar_firma] Liquidación {pk} ya estaba firmada por el técnico {user.pk}")
         messages.info(request, "La liquidación ya estaba firmada.")
 
     return redirect('liquidaciones:listar')
@@ -434,6 +562,46 @@ def eliminar_liquidacion(request, pk):
         return redirect("liquidaciones:admin_lista")
 
     return render(request, "liquidaciones/eliminar_confirmacion.html", {"liquidacion": liquidacion})
+
+
+@staff_member_required
+def ver_pdf_firmado_admin(request, pk):
+    try:
+        liquidacion = Liquidacion.objects.get(pk=pk)
+    except Liquidacion.DoesNotExist:
+        messages.error(request, "La liquidación no existe.")
+        return redirect('liquidaciones:admin_lista')
+
+    archivo = liquidacion.pdf_firmado
+    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+        try:
+            return FileResponse(archivo.open('rb'), content_type='application/pdf')
+        except Exception:
+            messages.error(request, "No se pudo abrir el archivo firmado.")
+            return redirect('liquidaciones:admin_lista')
+    else:
+        messages.error(request, "El archivo firmado ya no está disponible.")
+        return redirect('liquidaciones:admin_lista')
+
+
+@staff_member_required
+def ver_pdf_admin(request, pk):
+    try:
+        liquidacion = Liquidacion.objects.get(pk=pk)
+    except Liquidacion.DoesNotExist:
+        messages.error(request, "La liquidación no existe.")
+        return redirect('liquidaciones:admin_lista')
+
+    archivo = liquidacion.archivo_pdf_liquidacion
+    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+        try:
+            return FileResponse(archivo.open('rb'), content_type='application/pdf')
+        except Exception:
+            messages.error(request, "No se pudo abrir el archivo.")
+            return redirect('liquidaciones:admin_lista')
+    else:
+        messages.error(request, "El archivo ya no está disponible.")
+        return redirect('liquidaciones:admin_lista')
 
 
 def verificar_storage(request):

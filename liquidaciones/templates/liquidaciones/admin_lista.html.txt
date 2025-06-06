@@ -1,4 +1,4 @@
-{% extends 'dashboard_admin/base.html' %}
+{% extends 'dashboard_admin/base.html' %} 
 
 {% block dashboard_content %}
 <div class="p-6">
@@ -15,7 +15,7 @@
   </div>
 
   <div class="overflow-x-auto bg-white rounded-lg shadow">
-    <table class="min-w-full divide-y divide-gray-200">
+    <table id="tabla-liquidaciones" class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-100">
         <tr>
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">ID</th>
@@ -29,6 +29,42 @@
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Liquidación firmada</th>
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Acciones</th>
         </tr>
+        <tr>
+          <th></th>
+          <th>
+            <select class="filtro px-2 py-1 w-full text-sm border">
+              <option value="">Todos</option>
+              {% for nombre in nombres %}
+              <option>{{ nombre }}</option>
+              {% endfor %}
+            </select>
+          </th>
+          <th>
+            <select class="filtro px-2 py-1 w-full text-sm border">
+              <option value="">Todos</option>
+              {% for mes in meses %}
+              <option>{{ mes }}</option>
+              {% endfor %}
+            </select>
+          </th>
+          <th>
+            <select class="filtro px-2 py-1 w-full text-sm border">
+              <option value="">Todos</option>
+              {% for año in años %}
+              <option>{{ año }}</option>
+              {% endfor %}
+            </select>
+          </th>
+          <th>
+            <select class="filtro px-2 py-1 w-full text-sm border">
+              <option value="">Todos</option>
+              {% for monto in montos %}
+              <option>${{ monto }}</option>
+              {% endfor %}
+            </select>
+          </th>
+          <th></th><th></th><th></th><th></th><th></th>
+        </tr>
       </thead>
       <tbody class="divide-y divide-gray-100 bg-white">
         {% for l in liquidaciones %}
@@ -39,15 +75,14 @@
           <td class="px-4 py-3 text-sm text-gray-900">{{ l.año }}</td>
           <td class="px-4 py-3 text-sm text-gray-900">${{ l.monto }}</td>
           <td class="px-4 py-3 text-sm text-center">
-  {% if l.archivo_pdf_liquidacion %}
-    <a href="{{ l.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
-      Ver PDF
-    </a>
-  {% else %}
-    <span class="text-gray-400">—</span>
-  {% endif %}
-</td>
-
+            {% if l.archivo_pdf_liquidacion %}
+              <a href="{{ l.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
+                Ver PDF
+              </a>
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
           <td class="px-4 py-3 text-center text-sm">
             <span class="text-green-600" title="Firmado">
               {% if l.firmada %}✅{% else %}❌{% endif %}
@@ -66,13 +101,13 @@
             {% endif %}
           </td>
           <td class="px-4 py-3 text-sm flex gap-3"> 
-  <a href="{% url 'liquidaciones:editar' l.id %}" class="text-blue-600 hover:underline font-medium">
-    Editar
-  </a>
-  <a href="{% url 'liquidaciones:eliminar' l.id %}" class="text-red-600 hover:underline font-medium">
-    Eliminar
-  </a>
-</td>
+            <a href="{% url 'liquidaciones:editar' l.id %}" class="text-blue-600 hover:underline font-medium">
+              Editar
+            </a>
+            <a href="{% url 'liquidaciones:eliminar' l.id %}" class="text-red-600 hover:underline font-medium">
+              Eliminar
+            </a>
+          </td>
         </tr>
         {% empty %}
         <tr>
@@ -85,5 +120,30 @@
     </table>
   </div>
 </div>
-{% endblock %}
 
+<script>
+  const filtros = document.querySelectorAll(".filtro");
+  const tabla = document.getElementById("tabla-liquidaciones").getElementsByTagName("tbody")[0];
+
+  filtros.forEach((select, colIndex) => {
+    select.addEventListener("change", () => {
+      const valores = Array.from(filtros).map(s => s.value.trim().toLowerCase());
+
+      Array.from(tabla.rows).forEach(row => {
+        let visible = true;
+
+        valores.forEach((filtro, i) => {
+          if (filtro !== "" && filtro !== "todos") {
+            const cellText = row.cells[i + 1].textContent.replace(/\s+/g, " ").trim().toLowerCase();  // +1 porque ID no tiene filtro
+            if (!cellText.includes(filtro)) {
+              visible = false;
+            }
+          }
+        });
+
+        row.style.display = visible ? "" : "none";
+      });
+    });
+  });
+</script>
+{% endblock %}

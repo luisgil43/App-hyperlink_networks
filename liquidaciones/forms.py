@@ -41,7 +41,7 @@ class LiquidacionForm(forms.ModelForm):
         widgets = {
             'mes': forms.TextInput(attrs={
                 'class': 'w-full border-gray-300 rounded-xl px-4 py-2 shadow-sm focus:ring-2 focus:ring-green-500',
-                'placeholder': 'Ej. Enero'
+                'placeholder': 'Ej. Numero de Mes'
             }),
             'año': forms.TextInput(attrs={
                 'class': 'w-full border-gray-300 rounded-xl px-4 py-2 shadow-sm focus:ring-2 focus:ring-green-500',
@@ -53,7 +53,8 @@ class LiquidacionForm(forms.ModelForm):
             }),
             'archivo_pdf_liquidacion': forms.ClearableFileInput(attrs={
                 'class': 'block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100',
-                'accept': 'application/pdf'
+                'accept': 'application/pdf',
+                'required': True
             }),
             'pdf_firmado': forms.ClearableFileInput(attrs={
                 'class': 'block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100',
@@ -72,6 +73,10 @@ class LiquidacionForm(forms.ModelForm):
         self.request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
 
+        # ✅ Validación en el navegador
+        self.fields['monto'].required = True
+        self.fields['monto'].widget.attrs['required'] = 'required'
+
     def clean_tecnico(self):
         tecnico = self.cleaned_data.get('tecnico')
         if self.request:
@@ -81,3 +86,15 @@ class LiquidacionForm(forms.ModelForm):
                     "No puedes crear liquidación para otro técnico."
                 )
         return tecnico
+
+    def clean_archivo_pdf_liquidacion(self):
+        archivo = self.cleaned_data.get('archivo_pdf_liquidacion')
+        if not archivo:
+            raise forms.ValidationError("Debes adjuntar un archivo PDF.")
+        return archivo
+
+    def clean_monto(self):
+        monto = self.cleaned_data.get('monto')
+        if monto is None:
+            raise forms.ValidationError("Debes ingresar un monto.")
+        return monto
