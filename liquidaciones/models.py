@@ -3,6 +3,7 @@ from django.conf import settings
 from django_select2.views import AutoResponseView
 from django.contrib.auth import get_user_model
 from django_select2.forms import ModelSelect2Widget
+from django.core.files.storage import default_storage
 
 
 def ruta_archivo_sin_firmar(instance, filename):
@@ -24,6 +25,7 @@ class Liquidacion(models.Model):
 
     archivo_pdf_liquidacion = models.FileField(
         upload_to=ruta_archivo_sin_firmar,
+        storage=default_storage,  # ✅ Esto fuerza el uso de Cloudinary si está activo
         blank=True,
         null=True,
         verbose_name="Liquidación de Sueldo"
@@ -31,6 +33,7 @@ class Liquidacion(models.Model):
 
     pdf_firmado = models.FileField(
         upload_to=ruta_archivo_firmado,
+        storage=default_storage,  # ✅ Esto también
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"
