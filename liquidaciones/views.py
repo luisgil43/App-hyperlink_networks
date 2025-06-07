@@ -95,89 +95,6 @@ def ver_pdf_liquidacion(request, pk):
         return redirect('liquidaciones:listar')
 
 
-"""
-@login_required
-def ver_pdf_liquidacion(request, pk):
-    tecnico = request.user.tecnico
-    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=tecnico)
-
-    if liquidacion.archivo_pdf_liquidacion:
-        return FileResponse(liquidacion.archivo_pdf_liquidacion.open('rb'), content_type='application/pdf')
-    else:
-        messages.error(
-            request, "No hay PDF original disponible para esta liquidación.")
-        return redirect('liquidaciones:listar')"""
-
-
-"""
-@login_required
-def firmar_liquidacion(request, pk):
-    usuario = request.user
-    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=usuario)
-
-    # Verifica que el usuario tenga firma digital
-    if not usuario.firma_digital:
-        messages.warning(
-            request, "Debes registrar tu firma digital primero para poder firmar.")
-        return redirect('liquidaciones:registrar_firma')
-
-    if request.method == 'POST':
-        try:
-            # Cargar PDF
-            if liquidacion.archivo_pdf_liquidacion:
-                pdf_path = liquidacion.archivo_pdf_liquidacion.path
-                with open(pdf_path, 'rb') as f:
-                    original_pdf = BytesIO(f.read())
-            else:
-                return HttpResponseBadRequest("No se encontró el archivo PDF.")
-
-            # Cargar firma del usuario
-            firma_path = usuario.firma_digital.path
-            with open(firma_path, 'rb') as f:
-                firma_data = BytesIO(f.read())
-
-            # Verificar formato de imagen
-            img = Image.open(firma_data)
-            if img.format not in ['PNG', 'JPEG']:
-                raise ValueError("Formato de imagen no compatible")
-
-            # Convertir a PNG si es necesario
-            firma_img_io = BytesIO()
-            img.save(firma_img_io, format='PNG')
-            firma_img_io.seek(0)
-
-            # Insertar firma en el PDF
-            doc = fitz.open(stream=original_pdf, filetype='pdf')
-            page = doc[-1]
-            rect = fitz.Rect(400, 700, 550, 750)
-            page.insert_image(rect, stream=firma_img_io)
-
-            pdf_firmado_io = BytesIO()
-            doc.save(pdf_firmado_io)
-            doc.close()
-            pdf_firmado_io.seek(0)
-
-            # Guardar el PDF firmado
-            file_name = f"liq_{liquidacion.pk}_firmada.pdf"
-            liquidacion.pdf_firmado.save(
-                file_name, ContentFile(pdf_firmado_io.read()), save=False)
-            liquidacion.firmada = True
-            liquidacion.fecha_firma = now()
-            liquidacion.save()
-
-            messages.success(
-                request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
-            return redirect('liquidaciones:listar')
-
-        except Exception as e:
-            return HttpResponseBadRequest(f"Error al firmar el PDF: {e}")
-
-    return render(request, 'liquidaciones/firmar.html', {
-        'liquidacion': liquidacion,
-        'tecnico': usuario
-    })"""
-
-
 @login_required
 def firmar_liquidacion(request, pk):
     usuario = request.user
@@ -204,16 +121,14 @@ def firmar_liquidacion(request, pk):
                 return HttpResponseBadRequest("No se encontró el archivo PDF.")
 
             try:
-                pdf_path = liquidacion.archivo_pdf_liquidacion.path
-                with open(pdf_path, 'rb') as f:
+                with liquidacion.archivo_pdf_liquidacion.open('rb') as f:
                     original_pdf = BytesIO(f.read())
             except Exception as e:
                 logger.error(f"[firmar_liquidacion] Error cargando PDF: {e}")
                 return HttpResponseBadRequest(f"No se pudo cargar el PDF: {e}")
 
             try:
-                firma_path = usuario.firma_digital.path
-                with open(firma_path, 'rb') as f:
+                with usuario.firma_digital.open('rb') as f:
                     firma_data = BytesIO(f.read())
             except Exception as e:
                 logger.error(f"[firmar_liquidacion] Error cargando firma: {e}")
@@ -368,9 +283,10 @@ def confirmar_reemplazo(request):
     if request.method == 'POST':
         if '_reemplazar' in request.POST:
             data = request.session.get('duplicado_data')
-            archivo_info = request.session.get('archivo_temporal')
+            archivo_binario = request.session.get('archivo_temporal_bytes')
+            archivo_nombre = request.session.get('archivo_temporal_nombre')
 
-            if data and archivo_info:
+            if data and archivo_binario and archivo_nombre:
                 tecnico_id = data.get('tecnico')
                 mes = data.get('mes')
                 año = data.get('año')
@@ -383,11 +299,7 @@ def confirmar_reemplazo(request):
                         anterior.pdf_firmado.delete(save=False)
                     anterior.delete()
 
-                temp_file_path = archivo_info['path']
-                with open(temp_file_path, 'rb') as f:
-                    contenido = f.read()
-
-                archivo = ContentFile(contenido, name=archivo_info['name'])
+                archivo = ContentFile(archivo_binario, name=archivo_nombre)
 
                 nueva = Liquidacion(
                     tecnico_id=tecnico_id,
@@ -397,33 +309,30 @@ def confirmar_reemplazo(request):
                     firmada=False
                 )
                 nueva.archivo_pdf_liquidacion.save(
-                    archivo_info['name'], archivo, save=True)
+                    archivo_nombre, archivo, save=True)
 
                 messages.success(
                     request, "✅ Liquidación reemplazada correctamente.")
-                request.session.pop('duplicado_data', None)
-                request.session.pop('archivo_temporal', None)
 
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
+                # Limpiar sesión
+                request.session.pop('duplicado_data', None)
+                request.session.pop('archivo_temporal_bytes', None)
+                request.session.pop('archivo_temporal_nombre', None)
 
                 return redirect('admin:liquidaciones_liquidacion_changelist')
 
         elif '_cancelar' in request.POST:
-            archivo_info = request.session.pop('archivo_temporal', None)
             request.session.pop('duplicado_data', None)
-
-            if archivo_info:
-                temp_path = archivo_info.get('path')
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
+            request.session.pop('archivo_temporal_bytes', None)
+            request.session.pop('archivo_temporal_nombre', None)
 
             messages.info(
                 request, "❌ Se canceló el reemplazo de la liquidación.")
             return redirect('admin:liquidaciones_liquidacion_changelist')
 
+    # GET
     data = request.session.get('duplicado_data', {})
-    archivo_info = request.session.get('archivo_temporal', {})
+    archivo_nombre = request.session.get('archivo_temporal_nombre', '')
 
     tecnico_nombre = ''
     if data.get('tecnico'):
@@ -436,7 +345,7 @@ def confirmar_reemplazo(request):
         'mes': data.get('mes'),
         'año': data.get('año'),
         'monto': data.get('monto'),
-        'pdf_name': archivo_info.get('name'),
+        'pdf_name': archivo_nombre,
     })
 
 
@@ -461,23 +370,33 @@ def carga_masiva_view(request):
                 continue
 
             tecnico_id = int(nombre_archivo)
-
             tecnico = Tecnico.objects.filter(pk=tecnico_id).first()
             if not tecnico:
                 errores.append(f"Técnico con ID {tecnico_id} no existe.")
                 continue
 
-            # Verificar si liquidación para ese técnico, mes y año existe
-            existe = Liquidacion.objects.filter(
-                tecnico=tecnico, mes=mes, año=año).exists()
+            # Verificar si existe una liquidación previa
+            existente = Liquidacion.objects.filter(
+                tecnico=tecnico, mes=mes, año=año).first()
 
-            if existe:
-                # Aquí podrías guardar en sesión para confirmar reemplazo, o
-                # simplemente ignorar o actualizar
-                errores.append(
-                    f"Liquidación para Técnico ID {tecnico_id}, mes {mes}, año {año} ya existe.")
-                continue
+            if existente:
+                # ⚠️ Guardamos en sesión para confirmar reemplazo
+                request.session['duplicado_data'] = {
+                    'tecnico': tecnico.pk,
+                    'mes': mes,
+                    'año': año,
+                    'monto': None,
+                }
+                request.session['archivo_temporal_nombre'] = archivo.name
+                request.session['archivo_temporal_bytes'] = archivo.read()
 
+                messages.warning(
+                    request,
+                    f"Ya existe una liquidación para Técnico {tecnico_id}, mes {mes}, año {año}. ¿Deseas reemplazarla?"
+                )
+                return redirect('liquidaciones:confirmar_reemplazo')
+
+            # Si no existe, se guarda normalmente
             nueva = Liquidacion(
                 tecnico=tecnico,
                 mes=mes,
