@@ -64,6 +64,9 @@ class Liquidacion(models.Model):
 
         # Actualizar campo booleano firmada
         self.firmada = bool(self.pdf_firmado)
+        print("🧪 Storage del archivo PDF:", type(
+            self.archivo_pdf_liquidacion.storage))
+        print("🧪 Storage del PDF firmado:", type(self.pdf_firmado.storage))
         super().save(*args, **kwargs)
 
     class Meta:
