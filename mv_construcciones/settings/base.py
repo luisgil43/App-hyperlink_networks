@@ -1,9 +1,12 @@
+from django.core.files.storage import Storage
+from django.utils.module_loading import import_string
 import os
 from pathlib import Path
 import dj_database_url
 import logging
 from django.urls import reverse_lazy
 # logging.basicConfig(level=logging.DEBUG)
+
 
 # Solo carga dotenv si estás en desarrollo local
 if os.environ.get("DJANGO_DEVELOPMENT") == "true":
@@ -203,3 +206,13 @@ LOGGING = {
         },
     }
 }
+
+
+logger = logging.getLogger(__name__)
+
+try:
+    active_storage_class = import_string(DEFAULT_FILE_STORAGE)
+    logger.warning(
+        f"🧪 STORAGE USADO EN TIEMPO DE EJECUCIÓN: {active_storage_class}")
+except Exception as e:
+    logger.error(f"❌ Error al importar DEFAULT_FILE_STORAGE: {e}")
