@@ -127,6 +127,7 @@ USE_CLOUDINARY = all([
 ])
 
 if USE_CLOUDINARY:
+    print("✅ Cloudinary está activo")
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
     CLOUDINARY_STORAGE = {
         'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
@@ -134,11 +135,10 @@ if USE_CLOUDINARY:
         'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
     }
 else:
+    print("❌ Cloudinary NO está activo — usando almacenamiento local")
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
-    # Puedes mostrar una advertencia opcional si estás en desarrollo
     if DEBUG:
         print("⚠️ Cloudinary desactivado: usando almacenamiento local")
-
 # Correo electrónico
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
