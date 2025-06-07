@@ -25,6 +25,7 @@ class Liquidacion(models.Model):
 
     archivo_pdf_liquidacion = models.FileField(
         upload_to=ruta_archivo_sin_firmar,
+        storage=default_storage,
         blank=True,
         null=True,
         verbose_name="Liquidación de Sueldo"
@@ -32,6 +33,7 @@ class Liquidacion(models.Model):
 
     pdf_firmado = models.FileField(
         upload_to=ruta_archivo_firmado,
+        storage=default_storage,
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"
