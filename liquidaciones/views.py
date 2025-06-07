@@ -84,10 +84,12 @@ def ver_pdf_liquidacion(request, pk):
         return redirect('liquidaciones:listar')
 
     archivo = liquidacion.archivo_pdf_liquidacion
+
     if archivo and archivo.name and archivo.storage.exists(archivo.name):
         try:
             return FileResponse(archivo.open('rb'), content_type='application/pdf')
-        except Exception:
+        except Exception as e:
+            logger.error(f"[ver_pdf_liquidacion] Error al abrir PDF: {e}")
             messages.error(request, "No se pudo abrir el archivo PDF.")
             return redirect('liquidaciones:listar')
     else:
