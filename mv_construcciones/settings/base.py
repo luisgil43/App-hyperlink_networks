@@ -126,21 +126,14 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 
 def is_env_var_set(key):
-    return bool(os.environ.get(key))
+    return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
 
 
-USE_CLOUDINARY = all([
-    is_env_var_set("CLOUDINARY_CLOUD_NAME"),
-    is_env_var_set("CLOUDINARY_API_KEY"),
-    is_env_var_set("CLOUDINARY_API_SECRET"),
-])
-
-"""
-USE_CLOUDINARY = all([
-    os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    os.environ.get("CLOUDINARY_API_KEY"),
-    os.environ.get("CLOUDINARY_API_SECRET"),
-])"""
+USE_CLOUDINARY = (
+    is_env_var_set("CLOUDINARY_CLOUD_NAME") and
+    is_env_var_set("CLOUDINARY_API_KEY") and
+    is_env_var_set("CLOUDINARY_API_SECRET")
+)
 
 if USE_CLOUDINARY:
     print("✅ Cloudinary está activo")
@@ -155,6 +148,7 @@ else:
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
     if DEBUG:
         print("⚠️ Cloudinary desactivado: usando almacenamiento local")
+
 # Correo electrónico
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
