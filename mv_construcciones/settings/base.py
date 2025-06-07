@@ -120,11 +120,24 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # ✅ Cloudinary en producción, disco local en desarrollo
 # Se activa solo si todas las variables están presentes
+
+
+def is_env_var_set(key):
+    return bool(os.environ.get(key))
+
+
+USE_CLOUDINARY = all([
+    is_env_var_set("CLOUDINARY_CLOUD_NAME"),
+    is_env_var_set("CLOUDINARY_API_KEY"),
+    is_env_var_set("CLOUDINARY_API_SECRET"),
+])
+
+"""
 USE_CLOUDINARY = all([
     os.environ.get("CLOUDINARY_CLOUD_NAME"),
     os.environ.get("CLOUDINARY_API_KEY"),
     os.environ.get("CLOUDINARY_API_SECRET"),
-])
+])"""
 
 if USE_CLOUDINARY:
     print("✅ Cloudinary está activo")
