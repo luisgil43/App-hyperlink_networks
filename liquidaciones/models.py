@@ -3,7 +3,8 @@ from django.conf import settings
 from django_select2.views import AutoResponseView
 from django.contrib.auth import get_user_model
 from django_select2.forms import ModelSelect2Widget
-from django.core.files.storage import default_storage
+from django.utils.functional import LazyObject
+from django.core.files.storage import storages
 
 
 def ruta_archivo_sin_firmar(instance, filename):
@@ -12,6 +13,12 @@ def ruta_archivo_sin_firmar(instance, filename):
 
 def ruta_archivo_firmado(instance, filename):
     return f"liquidaciones_firmadas/{instance.año}_{instance.mes}/{filename}"
+
+
+class LazyCloudinaryStorage(LazyObject):
+    def _setup(self):
+        from django.conf import settings
+        self._wrapped = get_storage_class(settings.DEFAULT_FILE_STORAGE)()
 
 
 class Liquidacion(models.Model):
@@ -25,7 +32,7 @@ class Liquidacion(models.Model):
 
     archivo_pdf_liquidacion = models.FileField(
         upload_to=ruta_archivo_sin_firmar,
-        storage=default_storage,
+        storage=storages['default'],  # ✅ Esto sí funciona en Django 5+
         blank=True,
         null=True,
         verbose_name="Liquidación de Sueldo"
@@ -33,7 +40,7 @@ class Liquidacion(models.Model):
 
     pdf_firmado = models.FileField(
         upload_to=ruta_archivo_firmado,
-        storage=default_storage,
+        storage=storages['default'],  # ✅ Esto también
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"
