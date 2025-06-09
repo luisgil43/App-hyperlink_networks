@@ -1,10 +1,12 @@
-from django.core.files.storage import Storage
-from django.utils.module_loading import import_string
-import os
-from pathlib import Path
-import dj_database_url
-import logging
 from django.urls import reverse_lazy
+import logging
+import dj_database_url
+from pathlib import Path
+import os
+from django.utils.module_loading import import_string
+from django.core.files.storage import Storage
+from dotenv import load_dotenv
+load_dotenv()
 # logging.basicConfig(level=logging.DEBUG)
 
 
@@ -124,7 +126,15 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # ✅ Cloudinary en producción, disco local en desarrollo
 # Se activa solo si todas las variables están presentes
 
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}
+
+"""
 def is_env_var_set(key):
     return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
 
@@ -147,7 +157,7 @@ else:
     print("❌ Cloudinary NO está activo — usando almacenamiento local")
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
     if DEBUG:
-        print("⚠️ Cloudinary desactivado: usando almacenamiento local")
+        print("⚠️ Cloudinary desactivado: usando almacenamiento local")"""
 
 # Correo electrónico
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
