@@ -32,7 +32,6 @@ class Liquidacion(models.Model):
 
     archivo_pdf_liquidacion = models.FileField(
         upload_to=ruta_archivo_sin_firmar,
-        storage=storages['default'],  # ✅ Esto sí funciona en Django 5+
         blank=True,
         null=True,
         verbose_name="Liquidación de Sueldo"
@@ -40,7 +39,6 @@ class Liquidacion(models.Model):
 
     pdf_firmado = models.FileField(
         upload_to=ruta_archivo_firmado,
-        storage=storages['default'],  # ✅ Esto también
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"

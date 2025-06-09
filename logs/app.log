@@ -762,3 +762,9 @@ AttributeError: 'LiquidacionForm' object has no attribute 'fields'
 2025-06-06 18:14:29,692 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
 2025-06-06 18:14:31,701 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
 2025-06-06 18:14:32,846 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-09 08:39:37,622 [WARNING] django.request - Not Found: /favicon.ico
+2025-06-09 08:39:37,624 [WARNING] django.server - "GET /favicon.ico HTTP/1.1" 404 4753
+2025-06-09 08:39:45,692 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-09 08:39:49,298 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-09 08:39:56,009 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
+2025-06-09 08:40:00,452 [WARNING] django.server - "GET /static/css/styles.css HTTP/1.1" 404 1969
