@@ -1,47 +1,37 @@
+import logging
+from urllib.parse import urljoin
+import os
+import uuid
+import base64
+import requests
+import fitz  # PyMuPDF
+from io import BytesIO
+from PIL import Image
+from django.http import Http404
+from django.db.models import Q
+from django.utils.decorators import method_decorator
+from django.utils.timezone import now
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth.decorators import login_required
+from django.core.files.base import ContentFile
+from django.http import HttpResponse, FileResponse, HttpResponseBadRequest
+from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from . import views
+from django.core.files.storage import default_storage
+from .models import Liquidacion
+from .forms import LiquidacionForm
+from django_select2.views import AutoResponseView
 from dal import autocomplete
 from django.views.decorators.csrf import csrf_exempt
-from tecnicos.models import Tecnico
 from django.http import JsonResponse
 from django.contrib.auth import get_user_model
-from django_select2.views import AutoResponseView
-from .forms import LiquidacionForm
-from .models import Liquidacion
-from django.core.files.storage import default_storage
-from . import views
-from django.views.decorators.csrf import csrf_protect
-from django.utils import timezone
-from django.template.loader import render_to_string
-from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpResponse, FileResponse, HttpResponseBadRequest
-from django.core.files.base import ContentFile
-from django.contrib.auth.decorators import login_required
-from django.contrib.admin.views.decorators import staff_member_required
-from django.contrib import messages
-from django.conf import settings
-from django.utils.timezone import now
-from django.utils.decorators import method_decorator
-from django.db.models import Q
-from django.http import Http404
-from PIL import Image
-from io import BytesIO
-import fitz  # PyMuPDF
-import requests
-import base64
-import uuid
-import os
-from urllib.parse import urljoin
-import logging
+User = get_user_model()
 logger = logging.getLogger(__name__)
-
-
-"""
-Esta se activa si es sin filtro. 
-@staff_member_required
-def admin_lista_liquidaciones(request):
-    liquidaciones = Liquidacion.objects.select_related('tecnico').all()
-    return render(request, 'liquidaciones/admin_lista.html', {
-        'liquidaciones': liquidaciones
-    })"""
 
 
 @staff_member_required
@@ -102,13 +92,11 @@ def firmar_liquidacion(request, pk):
     usuario = request.user
     liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=usuario)
 
-    # Validación 1: ¿el usuario tiene una firma asociada?
     if not usuario.firma_digital or not usuario.firma_digital.name:
         messages.warning(
             request, "Debes registrar tu firma digital primero para poder firmar.")
         return redirect('liquidaciones:registrar_firma')
 
-    # Validación 2: ¿el archivo físico existe?
     if not default_storage.exists(usuario.firma_digital.name):
         messages.warning(
             request, "Tu firma registrada ya no está disponible. Por favor, vuelve a subirla.")
@@ -116,27 +104,17 @@ def firmar_liquidacion(request, pk):
 
     if request.method == 'POST':
         try:
-            # Verifica si existe el PDF sin firmar
             if not liquidacion.archivo_pdf_liquidacion or not liquidacion.archivo_pdf_liquidacion.name:
                 logger.warning(
                     f"[firmar_liquidacion] PDF no encontrado para liquidación {liquidacion.pk}")
                 return HttpResponseBadRequest("No se encontró el archivo PDF.")
 
-            try:
-                with liquidacion.archivo_pdf_liquidacion.open('rb') as f:
-                    original_pdf = BytesIO(f.read())
-            except Exception as e:
-                logger.error(f"[firmar_liquidacion] Error cargando PDF: {e}")
-                return HttpResponseBadRequest(f"No se pudo cargar el PDF: {e}")
+            with liquidacion.archivo_pdf_liquidacion.open('rb') as f:
+                original_pdf = BytesIO(f.read())
 
-            try:
-                with usuario.firma_digital.open('rb') as f:
-                    firma_data = BytesIO(f.read())
-            except Exception as e:
-                logger.error(f"[firmar_liquidacion] Error cargando firma: {e}")
-                return HttpResponseBadRequest(f"No se pudo cargar la firma: {e}")
+            with usuario.firma_digital.open('rb') as f:
+                firma_data = BytesIO(f.read())
 
-            # Verifica y convierte la imagen
             img = Image.open(firma_data)
             if img.format not in ['PNG', 'JPEG']:
                 raise ValueError("Formato de imagen no compatible")
@@ -145,21 +123,23 @@ def firmar_liquidacion(request, pk):
             img.save(firma_img_io, format='PNG')
             firma_img_io.seek(0)
 
-            # Insertar firma en el PDF (última página)
             doc = fitz.open(stream=original_pdf, filetype='pdf')
             page = doc[-1]
             rect = fitz.Rect(400, 700, 550, 750)
             page.insert_image(rect, stream=firma_img_io)
 
-            # Guardar nuevo PDF firmado
             pdf_firmado_io = BytesIO()
             doc.save(pdf_firmado_io)
             doc.close()
             pdf_firmado_io.seek(0)
 
-            file_name = f"liq_{liquidacion.pk}_firmada.pdf"
-            liquidacion.pdf_firmado.save(
-                file_name, ContentFile(pdf_firmado_io.read()), save=False)
+            # ✅ Guardar usando default_storage (Cloudinary si está activo)
+            file_name = f"liq_{liquidacion.pk}_firmada_{uuid.uuid4()}.pdf"
+            file_path = f"liquidaciones_firmadas/{file_name}"
+            saved_path = default_storage.save(
+                file_path, ContentFile(pdf_firmado_io.read()))
+
+            liquidacion.pdf_firmado.name = saved_path
             liquidacion.firmada = True
             liquidacion.fecha_firma = now()
             liquidacion.save()
@@ -299,9 +279,14 @@ def confirmar_reemplazo(request):
                 if anterior:
                     if anterior.firmada and anterior.pdf_firmado and anterior.pdf_firmado.storage.exists(anterior.pdf_firmado.name):
                         anterior.pdf_firmado.delete(save=False)
+                    if anterior.archivo_pdf_liquidacion and anterior.archivo_pdf_liquidacion.storage.exists(anterior.archivo_pdf_liquidacion.name):
+                        anterior.archivo_pdf_liquidacion.delete(save=False)
                     anterior.delete()
 
-                archivo = ContentFile(archivo_binario, name=archivo_nombre)
+                # Guardar nuevo archivo en Cloudinary
+                nombre_final = f"liquidaciones_sin_firmar/{uuid.uuid4()}_{archivo_nombre}"
+                ruta_guardada = default_storage.save(
+                    nombre_final, ContentFile(archivo_binario))
 
                 nueva = Liquidacion(
                     tecnico_id=tecnico_id,
@@ -310,8 +295,8 @@ def confirmar_reemplazo(request):
                     monto=data.get('monto'),
                     firmada=False
                 )
-                nueva.archivo_pdf_liquidacion.save(
-                    archivo_nombre, archivo, save=True)
+                nueva.archivo_pdf_liquidacion.name = ruta_guardada
+                nueva.save()
 
                 messages.success(
                     request, "✅ Liquidación reemplazada correctamente.")
@@ -398,7 +383,7 @@ def carga_masiva_view(request):
                 )
                 return redirect('liquidaciones:confirmar_reemplazo')
 
-            # Si no existe, se guarda normalmente
+            # Si no existe, se guarda normalmente en Cloudinary
             nueva = Liquidacion(
                 tecnico=tecnico,
                 mes=mes,
@@ -406,8 +391,12 @@ def carga_masiva_view(request):
                 monto=None,
                 firmada=False
             )
-            nueva.archivo_pdf_liquidacion.save(
-                archivo.name, archivo, save=True)
+
+            file_name = f"liquidaciones_sin_firmar/{uuid.uuid4()}_{archivo.name}"
+            ruta_guardada = default_storage.save(
+                file_name, ContentFile(archivo.read()))
+            nueva.archivo_pdf_liquidacion.name = ruta_guardada
+            nueva.save()
             exitos += 1
 
         if exitos:

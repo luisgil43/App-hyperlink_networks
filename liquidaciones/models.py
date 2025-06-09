@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django_select2.forms import ModelSelect2Widget
 from django.utils.functional import LazyObject
 from django.core.files.storage import storages
+from django.utils.module_loading import import_string
 
 
 def ruta_archivo_sin_firmar(instance, filename):
@@ -18,7 +19,11 @@ def ruta_archivo_firmado(instance, filename):
 class LazyCloudinaryStorage(LazyObject):
     def _setup(self):
         from django.conf import settings
-        self._wrapped = get_storage_class(settings.DEFAULT_FILE_STORAGE)()
+        storage_path = getattr(settings, 'DEFAULT_FILE_STORAGE', '')
+        if not storage_path:
+            raise Exception(
+                "DEFAULT_FILE_STORAGE no está definido en settings.")
+        self._wrapped = import_string(storage_path)()
 
 
 class Liquidacion(models.Model):
