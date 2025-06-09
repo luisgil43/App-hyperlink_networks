@@ -128,13 +128,9 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
-    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
-    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
-}
+# coloca esto:
 
-"""
+
 def is_env_var_set(key):
     return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
 
@@ -145,6 +141,23 @@ USE_CLOUDINARY = (
     is_env_var_set("CLOUDINARY_API_SECRET")
 )
 
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}
+
+
+def is_env_var_set(key):
+    return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
+
+
+USE_CLOUDINARY = (
+    is_env_var_set("CLOUDINARY_CLOUD_NAME") and
+    is_env_var_set("CLOUDINARY_API_KEY") and
+    is_env_var_set("CLOUDINARY_API_SECRET")
+)
+"""
 if USE_CLOUDINARY:
     print("✅ Cloudinary está activo")
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
