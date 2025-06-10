@@ -75,7 +75,7 @@ def ver_pdf_liquidacion(request, pk):
 
     archivo = liquidacion.archivo_pdf_liquidacion
 
-    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+    if archivo and archivo.name:
         try:
             return FileResponse(archivo.open('rb'), content_type='application/pdf')
         except Exception as e:
@@ -97,7 +97,10 @@ def firmar_liquidacion(request, pk):
             request, "Debes registrar tu firma digital primero para poder firmar.")
         return redirect('liquidaciones:registrar_firma')
 
-    if not default_storage.exists(usuario.firma_digital.name):
+    try:
+        usuario.firma_digital.open()
+    except Exception as e:
+        logger.warning(f"[firmar_liquidacion] Firma digital no accesible: {e}")
         messages.warning(
             request, "Tu firma registrada ya no está disponible. Por favor, vuelve a subirla.")
         return redirect('liquidaciones:registrar_firma')
@@ -220,12 +223,21 @@ def descargar_pdf(request, pk):
 
     archivo = liquidacion.pdf_firmado
 
-    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+    if archivo and archivo.name:
         try:
-            response = FileResponse(archivo.open(
-                'rb'), as_attachment=True, filename=archivo.name)
-            return response
-        except Exception:
+            apellido = liquidacion.tecnico.last_name or "tecnico"
+            año = liquidacion.año
+            mes = f"{liquidacion.mes:02d}"  # formato 01, 02, ..., 12
+            nombre_archivo = f"liquidacion_{apellido}_{año}_{mes}.pdf"
+
+            return FileResponse(
+                archivo.open('rb'),
+                as_attachment=True,
+                filename=nombre_archivo
+            )
+        except Exception as e:
+            logger.error(
+                f"[descargar_pdf] Error al abrir archivo firmado: {e}")
             messages.error(request, "No se pudo abrir el archivo firmado.")
             return redirect('liquidaciones:listar')
     else:
@@ -274,13 +286,25 @@ def confirmar_reemplazo(request):
                 año = data.get('año')
 
                 anterior = Liquidacion.objects.filter(
-                    tecnico_id=tecnico_id, mes=mes, año=año).first()
+                    tecnico_id=tecnico_id, mes=mes, año=año
+                ).first()
 
                 if anterior:
-                    if anterior.firmada and anterior.pdf_firmado and anterior.pdf_firmado.storage.exists(anterior.pdf_firmado.name):
-                        anterior.pdf_firmado.delete(save=False)
-                    if anterior.archivo_pdf_liquidacion and anterior.archivo_pdf_liquidacion.storage.exists(anterior.archivo_pdf_liquidacion.name):
-                        anterior.archivo_pdf_liquidacion.delete(save=False)
+                    # Intentar eliminar archivos sin usar storage.exists()
+                    try:
+                        if anterior.pdf_firmado:
+                            anterior.pdf_firmado.delete(save=False)
+                    except Exception as e:
+                        logger.warning(
+                            f"[confirmar_reemplazo] No se pudo eliminar pdf_firmado: {e}")
+
+                    try:
+                        if anterior.archivo_pdf_liquidacion:
+                            anterior.archivo_pdf_liquidacion.delete(save=False)
+                    except Exception as e:
+                        logger.warning(
+                            f"[confirmar_reemplazo] No se pudo eliminar archivo_pdf_liquidacion: {e}")
+
                     anterior.delete()
 
                 # Guardar nuevo archivo en Cloudinary
@@ -483,10 +507,22 @@ def ver_pdf_firmado_admin(request, pk):
         return redirect('liquidaciones:admin_lista')
 
     archivo = liquidacion.pdf_firmado
-    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+
+    if archivo and archivo.name:
         try:
-            return FileResponse(archivo.open('rb'), content_type='application/pdf')
-        except Exception:
+            apellido = liquidacion.tecnico.last_name or "tecnico"
+            año = liquidacion.año
+            mes = f"{liquidacion.mes:02d}"
+            nombre_archivo = f"liquidacion_{apellido}_{año}_{mes}.pdf"
+
+            return FileResponse(
+                archivo.open('rb'),
+                as_attachment=True,
+                filename=nombre_archivo
+            )
+        except Exception as e:
+            logger.error(
+                f"[ver_pdf_firmado_admin] Error al abrir PDF firmado: {e}")
             messages.error(request, "No se pudo abrir el archivo firmado.")
             return redirect('liquidaciones:admin_lista')
     else:
@@ -503,10 +539,21 @@ def ver_pdf_admin(request, pk):
         return redirect('liquidaciones:admin_lista')
 
     archivo = liquidacion.archivo_pdf_liquidacion
-    if archivo and archivo.name and archivo.storage.exists(archivo.name):
+
+    if archivo and archivo.name:
         try:
-            return FileResponse(archivo.open('rb'), content_type='application/pdf')
-        except Exception:
+            apellido = liquidacion.tecnico.last_name or "tecnico"
+            año = liquidacion.año
+            mes = f"{liquidacion.mes:02d}"
+            nombre_archivo = f"liquidacion_{apellido}_{año}_{mes}_sin_firma.pdf"
+
+            return FileResponse(
+                archivo.open('rb'),
+                as_attachment=True,
+                filename=nombre_archivo
+            )
+        except Exception as e:
+            logger.error(f"[ver_pdf_admin] Error al abrir archivo PDF: {e}")
             messages.error(request, "No se pudo abrir el archivo.")
             return redirect('liquidaciones:admin_lista')
     else:
