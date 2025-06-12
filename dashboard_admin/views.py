@@ -10,6 +10,8 @@ from dashboard.models import ProduccionTecnico
 from django.contrib.auth.forms import AuthenticationForm
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
+from django.core.exceptions import PermissionDenied
 
 User = get_user_model()
 
@@ -20,14 +22,15 @@ def admin_dashboard_view(request):
     return render(request, 'dashboard_admin/base.html')
 
 
+@login_required(login_url='dashboard_admin:login')
 def logout_view(request):
     logout(request)
     return redirect('dashboard_admin:login')
 
 
-@login_required(login_url='dashboard_admin:login')
-def inicio(request):
-    return render(request, 'dashboard/inicio.html')
+@staff_member_required
+def inicio_admin(request):
+    return render(request, 'dashboard_admin/inicio_admin.html')
 
 
 @login_required(login_url='dashboard_admin:login')
@@ -66,24 +69,6 @@ def grupos_view(request):
 
     grupos = Group.objects.all()
     return render(request, 'dashboard_admin/grupos.html', {'grupos': grupos})
-
-
-"""
-class UsuarioLoginView(LoginView):
-    template_name = 'dashboard_usuario/login.html'
-    authentication_form = AuthenticationForm
-
-    def get_success_url(self):
-        return reverse_lazy('dashboard_usuario:home')
-
-    def form_valid(self, form):
-        user = form.get_user()
-        if user.is_staff:
-            # Redirige a dashboard admin si es staff
-            return redirect('dashboard_admin:index')
-        login(self.request, user)
-        return super().form_valid(form)
-"""
 
 
 class UsuarioLoginView(LoginView):
@@ -158,24 +143,7 @@ class AdminLoginView(LoginView):
         if redirect_to and url_has_allowed_host_and_scheme(redirect_to, self.request.get_host()):
             return redirect_to
 
-        return reverse_lazy('dashboard_admin:index')
-
-
-"""
-class AdminLoginView(LoginView):
-    template_name = 'dashboard_admin/login.html'
-    authentication_form = AuthenticationForm
-
-    def get_success_url(self):
-        return reverse_lazy('dashboard_admin:index')
-
-    def form_valid(self, form):
-        user = form.get_user()
-        if not user.is_staff:  # solo admin
-            return redirect('login_usuario')  # redirige si no es admin
-        login(self.request, user)
-        return super().form_valid(form)
-"""
+        return reverse_lazy('dashboard_admin:inicio_admin')
 
 
 @login_required(login_url='dashboard_admin:login')

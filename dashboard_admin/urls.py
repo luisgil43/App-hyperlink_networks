@@ -10,7 +10,7 @@ app_name = 'dashboard_admin'
 
 urlpatterns = [
     path('', admin_dashboard_view, name='home'),
-    path('dashboard/', admin_dashboard_view, name='index'),
+    # path('dashboard/', admin_dashboard_view, name='index'),
 
     path('logout/', logout_view, name='logout'),
     path('login/', AdminLoginView.as_view(), name='login'),
@@ -25,4 +25,5 @@ urlpatterns = [
          editar_usuario_view, name='editar_usuario'),
     path('usuarios/eliminar/<int:user_id>/',
          eliminar_usuario_view, name='eliminar_usuario'),
+    path('dashboard/', views.inicio_admin, name='inicio_admin'),
 ]
