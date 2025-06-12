@@ -4,62 +4,76 @@
 <div class="max-w-4xl mx-auto bg-white shadow p-6 rounded-xl mt-6">
   <h2 class="text-2xl font-bold text-gray-800 mb-6">✏️ Editar Liquidación #{{ liquidacion.id }}</h2>
 
-  <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {% csrf_token %}
     {{ form.non_field_errors }}
 
+    {% if form.errors %}
+      <div class="md:col-span-2 bg-red-100 border border-red-300 text-red-700 p-4 rounded-xl">
+        <strong>Se encontraron errores en el formulario:</strong>
+        <ul class="list-disc pl-5 mt-2 text-sm">
+          {% for field in form %}
+            {% for error in field.errors %}
+              <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+            {% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
     <!-- Técnico -->
     <div>
-      {{ form.tecnico.label_tag }}  
+      {{ form.tecnico.label_tag }}
       {{ form.tecnico }}
     </div>
 
     <!-- Mes -->
     <div>
-      {{ form.mes.label_tag }}  
+      {{ form.mes.label_tag }}
       {{ form.mes }}
     </div>
 
     <!-- Año -->
     <div>
-      {{ form.año.label_tag }}  
+      {{ form.año.label_tag }}
       {{ form.año }}
     </div>
 
     <!-- Monto -->
     <div>
-      {{ form.monto.label_tag }}  
+      {{ form.monto.label_tag }}
       {{ form.monto }}
     </div>
 
-    <!-- Archivo PDF sin firmar -->
+    <!-- Liquidación sin firmar -->
     <div class="md:col-span-2">
       <label class="block font-semibold text-gray-700 mb-1">Liquidación de Sueldo:</label>
-      {% if form.instance.archivo_pdf_liquidacion %}
+      {% if liquidacion.archivo_pdf_liquidacion %}
         <p class="text-sm text-gray-600 mb-2">
-          Actualmente: <code>{{ form.instance.archivo_pdf_liquidacion.name }}</code>
+          Actualmente: <code>{{ liquidacion.archivo_pdf_liquidacion.name }}</code>
         </p>
       {% endif %}
       {{ form.archivo_pdf_liquidacion }}
-      {% if form.archivo_pdf_liquidacion.clear_checkbox_label %}
+      {% if form.archivo_pdf_liquidacion.clear %}
         <label class="inline-flex items-center mt-2">
-          {{ form.archivo_pdf_liquidacion.clear }} {{ form.archivo_pdf_liquidacion.clear_checkbox_label }}
+          {{ form.archivo_pdf_liquidacion.clear }} Eliminar archivo actual
         </label>
       {% endif %}
+      <p class="text-sm text-red-600 mt-2">⚠️ Si reemplazas este archivo, se eliminará la firma actual y deberá firmarse nuevamente.</p>
     </div>
 
-    <!-- Archivo PDF firmado -->
+    <!-- PDF Firmado -->
     <div class="md:col-span-2">
       <label class="block font-semibold text-gray-700 mb-1">Liquidación de sueldo firmada:</label>
-      {% if form.instance.pdf_firmado %}
+      {% if liquidacion.pdf_firmado %}
         <p class="text-sm text-gray-600 mb-2">
-          Actualmente: <code>{{ form.instance.pdf_firmado.name }}</code>
+          Actualmente: <code>{{ liquidacion.pdf_firmado.name }}</code>
         </p>
       {% endif %}
       {{ form.pdf_firmado }}
-      {% if form.pdf_firmado.clear_checkbox_label %}
+      {% if form.pdf_firmado.clear %}
         <label class="inline-flex items-center mt-2">
-          {{ form.pdf_firmado.clear }} {{ form.pdf_firmado.clear_checkbox_label }}
+          {{ form.pdf_firmado.clear }} Eliminar archivo actual
         </label>
       {% endif %}
     </div>
@@ -86,5 +100,3 @@
   </form>
 </div>
 {% endblock %}
-{% extends 'dashboard_admin/base.html' %}
-

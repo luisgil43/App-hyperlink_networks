@@ -130,13 +130,16 @@ USE_CLOUDINARY = (
 )
 
 if USE_CLOUDINARY:
-    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-
+    # Configuración de Cloudinary
     CLOUDINARY_STORAGE = {
         'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
         'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
         'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
     }
+
+    # Asignar al espacio global para evitar errores
+    globals()[
+        'DEFAULT_FILE_STORAGE'] = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 # Email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

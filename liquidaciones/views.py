@@ -11,6 +11,7 @@ from django.http import Http404
 from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.utils.timezone import now
+from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -21,6 +22,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
+from django.core.exceptions import ValidationError
 from . import views
 from django.core.files.storage import default_storage
 from .models import Liquidacion, ruta_archivo_firmado, ruta_archivo_sin_firmar
@@ -137,6 +139,87 @@ def firmar_liquidacion(request, pk):
                     f"[firmar_liquidacion] PDF no encontrado para liquidación {liquidacion.pk}")
                 return HttpResponseBadRequest("No se encontró el archivo PDF.")
 
+            # Leer PDF original
+            with liquidacion.archivo_pdf_liquidacion.open('rb') as f:
+                original_pdf = BytesIO(f.read())
+
+            # Leer firma
+            with usuario.firma_digital.open('rb') as f:
+                firma_data = BytesIO(f.read())
+
+            img = Image.open(firma_data)
+            if img.format not in ['PNG', 'JPEG']:
+                raise ValueError("Formato de imagen no compatible")
+
+            firma_img_io = BytesIO()
+            img.save(firma_img_io, format='PNG')
+            firma_img_io.seek(0)
+
+            # Insertar imagen en PDF
+            doc = fitz.open(stream=original_pdf, filetype='pdf')
+            page = doc[-1]
+            rect = fitz.Rect(400, 700, 550, 750)
+            page.insert_image(rect, stream=firma_img_io)
+
+            pdf_firmado_io = BytesIO()
+            doc.save(pdf_firmado_io)
+            doc.close()
+            pdf_firmado_io.seek(0)
+
+            # ✅ Usar mismo nombre base del PDF original
+            nombre_base = Path(liquidacion.archivo_pdf_liquidacion.name).name
+            nombre_firmado = f"liquidaciones_firmadas/{liquidacion.año}_{liquidacion.mes}/{nombre_base}"
+
+            content = ContentFile(pdf_firmado_io.read())
+            liquidacion.pdf_firmado.save(nombre_firmado, content, save=False)
+
+            liquidacion.firmada = True
+            liquidacion.fecha_firma = now()
+            liquidacion.save()
+
+            print("✅ Ruta final del PDF firmado en Cloudinary:",
+                  liquidacion.pdf_firmado.name)
+
+            messages.success(
+                request, "La liquidación fue firmada correctamente. Puedes descargarla ahora.")
+            return redirect('liquidaciones:listar')
+
+        except Exception as e:
+            logger.error(f"[firmar_liquidacion] Error general al firmar: {e}")
+            return HttpResponseBadRequest(f"Error al firmar el PDF: {e}")
+
+    return render(request, 'liquidaciones/firmar.html', {
+        'liquidacion': liquidacion,
+        'tecnico': usuario
+    })
+
+
+"""
+@login_required
+def firmar_liquidacion(request, pk):
+    usuario = request.user
+    liquidacion = get_object_or_404(Liquidacion, pk=pk, tecnico=usuario)
+
+    if not usuario.firma_digital or not usuario.firma_digital.name:
+        messages.warning(
+            request, "Debes registrar tu firma digital primero para poder firmar.")
+        return redirect('liquidaciones:registrar_firma')
+
+    try:
+        usuario.firma_digital.open()
+    except Exception as e:
+        logger.warning(f"[firmar_liquidacion] Firma digital no accesible: {e}")
+        messages.warning(
+            request, "Tu firma registrada ya no está disponible. Por favor, vuelve a subirla.")
+        return redirect('liquidaciones:registrar_firma')
+
+    if request.method == 'POST':
+        try:
+            if not liquidacion.archivo_pdf_liquidacion or not liquidacion.archivo_pdf_liquidacion.name:
+                logger.warning(
+                    f"[firmar_liquidacion] PDF no encontrado para liquidación {liquidacion.pk}")
+                return HttpResponseBadRequest("No se encontró el archivo PDF.")
+
             with liquidacion.archivo_pdf_liquidacion.open('rb') as f:
                 original_pdf = BytesIO(f.read())
 
@@ -187,6 +270,7 @@ def firmar_liquidacion(request, pk):
         'liquidacion': liquidacion,
         'tecnico': usuario
     })
+"""
 
 
 @login_required
@@ -513,17 +597,28 @@ class UsuarioAutocomplete(AutoResponseView):
 @staff_member_required
 def editar_liquidacion(request, pk):
     liquidacion = get_object_or_404(Liquidacion, pk=pk)
+
     if request.method == 'POST':
         form = LiquidacionForm(
             request.POST, request.FILES, instance=liquidacion)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Liquidación actualizada con éxito.')
+            messages.success(request, '✅ Liquidación actualizada con éxito.')
             return redirect('liquidaciones:admin_lista')
+        else:
+            # Mostrar errores en consola para depuración
+            print("🔴 Errores en el formulario:")
+            for field, errors in form.errors.items():
+                print(f" - {field}: {errors}")
+            messages.error(
+                request, "❌ Hubo errores al actualizar la liquidación. Revisa los campos.")
     else:
         form = LiquidacionForm(instance=liquidacion)
 
-    return render(request, 'liquidaciones/editar_liquidacion.html', {'form': form, 'liquidacion': liquidacion})
+    return render(request, 'liquidaciones/editar_liquidacion.html', {
+        'form': form,
+        'liquidacion': liquidacion
+    })
 
 
 @staff_member_required
@@ -536,6 +631,46 @@ def eliminar_liquidacion(request, pk):
         return redirect("liquidaciones:admin_lista")
 
     return render(request, "liquidaciones/eliminar_confirmacion.html", {"liquidacion": liquidacion})
+
+
+@staff_member_required
+def editar_liquidacion(request, pk):
+    liquidacion = get_object_or_404(Liquidacion, pk=pk)
+    antigua_ruta_pdf = (
+        liquidacion.archivo_pdf_liquidacion.name if liquidacion.archivo_pdf_liquidacion else None
+    )
+
+    if request.method == 'POST':
+        form = LiquidacionForm(
+            request.POST, request.FILES, instance=liquidacion)
+        if form.is_valid():
+            nueva_ruta_pdf = request.FILES.get('archivo_pdf_liquidacion')
+
+            # 🧠 Si se reemplaza el archivo, eliminamos la firma anterior
+            if nueva_ruta_pdf and nueva_ruta_pdf.name != antigua_ruta_pdf:
+                if liquidacion.pdf_firmado and default_storage.exists(liquidacion.pdf_firmado.name):
+                    default_storage.delete(liquidacion.pdf_firmado.name)
+                    messages.info(
+                        request, "La firma anterior fue eliminada porque se reemplazó la liquidación.")
+
+                liquidacion.pdf_firmado = None
+                liquidacion.fecha_firma = None
+                liquidacion.firmada = False
+
+            form.save()
+            messages.success(
+                request, '✅ Liquidación actualizada correctamente.')
+            return redirect('liquidaciones:admin_lista')
+        else:
+            messages.error(
+                request, '❌ Hubo errores al actualizar la liquidación. Revisa los campos.')
+    else:
+        form = LiquidacionForm(instance=liquidacion)
+
+    return render(request, 'liquidaciones/editar_liquidacion.html', {
+        'form': form,
+        'liquidacion': liquidacion,
+    })
 
 
 @staff_member_required

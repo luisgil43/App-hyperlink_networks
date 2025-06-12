@@ -71,6 +71,40 @@ class Liquidacion(models.Model):
     def save(self, *args, **kwargs):
         try:
             old = Liquidacion.objects.get(pk=self.pk)
+        except Liquidacion.DoesNotExist:
+            old = None
+
+        if (
+            old and
+            old.archivo_pdf_liquidacion and self.archivo_pdf_liquidacion and
+            old.archivo_pdf_liquidacion.name != self.archivo_pdf_liquidacion.name
+        ):
+            # 🗑️ Eliminar la liquidación sin firmar anterior
+            if old.archivo_pdf_liquidacion.storage.exists(old.archivo_pdf_liquidacion.name):
+                old.archivo_pdf_liquidacion.delete(save=False)
+
+        # 🗑️ Eliminar la liquidación firmada anterior si existe
+            if old.pdf_firmado and old.pdf_firmado.storage.exists(old.pdf_firmado.name):
+                old.pdf_firmado.delete(save=False)
+
+        # 🔄 Resetear campos de firma
+            self.pdf_firmado = None
+            self.fecha_firma = None
+
+        self.firmada = bool(self.pdf_firmado)
+
+    # 🧪 Log para verificar
+        print("🧪 Storage archivo PDF:", type(
+            self.archivo_pdf_liquidacion.storage))
+        print("🧪 Storage PDF firmado:", type(self.pdf_firmado.storage))
+
+        super().save(*args, **kwargs)
+
+
+"""
+    def save(self, *args, **kwargs):
+        try:
+            old = Liquidacion.objects.get(pk=self.pk)
 
         except Liquidacion.DoesNotExist:
             old = None
@@ -92,17 +126,19 @@ class Liquidacion(models.Model):
             self.archivo_pdf_liquidacion.storage))
         print("🧪 Storage del PDF firmado1:", type(self.pdf_firmado.storage))
         super().save(*args, **kwargs)
+"""
 
-    class Meta:
-        verbose_name = "Liquidación"
-        verbose_name_plural = "Liquidaciones"
-        constraints = [
-            models.UniqueConstraint(
-                fields=['tecnico', 'mes', 'año'],
-                name='unique_liquidacion_por_tecnico_mes_anio',
-                violation_error_message='Ya existe una liquidación para este técnico en ese mes y año.'
-            )
-        ]
+
+class Meta:
+    verbose_name = "Liquidación"
+    verbose_name_plural = "Liquidaciones"
+    constraints = [
+        models.UniqueConstraint(
+            fields=['tecnico', 'mes', 'año'],
+            name='unique_liquidacion_por_tecnico_mes_anio',
+            violation_error_message='Ya existe una liquidación para este técnico en ese mes y año.'
+        )
+    ]
 
 
 User = get_user_model()
