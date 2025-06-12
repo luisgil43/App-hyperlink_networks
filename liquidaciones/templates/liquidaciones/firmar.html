@@ -1,14 +1,20 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block content %}
 <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-lg">
-<h2 class="text-2xl font-bold text-gray-800 mb-4">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4">
     Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.año }}
   </h2>
-<p class="text-gray-600 mb-4">
+
+  <p class="text-gray-600 mb-4">
     Revisa el documento antes de firmar. Al firmar, estarás aceptando el contenido de la liquidación.
   </p>
-<div class="mb-6">
-<p class="font-medium text-gray-700 mb-1">Archivo Original:</p>
+
+  <div class="mb-6">
+    <p class="font-medium text-gray-700 mb-1">Archivo Original:</p>
     {% if liquidacion.archivo_pdf_liquidacion %}
-    <a class="text-blue-600 hover:underline" href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank">
+    <a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
       Ver PDF
     </a>
     {% else %}
@@ -21,27 +27,30 @@
     {% csrf_token %}
 
     <p class="text-gray-700 font-medium mb-2">Tu firma registrada:</p>
-<div class="border border-gray-300 rounded-md p-2 inline-block mb-4">
-<img alt="Firma digital del técnico" class="max-h-24" src="{{ tecnico.firma_digital.url }}"/>
-</div>
-<div class="flex justify-end gap-4">
-<a class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400" href="{% url 'liquidaciones:listar' %}">
+    <div class="border border-gray-300 rounded-md p-2 inline-block mb-4">
+      <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital del técnico" class="max-h-24">
+    </div>
+
+    <div class="flex justify-end gap-4">
+      <a href="{% url 'liquidaciones:listar' %}" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400">
         Cancelar
       </a>
-<button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" type="submit">
+      <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
         Firmar
       </button>
-</div>
-</form>
+    </div>
+  </form>
   {% else %}
   <div class="p-4 border-l-4 border-red-500 bg-red-50 text-red-800 rounded-md">
-<p class="mb-2 font-medium">No tienes una firma digital registrada o el archivo fue eliminado.</p>
-<a class="underline text-red-600 hover:text-red-800" href="{% url 'liquidaciones:registrar_firma' %}">
+    <p class="mb-2 font-medium">No tienes una firma digital registrada o el archivo fue eliminado.</p>
+    <a href="{% url 'liquidaciones:registrar_firma' %}" class="underline text-red-600 hover:text-red-800">
       Haz clic aquí para crear tu firma.
     </a>
-</div>
+  </div>
   {% endif %}
-</div><script>
+</div>
+
+<script>
   function validarFirmaRegistrada() {
     const tieneFirma = "{{ tecnico.firma_digital.url|default_if_none:''|escapejs }}";
     if (!tieneFirma.trim()) {
@@ -50,10 +59,5 @@
     }
     return true;
   }
-</script><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends 'dashboard/base.html' %}
-{% load static %}
-
-{% block content %}
-
-
-{% endblock %}</body></html>
+</script>
+{% endblock %}

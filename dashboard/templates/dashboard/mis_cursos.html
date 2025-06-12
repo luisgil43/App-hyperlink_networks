@@ -1,6 +1,11 @@
+{% extends 'dashboard/base.html' %}
+
+{% block content %}
 <h1 style="text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 20px;">
     Cursos de {{ tecnico.user.get_full_name|default:tecnico.user.username }}
-</h1><div style="overflow-x: auto; max-width: 100%;">
+</h1>
+
+<div style="overflow-x: auto; max-width: 100%;">
 <table style="
     width: 100%;
     max-width: 1000px;
@@ -12,22 +17,22 @@
     border: 1px solid #ccc;
     min-width: 600px;
 ">
-<thead>
-<tr style="background-color: #f1f1f1; color: #333;">
-<th style="padding: 10px; border: 1px solid #ccc;">NOMBRE CURSO</th>
-<th style="padding: 10px; border: 1px solid #ccc;">FECHA DE VENCIMIENTO</th>
-<th style="padding: 10px; border: 1px solid #ccc;">ACTIVO</th>
-</tr>
-</thead>
-<tbody>
+    <thead>
+        <tr style="background-color: #f1f1f1; color: #333;">
+            <th style="padding: 10px; border: 1px solid #ccc;">NOMBRE CURSO</th>
+            <th style="padding: 10px; border: 1px solid #ccc;">FECHA DE VENCIMIENTO</th>
+            <th style="padding: 10px; border: 1px solid #ccc;">ACTIVO</th>
+        </tr>
+    </thead>
+    <tbody>
         {% for curso in cursos %}
         <tr>
-<td style="padding: 10px; border: 1px solid #ccc;">{{ curso.nombre_curso }}</td>
-<td style="padding: 10px; border: 1px solid #ccc;">
+            <td style="padding: 10px; border: 1px solid #ccc;">{{ curso.nombre_curso }}</td>
+            <td style="padding: 10px; border: 1px solid #ccc;">
                 {{ curso.fecha_vencimiento|date:"j" }} de {{ curso.fecha_vencimiento|date:"F" }} de {{ curso.fecha_vencimiento|date:"Y" }}
             </td>
-<td style="padding: 10px; border: 1px solid #ccc; text-align: center;">
-                {% if curso.fecha_vencimiento &gt;= today %}
+            <td style="padding: 10px; border: 1px solid #ccc; text-align: center;">
+                {% if curso.fecha_vencimiento >= today %}
     	    <span style="display: inline-flex; align-items: center; background-color: #d4edda; color: #155724; padding: 4px 8px; border-radius: 12px;">
         ✅ Sí
     </span>
@@ -37,19 +42,14 @@
     </span>
 {% endif %}
             </td>
-</tr>
+        </tr>
         {% empty %}
         <tr>
-<td colspan="3" style="padding: 10px; text-align: center; border: 1px solid #ccc;">No tienes cursos asignados actualmente.</td>
-</tr>
+            <td colspan="3" style="padding: 10px; text-align: center; border: 1px solid #ccc;">No tienes cursos asignados actualmente.</td>
+        </tr>
         {% endfor %}
     </tbody>
 </table>
-</div><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends 'dashboard/base.html' %}
-
-{% block content %}
-
-
+</div>
 {% endblock %}
 
-</body></html>

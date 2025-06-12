@@ -1,0 +1,83 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block branding %}
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <img src="{% static 'images/logo.png' %}" alt="Logo" style="height: 40px;">
+    <h1 style="font-size: 1.25rem; font-weight: bold; color: white;">MV INGENIERÍA & CONSTRUCCIÓN</h1>
+  </div>
+{% endblock %}
+
+{% block nav-global %}
+  {{ block.super }}
+  <div class="custom-menu">
+    <h2>Menú Admin</h2>
+    <ul>
+      <li class="group">
+        <span class="cursor-pointer" onclick="toggleMenu(this)">
+          🛠 Operaciones <span class="arrow">▶</span>
+        </span>
+        <ul class="hidden-submenu">
+          <li><a href="{% url 'custom_admin:dashboard_producciontecnico_changelist' %}">Producción Técnicos</a></li>
+          <li><a href="#">Horas extras</a></li>
+          <li><a href="#">Rendiciones</a></li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+{% endblock %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    .custom-menu {
+      background-color: #1f2937;
+      color: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-top: 1rem;
+    }
+    .custom-menu h2 {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+    }
+    .custom-menu ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .custom-menu li {
+      margin-bottom: 0.5rem;
+    }
+    .custom-menu a {
+      color: #a7f3d0;
+      text-decoration: none;
+    }
+    .custom-menu a:hover {
+      color: #34d399;
+    }
+    .arrow {
+      display: inline-block;
+      transition: transform 0.2s;
+    }
+    .active .arrow {
+      transform: rotate(90deg);
+    }
+    .hidden-submenu {
+      display: none;
+      padding-left: 1rem;
+    }
+    .active .hidden-submenu {
+      display: block;
+    }
+    .cursor-pointer {
+      cursor: pointer;
+    }
+  </style>
+  <script>
+    function toggleMenu(el) {
+      const parent = el.parentElement;
+      parent.classList.toggle('active');
+    }
+  </script>
+{% endblock %}

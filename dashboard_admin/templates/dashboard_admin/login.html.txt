@@ -1,0 +1,38 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Login Admin</title>
+  <link href="{% static 'css/styles.css' %}" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body class="flex items-center justify-center h-screen bg-gray-100">
+  <form method="post" action="{% url 'dashboard_admin:login' %}" class="bg-white p-6 rounded shadow-md w-80">
+    {% csrf_token %}
+    <h1 class="text-xl mb-4 text-center font-semibold">Panel de Administración MV</h1>
+
+    {% if messages %}
+      {% for msg in messages %}
+        <div class="text-red-600 text-sm mb-2">{{ msg }}</div>
+      {% endfor %}
+    {% endif %}
+
+    {% if form.errors %}
+      <div class="text-red-600 text-sm mb-3">
+        Por favor verifica tus credenciales.
+      </div>
+    {% endif %}
+
+    <label for="id_username" class="block text-sm font-medium">Usuario</label>
+    <input id="id_username" name="username" class="w-full border px-2 py-1 mb-3 rounded" required />
+
+    <label for="id_password" class="block text-sm font-medium">Contraseña</label>
+    <input id="id_password" name="password" type="password" class="w-full border px-2 py-1 mb-4 rounded" required/>
+
+    <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded w-full hover:bg-emerald-700 transition">
+      Entrar
+    </button>
+  </form>
+</body>
+</html>

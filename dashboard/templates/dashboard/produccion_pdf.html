@@ -1,10 +1,9 @@
 <!DOCTYPE html>
-
 <html lang="es">
 <head>
-<meta charset="utf-8"/>
-<title>Producción Técnico - PDF</title>
-<style>
+    <meta charset="UTF-8">
+    <title>Producción Técnico - PDF</title>
+    <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             font-size: 12px;
@@ -77,24 +76,26 @@
             border-top: 2px solid #2ecc71;
         }
     </style>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head>
+</head>
 <body>
-<h2>Producción de {{ user.get_full_name|default:user.username }}</h2>
-<table>
-<thead>
-<tr>
-<th>ID</th>
-<th>Status</th>
-<th>Fecha de Aprobación</th>
-<th>Descripción</th>
-<th>Monto</th>
-</tr>
-</thead>
-<tbody>
+
+    <h2>Producción de {{ user.get_full_name|default:user.username }}</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Fecha de Aprobación</th>
+                <th>Descripción</th>
+                <th>Monto</th>
+            </tr>
+        </thead>
+        <tbody>
             {% for item in produccion %}
             <tr>
-<td>{{ item.id }}</td>
-<td>
+                <td>{{ item.id }}</td>
+                <td>
                     {% if item.status == 'aprobado' %}
                         <span class="badge aprobado">Aprobado</span>
                     {% elif item.status == 'pendiente' %}
@@ -105,25 +106,28 @@
                         {{ item.get_status_display }}
                     {% endif %}
                 </td>
-<td>{% if item.fecha_aprobacion %}{{ item.fecha_aprobacion|date:"d/m/Y" }}{% else %}--{% endif %}</td>
-<td>{{ item.descripcion }}</td>
-<td>${{ item.monto }}</td>
-</tr>
+                <td>{% if item.fecha_aprobacion %}{{ item.fecha_aprobacion|date:"d/m/Y" }}{% else %}--{% endif %}</td>
+                <td>{{ item.descripcion }}</td>
+                <td>${{ item.monto }}</td>
+            </tr>
             {% empty %}
             <tr>
-<td colspan="5" style="text-align: center;">No hay producción registrada.</td>
-</tr>
+                <td colspan="5" style="text-align: center;">No hay producción registrada.</td>
+            </tr>
             {% endfor %}
             {% if produccion %}
             <tr class="total-row">
-<td colspan="4" style="text-align: right;">Total:</td>
-<td>${{ total_monto|floatformat:0 }}</td>
-</tr>
+                <td colspan="4" style="text-align: right;">Total:</td>
+                <td>${{ total_monto|floatformat:0 }}</td>
+            </tr>
             {% endif %}
         </tbody>
-</table>
-<div class="footer">
+    </table>
+
+    <div class="footer">
         Documento generado automáticamente por el sistema - {{ now|date:"d/m/Y H:i" }}
     </div>
+
 </body>
 </html>
+

@@ -57,6 +57,7 @@
     }
 </style>
 
+<!-- Encabezado con logo y nombre empresa -->
 <div class="empresa-header">
     <img src="{% static 'images/logo.png' %}" alt="Logo Empresa">
     <h1>MV INGENIERÍA & CONSTRUCCIÓN</h1>
@@ -81,29 +82,19 @@
             <td>{{ liquidacion.mes }}</td>
             <td>{{ liquidacion.año }}</td>
             <td>${{ liquidacion.monto|floatformat:0 }}</td>
+            <td><a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank">Ver PDF</a></td>
             <td>
-                {% if liquidacion.archivo_pdf_liquidacion %}
-                <a href="{% url 'liquidaciones:ver_pdf' liquidacion.id %}" target="_blank">Ver PDF</a>
+                {% if liquidacion.firmada %}
+                    <span class="estado-ok">✔ Firmada el {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</span>
                 {% else %}
-                <span class="text-red-500 italic">No disponible</span>
+                    <span class="estado-pendiente">✘ Pendiente de Firma</span>
                 {% endif %}
             </td>
             <td>
                 {% if liquidacion.firmada %}
-                <span class="estado-ok">✔ Firmada el {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</span>
+                    <a href="{{ liquidacion.pdf_firmado.url }}" target="_blank">Descargar Firmada</a>
                 {% else %}
-                <span class="estado-pendiente">✘ Pendiente de Firma</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if liquidacion.firmada and liquidacion.pdf_firmado and liquidacion.pdf_firmado.url %}
-                <a href="{% url 'liquidaciones:descargar_pdf' liquidacion.id %}" class="text-green-600 hover:underline">
-                    Descargar
-                </a>
-                {% elif not liquidacion.firmada %}
-                <a href="{% url 'liquidaciones:firmar_liquidacion' liquidacion.pk %}">Firmar</a>
-                {% else %}
-                <span class="text-red-500 italic">No disponible</span>
+                    <a href="{% url 'liquidaciones:firmar_liquidacion' liquidacion.pk %}">Firmar</a>
                 {% endif %}
             </td>
         </tr>

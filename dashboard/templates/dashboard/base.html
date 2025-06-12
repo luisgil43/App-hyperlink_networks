@@ -1,43 +1,50 @@
 <!DOCTYPE html>
-
 {% load static %}
 <html lang="es">
+
 <head>
-<meta charset="utf-8"/>
-<title>{% block title %}Dashboard{% endblock %}</title>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<link href="{% static 'css/styles.css' %}" rel="stylesheet"/>
-<!-- TailwindCSS -->
-<script src="https://cdn.tailwindcss.com"></script>
-<!-- Lucide Icons -->
-<script src="https://unpkg.com/lucide@latest"></script>
+    <meta charset="UTF-8" />
+    <title>{% block title %}Dashboard{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}" />
+
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
+
 <body class="bg-gray-100 text-gray-900">
-<!-- HEADER -->
-<header class="bg-white shadow-md fixed top-0 w-full z-50 h-14 flex items-center justify-between px-4">
-<div class="flex items-center gap-3">
-<img alt="Logo Empresa" class="h-9" src="{% static 'images/logo.png' %}"/>
-<strong class="text-sm sm:text-base">MV INGENIERÍA &amp; CONSTRUCCIÓN</strong>
-<div class="hamburger flex-col cursor-pointer ml-3 block md:hidden">
-<span class="h-1 w-6 bg-black my-1"></span>
-<span class="h-1 w-6 bg-black my-1"></span>
-<span class="h-1 w-6 bg-black my-1"></span>
-</div>
-</div>
-<div class="flex items-center gap-4 text-sm sm:text-base">
-<span class="hidden xs:inline">{{ request.user.get_full_name|default:request.user.username }}</span>
-<form action="{% url 'logout' %}" method="post">
+
+    <!-- HEADER -->
+    <header class="bg-white shadow-md fixed top-0 w-full z-50 h-14 flex items-center justify-between px-4">
+        <div class="flex items-center gap-3">
+            <img src="{% static 'images/logo.png' %}" alt="Logo Empresa" class="h-9" />
+            <strong class="text-sm sm:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+            <div class="hamburger flex-col cursor-pointer ml-3 block md:hidden">
+                <span class="h-1 w-6 bg-black my-1"></span>
+                <span class="h-1 w-6 bg-black my-1"></span>
+                <span class="h-1 w-6 bg-black my-1"></span>
+            </div>
+        </div>
+        <div class="flex items-center gap-4 text-sm sm:text-base">
+            <span class="hidden xs:inline">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
-                <button class="text-red-600 font-semibold" type="submit">Cerrar Sesión</button>
-</form>
-</div>
-</header>
-<div class="pt-14 flex flex-col md:flex-row min-h-screen relative">
-<!-- Menú lateral -->
-<nav class="bg-gray-800 text-white w-4/5 sm:w-3/5 md:w-72 p-4 fixed md:static inset-0 z-40 hidden md:block overflow-y-auto h-full md:h-auto" id="side-nav">
-<h2 class="text-2xl font-bold mb-4">Menú</h2>
-<ul class="space-y-4 text-base">
-<li><a class="font-bold flex items-center hover:text-emerald-400" href="{% url 'dashboard:inicio_tecnico' %}">🏠 Inicio</a></li>
+                <button type="submit" class="text-red-600 font-semibold">Cerrar Sesión</button>
+            </form>
+        </div>
+    </header>
+
+    <div class="pt-14 flex flex-col md:flex-row min-h-screen relative">
+
+        <!-- Menú lateral -->
+        <nav id="side-nav"
+            class="bg-gray-800 text-white w-4/5 sm:w-3/5 md:w-72 p-4 fixed md:static inset-0 z-40 hidden md:block overflow-y-auto h-full md:h-auto">
+            <h2 class="text-2xl font-bold mb-4">Menú</h2>
+            <ul class="space-y-4 text-base">
+                <li><a href="{% url 'dashboard:inicio_tecnico' %}"
+                        class="font-bold flex items-center hover:text-emerald-400">🏠 Inicio</a></li>
 
                 {% comment %} MENÚS DESPLEGABLES {% endcomment %}
                 {% for seccion, enlaces in [
@@ -73,27 +80,33 @@
                 ]),
                 ('🎁 Beneficios', [('#', 'Convenios disponibles')])
                 ] %}
-                <li class="group" data-toggle="">
-<span class="font-bold flex items-center cursor-pointer justify-between">
+                <li data-toggle class="group">
+                    <span class="font-bold flex items-center cursor-pointer justify-between">
                         {{ seccion }} <span class="arrow transition-transform">▶</span>
-</span>
-<ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    </span>
+                    <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
                         {% for url_name, label in enlaces %}
-                        <li><a class="hover:text-emerald-400" href="{% url url_name %}">{{ label }}</a></li>
+                        <li><a href="{% url url_name %}" class="hover:text-emerald-400">{{ label }}</a></li>
                         {% endfor %}
                     </ul>
-</li>
+                </li>
                 {% endfor %}
             </ul>
-</nav>
-<!-- Overlay fondo negro -->
-<div class="fixed inset-0 bg-black opacity-40 z-30 hidden md:hidden" id="overlay"></div>
-<!-- Contenido principal -->
-<main class="flex-1 p-4 md:p-6 overflow-x-auto">
+        </nav>
+
+        <!-- Overlay fondo negro -->
+        <div id="overlay" class="fixed inset-0 bg-black opacity-40 z-30 hidden md:hidden"></div>
+
+        <!-- Contenido principal -->
+        <main class="flex-1 p-4 md:p-6 overflow-x-auto">
             {% if messages %}
             <div class="max-w-3xl mx-auto mb-4">
                 {% for message in messages %}
-                <div class="p-4 rounded shadow {% if message.tags == 'success' %} bg-green-100 text-green-800 {% elif message.tags in 'error danger' %} bg-red-100 text-red-800 {% elif message.tags == 'warning' %} bg-yellow-100 text-yellow-800 {% else %} bg-blue-100 text-blue-800 {% endif %}">
+                <div class="p-4 rounded shadow
+          {% if message.tags == 'success' %} bg-green-100 text-green-800
+          {% elif message.tags in 'error danger' %} bg-red-100 text-red-800
+          {% elif message.tags == 'warning' %} bg-yellow-100 text-yellow-800
+          {% else %} bg-blue-100 text-blue-800 {% endif %}">
                     {{ message }}
                 </div>
                 {% endfor %}
@@ -101,9 +114,10 @@
             {% endif %}
             {% block content %}{% endblock %}
         </main>
-</div>
-<!-- JS MENU MOVIL -->
-<script>
+    </div>
+
+    <!-- JS MENU MOVIL -->
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (window.lucide) lucide.createIcons();
 
@@ -132,5 +146,7 @@
             }
         });
     </script>
+
 </body>
+
 </html>

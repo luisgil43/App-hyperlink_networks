@@ -1,27 +1,30 @@
-<h2 class="text-xl font-semibold mb-4">Crear Firma Digital</h2><canvas height="150" id="canvas" style="border:1px solid #ccc;" width="400"></canvas>
-
-
-
-
-{% endblock %}<html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends 'dashboard/base.html' %}
+{% extends 'dashboard/base.html' %}
 {% load static %}
 
 {% block content %}
+<h2 class="text-xl font-semibold mb-4">Crear Firma Digital</h2>
 
-<br/><button class="mt-2 text-blue-600 hover:underline" onclick="clearCanvas()" type="button">Limpiar</button><form class="mt-4" id="firmaForm" method="post">
+<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
+<button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
+
+<form method="post" id="firmaForm" class="mt-4">
     {% csrf_token %}
-    <input id="firmaInput" name="firma_digital" type="hidden"/>
-<button class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700" type="submit">
+    <input type="hidden" name="firma_digital" id="firmaInput">
+    <button type="submit" class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
         Guardar Firma
     </button>
-</form><div class="mt-6">
-<p class="font-medium">Firma actual:</p>
+</form>
+
+<div class="mt-6">
+    <p class="font-medium">Firma actual:</p>
     {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-    <img alt="Firma actual" class="max-h-24 border rounded p-1" src="{{ tecnico.firma_digital.url }}"/>
+    <img src="{{ tecnico.firma_digital.url }}" alt="Firma actual" class="max-h-24 border rounded p-1">
     {% else %}
     <p class="text-red-500 italic">No hay firma digital disponible.</p>
     {% endif %}
-</div><script>
+</div>
+
+<script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let painting = false;
@@ -95,4 +98,5 @@
     document.addEventListener("touchend", function (e) {
         document.body.style.overflow = "";
     }, { passive: false });
-</script></body></html>
+</script>
+{% endblock %}

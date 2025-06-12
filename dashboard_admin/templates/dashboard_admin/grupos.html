@@ -1,47 +1,48 @@
-<h1>Gestión de Grupos</h1><!-- Mensajes --><ul>
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Gestión de Grupos</h1>
+
+<!-- Mensajes -->
+{% if messages %}
+  <ul>
     {% for message in messages %}
       <li>{{ message }}</li>
     {% endfor %}
-  </ul><!-- Formulario para agregar grupo --><form method="POST">
-  {% csrf_token %}
-  <input name="nombre" placeholder="Nombre del nuevo grupo" required="" type="text"/>
-<button name="add_group" type="submit">Añadir grupo</button>
-</form><!-- Tabla de grupos --><table>
-<thead>
-<tr>
-<th>ID</th>
-<th>Nombre</th>
-<th>Acciones</th>
-</tr>
-</thead>
-<tbody>
-    {% for grupo in grupos %}
-    <tr>
-<td>{{ grupo.id }}</td>
-<td>{{ grupo.name }}</td>
-<td>
-<form method="POST" style="display:inline;">
-          {% csrf_token %}
-          <input name="grupo_id" type="hidden" value="{{ grupo.id }}"/>
-<button name="delete_group" onclick="return confirm('¿Estás seguro de eliminar este grupo?')" type="submit">Eliminar</button>
-</form>
-</td>
-</tr>
-    {% endfor %}
-  </tbody>
-</table><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends "base.html" %}
-
-{% block content %}
-
-
-{% if messages %}
-  
+  </ul>
 {% endif %}
 
+<!-- Formulario para agregar grupo -->
+<form method="POST">
+  {% csrf_token %}
+  <input type="text" name="nombre" placeholder="Nombre del nuevo grupo" required>
+  <button type="submit" name="add_group">Añadir grupo</button>
+</form>
 
-
-
-
+<!-- Tabla de grupos -->
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Nombre</th>
+      <th>Acciones</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for grupo in grupos %}
+    <tr>
+      <td>{{ grupo.id }}</td>
+      <td>{{ grupo.name }}</td>
+      <td>
+        <form method="POST" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="grupo_id" value="{{ grupo.id }}">
+          <button type="submit" name="delete_group" onclick="return confirm('¿Estás seguro de eliminar este grupo?')">Eliminar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
 {% endblock %}
-</body></html>

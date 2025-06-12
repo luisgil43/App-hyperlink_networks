@@ -1,10 +1,9 @@
-<!DOCTYPE html>
-
+<!DOCTYPE html> 
 <html lang="es">
 <head>
-<meta charset="utf-8"/>
-<title>Liquidaciones de Sueldo - {{ tecnico.user.get_full_name|default:tecnico.user.username }}</title>
-<style>
+    <meta charset="UTF-8">
+    <title>Liquidaciones de Sueldo - {{ tecnico.user.get_full_name|default:tecnico.user.username }}</title>
+    <style>
         body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
         h1 { text-align: center; margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -13,35 +12,36 @@
         /* Opcional: para mejorar legibilidad en filas alternas */
         tbody tr:nth-child(odd) { background-color: #fafafa; }
     </style>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head>
+</head>
 <body>
-<h1>Liquidaciones de Sueldo</h1>
-<p><strong>Técnico:</strong> {{ tecnico.user.get_full_name|default:tecnico.user.username }}</p>
-<table>
-<thead>
-<tr>
-<th>Mes</th>
-<th>Monto</th>
-<th>Fecha Emisión</th>
-<th>Firmada</th>
-<th>Fecha Firma</th>
-</tr>
-</thead>
-<tbody>
+    <h1>Liquidaciones de Sueldo</h1>
+    <p><strong>Técnico:</strong> {{ tecnico.user.get_full_name|default:tecnico.user.username }}</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Mes</th>
+                <th>Monto</th>
+                <th>Fecha Emisión</th>
+                <th>Firmada</th>
+                <th>Fecha Firma</th>
+            </tr>
+        </thead>
+        <tbody>
             {% for liquidacion in liquidaciones %}
             <tr>
-<td>{{ liquidacion.mes }}</td>
-<td>{{ liquidacion.monto|floatformat:2 }}</td> <!-- Formatea monto a 2 decimales -->
-<td>{{ liquidacion.fecha_emision|date:"d/m/Y" }}</td> <!-- Mejor formato de fecha -->
-<td>{% if liquidacion.firmada %}Sí{% else %}No{% endif %}</td>
-<td>{% if liquidacion.fecha_firma %}{{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}{% else %}-{% endif %}</td>
-</tr>
+                <td>{{ liquidacion.mes }}</td>
+                <td>{{ liquidacion.monto|floatformat:2 }}</td>  <!-- Formatea monto a 2 decimales -->
+                <td>{{ liquidacion.fecha_emision|date:"d/m/Y" }}</td> <!-- Mejor formato de fecha -->
+                <td>{% if liquidacion.firmada %}Sí{% else %}No{% endif %}</td>
+                <td>{% if liquidacion.fecha_firma %}{{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}{% else %}-{% endif %}</td>
+            </tr>
             {% empty %}
             <tr>
-<td colspan="5" style="text-align:center;">No hay liquidaciones disponibles.</td>
-</tr>
+                <td colspan="5" style="text-align:center;">No hay liquidaciones disponibles.</td>
+            </tr>
             {% endfor %}
         </tbody>
-</table>
+    </table>
 </body>
 </html>

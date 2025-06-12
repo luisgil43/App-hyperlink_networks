@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+<header class="bg-white shadow-md fixed w-full z-50 h-14 flex items-center justify-between px-4">
+    <div class="flex items-center gap-3">
+        <img src="{% static 'images/logo.png' %}" alt="Logo Empresa" class="h-9">
+        <strong class="text-gray-800">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+        <div class="hamburger flex-col hidden cursor-pointer ml-3 md:hidden">
+            <span class="h-1 w-6 bg-black my-1"></span>
+            <span class="h-1 w-6 bg-black my-1"></span>
+            <span class="h-1 w-6 bg-black my-1"></span>
+        </div>
+    </div>
+    <div class="flex items-center gap-4">
+        <span>{{ request.user.get_full_name|default:request.user.username }}</span>
+        <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="text-red-600 font-semibold">Cerrar Sesión</button>
+        </form>
+    </div>
+</header>
+
+<div class="pt-14 flex min-h-screen">
+    <nav class="bg-gray-800 text-white w-72 p-4 hidden md:block" id="side-nav">
+        <h2 class="text-2xl font-bold mb-4">Menú</h2>
+        <ul class="space-y-4 text-base">
+	<li>
+    	<a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">
+        🏠 Inicio
+    	</a>
+	</li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">🛠 Operaciones <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="{% url 'dashboard:produccion_tecnicos' %}" class="hover:text-emerald-400">Producción Técnicos</a></li>
+                    <li><a href="{% url 'dashboard:produccion_tecnicos_pdf' %}" class="hover:text-emerald-400" target="_blank">Descargar producción en PDF</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
+	            <li><a href="#" class="hover:text-emerald-400">Rendiciones</a></li>
+                </ul>
+            </li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">🦺 Prevención de Riesgo <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="{% url 'dashboard:mis_cursos' %}" class="hover:text-emerald-400">Mis Cursos</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
+                </ul>
+            </li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">🤝 Subcontrato <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="#" class="hover:text-emerald-400">Cargar producción</a></li>
+                    <li><a href="#" class="hover:text-emerald-400">Cargar factura de producción</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Cargar contrato de los trabajadores</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Cargar F30 y F30-1</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Cargar liquidaciones de sueldo de los trabajadores</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Cargar curso de los trabajadores</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Contrato de servicio</a></li>
+
+                </ul>
+            </li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">📄 Facturación <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="#" class="hover:text-emerald-400">Mis facturas</a></li>
+                </ul>
+            </li>
+	    <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">📦 Logistica <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="#" class="hover:text-emerald-400">Solicitud de materiales</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Devolución de materiales</a></li>
+                </ul>
+            </li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">🧑‍💼 RR.HH <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
+                    <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Contrato de trabajo</a></li>
+		    <li><a href="#" class="hover:text-emerald-400">Ficha de ingreso</a></li>
+                </ul>
+            </li>
+            <li data-toggle class="group">
+                <span class="font-bold flex items-center cursor-pointer justify-between">🎁 Beneficios <span class="arrow transition-transform">▶</span></span>
+                <ul class="ml-3 mt-1 space-y-1 hidden group-[.active]:block">
+                    <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+
+    <main class="flex-1 p-6">
+        {% if messages %}
+            <div class="max-w-3xl mx-auto mb-4">
+                {% for message in messages %}
+                    <div class="p-4 rounded shadow {% if message.tags == 'success' %}bg-green-100 text-green-800
+                    {% elif message.tags == 'error' or message.tags == 'danger' %}bg-red-100 text-red-800
+                    {% elif message.tags == 'warning' %}bg-yellow-100 text-yellow-800
+                    {% else %}bg-blue-100 text-blue-800{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Lucide icons
+        if (window.lucide) lucide.createIcons();
+
+        // Desplegar submenús
+        document.querySelectorAll('li[data-toggle] > span').forEach(span => {
+            span.addEventListener('click', () => {
+                span.parentElement.classList.toggle('active');
+                const arrow = span.querySelector('.arrow');
+                if (arrow) arrow.classList.toggle('rotate-90');
+            });
+        });
+
+        // Menú hamburguesa para móviles
+        const hamburger = document.querySelector('.hamburger');
+        const nav = document.querySelector('#side-nav');
+        if (hamburger && nav) {
+            hamburger.addEventListener('click', () => {
+                nav.classList.toggle('hidden');
+            });
+        }
+    });
+</script>
+</body>
+</html>

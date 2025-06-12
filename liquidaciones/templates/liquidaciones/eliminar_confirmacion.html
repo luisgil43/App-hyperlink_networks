@@ -1,25 +1,29 @@
+{% extends 'dashboard_admin/base.html' %}
+
+{% block dashboard_content %}
 <div class="max-w-xl mx-auto mt-10 bg-white p-8 rounded-2xl shadow space-y-6 border border-red-200">
-<h2 class="text-2xl font-bold text-red-700 flex items-center gap-2">
+  <h2 class="text-2xl font-bold text-red-700 flex items-center gap-2">
     ⚠️ Confirmar eliminación de liquidación
   </h2>
-<p class="text-gray-700 text-lg">
+
+  <p class="text-gray-700 text-lg">
     ¿Estás seguro de que deseas eliminar la liquidación #<strong>{{ liquidacion.id }}</strong>
     del técnico <strong>{{ liquidacion.tecnico.get_full_name }}</strong> correspondiente al mes
     <strong>{{ liquidacion.mes }}/{{ liquidacion.año }}</strong>?
   </p>
-<form method="POST">
+
+  <form method="POST">
     {% csrf_token %}
     <div class="flex justify-end gap-4 pt-6">
-<a class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg" href="{% url 'liquidaciones:admin_lista' %}">
+      <a href="{% url 'liquidaciones:admin_lista' %}"
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg">
         Cancelar
       </a>
-<button class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg" type="submit">
+      <button type="submit"
+              class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">
         🗑️ Sí, eliminar
       </button>
+    </div>
+  </form>
 </div>
-</form>
-</div><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends 'dashboard_admin/base.html' %}
-
-{% block dashboard_content %}
-
-{% endblock %}</body></html>
+{% endblock %}
