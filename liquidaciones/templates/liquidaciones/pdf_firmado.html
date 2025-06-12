@@ -1,9 +1,10 @@
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Liquidación Firmada</title>
-    <style>
+<meta charset="utf-8"/>
+<title>Liquidación Firmada</title>
+<style>
         body {
             font-family: 'Arial', sans-serif;
             margin: 40px;
@@ -48,29 +49,26 @@
             color: #000;
         }
     </style>
-</head>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head>
 <body>
-    <div class="titulo">Liquidación de Sueldo</div>
-
-    <div class="info">
-        <p><strong>Técnico:</strong> {{ liquidacion.tecnico.user.get_full_name }}</p>
-        <p><strong>RUT:</strong> {{ liquidacion.tecnico.rut }}</p>
-        <p><strong>Mes:</strong> {{ liquidacion.mes }}</p>
-        <p><strong>Año:</strong> {{ liquidacion.año }}</p>
-        <p><strong>Fecha de Firma:</strong> {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</p>
-    </div>
-
-    <div class="firma">
+<div class="titulo">Liquidación de Sueldo</div>
+<div class="info">
+<p><strong>Técnico:</strong> {{ liquidacion.tecnico.user.get_full_name }}</p>
+<p><strong>RUT:</strong> {{ liquidacion.tecnico.rut }}</p>
+<p><strong>Mes:</strong> {{ liquidacion.mes }}</p>
+<p><strong>Año:</strong> {{ liquidacion.año }}</p>
+<p><strong>Fecha de Firma:</strong> {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</p>
+</div>
+<div class="firma">
         {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-    <img src="{{ tecnico.firma_digital.url }}" alt="Firma Digital">
+    <img alt="Firma Digital" src="{{ tecnico.firma_digital.url }}"/>
 {% else %}
     <span class="text-red-500 italic">Firma no disponible</span>
 {% endif %}
         <div class="firmado-por">Firmado electrónicamente por {{ liquidacion.tecnico.user.get_full_name }}</div>
-    </div>
-
-    <div class="footer">
-        Documento firmado digitalmente a través de la plataforma de gestión de personal.<br>
+</div>
+<div class="footer">
+        Documento firmado digitalmente a través de la plataforma de gestión de personal.<br/>
         No requiere firma manuscrita.
     </div>
 </body>

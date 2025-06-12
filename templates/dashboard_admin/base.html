@@ -5,15 +5,13 @@
 <head>
     <meta charset="UTF-8">
     <title>{% block title %}Panel Admin{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 
     <!-- TailwindCSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-
     <!-- Select2 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 
@@ -24,20 +22,21 @@
             transform: rotate(90deg);
         }
 
+        #side-menu {
+            transition: transform 0.3s ease;
+        }
+
         @media (max-width: 768px) {
-            nav#side-menu {
-                position: fixed;
-                z-index: 40;
+            #side-menu {
                 transform: translateX(-100%);
-                transition: transform 0.3s ease;
             }
 
-            nav#side-menu.show {
+            #side-menu.show {
                 transform: translateX(0);
             }
 
-            .ml-72 {
-                margin-left: 0 !important;
+            #overlay {
+                display: block;
             }
         }
     </style>
@@ -45,20 +44,22 @@
 
 <body class="bg-gray-100 text-gray-900">
 
+    <!-- HEADER -->
     <header class="bg-white shadow-md fixed w-full z-50 h-14 flex items-center justify-between px-4">
         <div class="flex items-center gap-3">
             <img src="{% static 'images/logo.png' %}" alt="Logo Empresa" class="h-9">
-            <strong class="text-gray-800 text-sm sm:text-base whitespace-nowrap">MV INGENIERÍA & CONSTRUCCIÓN</strong>
-            <button class="md:hidden ml-3" onclick="document.getElementById('side-menu').classList.toggle('show')">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                    stroke="currentColor" class="w-6 h-6">
+            <strong class="text-sm sm:text-base whitespace-nowrap">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+            <button class="md:hidden ml-3"
+                onclick="document.getElementById('side-menu').classList.toggle('show'); document.getElementById('overlay').classList.toggle('hidden')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round"
                         d="M3.75 5.25h16.5M3.75 12h16.5M3.75 18.75h16.5" />
                 </svg>
             </button>
         </div>
         <div class="flex items-center gap-4 text-sm sm:text-base">
-            <span>{{ request.user.get_full_name|default:request.user.username }}</span>
+            <span class="hidden xs:inline">{{ request.user.get_full_name|default:request.user.username }}</span>
             <form method="post" action="{% url 'dashboard_admin:logout' %}">
                 {% csrf_token %}
                 <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
@@ -66,13 +67,15 @@
         </div>
     </header>
 
-    <div class="pt-14 flex min-h-screen">
-        <!-- Menú lateral -->
-        <nav id="side-menu" class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto"
-            style="transition: transform 0.3s;">
+    <div class="pt-14 flex min-h-screen relative overflow-hidden">
+
+        <!-- MENÚ LATERAL COMPLETO -->
+        <nav id="side-menu"
+            class="bg-gray-800 text-white w-4/5 sm:w-3/5 md:w-72 p-4 fixed md:static top-14 left-0 bottom-0 overflow-y-auto z-40 md:translate-x-0">
             <ul class="space-y-4 text-base font-medium">
                 <li><a href="{% url 'dashboard_admin:index' %}"
                         class="flex items-center gap-2 hover:text-emerald-400">🏠 Inicio</a></li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">🛠 Operaciones</span>
@@ -84,6 +87,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Rendiciones</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">🦺 Prevención de Riesgo</span>
@@ -94,6 +98,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">🧑‍💼 RR.HH</span>
@@ -107,6 +112,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Fichas de ingresos</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">🤝 Subcontrato</span>
@@ -121,6 +127,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Contratos de servicios</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">📦 Logística</span>
@@ -132,6 +139,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Guías de despachos</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">📄 Facturación</span>
@@ -141,6 +149,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Facturas</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">🎁 Beneficios</span>
@@ -150,6 +159,7 @@
                         <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
                     </ul>
                 </li>
+
                 <li class="group">
                     <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
                         <span class="flex items-center gap-2 whitespace-nowrap">👤 Administración de Usuarios</span>
@@ -164,15 +174,21 @@
             </ul>
         </nav>
 
-        <main class="ml-72 flex-1 p-6">
+        <!-- OVERLAY -->
+        <div id="overlay" class="fixed inset-0 bg-black opacity-40 z-30 hidden md:hidden"
+            onclick="document.getElementById('side-menu').classList.remove('show'); this.classList.add('hidden');">
+        </div>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="flex-1 p-4 sm:p-6 transition-all duration-300">
             {% if messages %}
             <div class="space-y-3 mb-6">
                 {% for message in messages %}
                 <div class="p-4 rounded-lg shadow text-white
-              {% if message.tags == 'error' %}bg-red-500
-              {% elif message.tags == 'success' %}bg-green-600
-              {% elif message.tags == 'warning' %}bg-yellow-500
-              {% else %}bg-blue-500{% endif %}">
+        {% if message.tags == 'error' %}bg-red-500
+        {% elif message.tags == 'success' %}bg-green-600
+        {% elif message.tags == 'warning' %}bg-yellow-500
+        {% else %}bg-blue-500{% endif %}">
                     {{ message }}
                 </div>
                 {% endfor %}
@@ -182,6 +198,7 @@
         </main>
     </div>
 
+    <!-- JS: Desplegar submenús -->
     <script>
         function toggleMenu(el) {
             const submenu = el.nextElementSibling;

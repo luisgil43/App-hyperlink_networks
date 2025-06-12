@@ -1,53 +1,40 @@
-{% extends "dashboard_admin/base.html" %}
-
-{% block dashboard_content %}
 <div class="p-6 max-w-4xl mx-auto bg-white rounded-xl shadow-md">
-  <h1 class="text-2xl font-bold mb-6 text-gray-800">✏ Editar Usuario: {{ usuario.username }}</h1>
-
-  <form method="POST" id="editarUsuarioForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<h1 class="text-2xl font-bold mb-6 text-gray-800">✏ Editar Usuario: {{ usuario.username }}</h1>
+<form class="grid grid-cols-1 md:grid-cols-2 gap-4" id="editarUsuarioForm" method="POST">
     {% csrf_token %}
 
-    <input type="text" name="username" value="{{ usuario.username }}" placeholder="Nombre de usuario" required class="input input-bordered w-full bg-gray-100">
-
-    <input type="email" name="email" value="{{ usuario.email }}" placeholder="Correo electrónico" class="input input-bordered w-full bg-gray-100">
-
-    <input type="text" name="first_name" value="{{ usuario.first_name }}" placeholder="Nombre" class="input input-bordered w-full bg-gray-100">
-
-    <input type="text" name="last_name" value="{{ usuario.last_name }}" placeholder="Apellidos" class="input input-bordered w-full bg-gray-100">
-
-    <div class="flex items-center space-x-3 col-span-2 mt-2">
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_active" {% if usuario.is_active %}checked{% endif %}>Activo</label>
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_staff" {% if usuario.is_staff %}checked{% endif %}>Staff</label>
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_superuser" {% if usuario.is_superuser %}checked{% endif %}>Superusuario</label>
-    </div>
-
-    <div class="col-span-2">
-      <label class="block font-semibold mb-1">Grupos:</label>
-      <div class="grid grid-cols-2 gap-2">
+    <input class="input input-bordered w-full bg-gray-100" name="username" placeholder="Nombre de usuario" required="" type="text" value="{{ usuario.username }}"/>
+<input class="input input-bordered w-full bg-gray-100" name="email" placeholder="Correo electrónico" type="email" value="{{ usuario.email }}"/>
+<input class="input input-bordered w-full bg-gray-100" name="first_name" placeholder="Nombre" type="text" value="{{ usuario.first_name }}"/>
+<input class="input input-bordered w-full bg-gray-100" name="last_name" placeholder="Apellidos" type="text" value="{{ usuario.last_name }}"/>
+<div class="flex items-center space-x-3 col-span-2 mt-2">
+<label class="flex items-center gap-2"><input %}="" %}checked{%="" endif="" if="" name="is_active" type="checkbox" usuario.is_active="" {%=""/>Activo</label>
+<label class="flex items-center gap-2"><input %}="" %}checked{%="" endif="" if="" name="is_staff" type="checkbox" usuario.is_staff="" {%=""/>Staff</label>
+<label class="flex items-center gap-2"><input %}="" %}checked{%="" endif="" if="" name="is_superuser" type="checkbox" usuario.is_superuser="" {%=""/>Superusuario</label>
+</div>
+<div class="col-span-2">
+<label class="block font-semibold mb-1">Grupos:</label>
+<div class="grid grid-cols-2 gap-2">
         {% for grupo in grupos %}
         <label class="flex items-center gap-2">
-          <input type="checkbox" name="groups" value="{{ grupo.id }}" {% if grupo in usuario.groups.all %}checked{% endif %}>
+<input %}="" %}checked{%="" endif="" grupo="" if="" in="" name="groups" type="checkbox" usuario.groups.all="" value="{{ grupo.id }}" {%=""/>
           {{ grupo.name }}
         </label>
         {% endfor %}
       </div>
-    </div>
-
-    <div class="col-span-2 mt-4">
-      <h3 class="font-semibold text-lg mb-2">Cambiar contraseña (opcional)</h3>
-      <input type="password" name="password1" id="password1" placeholder="Nueva contraseña" class="input input-bordered w-full bg-gray-100">
-      <input type="password" name="password2" id="password2" placeholder="Confirmar contraseña" class="input input-bordered w-full bg-gray-100 mt-2">
-      <p id="error-msg" class="text-red-600 text-sm mt-1 hidden"></p>
-    </div>
-
-    <div class="col-span-2 mt-4 flex items-center gap-4">
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded">Guardar cambios</button>
-      <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="text-blue-600 hover:underline">← Volver al listado</a>
-    </div>
-  </form>
 </div>
-
-<script>
+<div class="col-span-2 mt-4">
+<h3 class="font-semibold text-lg mb-2">Cambiar contraseña (opcional)</h3>
+<input class="input input-bordered w-full bg-gray-100" id="password1" name="password1" placeholder="Nueva contraseña" type="password"/>
+<input class="input input-bordered w-full bg-gray-100 mt-2" id="password2" name="password2" placeholder="Confirmar contraseña" type="password"/>
+<p class="text-red-600 text-sm mt-1 hidden" id="error-msg"></p>
+</div>
+<div class="col-span-2 mt-4 flex items-center gap-4">
+<button class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded" type="submit">Guardar cambios</button>
+<a class="text-blue-600 hover:underline" href="{% url 'dashboard_admin:listar_usuarios' %}">← Volver al listado</a>
+</div>
+</form>
+</div><script>
   document.getElementById('editarUsuarioForm').addEventListener('submit', function(event) {
     const pwd1 = document.getElementById('password1').value;
     const pwd2 = document.getElementById('password2').value;
@@ -70,5 +57,10 @@
 
     errorMsg.classList.add('hidden');
   });
-</script>
+</script><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+
+
 {% endblock %}
+</body></html>

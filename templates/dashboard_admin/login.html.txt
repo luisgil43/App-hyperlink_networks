@@ -1,14 +1,10 @@
 {% load static %}
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <title>Iniciar Sesión - ADMINISTRACIÓN MV</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <!-- TailwindCSS para responsividad -->
-    <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
         * {
@@ -23,21 +19,21 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
+            height: 100vh;
         }
 
         .login-container {
             background-color: white;
             padding: 2rem;
             border-radius: 12px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             width: 100%;
             max-width: 400px;
             text-align: center;
         }
 
         .login-container img {
-            max-width: 100%;
+            max-width: 102%;
             height: auto;
             margin-bottom: 10px;
         }
@@ -54,7 +50,6 @@
             padding: 0;
             margin-bottom: 10px;
             text-align: left;
-            font-size: 0.9rem;
         }
 
         form {
@@ -82,8 +77,7 @@
         button {
             width: 100%;
             padding: 12px;
-            background-color: #1e73be;
-            /* Azul corporativo */
+            background-color: #1e73be; /* Azul corporativo */
             color: white;
             border: none;
             border-radius: 8px;
@@ -112,7 +106,7 @@
             text-decoration: underline;
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 500px) {
             .login-container {
                 padding: 1.5rem;
                 margin: 0 1rem;
@@ -128,23 +122,22 @@
         }
     </style>
 </head>
-
 <body>
     <div class="login-container">
         <img src="{% static 'images/logo.png' %}" alt="Logo MV Construcciones">
         <h2>ADMINISTRACIÓN MV INGENIERÍA & CONSTRUCCIÓN</h2>
 
         {% if form.errors %}
-        <ul class="errorlist">
-            {% for field in form %}
-            {% for error in field.errors %}
-            <li>{{ error }}</li>
-            {% endfor %}
-            {% endfor %}
-            {% for error in form.non_field_errors %}
-            <li>{{ error }}</li>
-            {% endfor %}
-        </ul>
+            <ul class="errorlist">
+                {% for field in form %}
+                    {% for error in field.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                {% endfor %}
+                {% for error in form.non_field_errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
         {% endif %}
 
         <form method="post">
@@ -158,5 +151,4 @@
         </div>
     </div>
 </body>
-
 </html>

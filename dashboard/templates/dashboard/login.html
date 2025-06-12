@@ -1,11 +1,12 @@
 {% load static %}
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Iniciar Sesión - Usuario Técnico</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
+<meta charset="utf-8"/>
+<title>Iniciar Sesión - Usuario Técnico</title>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<style>
     body {
       font-family: 'Segoe UI', sans-serif;
       background-color: #f4f6f8;
@@ -89,11 +90,11 @@
       text-decoration: underline;
     }
   </style>
-</head>
+<script src="https://cdn.tailwindcss.com"></script></head>
 <body>
-  <div class="login-container">
-    <img src="{% static 'images/logo.png' %}" alt="Logo MV Construcciones">
-    <h2>Panel Técnico / Usuario MV</h2>
+<div class="login-container">
+<img alt="Logo MV Construcciones" src="{% static 'images/logo.png' %}"/>
+<h2>Panel Técnico / Usuario MV</h2>
 
    {% if form.non_field_errors %}
   <p class="text-red-600 text-sm mb-4">
@@ -107,11 +108,10 @@
       {% csrf_token %}
       {{ form.as_p }}
       <button type="submit">Iniciar sesión</button>
-    </form>
-
-    <div class="forgot-password">
-      <a href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
-    </div>
-  </div>
+</form>
+<div class="forgot-password">
+<a href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
+</div>
+</div>
 </body>
 </html>

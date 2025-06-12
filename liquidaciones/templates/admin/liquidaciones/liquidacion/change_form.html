@@ -1,21 +1,21 @@
-{% extends "admin/change_form.html" %}
+<div class="submit-row">
+<form method="post" style="display:inline;">
+        {% csrf_token %}
+        <input name="_reemplazar" type="hidden" value="1"/>
+<button class="button default" type="submit">✅ Reemplazar</button>
+</form>
+<form action="{% url 'custom_admin:liquidaciones_liquidacion_changelist' %}" method="get" style="display:inline; margin-left: 10px;">
+<button class="button cancel-link" type="submit">❌ Cancelar</button>
+</form>
+</div><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends "admin/change_form.html" %}
 {% load i18n admin_urls static %}
 
 {% block submit_buttons_bottom %}
   {{ block.super }}
   
   {% if form.non_field_errors and 'ya existe una liquidación' in form.non_field_errors.0 %}
-    <div class="submit-row">
-      <form method="post" style="display:inline;">
-        {% csrf_token %}
-        <input type="hidden" name="_reemplazar" value="1">
-        <button type="submit" class="button default">✅ Reemplazar</button>
-      </form>
-
-      <form method="get" action="{% url 'custom_admin:liquidaciones_liquidacion_changelist' %}" style="display:inline; margin-left: 10px;">
-        <button type="submit" class="button cancel-link">❌ Cancelar</button>
-      </form>
-    </div>
+    
   {% endif %}
 {% endblock %}
 
+</body></html>

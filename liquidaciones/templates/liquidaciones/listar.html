@@ -1,7 +1,3 @@
-{% extends 'dashboard/base.html' %}
-{% load static %}
-
-{% block content %}
 <style>
     .empresa-header {
         display: flex;
@@ -55,49 +51,43 @@
         color: red;
         font-weight: bold;
     }
-</style>
-
-<div class="empresa-header">
-    <img src="{% static 'images/logo.png' %}" alt="Logo Empresa">
-    <h1>MV INGENIERÍA & CONSTRUCCIÓN</h1>
-</div>
-
-<h1 class="page-title">Mis Liquidaciones de Sueldo</h1>
-
-<table class="liquidaciones-table">
-    <thead>
-        <tr>
-            <th>Mes</th>
-            <th>Año</th>
-            <th>Monto</th>
-            <th>Liquidación sin firmar</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-        </tr>
-    </thead>
-    <tbody>
+</style><div class="empresa-header">
+<img alt="Logo Empresa" src="{% static 'images/logo.png' %}"/>
+<h1>MV INGENIERÍA &amp; CONSTRUCCIÓN</h1>
+</div><h1 class="page-title">Mis Liquidaciones de Sueldo</h1><table class="liquidaciones-table">
+<thead>
+<tr>
+<th>Mes</th>
+<th>Año</th>
+<th>Monto</th>
+<th>Liquidación sin firmar</th>
+<th>Estado</th>
+<th>Acciones</th>
+</tr>
+</thead>
+<tbody>
         {% for liquidacion in liquidaciones %}
         <tr>
-            <td>{{ liquidacion.mes }}</td>
-            <td>{{ liquidacion.año }}</td>
-            <td>${{ liquidacion.monto|floatformat:0 }}</td>
-            <td>
+<td>{{ liquidacion.mes }}</td>
+<td>{{ liquidacion.año }}</td>
+<td>${{ liquidacion.monto|floatformat:0 }}</td>
+<td>
                 {% if liquidacion.archivo_pdf_liquidacion %}
                 <a href="{% url 'liquidaciones:ver_pdf' liquidacion.id %}" target="_blank">Ver PDF</a>
                 {% else %}
                 <span class="text-red-500 italic">No disponible</span>
                 {% endif %}
             </td>
-            <td>
+<td>
                 {% if liquidacion.firmada %}
                 <span class="estado-ok">✔ Firmada el {{ liquidacion.fecha_firma|date:"d/m/Y H:i" }}</span>
                 {% else %}
                 <span class="estado-pendiente">✘ Pendiente de Firma</span>
                 {% endif %}
             </td>
-            <td>
+<td>
                 {% if liquidacion.firmada and liquidacion.pdf_firmado and liquidacion.pdf_firmado.url %}
-                <a href="{% url 'liquidaciones:descargar_pdf' liquidacion.id %}" class="text-green-600 hover:underline">
+                <a class="text-green-600 hover:underline" href="{% url 'liquidaciones:descargar_pdf' liquidacion.id %}">
                     Descargar
                 </a>
                 {% elif not liquidacion.firmada %}
@@ -106,8 +96,15 @@
                 <span class="text-red-500 italic">No disponible</span>
                 {% endif %}
             </td>
-        </tr>
+</tr>
         {% endfor %}
     </tbody>
-</table>
-{% endblock %}
+</table><html lang="es"><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><script src="https://cdn.tailwindcss.com"></script></head><body>{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block content %}
+
+
+
+
+{% endblock %}</body></html>
