@@ -33,7 +33,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
-
+"""
 @staff_member_required
 def admin_lista_liquidaciones(request):
     liquidaciones = Liquidacion.objects.select_related('tecnico').all()
@@ -51,6 +51,31 @@ def admin_lista_liquidaciones(request):
         'años': años,
         'montos': montos,
     })
+"""
+
+
+@staff_member_required
+def admin_lista_liquidaciones(request):
+    try:
+        liquidaciones = Liquidacion.objects.select_related('tecnico').all()
+
+        nombres = sorted(set(l.tecnico.get_full_name() for l in liquidaciones))
+        meses = sorted(set(l.mes for l in liquidaciones))
+        años = sorted(set(l.año for l in liquidaciones))
+        montos = sorted(
+            set(l.monto for l in liquidaciones if l.monto is not None))
+
+        return render(request, 'liquidaciones/admin_lista.html', {
+            'liquidaciones': liquidaciones,
+            'nombres': nombres,
+            'meses': meses,
+            'años': años,
+            'montos': montos,
+        })
+
+    except Exception as e:
+        logger.error(f"[admin_lista_liquidaciones] Error: {e}")
+        return HttpResponse(f"Error 500: {e}", status=500)
 
 
 @login_required

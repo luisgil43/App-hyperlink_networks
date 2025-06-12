@@ -8,6 +8,8 @@ from django.contrib.auth.views import LoginView
 from django.urls import reverse_lazy
 from dashboard.models import ProduccionTecnico
 from django.contrib.auth.forms import AuthenticationForm
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.conf import settings
 
 User = get_user_model()
 
@@ -66,6 +68,7 @@ def grupos_view(request):
     return render(request, 'dashboard_admin/grupos.html', {'grupos': grupos})
 
 
+"""
 class UsuarioLoginView(LoginView):
     template_name = 'dashboard_usuario/login.html'
     authentication_form = AuthenticationForm
@@ -80,6 +83,31 @@ class UsuarioLoginView(LoginView):
             return redirect('dashboard_admin:index')
         login(self.request, user)
         return super().form_valid(form)
+"""
+
+
+class UsuarioLoginView(LoginView):
+    template_name = 'dashboard_usuario/login.html'
+    authentication_form = AuthenticationForm
+
+    def form_valid(self, form):
+        user = form.get_user()
+
+        if user.is_staff:
+            # Si es staff, redirige directamente al panel admin
+            return redirect('dashboard_admin:index')
+
+        login(self.request, user)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        # Redirige a `next` si es válido
+        redirect_to = self.request.GET.get('next')
+        if redirect_to and url_has_allowed_host_and_scheme(redirect_to, self.request.get_host()):
+            return redirect_to
+
+        # Fallback
+        return reverse_lazy('dashboard_usuario:home')
 
 
 @login_required(login_url='dashboard_admin:login')
@@ -111,43 +139,29 @@ def editar_usuario_view(request, user_id):
     })
 
 
+class AdminLoginView(LoginView):
+    template_name = 'dashboard_admin/login.html'
+    authentication_form = AuthenticationForm
+
+    def form_valid(self, form):
+        user = form.get_user()
+
+        if not user.is_staff:
+            raise PermissionDenied(
+                "No tienes permiso para acceder al área de administración.")
+
+        login(self.request, user)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        redirect_to = self.request.GET.get('next')
+        if redirect_to and url_has_allowed_host_and_scheme(redirect_to, self.request.get_host()):
+            return redirect_to
+
+        return reverse_lazy('dashboard_admin:index')
+
+
 """
-@login_required(login_url='dashboard_admin:login')
-def editar_usuario_view(request, user_id):
-    usuario = get_object_or_404(User, id=user_id)
-    grupos = Group.objects.all()
-
-    if request.method == 'POST':
-        usuario.username = request.POST['username']
-        usuario.first_name = request.POST['first_name']
-        usuario.last_name = request.POST['last_name']
-        usuario.email = request.POST['email']
-        usuario.is_active = 'is_active' in request.POST
-        usuario.is_staff = 'is_staff' in request.POST
-        usuario.is_superuser = 'is_superuser' in request.POST
-
-        grupo_ids = request.POST.getlist('groups')
-        usuario.groups.set(grupo_ids)
-
-        password1 = request.POST.get('password1')
-        password2 = request.POST.get('password2')
-        if password1 or password2:
-            if password1 == password2:
-                usuario.set_password(password1)
-            else:
-                messages.error(request, "Las contraseñas no coinciden.")
-                return redirect('dashboard_admin:editar_usuario', user_id=usuario.id)
-
-        usuario.save()
-        messages.success(request, "Usuario actualizado correctamente.")
-        return redirect('dashboard_admin:usuarios')
-
-    return render(request, 'dashboard_admin/editar_usuario.html', {
-        'usuario': usuario,
-        'grupos': grupos,
-    })"""
-
-
 class AdminLoginView(LoginView):
     template_name = 'dashboard_admin/login.html'
     authentication_form = AuthenticationForm
@@ -161,6 +175,7 @@ class AdminLoginView(LoginView):
             return redirect('login_usuario')  # redirige si no es admin
         login(self.request, user)
         return super().form_valid(form)
+"""
 
 
 @login_required(login_url='dashboard_admin:login')
