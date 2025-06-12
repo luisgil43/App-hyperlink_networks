@@ -10,7 +10,6 @@ urlpatterns = [
     path('', views.listar_liquidaciones, name='listar'),
     path('admin/', views.admin_lista_liquidaciones, name='admin_lista'),
     path('pdf/<int:pk>/', views.ver_pdf_liquidacion, name='ver_pdf'),
-    path('firmar/<int:pk>/', views.firmar_liquidacion, name='firmar'),
     path('registrar-firma/', views.registrar_firma, name='registrar_firma'),
     path('pdfs/', views.liquidaciones_pdf, name='pdfs'),
     path('descargar-pdf/<int:pk>/', views.descargar_pdf, name='descargar_pdf'),

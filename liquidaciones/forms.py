@@ -25,6 +25,7 @@ class UsuarioSelectWidget(ModelSelect2Widget):
 
 
 class LiquidacionForm(forms.ModelForm):
+    # select * from user
     tecnico = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True),
         widget=forms.Select(
@@ -81,6 +82,7 @@ class LiquidacionForm(forms.ModelForm):
         tecnico = self.cleaned_data.get('tecnico')
         if self.request:
             usuario = self.request.user
+            print("USUARIO: ", usuario)
             if hasattr(usuario, 'tecnico') and tecnico != usuario.tecnico:
                 raise forms.ValidationError(
                     "No puedes crear liquidación para otro técnico."
@@ -89,6 +91,7 @@ class LiquidacionForm(forms.ModelForm):
 
     def clean_archivo_pdf_liquidacion(self):
         archivo = self.cleaned_data.get('archivo_pdf_liquidacion')
+
         if not archivo:
             raise forms.ValidationError("Debes adjuntar un archivo PDF.")
         return archivo

@@ -23,7 +23,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from . import views
 from django.core.files.storage import default_storage
-from .models import Liquidacion
+from .models import Liquidacion, ruta_archivo_firmado, ruta_archivo_sin_firmar
 from .forms import LiquidacionForm
 from django_select2.views import AutoResponseView
 from dal import autocomplete
@@ -136,13 +136,16 @@ def firmar_liquidacion(request, pk):
             doc.close()
             pdf_firmado_io.seek(0)
 
-            # ✅ Guardar usando default_storage (Cloudinary si está activo)
-            file_name = f"liq_{liquidacion.pk}_firmada_{uuid.uuid4()}.pdf"
-            file_path = f"liquidaciones_firmadas/{file_name}"
-            saved_path = default_storage.save(
-                file_path, ContentFile(pdf_firmado_io.read()))
+            # ✅ Guardar en Cloudinary usando el método correcto
+            nombre_archivo = f"liq_{liquidacion.pk}_firmada_{uuid.uuid4()}.pdf"
+            content = ContentFile(pdf_firmado_io.read())
 
-            liquidacion.pdf_firmado.name = saved_path
+            # Esto respeta upload_to=ruta_archivo_firmado
+            liquidacion.pdf_firmado.save(nombre_archivo, content, save=False)
+
+            print("✅ Ruta final del PDF firmado en Cloudinary:",
+                  liquidacion.pdf_firmado.name)
+
             liquidacion.firmada = True
             liquidacion.fecha_firma = now()
             liquidacion.save()
@@ -163,7 +166,7 @@ def firmar_liquidacion(request, pk):
 
 @login_required
 def registrar_firma(request):
-    usuario = request.user  # <- cambio clave
+    usuario = request.user
 
     if request.method == 'POST':
         data_url = request.POST.get('firma_digital')
@@ -172,24 +175,32 @@ def registrar_firma(request):
                 if not data_url.startswith('data:image/png;base64,'):
                     raise ValueError("Formato de firma inválido.")
 
+                # Procesar imagen base64
                 format, imgstr = data_url.split(';base64,')
-                ext = format.split('/')[-1]
-                file_name = f"{uuid.uuid4()}.{ext}"
-                data = ContentFile(base64.b64decode(imgstr), name=file_name)
+                data = base64.b64decode(imgstr)
 
-                usuario.firma_digital = data
-                usuario.save()
+                nombre_archivo = f"{usuario.username}_firma.png"
+                content = ContentFile(data)
 
-                messages.success(request, "Tu firma digital ha sido guardada.")
+                # 🧹 Eliminar firma anterior si existía
+                if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
+                    usuario.firma_digital.delete(save=False)
+
+                # ✅ Guardar nueva firma en Cloudinary (media/firmas/)
+                usuario.firma_digital.save(nombre_archivo, content, save=True)
+
+                messages.success(
+                    request, "Tu firma digital ha sido guardada correctamente.")
                 return redirect('liquidaciones:listar')
 
-            except Exception:
+            except Exception as e:
                 messages.error(
-                    request, "Error al procesar la firma digital. Asegúrate de que esté en formato PNG.")
+                    request,
+                    f"Error al procesar la firma digital. Asegúrate de que esté en formato PNG. Detalle: {e}"
+                )
         else:
             messages.error(request, "No se recibió ninguna firma.")
 
-    # <- sigue siendo valido si tu template usa {{ tecnico }}
     return render(request, 'liquidaciones/registrar_firma.html', {'tecnico': usuario})
 
 
@@ -214,7 +225,7 @@ def liquidaciones_pdf(request):
 @login_required
 def descargar_pdf(request, pk):
     usuario = request.user
-
+    print("en descargar")
     try:
         liquidacion = Liquidacion.objects.get(pk=pk, tecnico=usuario)
     except Liquidacion.DoesNotExist:
@@ -222,20 +233,23 @@ def descargar_pdf(request, pk):
         return redirect('liquidaciones:listar')
 
     archivo = liquidacion.pdf_firmado
-
+    # archivo = liquidacion.archivo_pdf_liquidacion
+    print(archivo)
     if archivo and archivo.name:
+
         try:
             apellido = liquidacion.tecnico.last_name or "tecnico"
             año = liquidacion.año
             mes = f"{liquidacion.mes:02d}"  # formato 01, 02, ..., 12
             nombre_archivo = f"liquidacion_{apellido}_{año}_{mes}.pdf"
-
+            # return FileResponse(archivo.open('rb'), content_type='application/pdf')
             return FileResponse(
                 archivo.open('rb'),
                 as_attachment=True,
                 filename=nombre_archivo
             )
         except Exception as e:
+            print("ERROR: ", e)
             logger.error(
                 f"[descargar_pdf] Error al abrir archivo firmado: {e}")
             messages.error(request, "No se pudo abrir el archivo firmado.")
@@ -435,6 +449,7 @@ def carga_masiva_view(request):
 
 @staff_member_required
 def crear_liquidacion(request):
+
     if request.method == 'POST':
         form = LiquidacionForm(request.POST, request.FILES)
         if form.is_valid():

@@ -46,8 +46,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">🛠 Operaciones</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🛠 Operaciones</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Producciones</a></li>
@@ -57,8 +58,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">🦺 Prevención de Riesgo</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🦺 Prevención de Riesgo</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Cursos</a></li>
@@ -67,8 +69,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">🧑‍💼 RR.HH</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🧑‍💼 RR.HH</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="{% url 'liquidaciones:admin_lista' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
@@ -79,8 +82,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">🤝 Subcontrato</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🤝 Subcontrato</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Facturas de producciones</a></li>
@@ -93,8 +97,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">📦 Logística</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">📦 Logística</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Materiales Solicitados</a></li>
@@ -104,8 +109,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">📄 Facturación</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">📄 Facturación</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Facturas</a></li>
@@ -113,8 +119,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">🎁 Beneficios</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">🎁 Beneficios</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
@@ -122,8 +129,9 @@
             </li>
 
             <li class="group">
-                <div class="flex justify-between cursor-pointer" onclick="toggleMenu(this)">
-                    <span class="flex items-center gap-2">👤 Administración de Usuarios</span><span>▶</span>
+                <div class="flex justify-between cursor-pointer items-center" onclick="toggleMenu(this)">
+                    <span class="flex items-center gap-2">👤 Administración de Usuarios</span>
+                    <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
                     <li><a href="#" class="hover:text-emerald-400">Grupos</a></li>
@@ -135,35 +143,45 @@
     </nav>
 
     <!-- Contenido principal -->
-   <main class="ml-72 flex-1 p-6">
-  {% if messages %}
-    <div class="space-y-3 mb-6">
-      {% for message in messages %}
-        <div class="p-4 rounded-lg shadow text-white
-          {% if message.tags == 'error' %}bg-red-500
-          {% elif message.tags == 'success' %}bg-green-600
-          {% elif message.tags == 'warning' %}bg-yellow-500
-          {% else %}bg-blue-500{% endif %}">
-          {{ message }}
+    <main class="ml-72 flex-1 p-6">
+        {% if messages %}
+        <div class="space-y-3 mb-6">
+            {% for message in messages %}
+            <div class="p-4 rounded-lg shadow text-white
+              {% if message.tags == 'error' %}bg-red-500
+              {% elif message.tags == 'success' %}bg-green-600
+              {% elif message.tags == 'warning' %}bg-yellow-500
+              {% else %}bg-blue-500{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
         </div>
-      {% endfor %}
-    </div>
-  {% endif %}
+        {% endif %}
 
-  {% block dashboard_content %}{% endblock %}
-</main>
+        {% block dashboard_content %}{% endblock %}
+    </main>
 </div>
 
+<!-- Script para rotar flechas -->
 <script>
 function toggleMenu(el) {
     const submenu = el.nextElementSibling;
-    if (submenu) submenu.classList.toggle('hidden');
+    const flecha = el.querySelector(".flecha");
+    if (submenu) {
+        submenu.classList.toggle('hidden');
+        flecha.classList.toggle('rotate-90');
+    }
 }
 </script>
 
+<style>
+  .rotate-90 {
+    transform: rotate(90deg);
+  }
+</style>
+
 <!-- Select2 JS -->
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-
 {% include 'django_select2/django_select2.html' %}
 
 {% block extra_scripts %}
