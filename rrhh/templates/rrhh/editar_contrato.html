@@ -1,0 +1,75 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="p-6 max-w-2xl mx-auto">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+    ✏️ Editar Contrato de Trabajo
+  </h2>
+
+  <form method="POST" enctype="multipart/form-data" class="space-y-6 bg-white p-6 rounded-xl shadow">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <div>
+      <label for="tecnico" class="block font-medium text-gray-700 mb-1">Técnico</label>
+      {{ form.tecnico }}
+    </div>
+
+    <div>
+      <label for="fecha_inicio" class="block font-medium text-gray-700 mb-1">Fecha de Inicio</label>
+      {{ form.fecha_inicio }}
+    </div>
+
+    <div>
+      <label for="fecha_termino" class="block font-medium text-gray-700 mb-1">Fecha de Término</label>
+      <div class="flex items-center gap-4">
+        {{ form.fecha_termino }}
+        <label class="inline-flex items-center gap-2">
+          <input type="checkbox" id="indefinido" class="form-checkbox rounded text-emerald-600"
+       {% if not form.instance.fecha_termino %}checked{% endif %}>
+          <span class="text-sm text-gray-600">Indefinido</span>
+        </label>
+      </div>
+    </div>
+
+    <div>
+  <label for="archivo" class="block font-medium text-gray-700 mb-1">Archivo PDF del Contrato</label>
+  {{ form.archivo }}
+</div>
+
+<div>
+  <label class="inline-flex items-center gap-2 mt-2">
+    {{ form.reemplazar_archivo }}
+    <span class="text-sm text-gray-600">Reemplazar archivo existente</span>
+  </label>
+</div>
+
+    <div class="flex flex-col sm:flex-row gap-4">
+      <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 w-full sm:w-auto">
+        💾 Guardar Cambios
+      </button>
+      <a href="{% url 'rrhh:contratos_trabajo' %}" class="bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400 text-center w-full sm:w-auto">
+        🔙 Volver
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- JS para manejar el checkbox de "Indefinido" -->
+<script>
+  const indefinidoCheckbox = document.getElementById('indefinido');
+  const fechaTerminoInput = document.getElementById('id_fecha_termino');
+
+  function toggleFechaTermino() {
+    if (indefinidoCheckbox.checked) {
+      fechaTerminoInput.disabled = true;
+      fechaTerminoInput.value = '';
+    } else {
+      fechaTerminoInput.disabled = false;
+    }
+  }
+
+  indefinidoCheckbox.addEventListener('change', toggleFechaTermino);
+  window.addEventListener('DOMContentLoaded', toggleFechaTermino);
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "dashboard_admin/base.html" %}
+{% load static %}
+{% block dashboard_content %}
+
+<div class="p-6 bg-white rounded-xl shadow max-w-3xl mx-auto">
+  <h2 class="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-800">
+    <i class="lucide lucide-file-text"></i>
+    Crear Contrato de Trabajo
+  </h2>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <!-- Técnico -->
+    <div>
+      <label for="id_tecnico" class="block mb-1 font-semibold text-gray-700">Seleccionar Usuario</label>
+      {{ form.tecnico }}
+      {{ form.tecnico.errors }}
+    </div>
+
+    <!-- Fecha Inicio -->
+    <div>
+      <label for="id_fecha_inicio" class="block mb-1 font-semibold text-gray-700">Fecha de Inicio</label>
+      {{ form.fecha_inicio }}
+      {{ form.fecha_inicio.errors }}
+    </div>
+
+    <!-- Fecha Término e Indefinido -->
+    <div>
+      <label for="id_fecha_termino" class="block mb-1 font-semibold text-gray-700">Fecha de Término</label>
+      <div class="flex items-center gap-4">
+        {{ form.fecha_termino }}
+        <label class="flex items-center gap-2">
+          <input type="checkbox" id="indefinido" name="indefinido" class="form-checkbox h-5 w-5 text-green-600">
+          <span class="text-sm text-gray-700">Indefinido</span>
+        </label>
+      </div>
+      {{ form.fecha_termino.errors }}
+    </div>
+
+    <!-- Archivo PDF -->
+    <div>
+      <label for="id_archivo" class="block mb-1 font-semibold text-gray-700">Archivo del Contrato (PDF)</label>
+      {{ form.archivo }}
+      {{ form.archivo.errors }}
+    </div>
+
+    <!-- Botón Guardar -->
+    <div class="text-right">
+      <button type="submit"
+        class="bg-emerald-600 text-white px-6 py-2 rounded hover:bg-emerald-700 transition">
+        Guardar Contrato
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // ✅ Desactiva el campo fecha_termino si se marca "Indefinido"
+  const checkbox = document.getElementById('indefinido');
+  const fechaTermino = document.getElementById('id_fecha_termino');
+
+  checkbox.addEventListener('change', function () {
+    if (this.checked) {
+      fechaTermino.disabled = true;
+      fechaTermino.value = '';
+    } else {
+      fechaTermino.disabled = false;
+    }
+  });
+</script>
+
+{% endblock %}
+

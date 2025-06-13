@@ -31,11 +31,11 @@ cloudinary_storage = LazyCloudinaryStorage()
 
 
 def ruta_archivo_sin_firmar(instance, filename):
-    return f"liquidaciones_sin_firmar/{instance.año}_{instance.mes}/{filename}"
+    return f"media/liquidaciones_sin_firmar/{instance.año}_{instance.mes}/{filename}"
 
 
 def ruta_archivo_firmado(instance, filename):
-    return f"liquidaciones_firmadas/{instance.año}_{instance.mes}/{filename}"
+    return f"media/liquidaciones_firmadas/{instance.año}_{instance.mes}/{filename}"
 
 
 class Liquidacion(models.Model):
@@ -99,34 +99,6 @@ class Liquidacion(models.Model):
         print("🧪 Storage PDF firmado:", type(self.pdf_firmado.storage))
 
         super().save(*args, **kwargs)
-
-
-"""
-    def save(self, *args, **kwargs):
-        try:
-            old = Liquidacion.objects.get(pk=self.pk)
-
-        except Liquidacion.DoesNotExist:
-            old = None
-
-        if (
-            old and
-            old.archivo_pdf_liquidacion and self.archivo_pdf_liquidacion and
-            old.archivo_pdf_liquidacion.name != self.archivo_pdf_liquidacion.name
-        ):
-            if old.pdf_firmado and old.pdf_firmado.storage.exists(old.pdf_firmado.name):
-                old.pdf_firmado.delete(save=False)
-            self.pdf_firmado = None
-            self.fecha_firma = None
-
-        self.firmada = bool(self.pdf_firmado)
-
-        # 🧪 Verificación en consola
-        print("🧪 Storage del archivo PDF1:", type(
-            self.archivo_pdf_liquidacion.storage))
-        print("🧪 Storage del PDF firmado1:", type(self.pdf_firmado.storage))
-        super().save(*args, **kwargs)
-"""
 
 
 class Meta:

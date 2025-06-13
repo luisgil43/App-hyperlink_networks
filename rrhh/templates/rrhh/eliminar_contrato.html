@@ -1,0 +1,24 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+  <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border border-red-200">
+    <div class="text-red-600 text-4xl mb-4">⚠️</div>
+    <h2 class="text-xl font-bold text-gray-800 mb-2">¿Estás seguro?</h2>
+    <p class="text-gray-600 mb-6">
+      Vas a eliminar el contrato de <strong>{{ contrato.tecnico.get_full_name }}</strong>.
+      Esta acción <span class="font-semibold text-red-500">no se puede deshacer</span>.
+    </p>
+
+    <form method="POST" class="flex flex-col sm:flex-row justify-center gap-4">
+      {% csrf_token %}
+      <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 w-full sm:w-auto">
+        ✅ Sí, eliminar
+      </button>
+      <a href="{% url 'rrhh:contratos_trabajo' %}" class="bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400 w-full sm:w-auto">
+        ❌ Cancelar
+      </a>
+    </form>
+  </div>
+</div>
+{% endblock %}
