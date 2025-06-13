@@ -108,13 +108,15 @@ def editar_contrato(request, contrato_id):
 
             try:
                 if contrato.archivo and contrato.archivo.name:
+                    nombre_original = contrato.archivo.name.split(
+                        '/')[-1]  # 🔁 Guardamos antes
+                    # 🗑️ Eliminar archivo existente
                     contrato.archivo.delete(save=False)
 
-                archivo_nuevo.seek(0)
-                contenido = archivo_nuevo.read()
-                nombre_final = f"{uuid.uuid4().hex}_{archivo_nuevo.name}"
-                contrato.archivo.save(
-                    nombre_final, ContentFile(contenido), save=False)
+                    archivo_nuevo.seek(0)
+                    contenido = archivo_nuevo.read()
+                    contrato.archivo.save(
+                        nombre_original, ContentFile(contenido), save=False)
             except Exception as e:
                 messages.error(
                     request, f"❌ Error al subir el nuevo archivo: {e}")

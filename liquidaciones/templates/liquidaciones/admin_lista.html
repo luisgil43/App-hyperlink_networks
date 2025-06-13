@@ -19,7 +19,6 @@
     <table id="tabla-liquidaciones" class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-100">
         <tr>
-          <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">ID</th>
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nombre y Apellido</th>
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Mes</th>
           <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Año</th>
@@ -74,7 +73,6 @@
       <tbody class="divide-y divide-gray-100 bg-white">
         {% for l in liquidaciones %}
         <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-3 text-sm text-gray-900">{{ l.id }}</td>
           <td class="px-4 py-3 text-sm text-gray-900">{{ l.tecnico.get_full_name }}</td>
           <td class="px-4 py-3 text-sm text-gray-900">{{ l.mes }}</td>
           <td class="px-4 py-3 text-sm text-gray-900">{{ l.año }}</td>

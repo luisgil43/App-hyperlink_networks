@@ -566,8 +566,7 @@ def ver_pdf_firmado_admin(request, pk):
 
             return FileResponse(
                 archivo.open('rb'),
-                as_attachment=True,
-                filename=nombre_archivo
+                content_type='application/pdf'
             )
         except Exception as e:
             logger.error(
@@ -598,8 +597,7 @@ def ver_pdf_admin(request, pk):
 
             return FileResponse(
                 archivo.open('rb'),
-                as_attachment=True,
-                filename=nombre_archivo
+                content_type='application/pdf'
             )
         except Exception as e:
             logger.error(f"[ver_pdf_admin] Error al abrir archivo PDF: {e}")

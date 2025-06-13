@@ -14,8 +14,7 @@ def ruta_contrato_trabajo(instance, filename):
 class ContratoTrabajo(models.Model):
     tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
     fecha_inicio = models.DateField()
-    fecha_termino = models.DateField(
-        null=True, blank=True)  # 🟢 Permite "Indefinido"
+    fecha_termino = models.DateField(null=True, blank=True)
     archivo = models.FileField(
         upload_to=ruta_contrato_trabajo,
         storage=cloudinary_storage,
@@ -24,3 +23,19 @@ class ContratoTrabajo(models.Model):
 
     def __str__(self):
         return f"Contrato de {self.tecnico.get_full_name()}"
+
+    def save(self, *args, **kwargs):
+        try:
+            old = ContratoTrabajo.objects.get(pk=self.pk)
+        except ContratoTrabajo.DoesNotExist:
+            old = None
+
+        if (
+            old and
+            old.archivo and self.archivo and
+            old.archivo.name != self.archivo.name
+        ):
+            if old.archivo.storage.exists(old.archivo.name):
+                old.archivo.delete(save=False)
+
+        super().save(*args, **kwargs)
