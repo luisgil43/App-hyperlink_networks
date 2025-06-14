@@ -155,10 +155,13 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Logging para saber qué storage está activo
-logger = logging.getLogger(__name__)
-try:
-    storage_class = import_string(DEFAULT_FILE_STORAGE)
-    logger.warning(f"🧪 STORAGE USADO EN TIEMPO DE EJECUCIÓN: {storage_class}")
-except Exception as e:
-    logger.error(f"❌ Error al importar DEFAULT_FILE_STORAGE: {e}")
+
+# ✅ Logging para saber qué storage está activo solo si se está usando Cloudinary
+if USE_CLOUDINARY:
+    from django.conf import settings as django_settings  # 👈 Importar correctamente
+    try:
+        storage_class = import_string(django_settings.DEFAULT_FILE_STORAGE)
+        logger.warning(
+            f"🧪 STORAGE USADO EN TIEMPO DE EJECUCIÓN: {storage_class}")
+    except Exception as e:
+        logger.error(f"❌ Error al importar DEFAULT_FILE_STORAGE: {e}")
