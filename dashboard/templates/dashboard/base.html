@@ -25,23 +25,23 @@
 <body class="bg-gray-100 text-gray-900">
 
   <!-- Header -->
-<header class="bg-white shadow-md fixed top-0 left-0 w-full h-14 z-50 flex items-center justify-between px-4">
-        <div class="flex items-center gap-3">
-            <!-- Botón hamburguesa solo visible en móviles -->
-            <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">
-                ☰
-            </button>
-            <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9">
-            <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
-        </div>
-        <div class="flex items-center gap-4 text-sm md:text-base">
-            <span>{{ request.user.get_full_name|default:request.user.username }}</span>
-            <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
-            </form>
-        </div>
-    </header>
+  <header class="bg-white shadow-md fixed top-0 left-0 w-full h-14 z-50 flex items-center justify-between px-4">
+    <div class="flex items-center gap-3">
+      <!-- Botón hamburguesa solo visible en móviles -->
+      <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">
+        ☰
+      </button>
+      <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9">
+      <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+    </div>
+    <div class="flex items-center gap-4 text-sm md:text-base">
+      <span>{{ request.user.get_full_name|default:request.user.username }}</span>
+      <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
+      </form>
+    </div>
+  </header>
 
   <!-- Contenedor principal -->
   <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
@@ -63,8 +63,7 @@
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
             <li><a href="#" class="hover:text-emerald-400">Producción
                 Técnicos</a></li>
-            <li><a href="#" class="hover:text-emerald-400"
-                target="_blank">Descargar producción en PDF</a></li>
+            <li><a href="#" class="hover:text-emerald-400" target="_blank">Descargar producción en PDF</a></li>
             <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
             <li><a href="#" class="hover:text-emerald-400">Rendiciones</a></li>
           </ul>
@@ -76,6 +75,7 @@
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
             <li><a href="#" class="hover:text-emerald-400">Mis Cursos</a></li>
             <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Mis EPP asignados</a></li>
           </ul>
         </li>
 
@@ -102,11 +102,25 @@
         </li>
 
         <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚗
+            Flota <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="#" class="hover:text-emerald-400">Mi vehiculo asignado</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Devolución de Vehiculo</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Mantenimientos</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Reportes</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Documentación del Vehiculo</a></li>
+          </ul>
+        </li>
+
+
+        <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦
             Logística <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
             <li><a href="#" class="hover:text-emerald-400">Solicitud de materiales</a></li>
             <li><a href="#" class="hover:text-emerald-400">Devolución de materiales</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Mis equipos asignados</a></li>
           </ul>
         </li>
 
@@ -117,7 +131,11 @@
             <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
             <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
             <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Contrato de trabajo</a></li>
-	    <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Ver mi Ficha de Ingreso</a></li>
+            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Ver mi Ficha de Ingreso</a>
+            <li><a href="#" class="hover:text-emerald-400">Mis Documentos</a>
+            <li><a href="#" class="hover:text-emerald-400">Cronograma de pago</a>
+            <li><a href="#" class="hover:text-emerald-400">Solicitud de avance de sueldo </a>
+            </li>
           </ul>
         </li>
 
