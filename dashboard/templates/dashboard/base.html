@@ -36,7 +36,7 @@
         </div>
         <div class="flex items-center gap-4 text-sm md:text-base">
             <span>{{ request.user.get_full_name|default:request.user.username }}</span>
-            <form method="post" action="{% url 'dashboard_admin:logout' %}">
+            <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
                 <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
             </form>

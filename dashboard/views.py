@@ -93,7 +93,7 @@ def produccion_tecnicos_view(request):
 def logout_view(request):
     user = request.user
     logout(request)
-    if user.is_staff or user.is_superuser:
+    if user.is_superuser:  # o podrías usar `if user.rol == 'admin'` si agregas ese campo
         return redirect('/admin/login/')
     return redirect('/usuarios/login/')
 
