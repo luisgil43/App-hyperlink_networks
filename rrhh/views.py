@@ -40,6 +40,7 @@ def listar_contratos_admin(request):
     })
 
 
+"""
 @login_required
 def listar_contratos_usuario(request):
     usuario = request.user
@@ -48,6 +49,24 @@ def listar_contratos_usuario(request):
     return render(request, 'rrhh/contratos_trabajo.html', {
         'contratos': contratos
     })
+"""
+
+
+@login_required
+def listar_contratos_usuario(request):
+    try:
+        usuario = request.user
+        logger.info(f"🧪 Usuario: {usuario} - ID: {usuario.id}")
+
+        contratos = ContratoTrabajo.objects.filter(tecnico=usuario)
+        logger.info(f"🧪 Total contratos: {contratos.count()}")
+
+        return render(request, 'rrhh/contratos_trabajo.html', {
+            'contratos': contratos
+        })
+    except Exception as e:
+        logger.error(f"❌ Error al cargar contratos usuario: {e}")
+        raise e  # Deja que falle para ver en los logs de Render
 
 
 @staff_member_required
