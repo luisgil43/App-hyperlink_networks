@@ -13,23 +13,20 @@
 
         .bg-sidebar {
             background-color: #1e293b;
+            /* azul fuerte personalizado */
         }
     </style>
 </head>
 
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
-    <!-- Header fijo -->
-    <header class="bg-white shadow-md fixed top-0 left-0 w-full h-14 z-50 flex items-center justify-between px-4">
+    <!-- Header fijo (puedes personalizarlo más si quieres) -->
+    <header class="bg-white shadow-md fixed top-0 left-0 w-full h-14 z-50 flex items-center justify-between px-6">
         <div class="flex items-center gap-3">
-            <!-- Botón hamburguesa solo visible en móviles -->
-            <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">
-                ☰
-            </button>
             <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9">
-            <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+            <strong class="text-gray-800">MV INGENIERÍA & CONSTRUCCIÓN</strong>
         </div>
-        <div class="flex items-center gap-4 text-sm md:text-base">
+        <div class="flex items-center gap-4">
             <span>{{ request.user.get_full_name|default:request.user.username }}</span>
             <form method="post" action="{% url 'dashboard_admin:logout' %}">
                 {% csrf_token %}
@@ -38,12 +35,11 @@
         </div>
     </header>
 
-    <!-- Contenedor principal -->
-    <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
+    <!-- Layout principal -->
+    <div class="pt-14 flex min-h-screen">
 
-        <!-- Menú lateral responsive -->
-        <nav id="side-nav"
-            class="bg-sidebar text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
+        <!-- Menú lateral -->
+        <nav class="bg-sidebar text-white w-72 p-4 overflow-y-auto">
             <ul class="space-y-4 text-base font-medium">
 
                 <li>
@@ -52,6 +48,9 @@
                         🏠 Inicio
                     </a>
                 </li>
+
+                <!-- Menú con submenús -->
+                {% comment %} Repite esto para cada sección {% endcomment %}
 
                 <li class="group">
                     <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
@@ -87,8 +86,7 @@
                     <ul class="ml-4 submenu space-y-1 hidden">
                         <li><a href="{% url 'liquidaciones:admin_lista' %}"
                                 class="hover:text-emerald-400">Liquidaciones</a></li>
-                        <li><a href="{% url 'rrhh:contratos_trabajo' %}" class="hover:text-emerald-400">Contratos de
-                                trabajo</a></li>
+                        <li><a href="{% url 'rrhh:contratos_trabajo' %}" class="hover:text-emerald-400">Contratos de trabajo</a></li>
                         <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
                         <li><a href="#" class="hover:text-emerald-400">Fichas de ingresos</a></li>
                     </ul>
@@ -162,15 +160,15 @@
         </nav>
 
         <!-- Contenido -->
-        <main class="md:ml-72 flex-1 p-6 z-10 bg-gray-100">
+        <main class="flex-1 p-6 z-10 bg-gray-100">
             {% if messages %}
             <div class="space-y-3 mb-6">
                 {% for message in messages %}
                 <div class="p-4 rounded-lg shadow text-white
-        {% if message.tags == 'error' %}bg-red-500
-        {% elif message.tags == 'success' %}bg-green-600
-        {% elif message.tags == 'warning' %}bg-yellow-500
-        {% else %}bg-blue-500{% endif %}">
+                {% if message.tags == 'error' %}bg-red-500
+                {% elif message.tags == 'success' %}bg-green-600
+                {% elif message.tags == 'warning' %}bg-yellow-500
+                {% else %}bg-blue-500{% endif %}">
                     {{ message }}
                 </div>
                 {% endfor %}
@@ -181,7 +179,7 @@
         </main>
     </div>
 
-    <!-- Scripts -->
+    <!-- Script funcional -->
     <script>
         function toggleMenu(el) {
             const submenu = el.nextElementSibling;
@@ -190,11 +188,6 @@
                 submenu.classList.toggle('hidden');
                 flecha.classList.toggle('rotate-90');
             }
-        }
-
-        function toggleSidebar() {
-            const nav = document.getElementById('side-nav');
-            nav.classList.toggle('-translate-x-full');
         }
     </script>
 
