@@ -102,7 +102,7 @@
         </li>
 
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚗
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐
             Flota <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
             <li><a href="#" class="hover:text-emerald-400">Mi vehiculo asignado</a></li>
@@ -129,9 +129,10 @@
             RR.HH <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
             <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
-            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
-            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Contrato de trabajo</a></li>
-            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Ver mi Ficha de Ingreso</a>
+            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Mis liquidaciones</a></li>
+            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Mis contratos de trabajos</a>
+            </li>
+            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Mi Ficha de Ingreso</a>
             <li><a href="#" class="hover:text-emerald-400">Mis Documentos</a>
             <li><a href="#" class="hover:text-emerald-400">Cronograma de pago</a>
             <li><a href="#" class="hover:text-emerald-400">Solicitud de avance de sueldo </a>
