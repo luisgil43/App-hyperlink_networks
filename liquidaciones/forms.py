@@ -1,10 +1,8 @@
 from django import forms
 from django.contrib.auth import get_user_model
-# from django_select2.forms import HeavySelect2Widget
 from django_select2.forms import ModelSelect2Widget
 from .models import Liquidacion
 from django.urls import reverse_lazy
-
 
 User = get_user_model()
 
@@ -25,7 +23,6 @@ class UsuarioSelectWidget(ModelSelect2Widget):
 
 
 class LiquidacionForm(forms.ModelForm):
-    # select * from user
     tecnico = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True),
         widget=forms.Select(
@@ -42,7 +39,7 @@ class LiquidacionForm(forms.ModelForm):
         widgets = {
             'mes': forms.TextInput(attrs={
                 'class': 'w-full border-gray-300 rounded-xl px-4 py-2 shadow-sm focus:ring-2 focus:ring-green-500',
-                'placeholder': 'Ej. Numero de Mes'
+                'placeholder': 'Ej. Número de Mes'
             }),
             'año': forms.TextInput(attrs={
                 'class': 'w-full border-gray-300 rounded-xl px-4 py-2 shadow-sm focus:ring-2 focus:ring-green-500',
@@ -73,8 +70,6 @@ class LiquidacionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
-
-        # ✅ Validación en el navegador
         self.fields['monto'].required = True
         self.fields['monto'].widget.attrs['required'] = 'required'
 
@@ -82,11 +77,9 @@ class LiquidacionForm(forms.ModelForm):
         tecnico = self.cleaned_data.get('tecnico')
         if self.request:
             usuario = self.request.user
-            print("USUARIO: ", usuario)
             if hasattr(usuario, 'tecnico') and tecnico != usuario.tecnico:
                 raise forms.ValidationError(
-                    "No puedes crear liquidación para otro técnico."
-                )
+                    "No puedes crear liquidación para otro técnico.")
         return tecnico
 
     def clean_archivo_pdf_liquidacion(self):
@@ -94,6 +87,13 @@ class LiquidacionForm(forms.ModelForm):
 
         if not archivo:
             raise forms.ValidationError("Debes adjuntar un archivo PDF.")
+
+        if not archivo.name.lower().endswith('.pdf'):
+            raise forms.ValidationError("El archivo debe tener extensión .pdf")
+
+        if archivo.content_type != 'application/pdf':
+            raise forms.ValidationError("El archivo debe ser un PDF válido.")
+
         return archivo
 
     def clean_monto(self):

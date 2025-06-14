@@ -1,0 +1,43 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto p-4 sm:p-6 bg-white rounded-2xl shadow">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+    <i class="lucide lucide-file-plus text-blue-600"></i>
+    Crear Ficha de Ingreso
+  </h2>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <!-- 🔍 Muestra errores por campo -->
+    {% for field in form %}
+      {% for error in field.errors %}
+        <p class="text-red-600 text-sm">{{ field.label }}: {{ error }}</p>
+      {% endfor %}
+    {% endfor %}
+
+    <div>
+      <label class="block font-semibold mb-1">Trabajador</label>
+      {{ form.tecnico }}
+    </div>
+
+    <div>
+      <label class="block font-semibold mb-1">Archivo PDF</label>
+      {{ form.archivo }}
+    </div>
+
+    <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
+      <a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}"
+         class="text-gray-700 border border-gray-300 hover:bg-gray-100 px-6 py-2 rounded shadow text-sm sm:text-base">
+        ← Volver
+      </a>
+      <button type="submit"
+        class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold shadow">
+        Guardar ficha
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

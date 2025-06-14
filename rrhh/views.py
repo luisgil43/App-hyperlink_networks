@@ -12,44 +12,43 @@ from django.shortcuts import get_object_or_404
 import logging
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.http import FileResponse, Http404
+from .forms import FichaIngresoForm
+from .models import FichaIngreso
+
 
 logger = logging.getLogger(__name__)
 
 
 @staff_member_required
 def listar_contratos_admin(request):
-    contratos = ContratoTrabajo.objects.all()
+    contratos = ContratoTrabajo.objects.select_related('tecnico')
 
-    nombre = request.GET.get("nombre", "")
-    fecha_inicio = request.GET.get("fecha_inicio")
-    fecha_termino = request.GET.get("fecha_termino")
+    identidades = contratos.values_list(
+        'tecnico__identidad', flat=True).distinct()
+    nombres = contratos.values_list(
+        'tecnico__first_name', 'tecnico__last_name').distinct()
+    fechas_inicio = contratos.values_list('fecha_inicio', flat=True).distinct()
 
-    if nombre:
-        contratos = contratos.filter(
-            tecnico__first_name__icontains=nombre
-        ) | contratos.filter(tecnico__last_name__icontains=nombre)
+    fechas_termino_raw = contratos.values_list('fecha_termino', flat=True)
+    fechas_termino = []
+    for fecha in fechas_termino_raw:
+        if fecha:
+            fechas_termino.append(str(fecha))
+        else:
+            fechas_termino.append("Indefinido")
+    fechas_termino = sorted(set(fechas_termino))
 
-    if fecha_inicio:
-        contratos = contratos.filter(fecha_inicio__gte=fecha_inicio)
-
-    if fecha_termino:
-        contratos = contratos.filter(fecha_termino__lte=fecha_termino)
+    nombres_completos = sorted(set(
+        f"{n[0]} {n[1]}" for n in nombres if n[0] and n[1]
+    ))
 
     return render(request, 'rrhh/listar_contratos_admin.html', {
-        'contratos': contratos
+        'contratos': contratos,
+        'identidades': identidades,
+        'nombres': nombres_completos,
+        'fechas_inicio': fechas_inicio,
+        'fechas_termino': fechas_termino,
     })
-
-
-"""
-@login_required
-def listar_contratos_usuario(request):
-    usuario = request.user
-    contratos = ContratoTrabajo.objects.filter(tecnico=usuario)
-
-    return render(request, 'rrhh/contratos_trabajo.html', {
-        'contratos': contratos
-    })
-"""
 
 
 @login_required
@@ -188,3 +187,69 @@ def ver_contrato(request, contrato_id):
     except Exception as e:
         messages.error(request, f"❌ Error al mostrar el contrato: {e}")
         return redirect('rrhh:contratos_trabajo')
+
+
+@login_required
+def listar_fichas_ingreso_usuario(request):
+    fichas = FichaIngreso.objects.filter(tecnico=request.user)
+    return render(request, 'rrhh/listar_fichas_ingreso_usuario.html', {
+        'fichas': fichas
+    })
+
+# Vista admin para listar fichas de ingreso (reutiliza ContratoTrabajo)
+
+
+@staff_member_required
+def listar_fichas_ingreso_admin(request):
+    fichas = FichaIngreso.objects.all().select_related(
+        'tecnico')  # Esto mejora rendimiento
+    return render(request, 'rrhh/listar_fichas_ingreso_admin.html', {'fichas': fichas})
+
+# Crear ficha (reutilizando formulario)
+
+
+@staff_member_required
+def crear_ficha_ingreso(request):
+    if request.method == 'POST':
+        form = FichaIngresoForm(request.POST, request.FILES)
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request, "Ficha de ingreso guardada exitosamente.")
+            return redirect('rrhh:listar_fichas_ingreso_admin')
+        else:
+            messages.error(request, "Corrige los errores del formulario.")
+    else:
+        form = FichaIngresoForm()
+
+    return render(request, 'rrhh/crear_ficha_ingreso.html', {'form': form})
+
+# Ver ficha
+
+
+@login_required
+def ver_ficha_ingreso(request, pk):
+    ficha = get_object_or_404(FichaIngreso, pk=pk)
+    return redirect(ficha.archivo.url)
+
+
+@staff_member_required
+def editar_ficha_ingreso(request, pk):
+    ficha = get_object_or_404(FichaIngreso, pk=pk)
+    if request.method == 'POST':
+        form = FichaIngresoForm(request.POST, request.FILES, instance=ficha)
+        if form.is_valid():
+            form.save()
+            return redirect('rrhh:listar_fichas_ingreso_admin')
+    else:
+        form = FichaIngresoForm(instance=ficha)
+    return render(request, 'rrhh/editar_ficha_ingreso.html', {'form': form})
+
+
+@staff_member_required
+def eliminar_ficha_ingreso(request, pk):
+    ficha = get_object_or_404(FichaIngreso, pk=pk)
+    if request.method == 'POST':
+        ficha.delete()
+        return redirect('rrhh:listar_fichas_ingreso_admin')
+    return render(request, 'rrhh/eliminar_ficha_ingreso.html', {'ficha': ficha})

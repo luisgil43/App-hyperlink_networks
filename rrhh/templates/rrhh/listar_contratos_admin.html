@@ -12,79 +12,88 @@
   <div class="overflow-x-auto bg-white rounded-lg shadow">
     <table id="tabla-contratos" class="min-w-full divide-y divide-gray-200 text-sm">
       <thead class="bg-gray-100">
-        <tr>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">ID</th>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">Nombre y Apellido</th>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">Fecha de Inicio</th>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">Fecha de Término</th>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">Contrato Adjunto</th>
-          <th class="px-4 py-3 text-left font-semibold text-gray-700">Acciones</th>
-        </tr>
-        <tr>
-          <th></th>
-          <th>
-            <select class="filtro px-2 py-1 w-full border">
-              <option value="">Todos</option>
-              {% for nombre in nombres %}
-              <option>{{ nombre }}</option>
-              {% endfor %}
-            </select>
-          </th>
-          <th>
-            <select class="filtro px-2 py-1 w-full border">
-              <option value="">Todos</option>
-              {% for fecha in fechas_inicio %}
-              <option>{{ fecha }}</option>
-              {% endfor %}
-            </select>
-          </th>
-          <th>
-            <select class="filtro px-2 py-1 w-full border">
-              <option value="">Todos</option>
-              {% for fecha in fechas_termino %}
-              <option>{{ fecha }}</option>
-              {% endfor %}
-            </select>
-          </th>
-          <th></th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100 bg-white">
-        {% for contrato in contratos %}
-        <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-3 text-gray-900">{{ contrato.id }}</td>
-          <td class="px-4 py-3 text-gray-900">{{ contrato.tecnico.get_full_name }}</td>
-          <td class="px-4 py-3 text-gray-900">{{ contrato.fecha_inicio }}</td>
-          <td class="px-4 py-3 text-gray-900">
-            {% if contrato.fecha_termino %}
-            {{ contrato.fecha_termino }}
-            {% else %}
-            Indefinido
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 text-gray-900">
-            {% if contrato.archivo %}
-            <a href="{% url 'rrhh:ver_contrato' contrato.id %}" class="text-blue-600 hover:underline" target="_blank">
-              Ver contrato
-            </a>
-            {% else %}
-            <span class="text-gray-400 italic">No disponible</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 flex flex-col sm:flex-row gap-2">
-            <a href="{% url 'rrhh:editar_contrato' contrato.id %}"
-              class="text-blue-600 hover:underline font-medium">Editar</a>
-            <a href="{% url 'rrhh:eliminar_contrato' contrato.id %}"
-              class="text-red-600 hover:underline font-medium">Eliminar</a>
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="6" class="px-4 py-6 text-center text-gray-500">No se encontraron contratos.</td>
-        </tr>
+  <tr>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Identidad</th>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Nombre y Apellido</th>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Fecha de Inicio</th>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Fecha de Término</th>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Contrato Adjunto</th>
+    <th class="px-4 py-3 text-left font-semibold text-gray-700">Acciones</th>
+  </tr>
+  <tr>
+    <th>
+      <select class="filtro px-2 py-1 w-full border">
+        <option value="">Todos</option>
+        {% for identidad in identidades %}
+        <option>{{ identidad }}</option>
         {% endfor %}
-      </tbody>
+      </select>
+    </th>
+    <th>
+      <select class="filtro px-2 py-1 w-full border">
+        <option value="">Todos</option>
+        {% for nombre in nombres %}
+        <option>{{ nombre }}</option>
+        {% endfor %}
+      </select>
+    </th>
+    <th>
+      <select class="filtro px-2 py-1 w-full border">
+        <option value="">Todos</option>
+        {% for fecha in fechas_inicio %}
+        <option>{{ fecha }}</option>
+        {% endfor %}
+      </select>
+    </th>
+    <th>
+  <select class="filtro px-2 py-1 w-full border">
+    <option value="">Todos</option>
+    {% for fecha in fechas_termino %}
+    <option>{{ fecha }}</option>
+    {% endfor %}
+  </select>
+</th>
+    <th></th>
+    <th></th>
+  </tr>
+</thead>
+
+<tbody class="divide-y divide-gray-100 bg-white">
+  {% for contrato in contratos %}
+  <tr class="hover:bg-gray-50 transition">
+    <td class="px-4 py-3 text-gray-900">{{ contrato.tecnico.identidad }}</td>
+    <td class="px-4 py-3 text-gray-900">{{ contrato.tecnico.get_full_name }}</td>
+    <td class="px-4 py-3 text-gray-900">{{ contrato.fecha_inicio }}</td>
+    <td class="px-4 py-3 text-gray-900">
+      {% if contrato.fecha_termino %}
+      {{ contrato.fecha_termino }}
+      {% else %}
+      Indefinido
+      {% endif %}
+    </td>
+    <td class="px-4 py-3 text-gray-900">
+      {% if contrato.archivo %}
+      <a href="{% url 'rrhh:ver_contrato' contrato.id %}" class="text-blue-600 hover:underline" target="_blank">
+        Ver contrato
+      </a>
+      {% else %}
+      <span class="text-gray-400 italic">No disponible</span>
+      {% endif %}
+    </td>
+    <td class="px-4 py-3 flex flex-col sm:flex-row gap-2">
+      <a href="{% url 'rrhh:editar_contrato' contrato.id %}"
+        class="text-blue-600 hover:underline font-medium">Editar</a>
+      <a href="{% url 'rrhh:eliminar_contrato' contrato.id %}"
+        class="text-red-600 hover:underline font-medium">Eliminar</a>
+    </td>
+  </tr>
+  {% empty %}
+  <tr>
+    <td colspan="6" class="px-4 py-6 text-center text-gray-500">No se encontraron contratos.</td>
+  </tr>
+  {% endfor %}
+</tbody>
+
     </table>
   </div>
 </div>

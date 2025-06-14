@@ -1,0 +1,34 @@
+{% extends "dashboard_admin/base.html" %}
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto p-4 sm:p-6 bg-white rounded-2xl shadow">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+    <i class="lucide lucide-file-pen text-yellow-500"></i>
+    Editar Ficha de Ingreso
+  </h2>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <div>
+      <label class="block font-semibold mb-1">Trabajador</label>
+      {{ form.tecnico }}
+    </div>
+
+    <div>
+      <label class="block font-semibold mb-1">Archivo PDF</label>
+      {{ form.archivo }}
+    </div>
+
+    <div class="flex items-center gap-2">
+      {{ form.reemplazar_archivo }}
+      <label for="{{ form.reemplazar_archivo.id_for_label }}">Reemplazar archivo</label>
+    </div>
+
+    <button type="submit"
+      class="w-full sm:w-auto bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded font-semibold shadow">
+      Actualizar ficha
+    </button>
+  </form>
+</div>
+{% endblock %}

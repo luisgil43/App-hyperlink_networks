@@ -39,3 +39,36 @@ class ContratoTrabajo(models.Model):
                 old.archivo.delete(save=False)
 
         super().save(*args, **kwargs)
+
+
+def ruta_ficha_ingreso(instance, filename):
+    identidad = instance.tecnico.identidad or f"usuario_{instance.tecnico.id}"
+    identidad_limpia = identidad.replace('.', '').replace('-', '')
+    return f"media/fichas_de_ingreso/{identidad_limpia}/{filename}"
+
+
+class FichaIngreso(models.Model):
+    tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
+    archivo = models.FileField(
+        upload_to=ruta_ficha_ingreso,
+        storage=cloudinary_storage,
+        verbose_name="Ficha de Ingreso (PDF)"
+    )
+
+    def __str__(self):
+        return f"Ficha de ingreso de {self.tecnico.get_full_name()}"
+
+    def save(self, *args, **kwargs):
+        try:
+            old = FichaIngreso.objects.get(pk=self.pk)
+        except FichaIngreso.DoesNotExist:
+            old = None
+
+        if (
+            old and old.archivo and self.archivo and
+            old.archivo.name != self.archivo.name
+        ):
+            if old.archivo.storage.exists(old.archivo.name):
+                old.archivo.delete(save=False)
+
+        super().save(*args, **kwargs)
