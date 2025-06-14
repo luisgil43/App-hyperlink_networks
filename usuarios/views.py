@@ -19,7 +19,7 @@ class UsuarioLoginView(LoginView):
     def get_success_url(self):
         user = self.request.user
         if user.is_authenticated and not user.is_staff:
-
+            # ← esta vista debe estar disponible
             return reverse_lazy('dashboard:inicio')
         logout(self.request)
         return reverse_lazy('usuarios:login')
@@ -43,23 +43,6 @@ def grupos_view(request):
 
 def usuarios_view(request):
     return render(request, 'usuarios/usuarios.html')
-
-
-# def login_view(request):
-    # if request.method == "POST":
-    # form = AuthenticationForm(request, data=request.POST)
-    # if form.is_valid():
-    #  user = form.get_user()
-    # login(request, user)
-    # if user.is_staff:
-    #     return redirect('dashboard_admin:index')
-    # else:
-    #     return redirect('tecnicos:dashboard')
-    # else:
-    #   messages.error(request, "Usuario o contraseña incorrectos")
-    # else:
-    #  form = AuthenticationForm()
-    # return render(request, 'dashboard/login.html', {'form': form})
 
 
 def inicio_view(request):

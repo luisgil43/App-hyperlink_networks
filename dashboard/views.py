@@ -15,7 +15,7 @@ from usuarios.models import CustomUser  # ← tu nuevo modelo
 # Ya no se importa Tecnico ni Curso
 
 
-@login_required(login_url='dashboard_admin:login')
+@login_required
 def inicio(request):
     return render(request, 'dashboard/inicio.html')
 
