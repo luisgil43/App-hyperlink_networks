@@ -6,6 +6,7 @@ import os
 from django.utils.module_loading import import_string
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
 # Cargar variables de entorno desde .env (solo en desarrollo)
 if os.environ.get("DJANGO_DEVELOPMENT") == "true":
     load_dotenv()
