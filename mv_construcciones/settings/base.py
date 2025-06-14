@@ -1,12 +1,11 @@
 from django.urls import reverse_lazy
-import logging
 import dj_database_url
 from pathlib import Path
 import os
 from django.utils.module_loading import import_string
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+
 # Cargar variables de entorno desde .env (solo en desarrollo)
 if os.environ.get("DJANGO_DEVELOPMENT") == "true":
     load_dotenv()
@@ -155,14 +154,3 @@ DEFAULT_FROM_EMAIL = f"MV Construcciones <{EMAIL_HOST_USER}>"
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-
-# ✅ Logging para saber qué storage está activo solo si se está usando Cloudinary
-if USE_CLOUDINARY:
-    from django.conf import settings as django_settings  # 👈 Importar correctamente
-    try:
-        storage_class = import_string(django_settings.DEFAULT_FILE_STORAGE)
-        logger.warning(
-            f"🧪 STORAGE USADO EN TIEMPO DE EJECUCIÓN: {storage_class}")
-    except Exception as e:
-        logger.error(f"❌ Error al importar DEFAULT_FILE_STORAGE: {e}")
