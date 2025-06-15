@@ -1,74 +1,154 @@
 {% extends "dashboard_admin/base.html" %}
+{% load static %}
+
+{% block title %}
+  {% if usuario %}Editar Usuario - Admin{% else %}Crear Usuario - Admin{% endif %}
+{% endblock %}
 
 {% block dashboard_content %}
-<div class="p-6 max-w-4xl mx-auto bg-white rounded-xl shadow-md">
-  <h1 class="text-2xl font-bold mb-6 text-gray-800">✏ Editar Usuario: {{ usuario.username }}</h1>
+<div class="p-6 max-w-4xl mx-auto">
+  <h1 class="text-3xl font-bold mb-6">
+    {% if usuario %}✏️ Editar usuario: {{ usuario.username }}{% else %}👤 Crear nuevo usuario{% endif %}
+  </h1>
 
-  <form method="POST" id="editarUsuarioForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <form method="POST" class="bg-white p-8 rounded-2xl shadow space-y-6">
     {% csrf_token %}
 
-    <input type="text" name="username" value="{{ usuario.username }}" placeholder="Nombre de usuario" required class="input input-bordered w-full bg-gray-100">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nombre de usuario</label>
+        <input type="text" name="username" placeholder="Ej: juan123" required
+               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
+               value="{{ usuario.username|default_if_none:'' }}">
+      </div>
 
-    <input type="email" name="email" value="{{ usuario.email }}" placeholder="Correo electrónico" class="input input-bordered w-full bg-gray-100">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
+        <input type="email" name="email" placeholder="Ej: correo@dominio.com"
+               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
+               value="{{ usuario.email|default_if_none:'' }}">
+      </div>
 
-    <input type="text" name="first_name" value="{{ usuario.first_name }}" placeholder="Nombre" class="input input-bordered w-full bg-gray-100">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          Contraseña
+          {% if usuario %}<small class="text-gray-500">(Opcional)</small>{% endif %}
+        </label>
+        <input type="password" name="password1" class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
+      </div>
 
-    <input type="text" name="last_name" value="{{ usuario.last_name }}" placeholder="Apellidos" class="input input-bordered w-full bg-gray-100">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
+        <input type="password" name="password2" class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
+      </div>
 
-    <div class="flex items-center space-x-3 col-span-2 mt-2">
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_active" {% if usuario.is_active %}checked{% endif %}>Activo</label>
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_staff" {% if usuario.is_staff %}checked{% endif %}>Staff</label>
-      <label class="flex items-center gap-2"><input type="checkbox" name="is_superuser" {% if usuario.is_superuser %}checked{% endif %}>Superusuario</label>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">ID / Número de identidad</label>
+        <input type="text" name="identidad" placeholder="Ej: 12345678-9"
+               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
+               value="{{ usuario.identidad|default_if_none:'' }}">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+        <input type="text" name="first_name" placeholder="Ej: Luis Enrique"
+               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
+               value="{{ usuario.first_name|default_if_none:'' }}">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
+        <input type="text" name="last_name" placeholder="Ej: Gil Moya"
+               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
+               value="{{ usuario.last_name|default_if_none:'' }}">
+      </div>
+
+      <!-- ✅ Roles con checkboxes marcados -->
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Roles del usuario</label>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {% for rol in roles %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="roles" value="{{ rol.id }}"
+                {% if rol.id in roles_seleccionados %}checked{% endif %}
+                class="rounded border-gray-300 text-blue-600">
+              {{ rol.nombre }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
     </div>
 
-    <div class="col-span-2">
-      <label class="block font-semibold mb-1">Grupos:</label>
-      <div class="grid grid-cols-2 gap-2">
+    <div class="flex flex-wrap gap-4 pt-4">
+      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+        <input type="checkbox" name="is_active"
+          class="rounded border-gray-300 text-blue-600"
+          {% if usuario and usuario.is_active %}checked{% elif not usuario %}checked{% endif %}>
+        Activo
+      </label>
+      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+        <input type="checkbox" name="is_staff"
+          class="rounded border-gray-300 text-blue-600"
+          {% if usuario and usuario.is_staff %}checked{% endif %}>
+        Staff
+      </label>
+      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+        <input type="checkbox" name="is_superuser"
+          class="rounded border-gray-300 text-blue-600"
+          {% if usuario and usuario.is_superuser %}checked{% endif %}>
+        Superusuario
+      </label>
+    </div>
+
+    <!-- Grupos -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-2">Grupos disponibles:</label>
+      <div class="flex flex-wrap gap-3">
         {% for grupo in grupos %}
-        <label class="flex items-center gap-2">
-          <input type="checkbox" name="groups" value="{{ grupo.id }}" {% if grupo in usuario.groups.all %}checked{% endif %}>
-          {{ grupo.name }}
-        </label>
+          <label class="inline-flex items-center bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 shadow-sm">
+            <input type="checkbox" name="groups" value="{{ grupo.id }}"
+              {% if grupo.id in grupo_ids_post %}checked{% endif %} class="mr-2">
+            {{ grupo.name }}
+          </label>
+        {% empty %}
+          <p class="text-gray-400 text-sm">No hay grupos disponibles.</p>
         {% endfor %}
       </div>
     </div>
 
-    <div class="col-span-2 mt-4">
-      <h3 class="font-semibold text-lg mb-2">Cambiar contraseña (opcional)</h3>
-      <input type="password" name="password1" id="password1" placeholder="Nueva contraseña" class="input input-bordered w-full bg-gray-100">
-      <input type="password" name="password2" id="password2" placeholder="Confirmar contraseña" class="input input-bordered w-full bg-gray-100 mt-2">
-      <p id="error-msg" class="text-red-600 text-sm mt-1 hidden"></p>
-    </div>
+    <!-- Botones -->
+    <div class="pt-6 flex items-center gap-4">
+      <a href="{% url 'dashboard_admin:listar_usuarios' %}"
+         class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-6 rounded-lg">
+        ← Volver
+      </a>
 
-    <div class="col-span-2 mt-4 flex items-center gap-4">
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded">Guardar cambios</button>
-      <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="text-blue-600 hover:underline">← Volver al listado</a>
+      <button type="submit"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg">
+        {% if usuario %}💾 Guardar cambios{% else %}➕ Crear usuario{% endif %}
+      </button>
     </div>
   </form>
 </div>
-
-<script>
-  document.getElementById('editarUsuarioForm').addEventListener('submit', function(event) {
-    const pwd1 = document.getElementById('password1').value;
-    const pwd2 = document.getElementById('password2').value;
-    const errorMsg = document.getElementById('error-msg');
-
-    if (pwd1 || pwd2) {
-      if (pwd1.length < 8) {
-        event.preventDefault();
-        errorMsg.textContent = "La contraseña debe tener al menos 8 caracteres.";
-        errorMsg.classList.remove('hidden');
-        return;
-      }
-      if (pwd1 !== pwd2) {
-        event.preventDefault();
-        errorMsg.textContent = "Las contraseñas no coinciden.";
-        errorMsg.classList.remove('hidden');
-        return;
-      }
-    }
-
-    errorMsg.classList.add('hidden');
-  });
-</script>
 {% endblock %}
+{% if messages %}
+  <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+    {% for message in messages %}
+      <div class="flex items-center justify-between p-4 rounded-md shadow text-white
+                  {% if message.tags == 'success' %}bg-green-600
+                  {% elif message.tags == 'error' %}bg-red-600
+                  {% elif message.tags == 'warning' %}bg-yellow-500
+                  {% else %}bg-blue-600{% endif %}">
+        <span>{{ message }}</span>
+        <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
+      </div>
+    {% endfor %}
+  </div>
+
+  <script>
+    setTimeout(() => {
+      const mensajes = document.getElementById('mensajes');
+      if (mensajes) mensajes.remove();
+    }, 5000);
+  </script>
+{% endif %}

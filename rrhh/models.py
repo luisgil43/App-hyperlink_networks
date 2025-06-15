@@ -72,3 +72,40 @@ class FichaIngreso(models.Model):
                 old.archivo.delete(save=False)
 
         super().save(*args, **kwargs)
+
+
+class SolicitudVacaciones(models.Model):
+    ESTADOS = [
+        ('pendiente_supervisor', 'Pendiente de Supervisor'),
+        ('rechazada_supervisor', 'Rechazada por Supervisor'),
+        ('pendiente_pm', 'Pendiente de PM'),
+        ('rechazada_pm', 'Rechazada por PM'),
+        ('pendiente_rrhh', 'Pendiente de RRHH'),
+        ('rechazada_rrhh', 'Rechazada por RRHH'),
+        ('aprobada', 'Aprobada'),
+    ]
+
+    usuario = models.ForeignKey(
+        get_user_model(), on_delete=models.CASCADE, related_name='vacaciones')
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+    dias_solicitados = models.FloatField()
+    estatus = models.CharField(
+        max_length=30, choices=ESTADOS, default='pendiente_supervisor')
+    observacion = models.TextField(blank=True, null=True)
+    fecha_solicitud = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.usuario.get_full_name()} ({self.fecha_inicio} - {self.fecha_fin})"
+
+    def get_estado_actual_display(self):
+        estado_map = {
+            'pendiente_supervisor': '🟡 Pendiente de Supervisor',
+            'rechazada_supervisor': '🔴 Rechazada por Supervisor',
+            'pendiente_pm': '🟡 Pendiente de PM',
+            'rechazada_pm': '🔴 Rechazada por PM',
+            'pendiente_rrhh': '🟡 Pendiente de RRHH',
+            'rechazada_rrhh': '🔴 Rechazada por RRHH',
+            'aprobada': '🟢 Aprobada ✅',
+        }
+        return estado_map.get(self.estatus, 'Estado desconocido')

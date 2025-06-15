@@ -1,48 +1,64 @@
-{% extends "base.html" %}
+{% extends "dashboard_admin/base.html" %}
 
-{% block content %}
-<h1>Gestión de Grupos</h1>
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto mt-8 bg-white p-6 rounded-2xl shadow-md">
+  <h1 class="text-2xl font-bold text-gray-800 mb-6">👥 Gestión de Grupos</h1>
 
-<!-- Mensajes -->
-{% if messages %}
-  <ul>
-    {% for message in messages %}
-      <li>{{ message }}</li>
-    {% endfor %}
-  </ul>
-{% endif %}
+  <!-- Mensajes -->
+  {% if messages %}
+    <ul class="mb-4 space-y-2">
+      {% for message in messages %}
+        <li class="px-4 py-2 rounded text-sm {% if message.tags == 'success' %}bg-green-100 text-green-800{% elif message.tags == 'error' %}bg-red-100 text-red-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+          {{ message }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 
-<!-- Formulario para agregar grupo -->
-<form method="POST">
-  {% csrf_token %}
-  <input type="text" name="nombre" placeholder="Nombre del nuevo grupo" required>
-  <button type="submit" name="add_group">Añadir grupo</button>
-</form>
+  <!-- Formulario para agregar grupo -->
+  <form method="POST" class="flex items-center gap-4 mb-6">
+    {% csrf_token %}
+    <input type="text" name="nombre" placeholder="Nombre del nuevo grupo" required
+           class="flex-1 px-4 py-2 rounded-lg border border-gray-300 bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+    <button type="submit" name="add_group"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold">
+      ➕ Añadir grupo
+    </button>
+  </form>
 
-<!-- Tabla de grupos -->
-<table>
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Nombre</th>
-      <th>Acciones</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for grupo in grupos %}
-    <tr>
-      <td>{{ grupo.id }}</td>
-      <td>{{ grupo.name }}</td>
-      <td>
-        <form method="POST" style="display:inline;">
-          {% csrf_token %}
-          <input type="hidden" name="grupo_id" value="{{ grupo.id }}">
-          <button type="submit" name="delete_group" onclick="return confirm('¿Estás seguro de eliminar este grupo?')">Eliminar</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
+  <!-- Tabla de grupos -->
+  <div class="overflow-x-auto">
+    <table class="min-w-full bg-white border rounded-lg shadow">
+      <thead>
+        <tr class="bg-gray-100 text-left text-sm text-gray-600 uppercase">
+          <th class="px-6 py-3">ID</th>
+          <th class="px-6 py-3">Nombre</th>
+          <th class="px-6 py-3">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="text-gray-700">
+        {% for grupo in grupos %}
+        <tr class="border-t hover:bg-gray-50">
+          <td class="px-6 py-3">{{ grupo.id }}</td>
+          <td class="px-6 py-3 font-medium">{{ grupo.name }}</td>
+          <td class="px-6 py-3">
+            <form method="POST" onsubmit="return confirm('¿Estás seguro de eliminar este grupo?')" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="grupo_id" value="{{ grupo.id }}">
+              <button type="submit" name="delete_group"
+                      class="text-red-600 hover:text-red-800 font-semibold">
+                🗑️ Eliminar
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="3" class="text-center text-gray-400 py-4">No hay grupos registrados.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

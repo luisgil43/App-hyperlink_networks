@@ -1,0 +1,28 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-md">
+  <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <i class="lucide lucide-pencil text-blue-600"></i>
+    Editar Solicitud de Vacaciones
+  </h2>
+  <form method="post" class="grid grid-cols-1 gap-4">
+    {% csrf_token %}
+    <div>
+      <label for="id_fecha_inicio" class="block font-medium mb-1">Fecha de inicio:</label>
+      {{ form.fecha_inicio }}
+    </div>
+    <div>
+      <label for="id_fecha_fin" class="block font-medium mb-1">Fecha de término:</label>
+      {{ form.fecha_fin }}
+    </div>
+    <p class="text-sm text-gray-700 mt-2">Los días hábiles serán recalculados automáticamente.</p>
+    <div>
+      <button type="submit"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-xl transition">
+        Guardar Cambios
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

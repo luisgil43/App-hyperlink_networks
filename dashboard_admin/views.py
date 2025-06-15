@@ -1,3 +1,5 @@
+from django.shortcuts import get_object_or_404, render, redirect
+from usuarios.models import CustomUser, Rol
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.shortcuts import render, redirect, get_object_or_404
@@ -12,6 +14,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import PermissionDenied
+from usuarios.models import CustomUser as User
+from usuarios.decoradores import rol_requerido
 
 User = get_user_model()
 
@@ -28,12 +32,13 @@ def logout_view(request):
     return redirect('dashboard_admin:login')
 
 
-@staff_member_required
+@staff_member_required(login_url='/dashboard_admin/login/')
 def inicio_admin(request):
     return render(request, 'dashboard_admin/inicio_admin.html')
 
 
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'supervisor')
 def produccion_tecnico(request):
     produccion = ProduccionTecnico.objects.filter(tecnico__user=request.user)
     return render(request, 'dashboard/produccion_tecnico.html', {
@@ -42,10 +47,13 @@ def produccion_tecnico(request):
 
 
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh')
 def grupos_view(request):
     if request.method == 'POST':
+        nombre = request.POST.get('nombre', '').strip()
+        grupo_id = request.POST.get('grupo_id')
+
         if 'add_group' in request.POST:
-            nombre = request.POST.get('nombre')
             if nombre:
                 grupo, creado = Group.objects.get_or_create(name=nombre)
                 if creado:
@@ -54,10 +62,12 @@ def grupos_view(request):
                 else:
                     messages.warning(
                         request, f'El grupo "{nombre}" ya existe.')
+            else:
+                messages.error(
+                    request, "Debes ingresar un nombre para el grupo.")
             return redirect('dashboard_admin:grupos')
 
-        if 'delete_group' in request.POST:
-            grupo_id = request.POST.get('grupo_id')
+        elif 'delete_group' in request.POST and grupo_id:
             try:
                 grupo = Group.objects.get(id=grupo_id)
                 grupo.delete()
@@ -67,7 +77,7 @@ def grupos_view(request):
                 messages.error(request, 'El grupo no existe.')
             return redirect('dashboard_admin:grupos')
 
-    grupos = Group.objects.all()
+    grupos = Group.objects.all().order_by('name')
     return render(request, 'dashboard_admin/grupos.html', {'grupos': grupos})
 
 
@@ -96,12 +106,9 @@ class UsuarioLoginView(LoginView):
 
 
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh')
 def editar_usuario_view(request, user_id):
-    try:
-        usuario = get_object_or_404(User, id=user_id)
-    except User.DoesNotExist:
-        raise Http404("No CustomUser matches the given query.")
-
+    usuario = get_object_or_404(User, id=user_id)
     grupos = Group.objects.all()
 
     if request.method == 'POST':
@@ -112,15 +119,40 @@ def editar_usuario_view(request, user_id):
         usuario.is_active = 'is_active' in request.POST
         usuario.is_staff = 'is_staff' in request.POST
         usuario.is_superuser = 'is_superuser' in request.POST
+        usuario.identidad = request.POST['identidad']
+
         grupo_ids = request.POST.getlist('groups')
         usuario.groups.set(grupo_ids)
+
+        # ✅ Roles múltiples
+        roles_ids = request.POST.getlist('roles')
+        usuario.roles.set(roles_ids)
+
+        password1 = request.POST.get('password1')
+        password2 = request.POST.get('password2')
+        if password1 and password1 == password2:
+            usuario.set_password(password1)
+        elif password1 != password2:
+            messages.error(request, 'Las contraseñas no coinciden.')
+            return redirect(request.path)
+
         usuario.save()
         messages.success(request, "Usuario actualizado exitosamente.")
         return redirect('dashboard_admin:listar_usuarios')
 
+    # 👇 Cargamos roles para editar
+    roles_disponibles = Rol.objects.all()
+    roles_seleccionados = usuario.roles.values_list('id', flat=True)
+    roles_seleccionados = [str(rid) for rid in roles_seleccionados]
+
+    grupo_ids_post = [str(g.id) for g in usuario.groups.all()]
+
     return render(request, 'dashboard_admin/editar_usuario.html', {
         'usuario': usuario,
-        'grupos': grupos
+        'grupos': grupos,
+        'roles': roles_disponibles,
+        'roles_seleccionados': roles_seleccionados,
+        'grupo_ids_post': grupo_ids_post,
     })
 
 
@@ -146,7 +178,9 @@ class AdminLoginView(LoginView):
         return reverse_lazy('dashboard_admin:inicio_admin')
 
 
+"""
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh' )
 def usuarios_view(request):
     usuarios = User.objects.all()
     grupos = Group.objects.all()
@@ -155,9 +189,11 @@ def usuarios_view(request):
         'grupos': grupos,
     }
     return render(request, 'dashboard_admin/usuarios.html')
+"""
 
 
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh')
 def crear_usuario_view(request, identidad=None):
     grupos = Group.objects.all()
     usuario = None
@@ -177,18 +213,18 @@ def crear_usuario_view(request, identidad=None):
         is_superuser = 'is_superuser' in request.POST
         grupo_ids = [int(gid) for gid in request.POST.getlist('groups')]
         identidad_post = request.POST.get('identidad')
+        roles_ids = request.POST.getlist('roles')
 
         if password1 or password2:
             if password1 != password2:
                 messages.error(request, 'Las contraseñas no coinciden.')
                 return redirect(request.path)
 
-        # Validar que identidad sea numérica o con formato correcto (opcional)
         if identidad_post and not identidad_post.replace('-', '').isdigit():
             messages.error(request, 'El campo Identidad debe ser numérico.')
             return redirect(request.path)
 
-        if usuario:  # Editar usuario existente
+        if usuario:
             usuario.username = username
             usuario.email = email
             usuario.first_name = first_name
@@ -196,19 +232,18 @@ def crear_usuario_view(request, identidad=None):
             usuario.is_active = is_active
             usuario.is_staff = is_staff
             usuario.is_superuser = is_superuser
-            usuario.groups.set(grupo_ids)
             usuario.identidad = identidad_post
+            usuario.groups.set(grupo_ids)
             if password1:
                 usuario.set_password(password1)
             usuario.save()
+            usuario.roles.set(roles_ids)
             messages.success(request, 'Usuario actualizado correctamente.')
         else:
-            # Validar username único solo si es nuevo usuario
             if User.objects.filter(username=username).exists():
                 messages.error(request, 'El nombre de usuario ya existe.')
                 return redirect('dashboard_admin:crear_usuario')
 
-            # Validar identidad única
             if User.objects.filter(identidad=identidad_post).exists():
                 messages.error(
                     request, 'El número de identidad ya está registrado.')
@@ -223,27 +258,42 @@ def crear_usuario_view(request, identidad=None):
                 is_active=is_active,
                 is_staff=is_staff,
                 is_superuser=is_superuser,
-                identidad=identidad_post
+                identidad=identidad_post,
             )
             usuario.groups.set(grupo_ids)
+            usuario.roles.set(roles_ids)
             usuario.save()
             messages.success(request, 'Usuario creado exitosamente.')
 
         return redirect('dashboard_admin:listar_usuarios')
 
+    # Si es GET
+    grupo_ids_post = request.POST.getlist(
+        'groups') if request.method == 'POST' else []
+    if not grupo_ids_post and usuario:
+        grupo_ids_post = [str(g.id) for g in usuario.groups.all()]
+
+    roles_disponibles = Rol.objects.all()
+    roles_seleccionados = usuario.roles.values_list(
+        'id', flat=True) if usuario else []
+    roles_seleccionados = [str(id) for id in roles_seleccionados]
+
     contexto = {
         'grupos': grupos,
+        'grupo_ids_post': grupo_ids_post,
         'usuario': usuario,
+        'roles': roles_disponibles,
+        'roles_seleccionados': roles_seleccionados,
     }
     return render(request, 'dashboard_admin/crear_usuario.html', contexto)
 
+    # @login_required(login_url='dashboard_admin:login')
+    # def index(request):
+    #    return render(request, 'dashboard_admin/index.html')
+
 
 @login_required(login_url='dashboard_admin:login')
-def index(request):
-    return render(request, 'dashboard_admin/index.html')
-
-
-@login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh')
 def listar_usuarios(request):
     if request.method == "POST" and "delete_user" in request.POST:
         user_id = request.POST.get("user_id")
@@ -251,24 +301,44 @@ def listar_usuarios(request):
             usuario = User.objects.get(id=user_id)
             usuario.delete()
             messages.success(
-                request, f'Usuario "{usuario.username}" eliminado correctamente.')
+                request, f'Usuario "{usuario.username}" eliminado correctamente.'
+            )
         except User.DoesNotExist:
             messages.error(request, "Usuario no encontrado.")
-        return redirect('dashboard_admin:listar_usuarios')
+            return redirect('dashboard_admin:listar_usuarios')
 
-    usuarios = User.objects.all()
-    return render(request, 'dashboard_admin/listar_usuarios.html', {'usuarios': usuarios})
+    # 🔎 Filtro por rol (GET)
+    rol_filtrado = request.GET.get('rol')
+    if rol_filtrado:
+        usuarios = User.objects.filter(roles__nombre=rol_filtrado).distinct()
+    else:
+        usuarios = User.objects.all()
+
+    roles_disponibles = Rol.objects.all()
+
+    return render(request, 'dashboard_admin/listar_usuarios.html', {
+        'usuarios': usuarios,
+        'roles': roles_disponibles,
+        'rol_filtrado': rol_filtrado,
+    })
 
 
 @login_required(login_url='dashboard_admin:login')
+@rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_usuario_view(request, user_id):
     usuario = get_object_or_404(User, id=user_id)
 
     if request.method == 'POST':
         usuario.delete()
         messages.success(
-            request, f'Usuario {usuario.username} eliminado correctamente.')
+            request, f'Usuario {usuario.username} eliminado correctamente.'
+        )
         return redirect('dashboard_admin:listar_usuarios')
 
     # GET → mostrar confirmación
     return render(request, 'dashboard_admin/eliminar_usuario_confirmacion.html', {'usuario': usuario})
+
+
+# Vista para usuarios no autorizados
+def no_autorizado(request):
+    return render(request, 'dashboard_admin/no_autorizado.html')

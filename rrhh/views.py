@@ -14,12 +14,18 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.http import FileResponse, Http404
 from .forms import FichaIngresoForm
 from .models import FichaIngreso
+from .models import SolicitudVacaciones
+from .forms import SolicitudVacacionesForm
+from datetime import date
+from django.http import HttpResponseForbidden
+from usuarios.decoradores import rol_requerido
 
 
 logger = logging.getLogger(__name__)
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def listar_contratos_admin(request):
     contratos = ContratoTrabajo.objects.select_related('tecnico')
 
@@ -69,6 +75,7 @@ def listar_contratos_usuario(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def crear_contrato(request):
     if request.method == 'POST':
         form = ContratoTrabajoForm(request.POST, request.FILES)
@@ -104,6 +111,7 @@ def crear_contrato(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def editar_contrato(request, contrato_id):
     contrato = get_object_or_404(ContratoTrabajo, id=contrato_id)
 
@@ -148,6 +156,7 @@ def editar_contrato(request, contrato_id):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_contrato(request, contrato_id):
     try:
         contrato = get_object_or_404(ContratoTrabajo, id=contrato_id)
@@ -200,6 +209,7 @@ def listar_fichas_ingreso_usuario(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def listar_fichas_ingreso_admin(request):
     fichas = FichaIngreso.objects.all().select_related(
         'tecnico')  # Esto mejora rendimiento
@@ -209,6 +219,7 @@ def listar_fichas_ingreso_admin(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def crear_ficha_ingreso(request):
     if request.method == 'POST':
         form = FichaIngresoForm(request.POST, request.FILES)
@@ -234,6 +245,7 @@ def ver_ficha_ingreso(request, pk):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def editar_ficha_ingreso(request, pk):
     ficha = get_object_or_404(FichaIngreso, pk=pk)
     if request.method == 'POST':
@@ -247,9 +259,92 @@ def editar_ficha_ingreso(request, pk):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_ficha_ingreso(request, pk):
     ficha = get_object_or_404(FichaIngreso, pk=pk)
     if request.method == 'POST':
         ficha.delete()
         return redirect('rrhh:listar_fichas_ingreso_admin')
     return render(request, 'rrhh/eliminar_ficha_ingreso.html', {'ficha': ficha})
+
+
+@login_required
+def mis_vacaciones(request):
+    usuario = request.user
+
+    # Calcular días disponibles desde la fecha de inicio del contrato
+    primer_contrato = usuario.contratotrabajo_set.order_by(
+        'fecha_inicio').first()
+    dias_disponibles = 0
+    if primer_contrato and primer_contrato.fecha_inicio:
+        dias_trabajados = (date.today() - primer_contrato.fecha_inicio).days
+        dias_disponibles = round(dias_trabajados * 0.04166, 2)
+
+    # Crear solicitud
+    if request.method == 'POST':
+        form = SolicitudVacacionesForm(request.POST)
+        if form.is_valid():
+            solicitud = form.save(commit=False)
+            solicitud.usuario = usuario
+            solicitud.dias_solicitados = form.cleaned_data['dias_solicitados']
+            solicitud.save()
+            messages.success(request, "Solicitud enviada correctamente.")
+            return redirect('rrhh:mis_vacaciones')
+    else:
+        form = SolicitudVacacionesForm()
+
+    solicitudes = SolicitudVacaciones.objects.filter(
+        usuario=usuario).order_by('-fecha_solicitud')
+    context = {
+        'dias_disponibles': dias_disponibles,
+        'form': form,
+        'solicitudes': solicitudes,
+    }
+    return render(request, 'rrhh/solicitud_vacaciones.html', context)
+
+
+@login_required
+def editar_solicitud(request, pk):
+    solicitud = get_object_or_404(
+        SolicitudVacaciones, pk=pk, usuario=request.user)
+
+    if solicitud.estatus != 'pendiente_supervisor':
+        messages.warning(
+            request, "Solo puedes editar solicitudes que aún no han sido revisadas.")
+        return redirect('rrhh:mis_vacaciones')
+
+    if request.method == 'POST':
+        form = SolicitudVacacionesForm(request.POST, instance=solicitud)
+        if form.is_valid():
+            solicitud = form.save(commit=False)
+            solicitud.dias_solicitados = form.cleaned_data['dias_solicitados']
+            solicitud.save()
+            messages.success(request, "Solicitud actualizada correctamente.")
+            return redirect('rrhh:mis_vacaciones')
+    else:
+        form = SolicitudVacacionesForm(instance=solicitud)
+
+    return render(request, 'rrhh/editar_solicitud_vacaciones.html', {
+        'form': form,
+        'solicitud': solicitud
+    })
+
+
+@login_required
+def eliminar_solicitud(request, pk):
+    solicitud = get_object_or_404(
+        SolicitudVacaciones, pk=pk, usuario=request.user)
+
+    if solicitud.estatus != 'pendiente_supervisor':
+        messages.warning(
+            request, "Solo puedes eliminar solicitudes que aún no han sido revisadas.")
+        return redirect('rrhh:mis_vacaciones')
+
+    if request.method == 'POST':
+        solicitud.delete()
+        messages.success(request, "Solicitud eliminada correctamente.")
+        return redirect('rrhh:mis_vacaciones')
+
+    return render(request, 'rrhh/eliminar_solicitud_vacaciones.html', {
+        'solicitud': solicitud
+    })

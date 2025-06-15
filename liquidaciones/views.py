@@ -32,11 +32,13 @@ from dal import autocomplete
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.contrib.auth import get_user_model
+from usuarios.decoradores import rol_requerido
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def admin_lista_liquidaciones(request):
     try:
         liquidaciones = Liquidacion.objects.select_related('tecnico').all()
@@ -385,6 +387,7 @@ def confirmar_reemplazo(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def carga_masiva_view(request):
     if request.method == 'POST':
         mes = int(request.POST.get('mes'))
@@ -458,6 +461,7 @@ def carga_masiva_view(request):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def crear_liquidacion(request):
 
     if request.method == 'POST':
@@ -496,6 +500,7 @@ class UsuarioAutocomplete(AutoResponseView):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_liquidacion(request, pk):
     liquidacion = get_object_or_404(Liquidacion, pk=pk)
 
@@ -508,6 +513,7 @@ def eliminar_liquidacion(request, pk):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def editar_liquidacion(request, pk):
     liquidacion = get_object_or_404(Liquidacion, pk=pk)
     antigua_ruta_pdf = (
@@ -548,6 +554,7 @@ def editar_liquidacion(request, pk):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def ver_pdf_firmado_admin(request, pk):
     try:
         liquidacion = Liquidacion.objects.get(pk=pk)
@@ -579,6 +586,7 @@ def ver_pdf_firmado_admin(request, pk):
 
 
 @staff_member_required
+@rol_requerido('admin', 'pm', 'rrhh')
 def ver_pdf_admin(request, pk):
     try:
         liquidacion = Liquidacion.objects.get(pk=pk)

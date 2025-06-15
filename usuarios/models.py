@@ -5,7 +5,7 @@ from django.utils.functional import LazyObject
 from django.utils.module_loading import import_string
 from django.core.exceptions import ImproperlyConfigured
 
-# ✅ Clase de carga diferida para usar Cloudinary dinámicamente
+# ✅ Firma en Cloudinary
 
 
 def ruta_firma_usuario(instance, filename):
@@ -21,12 +21,19 @@ class LazyCloudinaryStorage(LazyObject):
         self._wrapped = import_string(storage_path)()
 
 
-# ✅ Reutilizable para todos los FileField/ImageField
 cloudinary_storage = LazyCloudinaryStorage()
+
+
+class Rol(models.Model):
+    nombre = models.CharField(max_length=30, unique=True)
+
+    def __str__(self):
+        return self.nombre
 
 
 class CustomUser(AbstractUser):
     identidad = models.CharField(max_length=20, blank=True, null=True)
+    roles = models.ManyToManyField(Rol, blank=True)
 
     firma_digital = models.ImageField(
         upload_to=ruta_firma_usuario,
@@ -35,5 +42,48 @@ class CustomUser(AbstractUser):
         null=True
     )
 
+    def tiene_rol(self, nombre_rol):
+        return self.roles.filter(nombre=nombre_rol).exists()
+
+    @property
+    def es_usuario(self):
+        return self.tiene_rol('usuario')
+
+    @property
+    def es_supervisor(self):
+        return self.tiene_rol('supervisor')
+
+    @property
+    def es_pm(self):
+        return self.tiene_rol('pm')
+
+    @property
+    def es_rrhh(self):
+        return self.tiene_rol('rrhh')
+
+    @property
+    def es_prevencion(self):
+        return self.tiene_rol('prevencion')
+
+    @property
+    def es_logistica(self):
+        return self.tiene_rol('logistica')
+
+    @property
+    def es_flota(self):
+        return self.tiene_rol('flota')
+
+    @property
+    def es_subcontrato(self):
+        return self.tiene_rol('subcontrato')
+
+    @property
+    def es_facturacion(self):
+        return self.tiene_rol('facturacion')
+
+    @property
+    def es_admin_general(self):
+        return self.tiene_rol('admin')
+
     def __str__(self):
-        return f"{self.identidad} - {self.first_name} {self.last_name}"
+        return f"{self.identidad or self.username} - {self.first_name} {self.last_name}"

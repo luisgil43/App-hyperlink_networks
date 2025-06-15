@@ -1,6 +1,9 @@
 from django import forms
 from .models import ContratoTrabajo
 from .models import FichaIngreso
+from .models import SolicitudVacaciones
+from datetime import timedelta
+import holidays
 
 
 class ContratoTrabajoForm(forms.ModelForm):
@@ -73,3 +76,39 @@ class FichaIngresoForm(forms.ModelForm):
         else:
             raise forms.ValidationError("Debes adjuntar un archivo PDF.")
         return archivo
+
+
+class SolicitudVacacionesForm(forms.ModelForm):
+    class Meta:
+        model = SolicitudVacaciones
+        fields = ['fecha_inicio', 'fecha_fin']
+        widgets = {
+            'fecha_inicio': forms.DateInput(attrs={'type': 'date', 'class': 'input input-bordered w-full'}),
+            'fecha_fin': forms.DateInput(attrs={'type': 'date', 'class': 'input input-bordered w-full'}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        fecha_inicio = cleaned_data.get('fecha_inicio')
+        fecha_fin = cleaned_data.get('fecha_fin')
+
+        if fecha_inicio and fecha_fin:
+            if fecha_fin < fecha_inicio:
+                raise forms.ValidationError(
+                    "La fecha de término no puede ser anterior a la fecha de inicio.")
+
+            # Calcular días hábiles entre las fechas
+            dias = 0
+            feriados_cl = holidays.CL(years=fecha_inicio.year)
+
+            for i in range((fecha_fin - fecha_inicio).days + 1):
+                dia = fecha_inicio + timedelta(days=i)
+                if dia.weekday() < 5 and dia not in feriados_cl:
+                    dias += 1
+
+            cleaned_data['dias_solicitados'] = dias
+
+            if dias <= 0:
+                raise forms.ValidationError(
+                    "Debe seleccionar al menos un día hábil.")
+        return cleaned_data

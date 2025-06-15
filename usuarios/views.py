@@ -10,6 +10,7 @@ from django.contrib.auth.views import LoginView
 from django.urls import reverse_lazy
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.decorators import login_required
 
 
 class UsuarioLoginView(LoginView):
@@ -18,8 +19,7 @@ class UsuarioLoginView(LoginView):
 
     def get_success_url(self):
         user = self.request.user
-        if user.is_authenticated and not user.is_staff:
-            # ← esta vista debe estar disponible
+        if user.is_authenticated:
             return reverse_lazy('dashboard:inicio')
         logout(self.request)
         return reverse_lazy('usuarios:login')
@@ -37,6 +37,11 @@ class AdminLoginView(LoginView):
         return reverse_lazy('usuarios:admin_login')
 
 
+def no_autorizado_view(request):
+    return render(request, 'usuarios/no_autorizado.html', status=403)
+
+
+"""
 def grupos_view(request):
     return render(request, 'usuarios/grupos.html')
 
@@ -45,6 +50,7 @@ def usuarios_view(request):
     return render(request, 'usuarios/usuarios.html')
 
 
+@login_required(login_url='usuarios:login')
 def inicio_view(request):
     try:
         tecnico = Tecnico.objects.get(user=request.user)
@@ -57,8 +63,11 @@ def inicio_view(request):
         else:
             # No es técnico ni superusuario, redirigir al login o página de error
             return redirect('usuarios:login')
+"""
 
+"""
 
+@login_required(login_url='usuarios:login')
 def logout_view(request):
     logout(request)
     return redirect('usuarios:login')
@@ -71,7 +80,8 @@ def lista_usuarios(request):
     usuarios = User.objects.all()
     return render(request, "tu_template.html", {"usuarios": usuarios})
 
-
+"""
+"""
 User = get_user_model()
 
 
@@ -88,4 +98,4 @@ def crear_usuario(request):
     else:
         form = UserCreationForm()
 
-    return render(request, 'usuarios/crear_usuario.html', {'form': form})
+    return render(request, 'usuarios/crear_usuario.html', {'form': form})"""

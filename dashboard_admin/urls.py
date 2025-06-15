@@ -26,4 +26,5 @@ urlpatterns = [
     path('usuarios/eliminar/<int:user_id>/',
          eliminar_usuario_view, name='eliminar_usuario'),
     path('dashboard/', views.inicio_admin, name='inicio_admin'),
+    path('no-autorizado/', views.no_autorizado, name='no_autorizado'),
 ]

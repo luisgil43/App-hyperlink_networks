@@ -33,6 +33,7 @@ urlpatterns = [
     path('dashboard_admin/', include(('dashboard_admin.urls',
          'dashboard_admin'), namespace='dashboard_admin')),
 
+
     # Dashboard técnico
     path('dashboard/', include(('dashboard.urls', 'dashboard'), namespace='dashboard')),
 
@@ -59,6 +60,7 @@ urlpatterns = [
     path("select2/", include("django_select2.urls")),
     # Contratos de trabajos
     path('rrhh/', include('rrhh.urls', namespace='rrhh')),
+    path('admin/', admin.site.urls),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)

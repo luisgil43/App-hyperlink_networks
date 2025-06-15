@@ -4,11 +4,11 @@
 {% block dashboard_content %}
 <div class="p-6">
     <div class="flex justify-between items-center mb-4">
-    <h1 class="text-2xl font-bold">Administración de Usuarios</h1>
-    <a href="{% url 'dashboard_admin:crear_usuario' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg">
-        + Crear nuevo usuario
-    </a>
-</div>
+        <h1 class="text-2xl font-bold">Administración de Usuarios</h1>
+        <a href="{% url 'dashboard_admin:crear_usuario' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg">
+            + Crear nuevo usuario
+        </a>
+    </div>
 
     {% if messages %}
         <ul class="mb-4">
@@ -28,6 +28,7 @@
                     <th class="py-3 px-6">Usuario</th>
                     <th class="py-3 px-6">Nombre</th>
                     <th class="py-3 px-6">Email</th>
+                    <th class="py-3 px-6">Rol</th>
                     <th class="py-3 px-6">Grupos</th>
                     <th class="py-3 px-6">Activo</th>
                     <th class="py-3 px-6">Acciones</th>
@@ -40,6 +41,15 @@
                     <td class="py-3 px-6">{{ usuario.username }}</td>
                     <td class="py-3 px-6">{{ usuario.get_full_name }}</td>
                     <td class="py-3 px-6">{{ usuario.email }}</td>
+                    <td class="py-3 px-6">
+                        {% if usuario.rol %}
+                            <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">
+                                {{ usuario.get_rol_display }}
+                            </span>
+                        {% else %}
+                            <span class="text-gray-400 italic text-xs">Sin rol</span>
+                        {% endif %}
+                    </td>
                     <td class="py-3 px-6">
                         {% for group in usuario.groups.all %}
                             <span class="inline-block bg-gray-300 text-xs px-2 py-1 rounded mr-1">{{ group.name }}</span>
@@ -54,9 +64,14 @@
                             <span class="text-red-600 font-bold">No</span>
                         {% endif %}
                     </td>
-                    <td class="py-3 px-6">
-                        <a href="{% url 'dashboard_admin:editar_usuario' user_id=usuario.id %}" class="text-blue-600 hover:underline">Editar</a>
+                    <td class="py-3 px-6 space-x-2">
+                        <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}" class="text-blue-600 hover:underline">Editar</a>
+                        <a href="{% url 'dashboard_admin:eliminar_usuario' usuario.id %}" class="text-red-600 hover:underline">Eliminar</a>
                     </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="8" class="text-center py-4 text-gray-400">No hay usuarios registrados.</td>
                 </tr>
                 {% endfor %}
             </tbody>
