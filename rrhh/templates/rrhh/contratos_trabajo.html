@@ -17,15 +17,17 @@
         <tr>
           <td class="px-4 py-2">{{ contrato.fecha_inicio }}</td>
           <td class="px-4 py-2">
-  {% if contrato.fecha_termino %}
-    {{ contrato.fecha_termino|date:"j \\d\\e F \\d\\e Y" }}
-  {% else %}
-    Indefinido
-  {% endif %}
-</td>
+            {% if contrato.fecha_termino %}
+              {{ contrato.fecha_termino|date:"j \\d\\e F \\d\\e Y" }}
+            {% else %}
+              Indefinido
+            {% endif %}
+          </td>
           <td class="px-4 py-2">
             {% if contrato.archivo %}
-              <a href="{{ contrato.archivo.url }}" class="text-blue-600 hover:underline" target="_blank">📄 Ver contrato</a>
+              <a href="{{ contrato.archivo.url }}" class="text-blue-600" target="_blank">
+                📄 <span class="underline ml-1">Ver contrato</span>
+              </a>
             {% else %}
               <span class="text-gray-400 italic">No adjunto</span>
             {% endif %}

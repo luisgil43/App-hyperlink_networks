@@ -47,16 +47,20 @@
           <td class="px-4 py-3 text-gray-900">{{ ficha.tecnico.get_full_name }}</td>
           <td class="px-4 py-3 text-gray-900">
             {% if ficha.archivo %}
-            <a href="{% url 'rrhh:ver_ficha' ficha.id %}" class="text-blue-600 hover:underline" target="_blank">
-              Ver ficha
+            <a href="{% url 'rrhh:ver_ficha' ficha.id %}" class="text-blue-600" target="_blank">
+              📄 <span class="underline ml-1">Ver ficha</span>
             </a>
             {% else %}
             <span class="text-gray-400 italic">No disponible</span>
             {% endif %}
           </td>
           <td class="px-4 py-3 flex flex-col sm:flex-row gap-2">
-            <a href="{% url 'rrhh:editar_ficha' ficha.id %}" class="text-blue-600 hover:underline font-medium">Editar</a>
-            <a href="{% url 'rrhh:eliminar_ficha' ficha.id %}" class="text-red-600 hover:underline font-medium">Eliminar</a>
+            <a href="{% url 'rrhh:editar_ficha' ficha.id %}" class="text-blue-600 font-medium">
+              🖊️ <span class="underline ml-1">Editar</span>
+            </a>
+            <a href="{% url 'rrhh:eliminar_ficha' ficha.id %}" class="text-red-600 font-medium">
+              🗑️ <span class="underline ml-1">Eliminar</span>
+            </a>
           </td>
         </tr>
         {% empty %}

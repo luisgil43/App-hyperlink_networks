@@ -19,7 +19,9 @@
           <td class="px-4 py-2">{{ ficha.tecnico.get_full_name }}</td>
           <td class="px-4 py-2">
             {% if ficha.archivo %}
-              <a href="{{ ficha.archivo.url }}" class="text-blue-600 hover:underline" target="_blank">📄 Ver mi ficha</a>
+              <a href="{{ ficha.archivo.url }}" class="text-blue-600" target="_blank">
+                📄 <span class="underline ml-1">Ver mi ficha</span>
+              </a>
             {% else %}
               <span class="text-gray-400 italic">No disponible</span>
             {% endif %}
@@ -27,7 +29,9 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="3" class="px-4 py-6 text-center text-gray-500">No se ha registrado ninguna ficha de ingreso aún.</td>
+          <td colspan="3" class="px-4 py-6 text-center text-gray-500">
+            No se ha registrado ninguna ficha de ingreso aún.
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -35,4 +39,3 @@
   </div>
 </div>
 {% endblock %}
-
