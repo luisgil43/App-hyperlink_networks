@@ -1,5 +1,7 @@
 from django.contrib import admin
 from .models import ContratoTrabajo
+from .models import Feriado
+admin.site.register(Feriado)
 
 
 @admin.register(ContratoTrabajo)

@@ -1,8 +1,8 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from liquidaciones.models import cloudinary_storage
-
-User = get_user_model()
+from django.conf import settings
+from datetime import date
 
 
 def ruta_contrato_trabajo(instance, filename):
@@ -12,7 +12,9 @@ def ruta_contrato_trabajo(instance, filename):
 
 
 class ContratoTrabajo(models.Model):
-    tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
+    tecnico = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE
+    )
     fecha_inicio = models.DateField()
     fecha_termino = models.DateField(null=True, blank=True)
     archivo = models.FileField(
@@ -48,7 +50,8 @@ def ruta_ficha_ingreso(instance, filename):
 
 
 class FichaIngreso(models.Model):
-    tecnico = models.ForeignKey(User, on_delete=models.CASCADE)
+    tecnico = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     archivo = models.FileField(
         upload_to=ruta_ficha_ingreso,
         storage=cloudinary_storage,
@@ -74,6 +77,26 @@ class FichaIngreso(models.Model):
         super().save(*args, **kwargs)
 
 
+class Feriado(models.Model):
+    fecha = models.DateField(unique=True)
+    nombre = models.CharField(max_length=100)  # 🔵 agrega esta línea
+
+    def __str__(self):
+        return f"{self.nombre} ({self.fecha})"
+
+
+class DiasVacacionesTomadosManualmente(models.Model):
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='vacaciones_manuales'
+    )
+    cantidad_dias = models.FloatField(default=0)
+
+    def __str__(self):
+        return f"{self.usuario.get_full_name()} - {self.cantidad_dias} días"
+
+
 class SolicitudVacaciones(models.Model):
     ESTADOS = [
         ('pendiente_supervisor', 'Pendiente de Supervisor'),
@@ -82,18 +105,41 @@ class SolicitudVacaciones(models.Model):
         ('rechazada_pm', 'Rechazada por PM'),
         ('pendiente_rrhh', 'Pendiente de RRHH'),
         ('rechazada_rrhh', 'Rechazada por RRHH'),
+        ('rechazada_admin', 'Rechazada por Admin'),
         ('aprobada', 'Aprobada'),
     ]
 
     usuario = models.ForeignKey(
-        get_user_model(), on_delete=models.CASCADE, related_name='vacaciones')
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='solicitudes_vacaciones'
+    )
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
-    dias_solicitados = models.FloatField()
+    dias_solicitados = models.DecimalField(max_digits=5, decimal_places=2)
     estatus = models.CharField(
         max_length=30, choices=ESTADOS, default='pendiente_supervisor')
     observacion = models.TextField(blank=True, null=True)
-    fecha_solicitud = models.DateTimeField(auto_now_add=True)
+    fecha_solicitud = models.DateField(default=date.today)
+
+    aprobado_por_supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        related_name='vacaciones_aprobadas_supervisor',
+        on_delete=models.SET_NULL
+    )
+    aprobado_por_pm = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        related_name='vacaciones_aprobadas_pm',
+        on_delete=models.SET_NULL
+    )
+    aprobado_por_rrhh = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        related_name='vacaciones_aprobadas_rrhh',
+        on_delete=models.SET_NULL
+    )
 
     def __str__(self):
         return f"{self.usuario.get_full_name()} ({self.fecha_inicio} - {self.fecha_fin})"
@@ -106,6 +152,7 @@ class SolicitudVacaciones(models.Model):
             'rechazada_pm': '🔴 Rechazada por PM',
             'pendiente_rrhh': '🟡 Pendiente de RRHH',
             'rechazada_rrhh': '🔴 Rechazada por RRHH',
+            'rechazada_admin': '🔴 Rechazada por Admin',
             'aprobada': '🟢 Aprobada ✅',
         }
         return estado_map.get(self.estatus, 'Estado desconocido')

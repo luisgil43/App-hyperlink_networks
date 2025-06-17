@@ -1,0 +1,107 @@
+[
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-01-01",
+      "nombre": "Año Nuevo"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-03-28",
+      "nombre": "Viernes Santo"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-03-29",
+      "nombre": "Sábado Santo"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-05-01",
+      "nombre": "Día del Trabajador"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-05-21",
+      "nombre": "Día de las Glorias Navales"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-06-29",
+      "nombre": "San Pedro y San Pablo"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-07-16",
+      "nombre": "Virgen del Carmen"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-08-15",
+      "nombre": "Asunción de la Virgen"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-09-18",
+      "nombre": "Independencia Nacional"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-09-19",
+      "nombre": "Día de las Glorias del Ejército"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-10-12",
+      "nombre": "Encuentro de Dos Mundos"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-10-31",
+      "nombre": "Día de las Iglesias Evangélicas"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-11-01",
+      "nombre": "Día de Todos los Santos"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-12-08",
+      "nombre": "Inmaculada Concepción"
+    }
+  },
+  {
+    "model": "rrhh.feriado",
+    "fields": {
+      "fecha": "2025-12-25",
+      "nombre": "Navidad"
+    }
+  }
+]

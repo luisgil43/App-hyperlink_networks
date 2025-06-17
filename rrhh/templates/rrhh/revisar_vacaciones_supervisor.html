@@ -1,0 +1,95 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white p-6 rounded-2xl shadow max-w-6xl mx-auto mt-8">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6">Solicitudes de Vacaciones (Supervisor)</h2>
+
+  <table class="table-auto w-full text-sm text-left text-gray-700 border border-gray-200 rounded-xl overflow-hidden">
+    <thead class="bg-gray-100 text-gray-800 font-semibold">
+      <tr>
+        <th class="px-4 py-2">Identidad</th>
+        <th class="px-4 py-2">Nombre</th>
+        <th class="px-4 py-2">Inicio</th>
+        <th class="px-4 py-2">Fin</th>
+        <th class="px-4 py-2">Días</th>
+        <th class="px-4 py-2">Estatus</th>
+        <th class="px-4 py-2 text-center">Acciones</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-200">
+      {% for solicitud in solicitudes %}
+      <tr>
+        <td class="px-4 py-2">{{ solicitud.usuario.identidad }}</td>
+        <td class="px-4 py-2">{{ solicitud.usuario.get_full_name }}</td>
+        <td class="px-4 py-2">{{ solicitud.fecha_inicio }}</td>
+        <td class="px-4 py-2">{{ solicitud.fecha_fin }}</td>
+        <td class="px-4 py-2">{{ solicitud.dias_solicitados }}</td>
+        <td class="px-4 py-2">
+          <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
+            {% if solicitud.estatus == 'pendiente_supervisor' %}
+              bg-yellow-100 text-yellow-800
+            {% elif solicitud.estatus == 'rechazada' %}
+              bg-red-100 text-red-800
+            {% elif solicitud.estatus == 'pendiente_pm' %}
+              bg-blue-100 text-blue-800
+            {% elif solicitud.estatus == 'pendiente_rrhh' %}
+              bg-purple-100 text-purple-800
+            {% elif solicitud.estatus == 'aprobada' %}
+              bg-green-100 text-green-800
+            {% endif %}">
+            {{ solicitud.get_estatus_display }}
+          </span>
+          {% if solicitud.estatus == 'rechazada' and solicitud.observacion %}
+            <div class="text-xs text-red-600 italic">Motivo: {{ solicitud.observacion }}</div>
+          {% endif %}
+        </td>
+        <td class="px-4 py-2 text-center space-x-2">
+          {% if solicitud.estatus == 'pendiente_supervisor' %}
+          <form method="post" action="{% url 'rrhh:aprobar_supervisor' solicitud.id %}" class="inline">
+            {% csrf_token %}
+            <button class="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 text-xs">Aprobar</button>
+          </form>
+          <button onclick="mostrarModal('{{ solicitud.id }}')" class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs">Rechazar</button>
+          {% else %}
+          <span class="text-gray-400 text-xs">Finalizado</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7" class="px-4 py-4 text-center text-gray-500">No hay solicitudes pendientes.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Modal de rechazo -->
+<div id="modalRechazo" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black bg-opacity-50">
+  <div class="bg-white p-6 rounded shadow-md w-full max-w-md">
+    <h3 class="text-lg font-semibold mb-4">Rechazar Solicitud</h3>
+    <form method="post" action="{% url 'rrhh:rechazar_solicitud' %}" id="formRechazo">
+      {% csrf_token %}
+      <input type="hidden" name="solicitud_id" id="inputSolicitudId">
+      <label for="observacion" class="block text-sm font-medium text-gray-700">Motivo:</label>
+      <textarea name="observacion" id="observacion" required rows="3" class="w-full border border-gray-300 rounded px-3 py-2 mt-1 mb-4"></textarea>
+      <div class="flex justify-end space-x-3">
+        <button type="button" onclick="cerrarModal()" class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400">Cancelar</button>
+        <button type="submit" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Rechazar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function mostrarModal(id) {
+    document.getElementById('modalRechazo').classList.remove('hidden');
+    document.getElementById('inputSolicitudId').value = id;
+    document.getElementById('formRechazo').action = '{% url "rrhh:rechazar_solicitud" %}';
+  }
+
+  function cerrarModal() {
+    document.getElementById('modalRechazo').classList.add('hidden');
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "dashboard/base.html" %}
+
+{% block dashboard_content %}
+<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-md">
+  <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <i class="lucide lucide-check-circle text-emerald-600"></i>
+    Revisar Solicitud de Vacaciones
+  </h2>
+
+  <div class="mb-6 text-sm text-gray-700">
+    <p><strong>Usuario:</strong> {{ solicitud.usuario.get_full_name }} ({{ solicitud.usuario.rut }})</p>
+    <p><strong>Fechas:</strong> {{ solicitud.fecha_inicio }} a {{ solicitud.fecha_fin }}</p>
+    <p><strong>Días solicitados:</strong> {{ solicitud.dias_solicitados }}</p>
+    <p><strong>Fecha de solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d M Y H:i" }}</p>
+  </div>
+
+  <form method="post" class="grid grid-cols-1 gap-4">
+    {% csrf_token %}
+    {{ form.observacion.label_tag }} {{ form.observacion }}
+
+    <div class="flex gap-4">
+      <button name="accion" value="aprobar" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl transition">
+        Aprobar
+      </button>
+      <button name="accion" value="rechazar" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl transition">
+        Rechazar
+      </button>
+      <a href="javascript:history.back()" class="ml-auto text-gray-600 hover:underline py-2">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

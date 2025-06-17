@@ -4,6 +4,9 @@ from django.conf import settings
 from django.utils.functional import LazyObject
 from django.utils.module_loading import import_string
 from django.core.exceptions import ImproperlyConfigured
+from datetime import timedelta, date
+from django.db.models import Sum
+from decimal import Decimal
 
 # ✅ Firma en Cloudinary
 
@@ -42,48 +45,97 @@ class CustomUser(AbstractUser):
         null=True
     )
 
+    dias_vacaciones_consumidos = models.DecimalField(
+        max_digits=6, decimal_places=2, default=0,
+        help_text="Días de vacaciones que ya ha consumido fuera del sistema"
+    )
+
     def tiene_rol(self, nombre_rol):
         return self.roles.filter(nombre=nombre_rol).exists()
 
     @property
     def es_usuario(self):
-        return self.tiene_rol('usuario')
+        return self.tiene_rol('usuario') or self.is_superuser
 
     @property
     def es_supervisor(self):
-        return self.tiene_rol('supervisor')
+        return self.tiene_rol('supervisor') or self.is_superuser
 
     @property
     def es_pm(self):
-        return self.tiene_rol('pm')
+        return self.tiene_rol('pm') or self.is_superuser
 
     @property
     def es_rrhh(self):
-        return self.tiene_rol('rrhh')
+        return self.tiene_rol('rrhh') or self.is_superuser
 
     @property
     def es_prevencion(self):
-        return self.tiene_rol('prevencion')
+        return self.tiene_rol('prevencion') or self.is_superuser
 
     @property
     def es_logistica(self):
-        return self.tiene_rol('logistica')
+        return self.tiene_rol('logistica') or self.is_superuser
 
     @property
     def es_flota(self):
-        return self.tiene_rol('flota')
+        return self.tiene_rol('flota') or self.is_superuser
 
     @property
     def es_subcontrato(self):
-        return self.tiene_rol('subcontrato')
+        return self.tiene_rol('subcontrato') or self.is_superuser
 
     @property
     def es_facturacion(self):
-        return self.tiene_rol('facturacion')
+        return self.tiene_rol('facturacion') or self.is_superuser
 
     @property
     def es_admin_general(self):
-        return self.tiene_rol('admin')
+        return self.tiene_rol('admin') or self.is_superuser
+
+    @property
+    def rol(self):
+        primer_rol = self.roles.first()
+        return primer_rol.nombre if primer_rol else None
+
+    def calcular_dias_habiles(self, inicio, fin):
+        from rrhh.models import Feriado
+        feriados = set(Feriado.objects.values_list('fecha', flat=True))
+
+        dias = 0
+        actual = inicio
+        while actual <= fin:
+            if actual.weekday() < 5 and actual not in feriados:
+                dias += 1
+            actual += timedelta(days=1)
+        return dias
+
+    def obtener_dias_vacaciones_disponibles(self):
+        from rrhh.models import ContratoTrabajo, SolicitudVacaciones
+
+        contrato = ContratoTrabajo.objects.filter(
+            tecnico=self).order_by('fecha_inicio').first()
+
+        if not contrato or not contrato.fecha_inicio:
+            return 0
+
+        dias_trabajados = (date.today() - contrato.fecha_inicio).days
+        dias_generados = dias_trabajados * 0.04166  # ya es float
+
+    # Convertir valores a float
+        dias_consumidos_manualmente = float(
+            self.dias_vacaciones_consumidos or 0)
+
+        dias_aprobados = SolicitudVacaciones.objects.filter(
+            usuario=self,
+            estatus='aprobada'
+        ).aggregate(total=Sum('dias_solicitados'))['total'] or 0
+
+        dias_aprobados = float(dias_aprobados)
+
+        total_disponible = dias_generados - dias_consumidos_manualmente - dias_aprobados
+        return round(total_disponible, 2)
 
     def __str__(self):
-        return f"{self.identidad or self.username} - {self.first_name} {self.last_name}"
+        nombre = self.get_full_name() or self.username
+        return f"{self.identidad or 'Sin RUT'} - {nombre}"

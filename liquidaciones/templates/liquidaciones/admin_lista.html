@@ -5,49 +5,6 @@
   <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 space-y-2 sm:space-y-0">
     <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Liquidaciones de Sueldo</h1>
 
-    {% if messages %}
-    <div class="space-y-4 mb-6">
-      {% for message in messages %}
-      {% if message.tags == 'success' %}
-      <div
-        class="alert-slide bg-emerald-100 border border-emerald-300 transition-all duration-500 ease-out transform opacity-0 -translate-y-4 rounded-xl flex items-start justify-between gap-3 shadow relative px-4 py-3">
-        <div class="flex gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mt-1 text-emerald-600" viewBox="0 0 20 20"
-            fill="currentColor">
-            <path fill-rule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 10-1.414 1.414L9 13.414l4.707-4.707z"
-              clip-rule="evenodd" />
-          </svg>
-          <div>
-            <p class="font-semibold">{{ message }}</p>
-            <p class="text-sm">Puedes encontrar el archivo en la tabla.</p>
-          </div>
-        </div>
-        <button onclick="this.parentElement.remove()"
-          class="absolute top-2 right-3 text-emerald-700 hover:text-emerald-900 text-lg font-bold leading-none">✖</button>
-      </div>
-
-      {% elif message.tags == 'error' or message.tags == 'danger' %}
-      <div
-        class="alert-slide bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-xl transition-all duration-500 ease-out transform opacity-0 -translate-y-4">
-        {{ message }}
-      </div>
-
-      {% elif message.tags == 'warning' %}
-      <div
-        class="alert-slide bg-yellow-100 border border-yellow-300 text-yellow-800 px-4 py-3 rounded-xl transition-all duration-500 ease-out transform opacity-0 -translate-y-4">
-        {{ message }}
-      </div>
-
-      {% else %}
-      <div
-        class="alert-slide bg-blue-100 border border-blue-300 text-blue-800 px-4 py-3 rounded-xl transition-all duration-500 ease-out transform opacity-0 -translate-y-4">
-        {{ message }}
-      </div>
-      {% endif %}
-      {% endfor %}
-    </div>
-    {% endif %}
 
     <div class="flex flex-col sm:flex-row gap-2 sm:gap-2">
       <a href="{% url 'liquidaciones:crear' %}"

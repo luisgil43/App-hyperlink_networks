@@ -8,6 +8,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth.views import LoginView
 from django.urls import reverse_lazy
+from rrhh.models import Feriado
+from rrhh.forms import FeriadoForm
 from dashboard.models import ProduccionTecnico
 from django.contrib.auth.forms import AuthenticationForm
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -342,3 +344,44 @@ def eliminar_usuario_view(request, user_id):
 # Vista para usuarios no autorizados
 def no_autorizado(request):
     return render(request, 'dashboard_admin/no_autorizado.html')
+
+
+@login_required
+def redireccionar_vacaciones(request):
+    user = request.user
+    if user.es_supervisor:
+        return redirect('rrhh:revisar_supervisor')
+    elif user.es_pm:
+        return redirect('rrhh:revisar_pm')
+    elif user.es_rrhh or user.es_admin_general:  # 👈 Aquí
+        return redirect('rrhh:revisar_rrhh')
+    else:
+        return redirect('dashboard_admin:inicio_admin')
+
+
+@login_required
+@rol_requerido('rrhh')
+def listar_feriados(request):
+    feriados = Feriado.objects.order_by('fecha')
+    form = FeriadoForm()
+
+    if request.method == 'POST':
+        form = FeriadoForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('dashboard_admin:listar_feriados')
+
+    return render(request, 'dashboard_admin/listar_feriados.html', {
+        'feriados': feriados,
+        'form': form
+    })
+
+
+@login_required
+@rol_requerido('rrhh')
+def eliminar_feriado(request, pk):
+    feriado = get_object_or_404(Feriado, pk=pk)
+    feriado.delete()
+    messages.success(
+        request, f'El feriado "{feriado.nombre}" fue eliminado con éxito.')
+    return redirect('dashboard_admin:listar_feriados')

@@ -23,13 +23,26 @@
       <div>
         <label for="id_fecha_inicio" class="block font-medium mb-1">Fecha de inicio:</label>
         {{ form.fecha_inicio }}
+        {% if form.fecha_inicio.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.fecha_inicio.errors.0 }}</p>
+        {% endif %}
       </div>
       <div>
         <label for="id_fecha_fin" class="block font-medium mb-1">Fecha de término:</label>
         {{ form.fecha_fin }}
+        {% if form.fecha_fin.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.fecha_fin.errors.0 }}</p>
+        {% endif %}
       </div>
 
-      <!-- Días solicitados -->
+      {% if form.non_field_errors %}
+      <div class="md:col-span-2">
+        <p class="text-red-600 text-sm mt-2 font-semibold">
+          {{ form.non_field_errors.0 }}
+        </p>
+      </div>
+      {% endif %}
+
       <div class="md:col-span-2">
         <p id="dias-efectivos" class="text-sm text-gray-700 mt-2">
           Total de días hábiles solicitados: <span class="font-bold" id="contador-dias">0</span>
@@ -57,30 +70,72 @@
           <th class="px-4 py-2">Fecha Fin</th>
           <th class="px-4 py-2">Días Solicitados</th>
           <th class="px-4 py-2">Estatus</th>
+          <th class="px-4 py-2">Motivo</th>
           <th class="px-4 py-2">Acciones</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-200">
         {% for solicitud in solicitudes %}
         <tr>
-          <td class="px-4 py-2">{{ solicitud.usuario.rut }}</td>
+          <td class="px-4 py-2">{{ solicitud.usuario.identidad }}</td>
           <td class="px-4 py-2">{{ solicitud.usuario.get_full_name }}</td>
           <td class="px-4 py-2">{{ solicitud.fecha_inicio }}</td>
           <td class="px-4 py-2">{{ solicitud.fecha_fin }}</td>
           <td class="px-4 py-2">{{ solicitud.dias_solicitados }}</td>
-          <td class="px-4 py-2">
-            <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
-              {% if solicitud.estatus.startswith 'pendiente' %}
-                bg-yellow-100 text-yellow-800
-              {% elif solicitud.estatus.startswith 'rechazada' %}
-                bg-red-100 text-red-800
-              {% elif solicitud.estatus == 'aprobada' %}
-                bg-emerald-100 text-emerald-800
+
+          <!-- Estatus -->
+          <td class="px-4 py-2 align-top text-sm">
+            <div class="flex flex-col gap-1 leading-tight">
+              {% if solicitud.estatus == 'aprobada' %}
+              <span class="inline-block bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-medium w-fit">
+                ✅ Aprobada por:
+              </span>
+              <ul class="list-disc list-inside text-gray-800 ml-2 text-xs">
+                {% if solicitud.aprobado_por_supervisor %}<li>Supervisor: {{ solicitud.aprobado_por_supervisor.get_full_name }}</li>{% endif %}
+                {% if solicitud.aprobado_por_pm %}<li>PM: {{ solicitud.aprobado_por_pm.get_full_name }}</li>{% endif %}
+                {% if solicitud.aprobado_por_rrhh %}<li>RRHH: {{ solicitud.aprobado_por_rrhh.get_full_name }}</li>{% endif %}
+              </ul>
+              {% elif solicitud.estatus|slice:":9" == 'rechazada' %}
+  <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium w-fit">
+    ❌ {{ solicitud.get_estatus_display }}
+  </span>
+  <ul class="text-xs text-gray-800 list-inside list-disc mt-1 ml-2">
+    {% if solicitud.aprobado_por_supervisor %}<li>Supervisor: {{ solicitud.aprobado_por_supervisor.get_full_name }}</li>{% endif %}
+    {% if solicitud.aprobado_por_pm %}<li>PM: {{ solicitud.aprobado_por_pm.get_full_name }}</li>{% endif %}
+    {% if solicitud.aprobado_por_rrhh %}<li>RRHH: {{ solicitud.aprobado_por_rrhh.get_full_name }}</li>{% endif %}
+  </ul>
+
+              {% elif solicitud.estatus == 'pendiente_supervisor' %}
+              <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium w-fit">
+                ⏳ En revisión del Supervisor
+              </span>
+              {% elif solicitud.estatus == 'pendiente_pm' %}
+              <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium w-fit">
+                ✅ Supervisor: {{ solicitud.aprobado_por_supervisor.get_full_name }}<br>
+                ⏳ En revisión del PM
+              </span>
+              {% elif solicitud.estatus == 'pendiente_rrhh' %}
+              <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium w-fit">
+                ✅ Supervisor: {{ solicitud.aprobado_por_supervisor.get_full_name }}<br>
+                ✅ PM: {{ solicitud.aprobado_por_pm.get_full_name }}<br>
+                ⏳ En revisión de RRHH
+              </span>
+              {% else %}
+              <span class="inline-block bg-gray-100 text-gray-800 px-2 py-1 rounded-full font-medium w-fit">
+                Estatus desconocido
+              </span>
               {% endif %}
-            ">
-              {{ solicitud.get_estatus_display }}
-            </span>
+            </div>
           </td>
+
+          <!-- Motivo -->
+          <td class="px-4 py-2 text-xs text-red-600 italic">
+            {% if solicitud.estatus|slice:":9" == 'rechazada' and solicitud.observacion %}
+              {{ solicitud.observacion }}
+            {% endif %}
+          </td>
+
+          <!-- Acciones -->
           <td class="px-4 py-2 flex gap-2">
             <a href="{% url 'rrhh:editar_solicitud' solicitud.id %}" class="text-blue-600 hover:underline text-sm">Editar</a>
             <a href="{% url 'rrhh:eliminar_solicitud' solicitud.id %}" class="text-red-600 hover:underline text-sm">Eliminar</a>
@@ -88,7 +143,7 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="7" class="px-4 py-4 text-center text-gray-500">No hay solicitudes registradas.</td>
+          <td colspan="8" class="px-4 py-4 text-center text-gray-500">No hay solicitudes registradas.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -98,44 +153,79 @@
 
 <!-- Script para cálculo de días hábiles -->
 <script>
-  const feriados = [
-    '2025-01-01', '2025-05-01', '2025-09-18', '2025-09-19', '2025-12-25'
-    // Puedes añadir más feriados chilenos aquí
-  ];
+const feriados = JSON.parse('{{ feriados_json|safe }}');
 
-  function contarDiasHabiles(inicio, fin) {
-    const start = new Date(inicio);
-    const end = new Date(fin);
-    let count = 0;
+function contarDiasHabiles(inicio, fin) {
+  const start = new Date(inicio);
+  const end = new Date(fin);
+  let count = 0;
 
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const esFinDeSemana = (d.getDay() === 0 || d.getDay() === 6);
-      const esFeriado = feriados.includes(d.toISOString().split('T')[0]);
-      if (!esFinDeSemana && !esFeriado) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  const inicioInput = document.getElementById("id_fecha_inicio");
-  const finInput = document.getElementById("id_fecha_fin");
-  const contadorDias = document.getElementById("contador-dias");
-
-  function actualizarDias() {
-    const inicio = inicioInput.value;
-    const fin = finInput.value;
-    if (inicio && fin && inicio <= fin) {
-      const dias = contarDiasHabiles(inicio, fin);
-      contadorDias.textContent = dias;
-    } else {
-      contadorDias.textContent = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const esFinDeSemana = (d.getDay() === 0 || d.getDay() === 6);
+    const esFeriado = feriados.includes(d.toISOString().split('T')[0]);
+    if (!esFinDeSemana && !esFeriado) {
+      count++;
     }
   }
+  return count;
+}
 
-  if (inicioInput && finInput) {
-    inicioInput.addEventListener("change", actualizarDias);
-    finInput.addEventListener("change", actualizarDias);
+const inicioInput = document.getElementById("id_fecha_inicio");
+const finInput = document.getElementById("id_fecha_fin");
+const contadorDias = document.getElementById("contador-dias");
+
+function actualizarDias() {
+  const inicio = inicioInput.value;
+  const fin = finInput.value;
+  if (inicio && fin && inicio <= fin) {
+    const dias = contarDiasHabiles(inicio, fin);
+    contadorDias.textContent = dias;
+  } else {
+    contadorDias.textContent = 0;
   }
+}
+
+if (inicioInput && finInput) {
+  inicioInput.addEventListener("change", actualizarDias);
+  finInput.addEventListener("change", actualizarDias);
+}
+</script>
+
+<!-- Flatpickr -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+
+<style>
+.flatpickr-day.feriado {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  border-radius: 50% !important;
+}
+</style>
+
+<script>
+flatpickr("#id_fecha_inicio", {
+locale: "es",
+  dateFormat: "Y-m-d",
+  disableMobile: true,
+  onDayCreate: function (_, __, ___, dayElem) {
+    const fecha = dayElem.dateObj.toISOString().split('T')[0];
+    if (feriados.includes(fecha)) {
+      dayElem.classList.add("feriado");
+    }
+  }
+});
+flatpickr("#id_fecha_fin", {
+locale: "es",
+  dateFormat: "Y-m-d",
+  disableMobile: true,
+  onDayCreate: function (_, __, ___, dayElem) {
+    const fecha = dayElem.dateObj.toISOString().split('T')[0];
+    if (feriados.includes(fecha)) {
+      dayElem.classList.add("feriado");
+    }
+  }
+});
 </script>
 {% endblock %}

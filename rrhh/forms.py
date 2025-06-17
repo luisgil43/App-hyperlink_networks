@@ -4,6 +4,7 @@ from .models import FichaIngreso
 from .models import SolicitudVacaciones
 from datetime import timedelta
 import holidays
+from .models import Feriado
 
 
 class ContratoTrabajoForm(forms.ModelForm):
@@ -83,32 +84,68 @@ class SolicitudVacacionesForm(forms.ModelForm):
         model = SolicitudVacaciones
         fields = ['fecha_inicio', 'fecha_fin']
         widgets = {
-            'fecha_inicio': forms.DateInput(attrs={'type': 'date', 'class': 'input input-bordered w-full'}),
-            'fecha_fin': forms.DateInput(attrs={'type': 'date', 'class': 'input input-bordered w-full'}),
+            'fecha_inicio': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'form-input'  # usa tu clase Tailwind o Bootstrap si quieres
+            }),
+            'fecha_fin': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'form-input'
+            }),
         }
+
+    def __init__(self, *args, **kwargs):
+        self.usuario = kwargs.pop('usuario', None)
+        super().__init__(*args, **kwargs)
 
     def clean(self):
         cleaned_data = super().clean()
-        fecha_inicio = cleaned_data.get('fecha_inicio')
-        fecha_fin = cleaned_data.get('fecha_fin')
+        inicio = cleaned_data.get("fecha_inicio")
+        fin = cleaned_data.get("fecha_fin")
 
-        if fecha_inicio and fecha_fin:
-            if fecha_fin < fecha_inicio:
+        if inicio and fin and inicio > fin:
+            raise forms.ValidationError(
+                "La fecha de inicio no puede ser posterior a la fecha de término."
+            )
+
+        if self.usuario and inicio and fin:
+            dias_solicitados = self.usuario.calcular_dias_habiles(inicio, fin)
+            dias_disponibles = self.usuario.obtener_dias_vacaciones_disponibles()
+
+            if dias_solicitados > dias_disponibles:
                 raise forms.ValidationError(
-                    "La fecha de término no puede ser anterior a la fecha de inicio.")
+                    f"No puedes solicitar más días de los disponibles. Disponibles: {dias_disponibles:.2f}, solicitados: {dias_solicitados}"
+                )
 
-            # Calcular días hábiles entre las fechas
-            dias = 0
-            feriados_cl = holidays.CL(years=fecha_inicio.year)
+            # ✅ Añadimos esto para que la vista lo pueda usar
+            cleaned_data['dias_solicitados'] = dias_solicitados
 
-            for i in range((fecha_fin - fecha_inicio).days + 1):
-                dia = fecha_inicio + timedelta(days=i)
-                if dia.weekday() < 5 and dia not in feriados_cl:
-                    dias += 1
-
-            cleaned_data['dias_solicitados'] = dias
-
-            if dias <= 0:
-                raise forms.ValidationError(
-                    "Debe seleccionar al menos un día hábil.")
         return cleaned_data
+
+
+class RevisionVacacionesForm(forms.Form):
+    observacion = forms.CharField(
+        label="Observación (opcional)",
+        widget=forms.Textarea(
+            attrs={'rows': 3, 'class': 'form-textarea w-full'}),
+        required=False
+    )
+    accion = forms.ChoiceField(
+        choices=[('aprobar', 'Aprobar'), ('rechazar', 'Rechazar')],
+        widget=forms.HiddenInput()
+    )
+
+
+class FeriadoForm(forms.ModelForm):
+    class Meta:
+        model = Feriado
+        fields = ['nombre', 'fecha']
+        widgets = {
+            'nombre': forms.TextInput(attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400'
+            }),
+            'fecha': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400'
+            }),
+        }

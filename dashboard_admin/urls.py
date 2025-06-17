@@ -3,8 +3,10 @@ from . import views
 from .views import (
     AdminLoginView, logout_view, admin_dashboard_view,
     produccion_tecnico, grupos_view,
-    crear_usuario_view, editar_usuario_view, listar_usuarios, eliminar_usuario_view
+    crear_usuario_view, editar_usuario_view, listar_usuarios, eliminar_usuario_view, redireccionar_vacaciones
 )
+
+from dashboard_admin import views as admin_views
 
 app_name = 'dashboard_admin'
 
@@ -27,4 +29,8 @@ urlpatterns = [
          eliminar_usuario_view, name='eliminar_usuario'),
     path('dashboard/', views.inicio_admin, name='inicio_admin'),
     path('no-autorizado/', views.no_autorizado, name='no_autorizado'),
+    path('vacaciones/', redireccionar_vacaciones, name='vacaciones_admin'),
+    path('feriados/', admin_views.listar_feriados, name='listar_feriados'),
+    path('feriados/eliminar/<int:pk>/',
+         admin_views.eliminar_feriado, name='eliminar_feriado'),
 ]

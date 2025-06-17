@@ -1,0 +1,28 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white max-w-xl mx-auto mt-10 p-6 rounded-xl shadow">
+  <h2 class="text-xl font-bold text-gray-800 mb-4">Eliminar Solicitud</h2>
+  
+  <p class="mb-4">
+    ¿Estás seguro de que deseas eliminar la solicitud de vacaciones de 
+    <strong>{{ solicitud.usuario.get_full_name }}</strong> del 
+    <strong>{{ solicitud.fecha_inicio }}</strong> al 
+    <strong>{{ solicitud.fecha_fin }}</strong>?
+  </p>
+
+  <p class="mb-4 text-red-700 bg-red-50 border border-red-200 p-3 rounded">
+    Esta acción no se puede deshacer. La solicitud será eliminada permanentemente del sistema.
+  </p>
+
+  <form method="POST">
+    {% csrf_token %}
+    <div class="flex justify-end gap-4">
+      <a href="{% url 'dashboard_admin:vacaciones_admin' %}" class="text-gray-500 hover:underline">Cancelar</a>
+      <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded-xl hover:bg-red-700">
+        Eliminar
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

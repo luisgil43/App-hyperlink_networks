@@ -132,7 +132,11 @@
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼
             RR.HH <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Vacaciones</a></li>
+            <li>
+  <a href="{% url 'rrhh:mis_vacaciones' %}" class="hover:text-emerald-400">
+    Mis Vacaciones
+  </a>
+</li>
             <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Mis liquidaciones</a></li>
             <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Mis contratos de trabajos</a>
             </li>
@@ -155,18 +159,6 @@
     </nav>
     <!-- Contenido principal -->
     <main class="md:ml-72 flex-1 p-6">
-      {% if messages %}
-      <div class="messages-container mb-4">
-        {% for message in messages %}
-        <div class="alert {% if message.tags == 'success' %}alert-success
-        {% elif message.tags == 'error' or message.tags == 'danger' %}alert-error
-        {% elif message.tags == 'warning' %}alert-warning
-        {% else %}alert-info{% endif %}">
-          {{ message }}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
       {% block content %}{% endblock %}
     </main>
   </div>
