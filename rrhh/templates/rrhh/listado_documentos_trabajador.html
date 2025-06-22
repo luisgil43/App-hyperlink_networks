@@ -1,0 +1,160 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="p-4">
+  <div class="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
+    <h2 class="text-2xl font-bold text-gray-800">Carga de Documentos</h2>
+    <div class="flex gap-2">
+      <a href="{% url 'rrhh:subir_documento' %}" class="bg-emerald-600 hover:bg-blue-700 text-white px-4 py-2 text-sm rounded-lg">
+        ➕ Subir Documento
+      </a>
+      <a href="{% url 'rrhh:crear_tipo_documento' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm rounded-lg">
+        ➕ Crear Tipo
+      </a>
+      <a href="{% url 'rrhh:exportar_documentos_excel' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm rounded-lg">
+       📤 Exportar a Excel
+      </a>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto bg-white rounded-xl shadow">
+    <form method="get">
+      <table class="min-w-full table-auto text-sm text-center">
+        <thead class="bg-gray-50 text-xs text-gray-700">
+          <tr>
+            <th class="px-4 py-2">
+              <input type="text" name="trabajador" value="{{ filtro_nombre }}" placeholder="Buscar trabajador"
+                     class="w-full px-2 py-1 border rounded text-sm text-center">
+            </th>
+            <th class="px-4 py-2">
+              <select name="tipo" class="w-full px-2 py-1 border rounded text-sm text-center">
+                <option value="">Todos</option>
+                {% for t in tipos %}
+                  <option value="{{ t.id }}" {% if filtro_tipo == t.id|stringformat:"s" %}selected{% endif %}>{{ t.nombre }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="px-4 py-2">
+              <input type="date" name="fecha" value="{{ filtro_fecha }}" class="w-full px-2 py-1 border rounded text-sm text-center">
+            </th>
+            <th class="px-4 py-2">
+              <select name="estado" class="w-full px-2 py-1 border rounded text-sm text-center">
+                <option value="">Todos</option>
+                <option value="Vigente" {% if filtro_estado == "Vigente" %}selected{% endif %}>Vigente</option>
+                <option value="Por vencer" {% if filtro_estado == "Por vencer" %}selected{% endif %}>Por vencer</option>
+                <option value="Vencido" {% if filtro_estado == "Vencido" %}selected{% endif %}>Vencido</option>
+              </select>
+            </th>
+            <th class="px-4 py-2">
+              <div class="flex flex-col md:flex-row justify-center items-center gap-2">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-xs">Filtrar</button>
+                <a href="{% url 'rrhh:listado_documentos_trabajador' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded text-xs">Limpiar</a>
+              </div>
+            </th>
+          </tr>
+          <tr class="bg-gray-100 uppercase text-gray-700 text-xs">
+            <th class="px-4 py-2">Trabajador</th>
+            <th class="px-4 py-2">Tipo de documento</th>
+            <th class="px-4 py-2">Fecha de expiración</th>
+            <th class="px-4 py-2">Estado</th>
+            <th class="px-4 py-2">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in data %}
+            {% for item in fila.documentos %}
+              <tr class="border-t">
+                <td class="px-4 py-2 text-center">{{ fila.trabajador.get_full_name }}</td>
+                <td class="px-4 py-2 text-center">{{ item.tipo.nombre }}</td>
+                <td class="px-4 py-2 text-center">
+                  {% if item.doc and item.doc.fecha_vencimiento %}
+                    {{ item.doc.fecha_vencimiento|date:"Y-m-d" }}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-2 text-center">
+                  {% if item.estado == "Vigente" %}
+                    <span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">Vigente</span>
+                  {% elif item.estado == "Por vencer" %}
+                    <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium">Por vencer</span>
+                  {% elif item.estado == "Vencido" %}
+                    <span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">Vencido</span>
+                  {% else %}
+                    <span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-medium">Faltante</span>
+                  {% endif %}
+                </td>
+               <td class="px-4 py-2 text-center space-x-2">
+  {% if item.doc and item.doc.archivo %}
+  <div class="flex flex-col items-start gap-1">
+  <a href="{{ item.doc.archivo.url }}" target="_blank"
+     class="text-blue-600 hover:text-blue-800 text-xs flex items-center gap-1 cursor-pointer">
+    <span class="inline-block align-middle leading-none">🔍</span>
+    <span class="underline">Ver</span>
+  </a>
+
+  <a href="{% url 'rrhh:reemplazar_documento' item.doc.id %}"
+     class="text-emerald-600 hover:text-emerald-800 text-xs flex items-center gap-1 cursor-pointer">
+    <span class="inline-block align-middle leading-none">♻️</span>
+    <span class="underline">Reemplazar</span>
+  </a>
+
+  <button type="button"
+        onclick="openModal('{{ item.doc.id }}')"
+        class="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 cursor-pointer">
+  <span class="inline-block align-middle leading-none">🗑️</span>
+  <span class="underline">Eliminar</span>
+</button>
+</div>
+  {% else %}
+    <a href="{% url 'rrhh:subir_documento' %}?trabajador={{ fila.trabajador.id }}&tipo={{ item.tipo.id }}"
+       class="text-emerald-600 hover:text-emerald-800 underline text-xs cursor-pointer">
+       Subir
+    </a>
+  {% endif %}
+</td>
+              </tr>
+            {% endfor %}
+          {% empty %}
+            <tr>
+              <td colspan="5" class="text-center px-4 py-6 text-gray-500">No se encontraron documentos.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
+  </div>
+</div>
+<!-- Modal de confirmación -->
+<div id="modal-eliminar" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+  <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+    <h2 class="text-lg font-bold text-gray-800 mb-4">¿Eliminar documento?</h2>
+    <p class="text-gray-600 mb-6">Esta acción no se puede deshacer.</p>
+    <form id="form-eliminar" method="POST" action="">
+      {% csrf_token %}
+      <div class="flex justify-center gap-4">
+        <button type="button" onclick="closeModal()"
+                class="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 text-sm font-semibold">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-semibold">
+          Sí, eliminar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Script para manejar modal -->
+<script>
+  function openModal(docId) {
+    const modal = document.getElementById("modal-eliminar");
+    const form = document.getElementById("form-eliminar");
+    form.action = `/rrhh/documentos/eliminar/${docId}/`;
+    modal.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    document.getElementById("modal-eliminar").classList.add("hidden");
+  }
+</script>
+{% endblock %}

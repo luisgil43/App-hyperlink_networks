@@ -1,0 +1,57 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white p-6 rounded-2xl shadow max-w-xl mx-auto mt-6">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <i class="lucide lucide-file-edit text-emerald-600"></i>
+    Reemplazar Documento
+  </h2>
+
+  {% if messages %}
+    <ul class="mb-4 space-y-2">
+      {% for message in messages %}
+        <li class="p-3 rounded-xl text-sm {% if message.tags == 'success' %}bg-emerald-100 text-emerald-800{% else %}bg-red-100 text-red-800{% endif %}">
+          {{ message }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" class="space-y-5">
+    {% csrf_token %}
+
+    <!-- Archivo PDF -->
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Archivo PDF</label>
+      {{ form.archivo }}
+      {% if form.archivo.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.archivo.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Fecha de Emisión -->
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Fecha de emisión</label>
+      {{ form.fecha_emision }}
+      {% if form.fecha_emision.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.fecha_emision.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Fecha de Expiración -->
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Fecha de expiración</label>
+      {{ form.fecha_vencimiento }}
+      {% if form.fecha_vencimiento.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.fecha_vencimiento.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Botones -->
+    <div class="flex justify-end gap-4">
+      <a href="{% url 'rrhh:listado_documentos' %}" class="px-4 py-2 bg-gray-200 rounded-xl text-sm">Cancelar</a>
+      <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm hover:bg-emerald-700">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

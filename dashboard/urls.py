@@ -52,4 +52,6 @@ urlpatterns = [
 
     # Home del dashboard
     path('dashboard/', views.dashboard_view, name='home'),
+
+
 ]

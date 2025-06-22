@@ -1,3 +1,12 @@
+from django.core.exceptions import ValidationError
+from rrhh.utils import generar_pdf_solicitud_vacaciones
+from rrhh.models import SolicitudVacaciones
+from django.shortcuts import get_object_or_404, redirect
+from rrhh.utils import generar_pdf_solicitud_vacaciones  # ⬅️ al inicio del archivo
+from io import BytesIO
+from rrhh.models import FichaIngreso
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -13,8 +22,6 @@ import logging
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.http import FileResponse, Http404
 from .forms import FichaIngresoForm
-from .models import FichaIngreso
-from .models import SolicitudVacaciones
 from .forms import SolicitudVacacionesForm
 from datetime import date
 from django.http import HttpResponseForbidden
@@ -25,7 +32,32 @@ import json
 from rrhh.models import DiasVacacionesTomadosManualmente
 from django.urls import reverse
 from django.db.models import Q
-from rrhh.utils import contar_dias_habiles
+from .utils import contar_dias_habiles
+from .forms import DocumentoTrabajadorForm, TipoDocumentoForm
+from .models import DocumentoTrabajador, TipoDocumento, CustomUser
+from django.db.models import OuterRef, Subquery
+from .forms import ReemplazoDocumentoForm
+import cloudinary.uploader
+from django.core.files.base import ContentFile
+from django.utils.text import slugify
+import openpyxl
+from openpyxl.utils import get_column_letter
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
+from .utils import calcular_estado_documento
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import io
+from .models import FichaIngreso
+from rrhh.utils import generar_ficha_ingreso_pdf
+# from rrhh.utils import agregar_firma_trabajador_a_ficha
+import requests
+from django.core.files.base import ContentFile
+from django.contrib.auth import get_user_model
+# from .utils import agregar_firma_pm_a_ficha
+from usuarios.models import CustomUser
+from PIL import Image
+User = get_user_model()
 
 
 logger = logging.getLogger(__name__)
@@ -207,7 +239,7 @@ def ver_contrato(request, contrato_id):
 
 @login_required
 def listar_fichas_ingreso_usuario(request):
-    fichas = FichaIngreso.objects.filter(tecnico=request.user)
+    fichas = FichaIngreso.objects.filter(usuario=request.user)
     return render(request, 'rrhh/listar_fichas_ingreso_usuario.html', {
         'fichas': fichas
     })
@@ -218,8 +250,7 @@ def listar_fichas_ingreso_usuario(request):
 @staff_member_required
 @rol_requerido('admin', 'pm', 'rrhh')
 def listar_fichas_ingreso_admin(request):
-    fichas = FichaIngreso.objects.all().select_related(
-        'tecnico')  # Esto mejora rendimiento
+    fichas = FichaIngreso.objects.all()
     return render(request, 'rrhh/listar_fichas_ingreso_admin.html', {'fichas': fichas})
 
 # Crear ficha (reutilizando formulario)
@@ -229,9 +260,23 @@ def listar_fichas_ingreso_admin(request):
 @rol_requerido('admin', 'pm', 'rrhh')
 def crear_ficha_ingreso(request):
     if request.method == 'POST':
-        form = FichaIngresoForm(request.POST, request.FILES)
+        form = FichaIngresoForm(request.POST)
         if form.is_valid():
-            form.save()
+            ficha = form.save(commit=False)
+            ficha.creado_por = request.user
+
+            # Buscar usuario por RUT
+            rut_limpio = ficha.rut.replace('.', '').replace('-', '')
+            try:
+                usuario = CustomUser.objects.get(
+                    identidad__icontains=rut_limpio)
+                ficha.usuario = usuario
+            except CustomUser.DoesNotExist:
+                messages.warning(
+                    request, "⚠️ No se encontró ningún usuario con el RUT ingresado. Se guardará sin asignación de usuario.")
+
+            ficha.save()
+            generar_ficha_ingreso_pdf(ficha)
             messages.success(
                 request, "Ficha de ingreso guardada exitosamente.")
             return redirect('rrhh:listar_fichas_ingreso_admin')
@@ -242,27 +287,262 @@ def crear_ficha_ingreso(request):
 
     return render(request, 'rrhh/crear_ficha_ingreso.html', {'form': form})
 
-# Ver ficha
-
-
-@login_required
-def ver_ficha_ingreso(request, pk):
-    ficha = get_object_or_404(FichaIngreso, pk=pk)
-    return redirect(ficha.archivo.url)
-
 
 @staff_member_required
 @rol_requerido('admin', 'pm', 'rrhh')
 def editar_ficha_ingreso(request, pk):
     ficha = get_object_or_404(FichaIngreso, pk=pk)
+
     if request.method == 'POST':
         form = FichaIngresoForm(request.POST, request.FILES, instance=ficha)
         if form.is_valid():
-            form.save()
+            ficha = form.save(commit=False)
+
+            # Si la ficha ya estaba firmada o rechazada, al editarla se reinicia
+            if ficha.estado in ['rechazada_pm', 'rechazada_usuario', 'aprobada']:
+                ficha.estado = 'pendiente_pm'
+                ficha.firma_rrhh = None
+                ficha.firma_pm = None
+                ficha.firma_trabajador = None
+                ficha.pm = None  # para que se asigne nuevamente el nuevo aprobador
+
+            ficha.save()
+
+            # Regenerar el PDF limpio sin firmas
+            generar_ficha_ingreso_pdf(ficha)
+
+            messages.success(
+                request, "Ficha actualizada correctamente y reiniciada para aprobación.")
             return redirect('rrhh:listar_fichas_ingreso_admin')
+        else:
+            print("❌ Formulario no válido:", form.errors)
     else:
         form = FichaIngresoForm(instance=ficha)
+
     return render(request, 'rrhh/editar_ficha_ingreso.html', {'form': form})
+
+
+@login_required
+@rol_requerido('admin', 'pm')
+def rechazar_ficha_ingreso_pm(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id)
+
+    if ficha.estado == 'rechazada_pm':
+        messages.info(request, "Esta ficha ya fue rechazada por el PM.")
+    else:
+        ficha.estado = 'rechazada_pm'
+        ficha.save()
+        messages.warning(
+            request, "❌ Has rechazado la ficha correctamente. RRHH ha sido notificado.")
+
+    return redirect('rrhh:listar_fichas_ingreso_admin')
+
+
+@login_required
+@rol_requerido('admin', 'usuario')
+def aprobar_ficha_ingreso_trabajador(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id, usuario=request.user)
+
+    if ficha.firma_trabajador:
+        messages.info(request, "Ya has firmado esta ficha.")
+        return redirect('dashboard:mis_fichas_ingreso')
+
+    if not (ficha.firma_pm and ficha.firma_rrhh):
+        messages.error(
+            request, "No puedes firmar todavía. Aún falta la aprobación del PM o de RRHH.")
+        return redirect('dashboard:mis_fichas_ingreso')
+
+    ficha.firma_trabajador = request.user.firma_digital
+    ficha.estado = 'completada'
+    ficha.save()
+
+    # Reemplaza el PDF con las tres firmas insertadas
+    generar_ficha_ingreso_pdf(ficha)
+
+    messages.success(request, "✅ Has aprobado y firmado tu ficha de ingreso.")
+    return redirect('dashboard:mis_fichas_ingreso')
+
+
+@login_required
+@rol_requerido('admin', 'usuario')
+def rechazar_ficha_ingreso_trabajador(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id, usuario=request.user)
+
+    if ficha.estado == 'rechazada_usuario':
+        messages.info(request, "Ya has rechazado esta ficha.")
+    else:
+        ficha.estado = 'rechazada_usuario'
+        ficha.save()
+        messages.warning(
+            request, "Has rechazado la ficha. RRHH ha sido notificado.")
+
+    return redirect('dashboard:mis_fichas_ingreso')
+
+
+@rol_requerido('admin', 'pm')
+def revisar_ficha_pm(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id)
+
+    if request.method == 'POST':
+        accion = request.POST.get('accion')
+
+        if accion == 'aprobar':
+            ficha.estado = 'pendiente'  # pasa a validación del trabajador
+            ficha.save()
+            messages.success(
+                request, "Ficha aprobada y enviada al trabajador para su validación.")
+        elif accion == 'rechazar':
+            ficha.estado = 'rechazada'
+            ficha.save()
+            messages.warning(
+                request, "Ficha rechazada. Recursos Humanos ha sido notificado.")
+        return redirect('rrhh:listar_fichas_pm')  # o a donde desees redirigir
+
+    return render(request, 'rrhh/revision_ficha_pm.html', {
+        'ficha': ficha
+    })
+
+
+@login_required
+@rol_requerido('pm', 'admin')
+def firmar_ficha_pm(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id)
+
+    if ficha.estado in ['rechazada_pm', 'rechazada_usuario', 'aprobada']:
+        messages.error(
+            request, "No se puede firmar una ficha ya finalizada o rechazada.")
+        return redirect('rrhh:listar_fichas_ingreso_admin')
+
+    if ficha.firma_pm:
+        messages.info(request, "Ya has firmado esta ficha.")
+        return redirect('rrhh:listar_fichas_ingreso_admin')
+
+    if not request.user.firma_digital:
+        messages.error(
+            request, "Debes tener una firma digital registrada para aprobar la ficha.")
+        return redirect('rrhh:listar_fichas_ingreso_admin')
+
+    # ✅ Guardar firma y asignar oficialmente el PM aprobador
+    ficha.firma_pm = request.user.firma_digital
+    ficha.pm = request.user
+    ficha.estado = 'pendiente_usuario'  # Queda esperando firma del trabajador
+    ficha.save()
+
+    messages.success(
+        request, "✅ Ficha firmada correctamente. Ahora debe revisarla el trabajador.")
+    return redirect('rrhh:listar_fichas_ingreso_admin')
+
+
+@login_required
+@rol_requerido('usuario', 'admin')
+def firmar_ficha_ingreso(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id, usuario=request.user)
+
+    # Validar que el PM haya aprobado
+    if not ficha.firma_pm:
+        messages.error(
+            request, "No puedes firmar esta ficha aún. Falta la aprobación del PM.")
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    # Validar que el trabajador tenga una firma digital válida y accesible
+    firma_usuario = request.user.firma_digital
+    firma_valida = (
+        firma_usuario and
+        getattr(firma_usuario, 'name', '').strip() and
+        hasattr(firma_usuario, 'url')
+    )
+
+    # Verificar que la URL sea accesible
+    if firma_valida:
+        try:
+            response = requests.get(firma_usuario.url)
+            if response.status_code != 200:
+                firma_valida = False
+        except Exception:
+            firma_valida = False
+
+    if not firma_valida:
+        messages.warning(
+            request, "Debes registrar tu firma antes de poder firmar la ficha.")
+        return redirect(f"{reverse('liquidaciones:registrar_firma')}?next={request.path}")
+
+    # Validar que RRHH tenga firma
+    if not ficha.creado_por or not ficha.creado_por.firma_digital:
+        messages.error(
+            request, "El responsable de RRHH aún no ha registrado su firma.")
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    # Validar que el PM esté asignado y tenga firma
+    if not ficha.pm or not ficha.pm.firma_digital:
+        messages.error(
+            request, "El PM asignado aún no ha registrado su firma.")
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    if request.method == 'POST':
+        # Guardar las firmas pero aún no cambiar el estado
+        ficha.firma_trabajador = request.user.firma_digital
+        ficha.firma_rrhh = ficha.creado_por.firma_digital
+        ficha.firma_pm = ficha.pm.firma_digital
+
+        try:
+            from rrhh.utils import firmar_ficha_ingreso_pdf  # Import correcto
+            firmar_ficha_ingreso_pdf(ficha)
+
+            ficha.estado = 'aprobada'
+            ficha.save()
+
+            messages.success(request, "✅ Ficha firmada correctamente.")
+        except Exception as e:
+            messages.error(
+                request, f"No se pudo completar la firma del PDF: {e}")
+            return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+
+@login_required
+@rol_requerido('usuario', 'admin')
+def rechazar_ficha_ingreso(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id, usuario=request.user)
+
+    if ficha.firma_pm and not ficha.firma_trabajador:
+        ficha.estado = 'rechazada_usuario'
+        ficha.save()
+        messages.warning(
+            request, "Has rechazado la ficha. Será revisada nuevamente por RRHH.")
+    else:
+        messages.error(
+            request, "No puedes rechazar esta ficha en su estado actual.")
+
+    return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+
+@login_required
+@rol_requerido('usuario')
+def firmar_ficha_ingreso_trabajador(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id)
+
+    if ficha.firma_trabajador:
+        messages.warning(request, "Ya has firmado esta ficha.")
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    if not request.user.firma_digital:
+        messages.error(
+            request, "Debes registrar tu firma digital antes de firmar.")
+        return redirect('rrhh:listar_fichas_ingreso_usuario')
+
+    ficha.usuario = request.user
+    ficha.firma_trabajador = request.user.firma_digital
+
+    try:
+        agregar_firma_trabajador_a_ficha(ficha)
+        messages.success(request, "Ficha firmada correctamente.")
+    except Exception as e:
+        messages.error(request, f"Ocurrió un error al firmar: {e}")
+
+    return redirect('rrhh:listar_fichas_ingreso_usuario')
 
 
 @staff_member_required
@@ -270,9 +550,39 @@ def editar_ficha_ingreso(request, pk):
 def eliminar_ficha_ingreso(request, pk):
     ficha = get_object_or_404(FichaIngreso, pk=pk)
     if request.method == 'POST':
+        if ficha.archivo:
+            ficha.archivo.delete(save=False)  # 🔁 Elimina el PDF de Cloudinary
         ficha.delete()
+        messages.success(request, "Ficha eliminada correctamente.")
         return redirect('rrhh:listar_fichas_ingreso_admin')
     return render(request, 'rrhh/eliminar_ficha_ingreso.html', {'ficha': ficha})
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'rrhh')
+def generar_ficha_pdf(request, ficha_id):
+    ficha = get_object_or_404(FichaIngreso, id=ficha_id)
+
+    # Generar PDF temporal
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph("FICHA DE INGRESO DE PERSONAL", styles['Heading1']),
+        Spacer(1, 12),
+        Paragraph(
+            f"Nombre: {ficha.nombres} {ficha.apellidos}", styles['Normal']),
+        Paragraph(f"RUT: {ficha.rut}", styles['Normal']),
+        Paragraph(f"Cargo: {ficha.cargo}", styles['Normal']),
+        Paragraph(f"Proyecto: {ficha.faena}", styles['Normal']),
+        # ... más campos según corresponda ...
+    ]
+    doc.build(elements)
+    buffer.seek(0)
+
+    # Nombre de archivo lógico para descarga
+    nombre_archivo = f"FichaIngreso_{ficha.rut.replace('.', '').replace('-', '')}.pdf"
+    return FileResponse(buffer, as_attachment=True, filename=nombre_archivo)
 
 
 @login_required
@@ -627,17 +937,32 @@ def aprobar_vacacion_pm(request, pk):
     return redirect('rrhh:revisar_pm')
 
 
-@rol_requerido('rrhh')
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
 def aprobar_vacacion_rrhh(request, pk):
     solicitud = get_object_or_404(SolicitudVacaciones, pk=pk)
-    if solicitud.estatus == 'pendiente_rrhh':
-        solicitud.estatus = 'aprobada'
-        solicitud.aprobado_por_rrhh = request.user  # Guarda quién aprobó
-        solicitud.save()
-        messages.success(request, "Solicitud aprobada por RRHH.")
-    else:
-        messages.warning(request, "La solicitud no está pendiente para RRHH.")
-    return redirect('rrhh:revisar_rrhh')
+
+    if solicitud.estatus != 'pendiente_rrhh':
+        messages.error(request, "Esta solicitud ya fue revisada.")
+        return redirect('rrhh:revisar_rrhh')  # ✅ redirección corregida
+
+    # Cambiar estado y guardar quién la aprueba
+    solicitud.estatus = 'aprobada'
+    solicitud.aprobado_por_rrhh = request.user
+    solicitud.save()
+
+    # Intentar generar y subir el PDF
+    try:
+        # ⚠️ función que genera y sube el PDF
+        generar_pdf_solicitud_vacaciones(solicitud)
+        messages.success(
+            request, "✅ Solicitud aprobada y documento generado correctamente.")
+    except Exception as e:
+        print(f"⚠️ Error al generar el PDF: {e}")
+        messages.warning(
+            request, f"Solicitud aprobada, pero hubo un error al generar el documento PDF: {e}")
+
+    return redirect('rrhh:revisar_rrhh')  # ✅ redirección final
 
 
 @staff_member_required
@@ -651,9 +976,290 @@ def eliminar_solicitud_vacaciones_admin(request, pk):
     solicitud = get_object_or_404(SolicitudVacaciones, pk=pk)
 
     if request.method == 'POST':
+        # ✅ Elimina el archivo PDF desde Cloudinary si existe
+        if solicitud.archivo_pdf and solicitud.archivo_pdf.name:
+            solicitud.archivo_pdf.delete(save=False)
+
+        # ❌ Elimina la solicitud del sistema
         solicitud.delete()
         messages.success(request, "Solicitud eliminada correctamente.")
         return redirect('dashboard_admin:vacaciones_admin')
 
     messages.warning(request, "La solicitud no se eliminó.")
     return redirect('dashboard_admin:vacaciones_admin')
+
+
+@rol_requerido('admin', 'rrhh')
+def subir_documento_trabajador(request):
+    if request.method == 'POST':
+        form = DocumentoTrabajadorForm(request.POST, request.FILES)
+        if form.is_valid():
+            trabajador = form.cleaned_data['trabajador']
+            tipo = form.cleaned_data['tipo_documento']
+            archivo = form.cleaned_data['archivo']
+            fecha_emision = form.cleaned_data['fecha_emision']
+            fecha_vencimiento = form.cleaned_data['fecha_vencimiento']
+
+            # Verificar si ya existe
+            existente = DocumentoTrabajador.objects.filter(
+                trabajador=trabajador, tipo_documento=tipo).first()
+            if existente:
+                # Reemplazar el archivo
+                existente.archivo = archivo
+                existente.fecha_emision = fecha_emision
+                existente.fecha_vencimiento = fecha_vencimiento
+                existente.save()
+                messages.success(
+                    request, '📄 Documento reemplazado correctamente.')
+            else:
+                form.save()
+                messages.success(request, '📄 Documento subido correctamente.')
+
+            return redirect('rrhh:listado_documentos')
+    else:
+        form = DocumentoTrabajadorForm()
+
+    return render(request, 'rrhh/subir_documento_trabajador.html', {'form': form})
+
+
+def calcular_estado_documento(doc):
+    if not doc or not doc.archivo or not doc.archivo.name:
+        return "Faltante"
+
+    if not doc.fecha_vencimiento:
+        return "Faltante"
+
+    hoy = date.today()
+
+    if doc.fecha_vencimiento < hoy:
+        return "Vencido"
+    elif (doc.fecha_vencimiento - hoy).days <= 7:
+        return "Por vencer"
+    return "Vigente"
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def listado_documentos_trabajador(request):
+    filtro_nombre = request.GET.get('trabajador', '').strip()
+    filtro_tipo = request.GET.get('tipo', '')
+    filtro_fecha = request.GET.get('fecha', '')
+    filtro_estado = request.GET.get('estado', '')
+
+    documentos = DocumentoTrabajador.objects.select_related(
+        'trabajador', 'tipo_documento').all()
+
+    # Aplicar filtros
+    if filtro_nombre:
+        documentos = documentos.filter(
+            Q(trabajador__nombres__icontains=filtro_nombre) |
+            Q(trabajador__apellidos__icontains=filtro_nombre)
+        )
+    if filtro_tipo:
+        documentos = documentos.filter(tipo_documento__id=filtro_tipo)
+    if filtro_fecha:
+        documentos = documentos.filter(fecha_vencimiento=filtro_fecha)
+
+    # Cargar todos los tipos de documentos para los filtros
+    tipos = TipoDocumento.objects.all()
+
+    data = []
+    trabajadores_vistos = set()
+
+    for doc in documentos:
+        estado = calcular_estado_documento(doc)
+
+        # Filtrar por estado después de calcularlo
+        if filtro_estado and estado != filtro_estado:
+            continue
+
+        trabajador_id = doc.trabajador.id
+
+        # Agrupar documentos por trabajador
+        if trabajador_id not in trabajadores_vistos:
+            trabajadores_vistos.add(trabajador_id)
+            data.append({
+                "trabajador": doc.trabajador,
+                "documentos": []
+            })
+
+        # Agregar documento al trabajador correspondiente
+        for entrada in data:
+            if entrada["trabajador"].id == trabajador_id:
+                entrada["documentos"].append({
+                    "tipo": doc.tipo_documento,
+                    "doc": doc,
+                    "estado": estado
+                })
+
+    return render(request, 'rrhh/listado_documentos_trabajador.html', {
+        "data": data,
+        "tipos": tipos,
+        "filtro_nombre": filtro_nombre,
+        "filtro_tipo": filtro_tipo,
+        "filtro_fecha": filtro_fecha,
+        "filtro_estado": filtro_estado,
+    })
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def crear_tipo_documento(request):
+    tipo_id = request.GET.get('editar')
+    tipo_a_editar = None
+
+    if tipo_id:
+        tipo_a_editar = get_object_or_404(TipoDocumento, pk=tipo_id)
+        form = TipoDocumentoForm(request.POST or None, instance=tipo_a_editar)
+    else:
+        form = TipoDocumentoForm(request.POST or None)
+
+    if request.method == 'POST':
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request, "Tipo de documento actualizado correctamente." if tipo_a_editar else "Tipo de documento creado correctamente.")
+            return redirect('rrhh:crear_tipo_documento')
+        else:
+            messages.error(request, "Error al guardar el tipo de documento.")
+
+    tipos = TipoDocumento.objects.all()
+    return render(request, 'rrhh/crear_tipo_documento.html', {
+        'form': form,
+        'tipos': tipos,
+        'editando': tipo_a_editar
+    })
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def reemplazar_documento(request, documento_id):
+    documento = get_object_or_404(DocumentoTrabajador, pk=documento_id)
+
+    if request.method == 'POST':
+        form = ReemplazoDocumentoForm(request.POST, request.FILES)
+        if form.is_valid():
+            nuevo_archivo = form.cleaned_data['archivo']
+
+            # Eliminar archivo anterior en Cloudinary
+            if documento.archivo:
+                public_id = documento.archivo.name.rsplit('.', 1)[0]
+                cloudinary.uploader.destroy(public_id, invalidate=True)
+
+            # Guardar nuevo archivo
+            identidad = documento.trabajador.identidad
+            tipo_slug = slugify(documento.tipo_documento.nombre)
+            filename = f"{tipo_slug}.pdf"
+            path = f"Documentos de los trabajadores/{identidad}/{filename}"
+            documento.archivo.save(path, ContentFile(nuevo_archivo.read()))
+
+            # Actualizar fechas
+            documento.fecha_emision = form.cleaned_data['fecha_emision']
+            documento.fecha_vencimiento = form.cleaned_data['fecha_vencimiento']
+            documento.save()
+
+            messages.success(request, "Documento reemplazado correctamente.")
+            return redirect('rrhh:listado_documentos')
+        else:
+            messages.error(request, "Hubo un error al subir el documento.")
+    else:
+        form = ReemplazoDocumentoForm()
+
+    return render(request, 'rrhh/reemplazar_documento.html', {
+        'form': form,
+        'documento': documento
+    })
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def exportar_documentos_excel(request):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Documentos Trabajadores"
+
+    # Cabeceras
+    headers = [
+        "Trabajador",
+        "Identidad",
+        "Correo",
+        "Tipo de documento",
+        "Fecha de carga",
+        "Fecha de emisión",
+        "Fecha de expiración",
+        "Estado"
+    ]
+    ws.append(headers)
+
+    documentos = DocumentoTrabajador.objects.select_related(
+        'trabajador', 'tipo_documento')
+
+    for doc in documentos:
+        estado = calcular_estado_documento(doc)
+        ws.append([
+            doc.trabajador.get_full_name(),
+            doc.trabajador.identidad,
+            doc.trabajador.email,
+            doc.tipo_documento.nombre,
+            doc.creado.strftime('%Y-%m-%d') if doc.creado else "—",
+            doc.fecha_emision.strftime(
+                '%Y-%m-%d') if doc.fecha_emision else "—",
+            doc.fecha_vencimiento.strftime(
+                '%Y-%m-%d') if doc.fecha_vencimiento else "—",
+            estado
+        ])
+
+    # Ajustar el ancho de columnas automáticamente
+    for col_num, _ in enumerate(headers, 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = 25
+
+    # Preparar archivo Excel para descarga
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f'attachment; filename={smart_str("documentos_trabajadores.xlsx")}'
+    wb.save(response)
+    return response
+
+
+@login_required
+def mis_documentos(request):
+    documentos = DocumentoTrabajador.objects.filter(trabajador=request.user)
+    documentos_info = []
+
+    for doc in documentos:
+        documentos_info.append({
+            "tipo": doc.tipo_documento.nombre,
+            "archivo": doc.archivo,
+            "fecha_emision": doc.fecha_emision,
+            "fecha_vencimiento": doc.fecha_vencimiento,
+            "estado": calcular_estado_documento(doc)
+        })
+
+    return render(request, 'rrhh/mis_documentos.html', {
+        "documentos": documentos_info
+    })
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def eliminar_documento(request, id):
+    documento = get_object_or_404(DocumentoTrabajador, id=id)
+
+    if request.method == 'POST':
+        # Esto borra el archivo de Cloudinary
+        documento.archivo.delete(save=False)
+        documento.delete()
+        messages.success(request, "El documento fue eliminado correctamente.")
+        return redirect('rrhh:listado_documentos_trabajador')
+
+    return redirect('rrhh:listado_documentos_trabajador')
+
+
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def eliminar_tipo_documento(request, pk):
+    tipo = get_object_or_404(TipoDocumento, pk=pk)
+    tipo.delete()
+    messages.success(request, "Tipo de documento eliminado correctamente.")
+    return redirect('rrhh:crear_tipo_documento')

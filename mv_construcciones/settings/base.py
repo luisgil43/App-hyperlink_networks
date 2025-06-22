@@ -4,14 +4,33 @@ from pathlib import Path
 import os
 from django.utils.module_loading import import_string
 from dotenv import load_dotenv
+load_dotenv()
 
 
 # Cargar variables de entorno desde .env (solo en desarrollo)
+"""
 if os.environ.get("DJANGO_DEVELOPMENT") == "true":
-    load_dotenv()
+    load_dotenv()"""
 
 # Ruta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def is_env_var_set(key):
+    return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
+
+
+if (
+    is_env_var_set("CLOUDINARY_CLOUD_NAME") and
+    is_env_var_set("CLOUDINARY_API_KEY") and
+    is_env_var_set("CLOUDINARY_API_SECRET")
+):
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+    CLOUDINARY_STORAGE = {
+        'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+        'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+    }
 
 # Configuración básica
 LOGIN_URL = '/usuarios/login/'
@@ -49,6 +68,7 @@ INSTALLED_APPS = [
     'dashboard_admin.apps.DashboardAdminConfig',
     'dal',
     'dal_select2',
+    'widget_tweaks',
 ]
 
 # Middleware
@@ -117,7 +137,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # ===============================
 # ✅ Cloudinary (cuando está activo)
 # ===============================
-
+"""
 
 def is_env_var_set(key):
     return bool(os.environ.get(key) and os.environ.get(key).strip().lower() != "none")
@@ -140,7 +160,7 @@ if USE_CLOUDINARY:
     # Asignar al espacio global para evitar errores
     globals()[
         'DEFAULT_FILE_STORAGE'] = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-
+"""
 # Email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'

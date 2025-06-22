@@ -1,8 +1,13 @@
+from django import forms
 from django.db import models
 from django.contrib.auth import get_user_model
 from liquidaciones.models import cloudinary_storage
 from django.conf import settings
 from datetime import date
+from django.utils import timezone
+from datetime import timedelta
+from usuarios.models import CustomUser
+from django.core.files.storage import default_storage
 
 
 def ruta_contrato_trabajo(instance, filename):
@@ -44,37 +49,126 @@ class ContratoTrabajo(models.Model):
 
 
 def ruta_ficha_ingreso(instance, filename):
-    identidad = instance.tecnico.identidad or f"usuario_{instance.tecnico.id}"
+    # Evita duplicar la ruta si ya viene con fichas_de_ingreso
+    if filename.startswith("fichas_de_ingreso/"):
+        return filename
+
+    identidad = instance.usuario.identidad if instance.usuario and instance.usuario.identidad else instance.rut or f"usuario_desconocido_{instance.id or 'nuevo'}"
     identidad_limpia = identidad.replace('.', '').replace('-', '')
-    return f"media/fichas_de_ingreso/{identidad_limpia}/{filename}"
+    return f"fichas_de_ingreso/{identidad_limpia}/{filename}"
 
 
 class FichaIngreso(models.Model):
-    tecnico = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    # Relacionales
+    usuario = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, null=True, blank=True, related_name="fichas")
+    creado_por = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="fichas_creadas")
+    pm = models.ForeignKey(CustomUser, on_delete=models.SET_NULL,
+                           null=True, blank=True, related_name="fichas_pm")
+
+    # Datos personales
+    nombres = models.CharField(max_length=100, null=True, blank=True)
+    apellidos = models.CharField(max_length=100, null=True, blank=True)
+    rut = models.CharField(max_length=15, null=True, blank=True)
+    fecha_nacimiento = models.DateField(null=True, blank=True)
+    edad = models.PositiveIntegerField(null=True, blank=True)
+    sexo = models.CharField(max_length=20, null=True, blank=True)
+    estado_civil = models.CharField(max_length=50, null=True, blank=True)
+    nacionalidad = models.CharField(max_length=50, null=True, blank=True)
+
+    # Contacto
+    telefono = models.CharField(max_length=20, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    direccion = models.CharField(max_length=255, null=True, blank=True)
+    comuna = models.CharField(max_length=100, null=True, blank=True)
+    ciudad = models.CharField(max_length=100, null=True, blank=True)
+    region = models.CharField(max_length=100, null=True, blank=True)
+
+    # Estudios y familia
+    hijos = models.IntegerField(null=True, blank=True)
+    nivel_estudios = models.CharField(max_length=100, null=True, blank=True)
+    profesion_u_oficio = models.CharField(
+        max_length=100, null=True, blank=True)
+
+    # Contacto de emergencia
+    nombre_contacto_emergencia = models.CharField(
+        max_length=100, null=True, blank=True)
+    parentesco_emergencia = models.CharField(
+        max_length=50, null=True, blank=True)
+    telefono_emergencia = models.CharField(
+        max_length=20, null=True, blank=True)
+    direccion_emergencia = models.CharField(
+        max_length=255, null=True, blank=True)
+
+    # Salud y previsión
+    afp = models.CharField(max_length=100, null=True, blank=True)
+    salud = models.CharField(max_length=100, null=True, blank=True)
+
+    # Datos bancarios (hasta 2 cuentas)
+    banco = models.CharField(max_length=100, null=True, blank=True)
+    tipo_cuenta = models.CharField(max_length=50, null=True, blank=True)
+    numero_cuenta = models.CharField(max_length=50, null=True, blank=True)
+    banco_2 = models.CharField(max_length=100, null=True, blank=True)
+    tipo_cuenta_2 = models.CharField(max_length=50, null=True, blank=True)
+    numero_cuenta_2 = models.CharField(max_length=50, null=True, blank=True)
+
+    # Información laboral
+    cargo = models.CharField(max_length=100, null=True, blank=True)
+    departamento = models.CharField(max_length=100, null=True, blank=True)
+    faena = models.CharField(max_length=100, null=True, blank=True)
+    fecha_inicio = models.DateField(null=True, blank=True)
+    tipo_contrato = models.CharField(max_length=50, null=True, blank=True)
+    jornada = models.CharField(max_length=100, null=True, blank=True)
+    horario_trabajo = models.CharField(max_length=100, null=True, blank=True)
+    sueldo_base = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True)
+    sueldo_liquido = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True)
+    bono = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True)
+    colacion = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True)
+    movilizacion = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True)
+    observaciones = models.TextField(null=True, blank=True)
+
+    # Tallas
+    talla_polera = models.CharField(max_length=10, null=True, blank=True)
+    talla_pantalon = models.CharField(max_length=10, null=True, blank=True)
+    talla_zapato = models.CharField(max_length=10, null=True, blank=True)
+
+    # Estados del flujo
+    ESTADOS_FICHA = [
+        ('pendiente_pm', 'Pendiente revisión del PM'),
+        ('rechazada_pm', 'Rechazada por el PM'),
+        ('pendiente_usuario', 'Pendiente aprobación del trabajador'),
+        ('rechazada_usuario', 'Rechazada por el trabajador'),
+        ('aprobada', 'Aprobada con firmas'),
+    ]
+    estado = models.CharField(
+        max_length=30,
+        choices=ESTADOS_FICHA,
+        default='pendiente_pm'
+    )
+
+    # Firmas
+    firma_trabajador = models.ImageField(
+        upload_to='firmas/', null=True, blank=True)
+    firma_pm = models.ImageField(upload_to='firmas/', null=True, blank=True)
+    firma_rrhh = models.ImageField(upload_to='firmas/', null=True, blank=True)
+
+    # PDF generado
     archivo = models.FileField(
         upload_to=ruta_ficha_ingreso,
         storage=cloudinary_storage,
-        verbose_name="Ficha de Ingreso (PDF)"
+        null=True,
+        blank=True,
+        verbose_name="Comprobante firmado"
     )
 
     def __str__(self):
-        return f"Ficha de ingreso de {self.tecnico.get_full_name()}"
-
-    def save(self, *args, **kwargs):
-        try:
-            old = FichaIngreso.objects.get(pk=self.pk)
-        except FichaIngreso.DoesNotExist:
-            old = None
-
-        if (
-            old and old.archivo and self.archivo and
-            old.archivo.name != self.archivo.name
-        ):
-            if old.archivo.storage.exists(old.archivo.name):
-                old.archivo.delete(save=False)
-
-        super().save(*args, **kwargs)
+        return f"Ficha {self.rut} - {self.nombres} {self.apellidos}"
 
 
 class Feriado(models.Model):
@@ -97,6 +191,12 @@ class DiasVacacionesTomadosManualmente(models.Model):
         return f"{self.usuario.get_full_name()} - {self.cantidad_dias} días"
 
 
+def ruta_solicitud_vacaciones(instance, filename):
+    identidad = instance.usuario.identidad or f"usuario_{instance.usuario.id}"
+    identidad_limpia = identidad.replace('.', '').replace('-', '')
+    return f"media/solicitudes de vacaciones/{identidad_limpia}/{filename}"
+
+
 class SolicitudVacaciones(models.Model):
     ESTADOS = [
         ('pendiente_supervisor', 'Pendiente de Supervisor'),
@@ -109,6 +209,11 @@ class SolicitudVacaciones(models.Model):
         ('aprobada', 'Aprobada'),
     ]
 
+    TIPO_CHOICES = [
+        ('total', 'Total'),
+        ('parcial', 'Parcial'),
+    ]
+
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -117,6 +222,13 @@ class SolicitudVacaciones(models.Model):
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
     dias_solicitados = models.DecimalField(max_digits=5, decimal_places=2)
+
+    tipo_solicitud = models.CharField(  # 👈 Este es el campo nuevo
+        max_length=10,
+        choices=TIPO_CHOICES,
+        default='total'
+    )
+
     estatus = models.CharField(
         max_length=30, choices=ESTADOS, default='pendiente_supervisor')
     observacion = models.TextField(blank=True, null=True)
@@ -141,6 +253,14 @@ class SolicitudVacaciones(models.Model):
         on_delete=models.SET_NULL
     )
 
+    archivo_pdf = models.FileField(
+        upload_to=ruta_solicitud_vacaciones,
+        storage=cloudinary_storage,
+        null=True,
+        blank=True,
+        verbose_name="Comprobante firmado"
+    )
+
     def __str__(self):
         return f"{self.usuario.get_full_name()} ({self.fecha_inicio} - {self.fecha_fin})"
 
@@ -155,4 +275,73 @@ class SolicitudVacaciones(models.Model):
             'rechazada_admin': '🔴 Rechazada por Admin',
             'aprobada': '🟢 Aprobada ✅',
         }
-        return estado_map.get(self.estatus, 'Estado desconocido')
+        return estado_map.get(self.estatus, self.estatus)
+
+
+# 1. Primero definimos TipoDocumento
+class TipoDocumento(models.Model):
+    nombre = models.CharField(max_length=100, unique=True)
+    obligatorio = models.BooleanField(default=True)
+    vigencia_meses = models.PositiveIntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return self.nombre
+
+# 2. Luego definimos la función para Cloudinary
+
+
+def ruta_documento_trabajador(instance, filename):
+    identidad = instance.trabajador.identidad or f"usuario_{instance.trabajador.id}"
+    identidad_limpia = identidad.replace('.', '').replace('-', '')
+    return f"media/Documentos de los trabajadores/{identidad_limpia}/{filename}"
+
+# 3. Y luego DocumentoTrabajador
+
+
+class DocumentoTrabajador(models.Model):
+    trabajador = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    tipo_documento = models.ForeignKey(TipoDocumento, on_delete=models.CASCADE)
+    fecha_emision = models.DateField(null=True, blank=True)
+    fecha_vencimiento = models.DateField(null=True, blank=True)
+    creado = models.DateTimeField(auto_now_add=True)
+
+    archivo = models.FileField(
+        upload_to=ruta_documento_trabajador,
+        storage=cloudinary_storage,
+        verbose_name="Archivo del documento"
+    )
+
+    subido_en = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.trabajador.get_full_name()} - {self.tipo_documento.nombre}"
+
+    def save(self, *args, **kwargs):
+        try:
+            old = DocumentoTrabajador.objects.get(pk=self.pk)
+        except DocumentoTrabajador.DoesNotExist:
+            old = None
+
+        if (
+            old and
+            old.archivo and self.archivo and
+            old.archivo.name != self.archivo.name
+        ):
+            if old.archivo.storage.exists(old.archivo.name):
+                old.archivo.delete(save=False)
+
+        super().save(*args, **kwargs)
+
+    def estado(self):
+        if not self.fecha_vencimiento:
+            return 'Faltante'
+
+        hoy = date.today()
+        dias_restantes = (self.fecha_vencimiento - hoy).days
+
+        if dias_restantes < 0:
+            return 'Vencido'
+        elif dias_restantes <= 30:
+            return 'Por vencer'
+        else:
+            return 'vigente'

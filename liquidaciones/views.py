@@ -33,6 +33,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.contrib.auth import get_user_model
 from usuarios.decoradores import rol_requerido
+from django.utils.http import urlencode
+from django.urls import reverse
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -179,39 +181,44 @@ def firmar_liquidacion(request, pk):
 @login_required
 def registrar_firma(request):
     usuario = request.user
+    redireccion = request.GET.get('next', reverse('liquidaciones:listar'))
 
     if request.method == 'POST':
         data_url = request.POST.get('firma_digital')
-        if data_url:
-            try:
-                if not data_url.startswith('data:image/png;base64,'):
-                    raise ValueError("Formato de firma inválido.")
 
-                # Procesar imagen base64
-                format, imgstr = data_url.split(';base64,')
-                data = base64.b64decode(imgstr)
-
-                nombre_archivo = f"{usuario.username}_firma.png"
-                content = ContentFile(data)
-
-                # 🧹 Eliminar firma anterior si existía
-                if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
-                    usuario.firma_digital.delete(save=False)
-
-                # ✅ Guardar nueva firma en Cloudinary (media/firmas/)
-                usuario.firma_digital.save(nombre_archivo, content, save=True)
-
-                messages.success(
-                    request, "Tu firma digital ha sido guardada correctamente.")
-                return redirect('liquidaciones:listar')
-
-            except Exception as e:
-                messages.error(
-                    request,
-                    f"Error al procesar la firma digital. Asegúrate de que esté en formato PNG. Detalle: {e}"
-                )
-        else:
+        if not data_url:
             messages.error(request, "No se recibió ninguna firma.")
+            return redirect(request.path)
+
+        try:
+            if not data_url.startswith('data:image/png;base64,'):
+                raise ValueError("El formato de la firma no es PNG válido.")
+
+            # Decodificar imagen base64
+            formato, img_base64 = data_url.split(';base64,')
+            data = base64.b64decode(img_base64)
+            content = ContentFile(data)
+
+            # Nombre limpio para la firma
+            nombre_archivo = f"media/firmas/usuario_{usuario.id}_firma.png"
+
+            # Eliminar firma anterior (si existe)
+            if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
+                usuario.firma_digital.delete(save=False)
+
+            # Guardar nueva firma
+            usuario.firma_digital.save(nombre_archivo, content, save=True)
+
+            messages.success(
+                request, "Tu firma digital ha sido guardada correctamente.")
+            return redirect(redireccion)
+
+        except Exception as e:
+            messages.error(
+                request,
+                f"Error al guardar la firma. Verifica que sea una imagen PNG válida. Detalles: {e}"
+            )
+            return redirect(request.path)
 
     return render(request, 'liquidaciones/registrar_firma.html', {'tecnico': usuario})
 

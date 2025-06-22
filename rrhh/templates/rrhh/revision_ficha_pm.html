@@ -1,0 +1,22 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white p-6 rounded-2xl shadow max-w-3xl mx-auto mt-6">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4">Revisión de Ficha de Ingreso</h2>
+
+  <embed src="{{ ficha.archivo.url }}" type="application/pdf" width="100%" height="500px" class="mb-6 rounded-lg shadow" />
+
+  <form method="POST" class="flex flex-col sm:flex-row gap-4">
+    {% csrf_token %}
+    <button name="accion" value="aprobar" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700">
+      ✅ Aprobar
+    </button>
+    <button name="accion" value="rechazar" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+      ❌ Rechazar
+    </button>
+    <a href="{% url 'rrhh:listar_fichas_pm' %}" class="bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400">
+      🔙 Volver
+    </a>
+  </form>
+</div>
+{% endblock %}

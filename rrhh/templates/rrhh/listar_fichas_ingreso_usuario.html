@@ -1,35 +1,83 @@
 {% extends 'dashboard/base.html' %}
+
 {% block content %}
 <div class="p-6">
-  <h1 class="text-2xl font-bold text-gray-800 mb-4">Mi Ficha de Ingreso</h1>
+  <h1 class="text-2xl font-bold text-gray-800 mb-4 text-center">Mi Ficha de Ingreso</h1>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 px-4 py-3 rounded-lg text-sm text-center {{ message.tags|yesno:'bg-emerald-100 text-emerald-800,bg-red-100 text-red-800' }}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
 
   <div class="overflow-x-auto bg-white rounded-lg shadow">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
+    <table class="min-w-full divide-y divide-gray-200 text-sm text-center">
       <thead class="bg-gray-100 text-gray-700 font-semibold">
         <tr>
-          <th class="px-4 py-2 text-left">Identidad</th>
-          <th class="px-4 py-2 text-left">Nombre y Apellido</th>
-          <th class="px-4 py-2 text-left">Ficha Adjunto</th>
+          <th class="px-4 py-2">Identidad</th>
+          <th class="px-4 py-2">Nombre y Apellido</th>
+          <th class="px-4 py-2">Ficha Adjunta</th>
+          <th class="px-4 py-2">Estado</th>
+          <th class="px-4 py-2">Acciones</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-200 text-gray-800">
         {% for ficha in fichas %}
         <tr>
-          <td class="px-4 py-2">{{ ficha.tecnico.identidad }}</td>
-          <td class="px-4 py-2">{{ ficha.tecnico.get_full_name }}</td>
+          <td class="px-4 py-2">{{ ficha.rut }}</td>
+          <td class="px-4 py-2">{{ ficha.nombres }} {{ ficha.apellidos }}</td>
           <td class="px-4 py-2">
             {% if ficha.archivo %}
-              <a href="{{ ficha.archivo.url }}" class="text-blue-600" target="_blank">
-                📄 <span class="underline ml-1">Ver mi ficha</span>
+              <a href="{{ ficha.archivo.url }}" class="text-blue-600 hover:underline" target="_blank">
+                📄 Ver mi ficha
               </a>
             {% else %}
               <span class="text-gray-400 italic">No disponible</span>
             {% endif %}
           </td>
+          <td class="px-4 py-2">
+            {% if ficha.estado == 'rechazada_pm' %}
+  <span class="text-red-600 font-medium">❌ Rechazada por el PM</span>
+{% elif ficha.estado == 'rechazada_usuario' %}
+  <span class="text-red-600 font-medium">❌ Rechazada por ti</span>
+{% elif ficha.estado == 'pendiente_pm' %}
+  <span class="text-yellow-600 italic">⏳ Esperando aprobación del PM</span>
+{% elif ficha.estado == 'pendiente_usuario' %}
+  <span class="text-orange-600 italic">📝 Pendiente de tu firma</span>
+{% elif ficha.estado == 'aprobada' %}
+  <span class="text-green-600 font-medium">✅ Aprobada por todos</span>
+{% endif %}
+          </td>
+          <td class="px-4 py-2">
+            {% if ficha.firma_pm and not ficha.firma_trabajador %}
+              <div class="flex flex-col gap-2 items-center">
+                <form method="post" action="{% url 'rrhh:firmar_ficha_ingreso' ficha.id %}">
+                  {% csrf_token %}
+                  <button type="submit"
+                          class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm transition">
+                    ✍️ Firmar ahora
+                  </button>
+                </form>
+                <form method="post" action="{% url 'rrhh:rechazar_ficha_ingreso' ficha.id %}">
+                  {% csrf_token %}
+                  <button type="submit"
+                          class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm transition">
+                    ❌ Rechazar
+                  </button>
+                </form>
+              </div>
+            {% elif ficha.firma_trabajador %}
+              <span class="text-green-600 font-medium">✅ Firmada</span>
+            {% else %}
+              <span class="text-gray-400 italic">Sin acciones disponibles</span>
+            {% endif %}
+          </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="3" class="px-4 py-6 text-center text-gray-500">
+          <td colspan="5" class="px-4 py-6 text-center text-gray-500">
             No se ha registrado ninguna ficha de ingreso aún.
           </td>
         </tr>

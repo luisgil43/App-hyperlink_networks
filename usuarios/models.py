@@ -12,7 +12,9 @@ from decimal import Decimal
 
 
 def ruta_firma_usuario(instance, filename):
-    return f"media/firmas/usuario_{instance.id}_firma.png"
+    # Asegúrate de que `identidad` existe en tu modelo de usuario
+    identidad = instance.identidad
+    return f"media/firmas/{identidad}/{identidad}_firma.png"
 
 
 class LazyCloudinaryStorage(LazyObject):
@@ -36,7 +38,7 @@ class Rol(models.Model):
 
 class CustomUser(AbstractUser):
     identidad = models.CharField(max_length=20, blank=True, null=True)
-    roles = models.ManyToManyField(Rol, blank=True)
+    roles = models.ManyToManyField("usuarios.Rol", blank=True)
 
     firma_digital = models.ImageField(
         upload_to=ruta_firma_usuario,
@@ -50,48 +52,46 @@ class CustomUser(AbstractUser):
         help_text="Días de vacaciones que ya ha consumido fuera del sistema"
     )
 
+    def get_full_name(self):
+        return f"{self.first_name} {self.last_name}"
+
     def tiene_rol(self, nombre_rol):
         return self.roles.filter(nombre=nombre_rol).exists()
 
     @property
-    def es_usuario(self):
-        return self.tiene_rol('usuario') or self.is_superuser
+    def es_usuario(self): return self.tiene_rol('usuario') or self.is_superuser
 
     @property
-    def es_supervisor(self):
-        return self.tiene_rol('supervisor') or self.is_superuser
+    def es_supervisor(self): return self.tiene_rol(
+        'supervisor') or self.is_superuser
 
     @property
-    def es_pm(self):
-        return self.tiene_rol('pm') or self.is_superuser
+    def es_pm(self): return self.tiene_rol('pm') or self.is_superuser
+    @property
+    def es_rrhh(self): return self.tiene_rol('rrhh') or self.is_superuser
 
     @property
-    def es_rrhh(self):
-        return self.tiene_rol('rrhh') or self.is_superuser
+    def es_prevencion(self): return self.tiene_rol(
+        'prevencion') or self.is_superuser
 
     @property
-    def es_prevencion(self):
-        return self.tiene_rol('prevencion') or self.is_superuser
+    def es_logistica(self): return self.tiene_rol(
+        'logistica') or self.is_superuser
 
     @property
-    def es_logistica(self):
-        return self.tiene_rol('logistica') or self.is_superuser
+    def es_flota(self): return self.tiene_rol('flota') or self.is_superuser
 
     @property
-    def es_flota(self):
-        return self.tiene_rol('flota') or self.is_superuser
+    def es_subcontrato(self): return self.tiene_rol(
+        'subcontrato') or self.is_superuser
 
     @property
-    def es_subcontrato(self):
-        return self.tiene_rol('subcontrato') or self.is_superuser
+    def es_facturacion(self): return self.tiene_rol(
+        'facturacion') or self.is_superuser
 
     @property
-    def es_facturacion(self):
-        return self.tiene_rol('facturacion') or self.is_superuser
-
-    @property
-    def es_admin_general(self):
-        return self.tiene_rol('admin') or self.is_superuser
+    def es_admin_general(self): return self.tiene_rol(
+        'admin') or self.is_superuser
 
     @property
     def rol(self):
@@ -111,7 +111,7 @@ class CustomUser(AbstractUser):
         return dias
 
     def obtener_dias_vacaciones_disponibles(self):
-        from rrhh.models import ContratoTrabajo, SolicitudVacaciones
+        from rrhh.models import SolicitudVacaciones, ContratoTrabajo
 
         contrato = ContratoTrabajo.objects.filter(
             tecnico=self).order_by('fecha_inicio').first()
@@ -120,9 +120,8 @@ class CustomUser(AbstractUser):
             return 0
 
         dias_trabajados = (date.today() - contrato.fecha_inicio).days
-        dias_generados = dias_trabajados * 0.04166  # ya es float
+        dias_generados = dias_trabajados * 0.04166
 
-    # Convertir valores a float
         dias_consumidos_manualmente = float(
             self.dias_vacaciones_consumidos or 0)
 
@@ -131,9 +130,8 @@ class CustomUser(AbstractUser):
             estatus='aprobada'
         ).aggregate(total=Sum('dias_solicitados'))['total'] or 0
 
-        dias_aprobados = float(dias_aprobados)
-
-        total_disponible = dias_generados - dias_consumidos_manualmente - dias_aprobados
+        total_disponible = dias_generados - \
+            dias_consumidos_manualmente - float(dias_aprobados)
         return round(total_disponible, 2)
 
     def __str__(self):

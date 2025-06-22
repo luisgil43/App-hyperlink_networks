@@ -1,0 +1,68 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white p-6 rounded-2xl shadow max-w-xl mx-auto mt-6">
+
+  <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <i class="lucide lucide-folder-plus text-blue-600"></i>
+    {% if editando %}Editar Tipo de Documento{% else %}Crear Tipo de Documento{% endif %}
+  </h2>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-3 p-3 rounded-xl text-sm {{ message.tags|yesno:'bg-emerald-100 text-emerald-800,bg-red-100 text-red-800' }}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if editando %}
+    <div class="mb-4">
+      <a href="{% url 'rrhh:crear_tipo_documento' %}" class="text-sm text-gray-500 underline hover:text-gray-700">
+        Cancelar edición
+      </a>
+    </div>
+  {% endif %}
+
+  <form method="POST" class="space-y-4">
+    {% csrf_token %}
+    <div>
+      {{ form.nombre.label_tag }}
+      {{ form.nombre }}
+      {% if form.nombre.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.nombre.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Botones alineados -->
+    <div class="flex justify-between items-center pt-2">
+      <a href="{% url 'rrhh:listado_documentos_trabajador' %}" 
+         class="flex items-center justify-start gap-1 bg-gray-200 text-gray-800 px-4 py-2 rounded-xl hover:bg-gray-300 text-sm font-medium h-10 w-28">
+        <i class="lucide lucide-arrow-left w-4 h-4"></i>
+        <span class="leading-none">Volver</span>
+      </a>
+
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 text-sm font-medium">
+        Guardar
+      </button>
+    </div>
+  </form>
+
+  {% if tipos %}
+    <div class="mt-6 border-t pt-4">
+      <h3 class="text-lg font-semibold text-gray-700 mb-3">Tipos de documento existentes:</h3>
+      <ul class="space-y-2">
+        {% for tipo in tipos %}
+          <li class="flex justify-between items-center bg-gray-100 px-4 py-2 rounded-xl">
+            <span class="text-sm text-gray-800">{{ tipo.nombre }}</span>
+            <div class="flex gap-3">
+              <a href="?editar={{ tipo.id }}" class="text-blue-600 hover:text-blue-800 text-sm font-medium">Editar</a>
+              </button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

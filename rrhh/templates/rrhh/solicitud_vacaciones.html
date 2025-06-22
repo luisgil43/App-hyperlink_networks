@@ -136,10 +136,17 @@
           </td>
 
           <!-- Acciones -->
-          <td class="px-4 py-2 flex gap-2">
-            <a href="{% url 'rrhh:editar_solicitud' solicitud.id %}" class="text-blue-600 hover:underline text-sm">Editar</a>
-            <a href="{% url 'rrhh:eliminar_solicitud' solicitud.id %}" class="text-red-600 hover:underline text-sm">Eliminar</a>
-          </td>
+          <td class="px-4 py-2">
+  <div class="flex flex-col gap-1">
+    {% if solicitud.archivo_pdf %}
+      <a href="{{ solicitud.archivo_pdf.url }}" target="_blank" class="text-blue-600 hover:underline text-sm">
+        📄 Descargar
+      </a>
+    {% endif %}
+    <a href="{% url 'rrhh:editar_solicitud' solicitud.id %}" class="text-blue-600 hover:underline text-sm">Editar</a>
+    <a href="{% url 'rrhh:eliminar_solicitud' solicitud.id %}" class="text-red-600 hover:underline text-sm">Eliminar</a>
+  </div>
+</td>
         </tr>
         {% empty %}
         <tr>

@@ -1,0 +1,75 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white p-6 rounded-2xl shadow max-w-3xl mx-auto mt-6">
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+    <i class="lucide lucide-upload-cloud text-blue-600"></i>
+    Subir Documento de Trabajador
+  </h2>
+{% if form.non_field_errors %}
+  <div class="mb-4 bg-red-100 text-red-800 text-sm p-3 rounded-xl">
+    {% for error in form.non_field_errors %}
+      <p>{{ error }}</p>
+    {% endfor %}
+  </div>
+{% endif %}
+  {% if messages %}
+    <ul class="mb-4 space-y-2">
+      {% for message in messages %}
+        <li class="p-3 rounded-xl text-sm {% if message.tags == 'success' %}bg-emerald-100 text-emerald-800{% else %}bg-red-100 text-red-800{% endif %}">
+          {{ message }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" class="space-y-5">
+    {% csrf_token %}
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Trabajador</label>
+      {{ form.trabajador }}
+      {% if form.trabajador.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.trabajador.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Tipo de Documento</label>
+      {{ form.tipo_documento }}
+      {% if form.tipo_documento.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.tipo_documento.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block mb-1 text-sm font-semibold text-gray-700">Fecha de Emisión</label>
+        {{ form.fecha_emision }}
+        {% if form.fecha_emision.errors %}
+          <p class="text-red-600 text-sm mt-1">{{ form.fecha_emision.errors.0 }}</p>
+        {% endif %}
+      </div>
+      <div>
+        <label class="block mb-1 text-sm font-semibold text-gray-700">Fecha de Vencimiento</label>
+        {{ form.fecha_vencimiento }}
+        {% if form.fecha_vencimiento.errors %}
+          <p class="text-red-600 text-sm mt-1">{{ form.fecha_vencimiento.errors.0 }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="block mb-1 text-sm font-semibold text-gray-700">Archivo PDF</label>
+      {{ form.archivo }}
+      {% if form.archivo.errors %}
+        <p class="text-red-600 text-sm mt-1">{{ form.archivo.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <div class="flex justify-end gap-4">
+      <a href="#" onclick="history.back()" class="px-4 py-2 rounded-xl bg-gray-200 text-gray-700 hover:bg-gray-300">Cancelar</a>
+      <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Subir Documento</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

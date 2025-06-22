@@ -1,33 +1,88 @@
 {% extends "dashboard_admin/base.html" %}
+{% load widget_tweaks %}
 
 {% block dashboard_content %}
-<div class="max-w-3xl mx-auto p-4 sm:p-6 bg-white rounded-2xl shadow">
+<div class="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow-md">
   <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-    <i class="lucide lucide-file-plus text-blue-600"></i>
+    <i class="lucide lucide-user-plus text-blue-600"></i>
     Crear Ficha de Ingreso
   </h2>
 
-  <form method="post" enctype="multipart/form-data" class="space-y-6">
+  <form method="POST" class="space-y-8">
     {% csrf_token %}
     {{ form.non_field_errors }}
 
-    <!-- 🔍 Muestra errores por campo -->
-    {% for field in form %}
-      {% for error in field.errors %}
-        <p class="text-red-600 text-sm">{{ field.label }}: {{ error }}</p>
-      {% endfor %}
-    {% endfor %}
+ <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Datos personales</h3>
+<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+  {% include "rrhh/campo_formulario.html" with field=form.nombres %}
+  {% include "rrhh/campo_formulario.html" with field=form.apellidos %}
+  {% include "rrhh/campo_formulario.html" with field=form.rut %}
+  {% include "rrhh/campo_formulario.html" with field=form.fecha_nacimiento %}
+  {% include "rrhh/campo_formulario.html" with field=form.edad %}
+  {% include "rrhh/campo_formulario.html" with field=form.estado_civil %}
+  {% include "rrhh/campo_formulario.html" with field=form.hijos %}
+  {% include "rrhh/campo_formulario.html" with field=form.nivel_estudios %}
+  {% include "rrhh/campo_formulario.html" with field=form.profesion_u_oficio %}
+</div>
 
-    <div>
-      <label class="block font-semibold mb-1">Trabajador</label>
-      {{ form.tecnico }}
+    <!-- DOMICILIO -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Domicilio</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.direccion %}
+      {% include "rrhh/campo_formulario.html" with field=form.comuna %}
+      {% include "rrhh/campo_formulario.html" with field=form.ciudad %}
     </div>
 
-    <div>
-      <label class="block font-semibold mb-1">Archivo PDF</label>
-      {{ form.archivo }}
+    <!-- CONTACTO -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Contacto</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.telefono %}
+      {% include "rrhh/campo_formulario.html" with field=form.email %}
     </div>
 
+    <!-- EMERGENCIA -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Contacto de emergencia</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.nombre_contacto_emergencia %}
+      {% include "rrhh/campo_formulario.html" with field=form.telefono_emergencia %}
+      {% include "rrhh/campo_formulario.html" with field=form.parentesco_emergencia %}
+    </div>
+
+    <!-- PREVISIÓN -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Previsión y salud</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.afp %}
+      {% include "rrhh/campo_formulario.html" with field=form.salud %}
+    </div>
+
+    <!-- BANCARIOS -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Datos bancarios</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.banco %}
+      {% include "rrhh/campo_formulario.html" with field=form.tipo_cuenta %}
+      {% include "rrhh/campo_formulario.html" with field=form.numero_cuenta %}
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.banco_2 %}
+      {% include "rrhh/campo_formulario.html" with field=form.tipo_cuenta_2 %}
+      {% include "rrhh/campo_formulario.html" with field=form.numero_cuenta_2 %}
+    </div>
+
+    <!-- LABORAL -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Información laboral</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.cargo %}
+      {% include "rrhh/campo_formulario.html" with field=form.faena %}
+      {% include "rrhh/campo_formulario.html" with field=form.fecha_inicio %}
+      {% include "rrhh/campo_formulario.html" with field=form.jornada %}
+      {% include "rrhh/campo_formulario.html" with field=form.sueldo_base %}
+      {% include "rrhh/campo_formulario.html" with field=form.bono %}
+      {% include "rrhh/campo_formulario.html" with field=form.colacion %}
+      {% include "rrhh/campo_formulario.html" with field=form.movilizacion %}
+      {% include "rrhh/campo_formulario.html" with field=form.observaciones %}
+    </div>
+
+    <!-- BOTONES -->
     <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
       <a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}"
          class="text-gray-700 border border-gray-300 hover:bg-gray-100 px-6 py-2 rounded shadow text-sm sm:text-base">
