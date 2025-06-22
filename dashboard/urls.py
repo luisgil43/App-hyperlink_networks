@@ -52,6 +52,8 @@ urlpatterns = [
 
     # Home del dashboard
     path('dashboard/', views.dashboard_view, name='home'),
+    path('mi-firma/', views.registrar_firma_usuario,
+         name='registrar_firma_usuario'),
 
 
 ]

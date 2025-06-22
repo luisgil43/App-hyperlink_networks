@@ -57,6 +57,8 @@ from django.contrib.auth import get_user_model
 # from .utils import agregar_firma_pm_a_ficha
 from usuarios.models import CustomUser
 from PIL import Image
+from .forms import FirmaForm
+import base64
 User = get_user_model()
 
 
@@ -327,14 +329,23 @@ def editar_ficha_ingreso(request, pk):
 def rechazar_ficha_ingreso_pm(request, ficha_id):
     ficha = get_object_or_404(FichaIngreso, id=ficha_id)
 
-    if ficha.estado == 'rechazada_pm':
-        messages.info(request, "Esta ficha ya fue rechazada por el PM.")
-    else:
+    if request.method == 'POST':
+        motivo = request.POST.get('motivo', '').strip()
+
+        if not motivo:
+            messages.error(
+                request, "Debes ingresar un motivo para rechazar la ficha.")
+            return redirect('rrhh:listar_fichas_ingreso_admin')
+
         ficha.estado = 'rechazada_pm'
+        ficha.motivo_rechazo_pm = motivo
         ficha.save()
+
         messages.warning(
             request, "❌ Has rechazado la ficha correctamente. RRHH ha sido notificado.")
+        return redirect('rrhh:listar_fichas_ingreso_admin')
 
+    # Si no es POST, redirecciona sin acción
     return redirect('rrhh:listar_fichas_ingreso_admin')
 
 
@@ -364,19 +375,27 @@ def aprobar_ficha_ingreso_trabajador(request, ficha_id):
 
 
 @login_required
-@rol_requerido('admin', 'usuario')
+@rol_requerido('usuario')
 def rechazar_ficha_ingreso_trabajador(request, ficha_id):
     ficha = get_object_or_404(FichaIngreso, id=ficha_id, usuario=request.user)
 
-    if ficha.estado == 'rechazada_usuario':
-        messages.info(request, "Ya has rechazado esta ficha.")
-    else:
-        ficha.estado = 'rechazada_usuario'
-        ficha.save()
-        messages.warning(
-            request, "Has rechazado la ficha. RRHH ha sido notificado.")
+    if request.method == 'POST':
+        motivo = request.POST.get('motivo', '').strip()
 
-    return redirect('dashboard:mis_fichas_ingreso')
+        if not motivo:
+            messages.error(
+                request, "Debes ingresar un motivo para rechazar la ficha.")
+            return redirect('rrhh:mis_fichas_ingreso')
+
+        ficha.estado = 'rechazada_usuario'
+        ficha.motivo_rechazo_usuario = motivo
+        ficha.save()
+
+        messages.warning(
+            request, "❌ Has rechazado la ficha correctamente. RRHH ha sido notificado.")
+        return redirect('rrhh:mis_fichas_ingreso')
+
+    return redirect('rrhh:mis_fichas_ingreso')
 
 
 @rol_requerido('admin', 'pm')
@@ -408,24 +427,34 @@ def revisar_ficha_pm(request, ficha_id):
 def firmar_ficha_pm(request, ficha_id):
     ficha = get_object_or_404(FichaIngreso, id=ficha_id)
 
+    # No permitir firmar si ya está finalizada o rechazada
     if ficha.estado in ['rechazada_pm', 'rechazada_usuario', 'aprobada']:
         messages.error(
             request, "No se puede firmar una ficha ya finalizada o rechazada.")
         return redirect('rrhh:listar_fichas_ingreso_admin')
 
-    if ficha.firma_pm:
-        messages.info(request, "Ya has firmado esta ficha.")
+    # Validar que RRHH tenga firma digital
+    if not ficha.creado_por or not ficha.creado_por.firma_digital:
+        messages.error(
+            request, "El responsable de RRHH aún no ha registrado su firma. No se puede continuar.")
         return redirect('rrhh:listar_fichas_ingreso_admin')
 
+    # Validar que el PM actual tenga firma
     if not request.user.firma_digital:
         messages.error(
             request, "Debes tener una firma digital registrada para aprobar la ficha.")
         return redirect('rrhh:listar_fichas_ingreso_admin')
 
-    # ✅ Guardar firma y asignar oficialmente el PM aprobador
+    # Verificar si ya fue firmada por el PM
+    if ficha.firma_pm:
+        messages.info(request, "Ya has firmado esta ficha.")
+        return redirect('rrhh:listar_fichas_ingreso_admin')
+
+    # Guardar firma, PM y actualizar estado
     ficha.firma_pm = request.user.firma_digital
     ficha.pm = request.user
-    ficha.estado = 'pendiente_usuario'  # Queda esperando firma del trabajador
+    ficha.estado = 'pendiente_usuario'
+    ficha.motivo_rechazo = None  # Limpiar rechazo anterior si lo hubo
     ficha.save()
 
     messages.success(
@@ -444,48 +473,41 @@ def firmar_ficha_ingreso(request, ficha_id):
             request, "No puedes firmar esta ficha aún. Falta la aprobación del PM.")
         return redirect('rrhh:listar_fichas_ingreso_usuario')
 
-    # Validar que el trabajador tenga una firma digital válida y accesible
-    firma_usuario = request.user.firma_digital
-    firma_valida = (
-        firma_usuario and
-        getattr(firma_usuario, 'name', '').strip() and
-        hasattr(firma_usuario, 'url')
-    )
-
-    # Verificar que la URL sea accesible
-    if firma_valida:
+    # Función auxiliar para validar firma accesible
+    def firma_es_valida(firma):
+        if not firma or not getattr(firma, 'url', None):
+            return False
         try:
-            response = requests.get(firma_usuario.url)
-            if response.status_code != 200:
-                firma_valida = False
-        except Exception:
-            firma_valida = False
+            response = requests.get(firma.url)
+            return response.status_code == 200
+        except:
+            return False
 
-    if not firma_valida:
+    # Validar firma del usuario
+    if not firma_es_valida(request.user.firma_digital):
         messages.warning(
             request, "Debes registrar tu firma antes de poder firmar la ficha.")
         return redirect(f"{reverse('liquidaciones:registrar_firma')}?next={request.path}")
 
-    # Validar que RRHH tenga firma
-    if not ficha.creado_por or not ficha.creado_por.firma_digital:
+    # Validar firma del PM
+    if not ficha.pm or not firma_es_valida(ficha.pm.firma_digital):
         messages.error(
-            request, "El responsable de RRHH aún no ha registrado su firma.")
+            request, "El PM asignado aún no ha registrado una firma válida.")
         return redirect('rrhh:listar_fichas_ingreso_usuario')
 
-    # Validar que el PM esté asignado y tenga firma
-    if not ficha.pm or not ficha.pm.firma_digital:
+    # Validar firma del RRHH
+    if not ficha.creado_por or not firma_es_valida(ficha.creado_por.firma_digital):
         messages.error(
-            request, "El PM asignado aún no ha registrado su firma.")
+            request, "El responsable de RRHH aún no ha registrado una firma válida.")
         return redirect('rrhh:listar_fichas_ingreso_usuario')
 
     if request.method == 'POST':
-        # Guardar las firmas pero aún no cambiar el estado
         ficha.firma_trabajador = request.user.firma_digital
         ficha.firma_rrhh = ficha.creado_por.firma_digital
         ficha.firma_pm = ficha.pm.firma_digital
 
         try:
-            from rrhh.utils import firmar_ficha_ingreso_pdf  # Import correcto
+            from rrhh.utils import firmar_ficha_ingreso_pdf
             firmar_ficha_ingreso_pdf(ficha)
 
             ficha.estado = 'aprobada'
@@ -1263,3 +1285,44 @@ def eliminar_tipo_documento(request, pk):
     tipo.delete()
     messages.success(request, "Tipo de documento eliminado correctamente.")
     return redirect('rrhh:crear_tipo_documento')
+
+
+@rol_requerido('rrhh', 'admin')
+def listar_firmas(request):
+    usuarios = CustomUser.objects.all()
+    return render(request, 'rrhh/listar_firmas.html', {'usuarios': usuarios})
+
+
+@rol_requerido('rrhh', 'admin')
+def eliminar_firma(request, user_id):
+    user = get_object_or_404(CustomUser, id=user_id)
+    if user.firma_digital:
+        user.firma_digital.delete()
+        user.firma_digital = None
+        user.save()
+        messages.success(
+            request, f"Firma eliminada para {user.get_full_name()}.")
+    return redirect('rrhh:listar_firmas')
+
+
+@login_required
+@rol_requerido('admin', 'rrhh')
+def registrar_firma_admin(request, user_id):
+    user = get_object_or_404(CustomUser, id=user_id)
+
+    if request.method == 'POST':
+        data_url = request.POST.get('firma_digital')
+        if data_url and data_url.startswith('data:image/png;base64,'):
+            format, imgstr = data_url.split(';base64,')  # separamos encabezado
+            nombre_archivo = f"usuario_{user.id}_firma.png"
+            data = ContentFile(base64.b64decode(imgstr), name=nombre_archivo)
+            user.firma_digital.save(nombre_archivo, data, save=True)
+            messages.success(request, "Firma registrada correctamente.")
+            return redirect('rrhh:listar_firmas')
+        else:
+            messages.error(request, "⚠️ No se recibió una firma válida.")
+
+    return render(request, 'liquidaciones/registrar_firma.html', {
+        'usuario': user,
+        'admin_view': True
+    })

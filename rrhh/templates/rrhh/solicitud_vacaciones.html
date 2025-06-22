@@ -18,6 +18,12 @@
   <!-- Formulario de solicitud -->
   <div class="bg-gray-50 p-6 rounded-xl shadow-sm mb-10">
     <h3 class="text-xl font-semibold text-gray-700 mb-4">Solicitud de Vacaciones</h3>
+<div class="flex items-center gap-2 text-sm text-gray-700 mb-4">
+    <div class="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-semibold shadow">
+      15
+    </div>
+    <span>Los días marcados en azul en el calendario corresponden a <strong>feriados</strong>.</span>
+  </div>
     <form method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4">
       {% csrf_token %}
       <div>

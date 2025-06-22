@@ -282,3 +282,20 @@ class ReemplazoDocumentoForm(forms.Form):
             if fecha_emision > date.today():
                 raise forms.ValidationError(
                     "La fecha de emisión no puede ser en el futuro.")
+
+
+class FirmaForm(forms.Form):
+    firma = forms.ImageField(
+        label="Firma Digital (PNG)",
+        required=True,
+        widget=forms.ClearableFileInput(attrs={
+            'accept': 'image/png',
+            'class': 'w-full border border-gray-300 rounded p-2 text-sm'
+        })
+    )
+
+    def clean_firma(self):
+        firma = self.cleaned_data['firma']
+        if not firma.name.endswith('.png'):
+            raise forms.ValidationError("La firma debe estar en formato PNG.")
+        return firma

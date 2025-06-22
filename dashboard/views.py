@@ -1,3 +1,6 @@
+import uuid
+import base64
+from django.core.files.base import ContentFile
 from rrhh.utils import generar_ficha_ingreso_pdf
 from rrhh.models import FichaIngreso
 from usuarios.decoradores import rol_requerido
@@ -15,9 +18,10 @@ from datetime import date
 import os
 import tempfile
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
 from dashboard.models import ProduccionTecnico
-from usuarios.models import CustomUser  # ← tu nuevo modelo
-# Ya no se importa Tecnico ni Curso
+from usuarios.models import CustomUser
 
 
 @login_required
@@ -111,3 +115,33 @@ def inicio_tecnico(request):
 @login_required
 def produccion_tecnico(request):
     return render(request, 'dashboard_admin/produccion_tecnico.html')
+
+
+@login_required
+def registrar_firma_usuario(request):
+    user = request.user
+
+    if user.firma_digital:
+        return render(request, 'liquidaciones/firmar.html', {
+            'tecnico': user,
+            'solo_lectura': True
+        })
+
+    if request.method == 'POST':
+        firma_data = request.POST.get('firma_digital')
+        if firma_data:
+            formato, imgstr = firma_data.split(';base64,')
+            nombre_archivo = f"usuario_{user.id}_firma.png"
+            data = ContentFile(base64.b64decode(imgstr), name=nombre_archivo)
+            user.firma_digital.save(nombre_archivo, data)
+            user.save()
+            messages.success(request, "Firma registrada correctamente.")
+            return redirect('dashboard:registrar_firma_usuario')
+        else:
+            messages.error(
+                request, "No se recibió la firma. Intenta nuevamente.")
+
+    return render(request, 'liquidaciones/firmar.html', {
+        'tecnico': user,
+        'solo_lectura': False
+    })

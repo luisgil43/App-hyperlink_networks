@@ -97,4 +97,10 @@ urlpatterns = [
          views.firmar_ficha_ingreso, name='firmar_ficha_ingreso'),
     path('fichas/ingreso/rechazar/<int:ficha_id>/',
          views.rechazar_ficha_ingreso, name='rechazar_ficha_ingreso'),
+    path('firmas/', views.listar_firmas, name='listar_firmas'),
+    path('firmas/eliminar/<int:user_id>/',
+         views.eliminar_firma, name='eliminar_firma'),
+    path('registrar-firma/<int:user_id>/',
+         views.registrar_firma_admin, name='registrar_firma_admin'),
+
 ]

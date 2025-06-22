@@ -152,6 +152,9 @@ class FichaIngreso(models.Model):
         default='pendiente_pm'
     )
 
+    motivo_rechazo_pm = models.TextField(null=True, blank=True)
+    motivo_rechazo_usuario = models.TextField(null=True, blank=True)
+
     # Firmas
     firma_trabajador = models.ImageField(
         upload_to='firmas/', null=True, blank=True)

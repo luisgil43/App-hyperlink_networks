@@ -2,62 +2,125 @@
 {% load static %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-lg">
+<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-md mt-4">
   <h2 class="text-2xl font-bold text-gray-800 mb-4">
-    Firmar Liquidación - {{ liquidacion.mes }} {{ liquidacion.año }}
+    {% if solo_lectura %}
+      Tu Firma Digital
+    {% else %}
+      Crear Firma Digital
+    {% endif %}
   </h2>
 
-  <p class="text-gray-600 mb-4">
-    Revisa el documento antes de firmar. Al firmar, estarás aceptando el contenido de la liquidación.
-  </p>
-
-  <div class="mb-6">
-    <p class="font-medium text-gray-700 mb-1">Archivo Original:</p>
-    {% if liquidacion.archivo_pdf_liquidacion %}
-    <a href="{{ liquidacion.archivo_pdf_liquidacion.url }}" target="_blank" class="text-blue-600 hover:underline">
-      Ver PDF
-    </a>
-    {% else %}
-    <span class="text-red-500 italic">PDF no disponible</span>
-    {% endif %}
-  </div>
-
   {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-  <form method="post" onsubmit="return validarFirmaRegistrada();">
-    {% csrf_token %}
-
-    <p class="text-gray-700 font-medium mb-2">Tu firma registrada:</p>
-    <div class="border border-gray-300 rounded-md p-2 inline-block mb-4">
-      <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital del técnico" class="max-h-24">
+    <div class="mb-4">
+      <p class="text-gray-600 mb-1">Tu firma registrada:</p>
+      <div class="border border-gray-300 p-2 inline-block rounded">
+        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" class="max-h-24">
+      </div>
     </div>
+  {% endif %}
 
-    <div class="flex justify-end gap-4">
-      <a href="{% url 'liquidaciones:listar' %}" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400">
-        Cancelar
-      </a>
-      <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-        Firmar
-      </button>
-    </div>
-  </form>
-  {% else %}
-  <div class="p-4 border-l-4 border-red-500 bg-red-50 text-red-800 rounded-md">
-    <p class="mb-2 font-medium">No tienes una firma digital registrada o el archivo fue eliminado.</p>
-    <a href="{% url 'liquidaciones:registrar_firma' %}" class="underline text-red-600 hover:text-red-800">
-      Haz clic aquí para crear tu firma.
-    </a>
-  </div>
+  {% if not solo_lectura and not tecnico.firma_digital %}
+    <p class="text-gray-600 mb-4">Firma dentro del recuadro y haz clic en "Guardar Firma".</p>
+
+    <canvas id="canvas" width="400" height="150" class="border border-gray-300 rounded"></canvas>
+    <button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
+
+    <form method="post" class="mt-4" id="firmaForm">
+      {% csrf_token %}
+      <input type="hidden" name="firma_digital" id="firmaInput">
+      <div class="flex justify-end">
+        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+          Guardar Firma
+        </button>
+      </div>
+    </form>
+  {% elif solo_lectura %}
+    <p class="text-gray-600 italic">
+      Tu firma ya fue registrada y no puede ser modificada. Si necesitas actualizarla, contacta a Recursos Humanos.
+    </p>
+  {% elif tecnico.firma_digital %}
+    <p class="text-gray-600 italic">
+      Ya tienes una firma registrada. Si deseas reemplazarla, contacta a RRHH o al Administrador General.
+    </p>
   {% endif %}
 </div>
 
 <script>
-  function validarFirmaRegistrada() {
-    const tieneFirma = "{{ tecnico.firma_digital.url|default_if_none:''|escapejs }}";
-    if (!tieneFirma.trim()) {
-      alert("No tienes una firma digital registrada. Debes crear una antes de firmar.");
-      return false;
+  const canvas = document.getElementById('canvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    let painting = false;
+    let hasDrawn = false;
+
+    function startPosition(e) {
+      painting = true;
+      draw(e);
     }
-    return true;
+
+    function endPosition() {
+      painting = false;
+      ctx.beginPath();
+    }
+
+    function draw(e) {
+      if (!painting) return;
+      hasDrawn = true;
+
+      const rect = canvas.getBoundingClientRect();
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'black';
+
+      const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+      const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+
+      e.preventDefault();
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      hasDrawn = false;
+    }
+
+    document.getElementById('firmaForm').addEventListener('submit', function (e) {
+      if (!hasDrawn) {
+        alert("Por favor dibuja tu firma antes de guardar.");
+        e.preventDefault();
+        return;
+      }
+
+      try {
+        const dataURL = canvas.toDataURL('image/png');
+        document.getElementById('firmaInput').value = dataURL;
+      } catch (error) {
+        alert("Error al procesar la firma: " + error);
+        e.preventDefault();
+      }
+    });
+
+    canvas.addEventListener('mousedown', startPosition);
+    canvas.addEventListener('mouseup', endPosition);
+    canvas.addEventListener('mousemove', draw);
+
+    canvas.addEventListener('touchstart', startPosition, { passive: false });
+    canvas.addEventListener('touchend', endPosition, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+
+    document.addEventListener("touchstart", function (e) {
+      if (e.target.closest("canvas")) {
+        document.body.style.overflow = "hidden";
+      }
+    }, { passive: false });
+
+    document.addEventListener("touchend", function (e) {
+      document.body.style.overflow = "";
+    }, { passive: false });
   }
 </script>
 {% endblock %}
