@@ -4,7 +4,9 @@
 {% block content %}
 <h2 class="text-xl font-semibold mb-4">Crear Firma Digital</h2>
 
-<canvas id="canvas" width="400" height="150" style="border:1px solid #ccc;"></canvas><br>
+<div class="overflow-x-auto">
+  <canvas id="canvas" width="400" height="150" class="border border-gray-300 rounded w-full max-w-xs md:max-w-md"></canvas>
+</div>
 <button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
 
 <form method="post" id="firmaForm" class="mt-4">

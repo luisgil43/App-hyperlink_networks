@@ -4,49 +4,51 @@
 <div class="bg-white p-6 rounded-2xl shadow max-w-6xl mx-auto mt-8">
   <h2 class="text-2xl font-bold text-gray-800 mb-6">{{ titulo }}</h2>
 
-  <table class="table-auto w-full text-sm text-left text-gray-700 border border-gray-200 rounded-xl overflow-hidden">
-    <thead class="bg-gray-100 text-gray-800 font-semibold">
-      <tr>
-        <th class="px-4 py-2">Identidad</th>
-        <th class="px-4 py-2">Nombre</th>
-        <th class="px-4 py-2">Inicio</th>
-        <th class="px-4 py-2">Fin</th>
-        <th class="px-4 py-2">Días</th>
-        <th class="px-4 py-2">Estatus</th>
-        {% comment %} Podrías agregar columna de observación si quieres {% endcomment %}
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-200">
-      {% for solicitud in solicitudes %}
-      <tr>
-        <td class="px-4 py-2">{{ solicitud.usuario.identidad }}</td>
-        <td class="px-4 py-2">{{ solicitud.usuario.get_full_name }}</td>
-        <td class="px-4 py-2">{{ solicitud.fecha_inicio }}</td>
-        <td class="px-4 py-2">{{ solicitud.fecha_fin }}</td>
-        <td class="px-4 py-2">{{ solicitud.dias_solicitados }}</td>
-        <td class="px-4 py-2">
-          <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
-            {% if solicitud.estatus == 'pendiente_supervisor' %}
-              bg-yellow-100 text-yellow-800
-            {% elif solicitud.estatus == 'pendiente_pm' %}
-              bg-blue-100 text-blue-800
-            {% elif solicitud.estatus == 'pendiente_rrhh' %}
-              bg-purple-100 text-purple-800
-            {% elif solicitud.estatus == 'aprobada' %}
-              bg-green-100 text-green-800
-            {% elif solicitud.estatus == 'rechazada' %}
-              bg-red-100 text-red-800
-            {% endif %}">
-            {{ solicitud.get_estatus_display }}
-          </span>
-        </td>
-      </tr>
-      {% empty %}
-      <tr>
-        <td colspan="6" class="px-4 py-4 text-center text-gray-500">No hay solicitudes registradas.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <!-- Contenedor scroll horizontal -->
+  <div class="overflow-x-auto rounded-xl">
+    <table class="min-w-full text-sm text-left text-gray-700 border border-gray-200">
+      <thead class="bg-gray-100 text-gray-800 font-semibold">
+        <tr>
+          <th class="px-4 py-2">Identidad</th>
+          <th class="px-4 py-2">Nombre</th>
+          <th class="px-4 py-2">Inicio</th>
+          <th class="px-4 py-2">Fin</th>
+          <th class="px-4 py-2">Días</th>
+          <th class="px-4 py-2">Estatus</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {% for solicitud in solicitudes %}
+        <tr>
+          <td class="px-4 py-2">{{ solicitud.usuario.identidad }}</td>
+          <td class="px-4 py-2">{{ solicitud.usuario.get_full_name }}</td>
+          <td class="px-4 py-2">{{ solicitud.fecha_inicio }}</td>
+          <td class="px-4 py-2">{{ solicitud.fecha_fin }}</td>
+          <td class="px-4 py-2">{{ solicitud.dias_solicitados }}</td>
+          <td class="px-4 py-2">
+            <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
+              {% if solicitud.estatus == 'pendiente_supervisor' %}
+                bg-yellow-100 text-yellow-800
+              {% elif solicitud.estatus == 'pendiente_pm' %}
+                bg-blue-100 text-blue-800
+              {% elif solicitud.estatus == 'pendiente_rrhh' %}
+                bg-purple-100 text-purple-800
+              {% elif solicitud.estatus == 'aprobada' %}
+                bg-green-100 text-green-800
+              {% elif solicitud.estatus == 'rechazada' %}
+                bg-red-100 text-red-800
+              {% endif %}">
+              {{ solicitud.get_estatus_display }}
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="px-4 py-4 text-center text-gray-500">No hay solicitudes registradas.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

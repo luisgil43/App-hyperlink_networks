@@ -31,7 +31,8 @@
           <td class="px-4 py-3 text-gray-600">{{ usuario.username }}</td>
           <td class="px-4 py-3">
             {% if usuario.firma_digital and usuario.firma_digital.url %}
-              <img src="{{ usuario.firma_digital.url }}" alt="Firma de {{ usuario.get_full_name }}" class="h-12">
+              <img src="{{ usuario.firma_digital.url }}" alt="Firma de {{ usuario.get_full_name }}"
+     class="h-12 max-w-[160px] object-contain border rounded p-1 bg-white shadow">
             {% else %}
               <span class="text-gray-400 italic">No registrada</span>
             {% endif %}
