@@ -24,24 +24,28 @@
 
 <body class="bg-gray-100 text-gray-900">
 
-  <!-- Header igual que el admin -->
-  <header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 h-14 flex items-center justify-between px-4">
-    <div class="flex items-center gap-3">
-      <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">☰</button>
-      <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9 shrink-0">
-      <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
-    </div>
-  <div class="flex items-center gap-4 text-sm md:text-base">
-  <span class="text-gray-800 text-sm md:text-base break-words leading-tight">
-    {{ request.user.get_full_name|default:request.user.username }}
-  </span>
-  <form method="post" action="{% url 'logout' %}">
-    {% csrf_token %}
-    <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
-      Cerrar Sesión
-    </button>
-  </form>
-</div>
+ <!-- Header igual que el admin -->
+<header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 h-14 flex items-center justify-between px-4">
+  <div class="flex items-center gap-3">
+    <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">☰</button>
+    <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9 shrink-0">
+    <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
+  </div>
+
+  <!-- Bloque derecho mejorado -->
+  <div class="flex flex-col items-end text-sm md:flex-row md:items-center md:gap-4 md:text-base text-right">
+    <span class="text-gray-800 break-words max-w-[140px] leading-tight">
+      {{ request.user.get_full_name|default:request.user.username }}
+    </span>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit"
+        class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap md:mt-0 mt-1">
+        Cerrar Sesión
+      </button>
+    </form>
+  </div>
+</header>
 
   </header>
 
