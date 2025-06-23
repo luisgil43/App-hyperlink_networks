@@ -24,28 +24,24 @@
 
 <body class="bg-gray-100 text-gray-900">
 
-  <!-- Header -->
-  <header
-    class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-0">
+  <!-- Header igual que el admin -->
+  <header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 h-14 flex items-center justify-between px-4">
     <div class="flex items-center gap-3">
-      <!-- Botón hamburguesa solo visible en móviles -->
-      <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">
-        ☰
-      </button>
+      <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">☰</button>
       <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9 shrink-0">
-      <strong class="text-gray-800 text-sm md:text-base whitespace-normal leading-tight">
-        MV INGENIERÍA & CONSTRUCCIÓN
-      </strong>
+      <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
     </div>
-    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-4 text-sm md:text-base">
-      <span class="text-gray-800">{{ request.user.get_full_name|default:request.user.username }}</span>
+    <div class="flex items-center gap-4 text-sm md:text-base">
+      <span class="text-gray-800 whitespace-nowrap truncate max-w-[130px] md:max-w-xs overflow-hidden">
+        {{ request.user.get_full_name|default:request.user.username }}
+      </span>
       <form method="post" action="{% url 'logout' %}">
         {% csrf_token %}
-        <button type="submit" class="text-red-600 font-semibold hover:text-red-800">Cerrar Sesión</button>
+        <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">Cerrar
+          Sesión</button>
       </form>
     </div>
   </header>
-
 
   <!-- Contenedor principal -->
   <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
@@ -55,24 +51,54 @@
       class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
       <h2 class="text-2xl font-bold mb-4">Menú</h2>
       <ul class="space-y-4 text-base">
-
         <li>
           <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠
             Inicio</a>
         </li>
-
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🎁
+            Beneficios <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Flota
+            <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="#" class="hover:text-emerald-400">Mi vehiculo asignado</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Devolución de Vehiculo</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Mantenimientos</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Reportes</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Documentación del Vehiculo</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📄
+            Facturación <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="#" class="hover:text-emerald-400">Mis facturas</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦
+            Logística <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="#" class="hover:text-emerald-400">Solicitud de materiales</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Devolución de materiales</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Mis equipos asignados</a></li>
+          </ul>
+        </li>
         <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠
             Operaciones <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Producción
-                Técnicos</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Producción Técnicos</a></li>
             <li><a href="#" class="hover:text-emerald-400" target="_blank">Descargar producción en PDF</a></li>
             <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
             <li><a href="#" class="hover:text-emerald-400">Rendiciones</a></li>
           </ul>
         </li>
-
         <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🦺
             Prevención de Riesgo <span class="arrow">▶</span></span>
@@ -82,7 +108,25 @@
             <li><a href="#" class="hover:text-emerald-400">Mis EPP asignados</a></li>
           </ul>
         </li>
-
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼
+            RR.HH <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+            <li><a href="{% url 'rrhh:mis_vacaciones' %}" class="hover:text-emerald-400">Mis Vacaciones</a></li>
+            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Mis liquidaciones</a></li>
+            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Mis contratos de trabajos</a>
+            </li>
+            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Mi Ficha de Ingreso</a>
+            </li>
+            <li><a href="{% url 'rrhh:mis_documentos' %}" class="hover:text-emerald-400">Mis Documentos</a></li>
+            <li><a href="{% url 'dashboard:registrar_firma_usuario' %}" class="hover:text-emerald-400">Mi Firma
+                Digital</a></li>
+            {% if user.es_usuario %}
+            <li><a href="{% url 'rrhh:ver_cronograma' %}" class="hover:text-emerald-400">Mi cronograma de pago</a></li>
+            {% endif %}
+            <li><a href="#" class="hover:text-emerald-400">Solicitud de avance de sueldo</a></li>
+          </ul>
+        </li>
         <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝
             Subcontrato <span class="arrow">▶</span></span>
@@ -96,84 +140,17 @@
             <li><a href="#" class="hover:text-emerald-400">Contrato de servicio</a></li>
           </ul>
         </li>
-
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📄
-            Facturación <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Mis facturas</a></li>
-          </ul>
-        </li>
-
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐
-            Flota <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Mi vehiculo asignado</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Devolución de Vehiculo</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Mantenimientos</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Reportes</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Documentación del Vehiculo</a></li>
-          </ul>
-        </li>
-
-
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦
-            Logística <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Solicitud de materiales</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Devolución de materiales</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Mis equipos asignados</a></li>
-          </ul>
-        </li>
-
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼
-            RR.HH <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li>
-              <a href="{% url 'rrhh:mis_vacaciones' %}" class="hover:text-emerald-400">
-                Mis Vacaciones
-              </a>
-            </li>
-            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Mis liquidaciones</a></li>
-            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Mis contratos de trabajos</a>
-            </li>
-            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Mi Ficha de Ingreso</a>
-            <li><a href="{% url 'rrhh:mis_documentos' %}" class="hover:text-emerald-400">Mis Documentos</a>
-	    <li><a href="{% url 'dashboard:registrar_firma_usuario' %}" class="hover:text-emerald-400">Mi Firma Digital</a></li>
-            {% if user.es_usuario %}
-<li>
-  <a href="{% url 'rrhh:ver_cronograma' %}" class="hover:text-emerald-400">
-    Mi cronograma de pago
-  </a>
-</li>
-{% endif %}
-            <li><a href="#" class="hover:text-emerald-400">Solicitud de avance de sueldo </a>
-	   
-            </li>
-          </ul>
-        </li>
-
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🎁
-            Beneficios <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
-          </ul>
-        </li>
       </ul>
     </nav>
+
     <!-- Contenido principal -->
     <main class="md:ml-72 flex-1 p-6">
       {% block content %}{% endblock %}
     </main>
-  </div>
 
+  </div> <!-- ← Aquí se cierra correctamente el contenedor principal -->
 
-
-  <!-- Submenús y menú lateral -->
+  <!-- Submenús y mensajes -->
   <script>
     function toggleMenu(el) {
       const submenu = el.nextElementSibling;
@@ -202,16 +179,15 @@
   <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
     {% for message in messages %}
     <div class="flex items-center justify-between p-4 rounded-md shadow text-white
-                  {% if message.tags == 'success' %}bg-green-600
-                  {% elif message.tags == 'error' %}bg-red-600
-                  {% elif message.tags == 'warning' %}bg-yellow-500
-                  {% else %}bg-blue-600{% endif %}">
+                {% if message.tags == 'success' %}bg-green-600
+                {% elif message.tags == 'error' %}bg-red-600
+                {% elif message.tags == 'warning' %}bg-yellow-500
+                {% else %}bg-blue-600{% endif %}">
       <span>{{ message }}</span>
       <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
     </div>
     {% endfor %}
   </div>
-
   <script>
     setTimeout(() => {
       const mensajes = document.getElementById('mensajes');
