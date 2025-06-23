@@ -102,5 +102,9 @@ urlpatterns = [
          views.eliminar_firma, name='eliminar_firma'),
     path('registrar-firma/<int:user_id>/',
          views.registrar_firma_admin, name='registrar_firma_admin'),
-
+    path('cronograma/<int:usuario_id>/editar/',
+         views.editar_cronograma_pago, name='editar_cronograma'),
+    path('cronograma/ver/', views.ver_cronograma_pago, name='ver_cronograma'),
+    path('cronograma/', views.cronograma_pago_admin,
+         name='cronograma_pago_admin'),
 ]

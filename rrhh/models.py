@@ -348,3 +348,46 @@ class DocumentoTrabajador(models.Model):
             return 'Por vencer'
         else:
             return 'vigente'
+
+
+class CronogramaPago(models.Model):
+    enero_texto = models.CharField(max_length=100, blank=True, null=True)
+    enero_fecha = models.DateField(blank=True, null=True)
+
+    febrero_texto = models.CharField(max_length=100, blank=True, null=True)
+    febrero_fecha = models.DateField(blank=True, null=True)
+
+    marzo_texto = models.CharField(max_length=100, blank=True, null=True)
+    marzo_fecha = models.DateField(blank=True, null=True)
+
+    abril_texto = models.CharField(max_length=100, blank=True, null=True)
+    abril_fecha = models.DateField(blank=True, null=True)
+
+    mayo_texto = models.CharField(max_length=100, blank=True, null=True)
+    mayo_fecha = models.DateField(blank=True, null=True)
+
+    junio_texto = models.CharField(max_length=100, blank=True, null=True)
+    junio_fecha = models.DateField(blank=True, null=True)
+
+    julio_texto = models.CharField(max_length=100, blank=True, null=True)
+    julio_fecha = models.DateField(blank=True, null=True)
+
+    agosto_texto = models.CharField(max_length=100, blank=True, null=True)
+    agosto_fecha = models.DateField(blank=True, null=True)
+
+    septiembre_texto = models.CharField(max_length=100, blank=True, null=True)
+    septiembre_fecha = models.DateField(blank=True, null=True)
+
+    octubre_texto = models.CharField(max_length=100, blank=True, null=True)
+    octubre_fecha = models.DateField(blank=True, null=True)
+
+    noviembre_texto = models.CharField(max_length=100, blank=True, null=True)
+    noviembre_fecha = models.DateField(blank=True, null=True)
+
+    diciembre_texto = models.CharField(max_length=100, blank=True, null=True)
+    diciembre_fecha = models.DateField(blank=True, null=True)
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return "Cronograma General de Pagos"

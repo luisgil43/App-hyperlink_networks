@@ -1,3 +1,8 @@
+from rrhh.forms import CronogramaPagoForm
+from rrhh.models import CronogramaPago
+from django.utils import timezone
+from .models import CronogramaPago
+from .forms import CronogramaPagoForm
 from django.core.exceptions import ValidationError
 from rrhh.utils import generar_pdf_solicitud_vacaciones
 from rrhh.models import SolicitudVacaciones
@@ -41,6 +46,7 @@ import cloudinary.uploader
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
 import openpyxl
+from datetime import datetime
 from openpyxl.utils import get_column_letter
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -1325,4 +1331,103 @@ def registrar_firma_admin(request, user_id):
     return render(request, 'liquidaciones/registrar_firma.html', {
         'usuario': user,
         'admin_view': True
+    })
+
+
+@login_required
+@rol_requerido('rrhh', 'admin', 'pm')
+def editar_cronograma_pago(request, usuario_id):
+    usuario = get_object_or_404(CustomUser, id=usuario_id)
+    cronograma, _ = CronogramaPago.objects.get_or_create(usuario=usuario)
+
+    if request.method == 'POST':
+        form = CronogramaPagoForm(request.POST, instance=cronograma)
+        if form.is_valid():
+            form.save()
+            # Ajusta esta URL si es necesario
+            return redirect('dashboard_admin:listar_usuarios')
+    else:
+        form = CronogramaPagoForm(instance=cronograma)
+
+    return render(request, 'rrhh/editar_cronograma_pago.html', {
+        'form': form,
+        'usuario': usuario
+    })
+
+
+def ver_cronograma_pago(request):
+    cronograma = CronogramaPago.objects.first()
+
+    cronograma_mensual = []
+    meses = [
+        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+    ]
+
+    for mes in meses:
+        texto = getattr(cronograma, f"{mes}_texto")
+        fecha = getattr(cronograma, f"{mes}_fecha")
+
+        # Convertir texto a fecha si es string válido
+        if texto:
+            try:
+                desde = datetime.strptime(texto, "%Y-%m-%d").date()
+            except ValueError:
+                desde = None
+        else:
+            desde = None
+
+        cronograma_mensual.append({
+            "mes": mes.capitalize(),
+            "desde": desde,
+            "hasta": fecha
+        })
+
+    context = {
+        "cronograma": cronograma,
+        "cronograma_mensual": cronograma_mensual
+    }
+    return render(request, "rrhh/ver_cronograma_pago.html", context)
+
+
+@rol_requerido('admin', 'rrhh', 'pm')
+def cronograma_pago_admin(request):
+    cronograma, _ = CronogramaPago.objects.get_or_create(id=1)
+    meses = [
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ]
+
+    if request.method == "POST":
+        for mes in meses:
+            texto = request.POST.get(f"{mes}_texto", "").strip()
+            fecha_str = request.POST.get(f"{mes}_fecha", "").strip()
+
+            setattr(cronograma, f"{mes}_texto", texto)
+
+            if fecha_str:
+                try:
+                    fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                except ValueError:
+                    fecha = None
+            else:
+                fecha = None
+
+            setattr(cronograma, f"{mes}_fecha", fecha)
+
+        cronograma.save()
+        messages.success(request, "Cronograma actualizado correctamente.")
+        return redirect('rrhh:cronograma_pago_admin')
+
+    datos_meses = []
+    for mes in meses:
+        datos_meses.append({
+            'nombre': mes,
+            'texto': getattr(cronograma, f"{mes}_texto") or '',
+            'fecha': getattr(cronograma, f"{mes}_fecha").strftime('%Y-%m-%d') if getattr(cronograma, f"{mes}_fecha") else '',
+        })
+
+    return render(request, 'rrhh/cronograma_pago_admin.html', {
+        'cronograma': cronograma,
+        'datos_meses': datos_meses
     })

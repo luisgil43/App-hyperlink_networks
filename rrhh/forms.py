@@ -1,3 +1,5 @@
+from rrhh.models import CronogramaPago
+from .models import CronogramaPago
 from .models import DocumentoTrabajador
 from django import forms
 from .models import ContratoTrabajo
@@ -299,3 +301,14 @@ class FirmaForm(forms.Form):
         if not firma.name.endswith('.png'):
             raise forms.ValidationError("La firma debe estar en formato PNG.")
         return firma
+
+
+class CronogramaPagoForm(forms.ModelForm):
+    class Meta:
+        model = CronogramaPago
+        exclude = ['actualizado']
+        widgets = {
+            field.name: forms.DateInput(attrs={'type': 'date'})
+            for field in CronogramaPago._meta.fields
+            if 'fecha' in field.name
+        }

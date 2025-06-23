@@ -143,7 +143,13 @@
             <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Mi Ficha de Ingreso</a>
             <li><a href="{% url 'rrhh:mis_documentos' %}" class="hover:text-emerald-400">Mis Documentos</a>
 	    <li><a href="{% url 'dashboard:registrar_firma_usuario' %}" class="hover:text-emerald-400">Mi Firma Digital</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cronograma de pago</a>
+            {% if user.es_usuario %}
+<li>
+  <a href="{% url 'rrhh:ver_cronograma' %}" class="hover:text-emerald-400">
+    Mi cronograma de pago
+  </a>
+</li>
+{% endif %}
             <li><a href="#" class="hover:text-emerald-400">Solicitud de avance de sueldo </a>
 	   
             </li>

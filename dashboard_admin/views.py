@@ -18,6 +18,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import PermissionDenied
 from usuarios.models import CustomUser as User
 from usuarios.decoradores import rol_requerido
+import re
 
 User = get_user_model()
 
@@ -180,20 +181,6 @@ class AdminLoginView(LoginView):
         return reverse_lazy('dashboard_admin:inicio_admin')
 
 
-"""
-@login_required(login_url='dashboard_admin:login')
-@rol_requerido('admin', 'pm', 'rrhh' )
-def usuarios_view(request):
-    usuarios = User.objects.all()
-    grupos = Group.objects.all()
-    contexto = {
-        'usuarios': usuarios,
-        'grupos': grupos,
-    }
-    return render(request, 'dashboard_admin/usuarios.html')
-"""
-
-
 @login_required(login_url='dashboard_admin:login')
 @rol_requerido('admin', 'pm', 'rrhh')
 def crear_usuario_view(request, identidad=None):
@@ -222,8 +209,9 @@ def crear_usuario_view(request, identidad=None):
                 messages.error(request, 'Las contraseñas no coinciden.')
                 return redirect(request.path)
 
-        if identidad_post and not identidad_post.replace('-', '').isdigit():
-            messages.error(request, 'El campo Identidad debe ser numérico.')
+        if identidad_post and not re.match(r'^[A-Za-z0-9\.\-]+$', identidad_post):
+            messages.error(
+                request, 'La identidad solo puede contener letras, números, puntos o guiones.')
             return redirect(request.path)
 
         if usuario:
