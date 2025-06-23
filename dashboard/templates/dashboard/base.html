@@ -32,7 +32,10 @@
       <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
     </div>
     <div class="flex items-center gap-4 text-sm md:text-base">
-      <span class="text-gray-800 whitespace-nowrap truncate max-w-[130px] md:max-w-xs overflow-hidden">
+      <span class="text-gray-800 text-sm md:text-base break-words leading-tight">
+  {{ request.user.get_full_name|default:request.user.username }}
+</span>
+
         {{ request.user.get_full_name|default:request.user.username }}
       </span>
       <form method="post" action="{% url 'logout' %}">
