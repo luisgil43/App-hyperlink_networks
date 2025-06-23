@@ -31,16 +31,13 @@
     <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-9 shrink-0">
     <strong class="text-gray-800 text-sm md:text-base">MV INGENIERÍA & CONSTRUCCIÓN</strong>
   </div>
-
-  <!-- Bloque derecho mejorado -->
-  <div class="flex flex-col items-end text-sm md:flex-row md:items-center md:gap-4 md:text-base text-right">
-    <span class="text-gray-800 break-words max-w-[140px] leading-tight">
+  <div class="flex items-center gap-4 text-sm md:text-base">
+    <span class="text-gray-800 text-sm md:text-base break-words leading-tight">
       {{ request.user.get_full_name|default:request.user.username }}
     </span>
     <form method="post" action="{% url 'logout' %}">
       {% csrf_token %}
-      <button type="submit"
-        class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap md:mt-0 mt-1">
+      <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
         Cerrar Sesión
       </button>
     </form>
