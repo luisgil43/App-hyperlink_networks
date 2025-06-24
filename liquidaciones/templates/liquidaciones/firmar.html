@@ -14,9 +14,24 @@
   {% if tecnico.firma_digital and tecnico.firma_digital.url %}
     <div class="mb-4">
       <p class="text-gray-600 mb-1">Tu firma registrada:</p>
-      <div class="border border-gray-300 p-2 inline-block rounded">
+      <div class="border border-gray-300 p-2 inline-block rounded bg-gray-100">
         <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" class="max-h-24">
       </div>
+    </div>
+  {% endif %}
+
+  {% if firmar_documento and tecnico.firma_digital %}
+    <div class="flex justify-between items-center mt-4">
+      <a href="{% url 'liquidaciones:listar' %}" class="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">
+        ← Volver
+      </a>
+
+      <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+          ✍️ Firmar Liquidación
+        </button>
+      </form>
     </div>
   {% endif %}
 

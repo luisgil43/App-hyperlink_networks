@@ -29,4 +29,6 @@ urlpatterns = [
          name='ver_pdf_firmado_admin'),
     path('ver-pdf/<int:pk>/', views.ver_pdf_admin, name='ver_pdf_admin'),
 
+
+
 ]

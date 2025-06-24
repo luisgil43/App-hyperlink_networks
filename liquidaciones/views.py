@@ -1,3 +1,4 @@
+from django.urls import NoReverseMatch
 import logging
 from urllib.parse import urljoin
 import os
@@ -174,16 +175,32 @@ def firmar_liquidacion(request, pk):
 
     return render(request, 'liquidaciones/firmar.html', {
         'liquidacion': liquidacion,
-        'tecnico': usuario
+        'tecnico': usuario,
+        'solo_lectura': True,  # esto ya lo estás usando
+        'firmar_documento': True  # 🔧 esto es lo que faltaba
     })
 
 
 @login_required
 def registrar_firma(request):
     usuario = request.user
-    redireccion = request.GET.get('next', reverse('liquidaciones:listar'))
+    try:
+        redireccion = request.GET.get(
+            'next') or reverse('liquidaciones:listar')
+    except NoReverseMatch:
+        redireccion = '/'  # Fallback seguro si algo falla
 
-    if request.method == 'POST':
+    # Eliminar firma
+    if request.method == 'POST' and 'eliminar_firma' in request.POST:
+        if usuario.firma_digital:
+            usuario.firma_digital.delete(save=True)
+            messages.success(request, "Firma digital eliminada correctamente.")
+        else:
+            messages.info(request, "No había firma registrada para eliminar.")
+        return redirect(request.path)
+
+    # Guardar firma
+    if request.method == 'POST' and 'firma_digital' in request.POST:
         data_url = request.POST.get('firma_digital')
 
         if not data_url:
@@ -199,14 +216,12 @@ def registrar_firma(request):
             data = base64.b64decode(img_base64)
             content = ContentFile(data)
 
-            # Nombre limpio para la firma
-            nombre_archivo = f"media/firmas/usuario_{usuario.id}_firma.png"
+            nombre_archivo = f"firmas/usuario_{usuario.id}_firma.png"
 
-            # Eliminar firma anterior (si existe)
+            # Eliminar anterior si existe
             if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
                 usuario.firma_digital.delete(save=False)
 
-            # Guardar nueva firma
             usuario.firma_digital.save(nombre_archivo, content, save=True)
 
             messages.success(
@@ -220,7 +235,13 @@ def registrar_firma(request):
             )
             return redirect(request.path)
 
-    return render(request, 'liquidaciones/registrar_firma.html', {'tecnico': usuario})
+    # Determinar base html según si es admin
+    base_template = 'dashboard_admin/base.html' if usuario.is_staff else 'dashboard/base.html'
+
+    return render(request, 'liquidaciones/registrar_firma.html', {
+        'tecnico': usuario,
+        'base_template': base_template
+    })
 
 
 @login_required
@@ -264,7 +285,8 @@ def descargar_pdf(request, pk):
             # return FileResponse(archivo.open('rb'), content_type='application/pdf')
             return FileResponse(
                 archivo.open('rb'),
-                as_attachment=True,
+                content_type='application/pdf',
+                as_attachment=False,
                 filename=nombre_archivo
             )
         except Exception as e:

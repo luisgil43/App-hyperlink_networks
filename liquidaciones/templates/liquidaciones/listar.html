@@ -31,35 +31,7 @@
 
 <h1 class="page-title">Mis Liquidaciones de Sueldo</h1>
 
-{% if messages %}
-<div class="space-y-4 mb-6">
-    {% for message in messages %}
-    {% if message.tags == 'success' %}
-    <div id="alert-{{ forloop.counter }}"
-        class="relative bg-emerald-100 border border-emerald-300 text-emerald-800 px-4 py-3 rounded-xl flex items-start gap-3 shadow transition-all duration-500 transform opacity-0 -translate-y-4">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mt-1 text-emerald-600" viewBox="0 0 20 20"
-            fill="currentColor">
-            <path fill-rule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 10-1.414 1.414L9 13.414l4.707-4.707z"
-                clip-rule="evenodd" />
-        </svg>
-        <div>
-            <p class="font-semibold">{{ message }}</p>
-            <p class="text-sm">Puedes encontrar tu archivo firmado en la tabla.</p>
-        </div>
-        <button onclick="this.parentElement.remove()"
-            class="absolute top-2 right-3 text-emerald-700 hover:text-emerald-900 font-bold">✖</button>
-    </div>
-    {% elif message.tags == 'error' or message.tags == 'danger' %}
-    <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-xl">{{ message }}</div>
-    {% elif message.tags == 'warning' %}
-    <div class="bg-yellow-100 border border-yellow-300 text-yellow-800 px-4 py-3 rounded-xl">{{ message }}</div>
-    {% else %}
-    <div class="bg-blue-100 border border-blue-300 text-blue-800 px-4 py-3 rounded-xl">{{ message }}</div>
-    {% endif %}
-    {% endfor %}
-</div>
-{% endif %}
+
 
 <div class="overflow-x-auto mt-6 rounded-lg shadow">
     <table class="w-full min-w-[600px] border border-gray-300 bg-white text-sm">
@@ -100,7 +72,7 @@
                 </td>
                 <td class="border px-4 py-2 text-center">
                     {% if liquidacion.firmada and liquidacion.pdf_firmado and liquidacion.pdf_firmado.url %}
-                    <a href="{% url 'liquidaciones:descargar_pdf' liquidacion.id %}" class="text-blue-600"
+                    <a href="{% url 'liquidaciones:descargar_pdf' liquidacion.id %}" target="_blank" class="text-blue-600"
                         title="Descargar PDF firmado">
                         ⬇️ <span class="underline ml-1">Descargar</span>
                     </a>

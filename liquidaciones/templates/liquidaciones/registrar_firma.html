@@ -1,104 +1,145 @@
-{% extends 'dashboard/base.html' %}
+{% extends base_template|default:"dashboard/base.html" %}
 {% load static %}
 
-{% block content %}
-<h2 class="text-xl font-semibold mb-4">Crear Firma Digital</h2>
+{% block dashboard_content %}
+<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow mt-8">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <i class="lucide lucide-pencil-line text-blue-600"></i>
+    Registrar Firma Digital
+  </h2>
 
-<div class="overflow-x-auto">
-  <canvas id="canvas" width="400" height="150" class="border border-gray-300 rounded w-full max-w-xs md:max-w-md"></canvas>
-</div>
-<button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
 
-<form method="post" id="firmaForm" class="mt-4">
+  <!-- Canvas -->
+  <div class="overflow-x-auto">
+    <canvas id="canvas" width="400" height="150" class="w-full max-w-xs md:max-w-md border border-gray-300 rounded"></canvas>
+  </div>
+
+  <!-- Botón limpiar -->
+  <button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">🧽 Limpiar</button>
+
+  <!-- Formulario de firma -->
+  <form method="post" id="firmaForm" class="mt-4" action="?next={{ request.GET.next|urlencode }}">
     {% csrf_token %}
     <input type="hidden" name="firma_digital" id="firmaInput">
     <button type="submit" class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-        Guardar Firma
+      💾 Guardar Firma
     </button>
-</form>
+  </form>
 
-<div class="mt-6">
+  <!-- Formulario de eliminación -->
+  <form method="post" action="" class="mt-3">
+    {% csrf_token %}
+    <button type="submit" name="eliminar_firma" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+      🗑️ Eliminar Firma
+    </button>
+  </form>
+
+  <!-- Firma actual -->
+  <div class="mt-6">
     <p class="font-medium">Firma actual:</p>
     {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-    <img src="{{ tecnico.firma_digital.url }}" alt="Firma actual" class="max-h-24 border rounded p-1">
+      <img src="{{ tecnico.firma_digital.url }}" alt="Firma actual" class="max-h-24 border rounded p-1">
     {% else %}
-    <p class="text-red-500 italic">No hay firma digital disponible.</p>
+      <p class="text-red-500 italic">No hay firma digital disponible.</p>
     {% endif %}
+  </div>
 </div>
 
+<!-- Script -->
 <script>
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    let painting = false;
-    let hasDrawn = false;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let painting = false;
+  let hasDrawn = false;
 
-    function startPosition(e) {
-        painting = true;
-        draw(e);
+  function resizeCanvas() {
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    ctx.scale(ratio, ratio);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  window.addEventListener('load', resizeCanvas);
+
+  function startPosition(e) {
+    painting = true;
+    draw(e);
+  }
+
+  function endPosition() {
+    painting = false;
+    ctx.beginPath();
+  }
+
+  function draw(e) {
+    if (!painting) return;
+    hasDrawn = true;
+
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#000000';
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+
+    e.preventDefault();
+  }
+
+  function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    hasDrawn = false;
+  }
+
+  document.getElementById('firmaForm').addEventListener('submit', function (e) {
+    if (!hasDrawn) {
+      alert("Por favor dibuja tu firma antes de guardar.");
+      e.preventDefault();
+      return;
     }
 
-    function endPosition() {
-        painting = false;
-        ctx.beginPath();
+    try {
+      const dataURL = canvas.toDataURL('image/png');
+      document.getElementById('firmaInput').value = dataURL;
+    } catch (error) {
+      alert("Error al procesar la firma: " + error);
+      e.preventDefault();
     }
+  });
 
-    function draw(e) {
-        if (!painting) return;
-        hasDrawn = true;
+  canvas.addEventListener('mousedown', startPosition);
+  canvas.addEventListener('mouseup', endPosition);
+  canvas.addEventListener('mousemove', draw);
 
-        const rect = canvas.getBoundingClientRect();
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = 'black';
+  canvas.addEventListener('touchstart', startPosition, { passive: false });
+  canvas.addEventListener('touchend', endPosition, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
 
-        const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-        const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-
-        e.preventDefault();
+  document.addEventListener("touchstart", function (e) {
+    if (e.target.closest("canvas")) {
+      document.body.style.overflow = "hidden";
     }
+  }, { passive: false });
 
-    function clearCanvas() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        hasDrawn = false;
-    }
-
-    document.getElementById('firmaForm').addEventListener('submit', function (e) {
-        if (!hasDrawn) {
-            alert("Por favor dibuja tu firma antes de guardar.");
-            e.preventDefault();
-            return;
-        }
-
-        try {
-            const dataURL = canvas.toDataURL('image/png');
-            document.getElementById('firmaInput').value = dataURL;
-        } catch (error) {
-            alert("Error al procesar la firma: " + error);
-            e.preventDefault();
-        }
-    });
-
-    canvas.addEventListener('mousedown', startPosition);
-    canvas.addEventListener('mouseup', endPosition);
-    canvas.addEventListener('mousemove', draw);
-
-    canvas.addEventListener('touchstart', startPosition, { passive: false });
-    canvas.addEventListener('touchend', endPosition, { passive: false });
-    canvas.addEventListener('touchmove', draw, { passive: false });
-
-    document.addEventListener("touchstart", function (e) {
-        if (e.target.closest("canvas")) {
-            document.body.style.overflow = "hidden";
-        }
-    }, { passive: false });
-
-    document.addEventListener("touchend", function (e) {
-        document.body.style.overflow = "";
-    }, { passive: false });
+  document.addEventListener("touchend", function (e) {
+    document.body.style.overflow = "";
+  }, { passive: false });
 </script>
 {% endblock %}

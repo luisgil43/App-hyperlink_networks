@@ -1,3 +1,4 @@
+from django.urls import NoReverseMatch
 from rrhh.forms import CronogramaPagoForm
 from rrhh.models import CronogramaPago
 from django.utils import timezone
@@ -205,22 +206,17 @@ def editar_contrato(request, contrato_id):
 @staff_member_required
 @rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_contrato(request, contrato_id):
-    try:
-        contrato = get_object_or_404(ContratoTrabajo, id=contrato_id)
-    except Exception:
-        messages.error(request, "❌ Este contrato ya fue eliminado.")
-        return redirect('rrhh:contratos_trabajo')
+    contrato = get_object_or_404(ContratoTrabajo, id=contrato_id)
 
     if request.method == 'POST':
-        if contrato.archivo and contrato.archivo.name:
-            try:
+        try:
+            if contrato.archivo and contrato.archivo.name:
                 contrato.archivo.delete(save=False)
-            except Exception:
-                messages.warning(
-                    request, "⚠️ El archivo ya no existe en Cloudinary.")
-
-        contrato.delete()
-        messages.success(request, "✅ Contrato eliminado correctamente.")
+            contrato.delete()
+            messages.success(request, "✅ Contrato eliminado correctamente.")
+        except Exception as e:
+            messages.error(
+                request, f"❌ Ocurrió un error al eliminar el contrato: {e}")
         return redirect('rrhh:contratos_trabajo')
 
     return render(request, 'rrhh/eliminar_contrato.html', {'contrato': contrato})
@@ -577,12 +573,21 @@ def firmar_ficha_ingreso_trabajador(request, ficha_id):
 @rol_requerido('admin', 'pm', 'rrhh')
 def eliminar_ficha_ingreso(request, pk):
     ficha = get_object_or_404(FichaIngreso, pk=pk)
+
     if request.method == 'POST':
-        if ficha.archivo:
-            ficha.archivo.delete(save=False)  # 🔁 Elimina el PDF de Cloudinary
-        ficha.delete()
-        messages.success(request, "Ficha eliminada correctamente.")
+        try:
+            if ficha.archivo and ficha.archivo.name:
+                # ✅ Elimina el PDF de Cloudinary
+                ficha.archivo.delete(save=False)
+
+            ficha.delete()
+            messages.success(request, "Ficha eliminada correctamente.")
+        except Exception as e:
+            messages.error(
+                request, f"Ocurrió un error al eliminar la ficha: {e}")
+
         return redirect('rrhh:listar_fichas_ingreso_admin')
+
     return render(request, 'rrhh/eliminar_ficha_ingreso.html', {'ficha': ficha})
 
 
@@ -972,6 +977,52 @@ def aprobar_vacacion_rrhh(request, pk):
 
     if solicitud.estatus != 'pendiente_rrhh':
         messages.error(request, "Esta solicitud ya fue revisada.")
+        return redirect('rrhh:revisar_rrhh')
+
+    trabajador = solicitud.usuario
+    pm = solicitud.aprobado_por_pm
+    rrhh = request.user
+
+    # Validación de firmas
+    faltantes = []
+    if not trabajador.firma_digital:
+        faltantes.append("del trabajador")
+    if not pm or not pm.firma_digital:
+        faltantes.append("del jefe directo")
+    if not rrhh.firma_digital:
+        faltantes.append("de Recursos Humanos")
+
+    if faltantes:
+        mensaje = "❌ No se puede completar la aprobación. Faltan las firmas " + \
+            ", ".join(faltantes) + "."
+        messages.error(request, mensaje)
+        return redirect('rrhh:revisar_rrhh')
+
+    # Aprobación y cambio de estado
+    solicitud.estatus = 'aprobada'
+    solicitud.aprobado_por_rrhh = rrhh
+    solicitud.save()
+
+    try:
+        generar_pdf_solicitud_vacaciones(solicitud)
+        messages.success(
+            request, "✅ Solicitud aprobada y documento generado correctamente.")
+    except Exception as e:
+        print(f"⚠️ Error al generar el PDF: {e}")
+        messages.warning(
+            request, f"Solicitud aprobada, pero hubo un error al generar el documento PDF: {e}")
+
+    return redirect('rrhh:revisar_rrhh')
+
+
+"""
+@staff_member_required
+@rol_requerido('admin', 'rrhh')
+def aprobar_vacacion_rrhh(request, pk):
+    solicitud = get_object_or_404(SolicitudVacaciones, pk=pk)
+
+    if solicitud.estatus != 'pendiente_rrhh':
+        messages.error(request, "Esta solicitud ya fue revisada.")
         return redirect('rrhh:revisar_rrhh')  # ✅ redirección corregida
 
     # Cambiar estado y guardar quién la aprueba
@@ -991,11 +1042,13 @@ def aprobar_vacacion_rrhh(request, pk):
             request, f"Solicitud aprobada, pero hubo un error al generar el documento PDF: {e}")
 
     return redirect('rrhh:revisar_rrhh')  # ✅ redirección final
+"""
 
 
 @staff_member_required
 @rol_requerido('admin', 'rrhh')
 def eliminar_solicitud_vacaciones_admin(request, pk):
+    # Seguridad extra por si acaso alguien sin rol llega hasta aquí
     if not request.user.es_rrhh and not request.user.es_admin_general:
         messages.error(
             request, "No tienes permisos para eliminar esta solicitud.")
@@ -1004,16 +1057,20 @@ def eliminar_solicitud_vacaciones_admin(request, pk):
     solicitud = get_object_or_404(SolicitudVacaciones, pk=pk)
 
     if request.method == 'POST':
-        # ✅ Elimina el archivo PDF desde Cloudinary si existe
-        if solicitud.archivo_pdf and solicitud.archivo_pdf.name:
-            solicitud.archivo_pdf.delete(save=False)
+        try:
+            # Elimina el archivo PDF si existe
+            if solicitud.archivo_pdf and solicitud.archivo_pdf.name:
+                solicitud.archivo_pdf.delete(save=False)
 
-        # ❌ Elimina la solicitud del sistema
-        solicitud.delete()
-        messages.success(request, "Solicitud eliminada correctamente.")
+            # Elimina la solicitud
+            solicitud.delete()
+            messages.success(request, "Solicitud eliminada correctamente.")
+        except Exception as e:
+            messages.error(request, f"Ocurrió un error al eliminar: {e}")
+
         return redirect('dashboard_admin:vacaciones_admin')
 
-    messages.warning(request, "La solicitud no se eliminó.")
+    messages.warning(request, "La eliminación debe hacerse mediante POST.")
     return redirect('dashboard_admin:vacaciones_admin')
 
 
@@ -1275,12 +1332,20 @@ def eliminar_documento(request, id):
     documento = get_object_or_404(DocumentoTrabajador, id=id)
 
     if request.method == 'POST':
-        # Esto borra el archivo de Cloudinary
-        documento.archivo.delete(save=False)
-        documento.delete()
-        messages.success(request, "El documento fue eliminado correctamente.")
+        try:
+            if documento.archivo and documento.archivo.name:
+                documento.archivo.delete(save=False)
+            documento.delete()
+            messages.success(
+                request, "El documento fue eliminado correctamente.")
+        except Exception as e:
+            messages.error(
+                request, f"Ocurrió un error al eliminar el documento: {e}")
+
         return redirect('rrhh:listado_documentos_trabajador')
 
+    # Evita eliminar por GET accidental
+    messages.error(request, "La eliminación debe hacerse mediante POST.")
     return redirect('rrhh:listado_documentos_trabajador')
 
 
@@ -1288,8 +1353,17 @@ def eliminar_documento(request, id):
 @rol_requerido('admin', 'rrhh')
 def eliminar_tipo_documento(request, pk):
     tipo = get_object_or_404(TipoDocumento, pk=pk)
-    tipo.delete()
-    messages.success(request, "Tipo de documento eliminado correctamente.")
+
+    if request.method == 'POST':
+        try:
+            tipo.delete()
+            messages.success(
+                request, "✅ Tipo de documento eliminado correctamente.")
+        except Exception as e:
+            messages.error(request, f"❌ Error al eliminar: {e}")
+        return redirect('rrhh:crear_tipo_documento')
+
+    messages.warning(request, "⚠️ La eliminación debe hacerse mediante POST.")
     return redirect('rrhh:crear_tipo_documento')
 
 
@@ -1302,35 +1376,76 @@ def listar_firmas(request):
 @rol_requerido('rrhh', 'admin')
 def eliminar_firma(request, user_id):
     user = get_object_or_404(CustomUser, id=user_id)
-    if user.firma_digital:
-        user.firma_digital.delete()
-        user.firma_digital = None
-        user.save()
-        messages.success(
-            request, f"Firma eliminada para {user.get_full_name()}.")
+
+    if user.firma_digital and user.firma_digital.name:
+        try:
+            # Imprimir ruta solo para depurar (puedes quitar esto después)
+            print("Eliminando firma:", user.firma_digital.name)
+
+            # Eliminar solo el archivo exacto
+            user.firma_digital.delete(save=False)
+            user.firma_digital = None
+            user.save(update_fields=['firma_digital'])
+
+            messages.success(
+                request, f"Firma eliminada para {user.get_full_name()}.")
+
+        except Exception as e:
+            messages.error(request, f"No se pudo eliminar la firma: {e}")
+    else:
+        messages.info(request, "Este usuario no tiene una firma registrada.")
+
     return redirect('rrhh:listar_firmas')
 
 
 @login_required
-@rol_requerido('admin', 'rrhh')
 def registrar_firma_admin(request, user_id):
-    user = get_object_or_404(CustomUser, id=user_id)
+    from usuarios.models import CustomUser  # Asegúrate de importar el modelo
+    if not request.user.is_staff:
+        return redirect('no_autorizado')  # O cualquier lógica de permiso
+
+    usuario = CustomUser.objects.get(id=user_id)
+    try:
+        redireccion = request.GET.get('next') or reverse('rrhh:listar_firmas')
+    except NoReverseMatch:
+        redireccion = '/dashboard_admin/'  # Fallback por si algo falla
 
     if request.method == 'POST':
-        data_url = request.POST.get('firma_digital')
-        if data_url and data_url.startswith('data:image/png;base64,'):
-            format, imgstr = data_url.split(';base64,')  # separamos encabezado
-            nombre_archivo = f"usuario_{user.id}_firma.png"
-            data = ContentFile(base64.b64decode(imgstr), name=nombre_archivo)
-            user.firma_digital.save(nombre_archivo, data, save=True)
-            messages.success(request, "Firma registrada correctamente.")
-            return redirect('rrhh:listar_firmas')
-        else:
-            messages.error(request, "⚠️ No se recibió una firma válida.")
+        if 'eliminar_firma' in request.POST:
+            if usuario.firma_digital:
+                usuario.firma_digital.delete(save=True)
+                messages.success(request, "Firma eliminada correctamente.")
+            return redirect(request.path)
 
+        data_url = request.POST.get('firma_digital')
+        if not data_url:
+            messages.error(request, "No se recibió ninguna firma.")
+            return redirect(request.path)
+
+        try:
+            if not data_url.startswith('data:image/png;base64,'):
+                raise ValueError("Formato inválido.")
+
+            formato, img_base64 = data_url.split(';base64,')
+            data = base64.b64decode(img_base64)
+            content = ContentFile(data)
+            nombre_archivo = f"firmas/usuario_{usuario.id}_firma.png"
+
+            if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
+                usuario.firma_digital.delete(save=False)
+
+            usuario.firma_digital.save(nombre_archivo, content, save=True)
+            messages.success(request, "Firma registrada correctamente.")
+            return redirect(redireccion)
+
+        except Exception as e:
+            messages.error(request, f"Error al guardar firma: {e}")
+            return redirect(request.path)
+
+    # 👇 ESTA LÍNEA ES CLAVE PARA EVITAR TU ERROR
     return render(request, 'liquidaciones/registrar_firma.html', {
-        'usuario': user,
-        'admin_view': True
+        'tecnico': usuario,
+        'base_template': 'dashboard_admin/base.html'  # asegúrate que siempre se pase
     })
 
 
