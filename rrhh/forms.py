@@ -1,3 +1,4 @@
+import re
 from rrhh.models import CronogramaPago
 from .models import CronogramaPago
 from .models import DocumentoTrabajador
@@ -59,35 +60,169 @@ class ContratoTrabajoForm(forms.ModelForm):
 
 
 class FichaIngresoForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        validaciones_html = {
+            'nombres': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'apellidos': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'rut': {'pattern': r'[0-9kK]+', 'title': 'Solo números y letras (sin puntos ni guion)'},
+            'edad': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'estado_civil': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'nacionalidad': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'hijos': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'nivel_estudios': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'profesion_u_oficio': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'direccion': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'comuna': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'ciudad': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'email': {'type': 'email', 'pattern': r'[^@]+@[^@]+\.[^@]+', 'title': 'Formato válido: correo@ejemplo.com', 'placeholder': 'Ej: nombre@correo.com'},
+            'telefono': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'nombre_contacto_emergencia': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'telefono_emergencia': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'parentesco_emergencia': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'direccion_emergencia': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'afp': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'salud': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'banco': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'tipo_cuenta': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'numero_cuenta': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'banco_2': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'tipo_cuenta_2': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'numero_cuenta_2': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'cargo': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'jefe_directo': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'proyecto': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'jornada': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'sueldo_base': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'bono': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'colacion': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'movilizacion': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
+            'observaciones': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'sexo': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'tipo_contrato': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'talla_polera': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'talla_zapato': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+            'talla_pantalon': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
+        }
+
+    # Placeholders personalizados
+        placeholders = {
+            'nombres': 'Ej: Juan',
+            'apellidos': 'Ej: Pérez',
+            'rut': 'Ej: 12345678K',
+            'edad': 'Ej: 35',
+            'estado_civil': 'Ej: Soltero',
+            'hijos': 'Ej: 2',
+            'nivel_estudios': 'Ej: Universidad Completa',
+            'profesion_u_oficio': 'Ej: Ingeniero de Telecomunicaciones',
+            'direccion': 'Ej: Calle Falsa 123',
+            'comuna': 'Ej: Maipú',
+            'ciudad': 'Ej: Santiago',
+            'telefono': 'Ej: 56 9 8765 4321',
+            'email': 'Ej: nombre@correo.com',
+            'nombre_contacto_emergencia': 'Ej: María González',
+            'telefono_emergencia': 'Ej: 56 9 1122 3344',
+            'parentesco_emergencia': 'Ej: Esposa',
+            'direccion_emergencia': 'Ej: Calle de Emergencia 789',
+            'afp': 'Ej: Provida',
+            'salud': 'Ej: Fonasa',
+            'banco': 'Ej: Banco Estado',
+            'tipo_cuenta': 'Ej: Cuenta Rut',
+            'numero_cuenta': 'Ej: 123456789',
+            'banco_2': 'Ej: Banco Falabella',
+            'tipo_cuenta_2': 'Ej: Vista',
+            'numero_cuenta_2': 'Ej: 987654321',
+            'cargo': 'Ej: Maestro de Obras',
+            'proyecto': 'Ej: Proyecto Wom',
+            'jornada': 'Ej: Lunes a Viernes',
+            'sueldo_base': 'Ej: 500000',
+            'bono': 'Ej: 50000',
+            'colacion': 'Ej: 30000',
+            'movilizacion': 'Ej: 20000',
+            'observaciones': 'Ej: Tiene experiencia previa',
+            'sexo': 'Ej: Masculino',
+            'nacionalidad': 'Ej: Chilena',
+            'tipo_contrato': 'Ej: Indefinido',
+            'talla_polera': 'Ej: L',
+            'talla_pantalon': 'Ej: 42',
+            'talla_zapato': 'Ej: 41',
+            'jefe_directo': 'Ej: Pedro Gómez',
+        }
+
+    # Aplicar atributos HTML + placeholder
+        for campo, attrs in validaciones_html.items():
+            if campo in self.fields:
+                self.fields[campo].widget.attrs.update(attrs)
+                if campo in placeholders:
+                    self.fields[campo].widget.attrs['placeholder'] = placeholders[campo]
+                if campo == 'email':
+                    self.fields[campo].widget.attrs['type'] = 'email'
+
     class Meta:
         model = FichaIngreso
         exclude = ['creado_por', 'usuario', 'pm', 'archivo',
-                   'firma_trabajador', 'firma_pm', 'firma_rrhh', 'estado']  # 👈 Agregado aquí
-
+                   'firma_trabajador', 'firma_pm', 'firma_rrhh', 'estado']
         widgets = {
             'fecha_nacimiento': forms.DateInput(attrs={'type': 'date'}),
             'fecha_inicio': forms.DateInput(attrs={'type': 'date'}),
         }
 
-        labels = {
-            'rut': 'RUT',
-            'afp': 'AFP',
-            'salud': 'Salud',
-            'faena': 'Faena o Proyecto',
-            'telefono_emergencia': 'Teléfono Emergencia',
-            'numero_cuenta': 'Número de Cuenta',
-            'numero_cuenta_2': 'Número de Cuenta (2)',
-            'banco_2': 'Banco (2)',
-            'tipo_cuenta_2': 'Tipo de Cuenta (2)',
-            'sueldo_liquido': 'Sueldo Líquido',
-            'tipo_contrato': 'Tipo de Contrato',
-            'horario_trabajo': 'Horario de Trabajo',
-            'nivel_estudios': 'Nivel de Estudios',
-            'profesion_u_oficio': 'Profesión u Oficio',
-            'talla_polera': 'Talla Polera',
-            'talla_pantalon': 'Talla Pantalón',
-            'talla_zapato': 'Talla Zapato',
-        }
+    # Validaciones adicionales del lado del servidor
+    def clean_rut(self):
+        rut = self.cleaned_data.get('rut', '')
+        if '.' in rut or '-' in rut:
+            raise ValidationError("El RUT no debe contener puntos ni guión.")
+        if not re.match(r'^[0-9kK]+$', rut):
+            raise ValidationError(
+                "El RUT solo puede contener números y la letra K.")
+        return rut
+
+    def clean_telefono(self):
+        telefono = self.cleaned_data.get('telefono', '')
+        if not telefono.isdigit():
+            raise ValidationError("El teléfono debe contener solo números.")
+        return telefono
+
+    def clean_telefono_emergencia(self):
+        telefono = self.cleaned_data.get('telefono_emergencia', '')
+        if telefono and not telefono.isdigit():
+            raise ValidationError(
+                "El teléfono de emergencia debe contener solo números.")
+        return telefono
+
+    def clean_numero_cuenta(self):
+        cuenta = self.cleaned_data.get('numero_cuenta', '')
+        if cuenta and not cuenta.isdigit():
+            raise ValidationError(
+                "El número de cuenta debe contener solo números.")
+        return cuenta
+
+    def clean_numero_cuenta_2(self):
+        cuenta = self.cleaned_data.get('numero_cuenta_2', '')
+        if cuenta and not cuenta.isdigit():
+            raise ValidationError(
+                "El número de cuenta (2) debe contener solo números.")
+        return cuenta
+
+    def clean_edad(self):
+        edad = self.cleaned_data.get('edad')
+        if edad is not None and edad < 0:
+            raise ValidationError("La edad no puede ser negativa.")
+        return edad
+
+    def clean_hijos(self):
+        hijos = self.cleaned_data.get('hijos')
+        if hijos is not None and hijos < 0:
+            raise ValidationError(
+                "La cantidad de hijos no puede ser negativa.")
+        return hijos
+
+    def clean_email(self):
+        email = self.cleaned_data.get('email', '')
+        if email and not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            raise ValidationError("El correo electrónico no es válido.")
+        return email
 
 
 class SolicitudVacacionesForm(forms.ModelForm):

@@ -126,6 +126,18 @@ def listar_contratos_usuario(request):
 @rol_requerido('admin', 'pm', 'rrhh')
 def crear_contrato(request):
     if request.method == 'POST':
+        archivo = request.FILES.get('archivo')
+
+        # Validar archivo antes de crear el formulario
+        if not archivo:
+            messages.error(request, '❌ Debes subir un archivo PDF.')
+            return render(request, 'rrhh/crear_contrato.html', {'form': ContratoTrabajoForm(request.POST)})
+
+        if archivo.content_type != 'application/pdf':
+            messages.error(
+                request, '❌ Estás intentando subir un documento no válido. El archivo debe estar en formato PDF.')
+            return render(request, 'rrhh/crear_contrato.html', {'form': ContratoTrabajoForm(request.POST)})
+
         form = ContratoTrabajoForm(request.POST, request.FILES)
 
         if form.is_valid():
@@ -134,19 +146,9 @@ def crear_contrato(request):
             if request.POST.get('indefinido-check'):
                 contrato.fecha_termino = None
 
-            archivo = request.FILES.get('archivo')
-            if not archivo:
-                messages.error(request, '❌ Debes subir un archivo PDF.')
-                return render(request, 'rrhh/crear_contrato.html', {'form': form})
-
-            if archivo.content_type != 'application/pdf':
-                messages.error(request, '❌ El archivo debe ser un PDF válido.')
-                return render(request, 'rrhh/crear_contrato.html', {'form': form})
-
-            # ✅ Asignar directamente, Django usará upload_to automáticamente
             contrato.archivo = archivo
-
             contrato.save()
+
             messages.success(request, '✅ Contrato creado correctamente.')
             return redirect('rrhh:contratos_trabajo')
         else:
@@ -1013,36 +1015,6 @@ def aprobar_vacacion_rrhh(request, pk):
             request, f"Solicitud aprobada, pero hubo un error al generar el documento PDF: {e}")
 
     return redirect('rrhh:revisar_rrhh')
-
-
-"""
-@staff_member_required
-@rol_requerido('admin', 'rrhh')
-def aprobar_vacacion_rrhh(request, pk):
-    solicitud = get_object_or_404(SolicitudVacaciones, pk=pk)
-
-    if solicitud.estatus != 'pendiente_rrhh':
-        messages.error(request, "Esta solicitud ya fue revisada.")
-        return redirect('rrhh:revisar_rrhh')  # ✅ redirección corregida
-
-    # Cambiar estado y guardar quién la aprueba
-    solicitud.estatus = 'aprobada'
-    solicitud.aprobado_por_rrhh = request.user
-    solicitud.save()
-
-    # Intentar generar y subir el PDF
-    try:
-        # ⚠️ función que genera y sube el PDF
-        generar_pdf_solicitud_vacaciones(solicitud)
-        messages.success(
-            request, "✅ Solicitud aprobada y documento generado correctamente.")
-    except Exception as e:
-        print(f"⚠️ Error al generar el PDF: {e}")
-        messages.warning(
-            request, f"Solicitud aprobada, pero hubo un error al generar el documento PDF: {e}")
-
-    return redirect('rrhh:revisar_rrhh')  # ✅ redirección final
-"""
 
 
 @staff_member_required

@@ -101,3 +101,16 @@ class LiquidacionForm(forms.ModelForm):
         if monto is None:
             raise forms.ValidationError("Debes ingresar un monto.")
         return monto
+
+    def clean_mes(self):
+        mes = self.cleaned_data.get('mes')
+        try:
+            mes_int = int(mes)
+        except (ValueError, TypeError):
+            raise forms.ValidationError(
+                "El mes debe ser un número del 1 al 12.")
+
+        if mes_int < 1 or mes_int > 12:
+            raise forms.ValidationError("El mes debe estar entre 1 y 12.")
+
+        return mes_int

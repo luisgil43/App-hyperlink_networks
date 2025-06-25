@@ -115,8 +115,9 @@ class FichaIngreso(models.Model):
 
     # Información laboral
     cargo = models.CharField(max_length=100, null=True, blank=True)
+    jefe_directo = models.CharField(max_length=100, null=True, blank=True)
     departamento = models.CharField(max_length=100, null=True, blank=True)
-    faena = models.CharField(max_length=100, null=True, blank=True)
+    proyecto = models.CharField(max_length=100, null=True, blank=True)
     fecha_inicio = models.DateField(null=True, blank=True)
     tipo_contrato = models.CharField(max_length=50, null=True, blank=True)
     jornada = models.CharField(max_length=100, null=True, blank=True)

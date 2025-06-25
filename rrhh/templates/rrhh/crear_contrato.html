@@ -46,13 +46,20 @@
       {{ form.archivo.errors }}
     </div>
 
-    <!-- Botón Guardar -->
-    <div class="text-right">
-      <button type="submit"
-        class="bg-emerald-600 text-white px-6 py-2 rounded hover:bg-emerald-700 transition">
-        Guardar Contrato
-      </button>
-    </div>
+ <!-- Botones alineados -->
+<div class="flex justify-between items-center pt-4">
+  <!-- Botón Volver -->
+  <a href="{% url 'rrhh:contratos_trabajo' %}"
+     class="bg-gray-200 text-gray-800 px-6 py-2 rounded hover:bg-gray-300 transition">
+    ← Volver
+  </a>
+
+  <!-- Botón Guardar -->
+  <button type="submit"
+    class="bg-emerald-600 text-white px-6 py-2 rounded hover:bg-emerald-700 transition">
+    Guardar Contrato
+  </button>
+</div>
   </form>
 </div>
 
