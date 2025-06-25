@@ -6,14 +6,7 @@
     <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Listado de firmas digitales</h1>
   </div>
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="mb-4 px-4 py-3 rounded {{ message.tags|yesno:'bg-green-100 text-green-800,bg-red-100 text-red-800' }}">
-        {{ message }}
-      </div>
-    {% endfor %}
-  {% endif %}
-
+ 
   <div class="overflow-x-auto bg-white rounded-xl shadow">
     <table class="min-w-full divide-y divide-gray-200 text-sm">
       <thead class="bg-gray-100 text-left">
