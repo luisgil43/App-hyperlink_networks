@@ -238,32 +238,61 @@ def generar_ficha_ingreso_pdf(ficha):
         Paragraph("INGENIERÍA Y CONSTRUCCIÓN MV LIMITADA", subtitulo_style))
 
     datos = [
+
         Paragraph(
             f"<b>Nombre Completo:</b> {ficha.nombres} {ficha.apellidos}", texto_normal),
         Paragraph(f"<b>RUT/Pasaporte:</b> {ficha.rut}", texto_normal),
         Paragraph(
             f"<b>Fecha de Nacimiento:</b> {ficha.fecha_nacimiento}", texto_normal),
         Paragraph(f"<b>Edad:</b> {ficha.edad}", texto_normal),
+        Paragraph(f"<b>Sexo:</b> {ficha.sexo}", texto_normal),
         Paragraph(f"<b>Estado Civil:</b> {ficha.estado_civil}", texto_normal),
+        Paragraph(f"<b>Nacionalidad:</b> {ficha.nacionalidad}", texto_normal),
         Paragraph(f"<b>Teléfono:</b> {ficha.telefono}", texto_normal),
         Paragraph(f"<b>Correo Electrónico:</b> {ficha.email}", texto_normal),
         Paragraph(f"<b>Dirección:</b> {ficha.direccion}", texto_normal),
         Paragraph(f"<b>Comuna:</b> {ficha.comuna}", texto_normal),
-        Paragraph(f"<b>Ciudad:</b> {ficha.ciudad}", texto_normal),
+        # Paragraph(f"<b>Ciudad:</b> {ficha.ciudad}", texto_normal),
+        Paragraph(f"<b>Región:</b> {ficha.region}", texto_normal),
+        Paragraph(
+            f"<b>Nivel de estudios:</b> {ficha.nivel_estudios}", texto_normal),
+        Paragraph(
+            f"<b>Profesión u Oficio:</b> {ficha.profesion_u_oficio}", texto_normal),
         Spacer(1, 12),
         Paragraph("<b>DATOS BANCARIOS</b>", subtitulo_style),
         Paragraph(f"<b>Banco:</b> {ficha.banco}", texto_normal),
         Paragraph(f"<b>Tipo de cuenta:</b> {ficha.tipo_cuenta}", texto_normal),
         Paragraph(
             f"<b>Número de cuenta:</b> {ficha.numero_cuenta}", texto_normal),
+        Paragraph(f"<b>Banco 2:</b> {ficha.banco_2}", texto_normal),
+        Paragraph(
+            f"<b>Tipo de cuenta 2:</b> {ficha.tipo_cuenta_2}", texto_normal),
+        Paragraph(
+            f"<b>Número de cuenta 2:</b> {ficha.numero_cuenta_2}", texto_normal),
         Spacer(1, 12),
         Paragraph("<b>DATOS LABORALES</b>", subtitulo_style),
         Paragraph(
             f"<b>Fecha de Ingreso:</b> {ficha.fecha_inicio}", texto_normal),
         Paragraph(f"<b>Cargo:</b> {ficha.cargo}", texto_normal),
-        Paragraph(f"<b>Faena o Proyecto:</b> {ficha.faena}", texto_normal),
+        Paragraph(f"<b>Jefe Directo:</b> {ficha.jefe_directo}", texto_normal),
+        # Paragraph(f"<b>Departamento:</b> {ficha.departamento}", texto_normal),
+        Paragraph(f"<b>Proyecto:</b> {ficha.proyecto}", texto_normal),
+        Paragraph(
+            f"<b>Tipo de Contrato:</b> {ficha.tipo_contrato}", texto_normal),
         Paragraph(f"<b>Jornada:</b> {ficha.jornada}", texto_normal),
+        Paragraph(
+            f"<b>Horario de Trabajo:</b> {ficha.horario_trabajo}", texto_normal),
         Paragraph(f"<b>Sueldo Base:</b> {ficha.sueldo_base}", texto_normal),
+        # Paragraph(f"<b>Sueldo Líquido:</b> {ficha.sueldo_liquido}", texto_normal),
+        Paragraph(f"<b>Bono:</b> {ficha.bono}", texto_normal),
+        Paragraph(f"<b>Colación:</b> {ficha.colacion}", texto_normal),
+        Paragraph(f"<b>Movilización:</b> {ficha.movilizacion}", texto_normal),
+        Paragraph(
+            f"<b>Observaciones:</b> {ficha.observaciones}", texto_normal),
+        Spacer(1, 12),
+        Paragraph("<b>PREVISIÓN</b>", subtitulo_style),
+        Paragraph(f"<b>AFP:</b> {ficha.afp}", texto_normal),
+        Paragraph(f"<b>Salud:</b> {ficha.salud}", texto_normal),
         Spacer(1, 12),
         Paragraph("<b>CONTACTO DE EMERGENCIA</b>", subtitulo_style),
         Paragraph(
@@ -272,11 +301,22 @@ def generar_ficha_ingreso_pdf(ficha):
             f"<b>Parentesco:</b> {ficha.parentesco_emergencia}", texto_normal),
         Paragraph(
             f"<b>Teléfono:</b> {ficha.telefono_emergencia}", texto_normal),
-        Spacer(1, 48),
+        Paragraph(
+            f"<b>Dirección:</b> {ficha.direccion_emergencia}", texto_normal),
+        Spacer(1, 12),
+        Paragraph("<b>TALLAS</b>", subtitulo_style),
+        Paragraph(f"<b>Polera:</b> {ficha.talla_polera}", texto_normal),
+        Paragraph(f"<b>Pantalón:</b> {ficha.talla_pantalon}", texto_normal),
+        Paragraph(f"<b>Zapato:</b> {ficha.talla_zapato}", texto_normal),
     ]
+
     elements.extend(datos)
 
+# 🔽 Espacio reservado para firmas (alto ajustable)
+    elements.append(Spacer(1, 100))
+
     doc.build(elements)
+
     buffer.seek(0)
 
     # Eliminar archivo anterior si existe
@@ -299,12 +339,12 @@ def firmar_ficha_ingreso_pdf(ficha):
 
     original_pdf = io.BytesIO(response.content)
 
-    # 2. Crear una capa de firmas con reportlab
+    # 2. Crear capa con firmas
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
 
-    # Posiciones de firma
-    y_firma = 70
+    # Posiciones en la parte baja (asumiendo espacio libre)
+    y_firma = 100
     x_rrhh = 80
     x_pm = 250
     x_trabajador = 420
@@ -323,7 +363,6 @@ def firmar_ficha_ingreso_pdf(ficha):
             except:
                 pass
 
-    # Insertar las 3 firmas y nombres
     insertar_firma(ficha.creado_por, x_rrhh, y_firma)      # RRHH
     insertar_firma(ficha.pm, x_pm, y_firma)                # PM
     insertar_firma(ficha.usuario, x_trabajador, y_firma)   # Trabajador
@@ -337,14 +376,13 @@ def firmar_ficha_ingreso_pdf(ficha):
     can.save()
     packet.seek(0)
 
-    # 3. Usar PyPDF2 para fusionar la capa con el PDF original
+    # 3. Fusionar con la última página del PDF original
     original_reader = PdfReader(original_pdf)
     overlay_reader = PdfReader(packet)
     writer = PdfWriter()
 
-    # Agregar capa de firmas solo a la primera página
     for i, page in enumerate(original_reader.pages):
-        if i == 0:
+        if i == len(original_reader.pages) - 1:
             page.merge_page(overlay_reader.pages[0])
         writer.add_page(page)
 
@@ -352,22 +390,15 @@ def firmar_ficha_ingreso_pdf(ficha):
     writer.write(final_output)
     final_output.seek(0)
 
-    # 4. Guardar en Cloudinary reemplazando el anterior
-    archivo_nombre = "Ficha_ingreso.pdf"
-
-# Eliminar archivo anterior si existe
+    # 4. Guardar en Cloudinary
     if ficha.archivo:
         ficha.archivo.delete(save=False)
 
-# Asegúrate de que la instancia tenga identidad válida para generar la ruta
     if ficha.usuario and ficha.usuario.identidad:
         identidad = ficha.usuario.identidad.replace('.', '').replace('-', '')
     else:
         identidad = slugify(ficha.rut or f"ficha_{ficha.pk}")
 
-# Generar ruta final sin anidaciones dobles
-    ruta_final = f"fichas_de_ingreso/{identidad}/{archivo_nombre}"
-
-# Subir nuevo PDF firmado
+    ruta_final = f"fichas_de_ingreso/{identidad}/Ficha_ingreso.pdf"
     contenido = ContentFile(final_output.read())
     ficha.archivo.save(ruta_final, contenido, save=True)

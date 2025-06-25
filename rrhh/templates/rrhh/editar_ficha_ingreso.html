@@ -18,10 +18,11 @@
       {% include "rrhh/campo_formulario.html" with field=form.nombres %}
       {% include "rrhh/campo_formulario.html" with field=form.apellidos %}
       {% include "rrhh/campo_formulario.html" with field=form.rut %}
-      {% include "rrhh/campo_formulario.html" with field=form.nacionalidad %}
       {% include "rrhh/campo_formulario.html" with field=form.fecha_nacimiento %}
       {% include "rrhh/campo_formulario.html" with field=form.edad %}
+      {% include "rrhh/campo_formulario.html" with field=form.sexo %}
       {% include "rrhh/campo_formulario.html" with field=form.estado_civil %}
+      {% include "rrhh/campo_formulario.html" with field=form.nacionalidad %}
       {% include "rrhh/campo_formulario.html" with field=form.hijos %}
       {% include "rrhh/campo_formulario.html" with field=form.nivel_estudios %}
       {% include "rrhh/campo_formulario.html" with field=form.profesion_u_oficio %}
@@ -32,7 +33,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% include "rrhh/campo_formulario.html" with field=form.direccion %}
       {% include "rrhh/campo_formulario.html" with field=form.comuna %}
-      {% include "rrhh/campo_formulario.html" with field=form.ciudad %}
+      {% include "rrhh/campo_formulario.html" with field=form.region %}
     </div>
 
     <!-- CONTACTO -->
@@ -44,10 +45,11 @@
 
     <!-- CONTACTO DE EMERGENCIA -->
     <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Contacto de emergencia</h3>
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
       {% include "rrhh/campo_formulario.html" with field=form.nombre_contacto_emergencia %}
       {% include "rrhh/campo_formulario.html" with field=form.telefono_emergencia %}
       {% include "rrhh/campo_formulario.html" with field=form.parentesco_emergencia %}
+      {% include "rrhh/campo_formulario.html" with field=form.direccion_emergencia %}
     </div>
 
     <!-- PREVISIÓN Y SALUD -->
@@ -74,27 +76,73 @@
     <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Información laboral</h3>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% include "rrhh/campo_formulario.html" with field=form.cargo %}
-      {% include "rrhh/campo_formulario.html" with field=form.faena %}
+      {% include "rrhh/campo_formulario.html" with field=form.jefe_directo %}
+      {% include "rrhh/campo_formulario.html" with field=form.proyecto %}
       {% include "rrhh/campo_formulario.html" with field=form.fecha_inicio %}
+      {% include "rrhh/campo_formulario.html" with field=form.tipo_contrato %}
       {% include "rrhh/campo_formulario.html" with field=form.jornada %}
       {% include "rrhh/campo_formulario.html" with field=form.sueldo_base %}
       {% include "rrhh/campo_formulario.html" with field=form.bono %}
       {% include "rrhh/campo_formulario.html" with field=form.colacion %}
       {% include "rrhh/campo_formulario.html" with field=form.movilizacion %}
+    </div>
+
+    <!-- TALLAS -->
+    <h3 class="text-lg font-semibold text-gray-700 border-b pb-1">Tallas</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {% include "rrhh/campo_formulario.html" with field=form.talla_polera %}
+      {% include "rrhh/campo_formulario.html" with field=form.talla_pantalon %}
+      {% include "rrhh/campo_formulario.html" with field=form.talla_zapato %}
       {% include "rrhh/campo_formulario.html" with field=form.observaciones %}
     </div>
 
     <!-- BOTONES -->
-    <div class="flex justify-between items-center mt-6">
+    <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
       <a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}"
-         class="text-gray-700 border border-gray-300 hover:bg-gray-100 px-6 py-2 rounded shadow text-sm">
+         class="text-gray-700 border border-gray-300 hover:bg-gray-100 px-6 py-2 rounded shadow text-sm sm:text-base">
         ← Volver
       </a>
       <button type="submit"
-        class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold shadow">
+        class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold shadow">
         Guardar cambios
       </button>
     </div>
   </form>
 </div>
+
+<!-- 🧠 Inputmask para máscaras visuales -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/inputmask/5.0.8/inputmask.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Solo letras
+    Inputmask({ regex: "[A-Za-zÁÉÍÓÚÑáéíóúñ ]*", placeholder: "" }).mask([
+      "#id_nombres", "#id_apellidos", "#id_estado_civil", "#id_comuna", "#id_region",
+      "#id_sexo", "#id_nacionalidad", "#id_afp", "#id_salud", "#id_banco",
+      "#id_tipo_cuenta", "#id_cargo", "#id_proyecto", "#id_tipo_contrato",
+      "#id_nombre_contacto_emergencia", "#id_parentesco_emergencia"
+    ]);
+
+    // Letras y números
+    Inputmask({ regex: "[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ ]*", placeholder: "" }).mask([
+      "#id_direccion", "#id_nivel_estudios", "#id_profesion_u_oficio",
+      "#id_direccion_emergencia", "#id_jornada", "#id_talla_polera",
+      "#id_talla_pantalon", "#id_talla_zapato", "#id_observaciones"
+    ]);
+
+    // Números enteros
+    Inputmask("integer", { allowMinus: false }).mask([
+      "#id_edad", "#id_hijos", "#id_sueldo_base", "#id_bono", "#id_colacion",
+      "#id_movilizacion", "#id_numero_cuenta", "#id_numero_cuenta_2"
+    ]);
+
+    // RUT (sin puntos ni guiones)
+    Inputmask({ regex: "[0-9kK]{1,10}", placeholder: "" }).mask("#id_rut");
+
+    // Teléfonos en formato Chile
+    Inputmask("56 9 9999 9999").mask(["#id_telefono", "#id_telefono_emergencia"]);
+
+    // Email
+    Inputmask({ alias: "email", placeholder: "correo@ejemplo.com" }).mask("#id_email");
+  });
+</script>
 {% endblock %}

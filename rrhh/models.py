@@ -82,7 +82,6 @@ class FichaIngreso(models.Model):
     email = models.EmailField(null=True, blank=True)
     direccion = models.CharField(max_length=255, null=True, blank=True)
     comuna = models.CharField(max_length=100, null=True, blank=True)
-    ciudad = models.CharField(max_length=100, null=True, blank=True)
     region = models.CharField(max_length=100, null=True, blank=True)
 
     # Estudios y familia
@@ -105,7 +104,7 @@ class FichaIngreso(models.Model):
     afp = models.CharField(max_length=100, null=True, blank=True)
     salud = models.CharField(max_length=100, null=True, blank=True)
 
-    # Datos bancarios (hasta 2 cuentas)
+    # Datos bancarios
     banco = models.CharField(max_length=100, null=True, blank=True)
     tipo_cuenta = models.CharField(max_length=50, null=True, blank=True)
     numero_cuenta = models.CharField(max_length=50, null=True, blank=True)
@@ -116,15 +115,12 @@ class FichaIngreso(models.Model):
     # Información laboral
     cargo = models.CharField(max_length=100, null=True, blank=True)
     jefe_directo = models.CharField(max_length=100, null=True, blank=True)
-    departamento = models.CharField(max_length=100, null=True, blank=True)
     proyecto = models.CharField(max_length=100, null=True, blank=True)
     fecha_inicio = models.DateField(null=True, blank=True)
     tipo_contrato = models.CharField(max_length=50, null=True, blank=True)
     jornada = models.CharField(max_length=100, null=True, blank=True)
     horario_trabajo = models.CharField(max_length=100, null=True, blank=True)
     sueldo_base = models.DecimalField(
-        max_digits=10, decimal_places=2, null=True, blank=True)
-    sueldo_liquido = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True)
     bono = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True)
@@ -139,7 +135,7 @@ class FichaIngreso(models.Model):
     talla_pantalon = models.CharField(max_length=10, null=True, blank=True)
     talla_zapato = models.CharField(max_length=10, null=True, blank=True)
 
-    # Estados del flujo
+    # Estado
     ESTADOS_FICHA = [
         ('pendiente_pm', 'Pendiente revisión del PM'),
         ('rechazada_pm', 'Rechazada por el PM'),
@@ -148,11 +144,7 @@ class FichaIngreso(models.Model):
         ('aprobada', 'Aprobada con firmas'),
     ]
     estado = models.CharField(
-        max_length=30,
-        choices=ESTADOS_FICHA,
-        default='pendiente_pm'
-    )
-
+        max_length=30, choices=ESTADOS_FICHA, default='pendiente_pm')
     motivo_rechazo_pm = models.TextField(null=True, blank=True)
     motivo_rechazo_usuario = models.TextField(null=True, blank=True)
 
@@ -227,14 +219,17 @@ class SolicitudVacaciones(models.Model):
     fecha_fin = models.DateField()
     dias_solicitados = models.DecimalField(max_digits=5, decimal_places=2)
 
-    tipo_solicitud = models.CharField(  # 👈 Este es el campo nuevo
+    tipo_solicitud = models.CharField(
         max_length=10,
         choices=TIPO_CHOICES,
         default='total'
     )
 
     estatus = models.CharField(
-        max_length=30, choices=ESTADOS, default='pendiente_supervisor')
+        max_length=30,
+        choices=ESTADOS,
+        default='pendiente_supervisor'
+    )
     observacion = models.TextField(blank=True, null=True)
     fecha_solicitud = models.DateField(default=date.today)
 
@@ -282,7 +277,6 @@ class SolicitudVacaciones(models.Model):
         return estado_map.get(self.estatus, self.estatus)
 
 
-# 1. Primero definimos TipoDocumento
 class TipoDocumento(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
     obligatorio = models.BooleanField(default=True)
@@ -291,15 +285,11 @@ class TipoDocumento(models.Model):
     def __str__(self):
         return self.nombre
 
-# 2. Luego definimos la función para Cloudinary
-
 
 def ruta_documento_trabajador(instance, filename):
     identidad = instance.trabajador.identidad or f"usuario_{instance.trabajador.id}"
     identidad_limpia = identidad.replace('.', '').replace('-', '')
     return f"media/Documentos de los trabajadores/{identidad_limpia}/{filename}"
-
-# 3. Y luego DocumentoTrabajador
 
 
 class DocumentoTrabajador(models.Model):
@@ -326,11 +316,7 @@ class DocumentoTrabajador(models.Model):
         except DocumentoTrabajador.DoesNotExist:
             old = None
 
-        if (
-            old and
-            old.archivo and self.archivo and
-            old.archivo.name != self.archivo.name
-        ):
+        if old and old.archivo and self.archivo and old.archivo.name != self.archivo.name:
             if old.archivo.storage.exists(old.archivo.name):
                 old.archivo.delete(save=False)
 
@@ -348,7 +334,7 @@ class DocumentoTrabajador(models.Model):
         elif dias_restantes <= 30:
             return 'Por vencer'
         else:
-            return 'vigente'
+            return 'Vigente'
 
 
 class CronogramaPago(models.Model):

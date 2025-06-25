@@ -75,8 +75,8 @@ class FichaIngresoForm(forms.ModelForm):
             'profesion_u_oficio': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
             'direccion': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
             'comuna': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
-            'ciudad': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
-            'email': {'type': 'email', 'pattern': r'[^@]+@[^@]+\.[^@]+', 'title': 'Formato válido: correo@ejemplo.com', 'placeholder': 'Ej: nombre@correo.com'},
+            'Región': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
+            'email': {'type': 'email', 'pattern': r'[^@]+@[^@]+\.[^@]+', 'title': 'Formato válido: correo@ejemplo.com'},
             'telefono': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
             'nombre_contacto_emergencia': {'pattern': r'[A-Za-zÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Solo letras'},
             'telefono_emergencia': {'pattern': r'\d+', 'inputmode': 'numeric', 'title': 'Solo números'},
@@ -106,7 +106,6 @@ class FichaIngresoForm(forms.ModelForm):
             'talla_pantalon': {'pattern': r'[A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]+', 'title': 'Letras y números'},
         }
 
-    # Placeholders personalizados
         placeholders = {
             'nombres': 'Ej: Juan',
             'apellidos': 'Ej: Pérez',
@@ -150,25 +149,31 @@ class FichaIngresoForm(forms.ModelForm):
             'jefe_directo': 'Ej: Pedro Gómez',
         }
 
-    # Aplicar atributos HTML + placeholder
         for campo, attrs in validaciones_html.items():
             if campo in self.fields:
                 self.fields[campo].widget.attrs.update(attrs)
                 if campo in placeholders:
                     self.fields[campo].widget.attrs['placeholder'] = placeholders[campo]
-                if campo == 'email':
-                    self.fields[campo].widget.attrs['type'] = 'email'
+
+        # ✅ Corregir campos de fecha para mantener valor en edición
+        self.fields['fecha_nacimiento'].input_formats = ['%Y-%m-%d']
+        self.fields['fecha_inicio'].input_formats = ['%Y-%m-%d']
 
     class Meta:
         model = FichaIngreso
         exclude = ['creado_por', 'usuario', 'pm', 'archivo',
                    'firma_trabajador', 'firma_pm', 'firma_rrhh', 'estado']
         widgets = {
-            'fecha_nacimiento': forms.DateInput(attrs={'type': 'date'}),
-            'fecha_inicio': forms.DateInput(attrs={'type': 'date'}),
+            'fecha_nacimiento': forms.DateInput(
+                format='%Y-%m-%d',
+                attrs={'type': 'date', 'class': 'w-full rounded border-gray-300'}
+            ),
+            'fecha_inicio': forms.DateInput(
+                format='%Y-%m-%d',
+                attrs={'type': 'date', 'class': 'w-full rounded border-gray-300'}
+            ),
         }
 
-    # Validaciones adicionales del lado del servidor
     def clean_rut(self):
         rut = self.cleaned_data.get('rut', '')
         if '.' in rut or '-' in rut:
@@ -179,8 +184,8 @@ class FichaIngresoForm(forms.ModelForm):
         return rut
 
     def clean_telefono(self):
-        telefono = self.cleaned_data.get('telefono', '')
-        if not telefono.isdigit():
+        telefono = self.cleaned_data.get("telefono")
+        if telefono and not telefono.strip().isdigit():
             raise ValidationError("El teléfono debe contener solo números.")
         return telefono
 

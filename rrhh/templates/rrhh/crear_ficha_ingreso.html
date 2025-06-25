@@ -33,7 +33,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {% include "rrhh/campo_formulario.html" with field=form.direccion %}
       {% include "rrhh/campo_formulario.html" with field=form.comuna %}
-      {% include "rrhh/campo_formulario.html" with field=form.ciudad %}
+      {% include "rrhh/campo_formulario.html" with field=form.region %}
     </div>
 
     <!-- CONTACTO -->
@@ -116,7 +116,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     // Solo letras
     Inputmask({ regex: "[A-Za-zÁÉÍÓÚÑáéíóúñ ]*", placeholder: "" }).mask([
-      "#id_nombres", "#id_apellidos", "#id_estado_civil", "#id_comuna", "#id_ciudad",
+      "#id_nombres", "#id_apellidos", "#id_estado_civil", "#id_comuna", "#id_region",
       "#id_sexo", "#id_nacionalidad", "#id_afp", "#id_salud", "#id_banco",
       "#id_tipo_cuenta", "#id_cargo", "#id_proyecto", "#id_tipo_contrato",
       "#id_nombre_contacto_emergencia", "#id_parentesco_emergencia"
