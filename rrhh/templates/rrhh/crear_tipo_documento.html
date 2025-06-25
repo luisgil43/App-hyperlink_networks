@@ -8,13 +8,6 @@
     {% if editando %}Editar Tipo de Documento{% else %}Crear Tipo de Documento{% endif %}
   </h2>
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="mb-3 p-3 rounded-xl text-sm {{ message.tags|yesno:'bg-emerald-100 text-emerald-800,bg-red-100 text-red-800' }}">
-        {{ message }}
-      </div>
-    {% endfor %}
-  {% endif %}
 
   {% if editando %}
     <div class="mb-4">
