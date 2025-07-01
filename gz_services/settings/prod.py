@@ -4,12 +4,12 @@ import os
 
 DEBUG = False
 
-ALLOWED_HOSTS = ['app-mv.onrender.com']
+ALLOWED_HOSTS = ['app-gz.onrender.com']
 
 
 DEBUG = False
 
-ALLOWED_HOSTS = ['app-mv.onrender.com']
+ALLOWED_HOSTS = ['app-gz.onrender.com']
 
 # Archivos estáticos
 STATIC_URL = '/static/'
