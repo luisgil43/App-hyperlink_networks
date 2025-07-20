@@ -47,18 +47,19 @@ except Exception as e:
 
 LOGGING = {
     'version': 1,
+    'disable_existing_loggers': False,
     'handlers': {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'error.log'),
+            'filename': '/tmp/error.log',  # ✅ Usar directorio temporal de Render
         },
     },
     'loggers': {
-        'django': {
+        'django.request': {
             'handlers': ['file'],
             'level': 'ERROR',
-            'propagate': True,
+            'propagate': False,
         },
     },
 }
