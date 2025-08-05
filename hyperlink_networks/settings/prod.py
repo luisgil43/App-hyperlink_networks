@@ -1,15 +1,20 @@
 from .base import *  # Importa todas las configuraciones base
-from .base import *
 import os
+import dj_database_url
 
 DEBUG = False
 
-ALLOWED_HOSTS = ['app-gz.onrender.com']
+ALLOWED_HOSTS = [
+    'app-hyperlink-networks.onrender.com',
+    'localhost',
+    '127.0.0.1',
+    '172.20.10.2'
+]
 
-
-DEBUG = False
-
-ALLOWED_HOSTS = ['app-gz.onrender.com']
+# --- Base de datos (Render PostgreSQL) ---
+DATABASES = {
+    'default': dj_database_url.config(default=os.environ.get('DATABASE_URL'))
+}
 
 # Archivos estáticos
 STATIC_URL = '/static/'
@@ -26,9 +31,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# Archivos multimedia
-# Aunque Cloudinary los maneja, Django sigue exigiendo estos valores definidos
-MEDIA_URL = '/media/'
+# Archivos multimedia (ajustado para Wasabi)
+# Aunque Wasabi maneja los archivos, definimos MEDIA_URL apuntando al bucket
+MEDIA_URL = f"{os.environ.get('AWS_S3_ENDPOINT_URL')}/{os.environ.get('AWS_STORAGE_BUCKET_NAME')}/"
+# Django lo ignora por DEFAULT_FILE_STORAGE
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Seguridad para producción
@@ -41,13 +47,12 @@ SECURE_SSL_REDIRECT = True
 
 # Logs informativos para verificar en consola que todo esté correcto
 print("🧪 En producción:")
-print("🧪 USE_CLOUDINARY:", os.environ.get("CLOUDINARY_CLOUD_NAME") is not None)
+print("🧪 USE_WASABI:", os.environ.get("AWS_STORAGE_BUCKET_NAME") is not None)
 try:
     from django.conf import settings
     print("🧪 DEFAULT_FILE_STORAGE:", settings.DEFAULT_FILE_STORAGE)
 except Exception as e:
     print("⚠️ No se pudo importar DEFAULT_FILE_STORAGE:", e)
-
 
 LOGGING = {
     'version': 1,
@@ -56,7 +61,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': '/tmp/error.log',  # ✅ Usar directorio temporal de Render
+            'filename': '/tmp/error.log',  # Directorio temporal de Render
         },
     },
     'loggers': {
