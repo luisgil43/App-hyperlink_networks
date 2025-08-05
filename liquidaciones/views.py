@@ -33,7 +33,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.core.exceptions import ValidationError
 from . import views
 from django.core.files.storage import default_storage
-from .models import Liquidacion, ruta_archivo_firmado, ruta_archivo_sin_firmar
+from .models import Liquidacion
 from .forms import LiquidacionForm
 from django_select2.views import AutoResponseView
 from dal import autocomplete

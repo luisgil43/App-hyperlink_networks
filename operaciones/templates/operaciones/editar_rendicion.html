@@ -1,78 +1,95 @@
 {% extends "dashboard/base.html" %}
 {% load widget_tweaks %}
 
-{% block title %}Editar Rendición{% endblock %}
+{% block title %}Edit Expense Report{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
-  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">✏️ Editar Rendición</h2>
+  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">✏️ Edit Expense Report</h2>
 
   <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     {% csrf_token %}
 
     <div>
-      <label class="block text-sm font-medium text-gray-700">Proyecto:</label>
+      <label class="block text-sm font-medium text-gray-700">Project:</label>
       {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700">Tipo:</label>
+      <label class="block text-sm font-medium text-gray-700">Type:</label>
       {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700">Tipo de Documento:</label>
-      {{ form.tipo_doc|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
-    <div>
-      <label class="block text-sm font-medium text-gray-700">Número de Documento:</label>
-      {{ form.numero_doc|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
-    <div>
-      <label class="block text-sm font-medium text-gray-700">Monto Gasto:</label>
+      <label class="block text-sm font-medium text-gray-700">Expense Amount:</label>
       {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
 
-    <div>
-      <label class="block text-sm font-medium text-gray-700">N° Transferencia:</label>
-      {{ form.numero_transferencia|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
-    <div>
-      <label class="block text-sm font-medium text-gray-700">Observaciones:</label>
+    <div class="sm:col-span-2">
+      <label class="block text-sm font-medium text-gray-700">Remarks:</label>
       {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
 
     <div class="sm:col-span-2">
-      <label class="block text-sm font-medium text-gray-700">Comprobante:</label>
+      <label class="block text-sm font-medium text-gray-700">Receipt:</label>
       {% if form.instance.comprobante %}
         <p class="mb-2 text-sm text-gray-600">
-          Archivo actual: 
-          <a href="{{ form.instance.comprobante.url }}" target="_blank" class="text-blue-600 underline">Ver comprobante</a>
+          Current file: 
+          <a href="{{ form.instance.comprobante.url }}" target="_blank" class="text-blue-600 underline">View receipt</a>
         </p>
       {% endif %}
+
+      <!-- Preview container -->
+      <div id="preview" class="mb-2"></div>
+
       <div class="flex gap-2">
-        <!-- Botón cámara -->
+        <!-- Camera button -->
         <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-          📷 Tomar foto
-          <input type="file" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
+          📷 Take Photo
+          <input id="comprobante_foto" type="file" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
         </label>
 
-        <!-- Botón archivo -->
+        <!-- File button -->
         <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-          📄 Subir archivo
-          <input type="file" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
+          📄 Upload File
+          <input id="comprobante_archivo" type="file" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
         </label>
       </div>
-      <p class="text-xs text-gray-500 mt-1">Sube un nuevo archivo solo si deseas reemplazar el actual.</p>
+      <p class="text-xs text-gray-500 mt-1">Upload a new file only if you want to replace the current one.</p>
     </div>
 
     <div class="sm:col-span-2 flex justify-between gap-2 mt-4">
-      <a href="{% url 'operaciones:mis_rendiciones' %}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full">Cancelar</a>
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full">Guardar Cambios</button>
+      <a href="{% url 'operaciones:mis_rendiciones' %}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full">Cancel</a>
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full">Save Changes</button>
     </div>
   </form>
 </div>
+
+<script>
+  function previewFile(input) {
+    const preview = document.getElementById('preview');
+    preview.innerHTML = ""; // Limpia preview previo
+    const file = input.files[0];
+    if (!file) return;
+
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = document.createElement("img");
+        img.src = e.target.result;
+        img.className = "max-h-48 rounded shadow";
+        preview.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const p = document.createElement("p");
+      p.textContent = "Selected file: " + file.name;
+      p.className = "text-sm text-gray-700";
+      preview.appendChild(p);
+    }
+  }
+
+  document.getElementById('comprobante_foto').addEventListener('change', function() { previewFile(this); });
+  document.getElementById('comprobante_archivo').addEventListener('change', function() { previewFile(this); });
+</script>
 {% endblock %}

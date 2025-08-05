@@ -3,14 +3,16 @@
 {% load custom_filters %}
 {% load humanize %}
 
-{% block title %}Editar Movimiento{% endblock %}
+{% block title %}Edit Transaction{% endblock %}
 
 {% block dashboard_content %}
 <div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
-  <h2 class="text-2xl font-bold text-gray-800 mb-6">✏️ Editar Movimiento</h2>
+  <!-- Título -->
+  <h2 class="text-2xl font-bold text-gray-800 mb-6">✏️ Edit Transaction</h2>
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
 
+    <!-- Errores generales -->
     {% if form.non_field_errors %}
       <div class="bg-red-100 text-red-700 p-2 rounded mb-4">
         {% for error in form.non_field_errors %}
@@ -21,7 +23,7 @@
 
     <!-- Usuario -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Usuario</label>
+      <label class="block text-sm font-medium text-gray-700">User</label>
       {{ form.usuario|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.usuario.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.usuario.errors.0 }}</p>
@@ -30,17 +32,17 @@
 
     <!-- Proyecto -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Proyecto</label>
+      <label class="block text-sm font-medium text-gray-700">Project</label>
       {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.proyecto.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.proyecto.errors.0 }}</p>
       {% endif %}
     </div>
 
-    <!-- Tipo (si existe en el formulario) -->
+    <!-- Tipo (opcional) -->
     {% if form.fields.tipo %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Tipo</label>
+      <label class="block text-sm font-medium text-gray-700">Type</label>
       {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.tipo.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.tipo.errors.0 }}</p>
@@ -48,10 +50,10 @@
     </div>
     {% endif %}
 
-    <!-- Tipo Documento (si existe en el formulario) -->
+    <!-- Tipo de Documento (opcional) -->
     {% if form.fields.tipo_doc %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Tipo de Documento</label>
+      <label class="block text-sm font-medium text-gray-700">Document Type</label>
       {{ form.tipo_doc|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.tipo_doc.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.tipo_doc.errors.0 }}</p>
@@ -59,10 +61,10 @@
     </div>
     {% endif %}
 
-    <!-- Número Documento (si existe en el formulario) -->
+    <!-- Número de Documento (opcional) -->
     {% if form.fields.numero_doc %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Número de Documento</label>
+      <label class="block text-sm font-medium text-gray-700">Document Number</label>
       {{ form.numero_doc|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.numero_doc.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.numero_doc.errors.0 }}</p>
@@ -72,17 +74,17 @@
 
     <!-- Observaciones -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Observaciones</label>
+      <label class="block text-sm font-medium text-gray-700">Remarks</label>
       {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.observaciones.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.observaciones.errors.0 }}</p>
       {% endif %}
     </div>
 
-    <!-- N° Transferencia -->
+    <!-- Número de Transferencia -->
     {% if form.fields.numero_transferencia %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">N° Transferencia</label>
+      <label class="block text-sm font-medium text-gray-700">Transfer Number</label>
       {{ form.numero_transferencia|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.numero_transferencia.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.numero_transferencia.errors.0 }}</p>
@@ -92,25 +94,25 @@
 
     <!-- Comprobante -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Comprobante</label>
+      <label class="block text-sm font-medium text-gray-700">Receipt</label>
       {{ form.comprobante|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.comprobante.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.comprobante.errors.0 }}</p>
       {% endif %}
       {% if movimiento.comprobante %}
         <p class="text-xs mt-1">
-          Archivo actual: 
+          Current file: 
           <a href="{{ movimiento.comprobante.url }}" target="_blank" class="text-blue-600 underline">
-            Ver Comprobante
+            View Receipt
           </a>
         </p>
       {% endif %}
     </div>
 
-    <!-- Cargos (solo si existe en el formulario) -->
+    <!-- Cargos (opcional) -->
     {% if form.fields.cargos %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Cargos</label>
+      <label class="block text-sm font-medium text-gray-700">Charges</label>
       {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.cargos.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.cargos.errors.0 }}</p>
@@ -118,10 +120,10 @@
     </div>
     {% endif %}
 
-    <!-- Abonos (solo si existe en el formulario) -->
+    <!-- Abonos (opcional) -->
     {% if form.fields.abonos %}
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Abonos</label>
+      <label class="block text-sm font-medium text-gray-700">Credits</label>
       {{ form.abonos|add_class:"w-full border rounded-xl px-3 py-2" }}
       {% if form.abonos.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.abonos.errors.0 }}</p>
@@ -129,9 +131,10 @@
     </div>
     {% endif %}
 
+    <!-- Botones -->
     <div class="flex justify-end gap-3 mt-4">
-      <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">Cancelar</a>
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">Guardar</button>
+      <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">Cancel</a>
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">Save</button>
     </div>
   </form>
 </div>

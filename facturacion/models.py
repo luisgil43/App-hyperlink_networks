@@ -1,18 +1,15 @@
-from django.core.validators import FileExtensionValidator
-from cloudinary_storage.storage import RawMediaCloudinaryStorage
-import cloudinary.uploader
-import datetime
-from cloudinary.models import CloudinaryField
+from django.utils.module_loading import import_string
 from django.conf import settings
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from decimal import Decimal
 from operaciones.models import ServicioCotizado
+from utils.paths import upload_to  # 👈 Nuevo import
 
 
 class OrdenCompraFacturacion(models.Model):
     du = models.ForeignKey(ServicioCotizado, on_delete=models.SET_NULL,
                            null=True, blank=True, related_name='ordenes_compra')
-
     orden_compra = models.CharField(
         "Orden de Compra", max_length=30, blank=True, null=True)
     pos = models.CharField("POS", max_length=10, blank=True, null=True)
@@ -29,7 +26,6 @@ class OrdenCompraFacturacion(models.Model):
         "Precio Unitario", max_digits=10, decimal_places=2, default=Decimal('0.00'))
     monto = models.DecimalField(
         "Monto", max_digits=12, decimal_places=2, default=Decimal('0.00'))
-
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
@@ -48,7 +44,6 @@ class FacturaOC(models.Model):
         related_name='factura',
         verbose_name="Orden de Compra"
     )
-
     hes = models.CharField("HES", max_length=50, blank=True, null=True)
     valor_en_clp = models.DecimalField(
         "Valor en CLP", max_digits=15, decimal_places=2, blank=True, null=True)
@@ -64,7 +59,6 @@ class FacturaOC(models.Model):
     fecha_factoring = models.DateField(
         "Fecha de Factoring", blank=True, null=True)
     cobrado = models.BooleanField("¿Cobrado?", default=False)
-
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
@@ -75,20 +69,17 @@ class FacturaOC(models.Model):
     def __str__(self):
         return f"Factura {self.num_factura or 'Sin número'} - OC {self.orden_compra.orden_compra}"
 
-    # Estado dinámico
     def get_status_factura(self):
         if not self.conformidad:
             return "Pendiente por Conformidad"
         if not self.num_factura:
             return "Pendiente por Facturación"
-        if self.num_factura:
-            status = "Facturado"
-            if self.factorizado:
-                status = "En proceso de Factoring"
-            if self.cobrado:
-                status = "Cobrado"
-            return status
-        return "Pendiente"
+        status = "Facturado"
+        if self.factorizado:
+            status = "En proceso de Factoring"
+        if self.cobrado:
+            status = "Cobrado"
+        return status
 
 
 class Proyecto(models.Model):
@@ -109,34 +100,26 @@ class TipoGasto(models.Model):
     ])
 
     def __str__(self):
-        return f"{self.nombre}"
+        return self.nombre
 
 
-def ruta_comprobante_cartola(instance, filename):
-    """
-    Guardar comprobantes en media/cartola_movimientos/<MES_AÑO>/<ID>.pdf
-    """
-    mes = datetime.date.today().strftime('%B_%Y')  # Ej: Julio_2025
-    extension = filename.split('.')[-1]
-    # Si no tiene ID aún, usar 'temp'
-    nombre = f"{instance.pk or 'temp'}.{extension}"
-    return f"media/cartola_movimientos/{mes}/{nombre}"
+WasabiStorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+wasabi_storage = WasabiStorageClass()
 
 
 class CartolaMovimiento(models.Model):
     ESTADOS = [
-        ('pendiente_abono_usuario', 'Pendiente aprobación abono usuario'),
-        ('aprobado_abono_usuario', 'Aprobado abono por usuario'),
-        ('rechazado_abono_usuario', 'Rechazado abono por usuario'),
-        ('pendiente_supervisor', 'Pendiente aprobación supervisor'),
-        ('aprobado_supervisor', 'Aprobado por supervisor'),
-        ('rechazado_supervisor', 'Rechazado por supervisor'),
-        ('aprobado_pm', 'Aprobado por PM'),
-        ('rechazado_pm', 'Rechazado por PM'),
-        ('aprobado_finanzas', 'Aprobado por finanzas'),
-        ('rechazado_finanzas', 'Rechazado por finanzas'),
+        ('pendiente_abono_usuario', 'Pending User Approval'),
+        ('aprobado_abono_usuario', 'Credit Approved by User'),
+        ('rechazado_abono_usuario', 'Credit Rejected by User'),
+        ('pendiente_supervisor', 'Pending Supervisor Approval'),
+        ('aprobado_supervisor', 'Approved by Supervisor'),
+        ('rechazado_supervisor', 'Rejected by Supervisor'),
+        ('aprobado_pm', 'Approved by PM'),
+        ('rechazado_pm', 'Rejected by PM'),
+        ('aprobado_finanzas', 'Approved by Finance'),
+        ('rechazado_finanzas', 'Rejected by Finance'),
     ]
-
     TIPO_DOC_CHOICES = [
         ('boleta', 'Boleta'),
         ('factura', 'Factura'),
@@ -151,44 +134,29 @@ class CartolaMovimiento(models.Model):
     tipo = models.ForeignKey(
         'TipoGasto', on_delete=models.SET_NULL, null=True, blank=True)
     rut_factura = models.CharField(max_length=12, blank=True, null=True)
-    tipo_doc = models.CharField(
-        max_length=20, choices=TIPO_DOC_CHOICES, blank=True, null=True, verbose_name="Tipo de Documento"
-    )
+    tipo_doc = models.CharField(max_length=20, choices=TIPO_DOC_CHOICES,
+                                blank=True, null=True, verbose_name="Tipo de Documento")
     numero_doc = models.CharField(
-        max_length=50, blank=True, null=True, verbose_name="Número de Documento"
-    )
+        max_length=50, blank=True, null=True, verbose_name="Número de Documento")
     observaciones = models.TextField(blank=True, null=True)
     numero_transferencia = models.CharField(
         max_length=100, blank=True, null=True)
+
     comprobante = models.FileField(
-        upload_to=ruta_comprobante_cartola,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to='facturacion/cartolamovimiento/',
+        storage=wasabi_storage,  # Fuerza Wasabi
         blank=True,
         null=True,
         verbose_name="Comprobante",
         validators=[FileExtensionValidator(['pdf', 'jpg', 'jpeg', 'png'])]
     )
 
-    aprobado_por_supervisor = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='rendiciones_aprobadas_supervisor'
-    )
-    aprobado_por_pm = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='rendiciones_aprobadas_pm'
-    )
-
-    aprobado_por_finanzas = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='rendiciones_aprobadas_finanzas'
-    )
-
+    aprobado_por_supervisor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                                null=True, blank=True, related_name='rendiciones_aprobadas_supervisor')
+    aprobado_por_pm = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                        null=True, blank=True, related_name='rendiciones_aprobadas_pm')
+    aprobado_por_finanzas = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                              null=True, blank=True, related_name='rendiciones_aprobadas_finanzas')
     cargos = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     abonos = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     status = models.CharField(

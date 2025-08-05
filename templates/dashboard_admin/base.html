@@ -1,30 +1,25 @@
 <!DOCTYPE html>
 {% load static %}
 {% load humanize %}
-<html lang="es">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .rotate-90 {
-            transform: rotate(90deg);
-        }
-
-        .bg-sidebar {
-            background-color: #1e293b;
-        }
+        .rotate-90 { transform: rotate(90deg); }
+        .bg-sidebar { background-color: #1e293b; }
     </style>
 </head>
 
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
-<!-- Header fijo -->
+<!-- HEADER SUPERIOR FIJO -->
 <header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
   <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
 
-    <!-- Campanita SIEMPRE arriba a la derecha -->
+    <!-- Campanita de notificaciones -->
     <div class="absolute top-2 right-4 z-50">
       <button onclick="toggleNotifications()" class="relative text-gray-700">
         <i data-lucide="bell" class="w-6 h-6"></i>
@@ -35,7 +30,7 @@
         {% endif %}
       </button>
 
-      <!-- Panel de notificaciones -->
+      <!-- Panel desplegable de notificaciones -->
       <div id="notification-panel"
            class="hidden absolute right-0 mt-2 w-72 bg-white border rounded-lg shadow-lg z-50">
         <div class="p-2 max-h-80 overflow-y-auto">
@@ -50,23 +45,23 @@
               </a>
             </div>
           {% empty %}
-            <p class="text-sm text-gray-500 p-2">Sin historial de notificaciones.</p>
+            <p class="text-sm text-gray-500 p-2">No notification history.</p>
           {% endfor %}
         </div>
       </div>
     </div>
 
-    <!-- Contenido del header -->
+    <!-- Contenido principal del header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
 
-      <!-- Izquierda: Logo -->
+      <!-- IZQUIERDA: Logo y nombre -->
       <div class="flex items-center gap-3">
         <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">☰</button>
-        <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-12">
-        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">PLATAFORMA DE MILTEL</strong>
+        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
       </div>
 
-      <!-- Derecha: Nombre y cerrar sesión -->
+      <!-- DERECHA: Nombre del usuario y botón de logout -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end sm:gap-4 items-start text-sm md:text-base text-right leading-tight">
         <span class="text-gray-800 font-medium break-words sm:whitespace-nowrap">
           {{ request.user.get_full_name|default:request.user.username }}
@@ -74,7 +69,7 @@
         <form method="post" action="{% url 'dashboard_admin:logout' %}">
           {% csrf_token %}
           <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
-            Cerrar Sesión
+            Log Out
           </button>
         </form>
       </div>
@@ -83,264 +78,206 @@
   </div>
 </header>
 
+<!-- CONTENEDOR PRINCIPAL -->
+<div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
 
+  <!-- MENÚ LATERAL -->
+  <nav id="side-nav"
+    class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
+    <h2 class="text-2xl font-bold mb-8">Menu</h2>
+    <ul class="space-y-4 text-base">
+      <li>
+        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+      </li>
 
-    <!-- Contenedor principal -->
-    <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
+      <!-- SECCIÓN: Operations -->
+      {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+            onclick="toggleMenu(this)">
+            <span class="flex items-center gap-2">🛠 Operations</span>
+            <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
+          <li><a href="{% url 'operaciones:listar_sitios' %}" class="hover:text-emerald-400">Mobile Sites List</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Productions</a></li>
+          <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
+          <li><a href="{% url 'operaciones:listar_servicios_pm' %}" class="hover:text-emerald-400">Create Services</a></li>
+          <li><a href="{% url 'operaciones:listar_servicios_supervisor' %}" class="hover:text-emerald-400">Assign Services</a></li>
+        </ul>
+      </li>
+      {% endif %}
 
-  <!-- Menú lateral con animación -->
-    <nav id="side-nav"
-      class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
-      <h2 class="text-2xl font-bold mb-8">Menú</h2>
-      <ul class="space-y-4 text-base">
-        <li>
-          <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Inicio</a>
-        </li>
-                {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">🛠 Operaciones</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
+      <!-- SECCIÓN: Risk Prevention -->
+      {% if request.user.es_admin_general or request.user.es_prevencion or request.user.es_pm %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+            onclick="toggleMenu(this)">
+            <span class="flex items-center gap-2">🦺 Risk Prevention</span>
+            <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">Courses</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Document Signing</a></li>
+          <li><a href="#" class="hover:text-emerald-400">PPE Assignment</a></li>
+        </ul>
+      </li>
+      {% endif %}
 
-                        
-                        <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
-<li><a href="{% url 'operaciones:listar_sitios' %}" class="hover:text-emerald-400">Lista Sitios Móviles</a></li>
-<li><a href="#" class="hover:text-emerald-400">Producciones</a></li>
-<li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Rendiciones</a></li>
-<li><a href="{% url 'operaciones:listar_servicios_pm' %}" class="hover:text-emerald-400">Crear Servicios</a></li>
-<li><a href="{% url 'operaciones:listar_servicios_supervisor' %}" class="hover:text-emerald-400">Realizar Asignación</a></li>
-                    </ul>
-                </li>
-                {% endif %}
+      <!-- SECCIÓN: Human Resources -->
+      {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm or request.user.es_supervisor %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+          <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
+          <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+            <li><a href="{% url 'liquidaciones:admin_lista' %}" class="hover:text-emerald-400">Payrolls</a></li>
+            <li><a href="{% url 'rrhh:contratos_trabajo' %}" class="hover:text-emerald-400">Employment Contracts</a></li>
+          {% endif %}
 
-                {% if request.user.es_admin_general or request.user.es_prevencion or request.user.es_pm %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">🦺 Prevención de Riesgo</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
-                        <li><a href="#" class="hover:text-emerald-400">Cursos</a></li>
-                        <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
-                        <li><a href="#" class="hover:text-emerald-400">Asignación de EPP</a></li>
-                    </ul>
-                </li>
-                {% endif %}
-{% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm or request.user.es_supervisor %}
-<li class="group">
-  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
-    <span class="flex items-center gap-2">🧑‍💼 RR.HH</span>
-    <span class="flecha transition-transform duration-200">▶</span>
-  </div>
-  <ul class="ml-4 submenu space-y-1 hidden">
-    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-      <li><a href="{% url 'liquidaciones:admin_lista' %}" class="hover:text-emerald-400">Liquidaciones</a></li>
-      <li><a href="{% url 'rrhh:contratos_trabajo' %}" class="hover:text-emerald-400">Contratos de trabajo</a></li>
-    {% endif %}
+          <li><a href="{% if request.user.es_supervisor %}{% url 'rrhh:revisar_supervisor' %}{% elif request.user.es_pm %}{% url 'rrhh:revisar_pm' %}{% elif request.user.es_rrhh %}{% url 'rrhh:revisar_rrhh' %}{% else %}{% url 'rrhh:revisar_todas_vacaciones' %}{% endif %}" class="hover:text-emerald-400">Vacation Requests</a></li>
 
-    {% if request.user.es_supervisor %}
-      <li><a href="{% url 'rrhh:revisar_supervisor' %}" class="hover:text-emerald-400">Solicitudes de vacaciones</a></li>
-    {% elif request.user.es_pm %}
-      <li><a href="{% url 'rrhh:revisar_pm' %}" class="hover:text-emerald-400">Solicitudes de vacaciones</a></li>
-    {% elif request.user.es_rrhh %}
-      <li><a href="{% url 'rrhh:revisar_rrhh' %}" class="hover:text-emerald-400">Solicitudes de vacaciones</a></li>
-    {% elif request.user.es_admin_general %}
-      <li><a href="{% url 'rrhh:revisar_todas_vacaciones' %}" class="hover:text-emerald-400">Solicitudes de vacaciones</a></li>
-    {% endif %}
+          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+            <li><a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}" class="hover:text-emerald-400">Employee Onboarding</a></li>
+            <li><a href="{% url 'rrhh:listado_documentos' %}" class="hover:text-emerald-400">Employee Documents</a></li>
+            <li><a href="{% url 'rrhh:cronograma_pago_admin' %}" class="hover:text-emerald-400">Payment Schedule</a></li>
+            <li><a href="{% url 'rrhh:listar_adelanto_admin' %}" class="hover:text-emerald-400">Salary Advances</a></li>
+            <li><a href="{% url 'dashboard_admin:listar_feriados' %}" class="hover:text-emerald-400">Holidays</a></li>
+            <li><a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Signature Records</a></li>
+            <li><a href="{% url 'usuarios:subir_firma_representante' %}" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
+          {% endif %}
+        </ul>
+      </li>
+      {% endif %}
 
-    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-      <li><a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}" class="hover:text-emerald-400">Fichas de ingresos</a></li>
-      <li><a href="{% url 'rrhh:listado_documentos' %}" class="hover:text-emerald-400">Documentos trabajadores</a></li>
-      <li><a href="{% url 'rrhh:cronograma_pago_admin' %}" class="hover:text-emerald-400">Cronograma de pago</a></li>
-      <li><a href="{% url 'rrhh:listar_adelanto_admin' %}" class="hover:text-emerald-400">Avances de sueldos</a></li>
-      <li><a href="{% url 'dashboard_admin:listar_feriados' %}" class="hover:text-emerald-400">Feriados</a></li>
-      <li><a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Registro de firmas</a></li>
-      <li><a href="{% url 'usuarios:subir_firma_representante' %}" class="hover:text-emerald-400">Subir Firma Representante Legal</a></li>
-    {% endif %}
-  </ul>
-</li>
-{% endif %}
+      <!-- SECCIÓN: Subcontract -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">🤝 Subcontract</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Service Contracts</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Employment Contracts</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Employee Courses</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Production Invoices</a></li> 
+              <li><a href="#" class="hover:text-emerald-400">F30 & F30-1</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Payrolls</a></li>     
+          </ul>
+      </li>
+      {% endif %}
 
-		{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}
-<li class="group">
-    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
-        <span class="flex items-center gap-2">🤝 Subcontrato</span>
-        <span class="flecha transition-transform duration-200">▶</span>
-    </div>
-    <ul class="ml-4 submenu space-y-1 hidden">
-        <li><a href="#" class="hover:text-emerald-400">Contratos de servicios</a></li>
-<li><a href="#" class="hover:text-emerald-400">Contratos de trabajo</a></li>
-<li><a href="#" class="hover:text-emerald-400">Cursos de los trabajadores</a></li>
-<li><a href="#" class="hover:text-emerald-400">Facturas de producciones</a></li> 
-   <li><a href="#" class="hover:text-emerald-400">F30 y F30-1</a></li>
-        <li><a href="#" class="hover:text-emerald-400">Liquidaciones de sueldos</a></li>     
+      <!-- SECCIÓN: Logistics -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">📦 Logistics</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
+              <li><a href="{% url 'logistica:importar_certificado' %}" class="hover:text-emerald-400">Upload Digital Certificate</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
+              <li><a href="#" class="hover:text-emerald-400">CAF Importer</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Dispatch</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
+              <li><a href="{% url 'logistica:listar_ingresos' %}" class="hover:text-emerald-400">Material Intake</a></li>   
+          </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: Finance -->
+      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">📑 Finance</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="{% url 'facturacion:listar_oc_facturacion' %}" class="hover:text-emerald-400">Purchase Orders</a></li>
+              <li><a href="{% url 'facturacion:listar_facturas' %}" class="hover:text-emerald-400">Invoices</a></li>
+              <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Transaction Ledger</a></li>
+              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
+          </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: Benefits -->
+      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_rrhh %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">🎁 Benefits</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Available Agreements</a></li>
+          </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: User Management -->
+      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_rrhh %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">👤 User Management</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Groups</a></li>
+              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}" class="hover:text-emerald-400">Users</a></li>
+          </ul>
+      </li>
+      {% endif %}
     </ul>
-</li>
-{% endif %}
 
-                {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">📦 Logística</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
-<li><a href="#" class="hover:text-emerald-400">Asignación de equipos</a></li>
-<li><a href="{% url 'logistica:importar_certificado' %}" class="hover:text-emerald-400">Cargar Certificado Digital</a></li>
-<li><a href="#" class="hover:text-emerald-400">Devolución de Materiales</a></li>
-<li><a href="#" class="hover:text-emerald-400">Importador de CAF</a></li>
- <li><a href="#' %}" class="hover:text-emerald-400">Salida de Materiales</a></li>
-<li><a href="#" class="hover:text-emerald-400">Traspaso de Materiales</a></li>
-                        <li><a href="{% url 'logistica:listar_ingresos' %}" class="hover:text-emerald-400">Ingreso de Materiales</a></li>   
-			
-                    </ul>
-                </li>
-                {% endif %}
-
-                {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">📑 Finanzas</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
-                        <li><a href="{% url 'facturacion:listar_oc_facturacion' %}" class="hover:text-emerald-400">Lista de OC</a></li>
-<li><a href="{% url 'facturacion:listar_facturas' %}" class="hover:text-emerald-400">Lista de Facturas</a></li>
-                    
-<li>
-    <a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Cartola de Movimientos</a></li>
-<a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Saldos Disponibles</a></li>
-
-</ul></li>
-                {% endif %}
-
-                {% if request.user.es_admin_general or request.user.es_pm or request.user.es_rrhh %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">🎁 Beneficios</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
-                        <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
-                    </ul>
-                </li>
-{% endif %}
-
-                {% if request.user.es_admin_general or request.user.es_pm or request.user.es_rrhh %}
-                <li class="group">
-                    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-                        onclick="toggleMenu(this)">
-                        <span class="flex items-center gap-2">👤 Administración de Usuarios</span>
-                        <span class="flecha transition-transform duration-200">▶</span>
-                    </div>
-                    <ul class="ml-4 submenu space-y-1 hidden">
-                        <li><a href="#" class="hover:text-emerald-400">Grupos</a></li>
-                        <li><a href="{% url 'dashboard_admin:listar_usuarios' %}"
-                                class="hover:text-emerald-400">Usuarios</a></li>
-                    </ul>
-                </li>
-                {% endif %}
-            </ul>
-<!-- Contenedor inferior del menú -->
-<div class="mt-10 text-center text-gray-400 text-xs">
-  <p class="mb-1">Desarrollado por</p>
-  <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-12 mx-auto max-w-[100px] object-contain">
-</div>
-        </nav>
-
-        <!-- Contenido -->
-       <main class="md:ml-72 flex-1 p-6 z-10 bg-gray-100">
-{% block dashboard_content %}{% endblock %}
-        </main>
+    <!-- Pie de menú -->
+    <div class="mt-10 text-center text-gray-400 text-xs">
+      <p class="mb-1">Developed by</p>
+      <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-12 mx-auto max-w-[100px] object-contain">
     </div>
-    <!-- Scripts -->
-    <script>
-        function toggleMenu(el) {
-            const submenu = el.nextElementSibling;
-            const flecha = el.querySelector('.flecha');
-            if (submenu && flecha) {
-                submenu.classList.toggle('hidden');
-                flecha.classList.toggle('rotate-90');
-            }
-        }
+  </nav>
 
-        function toggleSidebar() {
-            const nav = document.getElementById('side-nav');
-            nav.classList.toggle('-translate-x-full');
-        }
-    </script>
-    {% if messages %}
-<div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
-  {% for message in messages %}
-    <div class="flex items-center justify-between p-4 rounded-md shadow text-white
-      {% if message.tags == 'success' %}bg-green-600
-      {% elif message.tags == 'error' %}bg-red-600
-      {% elif message.tags == 'warning' %}bg-yellow-500
-      {% else %}bg-blue-600{% endif %}">
-      <span>{{ message }}</span>
-      <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
-    </div>
-  {% endfor %}
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="md:ml-72 flex-1 p-6 z-10 bg-gray-100">
+    {% block dashboard_content %}{% endblock %}
+  </main>
 </div>
 
+<!-- SCRIPTS -->
 <script>
-  setTimeout(() => {
-    const mensajes = document.getElementById('mensajes');
-    if (mensajes) mensajes.remove();
-  }, 5000);
-</script>
-{% endif %}
-
-
-<script>
-// Marcar notificación como leída y redirigir
-function leerNotificacion(id, urlDestino) {
-  fetch(`/usuarios/notificacion/${id}/leer/`)
-    .then(response => {
-      if (response.ok) {
-        // Eliminar la notificación del DOM
-        const item = document.getElementById(`notificacion-${id}`);
-        if (item) item.remove();
-
-        // Actualizar contador del badge
-        const badge = document.querySelector('.relative .bg-red-500');
-        if (badge) {
-          let count = parseInt(badge.innerText);
-          if (count > 1) {
-            badge.innerText = count - 1;
-          } else {
-            badge.remove();
-          }
-        }
-
-        // Redirigir a la URL de la notificación
-        window.location.href = urlDestino;
-      }
-    });
-}
-
-// Mostrar u ocultar el panel de notificaciones
-function toggleNotifications() {
-  const panel = document.getElementById('notification-panel');
-  if (panel) {
-    panel.classList.toggle('hidden');
+  // Abrir/cerrar submenús
+  function toggleMenu(el) {
+    const submenu = el.nextElementSibling;
+    const flecha = el.querySelector('.flecha');
+    if (submenu && flecha) {
+      submenu.classList.toggle('hidden');
+      flecha.classList.toggle('rotate-90');
+    }
   }
-}
+
+  // Mostrar/ocultar menú lateral
+  function toggleSidebar() {
+    const nav = document.getElementById('side-nav');
+    nav.classList.toggle('-translate-x-full');
+  }
+
+  // Mostrar/ocultar panel de notificaciones
+  function toggleNotifications() {
+    const panel = document.getElementById('notification-panel');
+    if (panel) panel.classList.toggle('hidden');
+  }
 </script>
 
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>
-  lucide.createIcons();
-</script>
-
+<script> lucide.createIcons(); </script>
 
 </body>
 </html>
-

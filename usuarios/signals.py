@@ -1,6 +1,7 @@
 from django.db.models.signals import post_migrate, post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
+from django.db import connection
 from usuarios.models import CustomUser, Rol
 from rrhh.models import FichaIngreso
 
@@ -24,6 +25,12 @@ def asociar_ficha_al_crear_usuario(sender, instance, created, **kwargs):
 @receiver(post_migrate)
 def crear_roles_y_admin(sender, **kwargs):
     print("🔄 Ejecutando señal post_migrate...")
+
+    # Evitar errores si las tablas aún no existen
+    tablas = connection.introspection.table_names()
+    if 'usuarios_rol' not in tablas or 'usuarios_customuser' not in tablas:
+        print("⚠️ Tablas de usuarios aún no creadas. Saltando creación de roles/admin.")
+        return
 
     # Crear roles
     roles = ['admin', 'rrhh', 'pm', 'usuario', 'supervisor',

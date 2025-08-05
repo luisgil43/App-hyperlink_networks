@@ -1,7 +1,7 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 {% load static %}
 {% load humanize %}
-<html lang="es">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8">
@@ -13,7 +13,7 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Tu hoja de estilos personalizada -->
+  <!-- Hoja de estilos personalizada -->
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 
   <style>
@@ -25,11 +25,11 @@
 
 <body class="bg-gray-100 text-gray-900">
 
-<!-- Header fijo -->
+<!-- HEADER FIJO -->
 <header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
   <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
 
-    <!-- Campana SIEMPRE ARRIBA A LA DERECHA -->
+    <!-- Campana de notificaciones -->
     <div class="absolute top-3 right-4 z-50">
       <button onclick="toggleNotifications()" class="relative text-gray-700">
         <i data-lucide="bell" class="w-6 h-6"></i>
@@ -55,7 +55,7 @@
               </button>
             </div>
           {% empty %}
-            <p class="text-sm text-gray-500 p-2">Sin historial de notificaciones.</p>
+            <p class="text-sm text-gray-500 p-2">No notifications available.</p>
           {% endfor %}
         </div>
       </div>
@@ -64,14 +64,14 @@
     <!-- CONTENIDO DEL HEADER -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
 
-      <!-- IZQUIERDA: Logo + texto -->
+      <!-- Logo y texto -->
       <div class="flex items-center gap-3">
         <button onclick="toggleSidebar()" class="sm:hidden text-gray-800 text-2xl">☰</button>
-        <img src="{% static 'images/logo.png' %}" alt="Logo" class="h-12">
-        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">PLATAFORMA DE MILTEL</strong>
+        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
       </div>
 
-      <!-- DERECHA: Nombre + cerrar sesión -->
+      <!-- Nombre y botón de logout -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end sm:gap-4 items-start text-sm md:text-base text-right leading-tight">
         <span class="text-gray-800 font-medium break-words sm:whitespace-nowrap">
           {{ request.user.get_full_name|default:request.user.username }}
@@ -79,7 +79,7 @@
         <form method="post" action="{% url 'dashboard_admin:logout' %}">
           {% csrf_token %}
           <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
-            Cerrar Sesión
+            Log Out
           </button>
         </form>
       </div>
@@ -89,124 +89,105 @@
 </header>
 
 
-  <!-- Contenedor principal -->
+  <!-- CONTENEDOR PRINCIPAL -->
   <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
 
-    <!-- Menú lateral con animación -->
+    <!-- MENÚ LATERAL -->
     <nav id="side-nav"
       class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
-      <h2 class="text-2xl font-bold mb-8">Menú</h2>
+      <h2 class="text-2xl font-bold mb-8">Menu</h2>
       <ul class="space-y-4 text-base">
         <li>
-          <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠
-            Inicio</a>
+          <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🎁
-            Beneficios <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Convenios disponibles</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🎁 Benefits <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Available Agreements</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Flota
-            <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Mi vehiculo asignado</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Devolución de Vehiculo</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Mantenimientos</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Reportes</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Documentación del Vehiculo</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Assigned Vehicle</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Vehicle Return</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Maintenance</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Reports</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Vehicle Documentation</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📄
-            Facturación <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Mis facturas</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📄 Billing <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Invoices</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦
-            Logística <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Solicitud de materiales</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Devolución de materiales</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Mis equipos asignados</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Material Request</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Assigned Equipment</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠
-            Operaciones <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-		<li><a href="{% url 'operaciones:buscar_mi_sitio' %}" class="hover:text-emerald-400">Buscar Mi Sitio</a></li>
-<li><a href="{% url 'operaciones:mis_servicios_tecnico' %}" class="hover:text-emerald-400">Mi Asignación</a></li>
-            <li>
-  <a href="{% url 'operaciones:produccion_tecnico' %}" class="hover:text-emerald-400">
-    Mi Producción
-  </a>
-</li>
-            <li><a href="#" class="hover:text-emerald-400">Horas extras</a></li>
-            <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">Mis Rendiciones</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Assignment</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Production</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
+            <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🦺
-            Prevención de Riesgo <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Mis Cursos</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Firma de documentos</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Mis EPP asignados</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🦺 Risk Prevention <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Courses</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Document Signing</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Assigned PPE</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼
-            RR.HH <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="{% url 'rrhh:mis_vacaciones' %}" class="hover:text-emerald-400">Mis Vacaciones</a></li>
-            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">Mis liquidaciones</a></li>
-            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">Mis contratos de trabajos</a>
-            </li>
-            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">Mi Ficha de Ingreso</a>
-            </li>
-            <li><a href="{% url 'rrhh:mis_documentos' %}" class="hover:text-emerald-400">Mis Documentos</a></li>
-            <li><a href="{% url 'dashboard:registrar_firma_usuario' %}" class="hover:text-emerald-400">Mi Firma
-                Digital</a></li>
-            <li><a href="{% url 'rrhh:ver_cronograma' %}" class="hover:text-emerald-400">Mi cronograma de pago</a></li>
-            <li><a href="{% url 'rrhh:listar_adelantos_usuario' %}" class="hover:text-emerald-400">Solicitud de
-                adelanto de sueldo</a>
-            </li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Vacations</a></li>
+            <li><a href="#" class="hover:text-emerald-400">>My Payrolls</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Employment Contracts</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Onboarding Form</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Documents</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Digital Signature</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Payment Schedule</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Salary Advance Request</a></li>
           </ul>
         </li>
         <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝
-            Subcontrato <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
-            <li><a href="#" class="hover:text-emerald-400">Cargar producción</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cargar factura de producción</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cargar contrato de los trabajadores</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cargar F30 y F30-1</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cargar liquidaciones de sueldo</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Cargar curso de los trabajadores</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Contrato de servicio</a></li>
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontract <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Production Invoice</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Worker Contracts</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload F30 and F30-1</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Payrolls</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Worker Courses</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Service Contract</a></li>
           </ul>
         </li>
       </ul>
-<!-- Contenedor inferior del menú -->
+<!-- Pie del menú -->
 <div class="mt-10 text-center text-gray-400 text-xs">
-  <p class="mb-1">Desarrollado por</p>
+  <p class="mb-1">Developed by</p>
   <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-14 mx-auto max-w-[100px] object-contain">
 </div>
     </nav>
 
-    <!-- Contenido principal -->
+    <!-- CONTENIDO PRINCIPAL -->
     <main class="md:ml-72 flex-1 p-6">
       {% block content %}{% endblock %}
     </main>
 
-  </div> <!-- ← Aquí se cierra correctamente el contenedor principal -->
+  </div> <!-- cierre contenedor principal -->
 
-  <!-- Submenús y mensajes -->
+  <!-- Scripts de interacción -->
   <script>
     function toggleMenu(el) {
       const submenu = el.nextElementSibling;
@@ -231,6 +212,7 @@
     }
   </script>
 
+  <!-- Mensajes emergentes -->
   {% if messages %}
   <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
     {% for message in messages %}
@@ -257,11 +239,8 @@ function leerNotificacion(id, urlDestino) {
   fetch(`/usuarios/notificacion/${id}/leer/`)
     .then(response => {
       if (response.ok) {
-        // Eliminar la notificación del DOM
         const item = document.getElementById(`notificacion-${id}`);
         if (item) item.remove();
-
-        // Actualizar contador del badge
         const badge = document.querySelector('.relative .bg-red-500');
         if (badge) {
           let count = parseInt(badge.innerText);
@@ -271,8 +250,6 @@ function leerNotificacion(id, urlDestino) {
             badge.remove();
           }
         }
-
-        // Redirigir a la URL de la notificación
         window.location.href = urlDestino;
       }
     });

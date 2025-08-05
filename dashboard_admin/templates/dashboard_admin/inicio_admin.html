@@ -1,31 +1,37 @@
 {% extends "dashboard_admin/base.html" %}
 
-{% block title %}Inicio - Panel Admin{% endblock %}
+{% block title %}Home - Admin Panel{% endblock %}
 
 {% block dashboard_content %}
 <div class="text-center mt-10">
+    <!-- Mensaje de bienvenida -->
     <h1 class="text-3xl font-bold text-gray-800 mb-4">
-        ¡Hola {{ request.user.get_full_name }}!
+        Hello {{ request.user.get_full_name }}!
     </h1>
     <p class="text-xl text-gray-600 mb-6">
-        ¿Qué deseas gestionar hoy?
+        What would you like to manage today?
     </p>
 
+    <!-- Botones principales del panel admin -->
     <div class="flex justify-center gap-6 flex-wrap">
+        <!-- Cargar liquidaciones -->
         <a href="{% url 'liquidaciones:admin_lista' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📄 Cargar Liquidaciones
+            📄 Upload Payrolls
         </a>
 
+        <!-- Cargar producciones -->
         <a href="#" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            🏗️ Cargar Producciones
+            🏗️ Upload Productions
         </a>
 
+        <!-- Cargar contratos -->
         <a href="{% url 'rrhh:contratos_trabajo' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📑 Cargar Contratos
+            📑 Upload Contracts
         </a>
 
+        <!-- Cargar fichas de ingreso -->
         <a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            🧾 Cargar Fichas de Ingreso
+            🧾 Upload Onboarding Forms
         </a>
     </div>
 </div>

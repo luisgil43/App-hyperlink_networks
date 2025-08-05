@@ -51,5 +51,7 @@ urlpatterns = [
          views.eliminar_movimiento, name='eliminar_movimiento'),
     path('saldos-usuarios/', views.listar_saldos_usuarios,
          name='listar_saldos_usuarios'),
+    path('cartola/exportar/', views.exportar_cartola, name='exportar_cartola'),
+    path('balances/exportar/', views.exportar_saldos, name='exportar_saldos'),
 
 ]

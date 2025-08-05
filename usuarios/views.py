@@ -1,6 +1,6 @@
 from django.shortcuts import get_object_or_404, redirect
 from .models import Notificacion
-from gz_services.utils.email_utils import enviar_correo_manual
+from hyperlink_networks.utils.email_utils import enviar_correo_manual
 from email.utils import formataddr
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string

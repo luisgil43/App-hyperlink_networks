@@ -1,66 +1,67 @@
 {% extends "dashboard_admin/base.html" %}
 {% load widget_tweaks %}
 
-{% block title %}Crear Tipo de Gasto{% endblock %}
+{% block title %}Create Expense Type{% endblock %}
 
 {% block dashboard_content %}
 <div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <!-- Título principal -->
   <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-    ➕ Crear Tipo de Gasto
+    ➕ Create Expense Type
   </h2>
 
   <!-- Formulario de creación -->
   <form id="createForm" method="post" class="space-y-4 mb-6">
     {% csrf_token %}
     <div>
-      <label class="block text-sm font-medium text-gray-700">Nombre</label>
+      <label class="block text-sm font-medium text-gray-700">Name</label>
       {{ form.nombre|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
     <div>
-      <label class="block text-sm font-medium text-gray-700">Categoría</label>
+      <label class="block text-sm font-medium text-gray-700">Category</label>
       {{ form.categoria|add_class:"w-full border rounded-xl px-3 py-2" }}
     </div>
     <div class="flex justify-end gap-3 pt-4">
       <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-xl">
-        Cancelar
+        Cancel
       </a>
       <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
-        Guardar
+        Save
       </button>
     </div>
   </form>
 
   <!-- Tabla de tipos creados -->
-  <h3 class="text-lg font-bold text-gray-700 mb-3">Tipos de Gasto Creados</h3>
+  <h3 class="text-lg font-bold text-gray-700 mb-3">Created Expense Types</h3>
   <div class="overflow-x-auto">
     <table class="min-w-full table-auto border border-gray-300 rounded-xl text-sm">
       <thead class="bg-gray-100 text-gray-700">
         <tr>
           <th class="p-2 border">ID</th>
-          <th class="p-2 border">Nombre</th>
-          <th class="p-2 border">Categoría</th>
-          <th class="p-2 border">Acciones</th>
+          <th class="p-2 border">Name</th>
+          <th class="p-2 border">Category</th>
+          <th class="p-2 border">Actions</th>
         </tr>
       </thead>
       <tbody id="tiposBody">
         {% for tipo in tipos %}
         <tr class="border-t">
           <td class="p-2 border text-center">{{ tipo.id }}</td>
-<td class="p-2 border text-center">{{ tipo.nombre }}</td>
-<td class="p-2 border text-center">{{ tipo.get_categoria_display }}</td>
-<td class="p-2 border text-center">
-  <a href="{% url 'facturacion:editar_tipo' tipo.id %}" class="text-blue-600 hover:underline">✏️ Editar</a> |
-  <button type="button" 
-          class="text-red-600 hover:underline delete-btn" 
-          data-url="{% url 'facturacion:eliminar_tipo' tipo.id %}" 
-          data-nombre="{{ tipo.nombre }}">
-      🗑️Eliminar
-  </button>
-</td>
+          <td class="p-2 border text-center">{{ tipo.nombre }}</td>
+          <td class="p-2 border text-center">{{ tipo.get_categoria_display }}</td>
+          <td class="p-2 border text-center">
+            <a href="{% url 'facturacion:editar_tipo' tipo.id %}" class="text-blue-600 hover:underline">✏️ Edit</a> |
+            <button type="button" 
+                    class="text-red-600 hover:underline delete-btn" 
+                    data-url="{% url 'facturacion:eliminar_tipo' tipo.id %}" 
+                    data-nombre="{{ tipo.nombre }}">
+                🗑️ Delete
+            </button>
+          </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="4" class="p-4 text-center text-gray-500">No hay tipos creados.</td>
+          <td colspan="4" class="p-4 text-center text-gray-500">No expense types created.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -71,25 +72,26 @@
 <!-- Modal de eliminación -->
 <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
   <div class="bg-white rounded-xl p-6 max-w-md w-full shadow-lg">
-    <h3 class="text-xl font-bold mb-4">Eliminar Tipo</h3>
-    <p class="mb-4 text-gray-700">¿Estás seguro que deseas eliminar el tipo <span id="deleteNombre" class="font-semibold"></span>?</p>
+    <h3 class="text-xl font-bold mb-4">Delete Expense Type</h3>
+    <p class="mb-4 text-gray-700">Are you sure you want to delete the type <span id="deleteNombre" class="font-semibold"></span>?</p>
     <div class="flex justify-end gap-3">
-      <button type="button" id="cancelDelete" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">Cancelar</button>
+      <button type="button" id="cancelDelete" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">Cancel</button>
       <form id="deleteForm" method="post">
         {% csrf_token %}
-        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl">Eliminar</button>
+        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl">Delete</button>
       </form>
     </div>
   </div>
 </div>
 
+<!-- Script del modal de eliminación -->
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const deleteModal = document.getElementById("deleteModal");
   const deleteForm = document.getElementById("deleteForm");
   const deleteNombre = document.getElementById("deleteNombre");
 
-  // Abrir modal al dar clic en eliminar
+  // Abrir modal al hacer clic en "Delete"
   document.querySelectorAll(".delete-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const url = btn.getAttribute("data-url");
@@ -101,13 +103,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Cerrar modal
+  // Cerrar modal con botón "Cancel"
   document.getElementById("cancelDelete").addEventListener("click", () => {
     deleteModal.classList.add("hidden");
     deleteModal.classList.remove("flex");
   });
 
-  // Cerrar modal al hacer clic fuera
+  // Cerrar modal al hacer clic fuera del cuadro
   deleteModal.addEventListener("click", (e) => {
     if (e.target === deleteModal) {
       deleteModal.classList.add("hidden");

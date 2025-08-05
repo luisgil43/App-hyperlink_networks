@@ -1,10 +1,9 @@
-# operaciones/models.py
-
 from django.db.models import Max
 from django.db import models
 from django.conf import settings
 from decimal import Decimal
 from usuarios.models import CustomUser
+from utils.paths import upload_to  # 👈 Importamos upload dinámico
 
 
 class SitioMovil(models.Model):
@@ -15,7 +14,6 @@ class SitioMovil(models.Model):
     nombre = models.CharField(max_length=255, blank=True, null=True)
     direccion = models.CharField(max_length=255, blank=True, null=True)
 
-    # Convertidos a FloatField
     latitud = models.FloatField(blank=True, null=True)
     longitud = models.FloatField(blank=True, null=True)
 
@@ -148,6 +146,13 @@ class ServicioCotizado(models.Model):
         verbose_name='Usuario que cargó el informe'
     )
 
+    informe = models.FileField(  # 👈 NUEVO CAMPO
+        upload_to=upload_to,
+        blank=True,
+        null=True,
+        verbose_name="Informe del servicio"
+    )
+
     motivo_rechazo = models.TextField(blank=True, null=True)
 
     class Meta:
@@ -162,7 +167,6 @@ class ServicioCotizado(models.Model):
             else:
                 nuevo = '00000001'
 
-            # Asegura que no exista el nuevo DU
             while ServicioCotizado.objects.filter(du=nuevo).exists():
                 nuevo = str(int(nuevo) + 1).zfill(8)
 
