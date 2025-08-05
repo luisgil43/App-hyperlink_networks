@@ -65,3 +65,13 @@ def formato_uf(value):
 def field_label(form, field_name):
     """Obtiene el label de un campo del formulario."""
     return form.fields[field_name].label
+
+
+@register.filter
+def formato_usd(value):
+    """Formatea el valor como dólares con separadores de miles."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "US$ 0.00"
+    return f"US$ {value:,.2f}"

@@ -1,3 +1,11 @@
+from django.db.models import Sum, F
+from django.utils.timezone import is_aware
+import xlwt
+from io import BytesIO
+from django.utils.module_loading import import_string
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db.models import Q
 from operaciones.forms import MovimientoUsuarioForm
 from django.db.models import Sum, Q
@@ -131,14 +139,11 @@ def importar_orden_compra(request):
         archivo = request.FILES['archivo_pdf']
         nombre_archivo = archivo.name
 
-        ruta_temporal = default_storage.save(
-            f"temp_oc/{nombre_archivo}", ContentFile(archivo.read()))
-        ruta_absoluta = default_storage.path(ruta_temporal)
-
         datos_extraidos = []
         numero_oc = 'NO_ENCONTRADO'
 
-        with pdfplumber.open(ruta_absoluta) as pdf:
+        # Leer PDF directamente desde memoria
+        with pdfplumber.open(BytesIO(archivo.read())) as pdf:
             lineas_completas = []
             for pagina in pdf.pages:
                 texto = pagina.extract_text()
@@ -179,9 +184,7 @@ def importar_orden_compra(request):
                     id_new = None
                     if i + 1 < len(lineas_completas):
                         match_id = re.search(
-                            r'(CL-\d{2}-[A-Z]{2}-\d{5}-\d{2})',
-                            lineas_completas[i + 1]
-                        )
+                            r'(CL-\d{2}-[A-Z]{2}-\d{5}-\d{2})', lineas_completas[i + 1])
                         if match_id:
                             id_new = match_id.group(1)
 
@@ -200,11 +203,8 @@ def importar_orden_compra(request):
                     i += 1
             i += 1
 
-        default_storage.delete(ruta_temporal)
-
         request.session['ordenes_previsualizadas'] = datos_extraidos
 
-        # Verificación: detectar ID NEW sin servicio registrado
         ids_no_encontrados = set()
         for fila in datos_extraidos:
             id_new = fila.get('id_new')
@@ -222,7 +222,6 @@ def importar_orden_compra(request):
             'ids_no_encontrados': ids_no_encontrados,
         })
 
-    # 🔁 Este return es fundamental para evitar el ValueError en peticiones GET
     return render(request, 'facturacion/importar_orden_compra.html')
 
 
@@ -1018,14 +1017,17 @@ def registrar_abono(request):
         form = CartolaAbonoForm(request.POST, request.FILES)
         if form.is_valid():
             movimiento = form.save(commit=False)
-            # Si es abono, setear automáticamente valores
             from .models import TipoGasto
             tipo_abono = TipoGasto.objects.filter(categoria='abono').first()
             movimiento.tipo = tipo_abono
             movimiento.cargos = 0
+
+            # Solo asignamos el archivo, Django lo subirá a Wasabi
+            if 'comprobante' in request.FILES:
+                movimiento.comprobante = request.FILES['comprobante']
+
             movimiento.save()
             messages.success(request, "Movimiento registrado correctamente.")
-            # <-- Redirección después de guardar
             return redirect('facturacion:listar_cartola')
         else:
             messages.error(
@@ -1192,24 +1194,22 @@ def rechazar_movimiento(request, pk):
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
-    # Determinar qué formulario usar según la categoría
-    if movimiento.tipo and movimiento.tipo.categoria == "abono":
-        FormClass = CartolaAbonoForm
-        estado_restaurado = 'pendiente_abono_usuario'
-    else:
-        FormClass = MovimientoUsuarioForm
-        estado_restaurado = 'pendiente_supervisor'
+    FormClass = CartolaAbonoForm if (
+        movimiento.tipo and movimiento.tipo.categoria == "abono") else MovimientoUsuarioForm
+    estado_restaurado = 'pendiente_abono_usuario' if FormClass == CartolaAbonoForm else 'pendiente_supervisor'
 
     if request.method == 'POST':
         form = FormClass(request.POST, request.FILES, instance=movimiento)
         if form.is_valid():
-            campos_editados = form.changed_data
-            if campos_editados:
-                # Restablecer el estado solo si se editó algo
+            movimiento = form.save(commit=False)
+            if 'comprobante' in request.FILES:
+                # Reemplaza en Wasabi
+                movimiento.comprobante = request.FILES['comprobante']
+
+            if form.changed_data:
                 movimiento.status = estado_restaurado
-                # Limpiar el motivo de rechazo si lo tenía
                 movimiento.motivo_rechazo = ""
-            form.save()
+            movimiento.save()
             messages.success(request, "Movimiento actualizado correctamente.")
             return redirect('facturacion:listar_cartola')
     else:
@@ -1262,3 +1262,109 @@ def listar_saldos_usuarios(request):
         'pagina': pagina,
         'cantidad': cantidad,
     })
+
+
+@login_required
+@rol_requerido('facturacion', 'admin')
+def exportar_cartola(request):
+    movimientos = CartolaMovimiento.objects.all()
+
+    if usuario := request.GET.get("du"):
+        movimientos = movimientos.filter(usuario__username__icontains=usuario)
+    if fecha := request.GET.get("fecha"):
+        movimientos = movimientos.filter(fecha=fecha)
+    if proyecto := request.GET.get("proyecto"):
+        movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
+    if categoria := request.GET.get("categoria"):
+        movimientos = movimientos.filter(tipo__categoria__icontains=categoria)
+    if tipo := request.GET.get("tipo"):
+        movimientos = movimientos.filter(tipo__nombre__icontains=tipo)
+    if rut := request.GET.get("rut_factura"):
+        movimientos = movimientos.filter(rut_factura__icontains=rut)
+    if estado := request.GET.get("estado"):
+        movimientos = movimientos.filter(status=estado)
+
+    response = HttpResponse(content_type='application/ms-excel')
+    response['Content-Disposition'] = 'attachment; filename="transactions_ledger.xls"'
+
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('Transactions')
+
+    header_style = xlwt.easyxf('font: bold on; align: horiz center')
+    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+
+    columns = [
+        "User", "Date", "Project", "Category", "Type", "Remarks",
+        "Transfer Number", "Debits", "Credits", "Status"
+    ]
+    for col_num, column_title in enumerate(columns):
+        ws.write(0, col_num, column_title, header_style)
+
+    for row_num, mov in enumerate(movimientos, start=1):
+        ws.write(row_num, 0, str(mov.usuario))
+
+        fecha_excel = mov.fecha
+        if isinstance(fecha_excel, datetime):
+            if is_aware(fecha_excel):
+                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
+            fecha_excel = fecha_excel.date()
+        ws.write(row_num, 1, fecha_excel, date_style)
+
+        ws.write(row_num, 2, str(mov.proyecto))
+        ws.write(row_num, 3, mov.tipo.categoria.title())
+        ws.write(row_num, 4, str(mov.tipo))
+        ws.write(row_num, 5, mov.observaciones or "")
+        ws.write(row_num, 6, mov.numero_transferencia or "")
+        ws.write(row_num, 7, float(mov.cargos or 0))
+        ws.write(row_num, 8, float(mov.abonos or 0))
+        ws.write(row_num, 9, mov.get_status_display())
+
+    wb.save(response)
+    return response
+
+
+@login_required
+def exportar_saldos(request):
+    """
+    Exporta todos los saldos disponibles en un archivo Excel.
+    Los títulos visibles estarán en inglés, pero el código comentado queda en español.
+    """
+    from facturacion.models import CartolaMovimiento
+
+    # Agrupamos por usuario para obtener montos rendidos y disponibles
+    balances = (CartolaMovimiento.objects
+                .values('usuario__first_name', 'usuario__last_name')
+                .annotate(
+                    rendered_amount=Sum('cargos', default=0),
+                    available_amount=Sum(F('abonos') - F('cargos'), default=0)
+                )
+                .order_by('usuario__first_name', 'usuario__last_name'))
+
+    # Configuramos respuesta HTTP para descarga directa
+    response = HttpResponse(content_type='application/octet-stream')
+    response['Content-Disposition'] = 'attachment; filename="available_balances.xls"'
+    response['X-Content-Type-Options'] = 'nosniff'
+
+    # Creamos el archivo Excel
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('Available Balances')
+
+    # Estilos
+    header_style = xlwt.easyxf('font: bold on; align: horiz center')
+    currency_style = xlwt.easyxf(num_format_str='$#,##0.00')
+
+    # Cabeceras en inglés
+    columns = ["User", "Rendered Amount", "Available Amount"]
+    for col_num, column_title in enumerate(columns):
+        ws.write(0, col_num, column_title, header_style)
+
+    # Escribir los datos
+    for row_num, b in enumerate(balances, start=1):
+        user_name = f"{b['usuario__first_name']} {b['usuario__last_name']}"
+        ws.write(row_num, 0, user_name)
+        ws.write(row_num, 1, float(b['rendered_amount'] or 0), currency_style)
+        ws.write(row_num, 2, float(b['available_amount'] or 0), currency_style)
+
+    # Guardar archivo
+    wb.save(response)
+    return response

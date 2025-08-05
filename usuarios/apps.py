@@ -7,7 +7,9 @@ class UsuariosConfig(AppConfig):
     name = 'usuarios'
 
     def ready(self):
-        import usuarios.signals  # Señales
+        # Importar señales (no accede a la BD aquí)
+        import usuarios.signals
+
         # Iniciar el scheduler SOLO si el servidor está corriendo
         if 'runserver' in sys.argv or 'gunicorn' in sys.argv:
             from . import schedulers

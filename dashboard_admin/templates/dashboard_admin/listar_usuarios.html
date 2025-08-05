@@ -1,37 +1,41 @@
 {% extends "dashboard_admin/base.html" %}
 
-{% block title %}Usuarios - Admin{% endblock %}
+{% block title %}Users - Admin{% endblock %}
 
 {% block dashboard_content %}
 <div class="p-6 max-w-7xl mx-auto">
-  <h1 class="text-2xl font-bold mb-4">👤 Lista de Usuarios</h1>
+  <!-- Título principal -->
+  <h1 class="text-2xl font-bold mb-4">👤 User List</h1>
 
+  <!-- Botón de agregar y filtro por rol -->
   <div class="flex flex-wrap gap-4 items-center mb-6">
+    <!-- Botón para crear usuario -->
     <a href="{% url 'dashboard_admin:crear_usuario' %}"
        class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded">
-      ➕ Agregar Usuario
+      ➕ Add User
     </a>
 
     <!-- Filtro por rol -->
     <form method="get" class="flex items-center gap-2">
-      <label for="rol" class="text-sm font-medium text-gray-700">Filtrar por rol:</label>
+      <label for="rol" class="text-sm font-medium text-gray-700">Filter by role:</label>
       <select name="rol" id="rol" class="rounded border-gray-300 text-sm px-2 py-1">
-        <option value="">Todos</option>
+        <option value="">All</option>
         {% for rol in roles %}
-  <option value="{{ rol.nombre }}" {% if rol_filtrado == rol.nombre %}selected{% endif %}>{{ rol.nombre|capfirst }}</option>
-{% endfor %}
+          <option value="{{ rol.nombre }}" {% if rol_filtrado == rol.nombre %}selected{% endif %}>{{ rol.nombre|capfirst }}</option>
+        {% endfor %}
       </select>
       <button type="submit"
               class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">
-        Aplicar
+        Apply
       </button>
       {% if rol_filtrado %}
         <a href="{% url 'dashboard_admin:listar_usuarios' %}"
-           class="text-sm text-red-600 hover:underline ml-2">Quitar filtro</a>
+           class="text-sm text-red-600 hover:underline ml-2">Remove filter</a>
       {% endif %}
     </form>
   </div>
 
+  <!-- Mensajes del sistema -->
   {% if messages %}
     <ul class="mb-4">
       {% for message in messages %}
@@ -42,18 +46,19 @@
     </ul>
   {% endif %}
 
+  <!-- Tabla de usuarios -->
   <div class="overflow-x-auto">
     <table class="min-w-full divide-y divide-gray-200 text-sm text-left bg-white shadow rounded-lg">
       <thead class="bg-gray-100">
         <tr>
-          <th class="px-4 py-2 font-semibold">Usuario</th>
-          <th class="px-4 py-2">Nombre</th>
-          <th class="px-4 py-2">Apellidos</th>
+          <th class="px-4 py-2 font-semibold">Username</th>
+          <th class="px-4 py-2">First Name</th>
+          <th class="px-4 py-2">Last Name</th>
           <th class="px-4 py-2">ID</th>
-          <th class="px-4 py-2">Correo</th>
+          <th class="px-4 py-2">Email</th>
           <th class="px-4 py-2">Roles</th>
-          <th class="px-4 py-2">Activo</th>
-          <th class="px-4 py-2">Acciones</th>
+          <th class="px-4 py-2">Active</th>
+          <th class="px-4 py-2">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
@@ -68,26 +73,26 @@
             {% for rol in usuario.roles.all %}
               <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">{{ rol.nombre }}</span>
             {% empty %}
-              <span class="text-gray-400 text-sm">Sin roles</span>
+              <span class="text-gray-400 text-sm">No roles</span>
             {% endfor %}
           </td>
           <td class="px-4 py-2">
             {% if usuario.is_active %}
-              <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Sí</span>
+              <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Yes</span>
             {% else %}
               <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ No</span>
             {% endif %}
           </td>
           <td class="px-4 py-2 space-x-2">
             <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
-               class="text-blue-600 hover:underline font-medium">Editar</a>
+               class="text-blue-600 hover:underline font-medium">Edit</a>
             <button onclick="openModal('{{ usuario.id }}', '{{ usuario.username }}')"
-                    class="text-red-600 hover:underline font-medium">Eliminar</button>
+                    class="text-red-600 hover:underline font-medium">Delete</button>
           </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="8" class="py-4 text-center text-gray-500">No hay usuarios registrados.</td>
+          <td colspan="8" class="py-4 text-center text-gray-500">No users registered.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -95,27 +100,28 @@
   </div>
 </div>
 
-<!-- Modal -->
+<!-- Modal de confirmación -->
 <div id="confirmModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
   <div class="bg-white rounded-lg shadow-lg max-w-sm w-full p-6">
-    <h2 class="text-xl font-semibold mb-4">Confirmar eliminación</h2>
+    <h2 class="text-xl font-semibold mb-4">Confirm Deletion</h2>
     <p id="modalMessage" class="mb-6 text-gray-700"></p>
     <div class="flex justify-end space-x-4">
-      <button onclick="closeModal()" class="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 font-semibold">Cancelar</button>
+      <button onclick="closeModal()" class="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 font-semibold">Cancel</button>
       <form id="deleteForm" method="POST">
         {% csrf_token %}
         <button type="submit" name="delete_user"
-                class="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold">Eliminar</button>
+                class="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold">Delete</button>
       </form>
     </div>
   </div>
 </div>
 
+<!-- Script para abrir/cerrar modal -->
 <script>
   function openModal(userId, username) {
     document.getElementById('confirmModal').classList.remove('hidden');
     document.getElementById('modalMessage').textContent =
-      `¿Estás seguro de que deseas eliminar al usuario "${username}"?`;
+      `Are you sure you want to delete the user "${username}"?`;
     document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
   }
 

@@ -1,5 +1,7 @@
 # operaciones/views.py
-from .forms import validar_rut_chileno, verificar_rut_sii
+from django.utils.timezone import is_aware
+from botocore.exceptions import ClientError
+import boto3
 from django.db.models import Sum
 from .forms import MovimientoUsuarioForm  # crearemos este form
 from django.shortcuts import redirect
@@ -1005,21 +1007,48 @@ def exportar_produccion_pdf(request):
         return HttpResponse(f"Error generando PDF: {e}", status=500)
 
 
+def verificar_archivo_wasabi(ruta):
+    """Verifica si un archivo existe en el bucket Wasabi."""
+    s3 = boto3.client(
+        's3',
+        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    )
+    try:
+        s3.head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=ruta)
+        return True
+    except ClientError:
+        return False
+
+
 @login_required
 def mis_rendiciones(request):
     user = request.user
 
-    # --- Crear nueva rendición ---
     if request.method == 'POST':
         form = MovimientoUsuarioForm(request.POST, request.FILES)
         if form.is_valid():
             mov = form.save(commit=False)
             mov.usuario = user
             mov.fecha = now()
-            mov.status = 'pendiente_supervisor'
-            mov.comprobante = form.cleaned_data.get(
-                "comprobante")  # Usamos el comprobante validado
-            mov.save()
+            mov.status = 'pendiente_abono_usuario' if mov.tipo and mov.tipo.categoria == "abono" else 'pendiente_supervisor'
+            mov.comprobante = form.cleaned_data['comprobante']
+            mov.save()  # sube a Wasabi
+
+            # Verificamos en Wasabi (con reintento)
+            ruta_archivo = mov.comprobante.name
+            import time
+            for _ in range(3):  # hasta 3 intentos
+                if verificar_archivo_wasabi(ruta_archivo):
+                    break
+                time.sleep(1)
+            else:
+                mov.delete()
+                messages.error(
+                    request, "Error al subir el comprobante. Intente nuevamente.")
+                return redirect('operaciones:mis_rendiciones')
+
             messages.success(request, "Rendición registrada correctamente.")
             return redirect('operaciones:mis_rendiciones')
     else:
@@ -1030,15 +1059,12 @@ def mis_rendiciones(request):
     cantidad = 1000000 if cantidad == 'todos' else int(cantidad)
 
     movimientos = CartolaMovimiento.objects.filter(
-        usuario=user
-    ).order_by('-fecha')
-
+        usuario=user).order_by('-fecha')
     paginator = Paginator(movimientos, cantidad)
     page_number = request.GET.get('page')
     pagina = paginator.get_page(page_number)
 
     # --- Cálculo de saldos ---
-    # Disponible: abonos aprobados - gastos aprobados por finanzas
     saldo_disponible = (
         (movimientos.filter(tipo__categoria="abono", status="aprobado_abono_usuario")
          .aggregate(total=Sum('abonos'))['total'] or 0)
@@ -1048,19 +1074,10 @@ def mis_rendiciones(request):
          .aggregate(total=Sum('cargos'))['total'] or 0)
     )
 
-    # Pendiente: abonos aún no aprobados por el usuario
-    saldo_pendiente = (
-        movimientos.filter(tipo__categoria="abono")
-        .exclude(status="aprobado_abono_usuario")
-        .aggregate(total=Sum('abonos'))['total'] or 0
-    )
-
-    # Rendido: todo lo que no es abono y no está aprobado por finanzas
-    saldo_rendido = (
-        movimientos.exclude(tipo__categoria="abono")
-        .exclude(status="aprobado_finanzas")
-        .aggregate(total=Sum('cargos'))['total'] or 0
-    )
+    saldo_pendiente = movimientos.filter(tipo__categoria="abono").exclude(
+        status="aprobado_abono_usuario").aggregate(total=Sum('abonos'))['total'] or 0
+    saldo_rendido = movimientos.exclude(tipo__categoria="abono").exclude(
+        status="aprobado_finanzas").aggregate(total=Sum('cargos'))['total'] or 0
 
     return render(request, 'operaciones/mis_rendiciones.html', {
         'pagina': pagina,
@@ -1156,17 +1173,21 @@ def vista_rendiciones(request):
     if user.is_superuser:
         movimientos = CartolaMovimiento.objects.all()
     elif getattr(user, 'es_supervisor', False):
+        # Supervisor: solo pendientes y rechazados por él
         movimientos = CartolaMovimiento.objects.filter(
             Q(status='pendiente_supervisor') | Q(status='rechazado_supervisor')
         )
     elif getattr(user, 'es_pm', False):
+        # PM: pendientes aprobados por supervisor, rechazados por él y los que ya aprobó
         movimientos = CartolaMovimiento.objects.filter(
-            Q(status='aprobado_supervisor') | Q(status='rechazado_pm')
+            Q(status='aprobado_supervisor') |
+            Q(status='rechazado_pm') |
+            Q(status='aprobado_pm')
         )
     else:
         movimientos = CartolaMovimiento.objects.none()
 
-    # Orden personalizado
+    # Orden personalizado: primero pendientes, luego rechazados, luego aprobados
     movimientos = movimientos.annotate(
         orden_status=Case(
             When(status__startswith='pendiente', then=Value(1)),
@@ -1247,13 +1268,91 @@ def rechazar_rendicion(request, pk):
     return redirect('operaciones:vista_rendiciones')
 
 
-@csrf_exempt
-def validar_rut_ajax(request):
-    """Valida el RUT desde AJAX y devuelve estado."""
-    rut = request.POST.get("rut", "")
-    if not validar_rut_chileno(rut):
-        return JsonResponse({"ok": False, "error": "El RUT ingresado no es válido."})
-    razon_social = verificar_rut_sii(rut)
-    if not razon_social:
-        return JsonResponse({"ok": False, "error": "El RUT no está registrado en el SII."})
-    return JsonResponse({"ok": True, "mensaje": "RUT válido"})
+@login_required
+@rol_requerido('pm')  # Solo PM
+def exportar_rendiciones(request):
+    # Filtro: solo lo que ve el PM
+    movimientos = CartolaMovimiento.objects.filter(
+        Q(status='aprobado_supervisor') | Q(
+            status='rechazado_pm') | Q(status='aprobado_pm')
+    ).order_by('status', '-fecha')
+
+    # Crear respuesta Excel
+    response = HttpResponse(content_type='application/ms-excel')
+    response['Content-Disposition'] = 'attachment; filename="expense_reports.xls"'
+
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('Expense Reports')
+
+    header_style = xlwt.easyxf('font: bold on; align: horiz center')
+    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+
+    columns = ["User", "Date", "Project",
+               "Type", "Remarks", "Amount", "Status"]
+    for col_num, column_title in enumerate(columns):
+        ws.write(0, col_num, column_title, header_style)
+
+    for row_num, mov in enumerate(movimientos, start=1):
+        ws.write(row_num, 0, str(mov.usuario))
+        fecha_excel = mov.fecha
+        if isinstance(fecha_excel, datetime):
+            if is_aware(fecha_excel):
+                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
+            fecha_excel = fecha_excel.date()
+        ws.write(row_num, 1, fecha_excel, date_style)
+        ws.write(row_num, 2, str(mov.proyecto))
+        ws.write(row_num, 3, str(mov.tipo))
+        ws.write(row_num, 4, mov.observaciones or "")
+        ws.write(row_num, 5, float(mov.cargos or 0))
+        ws.write(row_num, 6, mov.get_status_display())
+
+    wb.save(response)
+    return response
+
+
+@login_required
+@rol_requerido('usuarios')
+def exportar_mis_rendiciones(request):
+    user = request.user
+    movimientos = CartolaMovimiento.objects.filter(
+        usuario=user
+    ).order_by('-fecha')
+
+    # Crear archivo Excel
+    response = HttpResponse(content_type='application/ms-excel')
+    response['Content-Disposition'] = 'attachment; filename="my_expense_reports.xls"'
+
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('My Expense Reports')
+
+    header_style = xlwt.easyxf('font: bold on; align: horiz center')
+    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+
+    # Columnas (igual que el PM)
+    columns = [
+        "User", "Date", "Project", "Type",
+        "Expenses (USD)", "Credits (USD)", "Remarks", "Status"
+    ]
+    for col_num, column_title in enumerate(columns):
+        ws.write(0, col_num, column_title, header_style)
+
+    # Datos
+    for row_num, mov in enumerate(movimientos, start=1):
+        # Fecha: naive y solo date
+        fecha_excel = mov.fecha
+        if isinstance(fecha_excel, datetime):
+            if is_aware(fecha_excel):
+                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
+            fecha_excel = fecha_excel.date()
+
+        ws.write(row_num, 0, mov.usuario.get_full_name())
+        ws.write(row_num, 1, fecha_excel, date_style)
+        ws.write(row_num, 2, str(mov.proyecto))
+        ws.write(row_num, 3, str(mov.tipo))
+        ws.write(row_num, 4, float(mov.cargos or 0))
+        ws.write(row_num, 5, float(mov.abonos or 0))
+        ws.write(row_num, 6, mov.observaciones or "")
+        ws.write(row_num, 7, mov.get_status_display())
+
+    wb.save(response)
+    return response

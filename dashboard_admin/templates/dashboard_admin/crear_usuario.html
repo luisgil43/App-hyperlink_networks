@@ -1,84 +1,87 @@
 {% extends "dashboard_admin/base.html" %}
 {% load static %}
 
-{% block title %}Crear Usuario - Admin{% endblock %}
+{% block title %}Create User - Admin{% endblock %}
 
 {% block dashboard_content %}
 <div class="p-6 max-w-4xl mx-auto">
-  <h1 class="text-3xl font-bold mb-6">👤 Crear nuevo usuario</h1>
+  <!-- Título -->
+  <h1 class="text-3xl font-bold mb-6">👤 Create New User</h1>
 
+  <!-- Formulario para crear usuario -->
   <form method="POST" class="bg-white p-8 rounded-2xl shadow space-y-6">
     {% csrf_token %}
 
+    <!-- Campos básicos -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Nombre de usuario</label>
-        <input type="text" name="username" required placeholder="Ej: juan123"
+        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+        <input type="text" name="username" required placeholder="E.g.: john123"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ request.POST.username }}">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
-        <input type="email" name="email" placeholder="Ej: correo@dominio.com"
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input type="email" name="email" placeholder="E.g.: email@domain.com"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ request.POST.email }}">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
         <input type="password" name="password1" required
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
         <input type="password" name="password2" required
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Identidad</label>
-        <input type="text" name="identidad" placeholder="Ej: 12345678-9"
+        <label class="block text-sm font-medium text-gray-700 mb-1">ID</label>
+        <input type="text" name="identidad" placeholder="E.g.: 123456789"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ request.POST.identidad }}">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-        <input type="text" name="first_name" placeholder="Ej: Luis Enrique"
+        <label class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+        <input type="text" name="first_name" placeholder="E.g.: John"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ request.POST.first_name }}">
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-        <input type="text" name="last_name" placeholder="Ej: Gil Moya"
+        <label class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+        <input type="text" name="last_name" placeholder="E.g.: Doe"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ request.POST.last_name }}">
       </div>
     </div>
 
-    <!-- Roles Múltiples -->
-   <div>
-  <label class="block text-sm font-medium text-gray-700 mb-2">Roles de usuario:</label>
-  <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-    {% for rol in roles %}
-      <label class="inline-flex items-center space-x-2">
-        <input type="checkbox" name="roles" value="{{ rol.id }}"
-          {% if rol.id|stringformat:"s" in roles_seleccionados %}checked{% endif %}
-          class="rounded border-gray-300 text-blue-600">
-        <span>{{ rol.nombre }}</span>
-      </label>
-    {% endfor %}
-  </div>
-</div>
+    <!-- Roles -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">User Roles:</label>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {% for rol in roles %}
+          <label class="inline-flex items-center space-x-2">
+            <input type="checkbox" name="roles" value="{{ rol.id }}"
+              {% if rol.id|stringformat:"s" in roles_seleccionados %}checked{% endif %}
+              class="rounded border-gray-300 text-blue-600">
+            <span>{{ rol.nombre }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
 
     <!-- Estado y permisos -->
     <div class="flex flex-wrap gap-4 pt-4">
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
         <input type="checkbox" name="is_active" class="rounded border-gray-300 text-blue-600" checked>
-        Activo
+        Active
       </label>
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
         <input type="checkbox" name="is_staff" class="rounded border-gray-300 text-blue-600">
@@ -86,41 +89,43 @@
       </label>
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
         <input type="checkbox" name="is_superuser" class="rounded border-gray-300 text-blue-600">
-        Superusuario
+        Superuser
       </label>
     </div>
 
     <!-- Grupos -->
     <div>
-  <label class="block text-sm font-medium text-gray-700 mb-2">Grupos disponibles:</label>
-  <div class="flex flex-wrap gap-3">
-    {% for grupo in grupos %}
-      <label class="inline-flex items-center bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 shadow-sm">
-        <input type="checkbox" name="groups" value="{{ grupo.id }}"
-               {% if grupo.id|stringformat:"s" in grupo_ids_post %}checked{% endif %}
-               class="mr-2">
-        {{ grupo.name }}
-      </label>
-    {% empty %}
-      <p class="text-gray-400 text-sm">No hay grupos disponibles.</p>
-    {% endfor %}
-  </div>
-</div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Available Groups:</label>
+      <div class="flex flex-wrap gap-3">
+        {% for grupo in grupos %}
+          <label class="inline-flex items-center bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 shadow-sm">
+            <input type="checkbox" name="groups" value="{{ grupo.id }}"
+                   {% if grupo.id|stringformat:"s" in grupo_ids_post %}checked{% endif %}
+                   class="mr-2">
+            {{ grupo.name }}
+          </label>
+        {% empty %}
+          <p class="text-gray-400 text-sm">No groups available.</p>
+        {% endfor %}
+      </div>
+    </div>
 
     <!-- Botones -->
     <div class="pt-6 flex items-center gap-4">
       <a href="{% url 'dashboard_admin:listar_usuarios' %}"
          class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-6 rounded-lg transition">
-        ← Volver
+        ← Back
       </a>
       <button type="submit"
               class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-6 rounded-lg transition">
-        ➕ Crear usuario
+        ➕ Create User
       </button>
     </div>
   </form>
 </div>
 {% endblock %}
+
+<!-- Mensajes flotantes -->
 {% if messages %}
   <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
     {% for message in messages %}

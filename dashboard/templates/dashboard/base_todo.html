@@ -1,0 +1,274 @@
+<!DOCTYPE html> 
+{% load static %}
+{% load humanize %}
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Dashboard{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- TailwindCSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Hoja de estilos personalizada -->
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+
+  <style>
+    .rotate-90 {
+      transform: rotate(90deg);
+    }
+  </style>
+</head>
+
+<body class="bg-gray-100 text-gray-900">
+
+<!-- HEADER FIJO -->
+<header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
+  <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
+
+    <!-- Campana de notificaciones -->
+    <div class="absolute top-3 right-4 z-50">
+      <button onclick="toggleNotifications()" class="relative text-gray-700">
+        <i data-lucide="bell" class="w-6 h-6"></i>
+        {% if notificaciones_no_leidas > 0 %}
+          <span class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+            {{ notificaciones_no_leidas }}
+          </span>
+        {% endif %}
+      </button>
+
+      <!-- Panel de notificaciones -->
+      <div id="notification-panel"
+           class="hidden absolute right-0 mt-2 w-72 bg-white border rounded-lg shadow-lg z-50">
+        <div class="p-2 max-h-80 overflow-y-auto">
+          {% for n in notificaciones_recientes %}
+            <div id="notificacion-{{ n.id }}">
+              <button onclick="leerNotificacion({{ n.id }}, '{{ n.url }}')"
+                      class="w-full text-left block p-2 text-sm border-b {% if not n.leido %}bg-yellow-100{% else %}hover:bg-gray-100{% endif %}">
+                <div class="flex flex-col">
+                  <span>{{ n.mensaje }}</span>
+                  <span class="text-xs text-gray-400">{{ n.fecha|naturaltime }}</span>
+                </div>
+              </button>
+            </div>
+          {% empty %}
+            <p class="text-sm text-gray-500 p-2">No notifications available.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTENIDO DEL HEADER -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
+
+      <!-- Logo y texto -->
+      <div class="flex items-center gap-3">
+        <button onclick="toggleSidebar()" class="sm:hidden text-gray-800 text-2xl">☰</button>
+        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
+      </div>
+
+      <!-- Nombre y botón de logout -->
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end sm:gap-4 items-start text-sm md:text-base text-right leading-tight">
+        <span class="text-gray-800 font-medium break-words sm:whitespace-nowrap">
+          {{ request.user.get_full_name|default:request.user.username }}
+        </span>
+        <form method="post" action="{% url 'dashboard_admin:logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
+            Log Out
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
+
+    <!-- MENÚ LATERAL -->
+    <nav id="side-nav"
+      class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
+      <h2 class="text-2xl font-bold mb-8">Menu</h2>
+      <ul class="space-y-4 text-base">
+        <li>
+          <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🎁 Benefits <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Available Agreements</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Assigned Vehicle</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Vehicle Return</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Maintenance</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Reports</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Vehicle Documentation</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📄 Billing <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Invoices</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Material Request</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Assigned Equipment</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="{% url 'operaciones:buscar_mi_sitio' %}" class="hover:text-emerald-400">Find My Site</a></li>
+            <li><a href="{% url 'operaciones:mis_servicios_tecnico' %}" class="hover:text-emerald-400">My Assignment</a></li>
+            <li><a href="{% url 'operaciones:produccion_tecnico' %}" class="hover:text-emerald-400">My Production</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
+            <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🦺 Risk Prevention <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">My Courses</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Document Signing</a></li>
+            <li><a href="#" class="hover:text-emerald-400">My Assigned PPE</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="{% url 'rrhh:mis_vacaciones' %}" class="hover:text-emerald-400">My Vacations</a></li>
+            <li><a href="{% url 'liquidaciones:listar' %}" class="hover:text-emerald-400">My Payrolls</a></li>
+            <li><a href="{% url 'rrhh:mis_contratos' %}" class="hover:text-emerald-400">My Employment Contracts</a></li>
+            <li><a href="{% url 'rrhh:mis_fichas_ingreso' %}" class="hover:text-emerald-400">My Onboarding Form</a></li>
+            <li><a href="{% url 'rrhh:mis_documentos' %}" class="hover:text-emerald-400">My Documents</a></li>
+            <li><a href="{% url 'dashboard:registrar_firma_usuario' %}" class="hover:text-emerald-400">My Digital Signature</a></li>
+            <li><a href="{% url 'rrhh:ver_cronograma' %}" class="hover:text-emerald-400">My Payment Schedule</a></li>
+            <li><a href="{% url 'rrhh:listar_adelantos_usuario' %}" class="hover:text-emerald-400">Salary Advance Request</a></li>
+          </ul>
+        </li>
+        <li data-toggle class="group">
+          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontract <span class="arrow">▶</span></span>
+          <ul class="submenu ml-4 space-y-1 hidden">
+            <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Production Invoice</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Worker Contracts</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload F30 and F30-1</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Payrolls</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Worker Courses</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Service Contract</a></li>
+          </ul>
+        </li>
+      </ul>
+<!-- Pie del menú -->
+<div class="mt-10 text-center text-gray-400 text-xs">
+  <p class="mb-1">Developed by</p>
+  <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-14 mx-auto max-w-[100px] object-contain">
+</div>
+    </nav>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="md:ml-72 flex-1 p-6">
+      {% block content %}{% endblock %}
+    </main>
+
+  </div> <!-- cierre contenedor principal -->
+
+  <!-- Scripts de interacción -->
+  <script>
+    function toggleMenu(el) {
+      const submenu = el.nextElementSibling;
+      const flecha = el.querySelector(".arrow");
+      if (submenu) {
+        const isHidden = submenu.style.display === "none" || submenu.classList.contains("hidden");
+        if (isHidden) {
+          submenu.classList.remove("hidden");
+          submenu.style.display = "block";
+          flecha.classList.add("rotate-90");
+        } else {
+          submenu.classList.add("hidden");
+          submenu.style.display = "none";
+          flecha.classList.remove("rotate-90");
+        }
+      }
+    }
+
+    function toggleSidebar() {
+      const nav = document.getElementById('side-nav');
+      nav.classList.toggle('-translate-x-full');
+    }
+  </script>
+
+  <!-- Mensajes emergentes -->
+  {% if messages %}
+  <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+    {% for message in messages %}
+    <div class="flex items-center justify-between p-4 rounded-md shadow text-white
+                {% if message.tags == 'success' %}bg-green-600
+                {% elif message.tags == 'error' %}bg-red-600
+                {% elif message.tags == 'warning' %}bg-yellow-500
+                {% else %}bg-blue-600{% endif %}">
+      <span>{{ message }}</span>
+      <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
+    </div>
+    {% endfor %}
+  </div>
+  <script>
+    setTimeout(() => {
+      const mensajes = document.getElementById('mensajes');
+      if (mensajes) mensajes.remove();
+    }, 5000);
+  </script>
+  {% endif %}
+<script>
+// Marcar notificación como leída y redirigir
+function leerNotificacion(id, urlDestino) {
+  fetch(`/usuarios/notificacion/${id}/leer/`)
+    .then(response => {
+      if (response.ok) {
+        const item = document.getElementById(`notificacion-${id}`);
+        if (item) item.remove();
+        const badge = document.querySelector('.relative .bg-red-500');
+        if (badge) {
+          let count = parseInt(badge.innerText);
+          if (count > 1) {
+            badge.innerText = count - 1;
+          } else {
+            badge.remove();
+          }
+        }
+        window.location.href = urlDestino;
+      }
+    });
+}
+
+// Mostrar u ocultar el panel de notificaciones
+function toggleNotifications() {
+  const panel = document.getElementById('notification-panel');
+  if (panel) {
+    panel.classList.toggle('hidden');
+  }
+}
+</script>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  lucide.createIcons();
+</script>
+</body>
+
+</html>

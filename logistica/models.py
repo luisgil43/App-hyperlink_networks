@@ -1,14 +1,10 @@
-from datetime import date
+from datetime import date, datetime
 from django.contrib.auth import get_user_model
-import os
-from datetime import datetime
 from django.db import models
 from django.conf import settings
-from cloudinary_storage.storage import RawMediaCloudinaryStorage
-
-from django.db import models
-# Asumiendo que este es tu modelo de usuario
 from usuarios.models import CustomUser
+from utils.paths import upload_to  # 👈 Importamos el upload dinámico
+import os
 
 
 class Bodega(models.Model):
@@ -18,16 +14,8 @@ class Bodega(models.Model):
         return self.nombre
 
 
-def ruta_ingreso_material(instance, filename):
-    now = datetime.now()
-    mes = now.strftime('%B')  # Ej: Enero, Febrero
-    extension = os.path.splitext(filename)[1]  # .pdf
-    numero_doc = instance.numero_documento or 'documento'
-    return f'Ingreso de materiales/{mes}/{numero_doc}{extension}'
-
-
 class Material(models.Model):
-    codigo_interno = models.CharField(max_length=50)  # quitar unique=True
+    codigo_interno = models.CharField(max_length=50)
     nombre = models.CharField(max_length=255)
     codigo_externo = models.CharField(
         max_length=50, blank=True, null=True)
@@ -69,14 +57,13 @@ class IngresoMaterial(models.Model):
     tipo_documento = models.CharField(max_length=10, choices=OPCIONES_TIPO_DOC)
     numero_documento = models.CharField(max_length=50)
     codigo_externo = models.CharField(
-        max_length=50, blank=True, null=True, verbose_name="Código externo")  # ← nuevo
+        max_length=50, blank=True, null=True, verbose_name="Código externo")
 
     bodega = models.ForeignKey(
         Bodega, on_delete=models.PROTECT, related_name='ingresos')
 
     archivo_documento = models.FileField(
-        upload_to=ruta_ingreso_material,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to=upload_to,
         verbose_name="PDF de respaldo"
     )
     registrado_por = models.ForeignKey(
@@ -94,7 +81,7 @@ class DetalleIngresoMaterial(models.Model):
     ingreso = models.ForeignKey(
         IngresoMaterial,
         on_delete=models.CASCADE,
-        related_name='detalles'  # <- AÑADE ESTO
+        related_name='detalles'
     )
     material = models.ForeignKey(Material, on_delete=models.CASCADE)
     cantidad = models.PositiveIntegerField()
@@ -103,27 +90,20 @@ class DetalleIngresoMaterial(models.Model):
         return f"{self.material.nombre} - {self.cantidad}"
 
 
-def ruta_caf(instance, filename):
-    now = datetime.now()
-    mes = now.strftime('%B')
-    return f"caf/{mes}/{filename}"
-
-
 class ArchivoCAF(models.Model):
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     nombre_archivo = models.CharField(max_length=255)
     archivo = models.FileField(
-        upload_to=ruta_caf,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to=upload_to,
         verbose_name="Archivo CAF (.xml)"
     )
     tipo_dte = models.PositiveIntegerField()
     rango_inicio = models.PositiveIntegerField()
     rango_fin = models.PositiveIntegerField()
     fecha_subida = models.DateTimeField(auto_now_add=True)
-    estado = models.CharField(max_length=20, choices=[(
-        'activo', 'Activo'), ('inactivo', 'Inactivo')])
+    estado = models.CharField(max_length=20, choices=[
+        ('activo', 'Activo'), ('inactivo', 'Inactivo')])
 
     def __str__(self):
         return f"{self.nombre_archivo} (TD {self.tipo_dte})"
@@ -144,10 +124,10 @@ class FolioDisponible(models.Model):
     usado = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('folio', 'caf')  # garantiza folios únicos por CAF
+        unique_together = ('folio', 'caf')
 
     def __str__(self):
-        return f"{self.caf.get_tipo_dte_display()} - Folio {self.folio}"
+        return f"{self.caf.tipo_dte} - Folio {self.folio}"
 
 
 class DetalleSalidaMaterial(models.Model):
@@ -155,12 +135,12 @@ class DetalleSalidaMaterial(models.Model):
         'SalidaMaterial', on_delete=models.CASCADE, related_name='detalles'
     )
     material = models.ForeignKey(Material, on_delete=models.CASCADE)
-    descripcion = models.CharField(max_length=255, blank=True)  # ← nuevo
+    descripcion = models.CharField(max_length=255, blank=True)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
     valor_unitario = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0)  # ← nuevo
+        max_digits=10, decimal_places=2, default=0)
     descuento = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0)       # ← nuevo
+        max_digits=10, decimal_places=2, default=0)
 
     def calcular_valor_total(self):
         bruto = self.cantidad * self.valor_unitario
@@ -173,15 +153,9 @@ class DetalleSalidaMaterial(models.Model):
 User = get_user_model()
 
 
-def ruta_certificado(instance, filename):
-    rut = instance.rut_emisor or 'sin_rut'
-    return f"CertificadosDigitales/{rut}/{filename}"
-
-
 class CertificadoDigital(models.Model):
     archivo = models.FileField(
-        upload_to=ruta_certificado,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to=upload_to,
         verbose_name="Archivo .pfx"
     )
     clave_certificado = models.CharField(max_length=255)
@@ -197,20 +171,7 @@ class CertificadoDigital(models.Model):
 
 TIPO_DOCUMENTO_CHOICES = [
     ('guia_despacho', 'Guía de Despacho'),
-    # Agrega más si aplica
 ]
-
-
-def ruta_salida_material(instance, filename):
-    fecha = instance.fecha_salida.strftime(
-        '%Y-%m-%d') if instance.fecha_salida else date.today().strftime('%Y-%m-%d')
-    return f"SalidasMateriales/{fecha}/{instance.numero_documento}/{filename}"
-
-
-def ruta_xml_firmado(instance, filename):
-    fecha = instance.fecha_salida.strftime(
-        '%Y-%m-%d') if instance.fecha_salida else date.today().strftime('%Y-%m-%d')
-    return f"SalidasMateriales/{fecha}/{instance.numero_documento}/{filename}"
 
 
 class SalidaMaterial(models.Model):
@@ -231,15 +192,13 @@ class SalidaMaterial(models.Model):
     )
 
     archivo_pdf = models.FileField(
-        upload_to=ruta_salida_material,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to=upload_to,
         null=True,
         blank=True
     )
 
     archivo_xml = models.FileField(
-        upload_to=ruta_xml_firmado,
-        storage=RawMediaCloudinaryStorage(),
+        upload_to=upload_to,
         null=True,
         blank=True,
         verbose_name="XML firmado"
@@ -254,8 +213,6 @@ class SalidaMaterial(models.Model):
     ciudad_receptor = models.CharField(max_length=100)
     fecha_emisión = models.DateField(auto_now_add=True)
 
-    # Transporte
-
     obra = models.CharField(max_length=255)
     chofer = models.CharField(max_length=255)
     rut_transportista = models.CharField(max_length=20)
@@ -265,7 +222,6 @@ class SalidaMaterial(models.Model):
 
     observaciones = models.TextField(blank=True)
 
-    # Estado frente al SII
     estado_envio_sii = models.CharField(
         max_length=20,
         choices=[

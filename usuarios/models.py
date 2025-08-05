@@ -1,36 +1,11 @@
 import json
-
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
-from django.utils.functional import LazyObject
-from django.utils.module_loading import import_string
-from django.core.exceptions import ImproperlyConfigured
-from datetime import timedelta, date
+from datetime import date
 from django.db.models import Sum
-from django.core.files.storage import default_storage
-from cloudinary_storage.storage import MediaCloudinaryStorage
-
-# ✅ Firma en Cloudinary
-
-
-def ruta_firma_usuario(instance, filename):
-    # Asegúrate de que `identidad` existe en tu modelo de usuario
-    identidad = instance.identidad
-    return f"media/firmas/{identidad}/{identidad}_firma.png"
-
-
-class LazyCloudinaryStorage(LazyObject):
-    def _setup(self):
-        storage_path = getattr(settings, 'DEFAULT_FILE_STORAGE', '')
-        if not storage_path:
-            raise ImproperlyConfigured(
-                "DEFAULT_FILE_STORAGE no está definido en settings.")
-        self._wrapped = import_string(storage_path)()
-
-
-cloudinary_storage = LazyCloudinaryStorage()
+from utils.paths import upload_to  # 👈 Usamos la ruta dinámica
 
 
 class Rol(models.Model):
@@ -44,10 +19,9 @@ class CustomUser(AbstractUser):
     identidad = models.CharField(max_length=20, blank=True, null=True)
     roles = models.ManyToManyField("usuarios.Rol", blank=True)
 
-    # Firma digital
+    # Firma digital → ahora en Wasabi
     firma_digital = models.ImageField(
-        upload_to=ruta_firma_usuario,
-        storage=cloudinary_storage,
+        upload_to=upload_to,
         blank=True,
         null=True
     )
@@ -130,23 +104,17 @@ class CustomUser(AbstractUser):
 
     def obtener_dias_vacaciones_disponibles(self):
         from rrhh.models import SolicitudVacaciones, ContratoTrabajo
-
         contrato = ContratoTrabajo.objects.filter(
             tecnico=self).order_by('fecha_inicio').first()
-
         if not contrato or not contrato.fecha_inicio:
             return 0
-
         dias_trabajados = (date.today() - contrato.fecha_inicio).days
         dias_generados = dias_trabajados * 0.04166
-
         dias_consumidos_manualmente = float(
             self.dias_vacaciones_consumidos or 0)
-
         dias_aprobados = SolicitudVacaciones.objects.filter(
             usuario=self, estatus='aprobada'
         ).aggregate(total=Sum('dias_solicitados'))['total'] or 0
-
         total_disponible = dias_generados - \
             dias_consumidos_manualmente - float(dias_aprobados)
         return round(total_disponible, 2)
@@ -156,14 +124,9 @@ class CustomUser(AbstractUser):
         return f"{self.identidad or 'Sin RUT'} - {nombre}"
 
 
-def ruta_firma_representante(instance, filename):
-    return f"firmas_representante_legal/{filename}"
-
-
 class FirmaRepresentanteLegal(models.Model):
     archivo = models.FileField(
-        upload_to=ruta_firma_representante,
-        storage=MediaCloudinaryStorage(),
+        upload_to=upload_to,
         verbose_name="Firma del Representante Legal"
     )
     fecha_subida = models.DateTimeField(null=False, blank=False)
@@ -180,10 +143,7 @@ class Notificacion(models.Model):
     tipo = models.CharField(max_length=20, default='info')
     leido = models.BooleanField(default=False)
     fecha = models.DateTimeField(auto_now_add=True)
-
-    # Cambia esto
-    para_roles = models.TextField(
-        null=True, blank=True)  # ← Antes era JSONField
+    para_roles = models.TextField(null=True, blank=True)  # Antes era JSONField
 
     def roles_lista(self):
         try:

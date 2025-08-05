@@ -1,41 +1,8 @@
 from django.db import models
 from django.conf import settings
-from django_select2.views import AutoResponseView
-from django.contrib.auth import get_user_model
 from django_select2.forms import ModelSelect2Widget
-from django.utils.functional import LazyObject
-from django.utils.module_loading import import_string
-from django.core.exceptions import ImproperlyConfigured
-
-
-class LazyCloudinaryStorage(LazyObject):
-
-    """
-    Clase de almacenamiento diferido que carga dinámicamente
-    la clase definida en DEFAULT_FILE_STORAGE desde settings.
-
-    Se utiliza para aplicar Cloudinary como backend sin cargarlo de inmediato.
-    """
-
-    def _setup(self):
-        storage_path = getattr(settings, 'DEFAULT_FILE_STORAGE', '')
-        if not storage_path:
-            raise ImproperlyConfigured(
-                "DEFAULT_FILE_STORAGE no está definido en settings.")
-            # raise Exception("DEFAULT_FILE_STORAGE no está definido en settings.")
-        self._wrapped = import_string(storage_path)()
-
-
-# ✅ Instancia global que se reutiliza en los FileField
-cloudinary_storage = LazyCloudinaryStorage()
-
-
-def ruta_archivo_sin_firmar(instance, filename):
-    return f"media/liquidaciones_sin_firmar/{instance.año}_{instance.mes}/{filename}"
-
-
-def ruta_archivo_firmado(instance, filename):
-    return f"media/liquidaciones_firmadas/{instance.año}_{instance.mes}/{filename}"
+from django.contrib.auth import get_user_model
+from utils.paths import upload_to  # 👈 Nuevo import
 
 
 class Liquidacion(models.Model):
@@ -45,16 +12,14 @@ class Liquidacion(models.Model):
     año = models.PositiveIntegerField()
 
     archivo_pdf_liquidacion = models.FileField(
-        upload_to=ruta_archivo_sin_firmar,
-        storage=cloudinary_storage,
+        upload_to=upload_to,
         blank=True,
         null=True,
         verbose_name="Liquidación de Sueldo"
     )
 
     pdf_firmado = models.FileField(
-        upload_to=ruta_archivo_firmado,
-        storage=cloudinary_storage,
+        upload_to=upload_to,
         blank=True,
         null=True,
         verbose_name="Liquidación de sueldo firmada"
@@ -87,23 +52,13 @@ class Liquidacion(models.Model):
             self.fecha_firma = None
 
         self.firmada = bool(self.pdf_firmado)
-
-        # 🧪 Log para verificar
-        print("🧪 Storage archivo PDF:", type(
-            self.archivo_pdf_liquidacion.storage))
-        print("🧪 Storage PDF firmado:", type(self.pdf_firmado.storage))
-
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        # Eliminar archivo sin firmar si existe
         if self.archivo_pdf_liquidacion and self.archivo_pdf_liquidacion.storage.exists(self.archivo_pdf_liquidacion.name):
             self.archivo_pdf_liquidacion.delete(save=False)
-
-        # Eliminar archivo firmado si existe
         if self.pdf_firmado and self.pdf_firmado.storage.exists(self.pdf_firmado.name):
             self.pdf_firmado.delete(save=False)
-
         super().delete(*args, **kwargs)
 
     class Meta:

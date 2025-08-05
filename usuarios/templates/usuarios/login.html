@@ -1,179 +1,85 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Iniciar Sesión - ADMINISTRACIÓN GZ</title>
+  <title>Login - HYPERLINK NETWORKS ADMINISTRATION</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       font-family: 'Segoe UI', sans-serif;
       background-color: #f4f6f8;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
       min-height: 100vh;
     }
-
     .login-container {
       background-color: white;
       padding: 2rem;
       border-radius: 16px;
-      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
-      max-width: 400px;
-      width: 100%;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+      max-width: 400px; width: 100%;
       text-align: center;
     }
-
     .login-container img {
-      max-width: 180px;
+      max-width: 220px;
       height: auto;
-      margin-bottom: 1rem;
-    }
-
-    .login-container h2 {
-      margin: 0 0 8px 0;
-      font-size: 1.2rem;
-      color: #2a2a2a;
-    }
-
-    .login-container p.subtexto {
-      font-size: 0.9rem;
-      color: #666;
       margin-bottom: 1.5rem;
-    }
-
-    .errorlist {
-      color: red;
-      list-style: none;
-      padding: 0;
-      margin-bottom: 10px;
-      text-align: left;
-    }
-
-    .message-box {
-      padding: 10px;
-      border-radius: 8px;
-      margin-bottom: 15px;
-      font-size: 0.9rem;
-      text-align: left;
-      opacity: 1;
-      transition: opacity 0.5s ease-out;
-    }
-
-    .message-box.error {
-      background-color: #fdecea;
-      color: #d93025;
-    }
-
-    .message-box.success {
-      background-color: #e6ffed;
-      color: #188038;
-    }
-
-    .message-box.info {
-      background-color: #e8f0fe;
-      color: #1a73e8;
-    }
-
-    form {
-      text-align: left;
-    }
-
-    form p {
-      margin-bottom: 15px;
-    }
-
-    form label {
-      font-weight: bold;
-      display: block;
-      margin-bottom: 5px;
-    }
-
-    form input {
-      width: 100%;
-      padding: 10px;
-      border: 2px solid #ccc;
-      border-radius: 8px;
-      font-size: 1rem;
-    }
-
-    button {
-      width: 100%;
+      background: #f8f8f8;
       padding: 12px;
-      background-color: #1e73be;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-weight: bold;
-      font-size: 1rem;
-      cursor: pointer;
-      transition: background-color 0.3s;
-      margin-top: 5px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
-
-    button:hover {
-      background-color: #155a96;
+    .login-container h2 {
+    margin: 0 0 8px;
+    font-size: 1.4rem;
+    color: #1e73be; /* Azul corporativo (mismo del botón) */
+    letter-spacing: 1.2px; /* Espaciado para darle elegancia */
+    font-weight: 700;
+    text-transform: uppercase; /* Mantener todo en mayúsculas */
+}
+    .login-container p.subtexto strong {
+    color: #1e73be; /* El mismo azul */
+}
+    .errorlist { color: red; list-style: none; padding: 0; margin-bottom: 10px; text-align: left; }
+    .message-box { padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.9rem; text-align: left; opacity: 1; transition: opacity 0.5s ease-out; }
+    .message-box.error { background-color: #fdecea; color: #d93025; }
+    .message-box.success { background-color: #e6ffed; color: #188038; }
+    .message-box.info { background-color: #e8f0fe; color: #1a73e8; }
+    form { text-align: left; }
+    form p { margin-bottom: 15px; }
+    form label { font-weight: bold; display: block; margin-bottom: 5px; }
+    form input { width: 100%; padding: 10px; border: 2px solid #ccc; border-radius: 8px; font-size: 1rem; }
+    button {
+      width: 100%; padding: 12px; background-color: #1e73be; color: white;
+      border: none; border-radius: 8px; font-weight: bold; font-size: 1rem;
+      cursor: pointer; transition: background-color 0.3s; margin-top: 5px;
     }
-
-    .forgot-password {
-      margin-top: 15px;
-      text-align: center;
-    }
-
-    .forgot-password a {
-      color: #1e73be;
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-
-    .forgot-password a:hover {
-      text-decoration: underline;
-    }
-
-    .footer {
-      text-align: center;
-      font-size: 0.75rem;
-      color: #999;
-      margin-top: 2px;
-    }
-
-    .footer img {
-      height: 60px;
-      vertical-align: middle;
-      margin-left: 0px;
-    }
-
+    button:hover { background-color: #155a96; }
+    .forgot-password { margin-top: 15px; text-align: center; }
+    .forgot-password a { color: #1e73be; text-decoration: none; font-size: 0.9rem; }
+    .forgot-password a:hover { text-decoration: underline; }
+    .footer { text-align: center; font-size: 0.75rem; color: #999; margin-top: 2px; }
+    .footer img { height: 60px; vertical-align: middle; margin-left: 0px; }
     @media (max-width: 500px) {
-      .login-container {
-        padding: 1.5rem;
-        margin: 0 1rem;
-      }
-
-      .login-container img {
-        width: 120px;
-      }
+      .login-container { padding: 1.5rem; margin: 0 1rem; }
+      .login-container img { width: 120px; }
     }
   </style>
 </head>
 <body>
 
   <div class="login-container">
-    <!-- Logo -->
-    <img src="{% static 'images/logo.png' %}" alt="Logo GZ Services">
+    <!-- Logo principal -->
+    <img src="{% static 'images/logoh.png' %}" alt="Hyperlink Networks Logo">
 
-    <!-- Título -->
-    <h2>Plataforma de MILTEL</h2>
-    <p class="subtexto">Potenciada por <strong>Planix</strong></p>
+    <!-- Título y subtítulo -->
+    <h2>HYPERLINK NETWORKS PLATFORM</h2>
+    <p class="subtexto">Powered by <strong>Planix</strong></p>
 
-    <!-- Mensajes del sistema -->
+    <!-- Mensajes del sistema (éxito, error, info) -->
     {% if messages %}
       {% for message in messages %}
         <div class="message-box {{ message.tags }}">
@@ -182,7 +88,7 @@
       {% endfor %}
     {% endif %}
 
-    <!-- Errores -->
+    <!-- Errores generales del formulario -->
     {% if form.non_field_errors %}
     <ul class="errorlist">
       {% for error in form.non_field_errors %}
@@ -191,40 +97,59 @@
     </ul>
     {% endif %}
 
-    <!-- Formulario -->
+    <!-- Formulario de login -->
     <form method="post">
       {% csrf_token %}
       <p>
-        <label for="{{ form.username.id_for_label }}">Nombre de usuario:</label>
+        <label for="{{ form.username.id_for_label }}">Username:</label>
         {{ form.username }}
       </p>
       <p>
-        <label for="{{ form.password.id_for_label }}">Contraseña:</label>
-        {{ form.password }}
+        <label for="{{ form.password.id_for_label }}">Password:</label>
+        <!-- Contenedor con ícono ojo -->
+        <div style="position: relative;">
+          {{ form.password }}
+          <span id="togglePassword" style="
+              position: absolute; right: 10px; top: 50%;
+              transform: translateY(-50%); cursor: pointer;
+              font-size: 1.2rem; color: #888;
+          ">👁️</span>
+        </div>
       </p>
-      <button type="submit">Iniciar sesión</button>
+      <button type="submit">Log In</button>
     </form>
 
-    <!-- Enlace recuperación -->
+    <!-- Enlace para recuperación de contraseña -->
     <div class="forgot-password">
-      <a href="{% url 'usuarios:recuperar_contraseña' %}">¿Olvidaste tu contraseña?</a>
+      <a href="{% url 'usuarios:recuperar_contraseña' %}">Forgot your password?</a>
     </div>
   </div>
 
-  <!-- Footer fuera del contenedor -->
+  <!-- Footer con logo de Planix -->
   <div class="footer">
-    Desarrollado por
+    Developed by
     <img src="{% static 'images/planixl.png' %}" alt="Planix">
   </div>
 
-  <!-- JS para ocultar mensajes -->
+  <!-- JS para ocultar mensajes después de unos segundos -->
   <script>
     setTimeout(() => {
       document.querySelectorAll('.message-box').forEach(el => {
         el.style.opacity = '0';
         setTimeout(() => el.remove(), 500);
       });
-    }, 4000); // 4 segundos
+    }, 4000);
+  </script>
+
+  <!-- JS para alternar visibilidad de la contraseña -->
+  <script>
+    const togglePassword = document.getElementById('togglePassword');
+    const passwordInput = document.getElementById('{{ form.password.id_for_label }}');
+    togglePassword.addEventListener('click', () => {
+      const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      passwordInput.setAttribute('type', type);
+      togglePassword.textContent = type === 'password' ? '👁️' : '🙈'; // Cambia el ícono
+    });
   </script>
 
 </body>

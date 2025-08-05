@@ -1,26 +1,31 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Seleccionar Rol</title>
+  <title>Select Role</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
 
+  <!-- Contenedor principal -->
   <div class="bg-white p-6 rounded-xl shadow w-full max-w-sm">
-    <h2 class="text-xl font-bold text-center mb-4 text-gray-900">¿Cómo deseas ingresar?</h2>
+    <!-- Título de la vista -->
+    <h2 class="text-xl font-bold text-center mb-4 text-gray-900">How would you like to log in?</h2>
 
+    <!-- Formulario para seleccionar el rol -->
     <form method="post">
       {% csrf_token %}
       <div class="space-y-3">
+        <!-- Botón para entrar como usuario -->
         <button type="submit" name="opcion" value="usuario"
           class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-xl">
-          Entrar como Usuario
+          Log in as User
         </button>
+        <!-- Botón para entrar como administrador -->
         <button type="submit" name="opcion" value="admin"
           class="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-xl">
-          Entrar como Administrador
+          Log in as Administrator
         </button>
       </div>
     </form>
