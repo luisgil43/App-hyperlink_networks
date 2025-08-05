@@ -12,8 +12,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'unsafe-secret-key')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.environ.get(
-    'ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = [
+    'app-hyperlink-networks.onrender.com',
+    'localhost',
+    '127.0.0.1',
+    '172.20.10.2',
+]
 
 # ==============================
 # APPLICATIONS
