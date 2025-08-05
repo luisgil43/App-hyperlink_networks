@@ -11,9 +11,13 @@ ALLOWED_HOSTS = [
     '172.20.10.2'
 ]
 
+
 # --- Base de datos (Render PostgreSQL) ---
 DATABASES = {
-    'default': dj_database_url.config(default=os.environ.get('DATABASE_URL'))
+    'default': dj_database_url.config(
+        default=os.environ.get(
+            'DATABASE_URL', f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+    )
 }
 
 # Archivos estáticos
