@@ -135,7 +135,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # AUTH & LOGIN
 # ==============================
 AUTH_USER_MODEL = 'usuarios.CustomUser'
-LOGIN_URL = '/usuarios/login/'
+LOGIN_URL = 'usuarios:login_unificado'
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/usuarios/login/'
 
