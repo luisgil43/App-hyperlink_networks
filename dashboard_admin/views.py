@@ -379,4 +379,4 @@ def eliminar_feriado(request, pk):
 
 
 def redirigir_a_login_unificado(request):
-    return redirect('usuarios:login')
+    return redirect('usuarios:login_unificado')
