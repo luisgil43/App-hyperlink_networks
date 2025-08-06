@@ -11,6 +11,8 @@ urlpatterns = [
     # Login del admin redirige al login unificado
     path('login/', views.redirigir_a_login_unificado, name='login'),
 
+
+
     path('producciones/', views.produccion_tecnico, name='produccion_tecnico'),
     path('grupos/', views.grupos_view, name='grupos'),
 

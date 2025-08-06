@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import dj_database_url
+from django.urls import reverse_lazy
 
 load_dotenv()
 
@@ -135,7 +136,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # AUTH & LOGIN
 # ==============================
 AUTH_USER_MODEL = 'usuarios.CustomUser'
-LOGIN_URL = 'usuarios:login_unificado'
+LOGIN_URL = reverse_lazy('usuarios:login_unificado')
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/usuarios/login/'
 
