@@ -93,10 +93,10 @@ class Proyecto(models.Model):
 class TipoGasto(models.Model):
     nombre = models.CharField(max_length=255)
     categoria = models.CharField(max_length=50, choices=[
-        ('costo', 'Costo'),
-        ('inversion', 'Inversión'),
-        ('gasto', 'Gasto'),
-        ('abono', 'Abono'),
+        ('costo', 'Cost'),
+        ('inversion', 'Investment'),
+        ('gasto', 'Expense'),
+        ('abono', 'Deposit'),
     ])
 
     def __str__(self):
