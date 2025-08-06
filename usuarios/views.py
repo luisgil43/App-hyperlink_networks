@@ -88,19 +88,20 @@ def recuperar_contraseña(request):
             reset_url = request.build_absolute_uri(
                 reverse('usuarios:resetear_contraseña',
                         args=[usuario.id, token])
-            ).replace("127.0.0.1:8000", "app-gz.onrender.com")
+            ).replace("127.0.0.1:8000", "app-hyperlink-networks.onrender.com")
 
-            asunto = 'Recuperación de contraseña - Plataforma GZ'
+            # --- Asunto y contenido del correo en inglés ---
+            asunto = 'Password Reset - Hyperlink Networks Platform'
             text_content = f"""
-Hola {usuario.get_full_name() or usuario.username},
+Hello {usuario.get_full_name() or usuario.username},
 
-Has solicitado recuperar tu contraseña.
+We received a request to reset your password on the Hyperlink Networks platform.
 
-Haz clic en el siguiente enlace para crear una nueva:
+Click the following link to create a new password:
 
 {reset_url}
 
-Si no solicitaste este correo, simplemente ignóralo.
+If you didn’t request this, please ignore this message.
 """
 
             html_content = render_to_string('usuarios/correo_recuperacion.html', {
@@ -117,19 +118,20 @@ Si no solicitaste este correo, simplemente ignóralo.
                 )
 
                 if resultado:
+                    # --- Mensaje mostrado al usuario en inglés ---
                     messages.success(
-                        request, 'Te hemos enviado un enlace a tu correo registrado para cambiar la clave.')
+                        request, 'We have sent you a link to your registered email address to reset your password.')
 
                     return redirect(f"{reverse('usuarios:confirmacion_envio')}?es_admin={str(es_admin).lower()}")
                 else:
                     messages.error(
-                        request, 'No se pudo enviar el correo. Intenta más tarde.')
+                        request, 'We could not send the email. Please try again later.')
 
             except Exception as e:
                 messages.error(request, f'Error al enviar correo: {str(e)}')
         else:
             messages.error(
-                request, 'No se encontró un usuario con ese correo.')
+                request, 'No user was found with that email address.')
 
         return redirect('usuarios:recuperar_contraseña')
 
@@ -142,7 +144,7 @@ def resetear_contraseña(request, usuario_id, token):
 
     if not usuario or token != token_guardado:
         messages.error(
-            request, "El enlace de recuperación no es válido o ha expirado.")
+            request, "The recovery link is invalid or has expired.")
         return redirect('usuarios:recuperar_contraseña')
 
     if request.method == 'POST':
@@ -150,14 +152,13 @@ def resetear_contraseña(request, usuario_id, token):
         confirmar_contraseña = request.POST.get('confirmar')
 
         if nueva_contraseña != confirmar_contraseña:
-            messages.error(request, "Las contraseñas no coinciden.")
+            messages.error(request, "Passwords do not match.")
         else:
-            # ✅ Aquí el cambio importante
             usuario.set_password(nueva_contraseña)
             usuario.save()
             cache.delete(f"token_recuperacion_{usuario_id}")
             messages.success(
-                request, "Tu contraseña fue actualizada con éxito.")
+                request, "Your password has been successfully updated.")
             return redirect('usuarios:login')
 
     return render(request, 'usuarios/resetear_contraseña.html', {'usuario': usuario})
@@ -173,14 +174,14 @@ def login_unificado(request):
 
             # 🚩 Caso 1: solo tiene rol de usuario
             if user.roles.count() == 1 and user.tiene_rol('usuario'):
-                # o 'dashboard:inicio_usuario'
                 return redirect('dashboard:index')
 
             # 🚩 Caso 2: tiene más de un rol
             return redirect('usuarios:seleccionar_rol')
 
         else:
-            messages.error(request, "Credenciales inválidas.")
+            # --- Mensaje mostrado al usuario en inglés ---
+            messages.error(request, "Invalid credentials.")
 
     return render(request, 'usuarios/login.html', {'form': form})
 
@@ -226,5 +227,6 @@ def marcar_notificacion_como_leida(request, pk):
 
 def csrf_error_view(request, reason=""):
     messages.error(
-        request, "Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.")
-    return redirect('usuarios:login_unificado')  # o a donde corresponda
+        request, "Your session has expired. Please log in again.")
+    # or wherever it should redirect
+    return redirect('usuarios:login_unificado')

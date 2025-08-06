@@ -100,11 +100,11 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Mobile Sites List</a></li>
+          <li><a href="{% url 'operaciones:listar_sitios' %}" class="hover:text-emerald-400">Mobile Sites List</a></li>
           <li><a href="#" class="hover:text-emerald-400">Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Create Services</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Assign Services</a></li>
+          <li><a href="{% url 'operaciones:listar_servicios_pm' %}" class="hover:text-emerald-400">Create Services</a></li>
+          <li><a href="{% url 'operaciones:listar_servicios_supervisor' %}" class="hover:text-emerald-400">Assign Services</a></li>
         </ul>
       </li>
       {% endif %}
@@ -141,13 +141,13 @@
           <li><a href="{% if request.user.es_supervisor %}{% url 'rrhh:revisar_supervisor' %}{% elif request.user.es_pm %}{% url 'rrhh:revisar_pm' %}{% elif request.user.es_rrhh %}{% url 'rrhh:revisar_rrhh' %}{% else %}{% url 'rrhh:revisar_todas_vacaciones' %}{% endif %}" class="hover:text-emerald-400">Vacation Requests</a></li>
 
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="#" class="hover:text-emerald-400">Employee Onboarding</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Employee Documents</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Payment Schedule</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Salary Advances</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Holidays</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Signature Records</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
+            <li><a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}" class="hover:text-emerald-400">Employee Onboarding</a></li>
+            <li><a href="{% url 'rrhh:listado_documentos' %}" class="hover:text-emerald-400">Employee Documents</a></li>
+            <li><a href="{% url 'rrhh:cronograma_pago_admin' %}" class="hover:text-emerald-400">Payment Schedule</a></li>
+            <li><a href="{% url 'rrhh:listar_adelanto_admin' %}" class="hover:text-emerald-400">Salary Advances</a></li>
+            <li><a href="{% url 'dashboard_admin:listar_feriados' %}" class="hover:text-emerald-400">Holidays</a></li>
+            <li><a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Signature Records</a></li>
+            <li><a href="{% url 'usuarios:subir_firma_representante' %}" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
           {% endif %}
         </ul>
       </li>
@@ -181,12 +181,12 @@
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
               <li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Upload Digital Certificate</a></li>
+              <li><a href="{% url 'logistica:importar_certificado' %}" class="hover:text-emerald-400">Upload Digital Certificate</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
               <li><a href="#" class="hover:text-emerald-400">CAF Importer</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Dispatch</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Material Intake</a></li>   
+              <li><a href="{% url 'logistica:listar_ingresos' %}" class="hover:text-emerald-400">Material Intake</a></li>   
           </ul>
       </li>
       {% endif %}
@@ -200,8 +200,8 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Invoices</a></li>
+              <li><a href="{% url 'facturacion:listar_oc_facturacion' %}" class="hover:text-emerald-400">Purchase Orders</a></li>
+              <li><a href="{% url 'facturacion:listar_facturas' %}" class="hover:text-emerald-400">Invoices</a></li>
               <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Transaction Ledger</a></li>
               <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
           </ul>
