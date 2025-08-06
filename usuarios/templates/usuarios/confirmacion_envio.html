@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Correo enviado</title>
+  <title>Email Sent</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <!-- Redirección a login después de 4 segundos -->
+  <!-- Redirect to login after 4 seconds -->
   <meta http-equiv="refresh" content="4; URL={% url 'usuarios:login' %}">
 
   <script src="https://cdn.tailwindcss.com"></script>
@@ -21,13 +21,14 @@
       {% endfor %}
     {% endif %}
 
-    <p class="text-gray-700">Serás redirigido automáticamente al inicio de sesión...</p>
+    <p class="text-gray-700">You will be automatically redirected to the login page...</p>
 
     <a href="{% url 'usuarios:login' %}" 
        class="inline-block mt-6 bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700">
-      Ir al login
+      Go to Login
     </a>
     
   </div>
 </body>
 </html>
+
