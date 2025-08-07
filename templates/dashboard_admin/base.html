@@ -116,8 +116,8 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'liquidaciones:admin_lista' %}" class="hover:text-emerald-400">Rate Sheets</a></li>
-            <li><a href="{% url 'rrhh:contratos_trabajo' %}" class="hover:text-emerald-400">Employment Agreement</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Rate Sheets</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
             <li><a href="#" class="hover:text-emerald-400">Employee Onboarding</a></li>
