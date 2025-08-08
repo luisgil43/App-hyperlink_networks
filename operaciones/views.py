@@ -79,7 +79,6 @@ def verificar_archivo_wasabi(ruta):
 
 
 @login_required
-@rol_requerido('usuarios')
 def mis_rendiciones(request):
     user = request.user
 
@@ -148,7 +147,6 @@ def mis_rendiciones(request):
 
 
 @login_required
-@rol_requerido('usuarios')
 def aprobar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
@@ -159,7 +157,6 @@ def aprobar_abono(request, pk):
 
 
 @login_required
-@rol_requerido('usuarios')
 def rechazar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if request.method == "POST":
@@ -174,7 +171,6 @@ def rechazar_abono(request, pk):
 
 
 @login_required
-@rol_requerido('usuarios', 'admin')
 def editar_rendicion(request, pk):
     rendicion = get_object_or_404(
         CartolaMovimiento, pk=pk, usuario=request.user
@@ -217,7 +213,6 @@ def editar_rendicion(request, pk):
 
 
 @login_required
-@rol_requerido('usuarios', 'admin')
 def eliminar_rendicion(request, pk):
     rendicion = get_object_or_404(
         CartolaMovimiento, pk=pk, usuario=request.user)
@@ -381,7 +376,6 @@ def exportar_rendiciones(request):
 
 
 @login_required
-@rol_requerido('usuarios')
 def exportar_mis_rendiciones(request):
     user = request.user
     movimientos = CartolaMovimiento.objects.filter(
