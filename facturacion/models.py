@@ -67,7 +67,7 @@ class CartolaMovimiento(models.Model):
         max_length=100, blank=True, null=True)
 
     comprobante = models.FileField(
-        upload_to='facturacion/cartolamovimiento/',
+        upload_to=upload_to,
         storage=wasabi_storage,  # Fuerza Wasabi
         blank=True,
         null=True,
