@@ -75,3 +75,11 @@ def formato_usd(value):
     except (TypeError, ValueError):
         return "US$ 0.00"
     return f"US$ {value:,.2f}"
+
+
+@register.filter
+def get_item(d, k):
+    try:
+        return d.get(k)
+    except Exception:
+        return None
