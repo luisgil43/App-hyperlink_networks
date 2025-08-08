@@ -13,6 +13,7 @@
     </style>
 </head>
 
+
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
 <!-- HEADER SUPERIOR FIJO -->
@@ -116,7 +117,7 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="#" class="hover:text-emerald-400">Rate Sheets</a></li>
+            <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Rate Sheets</a></li>
             <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
@@ -207,6 +208,30 @@
     {% block dashboard_content %}{% endblock %}
   </main>
 </div>
+
+
+{# Toasts globales para ADMIN, igual que en usuario #}
+{% if messages %}
+<div id="mensajes-admin" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+  {% for message in messages %}
+  <div class="flex items-center justify-between p-4 rounded-md shadow text-white
+              {% if message.tags == 'success' %}bg-green-600
+              {% elif message.tags == 'error' %}bg-red-600
+              {% elif message.tags == 'warning' %}bg-yellow-500
+              {% else %}bg-blue-600{% endif %}">
+    <span>{{ message }}</span>
+    <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
+  </div>
+  {% endfor %}
+</div>
+<script>
+  setTimeout(() => {
+    const mensajes = document.getElementById('mensajes-admin');
+    if (mensajes) mensajes.remove();
+  }, 5000);
+</script>
+{% endif %}
+
 
 <!-- SCRIPTS -->
 <script>

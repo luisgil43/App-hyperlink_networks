@@ -18,6 +18,21 @@
     {% endif %}
 </div>
 
+{% if form.errors %}
+<div class="bg-red-100 text-red-700 p-3 rounded mb-3">
+  <ul>
+    {% for field, errors in form.errors.items %}
+      {% if field != '__all__' %}
+        <li><strong>{{ form|field_label:field }}:</strong> {{ errors|join:", " }}</li>
+      {% endif %}
+    {% endfor %}
+    {% for error in form.non_field_errors %}
+      <li><strong>General:</strong> {{ error }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 
     <!-- Tabla responsive -->
     <div class="rounded-xl border border-gray-200 overflow-x-auto">

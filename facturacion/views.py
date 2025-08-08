@@ -84,7 +84,7 @@ def listar_cartola(request):
             movimientos = movimientos.filter(fecha__date=fecha_valida)
         except ValueError:
             messages.warning(
-                request, "Formato de fecha inválido. Use DD-MM-YYYY.")
+                request, "Invalid date format. Please use DD-MM-YYYY.")
 
     if proyecto:
         movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
@@ -111,7 +111,6 @@ def listar_cartola(request):
         'tipo': tipo,
         'rut_factura': rut_factura,
         'estado': estado,
-
     }
 
     return render(request, 'facturacion/listar_cartola.html', {
@@ -139,11 +138,11 @@ def registrar_abono(request):
                 movimiento.comprobante = request.FILES['comprobante']
 
             movimiento.save()
-            messages.success(request, "Movimiento registrado correctamente.")
+            messages.success(request, "Transaction registered successfully.")
             return redirect('facturacion:listar_cartola')
         else:
             messages.error(
-                request, "Por favor corrige los errores antes de continuar.")
+                request, "Please correct the errors before proceeding.")
     else:
         form = CartolaAbonoForm()
     return render(request, 'facturacion/registrar_abono.html', {'form': form})
@@ -151,7 +150,6 @@ def registrar_abono(request):
 
 @login_required
 @rol_requerido('facturacion', 'admin')
-@login_required
 def crear_tipo(request):
     if request.method == 'POST':
         form = TipoGastoForm(request.POST)
@@ -162,7 +160,7 @@ def crear_tipo(request):
                 html = render_to_string(
                     'facturacion/partials/tipo_gasto_table.html', {'tipos': tipos})
                 return JsonResponse({'success': True, 'html': html})
-            messages.success(request, "Tipo de gasto creado correctamente.")
+            messages.success(request, "Expense type created successfully.")
             return redirect('facturacion:crear_tipo')
     else:
         form = TipoGastoForm()
@@ -183,8 +181,7 @@ def editar_tipo(request, pk):
                 html = render_to_string(
                     'facturacion/partials/tipo_gasto_table.html', {'tipos': tipos})
                 return JsonResponse({'success': True, 'html': html})
-            messages.success(
-                request, "Tipo de gasto actualizado correctamente.")
+            messages.success(request, "Expense type updated successfully.")
             return redirect('facturacion:crear_tipo')
     else:
         form = TipoGastoForm(instance=tipo)
@@ -203,7 +200,7 @@ def eliminar_tipo(request, pk):
         html = render_to_string(
             'facturacion/partials/tipo_gasto_table.html', {'tipos': tipos})
         return JsonResponse({'success': True, 'html': html})
-    messages.success(request, "Tipo de gasto eliminado correctamente.")
+    messages.success(request, "Expense type deleted successfully.")
     return redirect('facturacion:crear_tipo')
 
 
@@ -215,12 +212,15 @@ def crear_proyecto(request):
         form = ProyectoForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, "Proyecto creado correctamente.")
+            messages.success(request, "Project created successfully.")
             return redirect('facturacion:crear_proyecto')
     else:
         form = ProyectoForm()
     proyectos = Proyecto.objects.all().order_by('-id')
-    return render(request, 'facturacion/crear_proyecto.html', {'form': form, 'proyectos': proyectos})
+    return render(request, 'facturacion/crear_proyecto.html', {
+        'form': form,
+        'proyectos': proyectos
+    })
 
 # Editar
 
@@ -233,12 +233,15 @@ def editar_proyecto(request, pk):
         form = ProyectoForm(request.POST, instance=proyecto)
         if form.is_valid():
             form.save()
-            messages.success(request, "Proyecto actualizado correctamente.")
+            messages.success(request, "Project updated successfully.")
             return redirect('facturacion:crear_proyecto')
     else:
         form = ProyectoForm(instance=proyecto)
     proyectos = Proyecto.objects.all().order_by('-id')
-    return render(request, 'facturacion/crear_proyecto.html', {'form': form, 'proyectos': proyectos})
+    return render(request, 'facturacion/crear_proyecto.html', {
+        'form': form,
+        'proyectos': proyectos
+    })
 
 # Eliminar
 
@@ -249,7 +252,7 @@ def eliminar_proyecto(request, pk):
     proyecto = get_object_or_404(Proyecto, pk=pk)
     if request.method == 'POST':
         proyecto.delete()
-        messages.success(request, "Proyecto eliminado correctamente.")
+        messages.success(request, "Project deleted successfully.")
         return redirect('facturacion:crear_proyecto')
     return redirect('facturacion:crear_proyecto')
 
@@ -268,12 +271,11 @@ def aprobar_movimiento(request, pk):
             mov.aprobado_por_pm = request.user
         elif request.user.es_facturacion and mov.status == 'aprobado_pm':
             mov.status = 'aprobado_finanzas'
-            # <<< Aquí asignamos el usuario de finanzas
-            mov.aprobado_por_finanzas = request.user
+            mov.aprobado_por_finanzas = request.user  # Usuario de finanzas
 
         mov.motivo_rechazo = ''  # Limpiar cualquier rechazo previo
         mov.save()
-        messages.success(request, "Gasto aprobado correctamente.")
+        messages.success(request, "Expense approved successfully.")
     return redirect('facturacion:listar_cartola')
 
 
@@ -292,12 +294,11 @@ def rechazar_movimiento(request, pk):
                 mov.aprobado_por_pm = request.user
             elif request.user.es_facturacion and mov.status == 'aprobado_pm':
                 mov.status = 'rechazado_finanzas'
-                # <<< Aquí asignamos el usuario de finanzas
-                mov.aprobado_por_finanzas = request.user
+                mov.aprobado_por_finanzas = request.user  # Usuario de finanzas
 
             mov.motivo_rechazo = motivo
             mov.save()
-            messages.success(request, "Gasto rechazado correctamente.")
+            messages.success(request, "Expense rejected successfully.")
     return redirect('facturacion:listar_cartola')
 
 
@@ -315,19 +316,22 @@ def editar_movimiento(request, pk):
         if form.is_valid():
             movimiento = form.save(commit=False)
             if 'comprobante' in request.FILES:
-                # Reemplaza en Wasabi
+                # Replace in Wasabi
                 movimiento.comprobante = request.FILES['comprobante']
 
             if form.changed_data:
                 movimiento.status = estado_restaurado
                 movimiento.motivo_rechazo = ""
             movimiento.save()
-            messages.success(request, "Movimiento actualizado correctamente.")
+            messages.success(request, "Expense updated successfully.")
             return redirect('facturacion:listar_cartola')
     else:
         form = FormClass(instance=movimiento)
 
-    return render(request, 'facturacion/editar_movimiento.html', {'form': form, 'movimiento': movimiento})
+    return render(request, 'facturacion/editar_movimiento.html', {
+        'form': form,
+        'movimiento': movimiento
+    })
 
 
 @login_required
@@ -336,7 +340,7 @@ def eliminar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
     if request.method == 'POST':
         movimiento.delete()
-        messages.success(request, "Movimiento eliminado correctamente.")
+        messages.success(request, "Expense deleted successfully.")
         return redirect('facturacion:listar_cartola')
     return render(request, 'facturacion/eliminar_movimiento.html', {'movimiento': movimiento})
 

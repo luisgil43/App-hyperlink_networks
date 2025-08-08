@@ -1,5 +1,8 @@
 # servicios/forms.py
 
+from .models import PrecioActividadTecnico
+from usuarios.models import CustomUser, Rol
+from usuarios.models import CustomUser
 from django.core.exceptions import ValidationError
 import requests
 import re
@@ -79,3 +82,102 @@ class MovimientoUsuarioForm(forms.ModelForm):
         except InvalidOperation:
             raise forms.ValidationError(
                 "Ingrese un monto válido (ej: 30.50 o 30,50)")
+
+
+class ImportarPreciosForm(forms.Form):
+    archivo = forms.FileField(label="Upload Excel File", required=True)
+    tecnicos = forms.ModelMultipleChoiceField(
+        queryset=CustomUser.objects.filter(roles__nombre='usuario').distinct(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Select Technicians"
+    )
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data.get('archivo')
+        if not archivo.name.endswith('.xlsx'):
+            raise ValidationError(
+                "El archivo debe ser un archivo Excel con extensión .xlsx")
+        return archivo
+
+    def clean_tecnicos(self):
+        tecnicos = self.cleaned_data.get('tecnicos')
+        if not tecnicos:
+            raise ValidationError("Debe seleccionar al menos un técnico.")
+        return tecnicos
+
+
+class PrecioActividadTecnicoForm(forms.ModelForm):
+    """Formulario para crear o editar precios por técnico con todos los campos requeridos."""
+
+    class Meta:
+        model = PrecioActividadTecnico
+        fields = [
+            'tecnico',
+            'ciudad',
+            'proyecto',
+            'oficina',
+            'cliente',
+            'tipo_trabajo',
+            'codigo_trabajo',
+            'descripcion',
+            'unidad_medida',
+            'precio_tecnico',
+            'precio_empresa',
+        ]
+        labels = {
+            'tecnico': "Technician",
+            'ciudad': "City",
+            'proyecto': "Project",
+            'oficina': "Office",
+            'cliente': "Client",
+            'tipo_trabajo': "Work Type",
+            'codigo_trabajo': "Job Code",
+            'descripcion': "Description",
+            'unidad_medida': "UOM",
+            'precio_tecnico': "Tech Price (USD)",
+            'precio_empresa': "Company Price (USD)",
+        }
+        widgets = {
+            'tecnico': forms.Select(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'ciudad': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'proyecto': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'oficina': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'cliente': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'tipo_trabajo': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'codigo_trabajo': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'descripcion': forms.Textarea(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'rows': 3}),
+            'unidad_medida': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
+            'precio_tecnico': forms.NumberInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'step': '0.01'}),
+            'precio_empresa': forms.NumberInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'step': '0.01'}),
+        }
+
+    def clean_precio_tecnico(self):
+        precio = self.cleaned_data.get('precio_tecnico')
+        if precio < 0:
+            raise ValidationError("El precio técnico no puede ser negativo.")
+        return precio
+
+    def clean_precio_empresa(self):
+        precio = self.cleaned_data.get('precio_empresa')
+        if precio < 0:
+            raise ValidationError(
+                "El precio de la empresa no puede ser negativo.")
+        return precio
+
+    def clean_codigo_trabajo(self):
+        codigo_trabajo = self.cleaned_data.get('codigo_trabajo')
+        if not codigo_trabajo:
+            raise ValidationError("El código de trabajo no puede estar vacío.")
+        return codigo_trabajo
+
+    def clean_ciudad(self):
+        ciudad = self.cleaned_data.get('ciudad')
+        if not ciudad:
+            raise ValidationError("La ciudad no puede estar vacía.")
+        return ciudad
+
+    def clean_proyecto(self):
+        proyecto = self.cleaned_data.get('proyecto')
+        if not proyecto:
+            raise ValidationError("El proyecto no puede estar vacío.")
+        return proyecto

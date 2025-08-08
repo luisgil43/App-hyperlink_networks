@@ -25,6 +25,13 @@ urlpatterns = [
          name='exportar_rendiciones'),
     path('mis-rendiciones/exportar/', views.exportar_mis_rendiciones,
          name='exportar_mis_rendiciones'),
+    path('precios/', views.listar_precios_tecnico,
+         name='listar_precios_tecnico'),
+    path('precios/import/', views.importar_precios, name='importar_precios'),
+    path('precios/edit/<int:pk>/', views.editar_precio, name='editar_precio'),
+    path('precios/delete/<int:pk>/', views.eliminar_precio, name='eliminar_precio'),
+    path('precios/import/confirmar/', views.confirmar_importar_precios,
+         name='confirmar_importar_precios'),
 
 
 
