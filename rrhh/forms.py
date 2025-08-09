@@ -1,3 +1,4 @@
+from .models import RateSheet
 from rrhh.models import SolicitudAdelanto
 import re
 from rrhh.models import CronogramaPago
@@ -569,3 +570,24 @@ class AprobacionAdelantoForm(forms.Form):
                 raise forms.ValidationError(
                     "El archivo debe ser un PDF válido.")
         return archivo
+
+
+class RateSheetForm(forms.ModelForm):
+    class Meta:
+        model = RateSheet
+        fields = ['technician', 'file_unsigned']
+        labels = {
+            'technician': 'Technician',
+            'file_unsigned': 'Select PDF',
+        }
+        widgets = {
+            'file_unsigned': forms.ClearableFileInput(attrs={
+                'class': 'block w-full text-sm text-gray-700 border border-gray-300 rounded-lg cursor-pointer bg-gray-50',
+                'accept': 'application/pdf',
+            }),
+        }
+
+
+class SignatureCaptureForm(forms.Form):
+    signature_dataurl = forms.CharField(
+        widget=forms.HiddenInput(), required=True)

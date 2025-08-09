@@ -131,11 +131,11 @@
         <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden">
-            <li><a href="#" class="hover:text-emerald-400">My Rate Sheets</a></li>
+            <a href="{% url 'rrhh:my_rate_sheets' %}" class="hover:text-emerald-400">My Rate Sheets</a></li>
             <li><a href="#" class="hover:text-emerald-400">My Employment Agreement</a></li>
             <li><a href="#" class="hover:text-emerald-400">My Onboarding Form</a></li>
             <li><a href="#" class="hover:text-emerald-400">My Documents</a></li>
-            <li><a href="#" class="hover:text-emerald-400">My Digital Signature</a></li>
+            <a href="{% url 'rrhh:register_signature' %}" class="hover:text-emerald-400">My Digital Signature</a></li>
           </ul>
         </li>
         <li data-toggle class="group">

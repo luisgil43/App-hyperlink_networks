@@ -1,3 +1,8 @@
+# usa tu backend S3 existente
+from django.utils.text import slugify
+from django.utils.module_loading import import_string
+from django.core.validators import FileExtensionValidator
+import os
 from django import forms
 from django.db import models
 from django.conf import settings
@@ -334,3 +339,107 @@ class SolicitudAdelanto(models.Model):
 
     def __str__(self):
         return f"{self.trabajador.get_full_name()} - {self.estado}"
+
+
+# Inicializa el almacenamiento en Wasabi
+WasabiStorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+wasabi = WasabiStorageClass()
+
+# === Rutas personalizadas ===
+
+
+def rate_sheet_unsigned_path(instance, filename):
+    nombre_usuario = instance.technician.get_full_name() or instance.technician.username
+    return f"RRHH/Rate Sheets/Unsigned/{nombre_usuario}/{filename}"
+
+
+def rate_sheet_signed_path(instance, filename):
+    nombre_usuario = instance.technician.get_full_name() or instance.technician.username
+    return f"RRHH/Rate Sheets/Signed/{nombre_usuario}/{filename}"
+
+
+def tech_signature_path(instance, filename):
+    nombre_usuario = instance.technician.get_full_name() or instance.technician.username
+    base, ext = os.path.splitext(filename or "Signature.png")
+    return f"RRHH/Signatures/{nombre_usuario}/Signature{ext or '.png'}"
+
+
+class RateSheet(models.Model):
+    STATUS = (
+        ("pending", "Pending Signature"),  # Pendiente de firma
+        ("signed", "Signed"),              # Firmado
+    )
+
+    technician = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="rate_sheets",
+        verbose_name="Technician"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, verbose_name="Created At")
+
+    # PDF sin firmar
+    file_unsigned = models.FileField(
+        upload_to=rate_sheet_unsigned_path,
+        storage=wasabi,
+        validators=[FileExtensionValidator(["pdf"])],
+        verbose_name="Unsigned PDF"
+    )
+
+    # PDF firmado
+    file_signed = models.FileField(
+        upload_to=rate_sheet_signed_path,
+        storage=wasabi,
+        blank=True, null=True,
+        validators=[FileExtensionValidator(["pdf"])],
+        verbose_name="Signed PDF"
+    )
+
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS,
+        default="pending",
+        verbose_name="Status"
+    )
+    signed_at = models.DateTimeField(
+        blank=True, null=True, verbose_name="Signed At")
+
+    # Firma PNG del técnico
+    technician_signature = models.ImageField(
+        upload_to=tech_signature_path,
+        storage=wasabi,
+        blank=True, null=True,
+        verbose_name="Technician Signature"
+    )
+
+    def mark_signed(self):
+        """Marca la hoja como firmada y registra la fecha."""
+        self.status = "signed"
+        self.signed_at = timezone.now()
+        self.save()
+
+    def __str__(self):
+        return f"Rate Sheet #{self.pk} - {self.technician}"
+
+
+def upload_to_signature(instance, filename):
+    nombre_usuario = slugify(
+        instance.user.get_full_name() or instance.user.username)
+    return f"RRHH/Signatures/{nombre_usuario}/signature.png"
+
+
+class UserSignature(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="rrhh_signature",
+    )
+    image = models.ImageField(
+        upload_to=upload_to_signature,
+        storage=wasabi,  # 👈 Igual que en RateSheet
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Signature of {self.user}"

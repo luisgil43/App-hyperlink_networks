@@ -41,3 +41,21 @@ def upload_to(instance, filename):
     model_name = instance.__class__.__name__.lower()
     pk_or_temp = instance.pk or "temp"
     return f"{project}/{app_name}/{model_name}/{pk_or_temp}/{filename}"
+
+
+# === Ruta genérica reutilizable para cualquier modelo ===
+def upload_to_generic(instance, filename):
+    """
+    Guarda en: hyperlink/<app>/<modelo>/<pk|uuid>/<archivo>
+    - Si el objeto aún no tiene PK, usa un UUID para evitar 'temp'
+    - Mantiene el nombre original del archivo
+    """
+    project = "hyperlink"  # el bucket es 'hyperlink-networks'; esto es el prefijo lógico
+    app_name = (getattr(instance._meta, "app_label", "app") or "app").lower()
+    model_name = (instance.__class__.__name__ or "model").lower()
+
+    # Evitar 'temp': si no hay PK, usamos un UUID estable por subida
+    pk_or_uuid = instance.pk if instance.pk is not None else uuid4().hex
+
+    safe_filename = filename or f"file-{uuid4().hex}"
+    return f"{project}/{app_name}/{model_name}/{pk_or_uuid}/{safe_filename}"

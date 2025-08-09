@@ -104,6 +104,7 @@
           <li><a href="#" class="hover:text-emerald-400">Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
           <li><a href="#" class="hover:text-emerald-400">Assign Services</a></li>
+<li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
         </ul>
       </li>
       {% endif %}
@@ -117,13 +118,13 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Rate Sheets</a></li>
+            <a href="{% url 'rrhh:list_rate_sheets' %}"  class="hover:text-emerald-400">Rate Sheets</a></li>
             <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
             <li><a href="#" class="hover:text-emerald-400">Employee Onboarding</a></li>
             <li><a href="#" class="hover:text-emerald-400">Employee Documents</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Signature Records</a></li>
+            <a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Signature Records</a></li>
             <li><a href="#" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
           {% endif %}
         </ul>

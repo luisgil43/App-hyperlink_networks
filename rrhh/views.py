@@ -1,3 +1,25 @@
+from django.shortcuts import render, get_object_or_404, redirect
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.http import HttpResponseForbidden, FileResponse, Http404
+from django.shortcuts import get_object_or_404, render, redirect
+from django.db import transaction
+from .forms import SignatureCaptureForm  # asumiendo que ya lo tienes
+# o usa tu campo CustomUser.firma_digital si migraste
+from .models import UserSignature
+from django.conf import settings
+from django.utils.module_loading import import_string
+import mimetypes
+from django.http import HttpResponse, Http404
+from .models import UserSignature
+from .forms import SignatureCaptureForm
+import fitz  # PyMuPDF
+from PyPDF2 import PdfReader, PdfWriter
+from usuarios.decoradores import rol_requerido  # tu decorador de roles
+from .forms import RateSheetForm  # del punto 2
+from .models import RateSheet
+from django.views.decorators.http import require_http_methods
+from django.shortcuts import get_object_or_404, redirect, render
+from django.core.paginator import Paginator
 from usuarios.models import CustomUser  # Asegúrate de importar esto
 from usuarios.utils import crear_notificacion
 from reportlab.lib.pagesizes import A4
@@ -1675,91 +1697,6 @@ def eliminar_tipo_documento(request, pk):
 
 @staff_member_required
 @rol_requerido('rrhh', 'admin', 'pm')
-def listar_firmas(request):
-    usuarios = CustomUser.objects.all()
-    return render(request, 'rrhh/listar_firmas.html', {'usuarios': usuarios})
-
-
-@staff_member_required
-@rol_requerido('rrhh', 'admin', 'pm')
-def eliminar_firma(request, user_id):
-    user = get_object_or_404(CustomUser, id=user_id)
-
-    if user.firma_digital and user.firma_digital.name:
-        try:
-            # Imprimir ruta solo para depurar (puedes quitar esto después)
-            print("Eliminando firma:", user.firma_digital.name)
-
-            # Eliminar solo el archivo exacto
-            user.firma_digital.delete(save=False)
-            user.firma_digital = None
-            user.save(update_fields=['firma_digital'])
-
-            messages.success(
-                request, f"Firma eliminada para {user.get_full_name()}.")
-
-        except Exception as e:
-            messages.error(request, f"No se pudo eliminar la firma: {e}")
-    else:
-        messages.info(request, "Este usuario no tiene una firma registrada.")
-
-    return redirect('rrhh:listar_firmas')
-
-
-@staff_member_required
-@rol_requerido('rrhh', 'admin', 'pm')
-def registrar_firma_admin(request, user_id):
-    from usuarios.models import CustomUser  # Asegúrate de importar el modelo
-    if not request.user.is_staff:
-        return redirect('no_autorizado')  # O cualquier lógica de permiso
-
-    usuario = CustomUser.objects.get(id=user_id)
-    try:
-        redireccion = request.GET.get('next') or reverse('rrhh:listar_firmas')
-    except NoReverseMatch:
-        redireccion = '/dashboard_admin/'  # Fallback por si algo falla
-
-    if request.method == 'POST':
-        if 'eliminar_firma' in request.POST:
-            if usuario.firma_digital:
-                usuario.firma_digital.delete(save=True)
-                messages.success(request, "Firma eliminada correctamente.")
-            return redirect(request.path)
-
-        data_url = request.POST.get('firma_digital')
-        if not data_url:
-            messages.error(request, "No se recibió ninguna firma.")
-            return redirect(request.path)
-
-        try:
-            if not data_url.startswith('data:image/png;base64,'):
-                raise ValueError("Formato inválido.")
-
-            formato, img_base64 = data_url.split(';base64,')
-            data = base64.b64decode(img_base64)
-            content = ContentFile(data)
-            nombre_archivo = f"firmas/usuario_{usuario.id}_firma.png"
-
-            if usuario.firma_digital and usuario.firma_digital.storage.exists(usuario.firma_digital.name):
-                usuario.firma_digital.delete(save=False)
-
-            usuario.firma_digital.save(nombre_archivo, content, save=True)
-            messages.success(request, "Firma registrada correctamente.")
-            return redirect(redireccion)
-
-        except Exception as e:
-            messages.error(request, f"Error al guardar firma: {e}")
-            return redirect(request.path)
-
-    # 👇 ESTA LÍNEA ES CLAVE PARA EVITAR TU ERROR
-    return render(request, 'liquidaciones/registrar_firma.html', {
-        'tecnico': usuario,
-        'base_template': 'dashboard_admin/base.html'  # asegúrate que siempre se pase
-    })
-
-
-@staff_member_required
-@rol_requerido('rrhh', 'admin', 'pm')
 def editar_cronograma_pago(request, usuario_id):
     usuario = get_object_or_404(CustomUser, id=usuario_id)
     cronograma, _ = CronogramaPago.objects.get_or_create(usuario=usuario)
@@ -2262,3 +2199,766 @@ def activar_edicion_rrhh(request, id):
     estado = "activada" if solicitud.puede_editar_rrhh else "desactivada"
     messages.success(request, f"Edición para RRHH {estado} correctamente.")
     return redirect('rrhh:listar_adelanto_admin')
+
+
+# === Helpers para estampar firma en el PDF ===
+
+
+def _stamp_signature_on_last_page(unsigned_pdf_bytes: bytes, signature_png_bytes: bytes, x=72, y=72, max_width=200) -> bytes:
+    """
+    Dibuja la firma PNG en la última página del PDF.
+    - x, y: posición en puntos (72pt = 1 inch) desde la esquina inferior izquierda
+    - max_width: ancho máximo de la firma
+    Devuelve bytes del PDF firmado.
+    """
+    # 1) Leer PDF base
+    base_reader = PdfReader(io.BytesIO(unsigned_pdf_bytes))
+    writer = PdfWriter()
+    for p in base_reader.pages:
+        writer.add_page(p)
+
+    # 2) Preparar overlay de una página del mismo tamaño que la última
+    last_page = base_reader.pages[-1]
+    w = float(last_page.mediabox.width)
+    h = float(last_page.mediabox.height)
+
+    packet = io.BytesIO()
+    c = canvas.Canvas(packet, pagesize=(w, h))
+
+    # Redimensionar firma manteniendo proporción
+    sig_img = Image.open(io.BytesIO(signature_png_bytes)).convert("RGBA")
+    ratio = min(1.0, max_width / sig_img.width)
+    sig_w = sig_img.width * ratio
+    sig_h = sig_img.height * ratio
+
+    # ReportLab necesita la imagen como archivo/bytes
+    sig_buf = io.BytesIO()
+    sig_img.resize((int(sig_w), int(sig_h))).save(sig_buf, format="PNG")
+    sig_buf.seek(0)
+
+    # Dibuja firma en (x, y)
+    c.drawImage(sig_buf, x, y, width=sig_w, height=sig_h, mask='auto')
+    c.save()
+
+    # 3) Combinar overlay con última página
+    packet.seek(0)
+    overlay_reader = PdfReader(packet)
+    writer.pages[-1].merge_page(overlay_reader.pages[0])
+
+    # 4) Escribir resultado
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+# ==========================
+#   ADMIN / RRHH VIEWS
+# ==========================
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'rrhh')  # ajusta si PM también debe ver
+def list_rate_sheets(request):
+    """
+    Lista administrativa de Rate Sheets (todas).
+    """
+    qs = RateSheet.objects.select_related('technician').order_by('-created_at')
+
+    # Paginación
+    cantidad = request.GET.get('cantidad', '10')
+    cantidad = 1000000 if cantidad == 'todos' else int(cantidad)
+    paginator = Paginator(qs, cantidad)
+    page_number = request.GET.get('page')
+    pagina = paginator.get_page(page_number)
+
+    return render(request, 'rrhh/rate_sheet_list.html', {
+        'pagina': pagina,
+        'cantidad': request.GET.get('cantidad', '10'),
+    })
+
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'rrhh')
+@require_http_methods(["GET", "POST"])
+def add_rate_sheet(request):
+    """
+    Cargar un nuevo Rate Sheet (PDF sin firmar).
+    """
+    if request.method == "POST":
+        form = RateSheetForm(request.POST, request.FILES)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Rate Sheet uploaded.")
+            return redirect('rrhh:list_rate_sheets')
+        messages.error(request, "Please review the form fields.")
+    else:
+        form = RateSheetForm()
+
+    return render(request, 'rrhh/rate_sheet_create.html', {'form': form})
+
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'rrhh')
+@require_http_methods(["GET", "POST"])
+def edit_rate_sheet(request, pk):
+    """
+    Editar: normalmente solo cambiar el técnico o reemplazar el PDF sin firmar.
+    """
+    rs = get_object_or_404(RateSheet, pk=pk)
+    if request.method == "POST":
+        form = RateSheetForm(request.POST, request.FILES, instance=rs)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Rate Sheet updated.")
+            return redirect('rrhh:list_rate_sheets')
+        messages.error(request, "Please review the form fields.")
+    else:
+        form = RateSheetForm(instance=rs)
+
+    return render(request, 'rrhh/rate_sheet_edit.html', {'form': form, 'rs': rs})
+
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'rrhh')
+@require_http_methods(["POST"])
+def delete_rate_sheet(request, pk):
+    """
+    Eliminar un Rate Sheet (no borra archivos en Wasabi por defecto).
+    """
+    rs = get_object_or_404(RateSheet, pk=pk)
+    rs.delete()
+    messages.success(request, "Rate Sheet deleted.")
+    return redirect('rrhh:list_rate_sheets')
+
+
+# ==========================
+#   TECHNICIAN VIEW
+# ==========================
+# rrhh/views.py
+
+
+@staff_member_required
+@rol_requerido('rrhh', 'admin', 'pm')
+def eliminar_firma(request, user_id):
+    if request.method != "POST":
+        messages.error(request, "Invalid method.")
+        return redirect('rrhh:listar_firmas')
+
+    user = get_object_or_404(CustomUser, id=user_id)
+
+    # Guardamos referencias antes de tocar el campo
+    field = getattr(user, "firma_digital", None)
+    name = getattr(field, "name", "") if field else ""
+    storage = getattr(field, "storage", None)
+
+    # También contemplamos el modelo auxiliar UserSignature (si lo estás usando)
+    usig = None
+    try:
+        usig = UserSignature.objects.get(user=user)
+    except Exception:
+        usig = None
+
+    deleted_any = False
+    errors = []
+
+    with transaction.atomic():
+        # 1) Borrar en Wasabi el archivo del FileField en CustomUser
+        if name and storage:
+            try:
+                # borra explícitamente en el bucket
+                if storage.exists(name):
+                    storage.delete(name)
+                deleted_any = True
+            except Exception as e:
+                errors.append(f"FileField delete error: {e}")
+
+        # 2) Limpiar el campo en BD
+        try:
+            if field:
+                # evita que Django intente borrar de nuevo en save()
+                field.delete(save=False)
+            user.firma_digital = None
+            user.save(update_fields=["firma_digital"])
+        except Exception as e:
+            errors.append(f"DB clear error: {e}")
+
+        # 3) Si tienes UserSignature, bórralo (archivo + fila)
+        if usig and usig.image and getattr(usig.image, "name", ""):
+            try:
+                img_name = usig.image.name
+                img_storage = usig.image.storage
+                if img_storage and img_storage.exists(img_name):
+                    img_storage.delete(img_name)
+                usig.delete()
+                deleted_any = True
+            except Exception as e:
+                errors.append(f"UserSignature delete error: {e}")
+        elif usig:
+            # no había imagen, borra la fila para mantener consistencia
+            try:
+                usig.delete()
+            except Exception:
+                pass
+
+    if errors:
+        messages.error(
+            request, "No se pudo eliminar completamente la firma: " + " | ".join(errors))
+    elif deleted_any:
+        messages.success(
+            request, f"Firma eliminada para {user.get_full_name() or user.username}.")
+    else:
+        messages.info(request, "Este usuario no tiene una firma registrada.")
+
+    return redirect('rrhh:listar_firmas')
+
+
+@staff_member_required
+@rol_requerido('rrhh', 'admin', 'pm')
+def signature_preview_admin(request, user_id):
+    """
+    Devuelve la imagen de la firma desde Wasabi para <img>.
+    - 404 si no hay firma o no existe el objeto en el bucket
+    - sin caché para evitar imágenes “pegadas” tras borrar/reemplazar
+    """
+    usuario = get_object_or_404(CustomUser, id=user_id)
+
+    name = getattr(getattr(usuario, "firma_digital", None), "name", "")
+    if not name:
+        raise Http404("Signature not found")
+
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    # Verifica existencia (evita stacktrace si se borró en el bucket)
+    if not storage.exists(name):
+        raise Http404("Signature not found")
+
+    try:
+        f = storage.open(name, "rb")
+    except Exception:
+        raise Http404("Signature not found")
+
+    content_type = mimetypes.guess_type(name)[0] or "image/png"
+    resp = FileResponse(f, content_type=content_type)
+
+    # Desactivar caché del navegador/CDN/proxy
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = "0"
+
+    return resp
+
+
+@staff_member_required
+def register_signature_admin(request, user_id):
+    """
+    Registra/Reemplaza o Elimina la firma de un usuario específico (admin).
+    Incluye manejo de Cancel.
+    """
+    usuario = get_object_or_404(CustomUser, id=user_id)
+    next_url = request.GET.get("next") or reverse("rrhh:listar_firmas")
+
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    if request.method == "POST":
+        # Cancelar
+        if request.POST.get("cancel"):
+            return redirect(next_url)
+
+        # Eliminar firma
+        if "eliminar_firma" in request.POST:
+            name = getattr(getattr(usuario, "firma_digital", None), "name", "")
+            if name:
+                try:
+                    if storage.exists(name):
+                        storage.delete(name)
+                except Exception:
+                    pass
+                usuario.firma_digital = None
+                usuario.save(update_fields=["firma_digital"])
+                messages.success(request, "Signature deleted.")
+            else:
+                messages.info(
+                    request, "This user has no registered signature.")
+            return redirect(next_url)
+
+        # Guardar/Reemplazar
+        dataurl = request.POST.get("signature_dataurl", "")
+        if not dataurl or not dataurl.startswith("data:image"):
+            messages.error(request, "Please draw a signature before saving.")
+            return redirect(request.path)
+
+        try:
+            _, b64 = dataurl.split(",", 1)
+            img_bytes = base64.b64decode(b64)
+        except Exception:
+            messages.error(request, "Invalid signature data.")
+            return redirect(request.path)
+
+        if not img_bytes:
+            messages.error(request, "Signature image is empty.")
+            return redirect(request.path)
+
+        old_name = getattr(getattr(usuario, "firma_digital", None), "name", "")
+        if old_name:
+            try:
+                if storage.exists(old_name):
+                    storage.delete(old_name)
+            except Exception:
+                pass
+
+        nombre = slugify(usuario.get_full_name()
+                         or usuario.username) or f"user-{usuario.id}"
+        key = f"RRHH/Signatures/{nombre}/signature.png"
+
+        saved_name = storage.save(key, ContentFile(img_bytes))
+        usuario.firma_digital.name = saved_name
+        usuario.save(update_fields=["firma_digital"])
+
+        messages.success(
+            request, f"Signature saved for {usuario.get_full_name() or usuario.username}.")
+        return redirect(next_url)
+
+    return render(request, "rrhh/register_signature_unified.html", {
+        "target": usuario,
+        "base_template": "dashboard_admin/base.html",
+        "can_replace": True,
+        "has_signature": bool(getattr(getattr(usuario, "firma_digital", None), "name", "")),
+        "preview_url": reverse("rrhh:signature_preview_admin", args=[usuario.id]) if getattr(getattr(usuario, "firma_digital", None), "name", "") else None,
+        "next_url": next_url,
+    })
+
+
+@staff_member_required
+@rol_requerido('rrhh', 'admin', 'pm')
+def listar_firmas(request):
+    qs = CustomUser.objects.all().order_by('first_name', 'last_name', 'username')
+
+    cantidad_param = request.GET.get('cantidad', '10')
+    per_page = 1000000 if cantidad_param == 'todos' else int(cantidad_param)
+
+    paginator = Paginator(qs, per_page)
+    page_number = request.GET.get('page')
+    pagina = paginator.get_page(page_number)
+
+    return render(request, 'rrhh/listar_firmas.html', {
+        'pagina': pagina,
+        'cantidad': cantidad_param,
+    })
+
+
+@login_required(login_url='usuarios:login')
+def signature_preview(request):
+    """
+    Devuelve la imagen de la firma del usuario autenticado *desde Wasabi*.
+    Sin helpers externos: resolvemos storage, abrimos por key guardada en el campo,
+    validamos bytes > 0 y devolvemos con content-type correcto.
+    """
+    # 1) Key en el FileField
+    sig_field = getattr(request.user, "firma_digital", None)
+    name = getattr(sig_field, "name", "") if sig_field else ""
+    if not name:
+        raise Http404("No signature")
+
+    # 2) Storage (debe ser Wasabi en tu settings)
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    # 3) Leer bytes
+    try:
+        with storage.open(name, "rb") as f:
+            data = f.read()
+    except Exception:
+        raise Http404("No signature")
+
+    if not data:
+        raise Http404("No signature")
+
+    # 4) Content-Type y cache
+    ct = mimetypes.guess_type(name)[0] or "image/png"
+    resp = HttpResponse(data, content_type=ct)
+    resp["Cache-Control"] = "no-store"
+    return resp
+
+
+@login_required(login_url='usuarios:login')
+def sign_rate_sheet(request, pk):
+    rs = get_object_or_404(RateSheet, pk=pk)
+
+    # Solo el propio técnico
+    if rs.technician_id != request.user.id:
+        messages.error(request, "You are not allowed to sign this Rate Sheet.")
+        return redirect('rrhh:my_rate_sheets')
+
+    # Evitar doble firma
+    if rs.status != "pending":
+        messages.info(request, "This Rate Sheet is already signed.")
+        return redirect('rrhh:my_rate_sheets')
+
+    # Storage
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    # ¿Firma válida?
+    sig_field = getattr(request.user, "firma_digital", None)
+    sig_name = getattr(sig_field, "name", "") if sig_field else ""
+    has_signature = False
+    if sig_name:
+        try:
+            with storage.open(sig_name, "rb") as f:
+                has_signature = bool(f.read(10))
+        except Exception:
+            has_signature = False
+            try:
+                request.user.firma_digital = None
+                request.user.save(update_fields=["firma_digital"])
+            except Exception:
+                pass
+            sig_name = ""
+
+    if request.method == "POST":
+        if request.POST.get("cancel"):
+            return redirect('rrhh:my_rate_sheets')
+
+        # 1) Bytes de firma
+        if not has_signature:
+            dataurl = request.POST.get("signature_dataurl", "")
+            if not dataurl.startswith("data:image"):
+                messages.error(
+                    request, "Please draw your signature to continue.")
+                return redirect(request.path)
+            try:
+                _, b64 = dataurl.split(",", 1)
+                sig_bytes = base64.b64decode(b64)
+            except Exception as e:
+                messages.error(request, f"Invalid signature data. ({e})")
+                return redirect(request.path)
+            if not sig_bytes:
+                messages.error(request, "Empty signature.")
+                return redirect(request.path)
+
+            # Guardar en Wasabi
+            nombre = slugify(request.user.get_full_name(
+            ) or request.user.username) or f"user-{request.user.id}"
+            key = f"RRHH/Signatures/{nombre}/signature.png"
+            try:
+                saved_name = storage.save(key, ContentFile(sig_bytes))
+                request.user.firma_digital.name = saved_name
+                request.user.save(update_fields=["firma_digital"])
+                sig_name = saved_name
+                has_signature = True
+            except Exception as e:
+                messages.error(request, f"Could not save your signature: {e}")
+                return redirect(request.path)
+        else:
+            try:
+                with storage.open(sig_name, "rb") as f:
+                    sig_bytes = f.read()
+            except Exception as e:
+                messages.error(
+                    request, f"Could not read your saved signature: {e}")
+                return redirect(request.path)
+            if not sig_bytes:
+                messages.error(
+                    request, "Your saved signature file is empty or unreadable. Please contact Human Resources.")
+                return redirect(request.path)
+
+        # 2) Leer PDF sin firmar
+        with rs.file_unsigned.open("rb") as f:
+            pdf_bytes = f.read()
+
+        # 3) Estampar firma justo después del último texto
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page = doc[-1]
+            page_w, page_h = page.rect.width, page.rect.height
+            cx = page_w / 2.0
+
+            # Última línea real de texto (más robusto que blocks)
+            last_text_bottom = 72  # fallback: 1" desde arriba
+            try:
+                # (x0,y0,x1,y1,word,block_no,line_no,word_no)
+                words = page.get_text("words")
+                if words:
+                    last_text_bottom = max(w[3] for w in words if w[4].strip())
+                else:
+                    blocks = page.get_text("blocks")
+                    bottoms = [b[3] for b in blocks if len(
+                        b) >= 5 and (b[4] or "").strip()]
+                    if bottoms:
+                        last_text_bottom = max(bottoms)
+            except Exception:
+                pass
+
+            # Parámetros
+            sig_w = 240
+            sig_h = 90
+            margin = 24
+            gap_after_text = 10
+            gap_line = 6
+            gap_text = 4
+            caption_h = 22
+            line_w = 1.2
+
+            # Posición de la firma
+            y_sig_top = last_text_bottom + gap_after_text
+            # no pasar el margen inferior
+            y_sig_top = min(y_sig_top, page_h - margin - sig_h)
+            # ni subir demasiado
+            y_sig_top = max(margin, y_sig_top)
+
+            rect_sig = fitz.Rect(cx - sig_w/2.0, y_sig_top,
+                                 cx + sig_w/2.0, y_sig_top + sig_h)
+            page.insert_image(rect_sig, stream=sig_bytes, keep_proportion=True)
+
+            # Texto
+            name = rs.technician.get_full_name() or rs.technician.username
+            date_str = timezone.localtime().strftime("%Y-%m-%d %H:%M")
+            caption = f"Signed by {name} — {date_str}"
+
+            def draw_caption(y_top, fontsize=9.5, height=caption_h):
+                rect_text = fitz.Rect(rect_sig.x0, y_top,
+                                      rect_sig.x1, y_top + height)
+                # insert_textbox devuelve 0 si no pudo dibujar
+                status = page.insert_textbox(rect_text, caption,
+                                             fontsize=fontsize, fontname="helv",
+                                             align=1, color=(0, 0, 0))
+                return status
+
+            # Preferir debajo de la firma
+            need_below = gap_line + line_w + gap_text + caption_h
+            space_below = page_h - rect_sig.y1 - margin
+
+            if space_below >= need_below:
+                y_line = rect_sig.y1 + gap_line
+                page.draw_line((rect_sig.x0, y_line), (rect_sig.x1,
+                               y_line), color=(0, 0, 0), width=line_w)
+                # intentar dibujar; si no entra, aumenta alto / baja fuente
+                status = draw_caption(
+                    y_line + gap_text, fontsize=9.5, height=caption_h)
+                if status == 0:
+                    status = draw_caption(
+                        y_line + gap_text, fontsize=9, height=caption_h+6)
+                    if status == 0:
+                        draw_caption(y_line + gap_text,
+                                     fontsize=8.5, height=caption_h+10)
+            else:
+                # Encima de la firma
+                y_line = rect_sig.y0 - gap_line
+                page.draw_line((rect_sig.x0, y_line), (rect_sig.x1,
+                               y_line), color=(0, 0, 0), width=line_w)
+                y_caption_top = max(margin, y_line - gap_text - caption_h)
+                status = draw_caption(
+                    y_caption_top, fontsize=9.5, height=caption_h)
+                if status == 0:
+                    y_caption_top = max(
+                        margin, y_line - gap_text - (caption_h+6))
+                    status = draw_caption(
+                        y_caption_top, fontsize=9, height=caption_h+6)
+                    if status == 0:
+                        y_caption_top = max(
+                            margin, y_line - gap_text - (caption_h+10))
+                        draw_caption(y_caption_top, fontsize=8.5,
+                                     height=caption_h+10)
+
+            out_bytes = doc.tobytes()
+            doc.close()
+        except Exception as e:
+            messages.error(request, f"Could not sign the document: {e}")
+            return redirect(request.path)
+
+        # 4) Guardar PDF firmado
+        filename = f"signed-{slugify(request.user.get_full_name() or request.user.username)}.pdf"
+        rs.file_signed.save(filename, ContentFile(out_bytes), save=False)
+        rs.status = "signed"
+        rs.signed_at = timezone.now()
+        rs.save(update_fields=["file_signed", "status", "signed_at"])
+
+        messages.success(request, "Rate Sheet signed successfully.")
+        return redirect('rrhh:my_rate_sheets')
+
+    # GET
+    preview_url = reverse("rrhh:signature_preview") if has_signature else None
+    return render(request, "rrhh/rate_sheet_sign.html", {
+        "rs": rs,
+        "has_signature": has_signature,
+        "signature_preview_url": preview_url,
+    })
+
+
+@login_required(login_url='usuarios:login')
+def my_rate_sheets(request):
+    qs = RateSheet.objects.filter(
+        technician=request.user
+    ).order_by('-created_at')
+
+    # --- has_signature (sin helpers) ---
+    StorageClass = import_string(
+        settings.DEFAULT_FILE_STORAGE)  # tu backend Wasabi
+    storage = StorageClass()
+    sig_field = getattr(request.user, "firma_digital", None)
+    sig_name = getattr(sig_field, "name", "") if sig_field else ""
+    if sig_name:
+        try:
+            has_signature = storage.exists(sig_name)
+        except Exception:
+            # si el storage no soporta exists() en local, damos por buena la existencia del nombre
+            has_signature = True
+    else:
+        has_signature = False
+    # -----------------------------------
+
+    cantidad = request.GET.get('cantidad', '10')
+    per_page = 1000000 if cantidad == 'todos' else int(cantidad)
+    paginator = Paginator(qs, per_page)
+    page_number = request.GET.get('page')
+    pagina = paginator.get_page(page_number)
+
+    return render(request, 'rrhh/my_rate_sheets.html', {
+        'pagina': pagina,
+        'cantidad': cantidad,
+        'has_signature': has_signature,
+    })
+
+
+@login_required(login_url='usuarios:login')
+def register_signature_unified(request, user_id=None):
+    """
+    - user_id = None  -> USUARIO (no reemplaza)
+    - user_id = int   -> ADMIN   (puede reemplazar firma del otro)
+    """
+    is_admin_ctx = user_id is not None
+    target = request.user if not is_admin_ctx else get_object_or_404(
+        CustomUser, id=user_id)
+
+    # Permisos en modo admin
+    if is_admin_ctx and not (request.user.is_staff and request.user.tiene_rol('rrhh', 'admin', 'pm')):
+        return HttpResponseForbidden("Not allowed")
+
+    # next seguro
+    raw_next = request.GET.get("next") or request.POST.get("next")
+    if raw_next and url_has_allowed_host_and_scheme(raw_next, allowed_hosts={request.get_host()}):
+        next_url = raw_next
+    else:
+        next_url = reverse("rrhh:listar_firmas") if is_admin_ctx else reverse(
+            "rrhh:my_rate_sheets")
+
+    base_template = "dashboard_admin/base.html" if is_admin_ctx else "dashboard/base.html"
+    can_replace = bool(is_admin_ctx)
+
+    # Storage (DEFAULT_FILE_STORAGE -> Wasabi)
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    # Detectar firma real (y limpiar si el key ya no existe)
+    sig_field = getattr(target, "firma_digital", None)
+    sig_name = getattr(sig_field, "name", "") if sig_field else ""
+    try:
+        exists_in_bucket = storage.exists(sig_name) if sig_name else False
+    except Exception:
+        # fallback si el backend no implementa exists()
+        exists_in_bucket = bool(sig_name)
+    if sig_name and not exists_in_bucket:
+        try:
+            target.firma_digital = None
+            target.save(update_fields=["firma_digital"])
+        except Exception:
+            pass
+        sig_name, exists_in_bucket = "", False
+
+    has_signature = bool(sig_name and exists_in_bucket)
+    preview_url = (
+        reverse("rrhh:signature_preview_admin", args=[target.id]) if is_admin_ctx
+        else reverse("rrhh:signature_preview")
+    ) if has_signature else None
+
+    if request.method == "POST":
+        # Cancelar
+        if request.POST.get("cancel"):
+            return redirect(next_url)
+
+        # Usuario no puede reemplazar si ya tiene
+        if has_signature and not can_replace:
+            messages.info(
+                request, "You already have a registered signature. If you need to replace it, please contact Human Resources.")
+            return redirect(request.path)
+
+        # Captura
+        dataurl = request.POST.get("signature_dataurl", "")
+        if not dataurl.startswith("data:image"):
+            messages.error(request, "Invalid signature data.")
+            return redirect(request.path)
+
+        try:
+            _, b64 = dataurl.split(",", 1)
+            img_bytes = base64.b64decode(b64)
+        except Exception as e:
+            messages.error(request, f"Could not decode signature. ({e})")
+            return redirect(request.path)
+
+        if not img_bytes:
+            messages.error(request, "Empty signature.")
+            return redirect(request.path)
+
+        # Guardar en Wasabi igual que en admin
+        nombre = slugify(target.get_full_name()
+                         or target.username) or f"user-{target.id}"
+        key = f"RRHH/Signatures/{nombre}/signature.png"
+
+        try:
+            saved_name = storage.save(key, ContentFile(img_bytes))
+            target.firma_digital.name = saved_name
+            target.save(update_fields=["firma_digital"])
+        except Exception as e:
+            messages.error(
+                request, f"Could not save signature to storage: {e}")
+            return redirect(request.path)
+
+        # Verificación opcional
+        try:
+            if not storage.exists(target.firma_digital.name):
+                messages.warning(
+                    request, "Signature was set but not found in storage right after saving.")
+        except Exception:
+            pass
+
+        messages.success(request, "Your digital signature was saved." if not is_admin_ctx
+                         else f"Signature saved for {target.get_full_name() or target.username}.")
+        return redirect(next_url)
+
+    ctx = {
+        "base_template": base_template,
+        "target": target,
+        "has_signature": has_signature,
+        "preview_url": preview_url,
+        "can_replace": can_replace,
+        "next_url": next_url,
+    }
+    return render(request, "rrhh/register_signature_unified.html", ctx)
+
+
+@login_required(login_url='usuarios:login')
+def signature_preview(request):
+    """Devuelve la firma del usuario logueado (no cacheable)."""
+    u = request.user
+    name = getattr(getattr(u, "firma_digital", None), "name", "")
+    if not name:
+        raise Http404("No signature")
+
+    StorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+    storage = StorageClass()
+
+    if not storage.exists(name):
+        raise Http404("No signature")
+
+    try:
+        f = storage.open(name, "rb")
+    except Exception:
+        raise Http404("No signature")
+
+    content_type = mimetypes.guess_type(name)[0] or "image/png"
+    resp = FileResponse(f, content_type=content_type)
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = "0"
+    return resp

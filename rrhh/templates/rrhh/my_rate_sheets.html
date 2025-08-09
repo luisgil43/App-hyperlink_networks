@@ -1,0 +1,106 @@
+{% extends "dashboard/base.html" %}
+{% load humanize %}
+
+{% block title %}My Rate Sheets{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">📄 My Rate Sheets</h2>
+  </div>
+
+  <div class="rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1000px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+        <tr>
+          <th class="p-2 border">Created</th>
+          <th class="p-2 border">Unsigned PDF</th>
+          <th class="p-2 border">Status</th>
+          <th class="p-2 border">Signed At</th>
+          <th class="p-2 border">Signed PDF</th>
+          <th class="p-2 border">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="text-center">
+        {% for r in pagina %}
+        <tr class="border-t">
+          <td class="p-2 border">{{ r.created_at|date:"d/m/Y H:i" }}</td>
+
+          <td class="p-2 border">
+            {% if r.file_unsigned %}
+              <a href="{{ r.file_unsigned.url }}" target="_blank" class="text-blue-600 underline">Download</a>
+            {% else %} — {% endif %}
+          </td>
+
+          <td class="p-2 text-sm">
+            {% if r.status == 'pending' %}
+              <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">✖ Pending Signature</span>
+            {% else %}
+              <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✔ Signed</span>
+            {% endif %}
+          </td>
+
+          <td class="p-2 border">{{ r.signed_at|date:"d/m/Y H:i" }}</td>
+
+          <td class="p-2 border">
+            {% if r.file_signed %}
+              <a href="{{ r.file_signed.url }}" target="_blank" class="text-blue-600 underline">Download</a>
+            {% else %} — {% endif %}
+          </td>
+
+          <td class="p-2 border">
+            {% if r.status == 'pending' %}
+              <a href="{% url 'rrhh:sign_rate_sheet' r.id %}"
+                 class="inline-block {% if has_signature %}bg-yellow-100 text-yellow-800 hover:bg-yellow-200{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %} px-3 py-1 rounded-full text-xs font-semibold"
+                 title="{% if has_signature %}Sign with your saved signature{% else %}You’ll be asked to register your signature before signing{% endif %}">
+                ✍️ Sign
+              </a>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="p-4 text-center text-gray-500">You have no rate sheets.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Paginación -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form method="get" class="flex items-center gap-2">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
+        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+      </select>
+    </form>
+  </div>
+
+  <div class="mt-2 flex justify-center text-sm">
+    {% if cantidad == 'todos' %}
+      <span>Page 1 of 1</span>
+    {% else %}
+      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+    {% endif %}
+  </div>
+
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous %}
+      <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next %}
+      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
