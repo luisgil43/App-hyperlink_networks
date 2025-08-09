@@ -1,0 +1,79 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Edit Rate Sheet{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto mt-6 px-3 sm:px-4">
+  <div class="bg-white border border-gray-200 rounded-2xl shadow p-4 sm:p-6 md:p-8">
+    <h1 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center sm:text-left">
+      Edit Rate Sheet
+    </h1>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-5">
+      {% csrf_token %}
+
+      <!-- Technician -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Technician</label>
+        {{ form.technician }}
+      </div>
+
+      <!-- Replace Unsigned PDF -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Replace Unsigned PDF (optional)</label>
+
+        <!-- Botón azul + nombre de archivo -->
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <label for="file_unsigned" 
+                 class="inline-flex items-center justify-center px-4 py-2 rounded-md
+                        bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600
+                        focus:outline-none focus:ring-2 focus:ring-blue-300 cursor-pointer w-full sm:w-auto">
+            Choose File
+          </label>
+          <span id="file-chosen" class="text-gray-600 text-sm truncate">
+            No file chosen
+          </span>
+        </div>
+        <input type="file" name="file_unsigned" id="file_unsigned" class="hidden" accept="application/pdf">
+
+        {% if rs.file_unsigned %}
+          <p class="text-xs text-gray-500 mt-2">
+            Current: 
+            <a href="{{ rs.file_unsigned.url }}" target="_blank" class="text-blue-600 underline">
+              Download
+            </a>
+          </p>
+        {% endif %}
+      </div>
+
+      <!-- Actions -->
+      <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+        <a href="{% url 'rrhh:list_rate_sheets' %}"
+           class="px-4 py-2 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium
+                  text-center">
+          ← Back
+        </a>
+
+        <button
+          class="px-5 py-2 rounded-md bg-green-500 hover:bg-green-600 text-white text-sm font-semibold
+                 focus:outline-none focus:ring-2 focus:ring-green-300">
+          Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- JS: actualizar nombre del archivo elegido -->
+<script>
+  (function () {
+    const input = document.getElementById('file_unsigned');
+    const label = document.getElementById('file-chosen');
+    if (!input || !label) return;
+    input.addEventListener('change', function () {
+      label.textContent = this.files && this.files.length ? this.files[0].name : 'No file chosen';
+    });
+  })();
+</script>
+{% endblock %}
+

@@ -1,0 +1,155 @@
+{% extends base_template %}
+{% block title %}My Digital Signature{% endblock %}
+
+{% block content %}{% block dashboard_content %}
+<div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">
+    ✍️ {% if can_replace %}Register Signature for {{ target.get_full_name|default:target.username }}{% else %}My Digital Signature{% endif %}
+  </h1>
+
+  {% if has_signature %}
+    <div class="bg-{% if can_replace %}blue{% else %}green{% endif %}-50 border border-{% if can_replace %}blue{% else %}green{% endif %}-200 text-{% if can_replace %}blue{% else %}green{% endif %}-900 p-3 rounded mb-4">
+      {% if can_replace %}
+        A signature is already registered. Saving a new one will replace it.
+      {% else %}
+        You already have a registered signature. If you need to replace it, please contact Human Resources.
+      {% endif %}
+    </div>
+
+    <div class="bg-gray-50 p-4 rounded-xl">
+      <p class="text-sm text-gray-600 mb-2">{% if can_replace %}Current signature:{% else %}Your current signature:{% endif %}</p>
+      <div class="border rounded bg-white p-3 flex items-center justify-center min-h-28">
+        <img src="{{ preview_url }}?v={{ target.firma_digital.name|urlencode }}"
+             alt="Signature"
+             class="max-h-28 object-contain"
+             onerror="this.outerHTML='<span class=&quot;text-gray-500 text-sm&quot;>— Not available —</span>'">
+      </div>
+    </div>
+  {% endif %}
+
+  <form method="post" onsubmit="captureAndSubmit(event)" class="space-y-4 mt-4">
+    {% csrf_token %}
+    <input type="hidden" name="signature_dataurl">
+    <input type="hidden" name="next" value="{{ next_url }}">
+
+    {% if not has_signature or can_replace %}
+      <div class="bg-gray-50 p-4 rounded-xl">
+        <p class="text-sm text-gray-600 mb-2">
+          {% if can_replace %}Draw the signature:{% else %}Draw your signature below:{% endif %}
+        </p>
+
+        <canvas id="pad"
+        class="border rounded w-full bg-white"
+        style="touch-action:none; height:220px;"></canvas>
+
+        <div class="mt-3 flex gap-2">
+          <!-- Cancel por POST -->
+          <button type="submit"
+                  name="cancel"
+                  value="1"
+                  class="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-800">
+            Cancel
+          </button>
+
+          <button type="button"
+                  class="px-3 py-1 rounded bg-gray-200"
+                  onclick="clearPad()">
+            Clear
+          </button>
+
+          <button type="submit"
+                  class="px-4 py-2 rounded bg-green-600 text-white">
+            {% if can_replace %}Save{% else %}Save signature{% endif %}
+          </button>
+        </div>
+      </div>
+    {% else %}
+      <div class="mt-4">
+        <a href="{{ next_url }}" class="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-800">← Back</a>
+      </div>
+    {% endif %}
+  </form>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('pad');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let drawing = false;
+
+  // Estilos base del trazo
+  function setStrokeStyle(){
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111827';
+  }
+
+  // Ajusta el backing store al tamaño real y DPR
+  function resizeCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+
+    // Tamaño interno (px físicos)
+    canvas.width  = Math.round(rect.width  * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+
+    // Resetea transform y escala al DPR
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+
+    setStrokeStyle();
+  }
+
+  // Coordenadas en px CSS relativas al canvas
+  function pos(e){
+    const r = canvas.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    return { x, y };
+  }
+
+  // Eventos Pointer (funcionan mouse + touch)
+  canvas.addEventListener('pointerdown', e=>{
+    e.preventDefault();
+    drawing = true;
+    ctx.beginPath();
+    const p = pos(e);
+    ctx.moveTo(p.x, p.y);
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+  });
+
+  canvas.addEventListener('pointermove', e=>{
+    if (!drawing) return;
+    e.preventDefault();
+    const p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+
+  window.addEventListener('pointerup', e=>{
+    if (!drawing) return;
+    drawing = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+  });
+
+  window.clearPad = ()=>{ ctx.clearRect(0, 0, canvas.width, canvas.height); };
+
+  // Captura PNG solo si no es Cancel
+  window.captureAndSubmit = (e)=>{
+    if (e && e.submitter && e.submitter.name === 'cancel') return;
+    const dataurl = canvas.toDataURL('image/png');
+    document.querySelector('input[name="signature_dataurl"]').value = dataurl;
+  };
+
+  // Inicializa y reacomoda en resize/orientation
+  resizeCanvas();
+  let rAF;
+  const onResize = ()=>{ cancelAnimationFrame(rAF); rAF = requestAnimationFrame(resizeCanvas); };
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+})();
+</script>
+{% endblock %}{% endblock %}

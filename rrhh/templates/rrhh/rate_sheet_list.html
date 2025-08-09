@@ -1,60 +1,89 @@
 {% extends "dashboard_admin/base.html" %}
-{% block title %}Digital Signatures{% endblock %}
+{% load humanize %}
+
+{% block title %}Rate Sheets{% endblock %}
 
 {% block dashboard_content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-  <!-- Header -->
+  <!-- Encabezado -->
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">✍️ Digital Signatures</h2>
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">📄 Rate Sheets</h2>
+    <a href="{% url 'rrhh:add_rate_sheet' %}" 
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ➕ Add Rate Sheet
+    </a>
   </div>
 
-  <!-- Table -->
+  <!-- Tabla responsive -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
     <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1000px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
-          <th class="p-2 border">Name</th>
           <th class="p-2 border">ID</th>
-          <th class="p-2 border">Current Signature</th>
+          <th class="p-2 border">Technician</th>
+          <th class="p-2 border">Created</th>
+          <th class="p-2 border">Unsigned PDF</th>
+          <th class="p-2 border">Status</th>
+          <th class="p-2 border">Signed At</th>
+          <th class="p-2 border">Signed PDF</th>
           <th class="p-2 border">Actions</th>
         </tr>
       </thead>
       <tbody class="text-center">
-        {% for u in pagina %}
+        {% for r in pagina %}
         <tr class="border-t">
-          <td class="p-2 border text-gray-800">{{ u.get_full_name|default:u.username }}</td>
-          <td class="p-2 border text-gray-600">{{ u.username }}</td>
+          <td class="p-2 border">{{ r.id }}</td>
+          <td class="p-2 border">{{ r.technician.get_full_name|default:r.technician.username }}</td>
+          <td class="p-2 border">{{ r.created_at|date:"d/m/Y H:i" }}</td>
+          <td class="p-2 border">
+            {% if r.file_unsigned %}
+              <a href="{{ r.file_unsigned.url }}" target="_blank" class="text-blue-600 underline">Download</a>
+            {% else %} — {% endif %}
+          </td>
 
-          <!-- Signature -->
-         <td class="p-2 border">
-  <div class="flex items-center justify-center">
-  {% if u.firma_digital %}
-  <img src="{% url 'rrhh:signature_preview_admin' u.id %}?_={{ u.firma_digital.name|urlencode }}"
-       alt="Signature of {{ u.get_full_name|default:u.username }}"
-       class="h-12 max-w-[180px] object-contain border rounded p-1 bg-white shadow">
-{% else %}
-  <span class="inline-block bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium">
-    — Not registered —
-  </span>
-{% endif %}
-  </div>
-</td>
+          <!-- Estado -->
+          <td class="p-2 text-sm">
+            {% if r.status == 'pending' %}
+              <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+                ✖ Pending Signature
+              </span>
+            {% else %}
+              <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                ✔ Signed
+              </span>
+            {% endif %}
+          </td>
 
-          <!-- Actions -->
+          <td class="p-2 border">{{ r.signed_at|date:"d/m/Y H:i" }}</td>
+
+          <td class="p-2 border">
+            {% if r.file_signed %}
+              <a href="{{ r.file_signed.url }}" target="_blank" class="text-blue-600 underline">Download</a>
+            {% else %} — {% endif %}
+          </td>
+
+          <!-- Acciones -->
           <td class="p-2 border text-center">
             <div class="flex items-center justify-center gap-2">
-              <a href="{% url 'rrhh:register_signature_admin' u.id %}?next={% url 'rrhh:listar_firmas' %}"
-                 class="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">
-                ✏️ Register/Replace
+              {% if r.status == "pending" and r.technician_id == request.user.id %}
+                <a href="{% url 'rrhh:sign_rate_sheet' r.id %}"
+                   class="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-yellow-200">
+                  ✍️ Sign
+                </a>
+              {% endif %}
+              <a href="{% url 'rrhh:edit_rate_sheet' r.id %}"
+                 class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">
+                ✏️ Edit
               </a>
 
+              <!-- Botón que abre modal de eliminar -->
               <button
                 type="button"
-                class="inline-flex items-center gap-1 bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200"
+                class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200"
                 data-open-delete
-                data-delete-url="{% url 'rrhh:eliminar_firma' u.id %}"
-                data-delete-label="{{ u.get_full_name|default:u.username }}"
+                data-delete-url="{% url 'rrhh:delete_rate_sheet' r.id %}"
+                data-delete-label="Rate Sheet #{{ r.id }} — {{ r.technician.get_full_name|default:r.technician.username }}"
               >
                 🗑️ Delete
               </button>
@@ -63,14 +92,14 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="4" class="p-4 text-center text-gray-500">No users found.</td>
+          <td colspan="8" class="p-4 text-center text-gray-500">No rate sheets available.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <!-- Pagination controls -->
+  <!-- Paginación -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form method="get" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -104,9 +133,12 @@
 
 </div>
 
-<!-- Delete modal (same style as your other pages) -->
+<!-- MODAL ELIMINAR (reutilizable) -->
 <div id="deleteModal" class="fixed inset-0 z-[60] hidden" aria-hidden="true">
+  <!-- Overlay -->
   <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] opacity-0 transition-opacity duration-200" data-overlay></div>
+
+  <!-- Dialog -->
   <div class="absolute inset-0 flex items-center justify-center p-4">
     <div class="w-full max-w-md translate-y-4 opacity-0 transition-all duration-200" data-dialog>
       <div class="bg-white rounded-2xl shadow-xl border border-gray-200">
@@ -118,10 +150,9 @@
               </svg>
             </div>
             <div class="flex-1">
-              <h3 class="text-lg font-semibold text-gray-900">Delete Signature</h3>
+              <h3 class="text-lg font-semibold text-gray-900">Delete Rate Sheet</h3>
               <p class="mt-1 text-sm text-gray-600">
-                You’re about to delete the signature of:
-                <span id="deleteItemLabel" class="font-medium text-gray-800"></span>.
+                You’re about to delete: <span id="deleteItemLabel" class="font-medium text-gray-800"></span>.
                 This action cannot be undone.
               </p>
             </div>
@@ -132,6 +163,8 @@
           <button type="button" class="px-4 py-2 rounded-full text-sm border border-gray-300 hover:bg-gray-50" data-cancel>
             Cancel
           </button>
+
+          <!-- Form real que envía el POST con CSRF -->
           <form id="deleteForm" method="post" action="#">
             {% csrf_token %}
             <button type="submit" class="px-4 py-2 rounded-full text-sm font-semibold bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">
@@ -144,6 +177,7 @@
   </div>
 </div>
 
+<!-- JS del modal -->
 <script>
 (function () {
   const modal = document.getElementById('deleteModal');
@@ -159,40 +193,56 @@
 
   function openModal(url, labelText) {
     lastFocused = document.activeElement;
+
+    // Set action + label
     form.setAttribute('action', url || '#');
     labelEl.textContent = labelText || '';
+
     modal.classList.remove('hidden');
     requestAnimationFrame(() => {
       overlay.classList.remove('opacity-0');
-      dialog.classList.remove('opacity-0','translate-y-4');
-      dialog.classList.add('opacity-100','translate-y-0');
+      dialog.classList.remove('opacity-0', 'translate-y-4');
+      dialog.classList.add('opacity-100', 'translate-y-0');
     });
-    modal.setAttribute('aria-hidden','false');
+
+    modal.setAttribute('aria-hidden', 'false');
+
+    // Focus trap básico: foco al botón de confirmación
     const confirmBtn = form.querySelector('button[type="submit"]');
     confirmBtn && confirmBtn.focus();
+
+    // Escape para cerrar
     document.addEventListener('keydown', onEsc);
   }
 
   function closeModal() {
     overlay.classList.add('opacity-0');
-    dialog.classList.add('opacity-0','translate-y-4');
-    dialog.classList.remove('opacity-100','translate-y-0');
+    dialog.classList.add('opacity-0', 'translate-y-4');
+    dialog.classList.remove('opacity-100', 'translate-y-0');
+
     setTimeout(() => {
       modal.classList.add('hidden');
-      modal.setAttribute('aria-hidden','true');
+      modal.setAttribute('aria-hidden', 'true');
       if (lastFocused) lastFocused.focus();
     }, 180);
+
     document.removeEventListener('keydown', onEsc);
   }
 
-  function onEsc(e){ if (e.key === 'Escape') closeModal(); }
+  function onEsc(e) {
+    if (e.key === 'Escape') closeModal();
+  }
 
+  // Abridores
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-open-delete]');
     if (!btn) return;
-    openModal(btn.getAttribute('data-delete-url'), btn.getAttribute('data-delete-label'));
+    const url = btn.getAttribute('data-delete-url');
+    const label = btn.getAttribute('data-delete-label');
+    openModal(url, label);
   });
 
+  // Cerrar por overlay o cancelar
   overlay && overlay.addEventListener('click', closeModal);
   cancel && cancel.addEventListener('click', closeModal);
 })();

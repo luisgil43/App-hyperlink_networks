@@ -77,11 +77,10 @@ urlpatterns = [
          views.aprobar_vacacion_rrhh, name='aprobar_vacacion_rrhh'),
     path('fichas/pdf/<int:ficha_id>/',
          views.generar_ficha_pdf, name='ficha_ingreso_pdf'),
-    # path('fichas/<int:ficha_id>/firmar-trabajador/',
-    # views.firmar_ficha_ingreso_trabajador, name='firmar_ficha_trabajador'),
+
     path('fichas/<int:ficha_id>/rechazar-pm/',
          views.rechazar_ficha_ingreso_pm, name='rechazar_ficha_pm'),
-    # path('fichas/<int:ficha_id>/revisar-pm/', views.revisar_ficha_pm, name='revisar_ficha_pm'),
+
     path('fichas/<int:ficha_id>/firmar-pm/',
          views.firmar_ficha_pm, name='firmar_ficha_pm'),
     path('fichas/<int:ficha_id>/rechazar-pm/',
@@ -99,8 +98,6 @@ urlpatterns = [
     path('firmas/', views.listar_firmas, name='listar_firmas'),
     path('firmas/eliminar/<int:user_id>/',
          views.eliminar_firma, name='eliminar_firma'),
-    path('registrar-firma/<int:user_id>/',
-         views.registrar_firma_admin, name='registrar_firma_admin'),
     path('cronograma/<int:usuario_id>/editar/',
          views.editar_cronograma_pago, name='editar_cronograma'),
     path('cronograma/ver/', views.ver_cronograma_pago, name='ver_cronograma'),
@@ -131,6 +128,33 @@ urlpatterns = [
          views.rechazar_adelanto_rrhh, name='rechazar_adelanto_rrhh'),
     path('adelanto/activar-edicion/<int:id>/',
          views.activar_edicion_rrhh, name='activar_edicion_rrhh'),
+
+    path('rate-sheets/', views.list_rate_sheets, name='list_rate_sheets'),
+    path('rate-sheets/add/', views.add_rate_sheet, name='add_rate_sheet'),
+    path('rate-sheets/<int:pk>/edit/',
+         views.edit_rate_sheet, name='edit_rate_sheet'),
+    path('rate-sheets/<int:pk>/delete/',
+         views.delete_rate_sheet, name='delete_rate_sheet'),
+    path('rate-sheets/<int:pk>/sign/',
+         views.sign_rate_sheet, name='sign_rate_sheet'),
+    path('my-rate-sheets/', views.my_rate_sheets, name='my_rate_sheets'),
+    path('rate-sheets/<int:pk>/sign/',
+         views.sign_rate_sheet, name='sign_rate_sheet'),
+    path("my-signature.png", views.signature_preview, name="signature_preview"),
+    path("signatures/<int:user_id>/register/",
+         views.register_signature_admin, name="register_signature_admin"),
+    path("signatures/<int:user_id>/preview/",
+         views.signature_preview_admin, name="signature_preview_admin"),
+    path("signature/preview/", views.signature_preview, name="signature_preview"),
+    path("register-signature/", views.register_signature_unified,
+         name="register_signature"),
+
+    # admin (con user_id)
+    path("signatures/<int:user_id>/register/",
+         views.register_signature_unified, name="register_signature_admin"),
+
+
+
 
 
 ]
