@@ -15,13 +15,14 @@ from utils.paths import upload_to       # si no lo usas, puedes quitarlo
 
 class PrecioActividadTecnico(models.Model):
     tecnico = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True
+    )
     ciudad = models.CharField(max_length=100)
     proyecto = models.CharField(max_length=200)
-    oficina = models.CharField(max_length=100, default="-")  # Office
-    cliente = models.CharField(max_length=100, default="-")  # Client
-    tipo_trabajo = models.CharField(max_length=100, default="-")  # Work Type
-    codigo_trabajo = models.CharField(max_length=50)  # Job Code
+    oficina = models.CharField(max_length=100, default="-")
+    cliente = models.CharField(max_length=100, default="-")
+    tipo_trabajo = models.CharField(max_length=100, default="-")
+    codigo_trabajo = models.CharField(max_length=50)
     descripcion = models.TextField()
     unidad_medida = models.CharField(max_length=20)
     precio_tecnico = models.DecimalField(max_digits=10, decimal_places=2)
@@ -29,12 +30,19 @@ class PrecioActividadTecnico(models.Model):
     fecha_creacion = models.DateField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('tecnico', 'ciudad', 'proyecto', 'codigo_trabajo')
-        verbose_name = 'Precio por Actividad'
-        verbose_name_plural = 'Precios por Actividad'
+        verbose_name = "Precio por Actividad"
+        verbose_name_plural = "Precios por Actividad"
+        unique_together = (
+            "tecnico", "ciudad", "proyecto", "oficina", "cliente", "codigo_trabajo"
+        )
+        indexes = [
+            models.Index(fields=[
+                "tecnico", "ciudad", "proyecto", "oficina", "cliente", "codigo_trabajo"
+            ]),
+        ]
 
     def __str__(self):
-        return f"{self.tecnico} - {self.codigo_trabajo}"
+        return f"{self.tecnico} — {self.ciudad}/{self.proyecto} · {self.codigo_trabajo}"
 
 
 # Storage Wasabi (fuerza S3 para estos campos)
@@ -76,9 +84,27 @@ class SesionBilling(models.Model):
     proyecto = models.CharField(max_length=120)
     oficina = models.CharField(max_length=120)
 
+    # NUEVOS: ubicación y semana proyectada
+    direccion_proyecto = models.CharField(
+        "Project address / Google Maps link",
+        max_length=500,
+        blank=True,
+        default="",
+    )
+    semana_pago_proyectada = models.CharField(
+        "Projected pay week (ISO)",
+        max_length=10,
+        blank=True,
+        default="",  # ej. 2025-W33
+    )
+
     # Estado y reporte a nivel PROYECTO
     estado = models.CharField(
-        max_length=32, choices=ESTADOS_PROY, default="asignado", db_index=True)
+        max_length=32,
+        choices=ESTADOS_PROY,
+        default="asignado",
+        db_index=True,
+    )
     reporte_fotografico = models.FileField(
         upload_to=upload_to_project_report,
         storage=wasabi_storage,
@@ -88,11 +114,22 @@ class SesionBilling(models.Model):
     )
 
     subtotal_tecnico = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00"))
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
     subtotal_empresa = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00"))
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
     real_company_billing = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True)
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+
+    # NUEVO: semana real de pago
+    semana_pago_real = models.CharField(
+        "Real pay week (ISO)",
+        max_length=10,
+        blank=True,
+        default="",
+    )
 
     class Meta:
         ordering = ("-creado_en",)
@@ -107,6 +144,21 @@ class SesionBilling(models.Model):
         if self.real_company_billing is None:
             return None
         return (self.subtotal_empresa or Decimal("0.00")) - self.real_company_billing
+
+    @property
+    def maps_href(self) -> str:
+        """
+        Si 'direccion_proyecto' es un link, se retorna tal cual.
+        Si es texto, se construye un link de Google Maps (Search).
+        """
+        val = (self.direccion_proyecto or "").strip()
+        if not val:
+            return ""
+        low = val.lower()
+        if low.startswith("http://") or low.startswith("https://"):
+            return val
+        from urllib.parse import quote_plus  # import local para copy/paste
+        return f"https://www.google.com/maps/search/?api=1&query={quote_plus(val)}"
 
     def __str__(self):
         return f"Billing #{self.id} - {self.cliente} / {self.proyecto_id}"

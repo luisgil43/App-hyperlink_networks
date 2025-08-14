@@ -6,110 +6,293 @@
 {% block dashboard_content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-        <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💰 Technician Prices</h2>
-        <a href="{% url 'operaciones:importar_precios' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
-            ➕ Import Prices
-        </a>
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💰 Technician Prices</h2>
+
+    <div class="flex items-center gap-2">
+      <a href="{% url 'operaciones:importar_precios' %}"
+         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+        ➕ Import Prices
+      </a>
+
+      <!-- Botón de eliminación masiva -->
+      <button type="button"
+              class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-40 disabled:cursor-not-allowed"
+              id="bulkDeleteBtn" disabled>
+        🗑️ Delete Selected
+      </button>
     </div>
+  </div>
+
+  <!-- Filtros (auto-envío con debounce) -->
+  <form id="filters-form" method="get" class="mb-4 bg-gray-50 border border-gray-200 rounded-xl p-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Technician</label>
+        <input type="text" name="f_tecnico" value="{{ f_tecnico }}" placeholder="Name/username"
+               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">City</label>
+        <input type="text" name="f_ciudad" value="{{ f_ciudad }}" placeholder="City"
+               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Project</label>
+        <input type="text" name="f_proyecto" value="{{ f_proyecto }}" placeholder="Project"
+               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Job Code</label>
+        <input type="text" name="f_codigo" value="{{ f_codigo }}" placeholder="Code"
+               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
+      </div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap gap-2">
+      <!-- Mantener cantidad actual al filtrar -->
+      <input type="hidden" name="cantidad" value="{{ cantidad }}">
+      <a href="{% url 'operaciones:listar_precios_tecnico' %}"
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-full text-sm">
+        Reset
+      </a>
+    </div>
+  </form>
+
+  <!-- Form que envía los IDs seleccionados -->
+  <form id="bulk-delete-form" method="post" action="{% url 'operaciones:bulk_delete_precios' %}">
+    {% csrf_token %}
+    <!-- Preserva página y tamaño -->
+    <input type="hidden" name="return_page" value="{{ pagina.number }}">
+    <input type="hidden" name="return_cantidad" value="{{ cantidad }}">
+    <!-- Preservar filtros al eliminar -->
+    <input type="hidden" name="f_tecnico"  value="{{ f_tecnico }}">
+    <input type="hidden" name="f_ciudad"   value="{{ f_ciudad }}">
+    <input type="hidden" name="f_proyecto" value="{{ f_proyecto }}">
+    <input type="hidden" name="f_codigo"   value="{{ f_codigo }}">
 
     <!-- Table -->
     <div class="rounded-xl border border-gray-200 overflow-x-auto">
-        <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1100px]" style="white-space: nowrap;">
-            <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
-                <tr>
-                    <th class="p-2 border cursor-pointer" onclick="sortTable(0)">ID</th>
-                    <th class="p-2 border cursor-pointer" onclick="sortTable(1)">Date</th>
-                    <th class="p-2 border">Technician</th>
-                    <th class="p-2 border">City</th>
-                    <th class="p-2 border">Project</th>
-                    <th class="p-2 border">Office</th>
-                    <th class="p-2 border">Client</th>
-                    <th class="p-2 border">Work Type</th>
-                    <th class="p-2 border">Job Code</th>
-                    <th class="p-2 border">Description</th>
-                    <th class="p-2 border">UOM</th>
-                    <th class="p-2 border text-right">Tech Price</th>
-                    <th class="p-2 border text-right">Company Price</th>
-                    <th class="p-2 border">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="text-center">
-                {% for price in pagina %}
-                <tr class="border-t">
-                    <td class="p-2 border">{{ price.id }}</td>
-                    <td class="p-2 border">{{ price.fecha_creacion|date:"d/m/Y" }}</td>
-                    <td class="p-2 border">{{ price.tecnico.get_full_name }}</td>
-                    <td class="p-2 border">{{ price.ciudad }}</td>
-                    <td class="p-2 border">{{ price.proyecto }}</td>
-                    <td class="p-2 border">{{ price.oficina }}</td>
-                    <td class="p-2 border">{{ price.cliente }}</td>
-                    <td class="p-2 border">{{ price.tipo_trabajo }}</td>
-                    <td class="p-2 border">{{ price.codigo_trabajo }}</td>
-                    <td class="p-2 border text-left">{{ price.descripcion }}</td>
-                    <td class="p-2 border">{{ price.unidad_medida }}</td>
-                    <td class="p-2 border text-right">${{ price.precio_tecnico|floatformat:2 }}</td>
-                    <td class="p-2 border text-right">${{ price.precio_empresa|floatformat:2 }}</td>
-                    <td class="p-2 border">
-                        <a href="{% url 'operaciones:editar_precio' price.id %}" class="text-blue-600 hover:underline text-sm">✏️ Edit</a>
-                        <a href="{% url 'operaciones:eliminar_precio' price.id %}" class="text-red-600 hover:underline text-sm ml-2">🗑️ Delete</a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="13" class="p-4 text-center text-gray-500">No prices available. <a href="{% url 'operaciones:importar_precios' %}" class="text-blue-600 hover:underline">Import Prices</a></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+      <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1100px]" style="white-space: nowrap;">
+        <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+          <tr>
+            <th class="p-2 border">
+              <input type="checkbox" id="selectAll" class="w-4 h-4">
+            </th>
+            <th class="p-2 border cursor-pointer" onclick="sortTable(1)">ID</th>
+            <th class="p-2 border cursor-pointer" onclick="sortTable(2)">Date</th>
+            <th class="p-2 border">Technician</th>
+            <th class="p-2 border">City</th>
+            <th class="p-2 border">Project</th>
+            <th class="p-2 border">Office</th>
+            <th class="p-2 border">Client</th>
+            <th class="p-2 border">Work Type</th>
+            <th class="p-2 border">Job Code</th>
+            <th class="p-2 border">Description</th>
+            <th class="p-2 border">UOM</th>
+            <th class="p-2 border text-right">Tech Price</th>
+            <th class="p-2 border text-right">Company Price</th>
+            <th class="p-2 border">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="text-center">
+          {% for price in pagina %}
+          <tr class="border-t">
+            <td class="p-2 border">
+              <input type="checkbox" name="ids" value="{{ price.id }}" class="row-check w-4 h-4">
+            </td>
+            <td class="p-2 border">{{ price.id }}</td>
+            <td class="p-2 border">{{ price.fecha_creacion|date:"d/m/Y" }}</td>
+            <td class="p-2 border">{{ price.tecnico.get_full_name }}</td>
+            <td class="p-2 border">{{ price.ciudad }}</td>
+            <td class="p-2 border">{{ price.proyecto }}</td>
+            <td class="p-2 border">{{ price.oficina }}</td>
+            <td class="p-2 border">{{ price.cliente }}</td>
+            <td class="p-2 border">{{ price.tipo_trabajo }}</td>
+            <td class="p-2 border">{{ price.codigo_trabajo }}</td>
+            <td class="p-2 border text-left">{{ price.descripcion }}</td>
+            <td class="p-2 border">{{ price.unidad_medida }}</td>
+            <td class="p-2 border text-right">${{ price.precio_tecnico|floatformat:2 }}</td>
+            <td class="p-2 border text-right">${{ price.precio_empresa|floatformat:2 }}</td>
+            <td class="p-2 border">
+              <a href="{% url 'operaciones:editar_precio' price.id %}" class="text-blue-600 hover:underline text-sm">✏️ Edit</a>
+              <a href="{% url 'operaciones:eliminar_precio' price.id %}" class="text-red-600 hover:underline text-sm ml-2">🗑️ Delete</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="15" class="p-4 text-center text-gray-500">
+              No prices available.
+              <a href="{% url 'operaciones:importar_precios' %}" class="text-blue-600 hover:underline">Import Prices</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </form>
 
-    <!-- Pagination controls -->
-    <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-        <form method="get" class="flex items-center gap-2">
-            <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-            <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-                <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
-                <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-                <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-                <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-            </select>
-        </form>
-    </div>
+  <!-- Show (preservar filtros) -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form method="get" class="flex items-center gap-2">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <input type="hidden" name="f_tecnico"  value="{{ f_tecnico }}">
+      <input type="hidden" name="f_ciudad"   value="{{ f_ciudad }}">
+      <input type="hidden" name="f_proyecto" value="{{ f_proyecto }}">
+      <input type="hidden" name="f_codigo"   value="{{ f_codigo }}">
+      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
+        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+      </select>
+    </form>
+  </div>
 
-    <div class="mt-2 flex justify-center text-sm">
-        {% if cantidad == 'todos' %}
-            <span>Page 1 of 1</span>
-        {% else %}
-            <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-        {% endif %}
-    </div>
+  <div class="mt-2 flex justify-center text-sm">
+    {% if cantidad == 'todos' %}
+      <span>Page 1 of 1</span>
+    {% else %}
+      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+    {% endif %}
+  </div>
 
-    <div class="mt-2 flex justify-center gap-2 text-sm">
-        {% if pagina.has_previous %}
-            <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-            <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
-        {% endif %}
-        {% if pagina.has_next %}
-            <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-            <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
-        {% endif %}
-    </div>
+  <!-- Paginación con filtros -->
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous %}
+      <a href="?page=1&cantidad={{ cantidad }}&f_tecnico={{ f_tecnico }}&f_ciudad={{ f_ciudad }}&f_proyecto={{ f_proyecto }}&f_codigo={{ f_codigo }}"
+         class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}&f_tecnico={{ f_tecnico }}&f_ciudad={{ f_ciudad }}&f_proyecto={{ f_proyecto }}&f_codigo={{ f_codigo }}"
+         class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next %}
+      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}&f_tecnico={{ f_tecnico }}&f_ciudad={{ f_ciudad }}&f_proyecto={{ f_proyecto }}&f_codigo={{ f_codigo }}"
+         class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}&f_tecnico={{ f_tecnico }}&f_ciudad={{ f_ciudad }}&f_proyecto={{ f_proyecto }}&f_codigo={{ f_codigo }}"
+         class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+    {% endif %}
+  </div>
 </div>
-{% endblock %}
+
+<!-- Modal de confirmación: Delete Selected -->
+<div id="confirmModal" class="fixed inset-0 z-[9999] hidden items-center justify-center">
+  <div class="absolute inset-0 bg-black/50"></div>
+  <div class="relative bg-white w-full max-w-md mx-4 rounded-2xl shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b">
+      <h3 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100 text-red-600">🗑️</span>
+        Confirm deletion
+      </h3>
+      <button type="button" id="modalClose" class="text-gray-400 hover:text-gray-600 transition">✖</button>
+    </div>
+    <div class="px-5 py-4 text-gray-700">
+      <p class="mb-2">Are you sure you want to delete the selected <span id="selectedCount" class="font-semibold">0</span> price(s)?</p>
+      <p class="text-sm text-gray-500">This action cannot be undone.</p>
+    </div>
+    <div class="px-5 py-4 flex items-center justify-end gap-2 border-t">
+      <button type="button" id="modalCancel" class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800">Cancel</button>
+      <button type="button" id="modalConfirm" class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow">Delete</button>
+    </div>
+  </div>
+</div>
 
 <script>
-  // Function to sort the table by column (if needed)
+  document.addEventListener('DOMContentLoaded', () => {
+    const $  = (sel, ctx=document) => ctx.querySelector(sel);
+    const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
+
+    const form        = $('#bulk-delete-form');
+    const table       = document.querySelector('table');
+    const selectAll   = $('#selectAll');
+    const bulkBtn     = $('#bulkDeleteBtn');
+
+    // Modal
+    const modal       = $('#confirmModal');
+    const modalClose  = $('#modalClose');
+    const modalCancel = $('#modalCancel');
+    const modalConfirm= $('#modalConfirm');
+    const selectedCnt = $('#selectedCount');
+
+    function anyChecked(){ return $$('.row-check', form).some(c => c.checked); }
+    function countChecked(){ return $$('.row-check', form).filter(c => c.checked).length; }
+    function enableBulkBtn(enabled){
+      if (!bulkBtn) return;
+      if (enabled){ bulkBtn.disabled = false; bulkBtn.removeAttribute('disabled'); }
+      else { bulkBtn.disabled = true; }
+    }
+    enableBulkBtn(anyChecked());
+
+    // Delegación de eventos para checkboxes
+    table.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t === selectAll){
+        $$('.row-check', form).forEach(c => { c.checked = selectAll.checked; });
+        enableBulkBtn(anyChecked());
+        return;
+      }
+      if (t.classList.contains('row-check')){
+        if (!t.checked && selectAll) selectAll.checked = false;
+        const checks = $$('.row-check', form);
+        if (checks.length && checks.every(c => c.checked) && selectAll) selectAll.checked = true;
+        enableBulkBtn(anyChecked());
+      }
+    });
+
+    // Abrir modal
+    bulkBtn.addEventListener('click', () => {
+      if (!anyChecked()) return;
+      selectedCnt.textContent = countChecked();
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+      setTimeout(() => modalConfirm.focus(), 0);
+    });
+    function closeModal(){ modal.classList.add('hidden'); modal.classList.remove('flex'); }
+    modalClose.addEventListener('click', closeModal);
+    modalCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal(); });
+    modalConfirm.addEventListener('click', () => { modalConfirm.disabled = true; form.submit(); });
+
+    // --- Auto-filtrado (debounce) ---
+    const filtersForm = document.getElementById('filters-form');
+    const filterInputs = document.querySelectorAll('.filter-input');
+    let debounceTimer = null;
+
+    function submitFilters(){
+      // siempre que cambie filtros, ir a page=1
+      const url = new URL(window.location.href);
+      url.searchParams.set('cantidad', "{{ cantidad }}");
+      url.searchParams.delete('page');
+      // sincroniza valores actuales de inputs
+      filterInputs.forEach(inp => {
+        if (inp.value) url.searchParams.set(inp.name, inp.value);
+        else url.searchParams.delete(inp.name);
+      });
+      window.location.href = url.toString();
+    }
+
+    function onFilterInput(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(submitFilters, 400); // 400ms debounce
+    }
+    filterInputs.forEach(inp => {
+      inp.addEventListener('input', onFilterInput);
+      inp.addEventListener('change', onFilterInput);
+    });
+  });
+
+  // Sort helper
   function sortTable(colIndex) {
     const rows = document.querySelectorAll("table tbody tr");
     const sortedRows = Array.from(rows).sort((a, b) => {
       const aText = a.children[colIndex].textContent.trim();
       const bText = b.children[colIndex].textContent.trim();
-      return aText.localeCompare(bText, undefined, {numeric: true});
+      return aText.localeCompare(bText, undefined, { numeric: true });
     });
     const tbody = document.querySelector("table tbody");
     tbody.innerHTML = "";
     sortedRows.forEach(row => tbody.appendChild(row));
   }
 </script>
+
+{% endblock %}

@@ -15,13 +15,16 @@
 
   <!-- Tabla -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1200px]" style="white-space: nowrap;">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
           <th class="p-2 border w-10"></th> <!-- flecha -->
           <th class="p-2 border text-left">Date</th>
           <th class="p-2 border text-left">Project ID</th>
-          <th class="p-2 border text-left">Status</th>            {# 🔹 NUEVA COLUMNA #}
+          <th class="p-2 border text-left">Project address</th>
+          <th class="p-2 border text-left">Projected pay week</th>
+          
+          <th class="p-2 border text-left">Status</th>
           <th class="p-2 border text-left">Technicians</th>
           <th class="p-2 border text-left">Client</th>
           <th class="p-2 border text-left">City</th>
@@ -31,6 +34,7 @@
           <th class="p-2 border text-right">Company Billing</th>
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Different</th>
+<th class="p-2 border text-left">Real pay week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
       </thead>
@@ -52,7 +56,25 @@
           <td class="p-2 border">{{ s.creado_en|date:"Y-m-d H:i" }}</td>
           <td class="p-2 border">{{ s.proyecto_id }}</td>
 
-          <!-- 🔹 Status por PROYECTO -->
+          <!-- Project address -->
+          <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;">
+            {% if s.direccion_proyecto %}
+              {% if s.maps_href == s.direccion_proyecto %}
+                <!-- Original era link -->
+                <a href="{{ s.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+              {% else %}
+                <!-- Texto plano: mostrar completo + link pequeño -->
+                <div class="whitespace-normal break-words">{{ s.direccion_proyecto }}</div>
+                <a href="{{ s.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Weeks -->
+          <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
+       
+
+          <!-- Status por PROYECTO -->
           <td class="p-2 border">
             {% if s.estado == "aprobado_pm" %}
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
@@ -86,6 +108,7 @@
           <td class="p-2 border">{{ s.ciudad }}</td>
           <td class="p-2 border">{{ s.proyecto }}</td>
           <td class="p-2 border">{{ s.oficina }}</td>
+
           <td class="p-2 border text-right">${{ s.subtotal_tecnico|floatformat:2 }}</td>
           <td class="p-2 border text-right">${{ s.subtotal_empresa|floatformat:2 }}</td>
           <td class="p-2 border text-right">
@@ -94,6 +117,8 @@
           <td class="p-2 border text-right">
             {% if s.diferencia %}${{ s.diferencia|floatformat:2 }}{% else %}—{% endif %}
           </td>
+   <td class="p-2 border">{{ s.semana_pago_real|default:"—" }}</td>
+
           <td class="p-2 border text-center">
             <div class="flex items-center justify-center gap-3">
               <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
@@ -112,7 +137,8 @@
         <!-- Fila de detalle oculta -->
         <tr id="detalle-{{ s.id }}" class="hidden">
           <td class="border"></td>
-          <td class="p-3 border bg-gray-50" colspan="13">  {# ← antes 12; ahora 13 por la columna Status #}
+          <!-- total columnas 17 -> colspan del detalle = 16 -->
+          <td class="p-3 border bg-gray-50" colspan="16">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -238,7 +264,7 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="14" class="p-4 text-center text-gray-500">No billings yet.</td>
+          <td colspan="17" class="p-4 text-center text-gray-500">No billings yet.</td>
         </tr>
         {% endfor %}
       </tbody>

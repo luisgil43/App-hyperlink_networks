@@ -4,6 +4,7 @@ from django.urls import path
 from . import views as v
 from . import views_billing_exec as b
 from . import views_billing_exec as views
+from . import views
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -91,9 +92,11 @@ urlpatterns = [
 
 
     path("operaciones/billing/my/<int:pk>/upload/",
-         views.upload_evidencias, name="upload_evidencias"),
+         b.upload_evidencias, name="upload_evidencias"),
     path("operaciones/billing/my/<int:pk>/evidencia/<int:evidencia_id>/eliminar/",
-         views.eliminar_evidencia, name="eliminar_evidencia",),
+         b.eliminar_evidencia, name="eliminar_evidencia",),
+    path("prices/bulk-delete/", views.bulk_delete_precios,
+         name="bulk_delete_precios"),
 
 
 ]
