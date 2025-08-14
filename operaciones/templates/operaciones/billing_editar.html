@@ -27,11 +27,34 @@
         <div id="tech-hidden"></div>
       </div>
 
+      <!-- Project ID -->
       <div>
         <label class="block text-sm font-medium mb-1">Project ID</label>
         <input name="project_id" value="{{ sesion.proyecto_id|default:'' }}" class="w-full border rounded p-2" required />
       </div>
 
+      <!-- NUEVO: Dirección / Google Maps -->
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium mb-1">Project address / Google Maps link</label>
+        <input type="text" name="direccion_proyecto"
+               value="{{ sesion.direccion_proyecto|default:'' }}"
+               class="w-full border rounded p-2"
+               placeholder="Escribe una dirección o pega un link de Google Maps" />
+        {% if sesion and sesion.direccion_proyecto %}
+          <a href="{{ sesion.maps_href }}" target="_blank" rel="noopener"
+             class="mt-1 inline-block text-xs text-blue-600 hover:underline">📍 Open map</a>
+        {% endif %}
+      </div>
+
+      <!-- NUEVO: Semana proyectada de pago -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Projected pay week</label>
+        <input type="week" name="semana_pago_proyectada"
+               value="{{ sesion.semana_pago_proyectada|default:'' }}"
+               class="w-full border rounded p-2" />
+      </div>
+
+      <!-- Client -->
       <div>
         <label class="block text-sm font-medium mb-1">Client</label>
         <select id="client" name="client" class="w-full border rounded p-2" required>
@@ -42,6 +65,7 @@
         </select>
       </div>
 
+      <!-- City -->
       <div>
         <label class="block text-sm font-medium mb-1">City</label>
         <select id="city" name="city" class="w-full border rounded p-2" required>
@@ -49,6 +73,7 @@
         </select>
       </div>
 
+      <!-- Project -->
       <div>
         <label class="block text-sm font-medium mb-1">Project</label>
         <select id="project" name="project" class="w-full border rounded p-2" required>
@@ -56,6 +81,7 @@
         </select>
       </div>
 
+      <!-- Office -->
       <div>
         <label class="block text-sm font-medium mb-1">Office</label>
         <select id="office" name="office" class="w-full border rounded p-2" required>
@@ -143,8 +169,9 @@
 
 <!-- Modal de técnicos -->
 <div id="tech-modal" class="fixed inset-0 hidden z-50">
-  <div class="absolute inset-0 bg-black/40"></div>
-  <div class="relative max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
+  <div class="absolute inset-0 bg-black/40" data-close="1"></div>
+  <!-- z-10 para asegurar que quede por encima del overlay -->
+  <div class="relative z-10 max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-semibold">Select Technicians</h3>
       <button type="button" id="btn-close-tech" class="text-gray-500 hover:text-gray-700">✖</button>
@@ -199,6 +226,13 @@ const urls = {
 const modal = document.getElementById('tech-modal');
 document.getElementById('btn-open-tech').onclick = () => modal.classList.remove('hidden');
 document.getElementById('btn-close-tech').onclick = () => modal.classList.add('hidden');
+// Cerrar clickeando el overlay
+modal.addEventListener('click', (e) => {
+  if (e.target && e.target.getAttribute('data-close') === '1') {
+    modal.classList.add('hidden');
+  }
+});
+
 document.getElementById('btn-apply-tech').onclick = () => {
   const checks = [...document.querySelectorAll('.tech-check:checked')];
   state.techIds = checks.map(c => parseInt(c.value));
@@ -349,14 +383,14 @@ async function hydratePrices(tr){
   tr.querySelector('.uom-input').value = data.unidad_medida;
   tr.querySelector('.company-price-input').value = data.precio_empresa;
 
-  // pintar desglose técnico
+  // pintar desglose técnico  (ARREGLADO: backtick correcto)
   const cell = tr.querySelector('.tech-price-cell');
-cell.innerHTML = (data.desglose_tecnico||[]).map((t, idx) => `
-  <div class="flex gap-1">
-    <span class="px-1 rounded bg-gray-100">Tech ${idx + 1}</span>
-    <span>${t.tarifa_base} × ${t.porcentaje}% = <b>${t.tarifa_efectiva}</b></span>
-  </div>
-`).join('');
+  cell.innerHTML = (data.desglose_tecnico||[]).map((t, idx) => `
+    <div class="flex gap-1">
+      <span class="px-1 rounded bg-gray-100">Tech ${idx + 1}</span>
+      <span>${t.tarifa_base} × ${t.porcentaje}% = <b>${t.tarifa_efectiva}</b></span>
+    </div>
+  `).join('');
 
   updateRowTotals(tr);
 }

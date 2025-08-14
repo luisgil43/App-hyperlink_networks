@@ -8,11 +8,13 @@
   <h1 class="text-2xl font-bold mb-4">🧾 My Assignments</h1>
 
   <div class="overflow-x-auto">
-    <table class="table-auto w-full text-sm min-w-[1100px]" style="white-space: nowrap;">
+    <table class="table-auto w-full text-sm min-w-[1400px]" style="white-space: nowrap;">
       <thead class="bg-gray-100">
         <tr>
           <th class="p-2 text-left">Date</th>
           <th class="p-2 text-left">Project ID</th>
+          <th class="p-2 text-left">Project address</th>
+          <th class="p-2 text-left">Projected pay week</th>
           <th class="p-2 text-left">Client</th>
           <th class="p-2 text-left">City</th>
           <th class="p-2 text-left">Project</th>
@@ -28,6 +30,22 @@
         <tr class="border-b align-top">
           <td class="p-2">{{ a.sesion.creado_en|date:"Y-m-d" }}</td>
           <td class="p-2">{{ a.sesion.proyecto_id }}</td>
+
+          {# --- Project address (mismo comportamiento que listar_billing) --- #}
+          <td class="p-2 align-top max-w-[360px] break-words" style="white-space: normal;">
+            {% if a.sesion.direccion_proyecto %}
+              {% if a.sesion.maps_href == a.sesion.direccion_proyecto %}
+                <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+              {% else %}
+                <div class="whitespace-normal break-words">{{ a.sesion.direccion_proyecto }}</div>
+                <a href="{{ a.sesion.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          {# --- Projected pay week --- #}
+          <td class="p-2">{{ a.sesion.semana_pago_proyectada|default:"—" }}</td>
+
           <td class="p-2">{{ a.sesion.cliente }}</td>
           <td class="p-2">{{ a.sesion.ciudad }}</td>
           <td class="p-2">{{ a.sesion.proyecto }}</td>
@@ -87,7 +105,7 @@
 
               {% if a.reintento_habilitado %}
                 <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 w-max">
-                ♻️ Reupload enabled
+                  ♻️ Reupload enabled
                 </span>
               {% endif %}
             </div>
@@ -110,7 +128,6 @@
             <a href="{% url 'operaciones:detalle_assignment' a.pk %}" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">View</a>
 
             {% if a.estado == "asignado" %}
-              {# Mejor por POST con confirmación #}
               <button type="button"
                       class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                       data-action="{% url 'operaciones:start_assignment' a.pk %}">
@@ -128,7 +145,6 @@
               </a>
 
             {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-              {# Permitir re-aceptar/arrancar de nuevo #}
               <button type="button"
                       class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                       data-action="{% url 'operaciones:start_assignment' a.pk %}">
@@ -147,7 +163,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td class="p-4 text-center text-gray-500" colspan="10">No assignments yet.</td>
+          <td class="p-4 text-center text-gray-500" colspan="12">No assignments yet.</td>
         </tr>
       {% endfor %}
       </tbody>

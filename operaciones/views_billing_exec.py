@@ -606,42 +606,94 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 def configurar_requisitos(request, sesion_id):
     """
     Crea/edita los requisitos de fotos por TÉCNICO dentro de un PROYECTO.
-    Se reciben arrays por técnico usando un prefijo t<tecnico_id>_ en los names.
+    Actualiza sin borrar todo:
+      - Crea nuevos (id vacío)
+      - Actualiza existentes (id presente)
+      - Elimina solo los marcados en t<tecnico_id>_delete_id[]
+    Espera arrays por técnico usando prefijo t<tecnico_id>_ en los names.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    asignaciones = s.tecnicos_sesion.select_related("tecnico").all()
+    # Traer requisitos para precarga ordenados por 'orden'
+    asignaciones = (
+        s.tecnicos_sesion
+         .select_related("tecnico")
+         .prefetch_related("requisitos")  # related_name='requisitos'
+         .all()
+    )
 
     if request.method == "POST":
-        # Limpia y vuelve a crear por cada técnico
-        for a in asignaciones:
-            a.requisitos.all().delete()
+        try:
+            with transaction.atomic():
+                for a in asignaciones:
+                    prefix = f"t{a.tecnico_id}_"
 
-            prefix = f"t{a.tecnico_id}_"
-            titulos = request.POST.getlist(prefix + "titulo[]")
-            descs = request.POST.getlist(prefix + "desc[]")
-            obls = request.POST.getlist(prefix + "obl[]")
-            ords = request.POST.getlist(prefix + "ord[]")
+                    # 1) Eliminar solo los que se marcaron para borrar
+                    delete_ids = request.POST.getlist(prefix + "delete_id[]")
+                    if delete_ids:
+                        # filtrar a enteros válidos
+                        del_ids = [int(x)
+                                   for x in delete_ids if str(x).isdigit()]
+                        if del_ids:
+                            RequisitoFotoBilling.objects.filter(
+                                tecnico_sesion=a, id__in=del_ids
+                            ).delete()
 
-            for i, t in enumerate(titulos):
-                t = (t or "").strip()
-                if not t:
-                    continue
-                RequisitoFotoBilling.objects.create(
-                    tecnico_sesion=a,
-                    titulo=t,
-                    descripcion=(descs[i].strip() if i < len(descs) else ""),
-                    obligatorio=((obls[i] == "1") if i < len(obls) else True),
-                    orden=int(ords[i]) if i < len(
-                        ords) and str(ords[i]).isdigit() else i
-                )
+                    # 2) Recibir arrays alineados por índice
+                    ids = request.POST.getlist(prefix + "id[]")
+                    titulos = request.POST.getlist(prefix + "titulo[]")
+                    descs = request.POST.getlist(prefix + "desc[]")
+                    obls = request.POST.getlist(prefix + "obl[]")   # "0" / "1"
+                    ords = request.POST.getlist(prefix + "ord[]")
 
-        messages.success(request, "Photo requirements saved.")
-        return redirect("operaciones:listar_billing")
+                    n = len(titulos)
+                    for i in range(n):
+                        titulo = (titulos[i] or "").strip()
+                        if not titulo:
+                            # si vino vacío, lo ignoramos (no crear/actualizar)
+                            continue
 
+                        rid = (ids[i] if i < len(ids) else "").strip()
+                        descripcion = (descs[i].strip() if i < len(
+                            descs) and descs[i] else "")
+                        obligatorio = (obls[i] == "1") if i < len(
+                            obls) else True
+                        try:
+                            orden = int(ords[i]) if i < len(ords) else i
+                        except Exception:
+                            orden = i
+
+                        if rid and str(rid).isdigit():
+                            # 2.1) Actualizar existente (si pertenece a la misma asignación)
+                            RequisitoFotoBilling.objects.filter(
+                                pk=int(rid), tecnico_sesion=a
+                            ).update(
+                                titulo=titulo,
+                                descripcion=descripcion,
+                                obligatorio=obligatorio,
+                                orden=orden,
+                            )
+                        else:
+                            # 2.2) Crear nuevo
+                            RequisitoFotoBilling.objects.create(
+                                tecnico_sesion=a,
+                                titulo=titulo,
+                                descripcion=descripcion,
+                                obligatorio=obligatorio,
+                                orden=orden,
+                            )
+
+            messages.success(request, "Photo requirements saved.")
+            return redirect("operaciones:listar_billing")
+
+        except Exception as e:
+            messages.error(request, f"Could not save requirements: {e}")
+
+    # GET: render con requisitos cargados
+    # (si prefieres ordenados: en el template usa r.orden o ordena en el queryset)
     return render(
         request,
         "operaciones/billing_configurar_requisitos.html",
-        {"sesion": s, "asignaciones": asignaciones}
+        {"sesion": s, "asignaciones": asignaciones},
     )
 
 

@@ -1,4 +1,5 @@
 # operaciones/views.py
+import re
 from django.db.models import Prefetch
 from .models import SesionBillingTecnico, EvidenciaFotoBilling, ItemBilling, ItemBillingTecnico
 from .models import PrecioActividadTecnico  # tu modelo
@@ -436,22 +437,48 @@ def exportar_mis_rendiciones(request):
 
 
 # ---------- LISTAR ----------
-@login_required
+@login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'facturacion')
 def listar_precios_tecnico(request):
+    # Cantidad por página
     cantidad_str = request.GET.get('cantidad', '10')
     cantidad = 1000000 if cantidad_str == 'todos' else int(cantidad_str)
 
-    precios = PrecioActividadTecnico.objects.select_related(
+    # Filtros (GET)
+    f_tecnico = (request.GET.get('f_tecnico') or '').strip()
+    f_ciudad = (request.GET.get('f_ciudad') or '').strip()
+    f_proy = (request.GET.get('f_proyecto') or '').strip()
+    f_codigo = (request.GET.get('f_codigo') or '').strip()
+
+    qs = PrecioActividadTecnico.objects.select_related(
         'tecnico').order_by('-fecha_creacion')
-    paginator = Paginator(precios, cantidad)
+
+    if f_tecnico:
+        qs = qs.filter(
+            Q(tecnico__first_name__icontains=f_tecnico) |
+            Q(tecnico__last_name__icontains=f_tecnico) |
+            Q(tecnico__username__icontains=f_tecnico)
+        )
+    if f_ciudad:
+        qs = qs.filter(ciudad__icontains=f_ciudad)
+    if f_proy:
+        qs = qs.filter(proyecto__icontains=f_proy)
+    if f_codigo:
+        qs = qs.filter(codigo_trabajo__icontains=f_codigo)
+
+    paginator = Paginator(qs, cantidad)
     page_number = request.GET.get('page')
     pagina = paginator.get_page(page_number)
 
-    return render(request, 'operaciones/listar_precios_tecnico.html', {
+    ctx = {
         'pagina': pagina,
-        'cantidad': cantidad_str
-    })
+        'cantidad': cantidad_str,
+        'f_tecnico': f_tecnico,
+        'f_ciudad': f_ciudad,
+        'f_proyecto': f_proy,
+        'f_codigo': f_codigo,
+    }
+    return render(request, 'operaciones/listar_precios_tecnico.html', ctx)
 
 
 # ---------- IMPORTAR -> PREVIEW (con conflictos) ----------
@@ -760,6 +787,60 @@ def repartir_100(n):
         partes[-1] = (partes[-1]+diff).quantize(Decimal("0.01"))
     return partes
 
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'pm')
+def bulk_delete_precios(request):
+    if request.method != "POST":
+        messages.error(request, "Invalid request.")
+        return redirect('operaciones:listar_precios_tecnico')
+
+    ids = request.POST.getlist("ids")
+    return_page = request.POST.get("return_page") or ""
+    return_cantidad = request.POST.get("return_cantidad") or ""
+
+    if not ids:
+        messages.info(request, "No prices selected.")
+        return redirect('operaciones:listar_precios_tecnico')
+
+    qs = PrecioActividadTecnico.objects.filter(id__in=ids)
+    deleted_count = qs.count()
+    qs.delete()
+
+    messages.success(
+        request, f"{deleted_count} price(s) deleted successfully.")
+
+    # Reconstruir URL de retorno preservando filtros y paginación
+    base = reverse('operaciones:listar_precios_tecnico')
+    params = []
+    if return_cantidad:
+        params.append(f"cantidad={return_cantidad}")
+    if return_page and return_cantidad != "todos":
+        params.append(f"page={return_page}")
+
+    for key in ("f_tecnico", "f_ciudad", "f_proyecto", "f_codigo"):
+        val = (request.POST.get(key) or '').strip()
+        if val:
+            params.append(f"{key}={val}")
+
+    url = f"{base}?{'&'.join(params)}" if params else base
+    return redirect(url)
+
+
+# ===== Listado =====
+
+
+def repartir_100(n):
+    if n <= 0:
+        return []
+    base = (Decimal("100.00")/Decimal(n)).quantize(Decimal("0.01"))
+    partes = [base]*n
+    diff = Decimal("100.00") - sum(partes)
+    if diff and partes:
+        partes[-1] = (partes[-1]+diff).quantize(Decimal("0.01"))
+    return partes
+
+
 # ===== Listado =====
 
 
@@ -788,9 +869,12 @@ def listar_billing(request):
                 .prefetch_related(
                     Prefetch(
                         "evidencias",
-                        queryset=EvidenciaFotoBilling.objects
-                        .only("id", "imagen", "tecnico_sesion_id", "requisito_id")
-                        .order_by("-id")
+                        queryset=(
+                            # solo campos usados en thumbnails
+                            EvidenciaFotoBilling.objects
+                            .only("id", "imagen", "tecnico_sesion_id", "requisito_id")
+                            .order_by("-id")
+                        )
                     )
                 )
             ),
@@ -812,10 +896,10 @@ def listar_billing(request):
         "operaciones/billing_listar.html",
         {"pagina": pagina, "cantidad": cantidad},
     )
-
 # ===== Crear / Editar =====
 
 
+# ===== Crear / Editar =====
 @login_required
 def crear_billing(request):
     # POST -> guardar y redirigir (PRG)
@@ -914,18 +998,23 @@ def reasignar_tecnicos(request, sesion_id: int):
 
     for tid, pct in zip(ids, partes):
         SesionBillingTecnico.objects.create(
-            sesion=sesion, tecnico_id=tid, porcentaje=pct)
+            sesion=sesion, tecnico_id=tid, porcentaje=pct
+        )
 
     _recalcular_items_sesion(sesion)
     messages.success(
         request, "Technicians reassigned and totals recalculated.")
     return redirect("operaciones:editar_billing", sesion_id=sesion.id)
 
+
 # ===== Persistencia =====
+
+WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")  # formato de <input type="week">
 
 
 @transaction.atomic
 def _guardar_billing(request, sesion: SesionBilling | None = None):
+    # Header
     proyecto_id = request.POST.get("project_id", "").strip()
     cliente = request.POST.get("client", "").strip()
     ciudad = request.POST.get("city", "").strip()
@@ -933,6 +1022,15 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     oficina = request.POST.get("office", "").strip()
     ids = list(map(int, request.POST.getlist("tech_ids[]")))
 
+    # NUEVOS CAMPOS
+    direccion_proyecto = (request.POST.get("direccion_proyecto") or "").strip()
+    semana_pago_proyectada = (request.POST.get(
+        "semana_pago_proyectada") or "").strip()
+    if semana_pago_proyectada and not WEEK_RE.match(semana_pago_proyectada):
+        # si viene en formato inesperado, lo guardamos vacío (opcional)
+        semana_pago_proyectada = ""
+
+    # Validación mínima
     if not (proyecto_id and cliente and ciudad and proyecto and oficina):
         messages.error(request, "Complete all header fields.")
         return redirect(request.path)
@@ -940,6 +1038,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         messages.error(request, "Select at least one technician.")
         return redirect(request.path)
 
+    # Items
     import json
     filas = []
     for raw in request.POST.getlist("items[]"):
@@ -953,9 +1052,16 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             return HttpResponseBadRequest("Cada fila requiere Job Code y Amount.")
         filas.append({"codigo": cod, "cantidad": Decimal(str(cant))})
 
+    # Crear/actualizar sesión
     if sesion is None:
         sesion = SesionBilling.objects.create(
-            proyecto_id=proyecto_id, cliente=cliente, ciudad=ciudad, proyecto=proyecto, oficina=oficina
+            proyecto_id=proyecto_id,
+            cliente=cliente,
+            ciudad=ciudad,
+            proyecto=proyecto,
+            oficina=oficina,
+            direccion_proyecto=direccion_proyecto,
+            semana_pago_proyectada=semana_pago_proyectada,
         )
     else:
         sesion.proyecto_id = proyecto_id
@@ -963,16 +1069,19 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         sesion.ciudad = ciudad
         sesion.proyecto = proyecto
         sesion.oficina = oficina
+        sesion.direccion_proyecto = direccion_proyecto
+        sesion.semana_pago_proyectada = semana_pago_proyectada
         sesion.save()
 
-    # técnicos con reparto 100/n
+    # Técnicos con reparto 100/n
     sesion.tecnicos_sesion.all().delete()
     partes = repartir_100(len(ids))
     for tid, pct in zip(ids, partes):
         SesionBillingTecnico.objects.create(
-            sesion=sesion, tecnico_id=tid, porcentaje=pct)
+            sesion=sesion, tecnico_id=tid, porcentaje=pct
+        )
 
-    # rehacer items
+    # Rehacer items
     sesion.items.all().delete()
     total_emp = Decimal("0.00")
     total_tec = Decimal("0.00")
@@ -1046,9 +1155,11 @@ def _recalcular_items_sesion(sesion: SesionBilling):
     sesion.subtotal_tecnico = money(total_tec)
     sesion.save(update_fields=["subtotal_tecnico"])
 
+
 # ===== Búsquedas / AJAX =====
 
 
+# ===== Búsquedas / AJAX =====
 def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
     q = PrecioActividadTecnico.objects.filter(
         cliente__iexact=cliente, ciudad__iexact=ciudad,
@@ -1075,21 +1186,33 @@ def _meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
     ).first()
     if not p:
         return None
-    return {"tipo_trabajo": p.tipo_trabajo, "descripcion": p.descripcion, "unidad_medida": p.unidad_medida}
+    return {
+        "tipo_trabajo": p.tipo_trabajo,
+        "descripcion": p.descripcion,
+        "unidad_medida": p.unidad_medida
+    }
 
 
 @login_required
 def ajax_clientes(request):
-    data = list(PrecioActividadTecnico.objects.values_list(
-        "cliente", flat=True).distinct().order_by("cliente"))
+    data = list(
+        PrecioActividadTecnico.objects
+        .values_list("cliente", flat=True)
+        .distinct()
+        .order_by("cliente")
+    )
     return JsonResponse({"results": data})
 
 
 @login_required
 def ajax_ciudades(request):
     cliente = request.GET.get("client", "")
-    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente)
-                .values_list("ciudad", flat=True).distinct().order_by("ciudad")) if cliente else []
+    data = list(
+        PrecioActividadTecnico.objects.filter(cliente__iexact=cliente)
+        .values_list("ciudad", flat=True)
+        .distinct()
+        .order_by("ciudad")
+    ) if cliente else []
     return JsonResponse({"results": data})
 
 
@@ -1098,8 +1221,13 @@ def ajax_proyectos(request):
     cliente = request.GET.get("client", "")
     ciudad = request.GET.get("city", "")
     ok = cliente and ciudad
-    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente, ciudad__iexact=ciudad)
-                .values_list("proyecto", flat=True).distinct().order_by("proyecto")) if ok else []
+    data = list(
+        PrecioActividadTecnico.objects.filter(
+            cliente__iexact=cliente, ciudad__iexact=ciudad)
+        .values_list("proyecto", flat=True)
+        .distinct()
+        .order_by("proyecto")
+    ) if ok else []
     return JsonResponse({"results": data})
 
 
@@ -1109,8 +1237,14 @@ def ajax_oficinas(request):
     ciudad = request.GET.get("city", "")
     proyecto = request.GET.get("project", "")
     ok = cliente and ciudad and proyecto
-    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto)
-                .values_list("oficina", flat=True).distinct().order_by("oficina")) if ok else []
+    data = list(
+        PrecioActividadTecnico.objects.filter(
+            cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto
+        )
+        .values_list("oficina", flat=True)
+        .distinct()
+        .order_by("oficina")
+    ) if ok else []
     return JsonResponse({"results": data})
 
 
@@ -1124,11 +1258,16 @@ def ajax_buscar_codigos(request):
     if not (cliente and ciudad and proyecto and oficina):
         return JsonResponse({"error": "missing_filters"}, status=400)
     qs = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto, oficina__iexact=oficina or "-")
+        cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto, oficina__iexact=oficina or "-"
+    )
     if q:
         qs = qs.filter(codigo_trabajo__istartswith=q)
-    data = list(qs.values("codigo_trabajo", "tipo_trabajo", "descripcion",
-                "unidad_medida").distinct().order_by("codigo_trabajo")[:20])
+    data = list(
+        qs.values("codigo_trabajo", "tipo_trabajo",
+                  "descripcion", "unidad_medida")
+        .distinct()
+        .order_by("codigo_trabajo")[:20]
+    )
     return JsonResponse({"results": data})
 
 
@@ -1141,9 +1280,11 @@ def ajax_detalle_codigo(request):
     codigo = (request.GET.get("code") or "").strip()
     if not (cliente and ciudad and proyecto and oficina and codigo):
         return JsonResponse({"error": "missing_filters"}, status=400)
+
     meta = _meta_codigo(cliente, ciudad, proyecto, oficina, codigo)
     if not meta:
         return JsonResponse({"error": "not_found"}, status=404)
+
     precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
     tech_ids = list(map(int, request.GET.getlist("tech_ids[]")))
     partes = repartir_100(len(tech_ids)) if tech_ids else []
