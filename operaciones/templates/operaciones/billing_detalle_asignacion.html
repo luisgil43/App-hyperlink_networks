@@ -5,24 +5,35 @@
 
 {% block content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
-  <div class="flex items-center justify-between mb-2">
-    <h1 class="text-2xl font-bold">Assignment #{{ a.id }} — {{ a.get_estado_display }}</h1>
-    <div class="flex items-center gap-2">
-      <button type="button" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded" onclick="window.history.back()">⬅️ Back</button>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+  <h1 class="text-2xl font-bold leading-tight min-w-0">
+    Assignment #{{ a.id }} — {{ a.get_estado_display }}
+  </h1>
 
-      {% if a.estado == "asignado" or a.reintento_habilitado %}
-        {# Usamos modal para hacer POST al start #}
-        <button type="button"
-                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded btn-accept-start"
-                data-action="{% url 'operaciones:start_assignment' a.pk %}">
-          Start
-        </button>
-      {% elif a.estado == "en_proceso" %}
-        <a href="{% url 'operaciones:upload_evidencias' a.pk %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Upload photos</a>
-        <a href="{% url 'operaciones:finish_assignment' a.pk %}" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">Finish</a>
-      {% endif %}
-    </div>
+  <div class="flex flex-wrap gap-2 w-full sm:w-auto">
+    <button type="button"
+            class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap"
+            onclick="window.history.back()">⬅️ Back</button>
+
+    {% if a.estado == "asignado" or a.reintento_habilitado %}
+      <button type="button"
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap btn-accept-start"
+              data-action="{% url 'operaciones:start_assignment' a.pk %}">
+        Start
+      </button>
+    {% elif a.estado == "en_proceso" %}
+      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+  Upload photos
+</a>
+      <a href="{% url 'operaciones:finish_assignment' a.pk %}"
+   class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+  Finish
+</a>
+    {% endif %}
   </div>
+</div>
+
 
   {# ---- Datos del proyecto (con ubicación y semana proyectada) ---- #}
   <div class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
@@ -32,15 +43,38 @@
     <div><strong>Project:</strong> {{ a.sesion.proyecto }}</div>
     <div><strong>Office:</strong> {{ a.sesion.oficina }}</div>
 
-    <div class="sm:col-span-2">
+    {# === Location con manejo de URL o dirección larga === #}
+    <div class="sm:col-span-2 min-w-0">
       <strong>Location:</strong>
-      {% if a.sesion.direccion_proyecto %}
-        <span class="ml-1 break-words">{{ a.sesion.direccion_proyecto }}</span>
-        <a href="{{ a.sesion.maps_href }}" target="_blank" rel="noopener"
-           class="ml-2 inline-flex items-center text-blue-600 hover:underline">📍 Open map</a>
+      {% with addr=a.sesion.direccion_proyecto|default_if_none:'' %}
+      {% with href=a.sesion.maps_href|default_if_none:'' %}
+      {% if addr %}
+        {# Si addr parece un link (http/https), no mostramos la URL larga, solo el botón de mapa #}
+        {% if 'http' in addr|lower %}
+          <a href="{{ addr }}" target="_blank" rel="noopener"
+             class="ml-2 inline-flex items-center gap-1 text-blue-600 hover:underline break-all">
+            📍 Open map
+          </a>
+        {% else %}
+          {# Dirección normal: que envuelva bien en móvil #}
+          <span class="ml-1 break-words whitespace-pre-line">{{ addr }}</span>
+          {% if href %}
+            <a href="{{ href }}" target="_blank" rel="noopener"
+               class="ml-2 inline-flex items-center gap-1 text-blue-600 hover:underline">
+              📍 Open map
+            </a>
+          {% endif %}
+        {% endif %}
+      {% elif href %}
+        <a href="{{ href }}" target="_blank" rel="noopener"
+           class="ml-2 inline-flex items-center gap-1 text-blue-600 hover:underline break-all">
+          📍 Open map
+        </a>
       {% else %}
         —
       {% endif %}
+      {% endwith %}
+      {% endwith %}
     </div>
 
     <div>
