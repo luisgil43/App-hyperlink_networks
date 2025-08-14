@@ -122,7 +122,7 @@
         <li data-toggle class="group">
           <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
           <ul class="submenu ml-4 space-y-1 hidden">
-            <li><a href="#" class="hover:text-emerald-400">My Assignment</a></li>
+            <a href="{% url 'operaciones:mis_assignments' %}" class="hover:text-emerald-400">My Assignment</a></li>
             <li><a href="#" class="hover:text-emerald-400">My Production</a></li>
             <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
             <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>

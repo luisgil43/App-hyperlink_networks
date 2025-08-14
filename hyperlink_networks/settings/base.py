@@ -64,7 +64,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'usuarios.middlewares.SessionExpiryMiddleware',
+    'usuarios.middleware.SessionExpiryMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Static files in production
 ]
 
@@ -176,3 +176,16 @@ CSRF_FAILURE_VIEW = 'usuarios.views.csrf_error_view'
 # DEFAULTS
 # ==============================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Tiempo máximo de inactividad (en segundos). Ej: 15 minutos
+IDLE_TIMEOUT_SECONDS = 15 * 60
+
+# Tiempo absoluto máximo de sesión (segundos) → desactivado por defecto
+SESSION_ABSOLUTE_TIMEOUT = None  # Ej: 8*60*60 para 8 horas
+
+# Para que la cookie de sesión se renueve con cada request (resetea el reloj)
+SESSION_SAVE_EVERY_REQUEST = True
+
+# Opcional: para que la sesión caduque al cerrar el navegador
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
