@@ -1,0 +1,197 @@
+{# templates/operaciones/billing_mis_asignaciones.html #}
+{% extends "dashboard/base.html" %}
+{% load humanize %}
+{% block title %}My Assignments{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <h1 class="text-2xl font-bold mb-4">🧾 My Assignments</h1>
+
+  <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-[1100px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="p-2 text-left">Date</th>
+          <th class="p-2 text-left">Project ID</th>
+          <th class="p-2 text-left">Client</th>
+          <th class="p-2 text-left">City</th>
+          <th class="p-2 text-left">Project</th>
+          <th class="p-2 text-left">Office</th>
+          <th class="p-2 text-right">My Billing</th>
+          <th class="p-2 text-left">Status</th>
+          <th class="p-2 text-center">Photo Report</th>
+          <th class="p-2 text-center">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in asignaciones %}
+        <tr class="border-b align-top">
+          <td class="p-2">{{ a.sesion.creado_en|date:"Y-m-d" }}</td>
+          <td class="p-2">{{ a.sesion.proyecto_id }}</td>
+          <td class="p-2">{{ a.sesion.cliente }}</td>
+          <td class="p-2">{{ a.sesion.ciudad }}</td>
+          <td class="p-2">{{ a.sesion.proyecto }}</td>
+          <td class="p-2">{{ a.sesion.oficina }}</td>
+          <td class="p-2 text-right">${{ a.my_total|floatformat:2 }}</td>
+
+          {# -------- STATUS (badges estilo rendiciones) -------- #}
+          <td class="p-2 text-sm">
+            <div class="flex flex-col gap-1 text-left leading-tight">
+              {% if a.estado == 'asignado' %}
+                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
+                  ⏳ Pending acceptance
+                </span>
+              {% elif a.estado == 'en_proceso' %}
+                <span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                  🚀 In progress
+                </span>
+                <span class="text-xs text-gray-600">
+                  Accepted by: {{ a.tecnico.get_full_name|default:a.tecnico.username }}
+                  {% if a.aceptado_en %} · {{ a.aceptado_en|date:"Y-m-d H:i" }}{% endif %}
+                </span>
+              {% elif a.estado == 'en_revision_supervisor' %}
+                <span class="inline-block bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-medium">
+                  📤 Submitted — supervisor review
+                </span>
+              {% elif a.estado == 'rechazado_supervisor' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+                  ❌ Rejected by supervisor
+                </span>
+                {% if a.supervisor_comentario %}
+                  <div class="mt-0.5 text-xs text-red-700 whitespace-pre-wrap break-words">
+                    <strong>Reason:</strong> {{ a.supervisor_comentario }}
+                  </div>
+                {% endif %}
+              {% elif a.estado == 'aprobado_supervisor' %}
+                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                  ✅ Approved by supervisor (pending PM)
+                </span>
+              {% elif a.estado == 'aprobado_pm' %}
+                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                  🏁 Approved by PM
+                </span>
+              {% elif a.estado == 'rechazado_pm' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+                  ❌ Rejected by PM
+                </span>
+                {% if a.pm_comentario %}
+                  <div class="mt-0.5 text-xs text-red-700 whitespace-pre-wrap break-words">
+                    <strong>Reason:</strong> {{ a.pm_comentario }}
+                  </div>
+                {% endif %}
+              {% else %}
+                <span class="inline-block bg-gray-100 text-gray-800 px-2 py-1 rounded-full font-medium">
+                  —
+                </span>
+              {% endif %}
+
+              {% if a.reintento_habilitado %}
+                <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 w-max">
+                ♻️ Reupload enabled
+                </span>
+              {% endif %}
+            </div>
+          </td>
+
+          {# -------- PHOTO REPORT (nivel proyecto) -------- #}
+          <td class="p-2 text-center">
+            {% if a.sesion.reporte_fotografico %}
+              <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
+                 href="{{ a.sesion.reporte_fotografico.url }}" target="_blank" rel="noopener">
+                ⬇️ Download
+              </a>
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+
+          {# -------- ACTIONS -------- #}
+          <td class="p-2 text-center space-x-2">
+            <a href="{% url 'operaciones:detalle_assignment' a.pk %}" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">View</a>
+
+            {% if a.estado == "asignado" %}
+              {# Mejor por POST con confirmación #}
+              <button type="button"
+                      class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                      data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                ✅ Accept & Start
+              </button>
+
+            {% elif a.estado == "en_proceso" %}
+              <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                 class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                Upload photos
+              </a>
+              <a href="{% url 'operaciones:finish_assignment' a.pk %}"
+                 class="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">
+                Finish
+              </a>
+
+            {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+              {# Permitir re-aceptar/arrancar de nuevo #}
+              <button type="button"
+                      class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                      data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                Start
+              </button>
+              <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                 class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                Reupload photos
+              </a>
+              <a href="{% url 'operaciones:finish_assignment' a.pk %}"
+                 class="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">
+                Finish
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td class="p-4 text-center text-gray-500" colspan="10">No assignments yet.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ===== Modal Aceptar & Empezar (POST) ===== #}
+<div id="modal-accept" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Accept assignment?</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      This will mark the task as <b>In progress</b> and store your acceptance timestamp.
+    </p>
+    <form id="form-accept" method="post" action="#" class="mt-4 flex justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
+      <button type="submit" class="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700">Accept & Start</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const modal = document.getElementById('modal-accept');
+  const form  = document.getElementById('form-accept');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-accept-start');
+    if(!btn) return;
+    form.action = btn.getAttribute('data-action'); // URL de start_assignment
+    modal.classList.remove('hidden');
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-modal')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') modal.classList.add('hidden');
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,103 @@
+{# templates/operaciones/billing_detalle_asignacion.html #}
+{% extends "dashboard/base.html" %}
+{% load humanize %}
+{% block title %}Assignment Detail{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <div class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold">Assignment #{{ a.id }} — {{ a.get_estado_display }}</h1>
+    <div class="flex items-center gap-2">
+      <button type="button" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded" onclick="window.history.back()">⬅️ Back</button>
+
+      {% if a.estado == "asignado" or a.reintento_habilitado %}
+        {# Usamos modal para hacer POST al start #}
+        <button type="button"
+                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded btn-accept-start"
+                data-action="{% url 'operaciones:start_assignment' a.pk %}">
+          Start
+        </button>
+      {% elif a.estado == "en_proceso" %}
+        <a href="{% url 'operaciones:upload_evidencias' a.pk %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Upload photos</a>
+        <a href="{% url 'operaciones:finish_assignment' a.pk %}" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">Finish</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
+    <div><strong>Project ID:</strong> {{ a.sesion.proyecto_id }}</div>
+    <div><strong>Client:</strong> {{ a.sesion.cliente }}</div>
+    <div><strong>City:</strong> {{ a.sesion.ciudad }}</div>
+    <div><strong>Project:</strong> {{ a.sesion.proyecto }}</div>
+    <div><strong>Office:</strong> {{ a.sesion.oficina }}</div>
+  </div>
+
+  <h2 class="text-lg font-semibold mb-2">Items</h2>
+  <div class="overflow-x-auto rounded border">
+    <table class="table-auto w-full text-sm">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="p-2 text-left">Code</th>
+          <th class="p-2 text-left">Description</th>
+          <th class="p-2 text-right">Qty</th>
+          <th class="p-2 text-right">My Rate</th>
+          <th class="p-2 text-right">Line Total</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for it in items %}
+        <tr class="border-t">
+          <td class="p-2">{{ it.item.codigo_trabajo }}</td>
+          <td class="p-2">{{ it.item.descripcion }}</td>
+          <td class="p-2 text-right">{{ it.item.cantidad|floatformat:2 }}</td>
+          <td class="p-2 text-right">${{ it.tarifa_efectiva|floatformat:2 }}</td>
+          <td class="p-2 text-right">${{ it.subtotal|floatformat:2 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="p-3 text-center text-gray-500">No items.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ===== Modal para aceptar (POST) ===== #}
+<div id="modal-accept" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Accept assignment?</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      This will mark the task as <b>In progress</b> and store your acceptance timestamp.
+    </p>
+    <form id="form-accept" method="post" action="#" class="mt-4 flex justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
+      <button type="submit" class="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700">Accept & Start</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const modal = document.getElementById('modal-accept');
+  const form  = document.getElementById('form-accept');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-accept-start');
+    if(!btn) return;
+    form.action = btn.getAttribute('data-action'); // URL de start_assignment
+    modal.classList.remove('hidden');
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-modal')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') modal.classList.add('hidden');
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,417 @@
+{% extends "dashboard_admin/base.html" %}
+{% load static %}
+{% block title %}{% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <h1 class="text-2xl font-bold">🧾 {% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}</h1>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'operaciones:listar_billing' %}" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Back</a>
+    </div>
+  </div>
+
+  <form id="billing-form" method="post" class="mt-4">
+    {% csrf_token %}
+
+    <!-- Header -->
+    <div class="grid md:grid-cols-3 gap-4">
+      <!-- Technicians -->
+      <div class="md:col-span-3">
+        <label class="block text-sm font-medium mb-1">Technicians</label>
+        <button type="button" id="btn-open-tech" class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+          Select technicians
+        </button>
+        <span id="tech-summary" class="ml-2 text-sm text-gray-600"></span>
+        <!-- hidden inputs -->
+        <div id="tech-hidden"></div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">Project ID</label>
+        <input name="project_id" value="{{ sesion.proyecto_id|default:'' }}" class="w-full border rounded p-2" required />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">Client</label>
+        <select id="client" name="client" class="w-full border rounded p-2" required>
+          <option value="" disabled {% if not sesion %}selected{% endif %}>Select…</option>
+          {% for c in clientes %}
+          <option value="{{ c }}" {% if sesion and sesion.cliente == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">City</label>
+        <select id="city" name="city" class="w-full border rounded p-2" required>
+          {% if sesion %}<option selected>{{ sesion.ciudad }}</option>{% else %}<option value="" disabled selected>Select…</option>{% endif %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">Project</label>
+        <select id="project" name="project" class="w-full border rounded p-2" required>
+          {% if sesion %}<option selected>{{ sesion.proyecto }}</option>{% else %}<option value="" disabled selected>Select…</option>{% endif %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">Office</label>
+        <select id="office" name="office" class="w-full border rounded p-2" required>
+          {% if sesion %}<option selected>{{ sesion.oficina }}</option>{% else %}<option value="" disabled selected>Select…</option>{% endif %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="mt-6">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold">Items</h2>
+        <button type="button" id="btn-add-row" class="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Add Row</button>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border">
+        <table class="min-w-[1100px] w-full text-sm" id="items-table">
+          <thead class="bg-gray-50 text-gray-700">
+            <tr>
+              <th class="p-2 text-left">Job Code</th>
+              <th class="p-2 text-left">Work Type</th>
+              <th class="p-2 text-left">Description</th>
+              <th class="p-2 text-left">UOM</th>
+              <th class="p-2 text-right">Amount</th>
+              <th class="p-2 text-left">Technical Price</th>
+              <th class="p-2 text-right">Company Price</th>
+              <th class="p-2 text-right">Subtotal Technical</th>
+              <th class="p-2 text-right">Subtotal Company</th>
+              <th class="p-2 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if items %}
+              {% for it in items %}
+              <tr class="border-t">
+                <td class="p-2">
+                  <input class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
+                </td>
+                <td class="p-2"><input class="worktype-input w-40 border rounded p-1" value="{{ it.tipo_trabajo }}" readonly/></td>
+                <td class="p-2"><input class="desc-input w-64 border rounded p-1" value="{{ it.descripcion }}" readonly/></td>
+                <td class="p-2"><input class="uom-input w-24 border rounded p-1" value="{{ it.unidad_medida }}" readonly/></td>
+                <td class="p-2 text-right"><input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}"/></td>
+                <td class="p-2">
+                  <div class="tech-price-cell text-xs">
+                    {% for bd in it.desglose_tecnico.all %}
+                      <div class="flex gap-1">
+                        <span class="px-1 rounded bg-gray-100">{{ bd.tecnico.get_full_name|default:bd.tecnico.username }}</span>
+                        <span>{{ bd.tarifa_base|floatformat:2 }} × {{ bd.porcentaje|floatformat:2 }}% = <b>{{ bd.tarifa_efectiva|floatformat:2 }}</b></span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </td>
+                <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" value="{{ it.precio_empresa|floatformat:2 }}" readonly/></td>
+                <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_tecnico|floatformat:2 }}" readonly/></td>
+                <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_empresa|floatformat:2 }}" readonly/></td>
+                <td class="p-2 text-center">
+                  <button type="button" class="btn-remove-row text-red-600 hover:underline">Remove</button>
+                </td>
+              </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+          <tfoot class="bg-gray-50">
+            <tr>
+              <th class="p-2 text-right" colspan="7">Total</th>
+              <th class="p-2 text-right"><span id="total-tech">{{ sesion.subtotal_tecnico|default:0|floatformat:2 }}</span></th>
+              <th class="p-2 text-right"><span id="total-company">{{ sesion.subtotal_empresa|default:0|floatformat:2 }}</span></th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex flex-wrap items-center gap-3 mt-6">
+      <a href="{% url 'operaciones:listar_billing' %}" class="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300">Cancel</a>
+      <button class="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
+    </div>
+
+    <!-- contenedores de items en POST -->
+    <div id="items-hidden"></div>
+  </form>
+</div>
+
+<!-- Modal de técnicos -->
+<div id="tech-modal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-semibold">Select Technicians</h3>
+      <button type="button" id="btn-close-tech" class="text-gray-500 hover:text-gray-700">✖</button>
+    </div>
+    <div class="overflow-x-auto border rounded">
+      <table class="min-w-[600px] w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="p-2 text-left">Select</th>
+            <th class="p-2 text-left">Name</th>
+            <th class="p-2 text-left">Username</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tecnicos %}
+          <tr class="border-t">
+            <td class="p-2">
+              <input type="checkbox" class="tech-check" value="{{ t.id }}"
+                {% if ids_tecnicos and t.id in ids_tecnicos %}checked{% endif %}/>
+            </td>
+            <td class="p-2">{{ t.get_full_name|default:t.username }}</td>
+            <td class="p-2">{{ t.username }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="p-3 text-center text-gray-500">No technicians found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <button type="button" id="btn-apply-tech" class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* === Utilidades front === */
+// Estado en JS
+const state = {
+  techIds: {{ ids_tecnicos|default:"[]"|safe }},
+  totals: { tech: 0, company: 0 }
+};
+const urls = {
+  ciudades: "{% url 'operaciones:ajax_ciudades' %}",
+  proyectos: "{% url 'operaciones:ajax_proyectos' %}",
+  oficinas: "{% url 'operaciones:ajax_oficinas' %}",
+  buscarCodigos: "{% url 'operaciones:ajax_buscar_codigos' %}",
+  detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
+};
+
+// Modal técnicos
+const modal = document.getElementById('tech-modal');
+document.getElementById('btn-open-tech').onclick = () => modal.classList.remove('hidden');
+document.getElementById('btn-close-tech').onclick = () => modal.classList.add('hidden');
+document.getElementById('btn-apply-tech').onclick = () => {
+  const checks = [...document.querySelectorAll('.tech-check:checked')];
+  state.techIds = checks.map(c => parseInt(c.value));
+  renderTechSummary();
+  rebuildTechHidden();
+  modal.classList.add('hidden');
+  recalcAllRows();
+};
+
+function renderTechSummary() {
+  const span = document.getElementById('tech-summary');
+  span.textContent = state.techIds.length ? `${state.techIds.length} technician(s) selected` : 'No technicians selected';
+}
+function rebuildTechHidden() {
+  const box = document.getElementById('tech-hidden');
+  box.innerHTML = "";
+  state.techIds.forEach(id => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'tech_ids[]';
+    inp.value = id;
+    box.appendChild(inp);
+  });
+}
+renderTechSummary();
+rebuildTechHidden();
+
+// Cascada de combos
+const clientSel = document.getElementById('client');
+const citySel = document.getElementById('city');
+const projectSel = document.getElementById('project');
+const officeSel = document.getElementById('office');
+
+clientSel.addEventListener('change', async () => {
+  await loadOptions(citySel, urls.ciudades + `?client=${encodeURIComponent(clientSel.value)}`);
+  clearSelect(projectSel); clearSelect(officeSel);
+});
+citySel.addEventListener('change', async () => {
+  await loadOptions(projectSel, urls.proyectos + `?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}`);
+  clearSelect(officeSel);
+});
+projectSel.addEventListener('change', async () => {
+  await loadOptions(officeSel, urls.oficinas + `?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`);
+});
+
+async function loadOptions(selectEl, url) {
+  selectEl.innerHTML = `<option selected disabled>Loading…</option>`;
+  const r = await fetch(url);
+  const data = await r.json();
+  selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
+  (data.results || []).forEach(v => {
+    const op = document.createElement('option'); op.value = v; op.textContent = v;
+    selectEl.appendChild(op);
+  });
+}
+function clearSelect(el) { el.innerHTML = `<option value="" disabled selected>Select…</option>` }
+
+// Tabla
+const tbody = document.querySelector('#items-table tbody');
+document.getElementById('btn-add-row').onclick = () => addRow();
+
+function addRow() {
+  const tr = document.createElement('tr');
+  tr.className = "border-t";
+  tr.innerHTML = `
+    <td class="p-2">
+      <div class="relative">
+        <input class="code-input w-40 border rounded p-1" placeholder="Type code…"/>
+        <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
+      </div>
+    </td>
+    <td class="p-2"><input class="worktype-input w-40 border rounded p-1" readonly/></td>
+    <td class="p-2"><input class="desc-input w-64 border rounded p-1" readonly/></td>
+    <td class="p-2"><input class="uom-input w-24 border rounded p-1" readonly/></td>
+    <td class="p-2 text-right"><input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="1"/></td>
+    <td class="p-2"><div class="tech-price-cell text-xs text-gray-800"></div></td>
+    <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-center"><button type="button" class="btn-remove-row text-red-600 hover:underline">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+  wireRow(tr);
+}
+tbody.addEventListener('click', (e) => {
+  if (e.target.classList.contains('btn-remove-row')) {
+    e.target.closest('tr').remove();
+    recomputeTotals();
+  }
+});
+
+function wireRow(tr) {
+  const codeInput = tr.querySelector('.code-input');
+  const suggestions = tr.querySelector('.suggestions');
+  const amountInput = tr.querySelector('.amount-input');
+
+  // Autocomplete de códigos
+  codeInput.addEventListener('input', async () => {
+    const ok = validateHeaderSelected();
+    if (!ok) { showToast('Please select Client, City, Project, Office and Technicians first.'); codeInput.value = ""; return; }
+    const q = codeInput.value.trim();
+    if (!q) { suggestions.classList.add('hidden'); suggestions.innerHTML=""; return; }
+    const url = `${urls.buscarCodigos}?client=${enc(clientSel.value)}&city=${enc(citySel.value)}&project=${enc(projectSel.value)}&office=${enc(officeSel.value)}&q=${enc(q)}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    suggestions.innerHTML = (data.results||[]).map(x => `
+      <div class="px-2 py-1 hover:bg-gray-100 cursor-pointer" data-code="${x.codigo_trabajo}" data-w="${x.tipo_trabajo}" data-d="${x.descripcion}" data-u="${x.unidad_medida}">${x.codigo_trabajo} — ${x.descripcion}</div>
+    `).join('');
+    suggestions.classList.remove('hidden');
+  });
+
+  suggestions.addEventListener('click', async (e) => {
+    const row = e.target.closest('[data-code]');
+    if (!row) return;
+    suggestions.classList.add('hidden');
+    codeInput.value = row.dataset.code;
+    tr.querySelector('.worktype-input').value = row.dataset.w;
+    tr.querySelector('.desc-input').value = row.dataset.d;
+    tr.querySelector('.uom-input').value = row.dataset.u;
+    await hydratePrices(tr);
+  });
+
+  amountInput.addEventListener('input', () => updateRowTotals(tr));
+}
+
+function validateHeaderSelected() {
+  return clientSel.value && citySel.value && projectSel.value && officeSel.value && state.techIds.length>0;
+}
+function showToast(msg) { alert(msg) } // integra tu sistema de mensajes
+
+function enc(s){return encodeURIComponent(s)}
+
+async function hydratePrices(tr){
+  const code = tr.querySelector('.code-input').value.trim();
+  const ok = validateHeaderSelected();
+  if (!ok || !code) return;
+
+  const params = new URLSearchParams({
+    client: clientSel.value, city: citySel.value, project: projectSel.value, office: officeSel.value, code
+  });
+  state.techIds.forEach(id => params.append('tech_ids[]', id));
+  const r = await fetch(`${urls.detalleCodigo}?${params.toString()}`);
+  const data = await r.json();
+  if (data.error) { showToast("Code not found for selected filters."); return; }
+
+  tr.querySelector('.worktype-input').value = data.tipo_trabajo;
+  tr.querySelector('.desc-input').value = data.descripcion;
+  tr.querySelector('.uom-input').value = data.unidad_medida;
+  tr.querySelector('.company-price-input').value = data.precio_empresa;
+
+  // pintar desglose técnico
+  const cell = tr.querySelector('.tech-price-cell');
+cell.innerHTML = (data.desglose_tecnico||[]).map((t, idx) => `
+  <div class="flex gap-1">
+    <span class="px-1 rounded bg-gray-100">Tech ${idx + 1}</span>
+    <span>${t.tarifa_base} × ${t.porcentaje}% = <b>${t.tarifa_efectiva}</b></span>
+  </div>
+`).join('');
+
+  updateRowTotals(tr);
+}
+
+function updateRowTotals(tr){
+  const amount = parseFloat(tr.querySelector('.amount-input').value||"0");
+  const comp = parseFloat(tr.querySelector('.company-price-input').value||"0");
+
+  // sumar efectivos de la celda técnica
+  let effSum = 0;
+  tr.querySelectorAll('.tech-price-cell b').forEach(b=>{
+    effSum += parseFloat(b.textContent||"0");
+  });
+
+  const techSubtotal = (effSum * amount) || 0;
+  const companySubtotal = (comp * amount) || 0;
+
+  tr.querySelector('.tech-subtotal-input').value = techSubtotal.toFixed(2);
+  tr.querySelector('.company-subtotal-input').value = companySubtotal.toFixed(2);
+
+  recomputeTotals();
+}
+function recalcAllRows(){
+  document.querySelectorAll('#items-table tbody tr').forEach(tr=>{
+    const code = tr.querySelector('.code-input')?.value?.trim();
+    if (code) hydratePrices(tr);
+  });
+}
+
+function recomputeTotals(){
+  let tTech = 0, tComp = 0;
+  document.querySelectorAll('.tech-subtotal-input').forEach(i=>tTech += parseFloat(i.value||"0"));
+  document.querySelectorAll('.company-subtotal-input').forEach(i=>tComp += parseFloat(i.value||"0"));
+  document.getElementById('total-tech').textContent = (tTech||0).toFixed(2);
+  document.getElementById('total-company').textContent = (tComp||0).toFixed(2);
+}
+
+// Empaquetar items para el POST
+document.getElementById('billing-form').addEventListener('submit', (e)=>{
+  const ok = validateHeaderSelected();
+  if (!ok) { e.preventDefault(); showToast('Please select technicians and all header filters.'); return; }
+
+  const hidden = document.getElementById('items-hidden');
+  hidden.innerHTML = "";
+  const rows = document.querySelectorAll('#items-table tbody tr');
+  if (!rows.length) { e.preventDefault(); showToast('Please add at least one item.'); return; }
+
+  rows.forEach(tr=>{
+    const code = tr.querySelector('.code-input').value.trim();
+    const amount = tr.querySelector('.amount-input').value;
+    const payload = JSON.stringify({code, amount});
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'items[]'; inp.value = payload;
+    hidden.appendChild(inp);
+  });
+});
+</script>
+{% endblock %}

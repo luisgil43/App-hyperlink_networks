@@ -1,4 +1,14 @@
 # operaciones/views.py
+from django.db.models import Prefetch
+from .models import SesionBillingTecnico, EvidenciaFotoBilling, ItemBilling, ItemBillingTecnico
+from .models import PrecioActividadTecnico  # tu modelo
+from .models import (
+    SesionBilling, SesionBillingTecnico,
+    ItemBilling, ItemBillingTecnico,
+    PrecioActividadTecnico,
+)
+from django.http import JsonResponse, HttpResponseBadRequest
+from decimal import Decimal, ROUND_HALF_UP
 from .forms import ImportarPreciosForm, PrecioActividadTecnicoForm  # <-- TUS FORMS
 from .models import PrecioActividadTecnico           # <-- TU MODELO DE PRECIOS
 from usuarios.models import CustomUser  # ajusta si tu user model es otro
@@ -726,3 +736,430 @@ def eliminar_precio(request, pk):
     precio.delete()
     messages.success(request, "Price deleted successfully.")
     return redirect('operaciones:listar_precios_tecnico')
+
+
+# --- BILLING DE AQUI PARA ABAJO ---
+#
+# Ajusta si tu modelo de precios está en otra app
+
+
+Usuario = get_user_model()
+
+
+def money(x):  # redondeo
+    return Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def repartir_100(n):
+    if n <= 0:
+        return []
+    base = (Decimal("100.00")/Decimal(n)).quantize(Decimal("0.01"))
+    partes = [base]*n
+    diff = Decimal("100.00") - sum(partes)
+    if diff and partes:
+        partes[-1] = (partes[-1]+diff).quantize(Decimal("0.01"))
+    return partes
+
+# ===== Listado =====
+
+
+@login_required
+def listar_billing(request):
+    qs = (
+        SesionBilling.objects
+        .order_by("-creado_en")
+        .prefetch_related(
+            # Items + desglose
+            Prefetch(
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related(
+                            "tecnico")
+                    )
+                ),
+            ),
+            # Asignaciones (técnico + evidencias para thumbnails)
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects
+                .select_related("tecnico")
+                .prefetch_related(
+                    Prefetch(
+                        "evidencias",
+                        queryset=EvidenciaFotoBilling.objects
+                        .only("id", "imagen", "tecnico_sesion_id", "requisito_id")
+                        .order_by("-id")
+                    )
+                )
+            ),
+        )
+    )
+
+    cantidad = request.GET.get("cantidad", "10")
+    if cantidad == "todos":
+        pagina = Paginator(qs, qs.count() or 1).get_page(1)
+    else:
+        try:
+            per_page = int(cantidad)
+        except (TypeError, ValueError):
+            per_page = 10
+        pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
+
+    return render(
+        request,
+        "operaciones/billing_listar.html",
+        {"pagina": pagina, "cantidad": cantidad},
+    )
+
+# ===== Crear / Editar =====
+
+
+@login_required
+def crear_billing(request):
+    # POST -> guardar y redirigir (PRG)
+    if request.method == "POST":
+        # <-- _guardar_billing hace redirect al listar
+        return _guardar_billing(request)
+
+    # Combos
+    clientes = (
+        PrecioActividadTecnico.objects
+        .values_list("cliente", flat=True)
+        .distinct()
+        .order_by("cliente")
+    )
+
+    # Técnicos con al menos una tarifa cargada
+    tecnicos = (
+        Usuario.objects
+        .filter(precioactividadtecnico__isnull=False, is_active=True)
+        .distinct()
+        .order_by("first_name", "last_name", "username")
+    )
+
+    return render(request, "operaciones/billing_editar.html", {
+        "sesion": None,
+        "clientes": list(clientes),
+        "tecnicos": tecnicos,
+        "items": [],
+        "ids_tecnicos": [],
+    })
+
+
+@login_required
+def editar_billing(request, sesion_id: int):
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # POST -> guardar y redirigir (PRG)
+    if request.method == "POST":
+        # <-- redirect al listar
+        return _guardar_billing(request, sesion=sesion)
+
+    # Combos
+    clientes = (
+        PrecioActividadTecnico.objects
+        .values_list("cliente", flat=True)
+        .distinct()
+        .order_by("cliente")
+    )
+
+    tecnicos = (
+        Usuario.objects
+        .filter(precioactividadtecnico__isnull=False, is_active=True)
+        .distinct()
+        .order_by("first_name", "last_name", "username")
+    )
+
+    items = (
+        sesion.items
+        .prefetch_related("desglose_tecnico__tecnico")
+        .order_by("id")
+    )
+    ids_tecnicos = list(
+        sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
+    )
+
+    return render(request, "operaciones/billing_editar.html", {
+        "sesion": sesion,
+        "clientes": list(clientes),
+        "tecnicos": tecnicos,
+        "items": items,
+        "ids_tecnicos": ids_tecnicos,
+    })
+
+
+@login_required
+@transaction.atomic
+def eliminar_billing(request, sesion_id: int):
+    get_object_or_404(SesionBilling, pk=sesion_id).delete()
+    messages.success(request, "Billing deleted.")
+    return redirect("operaciones:listar_billing")
+
+
+@login_required
+@transaction.atomic
+def reasignar_tecnicos(request, sesion_id: int):
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST requerido")
+
+    ids = list(map(int, request.POST.getlist("tech_ids[]")))
+    if not ids:
+        return HttpResponseBadRequest("Seleccione al menos un técnico.")
+
+    sesion.tecnicos_sesion.all().delete()
+    partes = repartir_100(len(ids))
+
+    for tid, pct in zip(ids, partes):
+        SesionBillingTecnico.objects.create(
+            sesion=sesion, tecnico_id=tid, porcentaje=pct)
+
+    _recalcular_items_sesion(sesion)
+    messages.success(
+        request, "Technicians reassigned and totals recalculated.")
+    return redirect("operaciones:editar_billing", sesion_id=sesion.id)
+
+# ===== Persistencia =====
+
+
+@transaction.atomic
+def _guardar_billing(request, sesion: SesionBilling | None = None):
+    proyecto_id = request.POST.get("project_id", "").strip()
+    cliente = request.POST.get("client", "").strip()
+    ciudad = request.POST.get("city", "").strip()
+    proyecto = request.POST.get("project", "").strip()
+    oficina = request.POST.get("office", "").strip()
+    ids = list(map(int, request.POST.getlist("tech_ids[]")))
+
+    if not (proyecto_id and cliente and ciudad and proyecto and oficina):
+        messages.error(request, "Complete all header fields.")
+        return redirect(request.path)
+    if not ids:
+        messages.error(request, "Select at least one technician.")
+        return redirect(request.path)
+
+    import json
+    filas = []
+    for raw in request.POST.getlist("items[]"):
+        try:
+            o = json.loads(raw)
+        except Exception:
+            return HttpResponseBadRequest("Items inválidos.")
+        cod = (o.get("code") or "").strip()
+        cant = o.get("amount")
+        if not cod or cant in ("", None):
+            return HttpResponseBadRequest("Cada fila requiere Job Code y Amount.")
+        filas.append({"codigo": cod, "cantidad": Decimal(str(cant))})
+
+    if sesion is None:
+        sesion = SesionBilling.objects.create(
+            proyecto_id=proyecto_id, cliente=cliente, ciudad=ciudad, proyecto=proyecto, oficina=oficina
+        )
+    else:
+        sesion.proyecto_id = proyecto_id
+        sesion.cliente = cliente
+        sesion.ciudad = ciudad
+        sesion.proyecto = proyecto
+        sesion.oficina = oficina
+        sesion.save()
+
+    # técnicos con reparto 100/n
+    sesion.tecnicos_sesion.all().delete()
+    partes = repartir_100(len(ids))
+    for tid, pct in zip(ids, partes):
+        SesionBillingTecnico.objects.create(
+            sesion=sesion, tecnico_id=tid, porcentaje=pct)
+
+    # rehacer items
+    sesion.items.all().delete()
+    total_emp = Decimal("0.00")
+    total_tec = Decimal("0.00")
+
+    for fila in filas:
+        meta = _meta_codigo(cliente, ciudad, proyecto, oficina, fila["codigo"])
+        if not meta:
+            return HttpResponseBadRequest(f"Código '{fila['codigo']}' no existe con los filtros.")
+        precio_emp = _precio_empresa(
+            cliente, ciudad, proyecto, oficina, fila["codigo"])
+        sub_emp = money(precio_emp * fila["cantidad"])
+
+        item = ItemBilling.objects.create(
+            sesion=sesion,
+            codigo_trabajo=fila["codigo"],
+            tipo_trabajo=meta["tipo_trabajo"],
+            descripcion=meta["descripcion"],
+            unidad_medida=meta["unidad_medida"],
+            cantidad=money(fila["cantidad"]),
+            precio_empresa=precio_emp,
+            subtotal_empresa=sub_emp,
+            subtotal_tecnico=Decimal("0.00")
+        )
+
+        sub_tecs = Decimal("0.00")
+        for tid, pct in zip(ids, partes):
+            base = _tarifa_tecnico(tid, cliente, ciudad,
+                                   proyecto, oficina, fila["codigo"])
+            efectiva = money(base * (pct/Decimal("100")))
+            subtotal = money(efectiva * item.cantidad)
+            ItemBillingTecnico.objects.create(
+                item=item, tecnico_id=tid, tarifa_base=base,
+                porcentaje=pct, tarifa_efectiva=efectiva, subtotal=subtotal
+            )
+            sub_tecs += subtotal
+
+        item.subtotal_tecnico = sub_tecs
+        item.save(update_fields=["subtotal_tecnico"])
+
+        total_emp += sub_emp
+        total_tec += sub_tecs
+
+    sesion.subtotal_empresa = money(total_emp)
+    sesion.subtotal_tecnico = money(total_tec)
+    sesion.save(update_fields=["subtotal_empresa", "subtotal_tecnico"])
+
+    messages.success(request, "Billing saved successfully.")
+    return redirect("operaciones:listar_billing")
+
+
+def _recalcular_items_sesion(sesion: SesionBilling):
+    ids = list(sesion.tecnicos_sesion.values_list("tecnico_id", flat=True))
+    partes = list(sesion.tecnicos_sesion.values_list("porcentaje", flat=True))
+    total_tec = Decimal("0.00")
+    for it in sesion.items.all():
+        it.desglose_tecnico.all().delete()
+        sub = Decimal("0.00")
+        for tid, pct in zip(ids, partes):
+            base = _tarifa_tecnico(tid, sesion.cliente, sesion.ciudad,
+                                   sesion.proyecto, sesion.oficina, it.codigo_trabajo)
+            efectiva = money(base * (pct/Decimal("100")))
+            subtotal = money(efectiva * it.cantidad)
+            ItemBillingTecnico.objects.create(
+                item=it, tecnico_id=tid, tarifa_base=base,
+                porcentaje=pct, tarifa_efectiva=efectiva, subtotal=subtotal
+            )
+            sub += subtotal
+        it.subtotal_tecnico = sub
+        it.save(update_fields=["subtotal_tecnico"])
+        total_tec += sub
+    sesion.subtotal_tecnico = money(total_tec)
+    sesion.save(update_fields=["subtotal_tecnico"])
+
+# ===== Búsquedas / AJAX =====
+
+
+def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
+    q = PrecioActividadTecnico.objects.filter(
+        cliente__iexact=cliente, ciudad__iexact=ciudad,
+        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo
+    ).first()
+    return money(q.precio_empresa if q else 0)
+
+
+def _tarifa_tecnico(tecnico_id, cliente, ciudad, proyecto, oficina, codigo):
+    q = PrecioActividadTecnico.objects.filter(
+        tecnico_id=tecnico_id, cliente__iexact=cliente, ciudad__iexact=ciudad,
+        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo
+    ).first()
+    return money(q.precio_tecnico if q else 0)
+
+
+def _meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
+    p = PrecioActividadTecnico.objects.filter(
+        cliente__iexact=cliente, ciudad__iexact=ciudad,
+        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo
+    ).first()
+    if not p:
+        return None
+    return {"tipo_trabajo": p.tipo_trabajo, "descripcion": p.descripcion, "unidad_medida": p.unidad_medida}
+
+
+@login_required
+def ajax_clientes(request):
+    data = list(PrecioActividadTecnico.objects.values_list(
+        "cliente", flat=True).distinct().order_by("cliente"))
+    return JsonResponse({"results": data})
+
+
+@login_required
+def ajax_ciudades(request):
+    cliente = request.GET.get("client", "")
+    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente)
+                .values_list("ciudad", flat=True).distinct().order_by("ciudad")) if cliente else []
+    return JsonResponse({"results": data})
+
+
+@login_required
+def ajax_proyectos(request):
+    cliente = request.GET.get("client", "")
+    ciudad = request.GET.get("city", "")
+    ok = cliente and ciudad
+    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente, ciudad__iexact=ciudad)
+                .values_list("proyecto", flat=True).distinct().order_by("proyecto")) if ok else []
+    return JsonResponse({"results": data})
+
+
+@login_required
+def ajax_oficinas(request):
+    cliente = request.GET.get("client", "")
+    ciudad = request.GET.get("city", "")
+    proyecto = request.GET.get("project", "")
+    ok = cliente and ciudad and proyecto
+    data = list(PrecioActividadTecnico.objects.filter(cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto)
+                .values_list("oficina", flat=True).distinct().order_by("oficina")) if ok else []
+    return JsonResponse({"results": data})
+
+
+@login_required
+def ajax_buscar_codigos(request):
+    cliente = request.GET.get("client", "")
+    ciudad = request.GET.get("city", "")
+    proyecto = request.GET.get("project", "")
+    oficina = request.GET.get("office", "")
+    q = (request.GET.get("q") or "").strip()
+    if not (cliente and ciudad and proyecto and oficina):
+        return JsonResponse({"error": "missing_filters"}, status=400)
+    qs = PrecioActividadTecnico.objects.filter(
+        cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto, oficina__iexact=oficina or "-")
+    if q:
+        qs = qs.filter(codigo_trabajo__istartswith=q)
+    data = list(qs.values("codigo_trabajo", "tipo_trabajo", "descripcion",
+                "unidad_medida").distinct().order_by("codigo_trabajo")[:20])
+    return JsonResponse({"results": data})
+
+
+@login_required
+def ajax_detalle_codigo(request):
+    cliente = request.GET.get("client", "")
+    ciudad = request.GET.get("city", "")
+    proyecto = request.GET.get("project", "")
+    oficina = request.GET.get("office", "")
+    codigo = (request.GET.get("code") or "").strip()
+    if not (cliente and ciudad and proyecto and oficina and codigo):
+        return JsonResponse({"error": "missing_filters"}, status=400)
+    meta = _meta_codigo(cliente, ciudad, proyecto, oficina, codigo)
+    if not meta:
+        return JsonResponse({"error": "not_found"}, status=404)
+    precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
+    tech_ids = list(map(int, request.GET.getlist("tech_ids[]")))
+    partes = repartir_100(len(tech_ids)) if tech_ids else []
+    desglose = []
+    for tid, pct in zip(tech_ids, partes):
+        base = _tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo)
+        desglose.append({
+            "tecnico_id": tid,
+            "tarifa_base": f"{base:.2f}",
+            "porcentaje": f"{pct:.2f}",
+            "tarifa_efectiva": f"{(base * (Decimal(pct)/100)):.2f}",
+        })
+    return JsonResponse({
+        "tipo_trabajo": meta["tipo_trabajo"],
+        "descripcion": meta["descripcion"],
+        "unidad_medida": meta["unidad_medida"],
+        "precio_empresa": f"{precio_emp:.2f}",
+        "desglose_tecnico": desglose
+    })

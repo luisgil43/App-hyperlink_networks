@@ -1,0 +1,373 @@
+{# templates/operaciones/billing_upload_evidencias.html #}
+{% extends "dashboard/base.html" %}
+{% block title %}Upload Photos{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      {# Back: intenta volver con history; si no hay referrer, va al listado #}
+      <button type="button"
+              class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
+              onclick="if (document.referrer) { history.back(); } else { window.location.href='/operaciones/billing/my/'; }">
+        ⬅️ Back
+      </button>
+
+      <h1 class="text-2xl font-bold">📸 Upload Photos — Billing #{{ a.sesion.id }}</h1>
+    </div>
+
+    {% if can_finish %}
+      <a href="{% url 'operaciones:finish_assignment' a.pk %}"
+         class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">
+        Finish
+      </a>
+    {% else %}
+      <button type="button"
+              class="bg-indigo-300 text-white px-4 py-2 rounded cursor-not-allowed"
+              title="You must upload all required photos to finish">
+        Finish
+      </button>
+    {% endif %}
+  </div>
+
+  {% if faltantes %}
+    <div class="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
+      Required photos pending:
+      <ul class="list-disc ml-5">
+        {% for r in faltantes %}
+          <li>{{ r.orden }}. {{ r.titulo }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="grid md:grid-cols-2 gap-6 mt-4">
+    <div>
+      <h2 class="font-semibold mb-2">Requirements</h2>
+      <ul class="space-y-2">
+        {% for r in requisitos %}
+          <li class="border rounded p-3">
+            <div class="flex items-center justify-between">
+              <div class="font-medium">
+                {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
+                <span class="ml-2 text-xs px-2 py-0.5 rounded
+                             {% if r.uploaded > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                  {% if r.uploaded > 0 %}Done{% else %}Pending{% endif %}
+                </span>
+              </div>
+              <div class="text-xs text-gray-500">
+                {{ r.uploaded }} uploaded
+              </div>
+            </div>
+
+            <div class="text-sm text-gray-600">{{ r.descripcion }}</div>
+
+            <form method="post" enctype="multipart/form-data" class="mt-2 geo-upload-form">
+              {% csrf_token %}
+              <input type="hidden" name="req_id" value="{{ r.id }}">
+
+              <!-- HIDDEN META (se llena por JS) -->
+              <input type="hidden" name="lat">
+              <input type="hidden" name="lng">
+              <input type="hidden" name="acc">
+              <input type="hidden" name="client_taken_at">
+
+              <div class="flex items-center gap-2">
+                <!-- Input real (abre cámara en móvil) -->
+                <input id="file-input-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment" multiple class="w-full border rounded p-2">
+                <!-- Botón para forzar cámara en móviles -->
+                <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-input-{{ r.id }}">📷 Take</button>
+              </div>
+
+              <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
+                <span class="gps-status">📍 Awaiting location…</span>
+                <span class="time-status">🕒 —</span>
+              </div>
+
+              <div class="flex items-center gap-2 mt-2">
+                <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2">
+                <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
+              </div>
+
+              <button class="mt-2 bg-blue-600 text-white px-3 py-1 rounded">Upload</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <div class="mt-6">
+        <h3 class="font-semibold mb-2">Extra Photos</h3>
+        <form method="post" enctype="multipart/form-data" class="geo-upload-form">
+          {% csrf_token %}
+
+          <!-- HIDDEN META -->
+          <input type="hidden" name="lat">
+          <input type="hidden" name="lng">
+          <input type="hidden" name="acc">
+          <input type="hidden" name="client_taken_at">
+
+          <div class="flex items-center gap-2">
+            <input id="file-input-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" multiple class="w-full border rounded p-2">
+            <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-input-extra">📷 Take</button>
+          </div>
+
+          <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
+            <span class="gps-status">📍 Awaiting location…</span>
+            <span class="time-status">🕒 —</span>
+          </div>
+
+          <div class="flex items-center gap-2 mt-2">
+            <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2">
+            <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
+          </div>
+
+          <button class="mt-2 bg-gray-800 text-white px-3 py-1 rounded">Upload</button>
+        </form>
+      </div>
+    </div>
+
+    {# -------- Columna derecha: Fotos subidas (con eliminar) -------- #}
+    <div>
+      <h2 class="font-semibold mb-2">Uploaded</h2>
+      <div class="grid grid-cols-2 gap-3 max-h-[600px] overflow-auto">
+        {% for ev in evidencias %}
+          <figure class="border rounded p-2 relative">
+            {# X para eliminar (usa modal personalizado) #}
+            {% if can_delete %}
+              <button type="button"
+                      class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-red-600 text-white text-sm hover:bg-red-700 btn-open-delete"
+                      data-delete-url="{% url 'operaciones:eliminar_evidencia' a.pk ev.id %}"
+                      data-label="{{ ev.requisito.titulo|default:'Extra' }}"
+                      data-img="{{ ev.imagen.url }}"
+                      title="Delete photo">✕</button>
+            {% endif %}
+
+            <img src="{{ ev.imagen.url }}" class="w-full h-32 object-cover rounded" loading="lazy" alt="photo">
+            <figcaption class="text-xs mt-1 space-y-0.5">
+              <div class="font-medium">{{ ev.requisito.titulo|default:"Extra" }}</div>
+              <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
+              {% if ev.lat and ev.lng %}
+                <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
+                <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
+              {% else %}
+                <div class="text-gray-400">📍 No GPS</div>
+              {% endif %}
+              <div class="text-gray-600">{{ ev.nota }}</div>
+            </figcaption>
+          </figure>
+        {% empty %}
+          <div class="text-gray-500">No photos yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- Modal de consentimiento de ubicación --- #}
+<div id="geo-consent" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold">Allow location with photos?</h3>
+    <p class="mt-2 text-sm text-gray-600">
+      We attach your location (GPS) to each photo for supervision and quality control. This helps validate work at the correct site.
+    </p>
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button" class="btn-consent-deny px-4 py-2 rounded bg-gray-100 hover:bg-gray-200">Not now</button>
+      <button type="button" class="btn-consent-allow px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Allow</button>
+    </div>
+  </div>
+</div>
+
+{# --- Modal bonito para eliminar foto --- #}
+<div id="modal-delete" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <h3 class="text-lg font-semibold">Delete photo?</h3>
+        <p class="mt-1 text-sm text-gray-600">
+          This action cannot be undone. The selected photo will be permanently removed.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 flex items-center gap-3">
+      <img id="delete-thumb" src="" alt="photo preview" class="w-20 h-20 object-cover rounded border">
+      <div class="text-sm">
+        <div class="text-gray-600">Label</div>
+        <div id="delete-label" class="font-medium">—</div>
+      </div>
+    </div>
+
+    <form id="delete-form" method="post" action="#" class="mt-5 flex justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 };
+
+  // --- Consent store ---
+  const CONSENT_KEY = "photo_loc_consent"; // "granted" | "denied" | null
+  function getConsent(){ try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } }
+  function setConsent(v){ try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} }
+
+  // Modal elements (geo)
+  const modal = document.getElementById('geo-consent');
+  const btnAllow = modal.querySelector('.btn-consent-allow');
+  const btnDeny  = modal.querySelector('.btn-consent-deny');
+
+  function openModal(){ modal.classList.remove('hidden'); }
+  function closeModal(){ modal.classList.add('hidden'); }
+
+  btnAllow.addEventListener('click', ()=>{ setConsent('granted'); closeModal(); notifyFormsConsentChange(); });
+  btnDeny.addEventListener('click',  ()=>{ setConsent('denied');  closeModal(); notifyFormsConsentChange(); });
+
+  // Si no hay decisión previa, mostramos modal al cargar
+  document.addEventListener('DOMContentLoaded', ()=>{
+    if(!getConsent()){
+      openModal();
+    }
+  });
+
+  // --- Helpers por formulario ---
+  function requestLocationFor(form){
+    const latEl   = form.querySelector('input[name="lat"]');
+    const lngEl   = form.querySelector('input[name="lng"]');
+    const accEl   = form.querySelector('input[name="acc"]');
+    const takenEl = form.querySelector('input[name="client_taken_at"]');
+    const gpsStatus  = form.querySelector('.gps-status');
+    const timeStatus = form.querySelector('.time-status');
+
+    function setTimeNow(){
+      const now = new Date();
+      if(takenEl) takenEl.value = now.toISOString();
+      if(timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
+    }
+
+    function setGpsStatus(txt){ if(gpsStatus) gpsStatus.textContent = txt; }
+
+    if(!navigator.geolocation){
+      setGpsStatus("📍 Geolocation not supported");
+      return;
+    }
+    setGpsStatus("📍 Getting location…");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        if(latEl) latEl.value = latitude.toFixed(6);
+        if(lngEl) lngEl.value = longitude.toFixed(6);
+        if(accEl) accEl.value = (accuracy || 0).toFixed(2);
+        setTimeNow();
+        setGpsStatus(`📍 ${latEl.value}, ${lngEl.value} (±${accEl.value}m)`);
+      },
+      (err) => {
+        if(latEl) latEl.value = "";
+        if(lngEl) lngEl.value = "";
+        if(accEl) accEl.value = "";
+        setTimeNow();
+        setGpsStatus("📍 Location denied/unavailable");
+      },
+      GEO_OPTS
+    );
+  }
+
+  function notifyFormsConsentChange(){
+    document.querySelectorAll('.geo-upload-form').forEach(form=>{
+      const gpsStatus = form.querySelector('.gps-status');
+      const consent = getConsent();
+      if(gpsStatus){
+        gpsStatus.textContent = consent === 'granted'
+          ? "📍 Location will be attached"
+          : "📍 Location not granted (you can still upload)";
+      }
+    });
+  }
+
+  // --- UI: disparadores de cámara y consentimiento por form ---
+  document.querySelectorAll('.trigger-camera').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.getAttribute('data-target');
+      const input = document.getElementById(id);
+      if(input) input.click();
+    });
+  });
+
+  document.querySelectorAll('.geo-upload-form').forEach(form=>{
+    const fileInput = form.querySelector('input[type="file"]');
+    const gpsStatus = form.querySelector('.gps-status');
+    const timeStatus = form.querySelector('.time-status');
+
+    // Estado inicial
+    notifyFormsConsentChange();
+
+    const btnGrant = form.querySelector('.grant-location');
+    if(btnGrant){
+      btnGrant.addEventListener('click', ()=>{
+        if(getConsent() !== 'granted'){ openModal(); }
+        else { requestLocationFor(form); }
+      });
+    }
+
+    if(fileInput){
+      fileInput.addEventListener('change', ()=>{
+        const consent = getConsent();
+        if(consent === 'granted'){
+          requestLocationFor(form);
+        } else {
+          if(timeStatus){ timeStatus.textContent = "🕒 " + new Date().toLocaleString(); }
+          if(gpsStatus){ gpsStatus.textContent = "📍 Location not granted (you can still upload)"; }
+        }
+      });
+    }
+
+    form.addEventListener('submit', (e)=>{
+      const consent = getConsent();
+      const latEl = form.querySelector('input[name="lat"]');
+      const lngEl = form.querySelector('input[name="lng"]');
+      if(consent === 'granted' && (!latEl.value || !lngEl.value)){
+        try { requestLocationFor(form); } catch(_) {}
+      }
+    });
+  });
+
+  // ---------- Modal BONITO: eliminar foto ----------
+  const delModal   = document.getElementById('modal-delete');
+  const delForm    = document.getElementById('delete-form');
+  const delThumb   = document.getElementById('delete-thumb');
+  const delLabelEl = document.getElementById('delete-label');
+
+  function openDelete(){ delModal.classList.remove('hidden'); }
+  function closeDelete(){ delModal.classList.add('hidden'); }
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-open-delete');
+    if(!btn) return;
+    delForm.action = btn.getAttribute('data-delete-url');
+    delThumb.src   = btn.getAttribute('data-img') || '';
+    delLabelEl.textContent = btn.getAttribute('data-label') || '—';
+    openDelete();
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-modal')) {
+      closeDelete();
+    }
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') closeDelete();
+  });
+})();
+</script>
+{% endblock %}
