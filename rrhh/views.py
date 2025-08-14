@@ -2256,7 +2256,8 @@ def _stamp_signature_on_last_page(unsigned_pdf_bytes: bytes, signature_png_bytes
 # ==========================
 
 @login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'rrhh')  # ajusta si PM también debe ver
+# ajusta si PM también debe ver
+@rol_requerido('admin', 'rrhh', 'pm', 'facturacion')
 def list_rate_sheets(request):
     """
     Lista administrativa de Rate Sheets (todas).
@@ -2277,7 +2278,7 @@ def list_rate_sheets(request):
 
 
 @login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'rrhh')
+@rol_requerido('admin', 'rrhh', 'pm', 'facturacion')
 @require_http_methods(["GET", "POST"])
 def add_rate_sheet(request):
     """
@@ -2297,7 +2298,7 @@ def add_rate_sheet(request):
 
 
 @login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'rrhh')
+@rol_requerido('admin', 'rrhh', 'pm', 'facturacion')
 @require_http_methods(["GET", "POST"])
 def edit_rate_sheet(request, pk):
     """
@@ -2318,7 +2319,7 @@ def edit_rate_sheet(request, pk):
 
 
 @login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'rrhh')
+@rol_requerido('admin', 'rrhh', 'pm', 'facturacion')
 @require_http_methods(["POST"])
 def delete_rate_sheet(request, pk):
     """
@@ -2412,7 +2413,7 @@ def eliminar_firma(request, user_id):
 
 
 @staff_member_required
-@rol_requerido('rrhh', 'admin', 'pm')
+@rol_requerido('rrhh', 'admin', 'pm', 'facturacion')
 def signature_preview_admin(request, user_id):
     """
     Devuelve la imagen de la firma desde Wasabi para <img>.
@@ -2530,7 +2531,7 @@ def register_signature_admin(request, user_id):
 
 
 @staff_member_required
-@rol_requerido('rrhh', 'admin', 'pm')
+@rol_requerido('rrhh', 'admin', 'pm', 'facturacion')
 def listar_firmas(request):
     qs = CustomUser.objects.all().order_by('first_name', 'last_name', 'username')
 
