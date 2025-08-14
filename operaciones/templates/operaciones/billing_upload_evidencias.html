@@ -73,10 +73,16 @@
               <input type="hidden" name="client_taken_at">
 
               <div class="flex items-center gap-2">
-                <!-- Input real (abre cámara en móvil) -->
-                <input id="file-input-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment" multiple class="w-full border rounded p-2">
-                <!-- Botón para forzar cámara en móviles -->
-                <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-input-{{ r.id }}">📷 Take</button>
+                <!-- GALERÍA (visible) -> sin capture -->
+                <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
+                <label for="file-gallery-{{ r.id }}" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
+                <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
+
+                <!-- CÁMARA (oculta) -> capture -->
+                <input id="file-camera-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
+
+                <!-- Botón cámara -->
+                <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-{{ r.id }}">📷 Take</button>
               </div>
 
               <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -107,8 +113,16 @@
           <input type="hidden" name="client_taken_at">
 
           <div class="flex items-center gap-2">
-            <input id="file-input-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" multiple class="w-full border rounded p-2">
-            <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-input-extra">📷 Take</button>
+            <!-- GALERÍA (visible) -->
+            <input id="file-gallery-extra" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
+            <label for="file-gallery-extra" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
+            <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
+
+            <!-- CÁMARA (oculta) -->
+            <input id="file-camera-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
+
+            <!-- Botón Take -->
+            <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-extra">📷 Take</button>
           </div>
 
           <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -215,33 +229,20 @@
 
 <script>
 (function(){
-  const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 };
-
-  // --- Consent store ---
+  const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
   const CONSENT_KEY = "photo_loc_consent"; // "granted" | "denied" | null
-  function getConsent(){ try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } }
-  function setConsent(v){ try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} }
+  const getConsent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } };
+  const setConsent = (v) => { try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} };
 
-  // Modal elements (geo)
+  // Modal
   const modal = document.getElementById('geo-consent');
   const btnAllow = modal.querySelector('.btn-consent-allow');
   const btnDeny  = modal.querySelector('.btn-consent-deny');
+  const openModal  = () => modal.classList.remove('hidden');
+  const closeModal = () => modal.classList.add('hidden');
 
-  function openModal(){ modal.classList.remove('hidden'); }
-  function closeModal(){ modal.classList.add('hidden'); }
-
-  btnAllow.addEventListener('click', ()=>{ setConsent('granted'); closeModal(); notifyFormsConsentChange(); });
-  btnDeny.addEventListener('click',  ()=>{ setConsent('denied');  closeModal(); notifyFormsConsentChange(); });
-
-  // Si no hay decisión previa, mostramos modal al cargar
-  document.addEventListener('DOMContentLoaded', ()=>{
-    if(!getConsent()){
-      openModal();
-    }
-  });
-
-  // --- Helpers por formulario ---
-  function requestLocationFor(form){
+  // Captura geo+h timestamp y pinta estado
+  async function captureGeo(form){
     const latEl   = form.querySelector('input[name="lat"]');
     const lngEl   = form.querySelector('input[name="lng"]');
     const accEl   = form.querySelector('input[name="acc"]');
@@ -251,105 +252,153 @@
 
     function setTimeNow(){
       const now = new Date();
-      if(takenEl) takenEl.value = now.toISOString();
-      if(timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
+      if (takenEl) takenEl.value = now.toISOString();
+      if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
+    }
+    function setGps(text){ if (gpsStatus) gpsStatus.textContent = text; }
+
+    if (!('geolocation' in navigator)){
+      setTimeNow(); setGps("📍 Geolocation not supported");
+      throw new Error("Geolocation not supported");
     }
 
-    function setGpsStatus(txt){ if(gpsStatus) gpsStatus.textContent = txt; }
-
-    if(!navigator.geolocation){
-      setGpsStatus("📍 Geolocation not supported");
-      return;
-    }
-    setGpsStatus("📍 Getting location…");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        if(latEl) latEl.value = latitude.toFixed(6);
-        if(lngEl) lngEl.value = longitude.toFixed(6);
-        if(accEl) accEl.value = (accuracy || 0).toFixed(2);
-        setTimeNow();
-        setGpsStatus(`📍 ${latEl.value}, ${lngEl.value} (±${accEl.value}m)`);
-      },
-      (err) => {
-        if(latEl) latEl.value = "";
-        if(lngEl) lngEl.value = "";
-        if(accEl) accEl.value = "";
-        setTimeNow();
-        setGpsStatus("📍 Location denied/unavailable");
-      },
-      GEO_OPTS
-    );
+    setGps("📍 Getting location…");
+    return new Promise((resolve, reject)=>{
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>{
+          const { latitude, longitude, accuracy } = pos.coords || {};
+          if (latEl) latEl.value = (latitude ?? "").toFixed ? latitude.toFixed(6) : "";
+          if (lngEl) lngEl.value = (longitude ?? "").toFixed ? longitude.toFixed(6) : "";
+          if (accEl) accEl.value = (accuracy ?? 0).toFixed ? accuracy.toFixed(2) : "";
+          setTimeNow();
+          if (latEl.value && lngEl.value){
+            setGps(`📍 ${latEl.value}, ${lngEl.value}${accEl.value ? " (±"+accEl.value+"m)" : ""}`);
+            resolve(true);
+          } else {
+            setGps("📍 Location unavailable");
+            reject(new Error("Location unavailable"));
+          }
+        },
+        (err)=>{
+          setTimeNow();
+          setGps("📍 Location denied/unavailable");
+          reject(err || new Error("Location denied"));
+        },
+        GEO_OPTS
+      );
+    });
   }
 
+  // Refresca texto de consentimiento por formulario
   function notifyFormsConsentChange(){
     document.querySelectorAll('.geo-upload-form').forEach(form=>{
       const gpsStatus = form.querySelector('.gps-status');
-      const consent = getConsent();
-      if(gpsStatus){
-        gpsStatus.textContent = consent === 'granted'
-          ? "📍 Location will be attached"
-          : "📍 Location not granted (you can still upload)";
-      }
+      if (!gpsStatus) return;
+      const granted = getConsent() === 'granted';
+      gpsStatus.textContent = granted
+        ? (gpsStatus.textContent.includes("📍") ? gpsStatus.textContent : "📍 Ready to capture")
+        : "📍 Location not granted (tap Grant or Allow)";
     });
   }
 
-  // --- UI: disparadores de cámara y consentimiento por form ---
-  document.querySelectorAll('.trigger-camera').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const id = btn.getAttribute('data-target');
-      const input = document.getElementById(id);
-      if(input) input.click();
-    });
+  // Inicial: si no hay decisión, muestra modal
+  document.addEventListener('DOMContentLoaded', ()=>{
+    if (!getConsent()) openModal();
+    notifyFormsConsentChange();
   });
 
+  // Al pulsar Allow en nuestro modal: guardamos y DISPARAMOS una captura en el form activo
+  btnAllow.addEventListener('click', async ()=>{
+    setConsent('granted'); closeModal(); notifyFormsConsentChange();
+    // intenta capturar en el primer form visible (gesto acaba de ocurrir)
+    const form = document.querySelector('.geo-upload-form');
+    if (form) try { await captureGeo(form); } catch(_) {}
+  });
+
+  btnDeny.addEventListener('click', ()=>{
+    setConsent('denied');
+    // No cerramos: el submit quedará bloqueado igualmente.
+  });
+
+  // Por cada formulario
   document.querySelectorAll('.geo-upload-form').forEach(form=>{
-    const fileInput = form.querySelector('input[type="file"]');
-    const gpsStatus = form.querySelector('.gps-status');
-    const timeStatus = form.querySelector('.time-status');
+    const fileInputGallery = form.querySelector('.file-input');         // visible (galería)
+    const fileInputCam     = form.querySelector('.file-input-camera');  // oculto (cámara)
+    const filenameEl       = form.querySelector('.filename');
 
-    // Estado inicial
-    notifyFormsConsentChange();
+    // Texto inicial en inglés
+    if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
 
-    const btnGrant = form.querySelector('.grant-location');
-    if(btnGrant){
-      btnGrant.addEventListener('click', ()=>{
-        if(getConsent() !== 'granted'){ openModal(); }
-        else { requestLocationFor(form); }
-      });
-    }
+    // Botón 📷 Take -> abre input de cámara
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.trigger-camera');
+      if(!btn) return;
+      if(btn.closest('form') !== form) return;
+      const id = btn.getAttribute('data-target');
+      const inputCam = document.getElementById(id);
+      if(inputCam) inputCam.click();
+    });
 
-    if(fileInput){
-      fileInput.addEventListener('change', ()=>{
-        const consent = getConsent();
-        if(consent === 'granted'){
-          requestLocationFor(form);
-        } else {
-          if(timeStatus){ timeStatus.textContent = "🕒 " + new Date().toLocaleString(); }
-          if(gpsStatus){ gpsStatus.textContent = "📍 Location not granted (you can still upload)"; }
+    // Al seleccionar en GALERÍA → muestra nombres y CAPTURA GEO (siempre intentamos: esto lanza el prompt del sistema)
+    if (fileInputGallery){
+      fileInputGallery.addEventListener('change', async ()=>{
+        const n = fileInputGallery.files ? fileInputGallery.files.length : 0;
+        if (filenameEl){
+          filenameEl.textContent = n===0 ? (filenameEl.dataset.empty || 'No files selected')
+                                : n===1 ? fileInputGallery.files[0].name
+                                        : `${n} files selected`;
         }
+        try { await captureGeo(form); } catch(_) {}
       });
     }
 
-    form.addEventListener('submit', (e)=>{
-      const consent = getConsent();
-      const latEl = form.querySelector('input[name="lat"]');
-      const lngEl = form.querySelector('input[name="lng"]');
-      if(consent === 'granted' && (!latEl.value || !lngEl.value)){
-        try { requestLocationFor(form); } catch(_) {}
+    // Al tomar con CÁMARA → intenta capturar geo
+    if (fileInputCam){
+      fileInputCam.addEventListener('change', async ()=>{
+        try { await captureGeo(form); } catch(_) {}
+      });
+    }
+
+    // Botón "Grant Location" -> fuerza captura
+    const btnGrant = form.querySelector('.grant-location');
+    if (btnGrant){
+      btnGrant.addEventListener('click', async ()=>{
+        if (getConsent() !== 'granted') { openModal(); return; }
+        try { await captureGeo(form); } catch(_) {}
+      });
+    }
+
+    // Envío: BLOQUEA si falta geo/hora; intenta una vez más
+    form.addEventListener('submit', async (e)=>{
+      const latEl   = form.querySelector('input[name="lat"]');
+      const lngEl   = form.querySelector('input[name="lng"]');
+      const takenEl = form.querySelector('input[name="client_taken_at"]');
+
+      const ok = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+      if (!ok){
+        e.preventDefault();
+        try {
+          await captureGeo(form);
+        } catch(_) { /* ignore */ }
+        const ok2 = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+        if (!ok2){
+          // Mensaje discreto en el status; evita alert bloqueante
+          const gpsStatus = form.querySelector('.gps-status');
+          if (gpsStatus) gpsStatus.textContent = "📍 We couldn't get your location. Check HTTPS, GPS and permissions, then try again.";
+          return; // no envía
+        }
+        form.submit(); // ahora sí
       }
     });
   });
 
-  // ---------- Modal BONITO: eliminar foto ----------
+  // ---------- Modal eliminar foto ----------
   const delModal   = document.getElementById('modal-delete');
   const delForm    = document.getElementById('delete-form');
   const delThumb   = document.getElementById('delete-thumb');
   const delLabelEl = document.getElementById('delete-label');
-
   function openDelete(){ delModal.classList.remove('hidden'); }
   function closeDelete(){ delModal.classList.add('hidden'); }
-
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('.btn-open-delete');
     if(!btn) return;
@@ -358,16 +407,8 @@
     delLabelEl.textContent = btn.getAttribute('data-label') || '—';
     openDelete();
   });
-
-  document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-modal')) {
-      closeDelete();
-    }
-  });
-
-  document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape') closeDelete();
-  });
+  document.addEventListener('click', (e)=>{ if (e.target.hasAttribute('data-close-modal')) closeDelete(); });
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeDelete(); });
 })();
 </script>
 {% endblock %}
