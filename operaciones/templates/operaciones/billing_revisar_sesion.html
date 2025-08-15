@@ -118,14 +118,21 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-auto mt-2">
         {% for ev in evs %}
           <figure class="border rounded p-2 relative">
-            {# Botón X: supervisor/admin/PM pueden borrar #}
-            <button type="button"
-                    class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
-                    title="Delete photo"
-                    data-action="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}"
-                    data-next="{{ request.get_full_path }}">
-              ✕
-            </button>
+            {# 🔒 Botón X solo si el proyecto NO está aprobado por supervisor/PM #}
+            {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+              <button type="button"
+                      class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
+                      title="Delete photo"
+                      data-action="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}"
+                      data-next="{{ request.get_full_path }}">
+                ✕
+              </button>
+            {% else %}
+              {# Si está aprobado, muestra un candado/deshabilitado opcionalmente #}
+              <span class="absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">
+                🔒
+              </span>
+            {% endif %}
 
             <div class="relative rounded overflow-hidden">
               {% if ev.lat and ev.lng %}

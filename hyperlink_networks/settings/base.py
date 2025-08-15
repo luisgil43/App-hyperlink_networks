@@ -20,6 +20,15 @@ ALLOWED_HOSTS = [
     '172.20.10.2',
 ]
 
+# Confiar en tu dominio para CSRF (producción)
+CSRF_TRUSTED_ORIGINS = [
+    'https://app-hyperlink-networks.onrender.com',
+]
+
+# Cookies seguras en prod
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 # ==============================
 # APPLICATIONS
 # ==============================
@@ -117,7 +126,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # INTERNATIONALIZATION
 # ==============================
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'America/New_York'
+TIME_ZONE = 'America/New_York'  # Producción en EE.UU.
 USE_I18N = True
 USE_TZ = True
 
@@ -150,9 +159,46 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get(
 AWS_S3_ENDPOINT_URL = os.environ.get(
     'AWS_S3_ENDPOINT_URL', 'https://s3.us-east-1.wasabisys.com')
 AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
-AWS_DEFAULT_ACL = None  # Avoids permission issues
+
+AWS_DEFAULT_ACL = None
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 AWS_S3_FILE_OVERWRITE = False
+
+# Recomendado para Wasabi
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+AWS_S3_ADDRESSING_STYLE = "path"  # Wasabi funciona mejor con path-style
+AWS_S3_USE_SSL = True
+AWS_S3_VERIFY = True
+
+# URLs firmadas (recursos privados)
+AWS_QUERYSTRING_AUTH = True
+
+# Parámetros por defecto para objetos subidos desde Django
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=31536000, public",
+}
+
+# ==============================
+# DIRECT UPLOADS (feature flags)
+# ==============================
+# Apagado por defecto. En Render: DIRECT_UPLOADS_ENABLED=1
+DIRECT_UPLOADS_ENABLED = os.environ.get("DIRECT_UPLOADS_ENABLED", "0") == "1"
+
+# Límite de tamaño por archivo (MB) al pedir presign
+DIRECT_UPLOADS_MAX_MB = int(os.environ.get("DIRECT_UPLOADS_MAX_MB", "15"))
+
+# Prefijo seguro (tus evidencias viven ahí)
+DIRECT_UPLOADS_SAFE_PREFIX = os.environ.get(
+    "DIRECT_UPLOADS_SAFE_PREFIX",
+    "operaciones/reporte_fotografico/"
+)
+
+# Aliases Wasabi para reutilizar los mismos valores ya definidos en AWS_*
+WASABI_BUCKET_NAME = AWS_STORAGE_BUCKET_NAME
+WASABI_ENDPOINT_URL = AWS_S3_ENDPOINT_URL
+WASABI_REGION_NAME = AWS_S3_REGION_NAME
+WASABI_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID
+WASABI_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY
 
 # ==============================
 # EMAIL (SMTP)
@@ -177,15 +223,8 @@ CSRF_FAILURE_VIEW = 'usuarios.views.csrf_error_view'
 # ==============================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
-# Tiempo máximo de inactividad (en segundos). Ej: 15 minutos
-IDLE_TIMEOUT_SECONDS = 15 * 60
-
-# Tiempo absoluto máximo de sesión (segundos) → desactivado por defecto
-SESSION_ABSOLUTE_TIMEOUT = None  # Ej: 8*60*60 para 8 horas
-
-# Para que la cookie de sesión se renueve con cada request (resetea el reloj)
+# Sesión
+IDLE_TIMEOUT_SECONDS = 15 * 60          # 15 minutos de inactividad
+SESSION_ABSOLUTE_TIMEOUT = None         # Ej: 8*60*60 para 8h si lo necesitas
 SESSION_SAVE_EVERY_REQUEST = True
-
-# Opcional: para que la sesión caduque al cerrar el navegador
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True

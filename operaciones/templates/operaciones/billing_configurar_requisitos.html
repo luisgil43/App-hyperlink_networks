@@ -1,4 +1,3 @@
-{# templates/operaciones/billing_configurar_requisitos.html #}
 {% extends "dashboard_admin/base.html" %}
 {% load humanize %}
 
@@ -12,76 +11,73 @@
       📋 Photo Requirements — Billing #{{ sesion.id }}
     </h1>
 
-    <div class="flex items-center gap-2">
-      <a href="{{ request.META.HTTP_REFERER|default:'#' }}" class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
-        ← Back
-      </a>
-    </div>
+<div class="flex items-center gap-2">
+  <!-- Open import screen -->
+  <a href="{% url 'operaciones:import_requirements_page' sesion.id %}"
+     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow focus:outline-none focus:ring-2 focus:ring-blue-400">
+    Import Requirements (CSV/XLSX)
+  </a>
+</div>
+
   </div>
 
-  <form method="post" class="space-y-6" id="req-form">
+  <form method="post" class="space-y-6" id="req-form" autocomplete="off">
     {% csrf_token %}
 
-    {% for a in asignaciones %}
-      <div class="border rounded-2xl p-4 sm:p-5">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-          <div class="font-semibold text-lg">
-            {{ a.tecnico.get_full_name|default:a.tecnico.username }}
-          </div>
-          <div class="flex items-center gap-2">
-            <button type="button"
-                    class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-full text-sm"
-                    onclick="addReq({{ a.tecnico_id }})">
-              + Add Requirement
-            </button>
-          </div>
-        </div>
-
-        <div id="list-{{ a.tecnico_id }}" class="space-y-3">
-          {# Requisitos existentes #}
-          {% for r in a.requisitos.all %}
-            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start req-row" data-existing="1" data-id="{{ r.id }}">
-              <!-- ID oculto para actualizar -->
-              <input type="hidden" name="t{{ a.tecnico_id }}_id[]" value="{{ r.id }}">
-
-              <input name="t{{ a.tecnico_id }}_titulo[]" class="sm:col-span-3 border rounded-xl p-2"
-                     placeholder="Title" value="{{ r.titulo }}" required>
-
-              <input name="t{{ a.tecnico_id }}_desc[]" class="sm:col-span-6 border rounded-xl p-2"
-                     placeholder="Description (optional)" value="{{ r.descripcion|default:'' }}">
-
-              <input name="t{{ a.tecnico_id }}_ord[]" class="sm:col-span-1 border rounded-xl p-2"
-                     type="number" value="{{ r.orden|default:forloop.counter0 }}" min="0">
-
-              <label class="sm:col-span-1 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
-                <input type="checkbox" class="obl-toggle" data-hidden-name="t{{ a.tecnico_id }}_obl[]"
-                       {% if r.obligatorio %}checked{% endif %}>
-                <span class="text-sm">Required</span>
-                <!-- valor sincronizado por JS -->
-                <input type="hidden" name="t{{ a.tecnico_id }}_obl[]" value="{% if r.obligatorio %}1{% else %}0{% endif %}">
-              </label>
-
-              <div class="sm:col-span-1 flex sm:justify-end">
-                <button type="button"
-                        class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50"
-                        onclick="removeReq(this, {{ a.tecnico_id }}, {{ r.id }})">
-                  🗑️
-                </button>
-              </div>
-            </div>
-          {% empty %}
-            <div class="text-gray-500 text-sm">No requirements yet. Add your first one.</div>
-          {% endfor %}
-        </div>
+    <div class="border rounded-2xl p-4 sm:p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div class="font-semibold text-lg">Project shared requirements</div>
+        <button type="button"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-full text-sm"
+                onclick="addReq()">
+          + Add Requirement
+        </button>
       </div>
-    {% endfor %}
 
-    <!-- Contenedor de IDs a eliminar -->
+      <div id="req-list" class="space-y-3">{% for r in requirements %}
+  <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start req-row" data-existing="1" data-id="{{ r.id }}">
+    <input type="hidden" name="id[]" value="{{ r.id }}">
+
+    <!-- Nombre del requisito -->
+    <input name="name[]" class="sm:col-span-6 border rounded-xl p-2"
+           placeholder="Name" value="{{ r.titulo }}" required autocomplete="off">
+
+    <!-- Orden -->
+    <input name="order[]" class="sm:col-span-2 border rounded-xl p-2"
+           type="number" value="{{ r.orden|default:forloop.counter0 }}" min="0" inputmode="numeric" autocomplete="off">
+
+    <!-- Obligatorio -->
+    <label class="sm:col-span-3 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
+      <input type="checkbox" class="obl-toggle" {% if r.obligatorio %}checked{% endif %}>
+      <span class="text-sm">Required</span>
+      <input type="hidden" name="mandatory[]" value="{% if r.obligatorio %}1{% else %}0{% endif %}">
+    </label>
+
+    <div class="sm:col-span-1 flex sm:justify-end">
+      <button type="button"
+              class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50"
+              onclick="removeReq(this, {{ r.id }})">
+        🗑️
+      </button>
+    </div>
+  </div>
+{% empty %}
+  <div class="text-gray-500 text-sm">No requirements yet. Add your first one.</div>
+{% endfor %}
+
+      </div>
+    </div>
+
+    <!-- Delete-bag for existing rows -->
     <div id="delete-bag"></div>
 
-    <!-- Barra de acciones (pegajosa en mobile) -->
+    <!-- Actions -->
     <div class="sticky bottom-2 sm:static">
       <div class="bg-white/90 backdrop-blur border rounded-2xl p-3 sm:p-0 sm:border-0 sm:bg-transparent sm:backdrop-blur-0 flex justify-end gap-3">
+<a href="{% url 'operaciones:listar_billing' %}"
+   class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+  ← Back
+</a>
         <button class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl">
           Save
         </button>
@@ -91,30 +87,36 @@
 </div>
 
 <script>
-  // Agregar fila
-  function addReq(tid) {
-    const list = document.getElementById('list-' + tid);
+  // Initialize checkbox state on DOM ready
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.req-row').forEach(row => {
+      const hidden = row.querySelector('input[type="hidden"][name="mandatory[]"]');
+      const cb = row.querySelector('.obl-toggle');
+      if (hidden && cb) cb.checked = (hidden.value === "1");
+    });
+  });
+
+  function addReq() {
+    const list = document.getElementById('req-list');
     const idx = list.querySelectorAll('.req-row').length;
 
     const wrap = document.createElement('div');
     wrap.className = "grid grid-cols-1 sm:grid-cols-12 gap-2 items-start req-row";
     wrap.dataset.existing = "0";
 
-    // fila nueva (sin ID)
     wrap.innerHTML = `
-      <input type="hidden" name="t${tid}_id[]" value="">
-      <input name="t${tid}_titulo[]" class="sm:col-span-3 border rounded-xl p-2" placeholder="Title" required>
-      <input name="t${tid}_desc[]" class="sm:col-span-6 border rounded-xl p-2" placeholder="Description (optional)">
-      <input name="t${tid}_ord[]" class="sm:col-span-1 border rounded-xl p-2" type="number" value="${idx}" min="0">
-      <label class="sm:col-span-1 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
-        <input type="checkbox" class="obl-toggle" data-hidden-name="t${tid}_obl[]" checked>
+      <input type="hidden" name="id[]" value="">
+      <input name="name[]" class="sm:col-span-6 border rounded-xl p-2" placeholder="Name" required autocomplete="off">
+      <input name="order[]" class="sm:col-span-2 border rounded-xl p-2" type="number" value="${idx}" min="0" inputmode="numeric" autocomplete="off">
+      <label class="sm:col-span-3 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
+        <input type="checkbox" class="obl-toggle" checked>
         <span class="text-sm">Required</span>
-        <input type="hidden" name="t${tid}_obl[]" value="1">
+        <input type="hidden" name="mandatory[]" value="1">
       </label>
       <div class="sm:col-span-1 flex sm:justify-end">
         <button type="button"
                 class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50"
-                onclick="removeReq(this, ${tid}, null)">
+                onclick="removeReq(this, null)">
           🗑️
         </button>
       </div>
@@ -123,36 +125,29 @@
     list.appendChild(wrap);
   }
 
-  // Eliminar fila (si es existente, marcar para borrar; si es nueva, solo quitar del DOM)
-  function removeReq(btn, tid, reqId) {
+  function removeReq(btn, reqId) {
     const row = btn.closest('.req-row');
     if (reqId) {
-      // crear hidden para backend
       const bag = document.getElementById('delete-bag');
       const hidden = document.createElement('input');
       hidden.type = 'hidden';
-      hidden.name = `t${tid}_delete_id[]`;
+      hidden.name = 'delete_id[]';
       hidden.value = String(reqId);
       bag.appendChild(hidden);
     }
     row.remove();
-    reindexOrders(tid);
+    reindexOrders();
   }
 
-  // Reindexar campo "orden" después de quitar/agregar
-  function reindexOrders(tid) {
-    const list = document.getElementById('list-' + tid);
-    const ords = list ? list.querySelectorAll('input[name="t' + tid + '_ord[]"]') : [];
+  function reindexOrders() {
+    const ords = document.querySelectorAll('input[name="order[]"]');
     ords.forEach((inp, i) => { inp.value = i; });
   }
 
-  // Sincroniza checkbox "Required" con el hidden (0/1)
   document.addEventListener('change', (e) => {
     if (e.target.classList.contains('obl-toggle')) {
-      const hiddenName = e.target.dataset.hiddenName;
-      // el hidden está como hermano dentro del mismo label
-      const label = e.target.closest('label');
-      const hidden = label.querySelector('input[type="hidden"][name="' + hiddenName + '"]');
+      const row = e.target.closest('.req-row');
+      const hidden = row.querySelector('input[type="hidden"][name="mandatory[]"]');
       if (hidden) hidden.value = e.target.checked ? "1" : "0";
     }
   });

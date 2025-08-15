@@ -1,0 +1,79 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Import Requirements{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold">📥 Import Requirements — Billing #{{ sesion.id }}</h1>
+    
+  </div>
+
+  <div class="bg-gray-50 border rounded-xl p-4 mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <div class="font-semibold">Download template</div>
+        <p class="text-sm text-gray-600">Columns: <code>name</code>, <code>order</code>, <code>mandatory</code></p>
+      </div>
+      <div class="flex gap-2">
+        <a href="{% url 'operaciones:download_requirements_template' sesion.id 'csv' %}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">CSV</a>
+        <a href="{% url 'operaciones:download_requirements_template' sesion.id 'xlsx' %}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">XLSX</a>
+      </div>
+    </div>
+
+    <div class="mt-4 text-sm text-gray-700">
+      <div class="font-medium mb-1">CSV sample:</div>
+      <pre class="bg-white border rounded p-3 overflow-auto text-xs">
+name,order,mandatory
+Front door,0,1
+Back door,1,1
+Panorama of site,2,0
+      </pre>
+    </div>
+  </div>
+
+  <form method="post" action="{% url 'operaciones:importar_requisitos' sesion.id %}" enctype="multipart/form-data" class="space-y-4">
+    {% csrf_token %}
+    <div>
+      <label class="block font-semibold mb-1">Select file (.csv or .xlsx)</label>
+
+      <!-- Custom file picker in EN -->
+     <div class="flex items-center gap-3">
+  <!-- Hidden native input -->
+  <input id="import-file" type="file" name="file" accept=".csv,.xlsx" class="hidden" required>
+
+  <!-- Blue trigger button -->
+  <button type="button" id="import-trigger"
+          class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow focus:outline-none focus:ring-2 focus:ring-blue-400">
+    Choose file
+  </button>
+
+  <!-- Filename text -->
+  <span id="file-chosen" class="text-sm text-gray-600">No file selected</span>
+</div>
+
+    </div>
+
+    <div class="flex justify-end gap-2">
+      <a href="{% url 'operaciones:configurar_requisitos' sesion.id %}" class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">← Back</a>
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Import</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  (function () {
+    const input   = document.getElementById('import-file');
+    const trigger = document.getElementById('import-trigger');
+    const label   = document.getElementById('file-chosen');
+
+    trigger.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      label.textContent = input.files && input.files.length
+        ? input.files[0].name
+        : 'No file selected';
+    });
+  })();
+</script>
+{% endblock %}

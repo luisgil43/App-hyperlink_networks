@@ -1,29 +1,58 @@
-{% extends "dashboard_admin/base.html" %}
+{% extends "dashboard_admin/base.html" %} 
 {% load humanize %}
 {% block title %}Billing List{% endblock %}
 
 {% block dashboard_content %}
 <div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
 
-  <!-- Encabezado -->
+  <!-- Header -->
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Billing</h1>
-    <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
-      ➕ New Billing
-    </a>
+
+    <div class="flex items-center gap-2">
+      <!-- Export selected -->
+      <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}">
+        {% csrf_token %}
+        <input type="hidden" name="ids" id="export-ids">
+        <button type="submit" id="btn-export"
+                class="bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed"
+                disabled>
+          Export selected
+        </button>
+      </form>
+
+      <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+        ➕ New Billing
+      </a>
+    </div>
   </div>
 
-  <!-- Tabla -->
+  <!-- Quick filters -->
+  <div class="grid sm:grid-cols-6 gap-2 mb-3">
+    <input id="f-date"    class="border rounded px-3 py-2 quick-filter" placeholder="Date">
+    <input id="f-projid"  class="border rounded px-3 py-2 quick-filter" placeholder="Project ID">
+    <input id="f-week"    class="border rounded px-3 py-2 quick-filter" placeholder="Projected pay week">
+    <input id="f-tech"    class="border rounded px-3 py-2 quick-filter" placeholder="Technicians">
+    <input id="f-client"  class="border rounded px-3 py-2 quick-filter" placeholder="Client">
+    <div class="flex gap-2">
+      <input id="f-status" class="border rounded px-3 py-2 w-full quick-filter" placeholder="Status">
+      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
+    </div>
+  </div>
+
+  <!-- Table -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
+    <table id="billing-table" class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
-          <th class="p-2 border w-10"></th> <!-- flecha -->
+          <th class="p-2 border w-10"></th> <!-- caret -->
+          <th class="p-2 border w-10">
+            <input id="chk-all" type="checkbox" class="w-4 h-4">
+          </th> <!-- select -->
           <th class="p-2 border text-left">Date</th>
           <th class="p-2 border text-left">Project ID</th>
           <th class="p-2 border text-left">Project address</th>
           <th class="p-2 border text-left">Projected pay week</th>
-          
           <th class="p-2 border text-left">Status</th>
           <th class="p-2 border text-left">Technicians</th>
           <th class="p-2 border text-left">Client</th>
@@ -34,14 +63,21 @@
           <th class="p-2 border text-right">Company Billing</th>
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Different</th>
-<th class="p-2 border text-left">Real pay week</th>
+          <th class="p-2 border text-left">Real pay week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
       </thead>
       <tbody class="text-left">
         {% for s in pagina.object_list %}
-        <!-- Fila principal -->
-        <tr class="border-t align-top">
+        <!-- Main row -->
+        <tr class="border-t align-top"
+            data-row="main"
+            data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
+            data-projid="{{ s.proyecto_id|default:''|lower }}"
+            data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
+            data-status="{{ s.estado|default:''|lower }}"
+            data-client="{{ s.cliente|default:''|lower }}"
+            data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
           <td class="p-2 border text-center">
             <button type="button"
                     class="btn-toggle-detalle inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 transition"
@@ -53,6 +89,9 @@
               </svg>
             </button>
           </td>
+          <td class="p-2 border text-center">
+            <input type="checkbox" class="row-chk w-4 h-4" value="{{ s.id }}">
+          </td>
           <td class="p-2 border">{{ s.creado_en|date:"Y-m-d H:i" }}</td>
           <td class="p-2 border">{{ s.proyecto_id }}</td>
 
@@ -60,10 +99,8 @@
           <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;">
             {% if s.direccion_proyecto %}
               {% if s.maps_href == s.direccion_proyecto %}
-                <!-- Original era link -->
                 <a href="{{ s.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
               {% else %}
-                <!-- Texto plano: mostrar completo + link pequeño -->
                 <div class="whitespace-normal break-words">{{ s.direccion_proyecto }}</div>
                 <a href="{{ s.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
               {% endif %}
@@ -72,9 +109,8 @@
 
           <!-- Weeks -->
           <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
-       
 
-          <!-- Status por PROYECTO -->
+          <!-- Project status -->
           <td class="p-2 border">
             {% if s.estado == "aprobado_pm" %}
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
@@ -95,7 +131,7 @@
             {% endif %}
           </td>
 
-          <!-- Technicians (SOLO nombres/%) -->
+          <!-- Technicians -->
           <td class="p-2 border">
             {% for st in s.tecnicos_sesion.all %}
               <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-50 border rounded mr-1">
@@ -105,6 +141,7 @@
           </td>
 
           <td class="p-2 border">{{ s.cliente }}</td>
+          <!-- 🔧 FIX: faltaban comillas en class -->
           <td class="p-2 border">{{ s.ciudad }}</td>
           <td class="p-2 border">{{ s.proyecto }}</td>
           <td class="p-2 border">{{ s.oficina }}</td>
@@ -117,7 +154,7 @@
           <td class="p-2 border text-right">
             {% if s.diferencia %}${{ s.diferencia|floatformat:2 }}{% else %}—{% endif %}
           </td>
-   <td class="p-2 border">{{ s.semana_pago_real|default:"—" }}</td>
+          <td class="p-2 border">{{ s.semana_pago_real|default:"—" }}</td>
 
           <td class="p-2 border text-center">
             <div class="flex items-center justify-center gap-3">
@@ -134,10 +171,11 @@
           </td>
         </tr>
 
-        <!-- Fila de detalle oculta -->
+        <!-- Detail row -->
         <tr id="detalle-{{ s.id }}" class="hidden">
-          <td class="border"></td>
-          <!-- total columnas 17 -> colspan del detalle = 16 -->
+          <td class="border"></td>  <!-- caret -->
+          <td class="border"></td>  <!-- checkbox -->
+          <!-- 18 cols total -> detail colspan = 16 -->
           <td class="p-3 border bg-gray-50" colspan="16">
 
             <!-- Items -->
@@ -191,7 +229,7 @@
               </table>
             </div>
 
-            <!-- Assignments (por técnico) -->
+            <!-- Assignments -->
             <div class="mt-6">
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
@@ -222,7 +260,6 @@
                       <td class="p-2">{{ asig.finalizado_en|date:"Y-m-d H:i"|default:"—" }}</td>
                       <td class="p-2">{{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}</td>
 
-                      <!-- miniaturas -->
                       <td class="p-2">
                         <div class="flex gap-1">
                           {% for ev in asig.evidencias.all|slice:":3" %}
@@ -233,7 +270,6 @@
                         </div>
                       </td>
 
-                      <!-- Photo Report por proyecto -->
                       <td class="p-2 text-center">
                         {% if s.reporte_fotografico %}
                           <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
@@ -264,14 +300,14 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="17" class="p-4 text-center text-gray-500">No billings yet.</td>
+          <td colspan="18" class="p-4 text-center text-gray-500">No billings yet.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <!-- Controles de paginación -->
+  <!-- Pagination controls -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form method="get" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -305,7 +341,7 @@
 
 </div>
 
-<!-- JS: toggle de detalle -->
+<!-- Row expand JS -->
 <script>
 document.addEventListener('click', function(e){
   const btn = e.target.closest('.btn-toggle-detalle');
@@ -326,7 +362,120 @@ document.addEventListener('click', function(e){
 });
 </script>
 
-<!-- Modal Eliminar (sin cambios) -->
+<!-- Live filters + selection + export -->
+<script>
+(function(){
+  const table = document.getElementById('billing-table');
+  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
+  const inputs = {
+    date:   document.getElementById('f-date'),
+    projid: document.getElementById('f-projid'),
+    week:   document.getElementById('f-week'),
+    tech:   document.getElementById('f-tech'),
+    client: document.getElementById('f-client'),
+    status: document.getElementById('f-status'),
+  };
+  const btnClear = document.getElementById('btn-clear');
+
+  const chkAll = document.getElementById('chk-all');
+  const exportBtn = document.getElementById('btn-export');
+  const exportIdsInput = document.getElementById('export-ids');
+
+  const lc = s => (s || '').toLowerCase();
+
+  function v(el){ return lc(el?.value || ''); }
+
+  function applyFilters(){
+    const f = {
+      date: v(inputs.date),
+      projid: v(inputs.projid),
+      week: v(inputs.week),
+      tech: v(inputs.tech),
+      client: v(inputs.client),
+      status: v(inputs.status),
+    };
+
+    allRows.forEach(tr => {
+      const ok =
+        (!f.date   || lc(tr.dataset.date).includes(f.date))   &&
+        (!f.projid || lc(tr.dataset.projid).includes(f.projid)) &&
+        (!f.week   || lc(tr.dataset.week).includes(f.week))   &&
+        (!f.tech   || lc(tr.dataset.tech).includes(f.tech))   &&
+        (!f.client || lc(tr.dataset.client).includes(f.client)) &&
+        (!f.status || lc(tr.dataset.status).includes(f.status));
+
+      tr.style.display = ok ? '' : 'none';
+
+      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+      if (detailId){
+        const det = document.getElementById(detailId);
+        if(det) det.style.display = ok ? '' : 'none';
+      }
+    });
+
+    syncHeaderCheckbox();
+    syncExportState();
+  }
+
+  Object.values(inputs).forEach(i => i.addEventListener('input', applyFilters));
+  btnClear.addEventListener('click', ()=>{
+    Object.values(inputs).forEach(i => i.value = '');
+    applyFilters();
+  });
+
+  function visibleMainRows(){
+    return allRows.filter(tr => tr.style.display !== 'none');
+  }
+  function rowCheckboxes(scopeRows){
+    return scopeRows.map(tr => tr.querySelector('.row-chk')).filter(Boolean);
+  }
+
+  function selectedIds(){
+    const ids = [];
+    allRows.forEach(tr => {
+      const c = tr.querySelector('.row-chk');
+      if (c && c.checked) ids.push(c.value);
+    });
+    return ids;
+  }
+
+  function syncHeaderCheckbox(){
+    const chks = rowCheckboxes(visibleMainRows());
+    if (!chks.length){ chkAll.checked = false; chkAll.indeterminate = false; return; }
+    const nSel = chks.filter(c => c.checked).length;
+    chkAll.checked = nSel === chks.length;
+    chkAll.indeterminate = nSel > 0 && nSel < chks.length;
+  }
+
+  function syncExportState(){
+    const ids = selectedIds();
+    const enabled = ids.length > 0;
+    exportBtn.disabled = !enabled;
+    exportBtn.className = enabled
+      ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
+      : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
+    exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
+    exportIdsInput.value = ids.join(",");
+  }
+
+  chkAll.addEventListener('change', ()=>{
+    rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
+    syncExportState();
+  });
+
+  document.addEventListener('change', (e)=>{
+    if (e.target.classList.contains('row-chk')){
+      syncHeaderCheckbox();
+      syncExportState();
+    }
+  });
+
+  // init
+  applyFilters();
+})();
+</script>
+
+<!-- Delete modal (unchanged) -->
 <div id="modal-delete" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
 

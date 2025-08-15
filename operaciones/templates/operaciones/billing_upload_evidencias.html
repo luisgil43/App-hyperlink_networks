@@ -6,7 +6,6 @@
 
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-2">
-      {# Back: intenta volver con history; si no hay referrer, va al listado #}
       <button type="button"
               class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
               onclick="if (document.referrer) { history.back(); } else { window.location.href='/operaciones/billing/my/'; }">
@@ -24,21 +23,24 @@
     {% else %}
       <button type="button"
               class="bg-indigo-300 text-white px-4 py-2 rounded cursor-not-allowed"
-              title="You must upload all required photos to finish">
+              title="All required photos must be uploaded and all assignees must accept (Start).">
         Finish
       </button>
     {% endif %}
   </div>
 
-  {% if faltantes %}
-    <div class="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
-      Required photos pending:
-      <ul class="list-disc ml-5">
-        {% for r in faltantes %}
-          <li>{{ r.orden }}. {{ r.titulo }}</li>
-        {% endfor %}
-      </ul>
-    </div>
+  {# Reasons why Finish is disabled #}
+  {% if not can_finish %}
+    {% if pendientes_aceptar %}
+      <div class="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
+        Waiting for acceptance: {{ pendientes_aceptar|join:", " }}.
+      </div>
+    {% endif %}
+    {% if faltantes_global %}
+      <div class="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm">
+        Missing required photos: {{ faltantes_global|join:", " }}.
+      </div>
+    {% endif %}
   {% endif %}
 
   <div class="grid md:grid-cols-2 gap-6 mt-4">
@@ -50,13 +52,17 @@
             <div class="flex items-center justify-between">
               <div class="font-medium">
                 {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
-                <span class="ml-2 text-xs px-2 py-0.5 rounded
-                             {% if r.uploaded > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
-                  {% if r.uploaded > 0 %}Done{% else %}Pending{% endif %}
-                </span>
+                {% if r.id in locked_ids %}
+                  <span class="ml-2 text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">Taken</span>
+                {% else %}
+                  <span class="ml-2 text-xs px-2 py-0.5 rounded
+                               {% if r.uploaded > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                    {% if r.uploaded > 0 %}Done{% else %}Pending{% endif %}
+                  </span>
+                {% endif %}
               </div>
               <div class="text-xs text-gray-500">
-                {{ r.uploaded }} uploaded
+                {{ r.uploaded }} uploaded (you)
               </div>
             </div>
 
@@ -66,23 +72,33 @@
               {% csrf_token %}
               <input type="hidden" name="req_id" value="{{ r.id }}">
 
-              <!-- HIDDEN META (se llena por JS) -->
+              <!-- HIDDEN META -->
               <input type="hidden" name="lat">
               <input type="hidden" name="lng">
               <input type="hidden" name="acc">
               <input type="hidden" name="client_taken_at">
 
               <div class="flex items-center gap-2">
-                <!-- GALERÍA (visible) -> sin capture -->
-                <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
-                <label for="file-gallery-{{ r.id }}" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
+                <!-- GALLERY -->
+                <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple
+                       class="sr-only file-input" {% if r.id in locked_ids %}disabled{% endif %}>
+                <label for="file-gallery-{{ r.id }}"
+                       class="px-3 py-2 rounded text-sm cursor-pointer
+                              {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
+                  📁 Choose files
+                </label>
                 <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
 
-                <!-- CÁMARA (oculta) -> capture -->
-                <input id="file-camera-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
-
-                <!-- Botón cámara -->
-                <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-{{ r.id }}">📷 Take</button>
+                <!-- CAMERA -->
+                <input id="file-camera-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment"
+                       class="sr-only file-input-camera" {% if r.id in locked_ids %}disabled{% endif %}>
+                <button type="button"
+                        class="px-3 py-2 rounded text-sm
+                               {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %} trigger-camera"
+                        data-target="file-camera-{{ r.id }}"
+                        {% if r.id in locked_ids %}disabled{% endif %}>
+                  📷 Take
+                </button>
               </div>
 
               <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -91,11 +107,17 @@
               </div>
 
               <div class="flex items-center gap-2 mt-2">
-                <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2">
-                <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
+                <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2"
+                       {% if r.id in locked_ids %}disabled{% endif %}>
+                <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm"
+                        {% if r.id in locked_ids %}disabled{% endif %}>Grant Location</button>
               </div>
 
-              <button class="mt-2 bg-blue-600 text-white px-3 py-1 rounded">Upload</button>
+              <button class="mt-2 px-3 py-1 rounded
+                             {% if r.id in locked_ids %}bg-gray-300 text-white cursor-not-allowed{% else %}bg-blue-600 text-white{% endif %}"
+                      {% if r.id in locked_ids %}disabled{% endif %}>
+                Upload
+              </button>
             </form>
           </li>
         {% endfor %}
@@ -113,15 +135,11 @@
           <input type="hidden" name="client_taken_at">
 
           <div class="flex items-center gap-2">
-            <!-- GALERÍA (visible) -->
             <input id="file-gallery-extra" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
             <label for="file-gallery-extra" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
             <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
 
-            <!-- CÁMARA (oculta) -->
             <input id="file-camera-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
-
-            <!-- Botón Take -->
             <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-extra">📷 Take</button>
           </div>
 
@@ -140,13 +158,11 @@
       </div>
     </div>
 
-    {# -------- Columna derecha: Fotos subidas (con eliminar) -------- #}
     <div>
       <h2 class="font-semibold mb-2">Uploaded</h2>
       <div class="grid grid-cols-2 gap-3 max-h-[600px] overflow-auto">
         {% for ev in evidencias %}
           <figure class="border rounded p-2 relative">
-            {# X para eliminar (usa modal personalizado) #}
             {% if can_delete %}
               <button type="button"
                       class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-red-600 text-white text-sm hover:bg-red-700 btn-open-delete"
@@ -177,7 +193,7 @@
   </div>
 </div>
 
-{# --- Modal de consentimiento de ubicación --- #}
+{# --- Location consent modal --- #}
 <div id="geo-consent" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
   <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
@@ -192,7 +208,7 @@
   </div>
 </div>
 
-{# --- Modal bonito para eliminar foto --- #}
+{# --- Delete photo modal --- #}
 <div id="modal-delete" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
 
@@ -229,19 +245,26 @@
 
 <script>
 (function(){
+  // ------------------ Backend-injected vars for direct upload ------------------
+  window.DIRECT_UPLOADS_ENABLED = {{ direct_uploads_enabled|yesno:"true,false" }};
+  window.DIRECT_UPLOADS_FOLDER  = "{{ direct_uploads_folder|default:'' }}";
+  window.DIRECT_UPLOADS_MAX_MB  = {{ direct_uploads_max_mb|default:15 }};
+  window.PROJECT_ID             = "{{ project_id|escapejs }}";
+  window.CURRENT_USER_NAME      = "{{ current_user_name|escapejs }}";
+
   const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
   const CONSENT_KEY = "photo_loc_consent"; // "granted" | "denied" | null
   const getConsent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } };
   const setConsent = (v) => { try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} };
 
-  // Modal
+  // Modal geo
   const modal = document.getElementById('geo-consent');
   const btnAllow = modal.querySelector('.btn-consent-allow');
   const btnDeny  = modal.querySelector('.btn-consent-deny');
   const openModal  = () => modal.classList.remove('hidden');
   const closeModal = () => modal.classList.add('hidden');
 
-  // Captura geo+h timestamp y pinta estado
+  // Capture geo + timestamp and paint status
   async function captureGeo(form){
     const latEl   = form.querySelector('input[name="lat"]');
     const lngEl   = form.querySelector('input[name="lng"]');
@@ -266,7 +289,7 @@
     return new Promise((resolve, reject)=>{
       navigator.geolocation.getCurrentPosition(
         (pos)=>{
-          const { latitude, longitude, accuracy } = pos.coords || {};
+          const { latitude, longitude, accuracy } = (pos && pos.coords) || {};
           if (latEl) latEl.value = (latitude ?? "").toFixed ? latitude.toFixed(6) : "";
           if (lngEl) lngEl.value = (longitude ?? "").toFixed ? longitude.toFixed(6) : "";
           if (accEl) accEl.value = (accuracy ?? 0).toFixed ? accuracy.toFixed(2) : "";
@@ -289,47 +312,44 @@
     });
   }
 
-  // Refresca texto de consentimiento por formulario
+  // Refresh consent text per form
   function notifyFormsConsentChange(){
     document.querySelectorAll('.geo-upload-form').forEach(form=>{
       const gpsStatus = form.querySelector('.gps-status');
       if (!gpsStatus) return;
       const granted = getConsent() === 'granted';
       gpsStatus.textContent = granted
-        ? (gpsStatus.textContent.includes("📍") ? gpsStatus.textContent : "📍 Ready to capture")
+        ? (gpsStatus.textContent && gpsStatus.textContent.startsWith("📍") ? gpsStatus.textContent : "📍 Ready to capture")
         : "📍 Location not granted (tap Grant or Allow)";
     });
   }
 
-  // Inicial: si no hay decisión, muestra modal
+  // Initial: show modal if no decision
   document.addEventListener('DOMContentLoaded', ()=>{
     if (!getConsent()) openModal();
     notifyFormsConsentChange();
   });
 
-  // Al pulsar Allow en nuestro modal: guardamos y DISPARAMOS una captura en el form activo
+  // Modal buttons
   btnAllow.addEventListener('click', async ()=>{
     setConsent('granted'); closeModal(); notifyFormsConsentChange();
-    // intenta capturar en el primer form visible (gesto acaba de ocurrir)
     const form = document.querySelector('.geo-upload-form');
     if (form) try { await captureGeo(form); } catch(_) {}
   });
-
   btnDeny.addEventListener('click', ()=>{
-    setConsent('denied');
-    // No cerramos: el submit quedará bloqueado igualmente.
+    setConsent('denied'); closeModal();
   });
 
-  // Por cada formulario
+  // Per-form wiring (gallery/camera, geo, submit)
   document.querySelectorAll('.geo-upload-form').forEach(form=>{
-    const fileInputGallery = form.querySelector('.file-input');         // visible (galería)
-    const fileInputCam     = form.querySelector('.file-input-camera');  // oculto (cámara)
+    const fileInputGallery = form.querySelector('.file-input');
+    const fileInputCam     = form.querySelector('.file-input-camera');
     const filenameEl       = form.querySelector('.filename');
 
-    // Texto inicial en inglés
+    // Initial filename text
     if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
 
-    // Botón 📷 Take -> abre input de cámara
+    // 📷 Take button -> open hidden camera input
     document.addEventListener('click', (e)=>{
       const btn = e.target.closest('.trigger-camera');
       if(!btn) return;
@@ -339,7 +359,7 @@
       if(inputCam) inputCam.click();
     });
 
-    // Al seleccionar en GALERÍA → muestra nombres y CAPTURA GEO (siempre intentamos: esto lanza el prompt del sistema)
+    // Gallery selection → show names + try geo
     if (fileInputGallery){
       fileInputGallery.addEventListener('change', async ()=>{
         const n = fileInputGallery.files ? fileInputGallery.files.length : 0;
@@ -351,15 +371,13 @@
         try { await captureGeo(form); } catch(_) {}
       });
     }
-
-    // Al tomar con CÁMARA → intenta capturar geo
+    // Camera selection → try geo
     if (fileInputCam){
       fileInputCam.addEventListener('change', async ()=>{
         try { await captureGeo(form); } catch(_) {}
       });
     }
-
-    // Botón "Grant Location" -> fuerza captura
+    // “Grant Location” -> force geo
     const btnGrant = form.querySelector('.grant-location');
     if (btnGrant){
       btnGrant.addEventListener('click', async ()=>{
@@ -368,31 +386,152 @@
       });
     }
 
-    // Envío: BLOQUEA si falta geo/hora; intenta una vez más
-    form.addEventListener('submit', async (e)=>{
-      const latEl   = form.querySelector('input[name="lat"]');
-      const lngEl   = form.querySelector('input[name="lng"]');
-      const takenEl = form.querySelector('input[name="client_taken_at"]');
+    // ------------------ DIRECT UPLOAD to Wasabi (if enabled) ------------------
+    if (window.DIRECT_UPLOADS_ENABLED) {
+      const getCsrf = () => {
+        const m = document.cookie.match(/csrftoken=([^;]+)/);
+        return m ? m[1] : "";
+      };
 
-      const ok = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
-      if (!ok){
-        e.preventDefault();
-        try {
-          await captureGeo(form);
-        } catch(_) { /* ignore */ }
-        const ok2 = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
-        if (!ok2){
-          // Mensaje discreto en el status; evita alert bloqueante
-          const gpsStatus = form.querySelector('.gps-status');
-          if (gpsStatus) gpsStatus.textContent = "📍 We couldn't get your location. Check HTTPS, GPS and permissions, then try again.";
-          return; // no envía
-        }
-        form.submit(); // ahora sí
+      // Always compress: JPEG, max 2048px, quality 0.85
+      async function compressIfNeeded(file, maxDim=2048, quality=0.85) {
+        if (!/^image\//.test(file.type)) return file;
+
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        await new Promise(res => img.onload = res);
+
+        let { width, height } = img;
+        const scale = Math.min(1, maxDim / Math.max(width, height));
+        const w = Math.round(width * scale);
+        const h = Math.round(height * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const mime = 'image/jpeg';
+        const blob = await new Promise(res => canvas.toBlob(res, mime, quality));
+        const outName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+        return new File([blob], outName, { type: mime });
       }
-    });
+
+      async function presign(filename, contentType, sizeBytes, meta) {
+        const res = await fetch("{% url 'operaciones:presign_wasabi' %}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": getCsrf() },
+          body: JSON.stringify({ filename, contentType, sizeBytes, folder: window.DIRECT_UPLOADS_FOLDER, meta }),
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error("Presign failed: " + t);
+        }
+        return res.json();
+      }
+
+      async function directUpload(file, meta) {
+        const light = await compressIfNeeded(file, 2048, 0.85);
+        const pre = await presign(light.name, light.type, light.size, meta);
+
+        const formData = new FormData();
+        Object.entries(pre.fields).forEach(([k,v]) => formData.append(k, v));
+        if (!formData.has("key")) formData.append("key", pre.key);
+        formData.append("file", light, light.name);
+
+        const up = await fetch(pre.url, { method: "POST", body: formData });
+        if (!up.ok) {
+          const t = await up.text();
+          throw new Error("Upload failed: " + t);
+        }
+        return pre.key; // Wasabi key
+      }
+
+      // Intercept submit for direct upload if there are files
+      form.addEventListener('submit', async (e)=>{
+        // Ensure geo/time first
+        const latEl   = form.querySelector('input[name="lat"]');
+        const lngEl   = form.querySelector('input[name="lng"]');
+        const takenEl = form.querySelector('input[name="client_taken_at"]');
+        const hasGeo  = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+        if (!hasGeo) {
+          e.preventDefault();
+          try { await captureGeo(form); } catch(_) {}
+          const ok2 = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+          if (!ok2) {
+            const gpsStatus = form.querySelector('.gps-status');
+            if (gpsStatus) gpsStatus.textContent = "📍 We couldn't get your location. Check HTTPS, GPS and permissions, then try again.";
+            return;
+          }
+          // continue to direct-upload flow
+        }
+
+        // If there are no file inputs with files, let the form submit normally
+        const filesAll = [];
+        form.querySelectorAll('input[type="file"][name="imagenes[]"]').forEach(inp=>{
+          if (inp.files && inp.files.length) filesAll.push(...inp.files);
+        });
+        if (!filesAll.length) return;
+
+        // Direct upload
+        e.preventDefault();
+        const meta = {
+          lat: latEl ? latEl.value : "",
+          lng: lngEl ? lngEl.value : "",
+          taken_at: takenEl ? takenEl.value : new Date().toISOString(),
+          project_id: window.PROJECT_ID || "",
+          technician: window.CURRENT_USER_NAME || ""
+        };
+
+        try {
+          const keys = await Promise.all(filesAll.map(f => directUpload(f, meta)));
+
+          // Clean file inputs so we don't re-send bytes
+          form.querySelectorAll('input[type="file"][name="imagenes[]"]').forEach(inp => inp.value = "");
+
+          // Remove previous wasabi_keys[] if any
+          form.querySelectorAll('input[name="wasabi_keys[]"]').forEach(e => e.remove());
+
+          // Add keys as hidden inputs
+          keys.forEach(k => {
+            const hid = document.createElement("input");
+            hid.type = "hidden";
+            hid.name = "wasabi_keys[]";
+            hid.value = k;
+            form.appendChild(hid);
+          });
+
+          form.submit(); // Submit without files; backend reads the keys
+        } catch (err) {
+          console.error(err);
+          const gpsStatus = form.querySelector('.gps-status');
+          if (gpsStatus) gpsStatus.textContent = "⚠️ Upload error. Please try again.";
+          alert("There was a problem uploading the photos. Please try again.");
+        }
+      });
+    } else {
+      // If direct upload is disabled, still block softly until we have geo
+      form.addEventListener('submit', async (e)=>{
+        const latEl   = form.querySelector('input[name="lat"]');
+        const lngEl   = form.querySelector('input[name="lng"]');
+        const takenEl = form.querySelector('input[name="client_taken_at"]');
+        const ok = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+        if (!ok){
+          e.preventDefault();
+          try { await captureGeo(form); } catch(_) {}
+          const ok2 = latEl && latEl.value && lngEl && lngEl.value && takenEl && takenEl.value;
+          if (!ok2){
+            const gpsStatus = form.querySelector('.gps-status');
+            if (gpsStatus) gpsStatus.textContent = "📍 We couldn't get your location. Check HTTPS, GPS and permissions, then try again.";
+            return;
+          }
+          form.submit();
+        }
+      });
+    }
   });
 
-  // ---------- Modal eliminar foto ----------
+  // ---------- Delete modal ----------
   const delModal   = document.getElementById('modal-delete');
   const delForm    = document.getElementById('delete-form');
   const delThumb   = document.getElementById('delete-thumb');

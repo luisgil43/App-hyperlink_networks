@@ -1,4 +1,14 @@
 # operaciones/views_billing_exec.py
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
+from openpyxl import Workbook
+from django.http import HttpResponse
+import csv
+from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
+from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponseBadRequest
+import uuid
+import json
+from django.conf import settings
+import boto3
 from decimal import Decimal
 import io
 
@@ -123,25 +133,54 @@ def start_assignment(request, pk):
 @rol_requerido('usuario')
 def upload_evidencias(request, pk):
     """
-    Carga de evidencias para una asignación.
-    Se permite subir si la asignación está:
-      - en_proceso, o
-      - rechazada_por_supervisor con reintento_habilitado=True.
+    Upload evidence with team-wide locking by shared requirement title:
+    - As soon as *anyone* uploads at least one photo for a given requirement *title*
+      in the session, that title is "locked" for everyone (no more uploads for that title).
+    - Deleting the last photo with that title will unlock it automatically (because
+      we derive the lock from current evidences).
+    - 'Finish' is enabled only if:
+        (a) all mandatory shared titles have at least one photo (by anyone), AND
+        (b) all assignees have accepted (started).
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
-    # ¿Se puede subir en el estado actual?
+    # tiny local utilities (requested: no helpers outside the views)
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    def _is_safe_wasabi_key(key: str) -> bool:
+        return bool(key) and ".." not in key and not key.startswith("/")
+
+    def _create_evidencia_from_key(req_id, key, nota, lat, lng, acc, taken_dt):
+        return EvidenciaFotoBilling.objects.create(
+            tecnico_sesion=a,
+            requisito_id=req_id,
+            imagen=key,  # tu storage debe aceptar la clave directa
+            nota=nota or "",
+            lat=lat or None,
+            lng=lng or None,
+            gps_accuracy_m=acc or None,
+            client_taken_at=taken_dt,
+        )
+
+    # Can upload in current state?
     puede_subir = (a.estado == "en_proceso") or (
         a.estado == "rechazado_supervisor" and a.reintento_habilitado
     )
-    if not puede_subir:
+    if not puede_subir and request.method != "GET":
         messages.info(request, "This assignment is not open for uploads.")
         return redirect("operaciones:mis_assignments")
 
+    s = a.sesion
+
+    # -------------------- POST (upload) --------------------
     if request.method == "POST":
         req_id = request.POST.get("req_id") or None
         nota = (request.POST.get("nota") or "").strip()
+
         files = request.FILES.getlist("imagenes[]")
+        wasabi_keys = request.POST.getlist(
+            "wasabi_keys[]") if settings.DIRECT_UPLOADS_ENABLED else []
 
         lat = request.POST.get("lat") or None
         lng = request.POST.get("lng") or None
@@ -149,7 +188,35 @@ def upload_evidencias(request, pk):
         taken = request.POST.get("client_taken_at")
         taken_dt = parse_datetime(taken) if taken else None
 
+        # If uploading for a specific requirement, enforce shared lock by title
+        if req_id:
+            req = get_object_or_404(
+                RequisitoFotoBilling, pk=req_id, tecnico_sesion=a)
+            shared_key = _norm_title(req.titulo)
+
+            # All titles that already have evidence anywhere in the same session
+            taken_titles = EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion=s,
+                requisito__isnull=False,
+            ).values_list("requisito__titulo", flat=True)
+
+            locked_title_set = {_norm_title(t) for t in taken_titles if t}
+            if shared_key in locked_title_set:
+                messages.warning(
+                    request,
+                    "This requirement is already covered by the team. "
+                    "Remove the existing photo to re-activate it."
+                )
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+        # Create evidence entries
         n = 0
+        for key in wasabi_keys:
+            if _is_safe_wasabi_key(key):
+                _create_evidencia_from_key(
+                    req_id, key, nota, lat, lng, acc, taken_dt)
+                n += 1
+
         for f in files:
             EvidenciaFotoBilling.objects.create(
                 tecnico_sesion=a,
@@ -169,26 +236,87 @@ def upload_evidencias(request, pk):
             messages.info(request, "No files selected.")
         return redirect("operaciones:upload_evidencias", pk=a.pk)
 
-    # Requisitos con cantidad de evidencias
+    # -------------------- GET (page context) --------------------
+
+    # (1) Your own requirements + your uploaded count
     requisitos = (
         a.requisitos
          .annotate(uploaded=Count("evidencias"))
          .order_by("orden", "id")
     )
-    faltantes = requisitos.filter(obligatorio=True, uploaded=0)
 
-    # El botón Finish solo cuando está en proceso y sin faltantes
-    can_finish = (a.estado == "en_proceso" and not faltantes.exists())
+    # (2) Team-wide locked titles: any title with at least one evidence in the session
+    taken_titles = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s,
+        requisito__isnull=False,
+    ).values_list("requisito__titulo", flat=True)
+    locked_title_set = {_norm_title(t) for t in taken_titles if t}
+    locked_ids = [r.id for r in requisitos if _norm_title(
+        r.titulo) in locked_title_set]
 
-    # Evidencias ya subidas (se listan con opción de borrar si puede_subir=True)
+    # (3) Which mandatory titles (globally) are missing?
+    required_titles = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, obligatorio=True)
+        .values_list("titulo", flat=True)
+    )
+    required_key_set = {_norm_title(t) for t in required_titles if t}
+    covered_key_set = locked_title_set  # alias semantic
+    missing_keys = required_key_set - covered_key_set
+
+    # make “pretty” labels from any sample in the session
+    sample_titles = list(
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, titulo__isnull=False)
+        .values_list("titulo", flat=True)
+    )
+    sample_map = {_norm_title(t): t for t in sample_titles if t}
+    faltantes_global = [sample_map.get(k, k) for k in sorted(missing_keys)]
+
+    # (4) Who has accepted (started)?
+    asignaciones = list(
+        s.tecnicos_sesion.select_related("tecnico").all()
+    )
+    pendientes_aceptar = []
+    for asg in asignaciones:
+        # Consider accepted if aceptado_en is set or state is not 'asignado'
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name",
+                           lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(name)
+
+    all_accepted = (len(pendientes_aceptar) == 0)
+
+    # (5) Finish button rule (per your spec)
+    can_finish = (
+        a.estado == "en_proceso" and
+        len(faltantes_global) == 0 and
+        all_accepted
+    )
+
+    # Evidences list (for right column)
     evidencias = (
         a.evidencias
          .select_related("requisito")
          .order_by("requisito__orden", "tomada_en", "id")
     )
 
-    # Bandera para mostrar la ✕ de eliminar en el template
-    can_delete = puede_subir
+    can_delete = puede_subir  # only let them delete while they can upload
+
+    # -------- Direct uploads context (unchanged UI; only data for JS) --------
+    proj_id = (a.sesion.proyecto_id or "project").strip()
+    proj_slug = slugify(proj_id) or "project"
+
+    tech = a.tecnico
+    tech_name = (
+        getattr(tech, "get_full_name", lambda: "")()
+        or getattr(tech, "username", "")
+        or f"user-{tech.id}"
+    )
+    tech_slug = slugify(tech_name) or f"user-{tech.id}"
+
+    direct_uploads_folder = f"operaciones/reporte_fotografico/{proj_slug}/{tech_slug}/evidencia/"
 
     return render(
         request,
@@ -197,9 +325,20 @@ def upload_evidencias(request, pk):
             "a": a,
             "requisitos": requisitos,
             "evidencias": evidencias,
-            "faltantes": faltantes,
-            "can_finish": can_finish,
             "can_delete": can_delete,
+
+            # NEW: team-wide locking / finish-reasons
+            "locked_ids": locked_ids,
+            "faltantes_global": faltantes_global,
+            "pendientes_aceptar": pendientes_aceptar,
+            "can_finish": can_finish,
+
+            # Direct uploads flags
+            "direct_uploads_enabled": settings.DIRECT_UPLOADS_ENABLED,
+            "direct_uploads_max_mb": getattr(settings, "DIRECT_UPLOADS_MAX_MB", 15),
+            "direct_uploads_folder": direct_uploads_folder,
+            "project_id": a.sesion.proyecto_id,
+            "current_user_name": tech_name,
         },
     )
 
@@ -208,49 +347,88 @@ def upload_evidencias(request, pk):
 @rol_requerido('usuario')
 def finish_assignment(request, pk):
     """
-    El técnico finaliza su parte. Si TODOS los requisitos obligatorios del proyecto
-    (sumando todos los técnicos) están listos, el estado del PROYECTO sube a
-    'en_revision_supervisor'. Si no, queda 'en_proceso'.
+    Flujo de Finalización (en equipo):
+    - Verifica que ESTA asignación esté en 'en_proceso'.
+    - Verifica que TODOS los requisitos obligatorios (por título compartido)
+      tengan al menos una foto en la sesión (subida por cualquier asignado).
+    - Verifica que TODOS los asignados hayan aceptado (Start).
+    - Si todo está OK: cambia TODAS las asignaciones de la sesión a
+      'en_revision_supervisor' (sellando finalizado_en) y actualiza la sesión
+      a 'en_revision_supervisor' en una sola transacción.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
+    # Debe estar en progreso para poder finalizar
     if a.estado != "en_proceso":
         messages.error(request, "This assignment is not in progress.")
         return redirect("operaciones:mis_assignments")
 
-    # Validar requisitos obligatorios del TÉCNICO (server-side)
-    faltan = []
-    for r in a.requisitos.filter(obligatorio=True):
-        if not r.evidencias.exists():
-            faltan.append(r.titulo)
-    if faltan:
-        messages.error(request, "Missing required photos: " +
-                       ", ".join(faltan))
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
+    # Utilidad local para normalizar títulos (sin helpers externos)
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
 
-    # Marcar la asignación como lista para supervisor
-    a.estado = "en_revision_supervisor"
-    a.finalizado_en = timezone.now()
-    a.save(update_fields=["estado", "finalizado_en"])
-
-    # ¿El PROYECTO completo (todos los obligatorios de todos los técnicos) está listo?
     s = a.sesion
-    reqs_proj = (
+
+    # 1) Cobertura global de requisitos obligatorios por TÍTULO compartido
+    required_titles = (
         RequisitoFotoBilling.objects
         .filter(tecnico_sesion__sesion=s, obligatorio=True)
-        .annotate(n=Count("evidencias"))
+        .values_list("titulo", flat=True)
     )
-    todos_listos = not reqs_proj.filter(n=0).exists()
+    required_key_set = {_norm_title(t) for t in required_titles if t}
 
-    if todos_listos:
+    taken_titles = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
+        .values_list("requisito__titulo", flat=True)
+    )
+    covered_key_set = {_norm_title(t) for t in taken_titles if t}
+
+    missing_keys = required_key_set - covered_key_set
+    if missing_keys:
+        # Armamos nombres "bonitos" a partir de cualquier muestra en la sesión
+        sample_titles = list(
+            RequisitoFotoBilling.objects
+            .filter(tecnico_sesion__sesion=s, titulo__isnull=False)
+            .values_list("titulo", flat=True)
+        )
+        sample_map = {_norm_title(t): t for t in sample_titles if t}
+        pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
+        messages.error(request, "Missing required photos: " +
+                       ", ".join(pretty_missing))
+        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+    # 2) Validar que TODOS los asignados hayan aceptado (Start)
+    pendientes_aceptar = []
+    asignaciones = list(s.tecnicos_sesion.select_related("tecnico").all())
+    for asg in asignaciones:
+        # Se considera aceptado si tiene timestamp o si su estado ya no es 'asignado'
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name",
+                           lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(name)
+
+    if pendientes_aceptar:
+        messages.error(
+            request,
+            "Pending acceptance (Start): " + ", ".join(pendientes_aceptar)
+        )
+        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+    # 3) Todo OK → marcar TODAS las asignaciones y la sesión en revisión de supervisor
+    now = timezone.now()
+    with transaction.atomic():
+        # Poner a todos en 'en_revision_supervisor' y sellar finalizado_en
+        s.tecnicos_sesion.update(
+            estado="en_revision_supervisor", finalizado_en=now)
+
+        # La sesión completa pasa a revisión del supervisor
         s.estado = "en_revision_supervisor"
         s.save(update_fields=["estado"])
-    else:
-        if s.estado in {"rechazado_supervisor", "asignado"}:
-            s.estado = "en_proceso"
-            s.save(update_fields=["estado"])
 
-    messages.success(request, "Sent to supervisor review.")
+    messages.success(
+        request, "Submitted for supervisor review for all assignees.")
     return redirect("operaciones:mis_assignments")
 
 
@@ -265,9 +443,131 @@ def revisar_assignment(request, pk):
     return redirect("operaciones:revisar_sesion", sesion_id=a.sesion_id)
 
 
+ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _safe_prefix() -> str:
+    return getattr(settings, "DIRECT_UPLOADS_SAFE_PREFIX", "operaciones/reporte_fotografico/")
+
+
+def _build_key(folder: str, filename: str) -> str:
+    """
+    Genera una key segura bajo el prefijo permitido, manteniendo tu estructura.
+    - folder debe comenzar con DIRECT_UPLOADS_SAFE_PREFIX (p.ej. operaciones/reporte_fotografico/<proj>/<tech>/evidencia/)
+    - filename solo aporta la extensión; el nombre es uuid para evitar colisiones.
+    """
+    ext = (filename.rsplit(".", 1)[-1] or "jpg").lower()
+    base = (folder or "").strip().lstrip("/")
+    if not base.startswith(_safe_prefix()):
+        # Fuerza a prefijo seguro si el cliente envía algo fuera de rango
+        base = _safe_prefix().rstrip("/") + "/evidencia/"
+    return f"{base.rstrip('/')}/{uuid.uuid4().hex}.{ext}"
+
+
+@login_required
+@require_POST
+def presign_wasabi(request):
+    """
+    Devuelve un POST pre-firmado para subir DIRECTO a Wasabi.
+    Espera JSON: { filename, contentType, sizeBytes, folder, meta?{lat,lng,taken_at,project_id,technician} }
+    """
+    if not getattr(settings, "DIRECT_UPLOADS_ENABLED", False):
+        return HttpResponseBadRequest("Direct uploads disabled.")
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON.")
+
+    filename = (data.get("filename") or "").strip()
+    content_type = (data.get("contentType") or "").strip()
+    size_bytes = int(data.get("sizeBytes") or 0)
+    # p.ej. operaciones/reporte_fotografico/<proj>/<tech>/evidencia/
+    folder = (data.get("folder") or "").strip()
+    meta = data.get("meta") or {}
+
+    if not filename or content_type not in ALLOWED_MIME:
+        return HttpResponseBadRequest("Invalid file type.")
+    max_bytes = int(
+        getattr(settings, "DIRECT_UPLOADS_MAX_MB", 15)) * 1024 * 1024
+    if size_bytes <= 0 or size_bytes > max_bytes:
+        return HttpResponseBadRequest("File too large.")
+
+    key = _build_key(folder, filename)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=getattr(settings, "WASABI_ENDPOINT_URL", None),
+        aws_access_key_id=getattr(settings, "WASABI_ACCESS_KEY_ID", None),
+        aws_secret_access_key=getattr(
+            settings, "WASABI_SECRET_ACCESS_KEY", None),
+        region_name=getattr(settings, "WASABI_REGION_NAME", None),
+    )
+
+    # Metadatos útiles para no depender de EXIF
+    meta_headers = {
+        "x-amz-meta-lat": str(meta.get("lat") or ""),
+        "x-amz-meta-lng": str(meta.get("lng") or ""),
+        "x-amz-meta-taken_at": str(meta.get("taken_at") or timezone.now().isoformat()),
+        "x-amz-meta-user": request.user.get_full_name() or request.user.username,
+        "x-amz-meta-project_id": str(meta.get("project_id") or ""),
+        "x-amz-meta-technician": str(meta.get("technician") or ""),
+    }
+
+    bucket = getattr(settings, "WASABI_BUCKET_NAME", None)
+    conditions = [
+        {"bucket": bucket},
+        ["starts-with", "$key", key.rsplit("/", 1)[0] + "/"],
+        {"acl": "private"},
+        {"Content-Type": content_type},
+        ["content-length-range", 1, max_bytes],
+    ]
+    for h, v in meta_headers.items():
+        conditions.append({h: v})
+
+    fields = {"acl": "private", "Content-Type": content_type, **meta_headers}
+
+    presigned = s3.generate_presigned_post(
+        Bucket=bucket,
+        Key=key,
+        Fields=fields,
+        Conditions=conditions,
+        ExpiresIn=60,  # corto para seguridad
+    )
+
+    return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})
+
+
+SAFE_EVIDENCE_PREFIX = getattr(
+    settings, "DIRECT_UPLOADS_SAFE_PREFIX", "operaciones/reporte_fotografico/")
+
+
+def _is_safe_wasabi_key(key: str) -> bool:
+    """Acepta solo claves dentro del prefijo seguro y sin '..'."""
+    return isinstance(key, str) and key.startswith(SAFE_EVIDENCE_PREFIX) and ".." not in key
+
+
+def _create_evidencia_from_key(a, req_id, key, nota, lat, lng, acc, taken_dt):
+    """
+    Crea EvidenciaFotoBilling apuntando a un objeto YA subido a Wasabi.
+    No re-sube bytes: asigna .name en el FileField y guarda.
+    """
+    ev = EvidenciaFotoBilling(
+        tecnico_sesion=a,
+        requisito_id=req_id or None,
+        nota=nota or "",
+        lat=lat, lng=lng, gps_accuracy_m=acc,
+        client_taken_at=taken_dt or None,
+    )
+    ev.imagen.name = key.strip()  # clave S3/Wasabi ya existente
+    ev.save()
+    return ev
+
+
 # ============================
 # SUPERVISOR — Revisión POR PROYECTO (unificada)
 # ============================
+
 
 def _project_report_key(sesion: SesionBilling) -> str:
     """
@@ -407,7 +707,7 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
     if not s.reporte_fotografico or not storage_file_exists(s.reporte_fotografico):
         messages.warning(
-            request, "El informe fotográfico no está disponible. Puedes generarlo nuevamente.")
+            request, "The photo report is not available. You can regenerate it now.")
         return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
     return FileResponse(s.reporte_fotografico.open("rb"), as_attachment=True, filename="photo_report.xlsx")
@@ -433,7 +733,7 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
 
     bio = io.BytesIO()
     wb = xlsxwriter.Workbook(bio, {"in_memory": True})
-    ws = wb.add_worksheet("Reporte fotografico")
+    ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
 
     # Ocultar cuadrícula (pantalla e impresión)
     ws.hide_gridlines(2)
@@ -572,7 +872,7 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
 @login_required
 def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Solo supervisor/pm/admin
+    # Only supervisor/pm/admin
     if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
         raise Http404()
 
@@ -585,116 +885,322 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
             except Exception:
                 pass
 
-        filename = f"REPORTE FOTOGRAFICO {s.proyecto_id}.xlsx"
+        filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
         s.reporte_fotografico.save(
-            filename, ContentFile(bytes_excel), save=True)
+            filename, ContentFile(bytes_excel), save=True
+        )
         messages.success(
-            request, "Informe fotográfico del proyecto regenerado.")
+            request, "Project photographic report regenerated successfully."
+        )
         return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
 
     except Exception as e:
-        messages.error(request, f"No se pudo generar el informe: {e}")
+        messages.error(
+            request, f"Could not generate the photographic report: {e}"
+        )
         return redirect("operaciones:revisar_sesion", sesion_id=s.id)
-
 
 # ============================
 # CONFIGURAR REQUISITOS (¡la que faltaba!)
 # ============================
 
+
+# operaciones/views_billing_exec.py
+
+
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def configurar_requisitos(request, sesion_id):
     """
-    Crea/edita los requisitos de fotos por TÉCNICO dentro de un PROYECTO.
-    Actualiza sin borrar todo:
-      - Crea nuevos (id vacío)
-      - Actualiza existentes (id presente)
-      - Elimina solo los marcados en t<tecnico_id>_delete_id[]
-    Espera arrays por técnico usando prefijo t<tecnico_id>_ en los names.
+    Configura una ÚNICA lista de requisitos por PROYECTO y la replica
+    a TODOS los técnicos asignados (sobrescribe sus listas).
+    Formularios esperados (arrays paralelos):
+      - name[]        (str, obligatorio)
+      - order[]       (int, opcional)
+      - mandatory[]   ("0" / "1", opcional)
+      - delete_id[]   (ids de la vista actual; solo afecta la UI, no se usan)
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Traer requisitos para precarga ordenados por 'orden'
-    asignaciones = (
+    asignaciones = list(
         s.tecnicos_sesion
          .select_related("tecnico")
-         .prefetch_related("requisitos")  # related_name='requisitos'
+         .prefetch_related("requisitos")
          .all()
     )
+
+    # Para precargar en GET: tomamos como "lista canónica" la del primer técnico,
+    # si existe. Si no hay técnicos o no tienen requisitos, la lista inicia vacía.
+    canonical = []
+    if asignaciones and asignaciones[0].requisitos.exists():
+        canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
 
     if request.method == "POST":
         try:
             with transaction.atomic():
+                # 1) Leer la lista compartida desde el form
+                names = request.POST.getlist("name[]")
+                orders = request.POST.getlist("order[]")
+                mand = request.POST.getlist("mandatory[]")  # "0"/"1"
+
+                # Construir una lista normalizada (ignora filas vacías)
+                normalized = []
+                for i, nm in enumerate(names):
+                    name = (nm or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        order = int(orders[i]) if i < len(orders) else i
+                    except Exception:
+                        order = i
+                    mandatory = (mand[i] == "1") if i < len(mand) else True
+                    normalized.append((order, name, mandatory))
+
+                # 2) Replicar en TODAS las asignaciones: borrar y crear
                 for a in asignaciones:
-                    prefix = f"t{a.tecnico_id}_"
+                    RequisitoFotoBilling.objects.filter(
+                        tecnico_sesion=a).delete()
+                    to_create = [
+                        RequisitoFotoBilling(
+                            tecnico_sesion=a,
+                            titulo=name,
+                            descripcion="",
+                            obligatorio=mandatory,
+                            orden=order,
+                        )
+                        for (order, name, mandatory) in normalized
+                    ]
+                    if to_create:
+                        RequisitoFotoBilling.objects.bulk_create(to_create)
 
-                    # 1) Eliminar solo los que se marcaron para borrar
-                    delete_ids = request.POST.getlist(prefix + "delete_id[]")
-                    if delete_ids:
-                        # filtrar a enteros válidos
-                        del_ids = [int(x)
-                                   for x in delete_ids if str(x).isdigit()]
-                        if del_ids:
-                            RequisitoFotoBilling.objects.filter(
-                                tecnico_sesion=a, id__in=del_ids
-                            ).delete()
-
-                    # 2) Recibir arrays alineados por índice
-                    ids = request.POST.getlist(prefix + "id[]")
-                    titulos = request.POST.getlist(prefix + "titulo[]")
-                    descs = request.POST.getlist(prefix + "desc[]")
-                    obls = request.POST.getlist(prefix + "obl[]")   # "0" / "1"
-                    ords = request.POST.getlist(prefix + "ord[]")
-
-                    n = len(titulos)
-                    for i in range(n):
-                        titulo = (titulos[i] or "").strip()
-                        if not titulo:
-                            # si vino vacío, lo ignoramos (no crear/actualizar)
-                            continue
-
-                        rid = (ids[i] if i < len(ids) else "").strip()
-                        descripcion = (descs[i].strip() if i < len(
-                            descs) and descs[i] else "")
-                        obligatorio = (obls[i] == "1") if i < len(
-                            obls) else True
-                        try:
-                            orden = int(ords[i]) if i < len(ords) else i
-                        except Exception:
-                            orden = i
-
-                        if rid and str(rid).isdigit():
-                            # 2.1) Actualizar existente (si pertenece a la misma asignación)
-                            RequisitoFotoBilling.objects.filter(
-                                pk=int(rid), tecnico_sesion=a
-                            ).update(
-                                titulo=titulo,
-                                descripcion=descripcion,
-                                obligatorio=obligatorio,
-                                orden=orden,
-                            )
-                        else:
-                            # 2.2) Crear nuevo
-                            RequisitoFotoBilling.objects.create(
-                                tecnico_sesion=a,
-                                titulo=titulo,
-                                descripcion=descripcion,
-                                obligatorio=obligatorio,
-                                orden=orden,
-                            )
-
-            messages.success(request, "Photo requirements saved.")
+            messages.success(
+                request, "Photo requirements saved (project-wide).")
             return redirect("operaciones:listar_billing")
 
         except Exception as e:
             messages.error(request, f"Could not save requirements: {e}")
 
-    # GET: render con requisitos cargados
-    # (si prefieres ordenados: en el template usa r.orden o ordena en el queryset)
+        # En caso de error, re-render con lo enviado por el usuario
+        canonical = []  # mostramos lo posteado
+
+        class _Row:  # helper simple para el template
+            def __init__(self, orden, titulo, obligatorio):
+                self.orden = orden
+                self.titulo = titulo
+                self.obligatorio = obligatorio
+        for (order, name, mandatory) in normalized:
+            canonical.append(_Row(order, name, mandatory))
+
     return render(
         request,
         "operaciones/billing_configurar_requisitos.html",
-        {"sesion": s, "asignaciones": asignaciones},
+        {"sesion": s, "requirements": canonical},
     )
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+def import_requirements_page(request, sesion_id):
+    """
+    Shows the import screen with download links for the template and
+    a file input to upload the CSV/XLSX.
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    return render(
+        request,
+        "operaciones/billing_import_requisitos.html",
+        {"sesion": s},
+    )
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+def download_requirements_template(request, sesion_id, ext):
+    """
+    Returns a requirements template as CSV or XLSX.
+    Columns: name, order, mandatory
+    - name: string (required)
+    - order: integer (optional)
+    - mandatory: 1/0 or true/false (optional; defaults to 1/true)
+    """
+    ext = (ext or "").lower()
+    filename_base = f"requirements_template_billing_{sesion_id}"
+
+    if ext == "csv":
+        content = (
+            "name,order,mandatory\n"
+            "Front door,0,1\n"
+            "Back door,1,1\n"
+            "Panorama of site,2,0\n"
+        )
+        resp = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="{filename_base}.csv"'
+        return resp
+
+    if ext in ("xlsx", "xls"):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Requirements"
+        ws.append(["name", "order", "mandatory"])
+        ws.append(["Front door", 0, 1])
+        ws.append(["Back door", 1, 1])
+        ws.append(["Panorama of site", 2, 0])
+
+        from io import BytesIO
+        bio = BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        resp = HttpResponse(
+            bio.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp["Content-Disposition"] = f'attachment; filename="{filename_base}.xlsx"'
+        return resp
+
+    messages.error(request, "Unsupported format. Use csv or xlsx.")
+    return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+@require_POST
+def importar_requisitos(request, sesion_id):
+    """
+    Import project-shared requirements from .csv or .xlsx and replicate
+    to ALL assigned technicians (overwrites their lists).
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    f = request.FILES.get("file")
+
+    if not f:
+        messages.error(request, "Please select a CSV or XLSX file.")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    ext = (f.name.rsplit(".", 1)[-1] or "").lower()
+    normalized = []
+
+    try:
+        if ext == "csv":
+            raw = f.read().decode("utf-8", errors="ignore")
+            lines = raw.splitlines()
+            if not lines:
+                messages.warning(request, "The file is empty.")
+                return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+            header_line = lines[0].lower()
+            if "name" in header_line:
+                reader = csv.DictReader(io.StringIO(raw))
+                for row in reader:
+                    name = (row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        order = int(row.get("order")) if row.get(
+                            "order") not in (None, "") else len(normalized)
+                    except Exception:
+                        order = len(normalized)
+                    mval = str(row.get("mandatory") or "1").strip().lower()
+                    mandatory = mval in ("1", "true", "yes", "y")
+                    normalized.append((order, name, mandatory))
+            else:
+                reader = csv.reader(lines)
+                for row in reader:
+                    if not row:
+                        continue
+                    name = (row[0] or "").strip()
+                    if not name:
+                        continue
+                    normalized.append((len(normalized), name, True))
+
+        elif ext in ("xlsx", "xls"):
+            wb = load_workbook(f, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                messages.warning(request, "The spreadsheet is empty.")
+                return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+            header = [str(x).strip().lower()
+                      if x is not None else "" for x in rows[0]]
+            headered = "name" in header
+            start = 1 if headered else 0
+
+            if headered:
+                i_name = header.index("name")
+                i_order = header.index("order") if "order" in header else None
+                i_mand = header.index(
+                    "mandatory") if "mandatory" in header else None
+
+                for r in rows[start:]:
+                    name = (str(r[i_name]) if i_name < len(r)
+                            and r[i_name] is not None else "").strip()
+                    if not name:
+                        continue
+                    # order
+                    if i_order is not None and i_order < len(r) and r[i_order] not in (None, ""):
+                        try:
+                            order = int(r[i_order])
+                        except Exception:
+                            order = len(normalized)
+                    else:
+                        order = len(normalized)
+                    # mandatory
+                    if i_mand is not None and i_mand < len(r) and r[i_mand] not in (None, ""):
+                        mval = str(r[i_mand]).strip().lower()
+                        mandatory = mval in ("1", "true", "yes", "y")
+                    else:
+                        mandatory = True
+                    normalized.append((order, name, mandatory))
+            else:
+                for r in rows:
+                    if not r:
+                        continue
+                    name = (str(r[0]) if r[0] is not None else "").strip()
+                    if not name:
+                        continue
+                    normalized.append((len(normalized), name, True))
+        else:
+            messages.error(
+                request, "Unsupported file type. Use .csv or .xlsx.")
+            return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    except Exception as e:
+        messages.error(request, f"Could not parse the file: {e}")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    if not normalized:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    # Replicate to all assignees
+    try:
+        with transaction.atomic():
+            asignaciones = list(
+                s.tecnicos_sesion.select_related(
+                    "tecnico").prefetch_related("requisitos").all()
+            )
+            for a in asignaciones:
+                RequisitoFotoBilling.objects.filter(tecnico_sesion=a).delete()
+                objs = [
+                    RequisitoFotoBilling(
+                        tecnico_sesion=a,
+                        titulo=name,
+                        descripcion="",
+                        obligatorio=mandatory,
+                        orden=order,
+                    )
+                    for (order, name, mandatory) in normalized
+                ]
+                if objs:
+                    RequisitoFotoBilling.objects.bulk_create(objs)
+
+        messages.success(
+            request, f"Imported {len(normalized)} requirements and applied them to all assignees."
+        )
+        return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
+
+    except Exception as e:
+        messages.error(request, f"Could not apply imported requirements: {e}")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
 
 # ============================
@@ -726,7 +1232,7 @@ def pm_rechazar_proyecto(request, sesion_id):
 
 
 # ============================
-# ELIMINAR EVIDENCIA
+# ELIMINAR EVIDENCIA (corregido)
 # ============================
 
 @login_required
@@ -735,36 +1241,55 @@ def pm_rechazar_proyecto(request, sesion_id):
 def eliminar_evidencia(request, pk, evidencia_id):
     """
     El técnico puede borrar en 'en_proceso' o si fue rechazado con reintento.
-    Supervisor/Admin/PM pueden borrar siempre (p. ej. desde la revisión).
+    Supervisor/Admin/PM pueden borrar mientras el proyecto NO esté aprobado por supervisor/PM.
+    Una vez que el supervisor aprueba (o PM aprueba), no se permite borrar.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk)
+    s = a.sesion
+
+    # 🔒 Candado por estado del proyecto: si ya fue aprobado por supervisor o PM, no se permite borrar
+    if s.estado in ("aprobado_supervisor", "aprobado_pm"):
+        messages.error(
+            request, "Photos cannot be deleted after supervisor approval.")
+        next_url = (
+            request.POST.get("next")
+            or (reverse("operaciones:upload_evidencias", args=[a.pk]) if a.tecnico_id == request.user.id else reverse("operaciones:revisar_sesion", args=[s.pk]))
+        )
+        return redirect(next_url)
 
     # ¿Quién es?
     is_owner = (a.tecnico_id == request.user.id)
     is_staff_role = getattr(request.user, "rol", None) in {
         "supervisor", "admin", "pm"}
 
-    # Reglas para técnico
+    # Reglas para técnico: sólo en proceso o rechazado con reintento habilitado
     can_owner_delete = (
-        a.estado == "en_proceso" or
-        (a.estado == "rechazado_supervisor" and a.reintento_habilitado)
+        a.estado == "en_proceso"
+        or (a.estado == "rechazado_supervisor" and a.reintento_habilitado)
     )
 
+    # Staff puede borrar mientras NO esté aprobado (ya validado arriba)
     if not (is_staff_role or (is_owner and can_owner_delete)):
         return HttpResponseForbidden("You can't delete photos at this stage.")
 
     ev = get_object_or_404(EvidenciaFotoBilling,
                            pk=evidencia_id, tecnico_sesion=a)
 
-    # eliminar archivo físico si existe
+    # Eliminar archivo físico si existe (ignorar errores del storage)
     try:
         ev.imagen.delete(save=False)
     except Exception:
         pass
+
+    # Eliminar registro
     ev.delete()
 
+    # Mensaje al usuario (en inglés)
     messages.success(request, "Photo deleted.")
 
-    next_url = request.POST.get("next") or reverse(
-        "operaciones:upload_evidencias", args=[a.pk])
+    # Redirección: usar 'next' si viene, si no, a la vista apropiada (técnico vs staff)
+    next_url = (
+        request.POST.get("next")
+        or (reverse("operaciones:upload_evidencias", args=[a.pk]) if is_owner else reverse("operaciones:revisar_sesion", args=[s.pk]))
+    )
     return redirect(next_url)
