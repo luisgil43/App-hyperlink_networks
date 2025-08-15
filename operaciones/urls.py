@@ -98,5 +98,25 @@ urlpatterns = [
     path("prices/bulk-delete/", views.bulk_delete_precios,
          name="bulk_delete_precios"),
 
+    path("api/uploads/presign/", b.presign_wasabi,
+         name="operaciones_presign_wasabi"),
+    # Página de importación
+    path("billing/<int:sesion_id>/requisitos/import/",
+         b.import_requirements_page,
+         name="import_requirements_page",
+         ),
+    # Descarga del formato (csv|xlsx)
+    path("billing/<int:sesion_id>/requisitos/import/template/<str:ext>/",
+         b.download_requirements_template,
+         name="download_requirements_template",
+         ),
+    # Procesamiento del archivo subido (POST)
+    path("billing/<int:sesion_id>/requisitos/import/process/",
+         b.importar_requisitos,
+         name="importar_requisitos",
+         ),
+    path("direct-uploads/presign/", b.presign_wasabi, name="presign_wasabi"),
+    path("billing/export/", views.exportar_billing_excel, name="billing_export"),
+
 
 ]
