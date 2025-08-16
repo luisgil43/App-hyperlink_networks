@@ -1,4 +1,5 @@
 # operaciones/views.py
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from django.views.decorators.http import require_POST
 from django.utils import timezone
@@ -846,208 +847,235 @@ def repartir_100(n):
     return partes
 
 
-# ===== Listado =====
-
-# Modelos que ya usas en el listado:
-
-
 @login_required
 @require_POST
 def exportar_billing_excel(request):
     """
-    Exporta a XLSX los billings seleccionados.
-    - Una fila por ÍTEM.
-    - Columnas pedidas por negocio.
-    - 'Finished' = Yes si la sesión está aprobada por supervisor o PM (ajustable).
+    Exporta a XLSX con columnas:
+    Project ID, Date, Week, Project Address, City, Work Type, Job Code,
+    Description, Qty, Subtotal Company.
+    - Encabezado con color y filtros
+    - Bordes finos en toda la tabla
+    - Bandas alternadas (gris/ blanco) en filas de datos
+    - Fila Total: 'Total' en Qty (col I) y monto en Subtotal Company (col J)
+    - Líneas de cuadricula DESACTIVADAS
     """
-    # ------------------ 1) Parseo de IDs ------------------
+
+    # ========= Estilos locales =========
+    HDR_FILL = PatternFill("solid", fgColor="374151")   # gris oscuro
+    HDR_FONT = Font(bold=True, color="FFFFFF")
+    HDR_ALIGN = Alignment(horizontal="center", vertical="center")
+    CELL_ALIGN_LEFT = Alignment(
+        horizontal="left", vertical="center", wrap_text=False)
+    CELL_ALIGN_LEFT_WRAP = Alignment(
+        horizontal="left", vertical="center", wrap_text=True)
+    CELL_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
+    THIN = Side(style="thin", color="D1D5DB")
+    BORDER_ALL = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+    ZEBRA_GRAY = "E5E7EB"   # gris clarito
+    ZEBRA_WHITE = "FFFFFF"  # blanco
+
+    # ========= Helpers locales =========
+    def _export_headers():
+        return [
+            "Project ID", "Date", "Week", "Project Address", "City",
+            "Work Type", "Job Code", "Description", "Qty", "Subtotal Company",
+        ]
+
+    def _get_address_from_session_only(s):
+        return (
+            getattr(s, "direccion_proyecto", None)
+            or getattr(s, "direccion", None)
+            or getattr(s, "project_address", None)
+            or getattr(s, "direccion_obra", None)
+            or ""
+        )
+
+    def _get_address_from_item_or_session(it, s):
+        return (
+            getattr(it, "direccion", None)
+            or getattr(it, "project_address", None)
+            or getattr(it, "direccion_obra", None)
+            or getattr(s, "direccion_proyecto", None)
+            or getattr(s, "direccion", None)
+            or getattr(s, "project_address", None)
+            or getattr(s, "direccion_obra", None)
+            or ""
+        )
+
+    def _xlsx_response(workbook):
+        from io import BytesIO
+        bio = BytesIO()
+        workbook.save(bio)
+        bio.seek(0)
+        ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+        resp = HttpResponse(
+            bio.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp["Content-Disposition"] = f'attachment; filename="billing_export_{ts}.xlsx"'
+        return resp
+
+    def _format_money(ws, cols):
+        money_fmt = '$#,##0.00'
+        for col in cols:
+            for col_cells in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
+                for c in col_cells:
+                    c.number_format = money_fmt
+
+    def _format_number(ws, cols):
+        num_fmt = '#,##0.00'
+        for col in cols:
+            for col_cells in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
+                for c in col_cells:
+                    c.number_format = num_fmt
+
+    def _set_widths(ws, mapping):
+        for idx, width in mapping.items():
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+    def _apply_table_borders(ws):
+        """Bordes + alineaciones en todo el rango con datos (incluye encabezado)."""
+        max_r, max_c = ws.max_row, ws.max_column
+        for r in range(1, max_r + 1):
+            for c in range(1, max_c + 1):
+                cell = ws.cell(row=r, column=c)
+                cell.border = BORDER_ALL
+                if c in (9, 10):                    # Qty / Subtotal
+                    cell.alignment = CELL_ALIGN_RIGHT
+                elif c in (4, 8):                   # Address / Description -> wrap
+                    cell.alignment = CELL_ALIGN_LEFT_WRAP
+                else:
+                    cell.alignment = CELL_ALIGN_LEFT
+
+    def _apply_zebra(ws, start_row: int, end_row: int, gray_hex: str, white_hex: str):
+        """Relleno alternado (gris/blanco) desde start_row hasta end_row."""
+        if end_row < start_row:
+            return
+        fill_gray = PatternFill("solid", fgColor=gray_hex)
+        fill_white = PatternFill("solid", fgColor=white_hex)
+        max_c = ws.max_column
+        for r in range(start_row, end_row + 1):
+            fill = fill_gray if (r - start_row) % 2 == 0 else fill_white
+            for c in range(1, max_c + 1):
+                ws.cell(row=r, column=c).fill = fill
+
+    def _style_after_fill(ws):
+        """Header gris + filtros + congelar panes."""
+        for col, _ in enumerate(_export_headers(), start=1):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = HDR_FILL
+            cell.font = HDR_FONT
+            cell.alignment = HDR_ALIGN
+            cell.border = BORDER_ALL
+        ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+        ws.freeze_panes = "A2"
+
+    # ========= 1) Parseo de IDs =========
     raw = (request.POST.get("ids") or "").strip()
     ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
-    if not ids:
-        # Si no se enviaron IDs, regresamos un archivo vacío con encabezados.
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Billing"
-        ws.append(_export_headers())
-        return _xlsx_response(wb)
 
-    # ------------------ 2) Prefetch de datos ------------------
-    sesiones = (
-        SesionBilling.objects.filter(id__in=ids)
-        .prefetch_related(
-            # Ítems + desglose técnico
-            Prefetch(
-                "items",
-                queryset=ItemBilling.objects.prefetch_related(
-                    Prefetch(
-                        "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related(
-                            "tecnico"),
-                    )
-                ),
-            ),
-            # Técnicos por sesión (para listar nombres/porcentajes)
-            Prefetch(
-                "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related(
-                    "tecnico"),
-            ),
-        )
-        .order_by("id")
-    )
-
-    # ------------------ 3) Armado de Excel ------------------
+    # ========= 2) Workbook / hoja =========
     wb = Workbook()
     ws = wb.active
     ws.title = "Billing"
 
+    # 👉 Desactivar líneas de cuadricula (en pantalla y también en impresión)
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
+
     # Encabezados
-    ws.append(_export_headers())
+    headers = _export_headers()
+    ws.append(headers)
 
-    # Filas (una por ÍTEM)
+    if not ids:
+        _style_after_fill(ws)
+        return _xlsx_response(wb)
+
+    # ========= 3) Prefetch =========
+    sesiones = (
+        SesionBilling.objects.filter(id__in=ids)
+        .prefetch_related(
+            Prefetch("items", queryset=ItemBilling.objects.order_by("id")),
+            Prefetch("tecnicos_sesion",
+                     queryset=SesionBillingTecnico.objects.select_related("tecnico")),
+        )
+        .order_by("id")
+    )
+
+    # ========= 4) Filas =========
+    total_subtotal_company = 0.0
+    tz = timezone.get_current_timezone()
+
     for s in sesiones:
-        # Nombres de técnicos con % (columna "Technicians")
-        tech_list = []
-        for asig in s.tecnicos_sesion.all():
-            name = (getattr(asig.tecnico, "get_full_name", lambda: "")() or
-                    getattr(asig.tecnico, "username", "") or "—")
-            tech_list.append(f"{name} ({asig.porcentaje:.2f}%)")
-        technicians_str = ", ".join(tech_list) if tech_list else "—"
+        dt = s.creado_en
+        date_str = timezone.localtime(dt, tz).strftime(
+            "%d-%b").lower() if dt else ""
+        week_str = getattr(s, "semana_pago_proyectada",
+                           "") or getattr(s, "week", "")
+        city = getattr(s, "ciudad", "") or getattr(s, "city", "")
+        project_id = getattr(s, "proyecto_id", "") or getattr(
+            s, "project_id", "")
 
-        # Lógica de "Finished": marca Yes cuando está aprobado por supervisor o PM
-        finished = "Yes" if s.estado in {
-            "aprobado_supervisor", "aprobado_pm"} else "No"
-
-        # Si no hay ítems, igual escribimos una fila con vacíos en columnas de ítems
         if not s.items.all():
-            ws.append([
-                s.creado_en.strftime("%Y-%m-%d %H:%M"),       # Date
-                s.proyecto_id or "",                           # Project ID
-                s.semana_pago_proyectada or "",                # Projected pay week
-                technicians_str,                               # Technicians
-                s.cliente or "",                               # Client
-                s.ciudad or "",                                # City
-                s.proyecto or "",                              # Project
-                s.oficina or "",                               # Office
-                # Company Billing (total sesión)
-                float(s.subtotal_empresa or 0),
-                # Job Code..Quantity (vacío)
-                "", "", "", "", 0.0,
-                # Technical Price (breakdown)
-                "",
-                0.0,                                           # Company Price
-                0.0,                                           # Subtotal Technical
-                0.0,                                           # Subtotal Company
-                finished,                                      # Finished
-            ])
+            addr_session = _get_address_from_session_only(s)
+            ws.append([project_id, date_str, week_str,
+                      addr_session, city, "", "", "", 0.0, 0.0])
             continue
 
-        # Con ítems: una fila por cada ítem
         for it in s.items.all():
-            # Desglose técnico: "Nombre (50%) $87.00; ..."
-            parts = []
-            for bd in it.desglose_tecnico.all():
-                tname = (getattr(bd.tecnico, "get_full_name", lambda: "")() or
-                         getattr(bd.tecnico, "username", "") or "—")
-                # tarifa_efectiva puede ser propiedad; si no, la calculamos
-                eff = getattr(bd, "tarifa_efectiva", None)
-                if eff is None:
-                    base = float(bd.tarifa_base or 0)
-                    pct = float(bd.porcentaje or 0)
-                    eff = round(base * pct / 100.0, 2)
-                parts.append(f"{tname} ({bd.porcentaje:.0f}%) ${eff:,.2f}")
-            breakdown = "; ".join(parts) if parts else ""
-
+            project_address = _get_address_from_item_or_session(it, s)
+            qty = float(getattr(it, "cantidad", 0) or 0)
+            sub_company = float(getattr(it, "subtotal_empresa", 0) or 0)
             ws.append([
-                s.creado_en.strftime("%Y-%m-%d %H:%M"),       # Date
-                s.proyecto_id or "",                           # Project ID
-                s.semana_pago_proyectada or "",                # Projected pay week
-                technicians_str,                               # Technicians
-                s.cliente or "",                               # Client
-                s.ciudad or "",                                # City
-                s.proyecto or "",                              # Project
-                s.oficina or "",                               # Office
-                # Company Billing (total sesión)
-                float(s.subtotal_empresa or 0),
-                it.codigo_trabajo or "",                       # Job Code
-                it.tipo_trabajo or "",                         # Work Type
-                it.descripcion or "",                          # Description
-                it.unidad_medida or "",                        # UOM
-                float(it.cantidad or 0),                       # Quantity
-                # Technical Price (breakdown)
-                breakdown,
-                float(it.precio_empresa or 0),                 # Company Price
-                # Subtotal Technical
-                float(it.subtotal_tecnico or 0),
-                # Subtotal Company
-                float(it.subtotal_empresa or 0),
-                finished,                                      # Finished
+                project_id,                  # A
+                date_str,                    # B
+                week_str,                    # C
+                project_address,             # D
+                city,                        # E
+                getattr(it, "tipo_trabajo", "") or getattr(
+                    it, "work_type", ""),   # F
+                getattr(it, "codigo_trabajo", "") or getattr(
+                    it, "job_code", ""),  # G
+                getattr(it, "descripcion", "") or getattr(
+                    it, "description", ""),  # H
+                qty,                         # I
+                sub_company                  # J
             ])
+            total_subtotal_company += sub_company
 
-    # Formatos numéricos rápidos
-    # Company Billing, Company Price, Subtotals
-    _format_money(ws, cols=[9, 16, 17, 18])
-    _format_number(ws, cols=[14])            # Quantity
+    # ========= 5) Formatos / estilos =========
+    _format_money(ws, cols=[10])   # J: Subtotal Company
+    _format_number(ws, cols=[9])   # I: Qty
 
-    # Ancho de columnas útil
     _set_widths(ws, {
-        1: 12, 2: 12, 3: 18, 4: 36, 5: 18, 6: 14, 7: 18, 8: 12,
-        9: 16, 10: 12, 11: 14, 12: 28, 13: 8, 14: 10, 15: 46, 16: 14, 17: 18, 18: 18, 19: 10
+        1: 12, 2: 10, 3: 12, 4: 36, 5: 14, 6: 14, 7: 12, 8: 34, 9: 6, 10: 16
     })
 
+    _apply_table_borders(ws)
+
+    # Zebra desde la fila 2 (datos) hasta la última fila de datos
+    data_end = ws.max_row
+    _apply_zebra(ws, start_row=2, end_row=data_end,
+                 gray_hex=ZEBRA_GRAY, white_hex=ZEBRA_WHITE)
+
+    _style_after_fill(ws)
+
+    # ========= 6) Fila Total =========
+    ws.append([""] * 10)  # separador opcional
+    total_row = ws.max_row
+    ws.cell(row=total_row, column=9, value="Total").font = Font(
+        bold=True)                   # I
+    ws.cell(row=total_row, column=10,
+            value=total_subtotal_company).font = Font(bold=True)   # J
+    ws.cell(row=total_row, column=10).number_format = '$#,##0.00'
+    for col in range(1, 11):
+        c = ws.cell(row=total_row, column=col)
+        c.border = BORDER_ALL
+        c.alignment = CELL_ALIGN_RIGHT if col in (9, 10) else (
+            CELL_ALIGN_LEFT_WRAP if col in (4, 8) else CELL_ALIGN_LEFT)
+
     return _xlsx_response(wb)
-
-
-# ------------------ Helpers locales SOLO para esta vista ------------------
-
-def _export_headers():
-    """Encabezados exactamente en el orden solicitado."""
-    return [
-        "Date", "Project ID", "Projected pay week", "Technicians", "Client",
-        "City", "Project", "Office", "Company Billing",
-        "Job Code", "Work Type", "Description", "UOM", "Quantity",
-        "Technical Price (breakdown)", "Company Price",
-        "Subtotal Technical", "Subtotal Company", "Finished",
-    ]
-
-
-def _xlsx_response(workbook):
-    """Devuelve el XLSX como attachment HTTP."""
-    from io import BytesIO
-    bio = BytesIO()
-    workbook.save(bio)
-    bio.seek(0)
-    ts = timezone.now().strftime("%Y%m%d_%H%M%S")
-    resp = HttpResponse(
-        bio.getvalue(),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    resp["Content-Disposition"] = f'attachment; filename="billing_export_{ts}.xlsx"'
-    return resp
-
-
-def _format_money(ws, cols):
-    """Aplica formato monetario USD a columnas dadas (todas las filas)."""
-    money_fmt = '$#,##0.00'
-    for col in cols:
-        for cell in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
-            for c in cell:
-                c.number_format = money_fmt
-
-
-def _format_number(ws, cols):
-    """Aplica formato numérico con 2 decimales (p.ej. cantidad)."""
-    num_fmt = '#,##0.00'
-    for col in cols:
-        for cell in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
-            for c in cell:
-                c.number_format = num_fmt
-
-
-def _set_widths(ws, mapping):
-    """Ajusta anchos de columnas (1-indexed)."""
-    for idx, width in mapping.items():
-        ws.column_dimensions[get_column_letter(idx)].width = width
 
 
 @login_required
@@ -1105,7 +1133,6 @@ def listar_billing(request):
 # ===== Crear / Editar =====
 
 
-# ===== Crear / Editar =====
 @login_required
 def crear_billing(request):
     # POST -> guardar y redirigir (PRG)

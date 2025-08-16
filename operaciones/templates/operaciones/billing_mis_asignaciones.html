@@ -14,7 +14,6 @@
           <th class="p-2 text-left">Date</th>
           <th class="p-2 text-left">Project ID</th>
           <th class="p-2 text-left">Project address</th>
-          <th class="p-2 text-left">Projected pay week</th>
           <th class="p-2 text-left">Client</th>
           <th class="p-2 text-left">City</th>
           <th class="p-2 text-left">Project</th>
@@ -42,9 +41,6 @@
               {% endif %}
             {% else %}—{% endif %}
           </td>
-
-          {# --- Projected pay week --- #}
-          <td class="p-2">{{ a.sesion.semana_pago_proyectada|default:"—" }}</td>
 
           <td class="p-2">{{ a.sesion.cliente }}</td>
           <td class="p-2">{{ a.sesion.ciudad }}</td>
