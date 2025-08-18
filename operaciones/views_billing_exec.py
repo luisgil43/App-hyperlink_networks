@@ -34,6 +34,12 @@ from .models import (
 )
 from usuarios.decoradores import rol_requerido
 
+from io import BytesIO
+from PIL import Image, ExifTags
+from pillow_heif import register_heif_opener
+
+register_heif_opener()  # habilita abrir .heic/.heif en Pillow
+
 
 # ============================
 # UTIL
@@ -129,6 +135,89 @@ def start_assignment(request, pk):
     return redirect("operaciones:mis_assignments")
 
 
+def _to_jpeg_if_needed(uploaded_file):
+    """
+    Si es HEIC/HEIF (o un formato no-JPEG) lo convierte a JPEG (quality 92)
+    conservando EXIF cuando exista. Devuelve un ContentFile listo para asignar
+    a un ImageField/FileField (con nombre .jpg).
+    """
+    uploaded_file.seek(0)
+    im = Image.open(uploaded_file)
+    fmt = (im.format or "").upper()
+    exif = im.info.get("exif")
+
+    if fmt in {"HEIC", "HEIF"}:
+        bio = BytesIO()
+        im = im.convert("RGB")
+        if exif:
+            im.save(bio, format="JPEG", quality=92, exif=exif)
+        else:
+            im.save(bio, format="JPEG", quality=92)
+        bio.seek(0)
+        name = (uploaded_file.name.rsplit(".", 1)[0]) + ".jpg"
+        return ContentFile(bio.read(), name=name)
+
+    # Si es otra cosa (PNG, WEBP, etc.) lo dejamos igual
+    uploaded_file.seek(0)
+    return uploaded_file
+
+
+def _exif_to_latlng_taken_at(image):
+    """
+    Extrae (lat, lng, taken_at) de EXIF si existen.
+    Retorna (lat, lng, dt) o (None, None, None).
+    """
+    try:
+        exif = getattr(image, "_getexif", lambda: None)()
+        if not exif:
+            return None, None, None
+
+        tagmap = {ExifTags.TAGS.get(k, k): v for k, v in exif.items()}
+        # Fecha/hora
+        dt_raw = tagmap.get("DateTimeOriginal") or tagmap.get("DateTime")
+        taken_at = None
+        if dt_raw:
+            from datetime import datetime
+            try:
+                taken_at = timezone.make_aware(
+                    datetime.strptime(dt_raw, "%Y:%m:%d %H:%M:%S"))
+            except Exception:
+                taken_at = None
+
+        # GPS
+        gps_info = tagmap.get("GPSInfo")
+        if not gps_info:
+            return None, None, taken_at
+
+        def _ratio_to_float(r):
+            try:
+                return float(r[0]) / float(r[1])
+            except Exception:
+                return float(r)
+
+        def _dms_to_deg(dms, ref):
+            deg = _ratio_to_float(dms[0])
+            minutes = _ratio_to_float(dms[1])
+            seconds = _ratio_to_float(dms[2])
+            value = deg + (minutes / 60.0) + (seconds / 3600.0)
+            if ref in ['S', 'W']:
+                value = -value
+            return value
+
+        gps_tagmap = {ExifTags.GPSTAGS.get(
+            k, k): v for k, v in gps_info.items()}
+        lat = lng = None
+        if all(k in gps_tagmap for k in ["GPSLatitude", "GPSLatitudeRef", "GPSLongitude", "GPSLongitudeRef"]):
+            lat = _dms_to_deg(
+                gps_tagmap["GPSLatitude"], gps_tagmap["GPSLatitudeRef"])
+            lng = _dms_to_deg(
+                gps_tagmap["GPSLongitude"], gps_tagmap["GPSLongitudeRef"])
+
+        return lat, lng, taken_at
+    except Exception:
+        return None, None, None
+
+
 @login_required
 @rol_requerido('usuario')
 def upload_evidencias(request, pk):
@@ -218,15 +307,33 @@ def upload_evidencias(request, pk):
                 n += 1
 
         for f in files:
-            EvidenciaFotoBilling.objects.create(
+            # 1) Convertir HEIC/HEIF a JPEG si corresponde
+            f_conv = _to_jpeg_if_needed(f)
+
+            # 2) Intentar leer EXIF por si el form no trajo geo/hora
+            try:
+                f_conv.seek(0)
+                im = Image.open(f_conv)
+                exif_lat, exif_lng, exif_dt = _exif_to_latlng_taken_at(im)
+            except Exception:
+                exif_lat = exif_lng = exif_dt = None
+            finally:
+                f_conv.seek(0)
+
+            # 3) Resolver metadata final (prioridad: form → EXIF)
+            use_lat = lat or exif_lat
+            use_lng = lng or exif_lng
+            use_taken = taken_dt or exif_dt
+
+            ev = EvidenciaFotoBilling.objects.create(
                 tecnico_sesion=a,
                 requisito_id=req_id,
-                imagen=f,
+                imagen=f_conv,              # ya convertido si era HEIC
                 nota=nota,
-                lat=lat,
-                lng=lng,
+                lat=use_lat,
+                lng=use_lng,
                 gps_accuracy_m=acc,
-                client_taken_at=taken_dt,
+                client_taken_at=use_taken,  # tu template/report ya prioriza client_taken_at
             )
             n += 1
 
