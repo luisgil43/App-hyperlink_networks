@@ -41,6 +41,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
+    # WhiteNoise: desactiva el static del runserver y deja que WhiteNoise sirva estáticos
+    'whitenoise.runserver_nostatic',
+
     # Third-party
     'django_select2',
     'storages',
@@ -67,6 +70,8 @@ INSTALLED_APPS = [
 # ==============================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # <-- aquí (2°)
+
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,7 +79,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'usuarios.middleware.SessionExpiryMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Static files in production
 ]
 
 # ==============================
