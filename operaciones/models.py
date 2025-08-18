@@ -111,6 +111,7 @@ class SesionBilling(models.Model):
         validators=[FileExtensionValidator(["xlsx", "xls", "pdf"])],
         null=True,
         blank=True,
+        max_length=1024,
     )
 
     subtotal_tecnico = models.DecimalField(
@@ -304,6 +305,7 @@ class SesionBillingTecnico(models.Model):
         validators=[FileExtensionValidator(["xlsx", "xls", "pdf"])],
         null=True,
         blank=True,
+        max_length=1024,
     )
 
     # Permite reabrir carga tras rechazo
@@ -378,6 +380,7 @@ class EvidenciaFotoBilling(models.Model):
         upload_to=upload_to_evidencia,
         storage=wasabi_storage,
         validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+        max_length=1024,
     )
     nota = models.CharField(max_length=255, blank=True)
     tomada_en = models.DateTimeField(default=timezone.now)
