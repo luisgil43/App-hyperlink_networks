@@ -93,7 +93,7 @@
                 <input type="file" id="comprobante_archivo" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
             </label>
         </div>
-        <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block"></span>
+        <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block">No file selected</span>
         <img id="preview_comprobante" class="mt-2 max-h-40 rounded shadow hidden">
     </div>
 
@@ -291,38 +291,63 @@ function cerrarModalRechazo() {
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const inputFoto = document.getElementById("comprobante_foto");
-    const inputArchivo = document.getElementById("comprobante_archivo");
-    const nombreComprobante = document.getElementById("nombre_comprobante");
-    const previewComprobante = document.getElementById("preview_comprobante");
+  const inputFoto = document.getElementById("comprobante_foto");
+  const inputArchivo = document.getElementById("comprobante_archivo");
+  const nombreComprobante = document.getElementById("nombre_comprobante");
+  const previewComprobante = document.getElementById("preview_comprobante");
 
-    function mostrarPreview(input) {
-        const file = input.files[0];
-        if (!file) return;
+  function showPreview(input) {
+    const file = input.files[0];
+    if (!file) return;
 
-        nombreComprobante.textContent = `Archivo seleccionado: ${file.name}`;
-        const reader = new FileReader();
+    nombreComprobante.textContent = `Selected file: ${file.name}`;
+    const reader = new FileReader();
 
-        if (file.type.startsWith("image/")) {
-            reader.onload = function (e) {
-                previewComprobante.src = e.target.result;
-                previewComprobante.classList.remove("hidden");
-                previewComprobante.style.display = "block";
-            };
-            reader.readAsDataURL(file);
-        } else if (file.type === "application/pdf") {
-            previewComprobante.classList.add("hidden");
-            previewComprobante.style.display = "none";
-            nombreComprobante.textContent += " (PDF)";
-        } else {
-            previewComprobante.classList.add("hidden");
-            previewComprobante.style.display = "none";
-            nombreComprobante.textContent += " (Tipo no soportado para vista previa)";
-        }
+    if (file.type.startsWith("image/")) {
+      reader.onload = function (e) {
+        previewComprobante.src = e.target.result;
+        previewComprobante.classList.remove("hidden");
+        previewComprobante.style.display = "block";
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type === "application/pdf") {
+      previewComprobante.classList.add("hidden");
+      previewComprobante.style.display = "none";
+      nombreComprobante.textContent += " (PDF)";
+    } else {
+      previewComprobante.classList.add("hidden");
+      previewComprobante.style.display = "none";
+      nombreComprobante.textContent += " (Preview not available)";
     }
+  }
 
-    inputFoto.addEventListener("change", function () { mostrarPreview(this); });
-    inputArchivo.addEventListener("change", function () { mostrarPreview(this); });
+  inputFoto.addEventListener("change", function () { showPreview(this); });
+  inputArchivo.addEventListener("change", function () { showPreview(this); });
+});
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // Selecciona todos los campos con required
+  document.querySelectorAll("form [required]").forEach(function (input) {
+    input.oninvalid = function (e) {
+      e.target.setCustomValidity(""); // limpia por si acaso
+      if (!e.target.validity.valid) {
+        if (e.target.tagName === "SELECT") {
+          e.target.setCustomValidity("Please select an option");
+        } else if (e.target.type === "file") {
+          e.target.setCustomValidity("Please upload a file");
+        } else if (e.target.type === "number" || e.target.type === "text") {
+          e.target.setCustomValidity("This field is required");
+        } else {
+          e.target.setCustomValidity("Please fill out this field");
+        }
+      }
+    };
+    // Limpiar cuando el usuario escriba/seleccione
+    input.oninput = function (e) {
+      e.target.setCustomValidity("");
+    };
+  });
 });
 </script>
 {% endblock %}
