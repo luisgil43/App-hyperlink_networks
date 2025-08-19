@@ -24,7 +24,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
     cargos = forms.CharField(
         widget=forms.TextInput(
             attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-        label="Monto (USD)",
+        label="Amount (USD)",
         required=True
     )
 
@@ -64,7 +64,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
             cleaned_data['comprobante'] = comprobante_archivo
         else:
             raise forms.ValidationError(
-                "Debe adjuntar un comprobante (foto o archivo).")
+                "Please attach a receipt (photo or file).")  # <-- EN
 
         return cleaned_data
 
@@ -82,7 +82,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
             return Decimal(valor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         except InvalidOperation:
             raise forms.ValidationError(
-                "Ingrese un monto válido (ej: 30.50 o 30,50)")
+                "Enter a valid amount (e.g., 30.50 or 30,50).")  # <-- EN
 
 
 class ImportarPreciosForm(forms.Form):
@@ -96,14 +96,13 @@ class ImportarPreciosForm(forms.Form):
     def clean_archivo(self):
         archivo = self.cleaned_data.get('archivo')
         if not archivo.name.endswith('.xlsx'):
-            raise ValidationError(
-                "El archivo debe ser un archivo Excel con extensión .xlsx")
+            raise ValidationError("The file must be an Excel .xlsx file.")
         return archivo
 
     def clean_tecnicos(self):
         tecnicos = self.cleaned_data.get('tecnicos')
         if not tecnicos:
-            raise ValidationError("Debe seleccionar al menos un técnico.")
+            raise ValidationError("Please select at least one technician.")
         return tecnicos
 
 
@@ -155,30 +154,29 @@ class PrecioActividadTecnicoForm(forms.ModelForm):
     def clean_precio_tecnico(self):
         precio = self.cleaned_data.get('precio_tecnico')
         if precio < 0:
-            raise ValidationError("El precio técnico no puede ser negativo.")
+            raise ValidationError("Technician price cannot be negative.")
         return precio
 
     def clean_precio_empresa(self):
         precio = self.cleaned_data.get('precio_empresa')
         if precio < 0:
-            raise ValidationError(
-                "El precio de la empresa no puede ser negativo.")
+            raise ValidationError("Company price cannot be negative.")
         return precio
 
     def clean_codigo_trabajo(self):
         codigo_trabajo = self.cleaned_data.get('codigo_trabajo')
         if not codigo_trabajo:
-            raise ValidationError("El código de trabajo no puede estar vacío.")
+            raise ValidationError("Job code cannot be empty.")
         return codigo_trabajo
 
     def clean_ciudad(self):
         ciudad = self.cleaned_data.get('ciudad')
         if not ciudad:
-            raise ValidationError("La ciudad no puede estar vacía.")
+            raise ValidationError("City cannot be empty.")
         return ciudad
 
     def clean_proyecto(self):
         proyecto = self.cleaned_data.get('proyecto')
         if not proyecto:
-            raise ValidationError("El proyecto no puede estar vacío.")
+            raise ValidationError("Project cannot be empty.")
         return proyecto
