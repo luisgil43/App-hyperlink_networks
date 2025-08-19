@@ -1,0 +1,188 @@
+/* Estilos base para el dashboard (alineados con Tailwind) */
+
+/* Paleta alineada a Tailwind: gray + emerald */
+:root {
+    --main-bg: #1f2937;
+    /* gray-800 */
+    --main-color: #f9fafb;
+    /* gray-50 */
+    --hover-bg: #374151;
+    /* gray-700 */
+    --accent: #10b981;
+    /* emerald-500 */
+    --header-height: 60px;
+    --transition: 0.3s;
+}
+
+/* Reset suave */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* ⚠️ No tocar el body: Tailwind ya pone bg-gray-100 y tipografía */
+/* body { } */
+
+header.site-header {
+    /* añade class="site-header" al <header> si quieres aplicar esto */
+    height: var(--header-height);
+    background-color: #ffffff;
+    /* coincide con bg-white */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+}
+
+/* Limitar al sidebar real del template (#side-nav) en lugar de nav genérico */
+#side-nav {
+    width: 18rem;
+    /* w-72 */
+    background-color: var(--main-bg);
+    border-right: 1px solid #1f2937;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+    padding: 20px;
+    transition: transform var(--transition);
+}
+
+#side-nav h2 {
+    margin-bottom: 1.5rem;
+    color: var(--main-color);
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+#side-nav ul {
+    list-style: none;
+}
+
+#side-nav li {
+    margin-bottom: 10px;
+}
+
+#side-nav li>span {
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px;
+    transition: background var(--transition);
+}
+
+#side-nav li>span:hover {
+    background-color: var(--hover-bg);
+    border-radius: 5px;
+}
+
+#side-nav li ul {
+    margin-top: 5px;
+    margin-left: 15px;
+    display: none;
+}
+
+#side-nav li.active ul {
+    display: block;
+}
+
+#side-nav a {
+    color: var(--main-color);
+    text-decoration: none;
+    padding: 4px 0;
+    display: block;
+    transition: color var(--transition);
+}
+
+#side-nav a:hover {
+    color: var(--accent);
+}
+
+.arrow {
+    margin-left: auto;
+    transition: transform var(--transition);
+}
+
+li.active .arrow {
+    transform: rotate(90deg);
+}
+
+main {
+    padding: 20px;
+    flex-grow: 1;
+    overflow-y: auto;
+    width: 100%;
+}
+
+/* Alertas (solo si aún usas estos bloques sin Tailwind) */
+.messages-container {
+    max-width: 600px;
+    margin: 0 auto 20px;
+}
+
+.alert {
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.alert-success {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+/* emerald-100/700 */
+.alert-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+/* amber-100/800 aprox */
+.alert-error,
+.alert-danger {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+/* red-100/800 */
+.alert-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+/* blue-100/800 */
+
+/* Responsive: coincide con tu header fijo + sidebar */
+@media (max-width: 768px) {
+    .hamburger {
+        display: flex;
+    }
+
+    #side-nav {
+        position: fixed;
+        top: var(--header-height);
+        left: 0;
+        height: calc(100vh - var(--header-height));
+        z-index: 999;
+        transform: translateX(-100%);
+    }
+
+    #side-nav.show {
+        transform: translateX(0);
+    }
+
+    .content-wrapper {
+        flex-direction: column;
+    }
+
+    main {
+        padding: 15px;
+    }
+}
