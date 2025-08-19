@@ -629,4 +629,49 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
+<script>
+(function(){
+  const modal     = document.getElementById('modal-delete');
+  const form      = document.getElementById('delete-form');
+  const lbl       = document.getElementById('delete-label');
+
+  // Abrir modal desde los botones "Delete" de la tabla
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.btn-open-delete');
+    if (!btn) return;
+
+    const url   = btn.getAttribute('data-delete-url');
+    const label = btn.getAttribute('data-label') || '';
+
+    form.setAttribute('action', url);
+    lbl.textContent = label;
+
+    modal.classList.remove('hidden');
+  });
+
+  // Cerrar modal (click en overlay o botón "Cancel")
+  document.addEventListener('click', function(e){
+    if (e.target.hasAttribute('data-close-modal')){
+      modal.classList.add('hidden');
+    }
+  });
+
+  // Cerrar con ESC
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')){
+      modal.classList.add('hidden');
+    }
+  });
+
+  // Evitar doble submit
+  form.addEventListener('submit', function(e){
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn){
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Deleting...';
+    }
+  });
+})();
+</script>
+
 {% endblock %}
