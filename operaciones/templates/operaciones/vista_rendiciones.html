@@ -42,6 +42,7 @@
                     <th class="p-2 border">Name</th>
                     <th class="p-2 border">Date</th>
                     <th class="p-2 border">Project</th>
+			<th class="p-2 border">Type</th>
                     <th class="p-2 border text-right">Amount</th>
                     <th class="p-2 border">Receipt</th>
                     <th class="p-2 border">Status</th>
@@ -54,6 +55,7 @@
                     <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
                     <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
                     <td class="p-2 border">{{ mov.proyecto }}</td>
+        <td class="p-2 border">{{ mov.tipo }}</td>
                     <td class="p-2 border text-right">${{ mov.cargos|default:0|floatformat:0|formato_clp }}</td>
                     <td class="p-2 border">
                         {% if mov.comprobante %}

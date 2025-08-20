@@ -11,10 +11,10 @@
       🔎 Review — Billing #{{ s.id }} / {{ s.proyecto_id }}
     </h1>
     <div class="mt-1 text-sm text-gray-600 flex flex-wrap gap-x-4 gap-y-1 items-center">
-      <span>Cliente: <b>{{ s.cliente }}</b></span>
-      <span>Ciudad: <b>{{ s.ciudad }}</b></span>
-      <span>Proyecto: <b>{{ s.proyecto }}</b></span>
-      <span>Oficina: <b>{{ s.oficina }}</b></span>
+      <span>Client: <b>{{ s.cliente }}</b></span>
+      <span>City: <b>{{ s.ciudad }}</b></span>
+      <span>Project: <b>{{ s.proyecto }}</b></span>
+      <span>Office: <b>{{ s.oficina }}</b></span>
 
       <!-- 🔹 Project Status (badge único por proyecto) -->
       <span class="ml-auto"></span>
@@ -25,13 +25,13 @@
         {% elif s.estado == "rechazado_pm" %}
           <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
         {% elif s.estado == "aprobado_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
         {% elif s.estado == "rechazado_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
         {% elif s.estado == "en_revision_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
         {% elif s.estado == "finalizado" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (Pending Review)</span>
         {% elif s.estado == "en_proceso" %}
           <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
         {% else %}
@@ -95,7 +95,7 @@
           </span>
         </span>
       {% empty %}
-        <span class="text-gray-500 text-sm">Sin técnicos asignados.</span>
+        <span class="text-gray-500 text-sm">No technicians assigned.</span>
       {% endfor %}
     </div>
   </div>
@@ -108,11 +108,11 @@
           👷 {{ asig.tecnico.get_full_name|default:asig.tecnico.username }}
           <span class="ml-2 text-sm text-gray-500 font-normal">({{ asig.porcentaje|floatformat:0 }}%)</span>
         </h3>
-        <div class="text-xs text-gray-500">
-          Aceptado: {{ asig.aceptado_en|date:"Y-m-d H:i"|default:"—" }} ·
-          Finalizado: {{ asig.finalizado_en|date:"Y-m-d H:i"|default:"—" }} ·
-          Revisado: {{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}
-        </div>
+     <div class="text-xs text-gray-500">
+  Accepted: {{ asig.aceptado_en|date:"Y-m-d H:i"|default:"—" }} ·
+  Finished: {{ asig.finalizado_en|date:"Y-m-d H:i"|default:"—" }} ·
+  Reviewed: {{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}
+</div>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-auto mt-2">
@@ -150,7 +150,7 @@
                 </div>
               {% endif %}
 
-              <img src="{{ ev.imagen.url }}" class="w-full h-40 object-cover rounded" alt="photo">
+              <img src="{{ ev.imagen.url }}" class="w-full h-40 object-cover rounded" alt="Photo">
             </div>
 
             <figcaption class="text-xs mt-1">
@@ -176,18 +176,18 @@
             </figcaption>
           </figure>
         {% empty %}
-          <div class="text-gray-500 text-sm">Este técnico aún no tiene fotos.</div>
+          <div class="text-gray-500 text-sm">This technician does not have any photos yet.</div>
         {% endfor %}
       </div>
     </section>
   {% empty %}
-    <div class="text-gray-500">No hay evidencias en esta sesión.</div>
+    <div class="text-gray-500">There is no evidence in this session.</div>
   {% endfor %}
 
   <!-- Nota flujo -->
   <p class="mt-4 text-xs text-gray-500">
-    Recuerda: el reporte fotográfico es <b>único por proyecto</b> y se genera/actualiza cuando el supervisor aprueba.
-    Luego pasa a aprobación de PM.
+   Remember: the photo report is <b>unique per project</b> and is generated/updated when the supervisor approves.  
+  It then moves on to PM approval.
   </p>
 </div>
 
