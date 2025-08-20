@@ -1,0 +1,52 @@
+{% extends "dashboard/base.html" %}
+{% load humanize %}
+{% block title %}Delete Expense Report{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">🗑️ Delete Expense Report</h1>
+
+  <p class="text-gray-700 mb-4">
+    Are you sure you want to permanently delete this expense report? This action cannot be undone.
+  </p>
+
+  <div class="bg-gray-50 border rounded-xl p-4 mb-6">
+    <dl class="grid grid-cols-3 gap-2 text-sm">
+      <dt class="font-semibold text-gray-600">Date</dt>
+      <dd class="col-span-2 text-gray-800">{{ rendicion.fecha|date:"d/m/Y H:i" }}</dd>
+
+      <dt class="font-semibold text-gray-600">Project</dt>
+      <dd class="col-span-2 text-gray-800">{{ rendicion.proyecto }}</dd>
+
+      <dt class="font-semibold text-gray-600">Type</dt>
+      <dd class="col-span-2 text-gray-800">{{ rendicion.tipo }}</dd>
+
+      <dt class="font-semibold text-gray-600">Expenses (USD)</dt>
+      <dd class="col-span-2 text-gray-800">
+        {{ rendicion.cargos|default:0|floatformat:2 }}
+      </dd>
+
+      <dt class="font-semibold text-gray-600">Credits (USD)</dt>
+      <dd class="col-span-2 text-gray-800">
+        {{ rendicion.abonos|default:0|floatformat:2 }}
+      </dd>
+
+      <dt class="font-semibold text-gray-600">Status</dt>
+      <dd class="col-span-2 text-gray-800">{{ rendicion.get_status_display }}</dd>
+    </dl>
+  </div>
+
+  <form method="post" class="flex flex-wrap gap-2">
+    {% csrf_token %}
+    <a href="{% url 'operaciones:mis_rendiciones' %}"
+       class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800">
+      ⬅️ Cancel
+    </a>
+
+    <button type="submit"
+            class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white">
+      🗑️ Yes, delete
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -232,16 +232,18 @@ def editar_rendicion(request, pk):
 @login_required
 def eliminar_rendicion(request, pk):
     rendicion = get_object_or_404(
-        CartolaMovimiento, pk=pk, usuario=request.user)
+        CartolaMovimiento, pk=pk, usuario=request.user
+    )
 
     if rendicion.status in ['aprobado_abono_usuario', 'aprobado_finanzas']:
         messages.error(
-            request, "No puedes eliminar una rendición ya aprobada.")
+            request, "You cannot delete an already approved expense report."
+        )
         return redirect('operaciones:mis_rendiciones')
 
     if request.method == 'POST':
         rendicion.delete()
-        messages.success(request, "Rendición eliminada correctamente.")
+        messages.success(request, "Expense report deleted successfully.")
         return redirect('operaciones:mis_rendiciones')
 
     return render(request, 'operaciones/eliminar_rendicion.html', {'rendicion': rendicion})
