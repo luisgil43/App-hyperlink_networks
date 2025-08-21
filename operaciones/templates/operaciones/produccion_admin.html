@@ -7,26 +7,27 @@
 <div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <!-- Header -->
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
     <div class="flex items-center gap-3">
-
-  <a href="{% url 'operaciones:admin_weekly_payments' %}" 
-       class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
-      ← Back
-    </a>
+      <a href="{% url 'operaciones:admin_weekly_payments' %}" 
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
+        ← Back
+      </a>
       <h1 class="text-2xl font-bold">✅ Production Verification</h1>
     </div>
-    <!-- Derecha: "Current week" al lado del botón -->
-  <div class="flex items-center gap-3">
-    <span class="text-sm text-gray-600 whitespace-nowrap">
-      Current week: <b>{{ current_week }}</b>
-    </span>
-    <a href="{% url 'operaciones:admin_weekly_payments' %}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow">
-      💳 Show totals to pay
-    </a>
+
+    <!-- Derecha: Current week + botón (mobile friendly) -->
+    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+      <span class="text-sm text-gray-600 text-center sm:text-left">
+        Current week: <b>{{ current_week }}</b>
+      </span>
+      <a href="{% url 'operaciones:admin_weekly_payments' %}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+        <span class="sm:hidden">💳 Totals</span>
+        <span class="hidden sm:inline">💳 Show totals to pay</span>
+      </a>
+    </div>
   </div>
-</div>
 
   <!-- Filtros sutiles (auto) -->
   <form id="filters" class="mb-3" onsubmit="return false;">
@@ -39,9 +40,9 @@
       </div>
       <div>
         <label class="text-xs text-gray-600">Real pay week</label>
-<input name="f_week" type="text" value="{{ f_week_input }}"
-       class="w-full border rounded px-2 py-1.5"
-       placeholder="2025-W34">
+        <input name="f_week" type="text" value="{{ f_week_input }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="2025-W34">
       </div>
       <div>
         <label class="text-xs text-gray-600">Technician</label>
@@ -123,7 +124,6 @@
             <td class="p-2 border">{{ r.project }}</td>
             <td class="p-2 border">{{ r.office }}</td>
             <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
-           
           </tr>
 
           <!-- Detalle -->
@@ -172,7 +172,7 @@
       </table>
     </div>
 
-    <!-- Paginación estilo global -->
+    <!-- Paginación -->
     <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
       <form method="get" class="flex items-center gap-2" onsubmit="return false;">
         <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -237,7 +237,6 @@ document.addEventListener('click', function(e){
 
 <!-- Filtros + paginación (AJAX) idéntico a Weekly Payments -->
 <script>
-  // Construye params desde filtros + cantidad
   function paramsFromFilters() {
     const params = new URLSearchParams(new FormData(document.getElementById('filters')));
     const cant = document.getElementById('cantidad');
@@ -251,7 +250,7 @@ document.addEventListener('click', function(e){
       url = urlOrParams.startsWith('?') ? (location.pathname + urlOrParams) : urlOrParams;
     } else {
       const p = (urlOrParams instanceof URLSearchParams) ? urlOrParams : paramsFromFilters();
-      if (!p.has('page')) p.set('page', '1');   // al filtrar, volver a la página 1
+      if (!p.has('page')) p.set('page', '1');
       url = location.pathname + '?' + p.toString();
     }
     history.replaceState(null, '', url);
@@ -262,24 +261,20 @@ document.addEventListener('click', function(e){
     if (nuevo && viejo) viejo.innerHTML = nuevo.innerHTML;
   }
 
-  // Debounce para escribir sin perder foco
   let t = null;
   function schedule(){ clearTimeout(t); t = setTimeout(()=>refreshProd(paramsFromFilters()), 450); }
 
-  // Auto-apply en inputs
   document.querySelectorAll('#filters input[type="text"]').forEach(el=>{
     el.addEventListener('input',  schedule);
     el.addEventListener('change', schedule);
   });
 
-  // Cambio de "Show"
   document.addEventListener('change', (e)=>{
     if (e.target && e.target.id === 'cantidad') {
       const p = paramsFromFilters(); p.set('page','1'); refreshProd(p);
     }
   });
 
-  // Enlaces de paginación
   document.addEventListener('click', (e)=>{
     const a = e.target.closest('a[data-pagelink]');
     if (!a) return;
