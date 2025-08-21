@@ -404,3 +404,99 @@ class EvidenciaFotoBilling(models.Model):
     def __str__(self):
         tag = self.requisito.titulo if self.requisito_id else "Extra"
         return f"Evidencia {tag} ({self.tecnico_sesion_id})"
+
+
+# =========================== PAGOS SEMANALES ============================ #
+# Guarda el comprobante en Wasabi (S3) y maneja el flujo del pago.
+
+
+# Reutilizamos tu storage S3/Wasabi ya configurado en este archivo:
+# WasabiStorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
+# wasabi_storage = WasabiStorageClass()
+
+
+def _name_slug(user) -> str:
+    base = (getattr(user, "get_full_name", lambda: "")()
+            or getattr(user, "username", "")
+            or "").strip()
+    return slugify(base) or "user"
+
+
+def upload_to_payment_receipt(instance, filename: str) -> str:
+    """
+    operaciones/pagos/<YYYY-Www>/<nombre-slug>/receipt_<uuid>.<ext>
+    """
+    _, ext = os.path.splitext(filename or "")
+    ext = (ext or ".pdf").lower()
+    folder = _name_slug(getattr(instance, "technician", None))
+    return f"operaciones/pagos/{instance.week}/{folder}/receipt_{uuid4().hex}{ext}"
+
+
+class WeeklyPayment(models.Model):
+    """
+    1 registro por técnico y semana de pago.
+    Monto total (sumado desde la producción), estado, motivo de rechazo,
+    comprobante y semana efectiva en que se pagó.
+    """
+    STATUS = [
+        ("pending_user", "Pending worker approval"),
+        ("approved_user", "Approved by worker"),
+        ("rejected_user", "Rejected by worker"),
+        ("pending_payment", "Pending payment"),  # aprobado por el trabajador
+        ("paid", "Paid"),
+    ]
+
+    technician = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="weekly_payments"
+    )
+    week = models.CharField(max_length=10, db_index=True)  # ISO: 2025-W34
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    status = models.CharField(
+        max_length=20, choices=STATUS, default="pending_user", db_index=True
+    )
+    reject_reason = models.TextField(blank=True, default="")
+
+    # Semana efectiva en que se marcó como pagado
+    paid_week = models.CharField(max_length=10, blank=True, default="")
+
+    # Comprobante en Wasabi
+    receipt = models.FileField(
+        upload_to=upload_to_payment_receipt,
+        storage=wasabi_storage,
+        validators=[FileExtensionValidator(["pdf", "jpg", "jpeg", "png"])],
+        blank=True,
+        null=True,
+        max_length=1024,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Un pago por técnico+semana
+        unique_together = [("technician", "week")]
+        ordering = ["-week", "technician_id"]
+        indexes = [
+            models.Index(fields=["week", "status"]),
+            models.Index(fields=["technician", "week"]),
+        ]
+
+    def __str__(self):
+        return f"{self.technician} • {self.week} • {self.amount}"
+
+    @property
+    def is_current_week(self) -> bool:
+        y, w, _ = timezone.localdate().isocalendar()
+        return self.week == f"{y}-W{int(w):02d}"
+
+    def mark_paid(self, paid_week: str | None = None):
+        """
+        Marca como pagado y setea la semana de pago efectiva.
+        """
+        if not paid_week:
+            y, w, _ = timezone.localdate().isocalendar()
+            paid_week = f"{y}-W{int(w):02d}"
+        self.status = "paid"
+        self.paid_week = paid_week
+        self.save(update_fields=["status", "paid_week", "updated_at"])

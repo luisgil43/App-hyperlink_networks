@@ -33,25 +33,26 @@
         <input name="project_id" value="{{ sesion.proyecto_id|default:'' }}" class="w-full border rounded p-2" required />
       </div>
 
-      <!-- NUEVO: Dirección / Google Maps -->
+      <!-- Project address / Maps -->
       <div class="md:col-span-2">
         <label class="block text-sm font-medium mb-1">Project address / Google Maps link</label>
         <input type="text" name="direccion_proyecto"
                value="{{ sesion.direccion_proyecto|default:'' }}"
                class="w-full border rounded p-2"
-               placeholder="Escribe una dirección o pega un link de Google Maps" />
+               placeholder="Write an address or paste a Google Maps link" />
         {% if sesion and sesion.direccion_proyecto %}
           <a href="{{ sesion.maps_href }}" target="_blank" rel="noopener"
              class="mt-1 inline-block text-xs text-blue-600 hover:underline">📍 Open map</a>
         {% endif %}
       </div>
 
-      <!-- NUEVO: Semana proyectada de pago -->
+      <!-- Week (Flatpickr weekSelect, visible + hidden ISO YYYY-W##) -->
       <div>
         <label class="block text-sm font-medium mb-1">Week</label>
-        <input type="week" name="semana_pago_proyectada"
-               value="{{ sesion.semana_pago_proyectada|default:'' }}"
-               class="w-full border rounded p-2" />
+        <!-- visible calendar input -->
+        <input id="week_display" type="text" class="w-full border rounded p-2" placeholder="Pick a week" autocomplete="off" />
+        <!-- hidden real value for POST -->
+        <input id="week" name="semana_pago_proyectada" type="hidden" value="{{ sesion.semana_pago_proyectada|default:'' }}">
       </div>
 
       <!-- Client -->
@@ -90,7 +91,7 @@
       </div>
     </div>
 
-    <!-- Table -->
+    <!-- Items Table -->
     <div class="mt-6">
       <div class="flex items-center justify-between mb-2">
         <h2 class="text-lg font-semibold">Items</h2>
@@ -105,7 +106,7 @@
               <th class="p-2 text-left">Work Type</th>
               <th class="p-2 text-left">Description</th>
               <th class="p-2 text-left">UOM</th>
-              <th class="p-2 text-right">Amount</th>
+              <th class="p-2 text-right">Quantity</th>
               <th class="p-2 text-left">Technical Price</th>
               <th class="p-2 text-right">Company Price</th>
               <th class="p-2 text-right">Subtotal Technical</th>
@@ -170,7 +171,6 @@
 <!-- Modal de técnicos -->
 <div id="tech-modal" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close="1"></div>
-  <!-- z-10 para asegurar que quede por encima del overlay -->
   <div class="relative z-10 max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-semibold">Select Technicians</h3>
@@ -207,9 +207,9 @@
   </div>
 </div>
 
+<!-- ================== JS ================== -->
 <script>
-/* === Utilidades front === */
-// Estado en JS
+/* === Estado front === */
 const state = {
   techIds: {{ ids_tecnicos|default:"[]"|safe }},
   totals: { tech: 0, company: 0 }
@@ -222,16 +222,11 @@ const urls = {
   detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
 };
 
-// Modal técnicos
+/* === Modal técnicos === */
 const modal = document.getElementById('tech-modal');
 document.getElementById('btn-open-tech').onclick = () => modal.classList.remove('hidden');
 document.getElementById('btn-close-tech').onclick = () => modal.classList.add('hidden');
-// Cerrar clickeando el overlay
-modal.addEventListener('click', (e) => {
-  if (e.target && e.target.getAttribute('data-close') === '1') {
-    modal.classList.add('hidden');
-  }
-});
+modal.addEventListener('click', (e) => { if (e.target?.getAttribute('data-close') === '1') modal.classList.add('hidden'); });
 
 document.getElementById('btn-apply-tech').onclick = () => {
   const checks = [...document.querySelectorAll('.tech-check:checked')];
@@ -241,7 +236,6 @@ document.getElementById('btn-apply-tech').onclick = () => {
   modal.classList.add('hidden');
   recalcAllRows();
 };
-
 function renderTechSummary() {
   const span = document.getElementById('tech-summary');
   span.textContent = state.techIds.length ? `${state.techIds.length} technician(s) selected` : 'No technicians selected';
@@ -257,14 +251,13 @@ function rebuildTechHidden() {
     box.appendChild(inp);
   });
 }
-renderTechSummary();
-rebuildTechHidden();
+renderTechSummary(); rebuildTechHidden();
 
-// Cascada de combos
-const clientSel = document.getElementById('client');
-const citySel = document.getElementById('city');
+/* === Cascada de selects === */
+const clientSel  = document.getElementById('client');
+const citySel    = document.getElementById('city');
 const projectSel = document.getElementById('project');
-const officeSel = document.getElementById('office');
+const officeSel  = document.getElementById('office');
 
 clientSel.addEventListener('change', async () => {
   await loadOptions(citySel, urls.ciudades + `?client=${encodeURIComponent(clientSel.value)}`);
@@ -277,7 +270,6 @@ citySel.addEventListener('change', async () => {
 projectSel.addEventListener('change', async () => {
   await loadOptions(officeSel, urls.oficinas + `?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`);
 });
-
 async function loadOptions(selectEl, url) {
   selectEl.innerHTML = `<option selected disabled>Loading…</option>`;
   const r = await fetch(url);
@@ -290,7 +282,7 @@ async function loadOptions(selectEl, url) {
 }
 function clearSelect(el) { el.innerHTML = `<option value="" disabled selected>Select…</option>` }
 
-// Tabla
+/* === Tabla Items === */
 const tbody = document.querySelector('#items-table tbody');
 document.getElementById('btn-add-row').onclick = () => addRow();
 
@@ -329,7 +321,6 @@ function wireRow(tr) {
   const suggestions = tr.querySelector('.suggestions');
   const amountInput = tr.querySelector('.amount-input');
 
-  // Autocomplete de códigos
   codeInput.addEventListener('input', async () => {
     const ok = validateHeaderSelected();
     if (!ok) { showToast('Please select Client, City, Project, Office and Technicians first.'); codeInput.value = ""; return; }
@@ -343,15 +334,14 @@ function wireRow(tr) {
     `).join('');
     suggestions.classList.remove('hidden');
   });
-
   suggestions.addEventListener('click', async (e) => {
     const row = e.target.closest('[data-code]');
     if (!row) return;
     suggestions.classList.add('hidden');
     codeInput.value = row.dataset.code;
     tr.querySelector('.worktype-input').value = row.dataset.w;
-    tr.querySelector('.desc-input').value = row.dataset.d;
-    tr.querySelector('.uom-input').value = row.dataset.u;
+    tr.querySelector('.desc-input').value   = row.dataset.d;
+    tr.querySelector('.uom-input').value    = row.dataset.u;
     await hydratePrices(tr);
   });
 
@@ -361,14 +351,12 @@ function wireRow(tr) {
 function validateHeaderSelected() {
   return clientSel.value && citySel.value && projectSel.value && officeSel.value && state.techIds.length>0;
 }
-function showToast(msg) { alert(msg) } // integra tu sistema de mensajes
-
+function showToast(msg) { alert(msg) }
 function enc(s){return encodeURIComponent(s)}
 
 async function hydratePrices(tr){
   const code = tr.querySelector('.code-input').value.trim();
-  const ok = validateHeaderSelected();
-  if (!ok || !code) return;
+  if (!validateHeaderSelected() || !code) return;
 
   const params = new URLSearchParams({
     client: clientSel.value, city: citySel.value, project: projectSel.value, office: officeSel.value, code
@@ -378,12 +366,11 @@ async function hydratePrices(tr){
   const data = await r.json();
   if (data.error) { showToast("Code not found for selected filters."); return; }
 
-  tr.querySelector('.worktype-input').value = data.tipo_trabajo;
-  tr.querySelector('.desc-input').value = data.descripcion;
-  tr.querySelector('.uom-input').value = data.unidad_medida;
-  tr.querySelector('.company-price-input').value = data.precio_empresa;
+  tr.querySelector('.worktype-input').value        = data.tipo_trabajo;
+  tr.querySelector('.desc-input').value            = data.descripcion;
+  tr.querySelector('.uom-input').value             = data.unidad_medida;
+  tr.querySelector('.company-price-input').value   = data.precio_empresa;
 
-  // pintar desglose técnico  (ARREGLADO: backtick correcto)
   const cell = tr.querySelector('.tech-price-cell');
   cell.innerHTML = (data.desglose_tecnico||[]).map((t, idx) => `
     <div class="flex gap-1">
@@ -394,21 +381,17 @@ async function hydratePrices(tr){
 
   updateRowTotals(tr);
 }
-
 function updateRowTotals(tr){
   const amount = parseFloat(tr.querySelector('.amount-input').value||"0");
-  const comp = parseFloat(tr.querySelector('.company-price-input').value||"0");
+  const comp   = parseFloat(tr.querySelector('.company-price-input').value||"0");
 
-  // sumar efectivos de la celda técnica
   let effSum = 0;
-  tr.querySelectorAll('.tech-price-cell b').forEach(b=>{
-    effSum += parseFloat(b.textContent||"0");
-  });
+  tr.querySelectorAll('.tech-price-cell b').forEach(b=>{ effSum += parseFloat(b.textContent||"0"); });
 
-  const techSubtotal = (effSum * amount) || 0;
-  const companySubtotal = (comp * amount) || 0;
+  const techSubtotal    = (effSum * amount) || 0;
+  const companySubtotal = (comp   * amount) || 0;
 
-  tr.querySelector('.tech-subtotal-input').value = techSubtotal.toFixed(2);
+  tr.querySelector('.tech-subtotal-input').value    = techSubtotal.toFixed(2);
   tr.querySelector('.company-subtotal-input').value = companySubtotal.toFixed(2);
 
   recomputeTotals();
@@ -419,19 +402,17 @@ function recalcAllRows(){
     if (code) hydratePrices(tr);
   });
 }
-
 function recomputeTotals(){
   let tTech = 0, tComp = 0;
   document.querySelectorAll('.tech-subtotal-input').forEach(i=>tTech += parseFloat(i.value||"0"));
   document.querySelectorAll('.company-subtotal-input').forEach(i=>tComp += parseFloat(i.value||"0"));
-  document.getElementById('total-tech').textContent = (tTech||0).toFixed(2);
+  document.getElementById('total-tech').textContent    = (tTech||0).toFixed(2);
   document.getElementById('total-company').textContent = (tComp||0).toFixed(2);
 }
 
-// Empaquetar items para el POST
+/* === Empaquetar items para el POST === */
 document.getElementById('billing-form').addEventListener('submit', (e)=>{
-  const ok = validateHeaderSelected();
-  if (!ok) { e.preventDefault(); showToast('Please select technicians and all header filters.'); return; }
+  if (!validateHeaderSelected()) { e.preventDefault(); showToast('Please select technicians and all header filters.'); return; }
 
   const hidden = document.getElementById('items-hidden');
   hidden.innerHTML = "";
@@ -439,7 +420,7 @@ document.getElementById('billing-form').addEventListener('submit', (e)=>{
   if (!rows.length) { e.preventDefault(); showToast('Please add at least one item.'); return; }
 
   rows.forEach(tr=>{
-    const code = tr.querySelector('.code-input').value.trim();
+    const code   = tr.querySelector('.code-input').value.trim();
     const amount = tr.querySelector('.amount-input').value;
     const payload = JSON.stringify({code, amount});
     const inp = document.createElement('input');
@@ -447,5 +428,64 @@ document.getElementById('billing-form').addEventListener('submit', (e)=>{
     hidden.appendChild(inp);
   });
 });
+</script>
+
+<!-- ===== Flatpickr (week picker en inglés) ===== -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.js"></script>
+<script>
+/* Helper: ISO week string YYYY-W## */
+function isoWeekString(d){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+  const weekNo = Math.ceil((((date - yearStart)/86400000) + 1)/7);
+  const year = date.getUTCFullYear();
+  const ww = String(weekNo).padStart(2, '0');
+  return `${year}-W${ww}`;
+}
+/* Convert YYYY-W## -> Monday date */
+function dateFromIsoWeek(iso){
+  const [y, w] = iso.replace('W','').split('-');
+  const year = parseInt(y,10), week = parseInt(w,10);
+  const simple = new Date(Date.UTC(year,0,1 + (week - 1) * 7));
+  const dow = simple.getUTCDay();
+  const ISOweekStart = new Date(simple);
+  if (dow <= 4) ISOweekStart.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
+  else          ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
+  return new Date(ISOweekStart);
+}
+/* Current ISO week (client side) */
+function currentIsoWeek(){
+  return isoWeekString(new Date());
+}
+
+(function(){
+  const hiddenInput = document.getElementById('week');         // name="semana_pago_proyectada"
+  const displayInput = document.getElementById('week_display');
+
+  // Determinar valor inicial
+  let initialIso = hiddenInput.value && hiddenInput.value.length ? hiddenInput.value : currentIsoWeek();
+  let initialDate = dateFromIsoWeek(initialIso);
+
+  const fp = flatpickr(displayInput, {
+    plugins: [new weekSelect({})],
+    dateFormat: "F j, Y",       // visible (EN por defecto)
+    defaultDate: initialDate,
+    allowInput: false,
+    onChange(selectedDates){
+      if (selectedDates && selectedDates[0]){
+        hiddenInput.value = isoWeekString(selectedDates[0]);   // YYYY-W##
+      }
+    },
+    onReady(){
+      // si no había valor, persistimos la semana actual
+      if (!hiddenInput.value) hiddenInput.value = currentIsoWeek();
+    }
+  });
+})();
 </script>
 {% endblock %}

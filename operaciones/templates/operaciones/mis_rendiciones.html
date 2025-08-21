@@ -350,5 +350,68 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 </script>
+
+<input type="hidden" name="wasabi_key" value="">
+
+<script>
+(function(){
+  const DIRECT_ENABLED = {{ direct_uploads_receipts_enabled|yesno:"true,false" }};
+  const MAX_MB = {{ receipt_max_mb|default:25 }};
+  const getCsrf = () => (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || "";
+
+  async function presign(filename, contentType, sizeBytes){
+    const resp = await fetch("{% url 'operaciones:presign_rendicion' %}", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": getCsrf()},
+      body: JSON.stringify({ filename, contentType, sizeBytes }),
+    });
+    if(!resp.ok){
+      const t = await resp.text(); throw new Error("Presign failed: " + t);
+    }
+    return resp.json(); // { post:{url, fields{}}, key }
+  }
+
+  async function directUpload(file){
+    const { post, key } = await presign(file.name, file.type || "application/octet-stream", file.size);
+    const fd = new FormData();
+    Object.entries(post.fields).forEach(([k, v]) => fd.append(k, v));
+    fd.append("key", post.fields.key || key);
+    fd.append("file", file, file.name);
+
+    const up = await fetch(post.url, { method: "POST", body: fd });
+    if (up.status !== 201) {
+      const t = await up.text(); throw new Error("Upload error: " + t);
+    }
+    return key;
+  }
+
+  document.addEventListener("submit", async (e)=>{
+    const form = e.target.closest("form");
+    if(!form) return;
+    const fileInput = form.querySelector('input[type="file"][name="comprobante"]');
+    const keyInput  = form.querySelector('input[name="wasabi_key"]');
+    if(!DIRECT_ENABLED || !fileInput || !fileInput.files || !fileInput.files.length) return;
+
+    const file = fileInput.files[0];
+    if (file.size > MAX_MB*1024*1024){
+      e.preventDefault();
+      alert(`File too large. Max ${MAX_MB}MB.`);
+      return;
+    }
+
+    e.preventDefault(); // interceptamos
+    try{
+      const key = await directUpload(file);
+      // Limpiamos el file input para que Django NO suba bytes
+      fileInput.value = "";
+      keyInput.value = key;
+      form.submit(); // ahora sí: sólo metadatos + wasabi_key
+    }catch(err){
+      console.error(err);
+      alert("There was a problem uploading the receipt. Please try again.");
+    }
+  });
+})();
+</script>
 {% endblock %}
 
