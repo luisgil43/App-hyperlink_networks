@@ -19,31 +19,35 @@
 
 
 <!-- ✅ Week picker con Flatpickr (locale en) -->
-<form id="week-form" method="get" class="mb-3 flex items-center justify-between gap-2">
-  <!-- 🔹 Grupo izquierdo: picker + botones -->
-  <div class="flex items-center gap-2">
+<form id="week-form" method="get"
+      class="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+
+  <!-- 🔹 Izquierda: picker + botones -->
+  <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
     <label for="week_display" class="text-sm text-gray-700">Select week:</label>
 
     <!-- input visible (calendario) -->
-    <input id="week_display" type="text" class="border rounded px-3 py-1 w-40" placeholder="Pick a week" autocomplete="off">
+    <input id="week_display" type="text"
+           class="border rounded px-3 py-1 w-40"
+           placeholder="Pick a week" autocomplete="off">
 
     <!-- input real que se envía (YYYY-W##) -->
     <input id="week" name="week" type="hidden" value="{{ week_filter|default:'all' }}">
 
     <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded">Apply</button>
-    <a href="?week=all" class="ml-2 text-blue-600 underline">Show all</a>
+    <a href="?week=all" class="text-blue-600 underline">Show all</a>
   </div>
 
-  <!-- 🔹 Grupo derecho: botón "My payment" -->
-  <div>
+  <!-- 🔹 Derecha: botón "My payment" (responsivo) -->
+  <div class="w-full sm:w-auto">
     <a href="{% url 'operaciones:user_weekly_payments' %}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow">
-       💵 Approve my payment
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow
+              w-full sm:w-auto text-center whitespace-nowrap">
+      <span class="sm:hidden">💵 My payment</span>
+      <span class="hidden sm:inline">💵 Approve my payment</span>
     </a>
   </div>
 </form>
-
-
 
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
     <table class="table-auto text-sm w-full min-w-[1400px]">
