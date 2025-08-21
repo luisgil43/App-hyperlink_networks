@@ -1,4 +1,6 @@
 # operaciones/views_billing_exec.py
+from botocore.client import Config
+from datetime import timedelta
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from openpyxl import Workbook
 from django.http import HttpResponse
@@ -574,10 +576,6 @@ def _build_key(folder: str, filename: str) -> str:
 @login_required
 @require_POST
 def presign_wasabi(request):
-    """
-    Devuelve un POST pre-firmado para subir DIRECTO a Wasabi.
-    Espera JSON: { filename, contentType, sizeBytes, folder, meta?{lat,lng,taken_at,project_id,technician} }
-    """
     if not getattr(settings, "DIRECT_UPLOADS_ENABLED", False):
         return HttpResponseBadRequest("Direct uploads disabled.")
 
@@ -589,7 +587,6 @@ def presign_wasabi(request):
     filename = (data.get("filename") or "").strip()
     content_type = (data.get("contentType") or "").strip()
     size_bytes = int(data.get("sizeBytes") or 0)
-    # p.ej. operaciones/reporte_fotografico/<proj>/<tech>/evidencia/
     folder = (data.get("folder") or "").strip()
     meta = data.get("meta") or {}
 
@@ -602,16 +599,21 @@ def presign_wasabi(request):
 
     key = _build_key(folder, filename)
 
+    # 👉 Cliente S3 con path-style + firma v4 (mismo que en recibos)
     s3 = boto3.client(
         "s3",
-        endpoint_url=getattr(settings, "WASABI_ENDPOINT_URL", None),
-        aws_access_key_id=getattr(settings, "WASABI_ACCESS_KEY_ID", None),
-        aws_secret_access_key=getattr(
-            settings, "WASABI_SECRET_ACCESS_KEY", None),
-        region_name=getattr(settings, "WASABI_REGION_NAME", None),
+        endpoint_url=getattr(settings, "WASABI_ENDPOINT_URL",
+                             "https://s3.us-east-1.wasabisys.com"),
+        region_name=getattr(settings, "WASABI_REGION_NAME", "us-east-1"),
+        aws_access_key_id=getattr(settings, "WASABI_ACCESS_KEY_ID"),
+        aws_secret_access_key=getattr(settings, "WASABI_SECRET_ACCESS_KEY"),
+        config=Config(signature_version="s3v4", s3={
+                      "addressing_style": "path"}),
+        verify=getattr(settings, "AWS_S3_VERIFY", True),
     )
 
-    # Metadatos útiles para no depender de EXIF
+    bucket = getattr(settings, "WASABI_BUCKET_NAME")
+
     meta_headers = {
         "x-amz-meta-lat": str(meta.get("lat") or ""),
         "x-amz-meta-lng": str(meta.get("lng") or ""),
@@ -621,26 +623,33 @@ def presign_wasabi(request):
         "x-amz-meta-technician": str(meta.get("technician") or ""),
     }
 
-    bucket = getattr(settings, "WASABI_BUCKET_NAME", None)
+    fields = {
+        "acl": "private",
+        "Content-Type": content_type,
+        "success_action_status": "201",   # ← más friendly que 204
+        **meta_headers,
+    }
     conditions = [
         {"bucket": bucket},
         ["starts-with", "$key", key.rsplit("/", 1)[0] + "/"],
         {"acl": "private"},
         {"Content-Type": content_type},
+        {"success_action_status": "201"},
         ["content-length-range", 1, max_bytes],
     ]
     for h, v in meta_headers.items():
         conditions.append({h: v})
-
-    fields = {"acl": "private", "Content-Type": content_type, **meta_headers}
 
     presigned = s3.generate_presigned_post(
         Bucket=bucket,
         Key=key,
         Fields=fields,
         Conditions=conditions,
-        ExpiresIn=60,  # corto para seguridad
+        ExpiresIn=300,  # un poco más de margen para varias fotos
     )
+
+    # 👉 Fuerza path-style en la URL final (igual que en comprobantes)
+    presigned["url"] = f"{settings.WASABI_ENDPOINT_URL.rstrip('/')}/{bucket}"
 
     return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})
 
@@ -738,11 +747,20 @@ def revisar_sesion(request, sesion_id):
             s.reporte_fotografico.save(
                 filename, ContentFile(bytes_excel), save=False)
 
+            # >>> NUEVO: fijar semana real = semana siguiente a la aprobación (si no existe)
+            now = timezone.now()
+            if not s.semana_pago_real:
+                # próximo lunes respecto a 'now'
+                next_monday = now + timedelta(days=(7 - now.weekday()))
+                iso_year, iso_week, _ = next_monday.isocalendar()
+                s.semana_pago_real = f"{iso_year}-W{iso_week:02d}"
+            # <<< NUEVO
+
             # Actualizar estados
             s.estado = "aprobado_supervisor"
-            s.save(update_fields=["reporte_fotografico", "estado"])
+            s.save(update_fields=["reporte_fotografico",
+                   "estado", "semana_pago_real"])
 
-            now = timezone.now()
             for a in asignaciones:
                 a.estado = "aprobado_supervisor"
                 a.supervisor_comentario = comentario
@@ -798,10 +816,10 @@ def revisar_sesion(request, sesion_id):
         "project_report_url": s.reporte_fotografico.url if project_report_exists else "",
     })
 
-
 # ============================
 # REPORTE FOTOGRÁFICO — PROYECTO
 # ============================
+
 
 @login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
@@ -1400,3 +1418,64 @@ def eliminar_evidencia(request, pk, evidencia_id):
         or (reverse("operaciones:upload_evidencias", args=[a.pk]) if is_owner else reverse("operaciones:revisar_sesion", args=[s.pk]))
     )
     return redirect(next_url)
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@require_POST
+def update_semana_pago_real(request, sesion_id):
+    from django.utils import timezone
+    import re
+
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    raw = (request.POST.get("semana") or "").strip()
+
+    # 1) Vacío => limpiar y mostrar "—" en la vista
+    if raw == "":
+        s.semana_pago_real = ""
+        s.save(update_fields=["semana_pago_real"])
+        return JsonResponse({"ok": True, "semana": ""})
+
+    # 2) Normalizador de formatos
+    v = raw.lower().replace(" ", "")
+    now = timezone.now()
+    cur_year = now.isocalendar().year
+
+    # patrones
+    m = None
+    # yyyy-w## o yyyy-w#  (e.g. 2025-w3, 2025-W34)
+    if re.fullmatch(r"\d{4}-w?\d{1,2}", v):
+        y, w = re.split(r"-w?", v)
+        year = int(y)
+        week = int(w)
+    # w## o ##  (e.g. w34, 34) => usa año actual
+    elif re.fullmatch(r"w?\d{1,2}", v):
+        year = cur_year
+        week = int(v.lstrip("w"))
+    # ##/yyyy  (e.g. 34/2025)
+    elif re.fullmatch(r"\d{1,2}/\d{4}", v):
+        w, y = v.split("/")
+        year = int(y)
+        week = int(w)
+    # yyyy/##  (e.g. 2025/34)
+    elif re.fullmatch(r"\d{4}/\d{1,2}", v):
+        y, w = v.split("/")
+        year = int(y)
+        week = int(w)
+    # ya en formato correcto yyyy-W##
+    elif re.fullmatch(r"\d{4}-W\d{2}", raw):
+        s.semana_pago_real = raw
+        s.save(update_fields=["semana_pago_real"])
+        return JsonResponse({"ok": True, "semana": s.semana_pago_real})
+    else:
+        return JsonResponse({"ok": False, "error": "Use formats like 2025-W34, W34, 34, 34/2025."}, status=400)
+
+    # 3) Validación de rango
+    if not (1 <= week <= 53):
+        return JsonResponse({"ok": False, "error": "Week must be between 1 and 53."}, status=400)
+
+    # 4) Formateo final YYYY-W##
+    value_norm = f"{year}-W{week:02d}"
+    s.semana_pago_real = value_norm
+    s.save(update_fields=["semana_pago_real"])
+    return JsonResponse({"ok": True, "semana": value_norm})

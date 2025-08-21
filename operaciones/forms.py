@@ -1,5 +1,6 @@
 # servicios/forms.py
 
+from .models import WeeklyPayment
 from .models import SesionBilling
 from .models import PrecioActividadTecnico
 from usuarios.models import CustomUser, Rol
@@ -180,3 +181,56 @@ class PrecioActividadTecnicoForm(forms.ModelForm):
         if not proyecto:
             raise ValidationError("Project cannot be empty.")
         return proyecto
+
+
+class PaymentApproveForm(forms.ModelForm):
+    """
+    El trabajador aprueba el monto. No edita campos, solo cambia estado en la vista.
+    """
+    class Meta:
+        model = WeeklyPayment
+        fields = []
+
+
+class PaymentRejectForm(forms.ModelForm):
+    """
+    El trabajador rechaza e indica el motivo (obligatorio).
+    """
+    reject_reason = forms.CharField(
+        required=True,
+        label="Reason",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "placeholder": "Tell us why you reject this amount...",
+                "class": "w-full border rounded p-2",
+            }
+        ),
+        error_messages={"required": "Please provide a reason."},
+    )
+
+    class Meta:
+        model = WeeklyPayment
+        fields = ["reject_reason"]
+
+
+class PaymentMarkPaidForm(forms.ModelForm):
+    """
+    Respaldo si quisieras subir el comprobante vía Django (multipart).
+    En el flujo optimizado usaremos presigned POST directo a Wasabi.
+    """
+    class Meta:
+        model = WeeklyPayment
+        fields = ["receipt"]
+        labels = {"receipt": "Payment receipt (required)"}
+        widgets = {
+            "receipt": forms.ClearableFileInput(
+                attrs={"accept": ".pdf,.jpg,.jpeg,.png", "class": "w-full"}
+            )
+        }
+
+    def clean_receipt(self):
+        f = self.cleaned_data.get("receipt")
+        if not f:
+            raise forms.ValidationError("Receipt file is required.")
+        return f

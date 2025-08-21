@@ -101,7 +101,7 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Productions</a></li>
+         <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
           <li><a href="#" class="hover:text-emerald-400">Assign Services</a></li>
 <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a>
@@ -111,7 +111,7 @@
       {% endif %}
 
       <!-- SECCIÓN: Human Resources -->
-      {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm or request.user.es_supervisor %}
+      {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
       <li class="group">
         <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
           <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>

@@ -154,7 +154,31 @@
           <td class="p-2 border text-right">
             {% if s.diferencia %}${{ s.diferencia|floatformat:2 }}{% else %}—{% endif %}
           </td>
-          <td class="p-2 border">{{ s.semana_pago_real|default:"—" }}</td>
+  <td class="p-2 border" data-col="semana-real">
+  <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+
+  {% if can_edit_real_week %}
+    <!-- Editable -->
+    <input type="text"
+           id="sr-input-{{ s.id }}"
+           class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
+           value="{{ s.semana_pago_real|default:'' }}"
+           placeholder="YYYY-W##" />
+    <button type="button"
+            class="sr-edit text-xs text-blue-600 underline"
+            data-id="{{ s.id }}"
+            data-url="{% url 'operaciones:billing_update_semana' s.id %}">
+      ✏️
+    </button>
+  {% else %}
+    <!-- No editable: candado + tooltip (no se crea input editable) -->
+    <button type="button"
+            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
+            title="You don’t have permission to edit this field.">
+      🔒
+    </button>
+  {% endif %}
+</td>
 
           <td class="p-2 border text-center">
             <div class="flex items-center justify-center gap-3">
@@ -674,4 +698,115 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
+<script>
+(function(){
+  // ➕ flag de permisos desde el backend
+  const CAN_EDIT_REAL_WEEK = {{ can_edit_real_week|yesno:"true,false" }};
+
+  // ➕ toast minimalista (no interfiere con tu modal de Delete)
+  function toast(msg, type='error'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'info' ? 'bg-blue-600' : 'bg-red-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2500);
+  }
+
+  // CSRF (Django)
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  function toEdit(id){
+    // Si no tiene permiso, mostramos aviso elegante y salimos
+    if(!CAN_EDIT_REAL_WEEK){
+      toast("You don’t have permission to edit this field.", "error");
+      return;
+    }
+    const view = document.getElementById(`sr-view-${id}`);
+    const input = document.getElementById(`sr-input-${id}`);
+    if (!input) return; // por seguridad
+    view.classList.add("hidden");
+    input.classList.remove("hidden");
+    input.focus();
+  }
+
+  function toView(id, text){
+    const view = document.getElementById(`sr-view-${id}`);
+    const input = document.getElementById(`sr-input-${id}`);
+    if (view){ view.textContent = text || "—"; view.classList.remove("hidden"); }
+    if (input){ input.classList.add("hidden"); }
+  }
+
+  async function save(id, url, value){
+    const form = new FormData();
+    form.append("semana", value);
+    const resp = await fetch(url, { method: "POST", headers: {"X-CSRFToken": csrftoken}, body: form });
+
+    let data = null;
+    try { data = await resp.json(); } catch(e) {}
+
+    if (resp.status === 403){
+      // 🔒 Manejo elegante de Forbidden
+      toast("You don’t have permission to edit this field.", "error");
+      throw new Error("forbidden");
+    }
+    if (!resp.ok){
+      toast((data && data.error) ? data.error : `Save failed (HTTP ${resp.status})`, "error");
+      throw new Error("save-failed");
+    }
+    if (!data || !data.ok){
+      toast((data && data.error) ? data.error : "Save failed", "error");
+      throw new Error("save-failed");
+    }
+    return data.semana;
+  }
+
+  // Click en ✏️
+  document.addEventListener("click", function(e){
+    const btn = e.target.closest(".sr-edit");
+    if (btn) {
+      toEdit(btn.dataset.id);
+      return;
+    }
+    // Click en 🔒
+    const lock = e.target.closest(".sr-edit-locked");
+    if (lock){
+      toast("You don’t have permission to edit this field.", "error");
+    }
+  });
+
+  // Enter / Escape al editar
+  document.addEventListener("keydown", async function(e){
+    const input = e.target.closest(".sr-input");
+    if(!input || input.classList.contains("hidden")) return;
+
+    const id = input.id.replace("sr-input-","");
+    const btn = document.querySelector(`.sr-edit[data-id="${id}"]`);
+    const url = btn ? btn.dataset.url : null;
+
+    if(e.key === "Escape"){
+      toView(id, input.value);
+      return;
+    }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      try{
+        const saved = await save(id, url, input.value.trim());
+        toast("Saved.", "success");
+        toView(id, saved);
+      }catch(err){
+        if (err.message === "forbidden"){
+          toView(id, input.value); // vuelve a vista si fue 403
+        } else {
+          input.focus(); // deja al usuario corrigiendo
+        }
+      }
+    }
+  });
+})();
+</script>
 {% endblock %}

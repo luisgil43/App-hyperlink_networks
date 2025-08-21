@@ -118,5 +118,52 @@ urlpatterns = [
     path("direct-uploads/presign/", b.presign_wasabi, name="presign_wasabi"),
     path("billing/export/", views.exportar_billing_excel, name="billing_export"),
 
+    path("billing/<int:sesion_id>/update-semana/",
+         b.update_semana_pago_real, name="billing_update_semana"),
 
+    path("produccion/admin/", views.produccion_admin, name="produccion_admin"),
+    path("produccion/mia/",   views.produccion_usuario, name="produccion_usuario"),
+
+
+    path(
+        "produccion/admin/pagos/",
+        views.admin_weekly_payments,
+        name="admin_weekly_payments",
+    ),
+
+    # Subida rápida a Wasabi (presigned POST) — AJAX
+    path(
+        "produccion/admin/pagos/<int:pk>/presign/",
+        views.presign_receipt,
+        name="presign_receipt",
+    ),
+    path(
+        "produccion/admin/pagos/<int:pk>/confirm/",
+        views.confirm_receipt,
+        name="confirm_receipt",
+    ),
+
+    # (Opcional / respaldo) flujo clásico con multipart a Django
+    path("produccion/admin/pagos/<int:pk>/pagar/",
+         views.admin_mark_paid, name="admin_mark_paid"),
+
+    # =================== USUARIO ==================
+    # Tabla “Approve my payment” con acciones Aprobar/Rechazar
+    path("mi-produccion/pagos/", views.user_weekly_payments,
+         name="user_weekly_payments"),
+    path("mi-produccion/pagos/<int:pk>/aprobar/",
+         views.user_approve_payment, name="user_approve_payment"),
+    path("mi-produccion/pagos/<int:pk>/rechazar/",
+         views.user_reject_payment, name="user_reject_payment"),
+
+    path(
+        "produccion/admin/pagos/<int:pk>/reset/",
+        views.admin_reset_payment_status,
+        name="admin_reset_payment_status",
+    ),
+
+    path("rendiciones/presign/", views.presign_rendicion, name="presign_rendicion"),
+
+    path("produccion/admin/pagos/unpay/<int:pk>/",
+         v.admin_unpay, name="admin_unpay"),
 ]

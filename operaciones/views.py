@@ -1,4 +1,20 @@
 # operaciones/views.py
+from django.utils.http import urlencode
+from .services.weekly import (
+    sync_weekly_totals_no_create,   # no crea; actualiza y borra huérfanos
+    materialize_week_for_payments,  # crea/actualiza solo la semana indicada
+)
+from django.db.models import Exists, OuterRef, Sum
+from .services.weekly import sync_weekly_totals_no_create  # versión que NO crea
+from django.views.decorators.cache import never_cache
+
+import json
+from botocore.client import Config
+from .forms import PaymentApproveForm, PaymentRejectForm, PaymentMarkPaidForm
+from uuid import uuid4
+import os
+from .models import WeeklyPayment
+from datetime import timedelta
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from django.views.decorators.http import require_POST
@@ -80,6 +96,81 @@ from usuarios.decoradores import rol_requerido
 from botocore.exceptions import ClientError
 
 
+# --- Direct upload (receipts/rendiciones) ---
+RECEIPT_ALLOWED_MIME = {"application/pdf",
+                        "image/jpeg", "image/jpg", "image/png", "image/webp"}
+
+RECEIPT_MAX_MB = int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25))
+RECEIPTS_SAFE_PREFIX = getattr(
+    settings, "DIRECT_UPLOADS_RECEIPTS_PREFIX", "operaciones/rendiciones/"
+)
+
+
+def _build_receipt_key(user_id: int, filename: str) -> str:
+    base = RECEIPTS_SAFE_PREFIX.rstrip("/")  # ej: operaciones/rendiciones
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "pdf").lower()
+    today = timezone.now()
+    # carpeta por usuario y fecha para que quede ordenado
+    return f"{base}/{user_id}/{today:%Y/%m/%d}/rcpt_{uuid4().hex}.{ext}"
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@require_POST
+def presign_rendicion(request, pk: int):
+    """
+    Pre-firma para subir DIRECTO el comprobante de rendición a Wasabi via POST.
+    Request JSON: { filename, contentType, sizeBytes }
+    Devuelve: {"post": {...}, "key": "<s3_key>"}  (url path-style)
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    filename = (data.get("filename") or "").strip()
+    ctype = (data.get("contentType") or "").strip()
+    size_b = int(data.get("sizeBytes") or 0)
+
+    if not filename or ctype not in RECEIPT_ALLOWED_MIME:
+        return HttpResponseBadRequest("Invalid file type.")
+    if size_b <= 0 or size_b > RECEIPT_MAX_MB * 1024 * 1024:
+        return HttpResponseBadRequest("File too large.")
+
+    key = _build_receipt_key(request.user.id, filename)
+
+    s3 = _s3_client()
+    fields = {
+        "acl": "private",
+        "success_action_status": "201",
+        # TIP: si quieres forzar Content-Type, puedes incluirlo aquí y en Conditions.
+        # "Content-Type": ctype,
+    }
+    conditions = [
+        {"acl": "private"},
+        {"success_action_status": "201"},
+        ["starts-with", "$key", key.rsplit("/", 1)[0] + "/"],
+        ["content-length-range", 1, RECEIPT_MAX_MB * 1024 * 1024],
+        # Si decides forzar Content-Type:
+        # {"Content-Type": ctype},
+    ]
+
+    post = s3.generate_presigned_post(
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        Key=key,
+        Fields=fields,
+        Conditions=conditions,
+        ExpiresIn=600,
+    )
+
+    # Forzar URL path-style (coincide con lo que ya usas)
+    endpoint = settings.AWS_S3_ENDPOINT_URL.rstrip("/")
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    post["url"] = f"{endpoint}/{bucket}"
+
+    return JsonResponse({"post": post, "key": key})
+
+
 def verificar_archivo_wasabi(ruta):
     """Verifica si un archivo existe en el bucket Wasabi."""
     s3 = boto3.client(
@@ -96,23 +187,65 @@ def verificar_archivo_wasabi(ruta):
 
 
 @login_required
+@rol_requerido('usuario')
 def mis_rendiciones(request):
     user = request.user
 
+    # --- Query base + paginación (se calcula SIEMPRE) ---
+    cantidad_str = request.GET.get('cantidad', '10')
+    try:
+        per_page = 1000000 if cantidad_str == 'todos' else int(cantidad_str)
+    except (TypeError, ValueError):
+        per_page = 10
+        cantidad_str = '10'
+
+    movimientos_qs = CartolaMovimiento.objects.filter(
+        usuario=user
+    ).order_by('-fecha')
+
+    paginator = Paginator(movimientos_qs, per_page)
+    page_number = request.GET.get('page')
+    pagina = paginator.get_page(page_number)
+
+    # --- Saldos (usa el mismo QS para consistencia) ---
+    saldo_disponible = (
+        (movimientos_qs.filter(tipo__categoria="abono", status="aprobado_abono_usuario")
+         .aggregate(total=Sum('abonos'))['total'] or 0)
+        -
+        (movimientos_qs.exclude(tipo__categoria="abono")
+         .filter(status="aprobado_finanzas")
+         .aggregate(total=Sum('cargos'))['total'] or 0)
+    )
+    saldo_pendiente = movimientos_qs.filter(tipo__categoria="abono") \
+        .exclude(status="aprobado_abono_usuario") \
+        .aggregate(total=Sum('abonos'))['total'] or 0
+    saldo_rendido = movimientos_qs.exclude(tipo__categoria="abono") \
+        .exclude(status="aprobado_finanzas") \
+        .aggregate(total=Sum('cargos'))['total'] or 0
+
+    # --- POST: crea la rendición (direct upload o multipart clásico) ---
     if request.method == 'POST':
         form = MovimientoUsuarioForm(request.POST, request.FILES)
         if form.is_valid():
             mov = form.save(commit=False)
             mov.usuario = user
             mov.fecha = now()
-            mov.status = 'pendiente_abono_usuario' if mov.tipo and mov.tipo.categoria == "abono" else 'pendiente_supervisor'
-            mov.comprobante = form.cleaned_data['comprobante']
-            mov.save()  # Upload to Wasabi
+            mov.status = 'pendiente_abono_usuario' if (
+                mov.tipo and mov.tipo.categoria == "abono") else 'pendiente_supervisor'
 
-            # Verify in Wasabi (with retry)
+            # Soporte de subida directa (si tu JS envía wasabi_key)
+            wasabi_key = (request.POST.get('wasabi_key') or '').strip()
+            if wasabi_key:
+                mov.comprobante.name = wasabi_key
+            else:
+                mov.comprobante = form.cleaned_data['comprobante']
+
+            mov.save()
+
+            # Verificación opcional en Wasabi (igual que tenías)
             ruta_archivo = mov.comprobante.name
             import time
-            for _ in range(3):  # up to 3 attempts
+            for _ in range(3):
                 if verificar_archivo_wasabi(ruta_archivo):
                     break
                 time.sleep(1)
@@ -128,42 +261,22 @@ def mis_rendiciones(request):
     else:
         form = MovimientoUsuarioForm()
 
-    # --- Filters & Pagination ---
-    cantidad = request.GET.get('cantidad', '10')
-    cantidad = 1000000 if cantidad == 'todos' else int(cantidad)
-
-    movimientos = CartolaMovimiento.objects.filter(
-        usuario=user).order_by('-fecha')
-    paginator = Paginator(movimientos, cantidad)
-    page_number = request.GET.get('page')
-    pagina = paginator.get_page(page_number)
-
-    # --- Balance calculation ---
-    saldo_disponible = (
-        (movimientos.filter(tipo__categoria="abono", status="aprobado_abono_usuario")
-         .aggregate(total=Sum('abonos'))['total'] or 0)
-        -
-        (movimientos.exclude(tipo__categoria="abono")
-         .filter(status="aprobado_finanzas")
-         .aggregate(total=Sum('cargos'))['total'] or 0)
-    )
-
-    saldo_pendiente = movimientos.filter(tipo__categoria="abono").exclude(
-        status="aprobado_abono_usuario").aggregate(total=Sum('abonos'))['total'] or 0
-    saldo_rendido = movimientos.exclude(tipo__categoria="abono").exclude(
-        status="aprobado_finanzas").aggregate(total=Sum('cargos'))['total'] or 0
-
     return render(request, 'operaciones/mis_rendiciones.html', {
         'pagina': pagina,
-        'cantidad': request.GET.get('cantidad', '10'),
+        'cantidad': cantidad_str,
         'saldo_disponible': saldo_disponible,
         'saldo_pendiente': saldo_pendiente,
         'saldo_rendido': saldo_rendido,
         'form': form,
+
+        # Si usas el JS de subida directa para rendiciones:
+        'direct_uploads_receipts_enabled': True,
+        'receipt_max_mb': int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)),
     })
 
 
 @login_required
+@rol_requerido('usuario')
 def aprobar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
@@ -174,6 +287,7 @@ def aprobar_abono(request, pk):
 
 
 @login_required
+@rol_requerido('usuario')
 def rechazar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if request.method == "POST":
@@ -188,6 +302,7 @@ def rechazar_abono(request, pk):
 
 
 @login_required
+@rol_requerido('usuario')
 def editar_rendicion(request, pk):
     rendicion = get_object_or_404(
         CartolaMovimiento, pk=pk, usuario=request.user
@@ -395,6 +510,7 @@ def exportar_rendiciones(request):
 
 
 @login_required
+@rol_requerido('usuario')
 def exportar_mis_rendiciones(request):
     user = request.user
     movimientos = CartolaMovimiento.objects.filter(
@@ -1086,37 +1202,26 @@ def listar_billing(request):
         SesionBilling.objects
         .order_by("-creado_en")
         .prefetch_related(
-            # Items + desglose
             Prefetch(
                 "items",
                 queryset=ItemBilling.objects.prefetch_related(
                     Prefetch(
-                        "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related(
-                            "tecnico")
-                    )
+                        "desglose_tecnico", queryset=ItemBillingTecnico.objects.select_related("tecnico"))
                 ),
             ),
-            # Asignaciones (técnico + evidencias para thumbnails)
             Prefetch(
                 "tecnicos_sesion",
                 queryset=SesionBillingTecnico.objects
                 .select_related("tecnico")
                 .prefetch_related(
-                    Prefetch(
-                        "evidencias",
-                        queryset=(
-                            # solo campos usados en thumbnails
-                            EvidenciaFotoBilling.objects
-                            .only("id", "imagen", "tecnico_sesion_id", "requisito_id")
-                            .order_by("-id")
-                        )
-                    )
+                    Prefetch("evidencias", queryset=EvidenciaFotoBilling.objects.only(
+                        "id", "imagen", "tecnico_sesion_id", "requisito_id").order_by("-id"))
                 )
             ),
         )
     )
 
+    # Paginación
     cantidad = request.GET.get("cantidad", "10")
     if cantidad == "todos":
         pagina = Paginator(qs, qs.count() or 1).get_page(1)
@@ -1127,10 +1232,22 @@ def listar_billing(request):
             per_page = 10
         pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
+    # ✅ Quienes pueden editar "Real pay week" (todo lo visible al usuario irá en inglés en el template)
+    can_edit_real_week = (
+        getattr(request.user, "es_pm", False)
+        or getattr(request.user, "es_facturacion", False)
+        or getattr(request.user, "es_admin_general", False)
+        or request.user.is_superuser
+    )
+
     return render(
         request,
         "operaciones/billing_listar.html",
-        {"pagina": pagina, "cantidad": cantidad},
+        {
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "can_edit_real_week": can_edit_real_week,  # <-- flag al template
+        },
     )
 # ===== Crear / Editar =====
 
@@ -1539,3 +1656,791 @@ def ajax_detalle_codigo(request):
         "precio_empresa": f"{precio_emp:.2f}",
         "desglose_tecnico": desglose
     })
+
+
+@login_required
+@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
+def produccion_admin(request):
+    """
+    Producción por técnico (vista Admin) con filtros + paginación (UX como Weekly Payments).
+    Filtros: proyecto (por Project ID parcial o nombre), REAL pay week (34 / W34 / 2025-W34),
+             técnico, cliente.
+    Solo filtra por semana REAL: 'semana_pago_real'.
+    """
+    # --- imports locales para que la función sea autocontenida ---
+    import re
+    from decimal import Decimal
+    from urllib.parse import urlencode
+    from django.db.models import Q, CharField
+    from django.db.models.functions import Cast
+    from django.core.paginator import Paginator
+    from django.utils import timezone
+
+    # --- helpers locales ---
+    def _iso_week_str(dt):
+        y, w, _ = dt.isocalendar()
+        return f"{y}-W{int(w):02d}"
+
+    def parse_week_query(q: str):
+        """
+        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
+        Retorna (exact_iso, week_token)
+          - exact_iso: 'YYYY-W##' cuando viene año
+          - week_token: 'W##' cuando solo viene el número
+        """
+        if not q:
+            return (None, None)
+        s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
+        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
+        if m:
+            year, ww = int(m.group(1)), int(m.group(2))
+            return (f"{year}-W{ww:02d}", None)
+        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
+        if m:
+            ww = int(m.group(1))
+            return (None, f"W{ww:02d}")
+        return (None, None)
+
+    def _normalize_week_str(s: str) -> str:
+        """Normaliza guiones y espacios; devuelve MAYÚSCULAS."""
+        if not s:
+            return ""
+        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = re.sub(r"\s+", "", s)
+        return s.upper()
+
+    # ---------------- configuración ----------------
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    current_week = _iso_week_str(timezone.now())
+
+    # ---------------- Filtros GET ----------------
+    f_project = (request.GET.get("f_project") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_client = (request.GET.get("f_client") or "").strip()
+
+    exact_week, week_token = parse_week_query(f_week_input)
+
+    # ---------------- Query base (solo aprobadas) ----------------
+    qs = (
+        SesionBilling.objects
+        .filter(estado__in=estados_ok)
+        .prefetch_related("tecnicos_sesion__tecnico", "items__desglose_tecnico")
+        .order_by("-creado_en")
+        .distinct()
+    )
+
+    # ---------------- Semana REAL (único criterio de semana) ----------------
+    if exact_week:
+        token = exact_week.split("-", 1)[-1].upper()  # 'W##'
+        qs = qs.filter(
+            Q(semana_pago_real__iexact=exact_week) |
+            # tolera '2025W34' o variaciones
+            Q(semana_pago_real__icontains=token)
+        )
+    elif week_token:
+        qs = qs.filter(semana_pago_real__icontains=week_token)
+
+    # ---------------- Otros filtros ----------------
+    if f_project:
+        # Anotamos un campo string a partir de proyecto_id (sirve si es int o char)
+        qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
+        qs = qs.filter(
+            # Project ID parcial o completo (NB3233, 323, NB3, etc.)
+            Q(proyecto_id_str__icontains=f_project) |
+            Q(proyecto__icontains=f_project)           # Nombre de proyecto
+        )
+
+    if f_client:
+        qs = qs.filter(cliente__icontains=f_client)
+
+    # ---------------- Construcción de filas (una por técnico) ----------------
+    filas = []
+    for s in qs:
+        for asig in s.tecnicos_sesion.all():
+            tecnico = asig.tecnico
+
+            # Filtro por técnico (por fila)
+            if f_tech:
+                target = f_tech.lower()
+                full_name = ((tecnico.first_name or "") + " " +
+                             (tecnico.last_name or "")).strip().lower()
+                username = (tecnico.username or "").lower()
+                if target not in full_name and target not in username:
+                    continue
+
+            detalle = []
+            total_tecnico = Decimal('0')
+
+            for it in s.items.all():
+                bd = next(
+                    (d for d in it.desglose_tecnico.all()
+                     if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
+                    None
+                )
+                if not bd:
+                    continue
+
+                rate = bd.tarifa_efectiva if isinstance(
+                    bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
+                qty = it.cantidad if isinstance(
+                    it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
+
+                sub_tec = rate * qty
+                total_tecnico += sub_tec
+
+                detalle.append({
+                    "codigo": it.codigo_trabajo,
+                    "tipo": it.tipo_trabajo,
+                    "desc": it.descripcion,
+                    "uom": it.unidad_medida,
+                    "qty": it.cantidad,
+                    "rate_tec": rate,
+                    "subtotal_tec": sub_tec,
+                })
+
+            filas.append({
+                "sesion": s,
+                "tecnico": tecnico,
+                "project_id": s.proyecto_id,
+                # Columna principal = semana REAL
+                "week": s.semana_pago_real or "—",
+                "status": s.estado,
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": s.semana_pago_real or "—",
+                "proj_week": s.semana_pago_proyectada or "—",
+                "total_tecnico": total_tecnico,
+                "detalle": detalle,
+            })
+
+    # ---------------- Filtro defensivo en memoria SOLO por semana REAL ----------------
+    if exact_week or week_token:
+        token = (week_token or exact_week.split("-", 1)[-1]).upper()  # 'W##'
+        exact_norm = _normalize_week_str(exact_week) if exact_week else None
+
+        def _match_row_real(r):
+            rw = _normalize_week_str(r["real_week"])
+            if exact_norm:
+                return (rw == exact_norm) or (token in rw)
+            return token in rw
+
+        filas = [r for r in filas if _match_row_real(r)]
+
+    # ---------------- Orden por semana real ----------------
+    def bucket_key(row):
+        rw = row["real_week"]
+        if rw == "—":
+            return (2, "ZZZ")
+        if rw == current_week:
+            return (0, "000")
+        if rw > current_week:
+            return (0, rw)
+        return (1, rw)
+
+    filas.sort(key=bucket_key)
+
+    # ---------------- Paginación ----------------
+    cantidad = request.GET.get("cantidad", "10")
+    if cantidad != "todos":
+        try:
+            per_page = max(5, min(int(cantidad), 100))
+        except ValueError:
+            per_page = 10
+        paginator = Paginator(filas, per_page)
+        page_number = request.GET.get("page") or 1
+        pagina = paginator.get_page(page_number)
+    else:
+        class _OnePage:
+            number = 1
+
+            @property
+            def paginator(self):
+                class P:
+                    num_pages = 1
+                return P()
+            has_previous = False
+            has_next = False
+            object_list = filas
+        pagina = _OnePage()
+
+    # QS de filtros
+    filters_dict = {
+        "f_project": f_project,
+        "f_week": f_week_input,
+        "f_tech": f_tech,
+        "f_client": f_client,
+        "cantidad": cantidad,
+    }
+    filters_qs = urlencode({k: v for k, v in filters_dict.items() if v})
+
+    return render(request, "operaciones/produccion_admin.html", {
+        "current_week": current_week,
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "f_project": f_project,
+        "f_week_input": f_week_input,
+        "f_tech": f_tech,
+        "f_client": f_client,
+        "filters_qs": filters_qs,
+    })
+
+
+@login_required
+@rol_requerido('usuario')
+def produccion_usuario(request):
+    """
+    Producción del técnico logueado (el técnico es el propio CustomUser).
+    - Solo sesiones Aprobadas (Supervisor/PM/Finanzas)
+    - Filtro por semana (all o YYYY-W##)
+    - Total de producción de la semana actual (según semana_pago_real)
+    """
+    tecnico = request.user
+
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    qs = (
+        SesionBilling.objects
+        .filter(estado__in=estados_ok, tecnicos_sesion__tecnico=tecnico)
+        .prefetch_related("items__desglose_tecnico")
+        .order_by("-creado_en")
+        .distinct()
+    )
+
+    # utilidades para semana ISO (YYYY-W##)
+    def _iso_week_str(dt):
+        iso = dt.isocalendar()
+        return f"{iso[0]}-W{iso[1]:02d}"
+
+    current_week = _iso_week_str(timezone.now())
+
+    week_filter = (request.GET.get("week") or "all").strip()
+    weeks_wanted = None if week_filter.lower() == "all" else {
+        week_filter.upper()}
+
+    filas = []
+    total_semana_actual = Decimal('0')
+
+    for s in qs:
+        rw = (s.semana_pago_real or "").upper()
+        if weeks_wanted is not None and rw not in weeks_wanted:
+            continue
+
+        detalle = []
+        total_tecnico = Decimal('0')
+
+        for it in s.items.all():
+            bd = next(
+                (d for d in it.desglose_tecnico.all()
+                 if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
+                None
+            )
+            if not bd:
+                continue
+
+            rate = bd.tarifa_efectiva if isinstance(
+                bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
+            qty = it.cantidad if isinstance(
+                it.cantidad,        Decimal) else Decimal(str(it.cantidad or 0))
+
+            sub_tec = rate * qty
+            total_tecnico += sub_tec
+
+            detalle.append({
+                "codigo": it.codigo_trabajo,
+                "tipo": it.tipo_trabajo,
+                "desc": it.descripcion,
+                "uom": it.unidad_medida,
+                "qty": it.cantidad,
+                "rate_tec": rate,
+                "subtotal_tec": sub_tec,
+            })
+
+        if detalle:
+            if rw == current_week:
+                total_semana_actual += total_tecnico
+
+            filas.append({
+                "sesion": s,
+                "project_id": s.proyecto_id,
+                "week": s.semana_pago_proyectada or "—",
+                "status": s.estado,
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": s.semana_pago_real or "—",
+                "total_tecnico": total_tecnico,
+                "detalle": detalle,
+            })
+
+    # Orden: actual primero, luego futuras, luego pasadas, sin semana al final
+    def bucket_key(row):
+        rw = row["real_week"]
+        if rw == "—":
+            return (2, "ZZZ")
+        if rw == current_week:
+            return (0, "000")
+        if rw > current_week:
+            return (0, rw)
+        return (1, rw)
+
+    filas.sort(key=bucket_key)
+
+    return render(request, "operaciones/produccion_usuario.html", {
+        "filas": filas,
+        "current_week": current_week,
+        "total_semana_actual": total_semana_actual,
+        "week_filter": week_filter,  # puede ser "all" o "YYYY-W##"
+    })
+
+
+def _s3_client():
+    """
+    Wasabi S3 en path-style para evitar problemas de CORS/SSL.
+    Usa el endpoint REGIONAL del bucket (p.ej. us-east-1).
+    """
+    return boto3.client(
+        "s3",
+        endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL",
+                             "https://s3.us-east-1.wasabisys.com"),
+        region_name=getattr(settings, "AWS_S3_REGION_NAME", "us-east-1"),
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4", s3={
+                      "addressing_style": "path"}),
+        verify=getattr(settings, "AWS_S3_VERIFY", True),
+    )
+
+
+ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+
+@transaction.atomic
+def _sync_weekly_totals(week: str | None = None) -> dict:
+    """
+    NO crea WeeklyPayment.
+    - Actualiza amount si cambió (y pasa approved_user -> pending_payment).
+    - Elimina registros sin producción aprobada (>0) si status != 'paid'.
+    Considera solo sesiones en ESTADOS_OK.
+    """
+    # Producción vigente por (técnico, semana real) SOLO aprobada
+    agg = (
+        ItemBillingTecnico.objects
+        .filter(item__sesion__semana_pago_real__gt="")
+        .filter(item__sesion__estado__in=ESTADOS_OK)
+        .values("tecnico_id", "item__sesion__semana_pago_real")
+        .annotate(total=Sum("subtotal"))
+    )
+    if week:
+        agg = agg.filter(item__sesion__semana_pago_real=week)
+
+    # Mapa con totales > 0; totales 0 o negativos se consideran “no hay producción”
+    prod_totals = {
+        (row["tecnico_id"], row["item__sesion__semana_pago_real"]): (row["total"] or Decimal("0"))
+        for row in agg
+        if (row["total"] or Decimal("0")) > 0
+    }
+
+    updated = deleted = 0
+
+    # Recorremos los weekly existentes y sincronizamos SIN crear
+    for wp in WeeklyPayment.objects.select_for_update():
+        # Si filtras por una semana en particular
+        if week and wp.week != week:
+            continue
+
+        key = (wp.technician_id, wp.week)
+
+        # Caso 1: ya no hay producción aprobada (>0) -> borrar si no está pagado
+        if key not in prod_totals:
+            if wp.status != "paid":
+                wp.delete()
+                deleted += 1
+            continue
+
+        # Caso 2: sí hay producción -> actualizar monto si cambió
+        total = prod_totals[key]
+        if wp.amount != total:
+            wp.amount = total
+            save_fields = ["amount", "updated_at"]
+            if wp.status == "approved_user":
+                wp.status = "pending_payment"
+                save_fields.append("status")
+            wp.save(update_fields=save_fields)
+            updated += 1
+
+        # Quitamos del mapa por si quieres usar métricas después
+        prod_totals.pop(key, None)
+
+    # Lo que quede en prod_totals son semanas con producción >0 pero SIN WeeklyPayment.
+    # No los creamos porque explícitamente no quieres crearlos.
+    skipped_missing = len(prod_totals)
+
+    return {"updated": updated, "deleted": deleted, "skipped_missing": skipped_missing}
+
+
+# ================================ ADMIN / PM ================================ #
+
+
+# imports (arriba de views.py)
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@never_cache
+def admin_weekly_payments(request):
+    """
+    Pagos semanales:
+    - Top: semana actual NO pagados.
+    - Bottom (Paid): con filtros auto y paginación estilo global (cantidad/page).
+    """
+    _sync_weekly_totals()
+
+    y, w, _ = timezone.localdate().isocalendar()
+    current_week = f"{y}-W{int(w):02d}"
+
+    # ------------------ TOP ------------------
+    top = (
+        WeeklyPayment.objects
+        .filter(week=current_week)
+        .exclude(status="paid")
+        .select_related("technician")
+        .order_by("status", "technician__first_name", "technician__last_name")
+    )
+
+    # ------------------ Helpers de normalización de week ------------------
+    def _norm_week_input(raw: str) -> str:
+        s = (raw or "").strip().upper()
+        if not s:
+            return ""
+        # 34 / W34 / 2025-W34 / 2025w34
+        m_year = re.match(r"^(\d{4})[- ]?W?(\d{1,2})$", s)
+        if m_year:
+            yy = int(m_year.group(1))
+            ww = int(m_year.group(2))
+            return f"{yy}-W{ww:02d}"
+        m_now = re.match(r"^W?(\d{1,2})$", s)
+        if m_now:
+            ww = int(m_now.group(1))
+            return f"{y}-W{ww:02d}"
+        # Si no coincide, devolver tal cual (no rompe filtros)
+        return s
+
+    # ------------------ Filtros GET ------------------
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
+    f_week = _norm_week_input(f_week_input)
+    f_paid_week = _norm_week_input(f_paid_week_input)
+    f_receipt = (request.GET.get("f_receipt")
+                 or "").strip()   # "", "with", "without"
+
+    bottom_qs = WeeklyPayment.objects.filter(
+        status="paid").select_related("technician")
+
+    if f_tech:
+        bottom_qs = bottom_qs.filter(
+            Q(technician__first_name__icontains=f_tech) |
+            Q(technician__last_name__icontains=f_tech) |
+            Q(technician__username__icontains=f_tech)
+        )
+    if f_week:
+        bottom_qs = bottom_qs.filter(week=f_week)
+    if f_paid_week:
+        bottom_qs = bottom_qs.filter(paid_week=f_paid_week)
+    if f_receipt == "with":
+        bottom_qs = bottom_qs.exclude(Q(receipt__isnull=True) | Q(receipt=""))
+    elif f_receipt == "without":
+        bottom_qs = bottom_qs.filter(Q(receipt__isnull=True) | Q(receipt=""))
+
+    bottom_qs = bottom_qs.order_by("-paid_week", "-week",
+                                   "technician__first_name", "technician__last_name")
+
+    # ------------------ Paginación estilo global ------------------
+    # '5','10','20','todos'
+    cantidad = (request.GET.get("cantidad") or "10").strip().lower()
+    page_number = request.GET.get("page") or "1"
+
+    if cantidad == "todos":
+        # la plantilla itera y no usa atributos de Page en este modo
+        pagina = list(bottom_qs)
+    else:
+        try:
+            per_page = max(1, min(100, int(cantidad)))
+        except ValueError:
+            per_page = 10
+            cantidad = "10"
+        paginator = Paginator(bottom_qs, per_page)
+        pagina = paginator.get_page(page_number)
+
+    # querystring para que los enlaces de paginación conserven los filtros
+    keep = {
+        "f_tech": f_tech,
+        "f_week": f_week_input,
+        "f_paid_week": f_paid_week_input,
+        "f_receipt": f_receipt,
+        "cantidad": cantidad,
+    }
+    filters_qs = urlencode({k: v for k, v in keep.items() if v})
+
+    return render(request, "operaciones/pagos_admin_list.html", {
+        "current_week": current_week,
+        "top": top,
+
+        # historial
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "filters_qs": filters_qs,
+
+        # valores de filtros para inputs
+        "f_tech": f_tech,
+        "f_week_input": f_week_input,
+        "f_paid_week_input": f_paid_week_input,
+        "f_receipt": f_receipt,
+    })
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@require_POST
+@transaction.atomic
+def admin_unpay(request, pk: int):
+    """
+    Quita el comprobante y mueve el registro a 'pending_payment'.
+    Mantiene el historial (no borra el registro).
+    """
+    wp = get_object_or_404(WeeklyPayment, pk=pk)
+
+    if wp.status != "paid":
+        messages.info(request, "Only PAID items can be reverted.")
+        return redirect("operaciones:admin_weekly_payments")
+
+    # borra archivo del storage (si existe) sin guardar el modelo todavía
+    try:
+        if wp.receipt:
+            wp.receipt.delete(save=False)
+    except Exception:
+        # no interrumpir si no se pudo borrar físicamente
+        pass
+
+    wp.receipt = None
+    wp.paid_week = ""
+    wp.status = "pending_payment"
+    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
+
+    messages.success(request, "Payment reverted. It is now pending again.")
+    return redirect("operaciones:admin_weekly_payments")
+
+
+@require_POST
+def presign_receipt(request, pk: int):
+    """
+    Presigned POST directo a Wasabi (path-style):
+    - Sin Content-Type en condiciones (evita mismatches).
+    - success_action_status=201.
+    - Fuerza URL path-style: https://s3.<region>.wasabisys.com/<bucket>
+    """
+    wp = get_object_or_404(WeeklyPayment, pk=pk)
+
+    filename = request.POST.get("filename") or "receipt"
+    _base, ext = os.path.splitext(filename)
+    ext = (ext or ".pdf").lower()
+
+    key = f"operaciones/pagos/{wp.week}/{wp.technician_id}/receipt_{uuid4().hex}{ext}"
+
+    s3 = _s3_client()
+    fields = {
+        "acl": "private",
+        "success_action_status": "201",
+    }
+    conditions = [
+        {"acl": "private"},
+        {"success_action_status": "201"},
+        ["content-length-range", 0, 25 * 1024 * 1024],
+        # NOTA: no metemos Content-Type en conditions para evitar CORS/preflight raros
+    ]
+
+    post = s3.generate_presigned_post(
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        Key=key,
+        Fields=fields,
+        Conditions=conditions,
+        ExpiresIn=600,
+    )
+
+    # 👇 Forzar URL path-style (algunos entornos devuelven virtual-hosted)
+    endpoint = settings.AWS_S3_ENDPOINT_URL.rstrip("/")
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    post["url"] = f"{endpoint}/{bucket}"
+
+    return JsonResponse({"post": post, "key": key})
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@transaction.atomic
+def confirm_receipt(request, pk: int):
+    """
+    Confirma la subida directa: guarda key en FileField y marca 'paid'.
+    No re-sube el archivo; solo enlaza el objeto S3 ya subido.
+    """
+    wp = get_object_or_404(WeeklyPayment, pk=pk)
+    key = request.POST.get("key")
+    if not key:
+        return HttpResponseBadRequest("Missing key")
+
+    if wp.status not in ("approved_user", "pending_payment"):
+        messages.error(request, "This item is not approved by the worker yet.")
+        return redirect("operaciones:admin_weekly_payments")
+
+    # Enlaza el objeto subido en S3 (Wasabi)
+    wp.receipt.name = key
+    y, w, _ = timezone.localdate().isocalendar()
+    wp.paid_week = f"{y}-W{int(w):02d}"
+    wp.status = "paid"
+    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
+
+    messages.success(request, "Payment marked as PAID.")
+    return redirect("operaciones:admin_weekly_payments")
+
+
+# (Opcional) Respaldo de flujo clásico con multipart a Django
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@transaction.atomic
+def admin_mark_paid(request, pk: int):
+    """
+    Alternativa si no quieres presigned: sube via Django, guarda y marca 'paid'.
+    """
+    wp = get_object_or_404(WeeklyPayment, pk=pk)
+    if wp.status not in ("approved_user", "pending_payment"):
+        messages.error(request, "This item is not approved by the worker yet.")
+        return redirect("operaciones:admin_weekly_payments")
+
+    form = PaymentMarkPaidForm(request.POST, request.FILES, instance=wp)
+    if not form.is_valid():
+        messages.error(request, "Receipt is required.")
+        return redirect("operaciones:admin_weekly_payments")
+
+    form.save()  # guarda receipt en Wasabi via DEFAULT_FILE_STORAGE
+    y, w, _ = timezone.localdate().isocalendar()
+    wp.paid_week = f"{y}-W{int(w):02d}"
+    wp.status = "paid"
+    wp.save(update_fields=["paid_week", "status", "updated_at"])
+
+    messages.success(request, "Payment marked as PAID.")
+    return redirect("operaciones:admin_weekly_payments")
+
+
+# ================================= USUARIO ================================= #
+
+
+@login_required
+@never_cache
+def user_weekly_payments(request):
+    """Vista del trabajador: semanas + aprobar/rechazar."""
+    # sincroniza SOLO este técnico, sin crear weeklies
+    sync_weekly_totals_no_create(technician_id=request.user.id)
+
+    y, w, _ = timezone.localdate().isocalendar()
+    current_week = f"{y}-W{int(w):02d}"
+
+    ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    # ¿Existe producción aprobada (>0) para (tecnico, week)?
+    prod_exists = (
+        ItemBillingTecnico.objects
+        .filter(tecnico_id=request.user.id,
+                item__sesion__semana_pago_real=OuterRef("week"),
+                item__sesion__estado__in=ESTADOS_OK)
+        .values("tecnico_id")
+        .annotate(total=Sum("subtotal"))
+        .filter(total__gt=0)
+    )
+
+    # Borra huérfanos (no paid) que no tengan producción vigente
+    (WeeklyPayment.objects
+        .filter(technician=request.user)
+        .annotate(has_prod=Exists(prod_exists))
+        .filter(has_prod=False)
+        .exclude(status="paid")
+        .delete())
+
+    # Lista solo los que sí tienen producción vigente
+    mine = (
+        WeeklyPayment.objects
+        .filter(technician=request.user)
+        .annotate(has_prod=Exists(prod_exists))
+        .filter(has_prod=True)
+        .select_related("technician")
+        .order_by("-week")
+    )
+
+    return render(request, "operaciones/pagos_user_list.html", {
+        "current_week": current_week,
+        "mine": mine,
+        "approve_form": PaymentApproveForm(),
+        "reject_form": PaymentRejectForm(),
+    })
+
+
+@login_required
+@transaction.atomic
+def user_approve_payment(request, pk: int):
+    wp = get_object_or_404(WeeklyPayment, pk=pk, technician=request.user)
+
+    if wp.status != "pending_user":
+        messages.info(
+            request, "You can only approve when status is 'Pending my approval'.")
+        return redirect("operaciones:user_weekly_payments")
+
+    wp.reject_reason = ""
+    wp.status = "pending_payment"  # aprobado -> queda esperando pago
+    wp.save(update_fields=["status", "reject_reason", "updated_at"])
+
+    messages.success(request, "Amount approved. Waiting for payment.")
+    return redirect("operaciones:user_weekly_payments")
+
+
+@login_required
+@transaction.atomic
+def user_reject_payment(request, pk: int):
+    wp = get_object_or_404(WeeklyPayment, pk=pk, technician=request.user)
+
+    if wp.status != "pending_user":
+        messages.info(
+            request, "You can only reject when status is 'Pending my approval'.")
+        return redirect("operaciones:user_weekly_payments")
+
+    form = PaymentRejectForm(request.POST, instance=wp)
+    if not form.is_valid():
+        messages.error(request, "Please provide a reason.")
+        return redirect("operaciones:user_weekly_payments")
+
+    wp = form.save(commit=False)
+    wp.status = "rejected_user"
+    wp.save(update_fields=["status", "reject_reason", "updated_at"])
+
+    messages.success(request, "Amount rejected. Your reason is visible now.")
+    return redirect("operaciones:user_weekly_payments")
+
+
+def admin_reset_payment_status(request, pk: int):
+    """
+    Vuelve un registro RECHAZADO a 'pending_user' para que el técnico lo vuelva a aprobar.
+    """
+    wp = get_object_or_404(WeeklyPayment, pk=pk)
+
+    if wp.status != "rejected_user":
+        messages.info(
+            request, "Only items rejected by the worker can be reset.")
+        return redirect("operaciones:admin_weekly_payments")
+
+    wp.status = "pending_user"
+    wp.reject_reason = ""  # si prefieres conservar el motivo, comenta esta línea
+    wp.save(update_fields=["status", "reject_reason", "updated_at"])
+
+    messages.success(request, "Status reset to 'Pending worker approval'.")
+    return redirect("operaciones:admin_weekly_payments")

@@ -1,0 +1,346 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+{% block title %}Weekly Payments{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2">
+
+<a href="{% url 'operaciones:produccion_admin' %}" 
+       class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
+      ← Back
+    </a>
+      <h1 class="text-2xl font-bold">💳 Weekly Payments</h1>
+    </div>
+    <div class="text-sm text-gray-600">Current week: <b>{{ current_week }}</b></div>
+  </div>
+
+  <!-- ================= TOP: actuales (no pagados) ================= -->
+  <h2 class="text-lg font-semibold mb-2">This week</h2>
+  <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-[950px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="p-2 text-left">Technician</th>
+          <th class="p-2 text-left">Pay week</th>
+          <th class="p-2 text-right">Total</th>
+          <th class="p-2 text-left">Status</th>
+          <th class="p-2 text-left">Receipt</th>
+          <th class="p-2 text-left">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in top %}
+        <tr class="border-b">
+          <td class="p-2">{{ r.technician.get_full_name|default:r.technician.username }}</td>
+          <td class="p-2">{{ r.week }}</td>
+          <td class="p-2 text-right">${{ r.amount|floatformat:2 }}</td>
+          <td class="p-2">
+            {% if r.status == "pending_user" %}
+              <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending worker approval</span>
+            {% elif r.status == "approved_user" or r.status == "pending_payment" %}
+              <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Pending payment</span>
+            {% elif r.status == "rejected_user" %}
+              <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full" title="{{ r.reject_reason|default:'—' }}">Rejected by worker</span>
+            {% endif %}
+          </td>
+          <td class="p-2">
+            {% if r.receipt %}
+              <a class="text-blue-600 underline" href="{{ r.receipt.url }}" target="_blank" rel="noopener">View</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="p-2">
+            {% if r.status == "pending_payment" or r.status == "approved_user" %}
+              <button type="button"
+                      class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                      onclick="openPayModal({{ r.id }}, '{{ r.week }}', '{{ r.technician.get_full_name|default:r.technician.username }}')">
+                Mark as Paid
+              </button>
+            {% elif r.status == "rejected_user" %}
+              <span class="text-gray-500">—</span>
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="p-4 text-center text-gray-500">No records.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= BOTTOM: historial (Paid) ================= -->
+  <h2 class="text-lg font-semibold mt-8 mb-2">History (Paid)</h2>
+
+  <!-- Filtros sutiles (auto) -->
+  <form id="filters" class="mb-3" onsubmit="return false;">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+      <div>
+        <label class="text-xs text-gray-600">Technician</label>
+        <input name="f_tech" type="text" value="{{ f_tech }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="Name or username">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Pay week</label>
+        <input name="f_week" type="text" value="{{ f_week_input }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="e.g. W34 or 2025-W34">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Paid week</label>
+        <input name="f_paid_week" type="text" value="{{ f_paid_week_input }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="e.g. W34 or 2025-W34">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Receipt</label>
+        <select name="f_receipt" class="w-full border rounded px-2 py-1.5">
+          <option value="" {% if not f_receipt %}selected{% endif %}>Any</option>
+          <option value="with" {% if f_receipt == "with" %}selected{% endif %}>With receipt</option>
+          <option value="without" {% if f_receipt == "without" %}selected{% endif %}>Without receipt</option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <a href="{% url 'operaciones:admin_weekly_payments' %}"
+           class="px-3 py-2 rounded border bg-white hover:bg-gray-50 w-full text-center">Reset</a>
+      </div>
+    </div>
+  </form>
+
+  <!-- 👇 wrapper para actualización parcial (tabla + paginación estilo global) -->
+  <div id="paid-wrap">
+    <div class="overflow-x-auto">
+      <table class="table-auto w-full text-sm min-w-[950px]" style="white-space: nowrap;">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="p-2 text-left">Technician</th>
+            <th class="p-2 text-left">Pay week</th>
+            <th class="p-2 text-right">Total</th>
+            <th class="p-2 text-left">Status</th>
+            <th class="p-2 text-left">Paid week</th>
+            <th class="p-2 text-left">Receipt</th>
+            <th class="p-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in pagina %}
+          <tr class="border-b">
+            <td class="p-2">{{ r.technician.get_full_name|default:r.technician.username }}</td>
+            <td class="p-2">{{ r.week }}</td>
+            <td class="p-2 text-right">${{ r.amount|floatformat:2 }}</td>
+            <td class="p-2">
+              <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full">Paid</span>
+            </td>
+            <td class="p-2">{{ r.paid_week|default:"—" }}</td>
+            <td class="p-2">
+              {% if r.receipt %}
+                <a class="text-blue-600 underline" href="{{ r.receipt.url }}" target="_blank" rel="noopener">View</a>
+              {% else %}—{% endif %}
+            </td>
+            <td class="p-2">
+              <button type="button"
+                      class="px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-700"
+                      onclick="openUnpayModal({{ r.id }}, '{{ r.week }}', '{{ r.technician.get_full_name|default:r.technician.username }}')">
+                Unpay
+              </button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="p-4 text-center text-gray-500">No records.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación estilo global -->
+    <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+      <form method="get" class="flex items-center gap-2" onsubmit="return false;">
+        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+        <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+          <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        </select>
+      </form>
+    </div>
+
+    <div class="mt-2 flex justify-center text-sm">
+      {% if cantidad == 'todos' %}
+        <span>Page 1 of 1</span>
+      {% else %}
+        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% endif %}
+    </div>
+
+    <div class="mt-2 flex justify-center gap-2 text-sm">
+      {% if cantidad != 'todos' and pagina.has_previous %}
+        <a data-pagelink
+           href="?page=1&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+        <a data-pagelink
+           href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+      {% endif %}
+      {% if cantidad != 'todos' and pagina.has_next %}
+        <a data-pagelink
+           href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+        <a data-pagelink
+           href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Upload receipt ===== -->
+<div id="pay-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-2xl shadow max-w-md w-full p-6">
+    <h3 class="text-xl font-semibold mb-1">Upload payment receipt</h3>
+    <p id="pay-modal-sub" class="text-sm text-gray-600 mb-4"></p>
+    <div class="space-y-3">
+      <input id="receipt-file" type="file" accept=".pdf,.jpg,.jpeg,.png" class="w-full border rounded p-2 bg-gray-50" required>
+      <div class="flex gap-2 justify-end pt-2">
+        <button type="button" class="px-4 py-2 rounded bg-gray-200" onclick="closePayModal()">Cancel</button>
+        <button id="btn-upload" type="button" class="px-4 py-2 rounded bg-green-600 text-white">Upload & mark as paid</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Unpay ===== -->
+<div id="unpay-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-2xl shadow max-w-md w-full p-6">
+    <h3 class="text-xl font-semibold mb-1">Undo payment?</h3>
+    <p id="unpay-modal-sub" class="text-sm text-gray-600 mb-4"></p>
+    <p class="text-sm text-gray-700 mb-4">
+      This will <b>remove the receipt</b> and move the item back to <i>Pending payment</i>.
+    </p>
+    <div class="flex gap-2 justify-end">
+      <button type="button" class="px-4 py-2 rounded bg-gray-200" onclick="closeUnpayModal()">Cancel</button>
+      <button id="btn-unpay" type="button" class="px-4 py-2 rounded bg-amber-600 text-white">Yes, unpay</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- CSRF ----------
+  function getCookie(name){const v=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');return v? v.pop() : '';}
+  const CSRF = getCookie('csrftoken');
+
+  // ---------- Toaster ----------
+  function toast(msg,kind="info"){
+    let host=document.getElementById('toast'); if(!host){host=document.createElement('div');host.id='toast';host.className='fixed bottom-4 right-4 z-[100]';document.body.appendChild(host);}
+    const box=document.createElement('div');box.className='mb-2 rounded-lg shadow px-3 py-2 text-sm '+(kind==="error"?'bg-red-600 text-white':kind==="ok"?'bg-green-600 text-white':'bg-gray-900 text-white');box.textContent=msg;host.appendChild(box);setTimeout(()=>box.remove(),4500);
+  }
+
+  // ---------- Pay modal ----------
+  let currentPayId=null;
+  function openPayModal(id, week, tech){
+    currentPayId=id;
+    const m=document.getElementById('pay-modal'); m.classList.remove('hidden'); m.classList.add('flex');
+    document.getElementById('pay-modal-sub').textContent=`${tech} — ${week}`;
+  }
+  function closePayModal(){const m=document.getElementById('pay-modal'); m.classList.add('hidden'); m.classList.remove('flex'); document.getElementById('receipt-file').value="";}
+
+  document.getElementById('btn-upload').addEventListener('click', async ()=>{
+    const file=document.getElementById('receipt-file').files[0]; const payId=currentPayId; if(!file||!payId) return;
+    closePayModal(); toast('Uploading receipt…');
+    try{
+      const presignData=new FormData(); presignData.append('filename', file.name);
+      const presignUrl="{% url 'operaciones:presign_receipt' 0 %}".replace('/0/','/'+payId+'/');
+      const presignResp=await fetch(presignUrl,{method:'POST',headers:{'X-CSRFToken':CSRF},body:presignData});
+      if(!presignResp.ok) throw new Error('presign failed');
+      const {post,key}=await presignResp.json();
+
+      await new Promise((resolve,reject)=>{
+        const fd=new FormData(); Object.entries(post.fields).forEach(([k,v])=>fd.append(k,v)); fd.append('file',file);
+        const xhr=new XMLHttpRequest(); xhr.open('POST',post.url,true);
+        xhr.onload=()=> (xhr.status===201 || xhr.status===204)? resolve() : reject(new Error('Upload '+xhr.status));
+        xhr.onerror=()=>reject(new Error('Network error')); xhr.send(fd);
+      });
+
+      const confirmUrl="{% url 'operaciones:confirm_receipt' 0 %}".replace('/0/','/'+payId+'/');
+      const confirmFD=new FormData(); confirmFD.append('key', key);
+      const confirmResp=await fetch(confirmUrl,{method:'POST',headers:{'X-CSRFToken':CSRF},body:confirmFD});
+      if(!confirmResp.ok) throw new Error('confirm failed');
+      toast('Payment marked as PAID ✅','ok'); setTimeout(()=>window.location.reload(),600);
+    }catch(e){console.error(e); toast('Upload failed: '+e.message,'error');}
+  });
+
+  // ---------- Unpay modal ----------
+  let currentUnpayId=null;
+  function openUnpayModal(id, week, tech){
+    currentUnpayId=id;
+    const m=document.getElementById('unpay-modal'); m.classList.remove('hidden'); m.classList.add('flex');
+    document.getElementById('unpay-modal-sub').textContent=`${tech} — ${week}`;
+  }
+  function closeUnpayModal(){const m=document.getElementById('unpay-modal'); m.classList.add('hidden'); m.classList.remove('flex');}
+
+  document.getElementById('btn-unpay').addEventListener('click', async ()=>{
+    const id=currentUnpayId; if(!id) return; closeUnpayModal();
+    try{
+      const url="{% url 'operaciones:admin_unpay' 0 %}".replace('/0/','/'+id+'/');
+      const resp=await fetch(url,{method:'POST',headers:{'X-CSRFToken':CSRF}});
+      if(!resp.ok) throw new Error('request failed');
+      toast('Unpaid. Back to pending payment ✅','ok');
+      setTimeout(()=>window.location.reload(),500);
+    }catch(e){console.error(e); toast('Failed to unpay: '+e.message,'error');}
+  });
+
+  // =================== FILTROS + PAGINACIÓN (AJAX) ===================
+  function paramsFromFilters() {
+    const params = new URLSearchParams(new FormData(document.getElementById('filters')));
+    const cant = document.getElementById('cantidad');
+    if (cant) params.set('cantidad', cant.value);
+    return params;
+  }
+
+  async function refreshPaid(urlOrParams) {
+    let url;
+    if (typeof urlOrParams === 'string') {
+      url = urlOrParams.startsWith('?') ? (location.pathname + urlOrParams) : urlOrParams;
+    } else {
+      const p = (urlOrParams instanceof URLSearchParams) ? urlOrParams : paramsFromFilters();
+      if (!p.has('page')) p.set('page', '1');   // al filtrar, ir siempre a la página 1
+      url = location.pathname + '?' + p.toString();
+    }
+    history.replaceState(null, '', url);
+    const html = await fetch(url, { headers:{'X-Requested-With':'fetch'} }).then(r=>r.text());
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const nuevo = doc.querySelector('#paid-wrap');
+    const viejo = document.querySelector('#paid-wrap');
+    if (nuevo && viejo) viejo.innerHTML = nuevo.innerHTML;
+  }
+
+  // Debounce para teclear libremente sin cerrar el input
+  let t=null;
+  function schedule(){ clearTimeout(t); t=setTimeout(()=>refreshPaid(paramsFromFilters()), 450); }
+
+  // Auto-aplicar (tecn, weeks, receipt)
+  document.querySelectorAll('#filters input[type="text"], #filters select').forEach(el=>{
+    el.addEventListener('input',  schedule);
+    el.addEventListener('change', schedule);
+  });
+
+  // Cambio de "Show"
+  document.addEventListener('change', (e)=>{
+    if (e.target && e.target.id === 'cantidad') {
+      const p = paramsFromFilters(); p.set('page','1'); refreshPaid(p);
+    }
+  });
+
+  // Enlaces de paginación (First/Prev/Next/Last)
+  document.addEventListener('click', (e)=>{
+    const a = e.target.closest('a[data-pagelink]');
+    if (!a) return;
+    e.preventDefault();
+    refreshPaid(a.getAttribute('href'));
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,290 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block title %}Production Verification{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-3">
+
+  <a href="{% url 'operaciones:admin_weekly_payments' %}" 
+       class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
+      ← Back
+    </a>
+      <h1 class="text-2xl font-bold">✅ Production Verification</h1>
+    </div>
+    <!-- Derecha: "Current week" al lado del botón -->
+  <div class="flex items-center gap-3">
+    <span class="text-sm text-gray-600 whitespace-nowrap">
+      Current week: <b>{{ current_week }}</b>
+    </span>
+    <a href="{% url 'operaciones:admin_weekly_payments' %}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow">
+      💳 Show totals to pay
+    </a>
+  </div>
+</div>
+
+  <!-- Filtros sutiles (auto) -->
+  <form id="filters" class="mb-3" onsubmit="return false;">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+      <div>
+        <label class="text-xs text-gray-600">Project</label>
+        <input name="f_project" type="text" value="{{ f_project }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="Project or ID">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Real pay week</label>
+<input name="f_week" type="text" value="{{ f_week_input }}"
+       class="w-full border rounded px-2 py-1.5"
+       placeholder="2025-W34">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Technician</label>
+        <input name="f_tech" type="text" value="{{ f_tech }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="Name or username">
+      </div>
+      <div>
+        <label class="text-xs text-gray-600">Client</label>
+        <input name="f_client" type="text" value="{{ f_client }}"
+               class="w-full border rounded px-2 py-1.5"
+               placeholder="Client name">
+      </div>
+      <div class="flex items-end">
+        <a href="{% url 'operaciones:produccion_admin' %}"
+           class="px-3 py-2 rounded border bg-white hover:bg-gray-50 w-full text-center">Reset</a>
+      </div>
+    </div>
+  </form>
+
+  <!-- 👇 wrapper para actualización parcial (tabla + paginación) -->
+  <div id="prod-wrap">
+    <div class="rounded-xl border border-gray-200 overflow-x-auto">
+      <table class="table-auto text-sm w-full min-w-[1400px]" style="white-space: nowrap;">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="p-2 border w-10"></th>
+            <th class="p-2 border text-left">Project ID</th>
+            <th class="p-2 border text-left">Real pay week</th>
+            <th class="p-2 border text-left">Status</th>
+            <th class="p-2 border text-left">Technician</th>
+            <th class="p-2 border text-left">Client</th>
+            <th class="p-2 border text-left">City</th>
+            <th class="p-2 border text-left">Project</th>
+            <th class="p-2 border text-left">Office</th>
+            <th class="p-2 border text-right">Technical Billing</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in pagina %}
+          <tr class="border-t align-top">
+            <td class="p-2 border text-center">
+              <button type="button"
+                      class="btn-toggle inline-flex w-7 h-7 items-center justify-center rounded hover:bg-gray-100"
+                      data-target="det-{{ forloop.counter }}"
+                      aria-expanded="false">
+                <svg class="chev w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414L10 12.414 6.293 8.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                </svg>
+              </button>
+            </td>
+
+            <td class="p-2 border">{{ r.project_id }}</td>
+            <td class="p-2 border">{{ r.week }}</td>
+            <td class="p-2 border">
+              {% if r.status == "aprobado_pm" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+              {% elif r.status == "aprobado_supervisor" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
+              {% elif r.status == "aprobado_finanzas" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Approved by Finance</span>
+              {% elif r.status == "rechazado_pm" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+              {% elif r.status == "rechazado_supervisor" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
+              {% elif r.status == "en_revision_supervisor" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
+              {% elif r.status == "finalizado" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+              {% elif r.status == "en_proceso" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In Progress</span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+              {% endif %}
+            </td>
+            <td class="p-2 border">{{ r.tecnico.get_full_name|default:r.tecnico.username }}</td>
+            <td class="p-2 border">{{ r.client }}</td>
+            <td class="p-2 border">{{ r.city }}</td>
+            <td class="p-2 border">{{ r.project }}</td>
+            <td class="p-2 border">{{ r.office }}</td>
+            <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
+           
+          </tr>
+
+          <!-- Detalle -->
+          <tr id="det-{{ forloop.counter }}" class="hidden">
+            <td class="border"></td>
+            <td class="p-3 border bg-gray-50" colspan="10">
+              <div class="overflow-x-auto rounded border">
+                <table class="min-w-[900px] w-full text-xs">
+                  <thead class="bg-gray-100">
+                    <tr>
+                      <th class="p-2 text-left">Job Code</th>
+                      <th class="p-2 text-left">Work Type</th>
+                      <th class="p-2 text-left">Description</th>
+                      <th class="p-2 text-left">UOM</th>
+                      <th class="p-2 text-right">Quantity</th>
+                      <th class="p-2 text-right">Technical Rate</th>
+                      <th class="p-2 text-right">Subtotal Technical</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for d in r.detalle %}
+                    <tr class="border-t">
+                      <td class="p-2">{{ d.codigo }}</td>
+                      <td class="p-2">{{ d.tipo }}</td>
+                      <td class="p-2">{{ d.desc }}</td>
+                      <td class="p-2">{{ d.uom }}</td>
+                      <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
+                      <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
+                      <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="p-2 text-center text-gray-500">No items for this technician.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-xs text-gray-500 mt-2">
+                Only sessions approved by Supervisor, PM or Finance are listed.
+              </p>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="11" class="p-4 text-center text-gray-500">No production to show.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación estilo global -->
+    <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+      <form method="get" class="flex items-center gap-2" onsubmit="return false;">
+        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+        <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+          <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        </select>
+      </form>
+    </div>
+
+    <div class="mt-2 flex justify-center text-sm">
+      {% if cantidad == 'todos' %}
+        <span>Page 1 of 1</span>
+      {% else %}
+        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% endif %}
+    </div>
+
+    <div class="mt-2 flex justify-center gap-2 text-sm">
+      {% if cantidad != 'todos' and pagina.has_previous %}
+        <a data-pagelink
+           href="?page=1&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+        <a data-pagelink
+           href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+      {% endif %}
+      {% if cantidad != 'todos' and pagina.has_next %}
+        <a data-pagelink
+           href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+        <a data-pagelink
+           href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}{% if filters_qs %}&{{ filters_qs }}{% endif %}"
+           class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Toggle detalle -->
+<script>
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.btn-toggle');
+  if(!btn) return;
+  const id = btn.getAttribute('data-target');
+  const row = document.getElementById(id);
+  const chev = btn.querySelector('.chev');
+  const expanded = !row.classList.contains('hidden');
+  if (expanded){
+    row.classList.add('hidden');
+    chev.style.transform = 'rotate(0deg)';
+    btn.setAttribute('aria-expanded', 'false');
+  } else {
+    row.classList.remove('hidden');
+    chev.style.transform = 'rotate(90deg)';
+    btn.setAttribute('aria-expanded', 'true');
+  }
+});
+</script>
+
+<!-- Filtros + paginación (AJAX) idéntico a Weekly Payments -->
+<script>
+  // Construye params desde filtros + cantidad
+  function paramsFromFilters() {
+    const params = new URLSearchParams(new FormData(document.getElementById('filters')));
+    const cant = document.getElementById('cantidad');
+    if (cant) params.set('cantidad', cant.value);
+    return params;
+  }
+
+  async function refreshProd(urlOrParams) {
+    let url;
+    if (typeof urlOrParams === 'string') {
+      url = urlOrParams.startsWith('?') ? (location.pathname + urlOrParams) : urlOrParams;
+    } else {
+      const p = (urlOrParams instanceof URLSearchParams) ? urlOrParams : paramsFromFilters();
+      if (!p.has('page')) p.set('page', '1');   // al filtrar, volver a la página 1
+      url = location.pathname + '?' + p.toString();
+    }
+    history.replaceState(null, '', url);
+    const html = await fetch(url, { headers:{'X-Requested-With':'fetch'} }).then(r=>r.text());
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const nuevo = doc.querySelector('#prod-wrap');
+    const viejo = document.querySelector('#prod-wrap');
+    if (nuevo && viejo) viejo.innerHTML = nuevo.innerHTML;
+  }
+
+  // Debounce para escribir sin perder foco
+  let t = null;
+  function schedule(){ clearTimeout(t); t = setTimeout(()=>refreshProd(paramsFromFilters()), 450); }
+
+  // Auto-apply en inputs
+  document.querySelectorAll('#filters input[type="text"]').forEach(el=>{
+    el.addEventListener('input',  schedule);
+    el.addEventListener('change', schedule);
+  });
+
+  // Cambio de "Show"
+  document.addEventListener('change', (e)=>{
+    if (e.target && e.target.id === 'cantidad') {
+      const p = paramsFromFilters(); p.set('page','1'); refreshProd(p);
+    }
+  });
+
+  // Enlaces de paginación
+  document.addEventListener('click', (e)=>{
+    const a = e.target.closest('a[data-pagelink]');
+    if (!a) return;
+    e.preventDefault();
+    refreshProd(a.getAttribute('href'));
+  });
+</script>
+{% endblock %}
