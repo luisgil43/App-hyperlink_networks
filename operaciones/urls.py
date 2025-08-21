@@ -166,4 +166,15 @@ urlpatterns = [
 
     path("produccion/admin/pagos/unpay/<int:pk>/",
          v.admin_unpay, name="admin_unpay"),
+
+    path(
+        "operaciones/billing/set-real-week/<int:pk>/",
+        views.billing_set_real_week,
+        name="billing_set_real_week",
+    ),
+    path(
+        "billing/<int:pk>/reopen-asignado/",
+        views.billing_reopen_asignado,
+        name="billing_reopen_asignado",
+    ),
 ]

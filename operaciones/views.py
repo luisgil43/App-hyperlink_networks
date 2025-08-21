@@ -1,4 +1,6 @@
 # operaciones/views.py
+from .models import SesionBilling  # <-- AJUSTA este import al modelo correcto
+from django.http import HttpResponseRedirect
 from django.utils.http import urlencode
 from .services.weekly import (
     sync_weekly_totals_no_create,   # no crea; actualiza y borra huérfanos
@@ -1197,6 +1199,42 @@ def exportar_billing_excel(request):
 
 
 @login_required
+@require_POST
+def billing_reopen_asignado(request, pk):
+    obj = get_object_or_404(SesionBilling, pk=pk)
+
+    # Sólo tiene sentido si estaba aprobado
+    if obj.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"):
+        with transaction.atomic():
+            # 1) Reabrir el proyecto
+            obj.estado = "asignado"
+            obj.save(update_fields=["estado"])
+
+            # 2) Reabrir TODAS las asignaciones de esa sesión
+            #    (vuelven a 'asignado' y se limpian marcas de flujo)
+            obj.tecnicos_sesion.all().update(
+                estado="asignado",
+                aceptado_en=None,
+                finalizado_en=None,
+                supervisor_revisado_en=None,
+                supervisor_comentario="",
+                pm_revisado_en=None,
+                pm_comentario="",
+                reintento_habilitado=True,   # opcional: permite re-subida
+            )
+
+        messages.success(
+            request,
+            f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated."
+        )
+    else:
+        messages.info(request, "This record is not in an approved state.")
+
+    # Regresa a la lista (o a la página previa si existe)
+    return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/operaciones/billing/listar/"))
+
+
+@login_required
 def listar_billing(request):
     qs = (
         SesionBilling.objects
@@ -2019,14 +2057,13 @@ ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
 
 @transaction.atomic
-def _sync_weekly_totals(week: str | None = None) -> dict:
+def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -> dict:
     """
-    NO crea WeeklyPayment.
+    Sincroniza WeeklyPayment con la producción aprobada:
     - Actualiza amount si cambió (y pasa approved_user -> pending_payment).
-    - Elimina registros sin producción aprobada (>0) si status != 'paid'.
-    Considera solo sesiones en ESTADOS_OK.
+    - Elimina registros sin producción (>0) si status != 'paid'.
+    - [opcional] Crea los que faltan cuando create_missing=True.
     """
-    # Producción vigente por (técnico, semana real) SOLO aprobada
     agg = (
         ItemBillingTecnico.objects
         .filter(item__sesion__semana_pago_real__gt="")
@@ -2037,31 +2074,27 @@ def _sync_weekly_totals(week: str | None = None) -> dict:
     if week:
         agg = agg.filter(item__sesion__semana_pago_real=week)
 
-    # Mapa con totales > 0; totales 0 o negativos se consideran “no hay producción”
+    # Solo totales > 0
     prod_totals = {
         (row["tecnico_id"], row["item__sesion__semana_pago_real"]): (row["total"] or Decimal("0"))
         for row in agg
         if (row["total"] or Decimal("0")) > 0
     }
 
-    updated = deleted = 0
+    updated = deleted = created = 0
 
-    # Recorremos los weekly existentes y sincronizamos SIN crear
     for wp in WeeklyPayment.objects.select_for_update():
-        # Si filtras por una semana en particular
         if week and wp.week != week:
             continue
 
         key = (wp.technician_id, wp.week)
 
-        # Caso 1: ya no hay producción aprobada (>0) -> borrar si no está pagado
         if key not in prod_totals:
             if wp.status != "paid":
                 wp.delete()
                 deleted += 1
             continue
 
-        # Caso 2: sí hay producción -> actualizar monto si cambió
         total = prod_totals[key]
         if wp.amount != total:
             wp.amount = total
@@ -2072,14 +2105,25 @@ def _sync_weekly_totals(week: str | None = None) -> dict:
             wp.save(update_fields=save_fields)
             updated += 1
 
-        # Quitamos del mapa por si quieres usar métricas después
+        # quitamos para saber cuáles faltan crear
         prod_totals.pop(key, None)
 
-    # Lo que quede en prod_totals son semanas con producción >0 pero SIN WeeklyPayment.
-    # No los creamos porque explícitamente no quieres crearlos.
-    skipped_missing = len(prod_totals)
+    # Crea los que faltan
+    if create_missing and prod_totals:
+        to_create = [
+            WeeklyPayment(
+                technician_id=tech_id,
+                week=w,
+                amount=total,
+                status="pending_user",   # empieza pidiendo aprobación del técnico
+            )
+            for (tech_id, w), total in prod_totals.items()
+            if (not week) or (w == week)
+        ]
+        WeeklyPayment.objects.bulk_create(to_create, ignore_conflicts=True)
+        created = len(to_create)
 
-    return {"updated": updated, "deleted": deleted, "skipped_missing": skipped_missing}
+    return {"updated": updated, "deleted": deleted, "created": created}
 
 
 # ================================ ADMIN / PM ================================ #
@@ -2093,29 +2137,60 @@ def _sync_weekly_totals(week: str | None = None) -> dict:
 def admin_weekly_payments(request):
     """
     Pagos semanales:
-    - Top: semana actual NO pagados.
-    - Bottom (Paid): con filtros auto y paginación estilo global (cantidad/page).
+    - TOP: semana actual (no pagados). Se sincroniza creando faltantes.
+    - Bottom (Paid): historial con filtros, paginación y desglose por Project ID/Subtotal.
     """
-    _sync_weekly_totals()
-
+    # Semana ISO actual
     y, w, _ = timezone.localdate().isocalendar()
     current_week = f"{y}-W{int(w):02d}"
 
-    # ------------------ TOP ------------------
-    top = (
+    # 🔧 Sincroniza SOLO la semana actual y CREA faltantes con producción > 0
+    _sync_weekly_totals(week=current_week, create_missing=True)
+
+    # ------------------ TOP (This week) ------------------
+    top_qs = (
         WeeklyPayment.objects
         .filter(week=current_week)
         .exclude(status="paid")
         .select_related("technician")
         .order_by("status", "technician__first_name", "technician__last_name")
     )
+    top = list(top_qs)  # para adjuntar atributos
 
-    # ------------------ Helpers de normalización de week ------------------
+    # Desglose por proyecto para TOP
+    tech_ids_top = {wp.technician_id for wp in top}
+    details_map_top = {}
+    if tech_ids_top:
+        det = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id__in=tech_ids_top,
+                item__sesion__semana_pago_real=current_week,
+                item__sesion__estado__in=ESTADOS_OK,
+            )
+            .values(
+                "tecnico_id",
+                "item__sesion__semana_pago_real",
+                project_id=F("item__sesion__proyecto_id"),
+            )
+            .annotate(subtotal=Sum("subtotal"))
+            .order_by("project_id")
+        )
+        for r in det:
+            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            details_map_top.setdefault(key, []).append(
+                {"project_id": r["project_id"],
+                    "subtotal": r["subtotal"] or Decimal("0")}
+            )
+    for wp in top:
+        wp.details = details_map_top.get((wp.technician_id, wp.week), [])
+
+    # ------------------ Helpers para normalizar semana (historial) ------------------
     def _norm_week_input(raw: str) -> str:
         s = (raw or "").strip().upper()
         if not s:
             return ""
-        # 34 / W34 / 2025-W34 / 2025w34
+        # Acepta: 34 / W34 / 2025-W34 / 2025w34
         m_year = re.match(r"^(\d{4})[- ]?W?(\d{1,2})$", s)
         if m_year:
             yy = int(m_year.group(1))
@@ -2125,17 +2200,17 @@ def admin_weekly_payments(request):
         if m_now:
             ww = int(m_now.group(1))
             return f"{y}-W{ww:02d}"
-        # Si no coincide, devolver tal cual (no rompe filtros)
         return s
 
-    # ------------------ Filtros GET ------------------
+    # ------------------ Filtros GET (historial pagado) ------------------
     f_tech = (request.GET.get("f_tech") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
     f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
-    f_week = _norm_week_input(f_week_input)
-    f_paid_week = _norm_week_input(f_paid_week_input)
     f_receipt = (request.GET.get("f_receipt")
                  or "").strip()   # "", "with", "without"
+
+    f_week = _norm_week_input(f_week_input)
+    f_paid_week = _norm_week_input(f_paid_week_input)
 
     bottom_qs = WeeklyPayment.objects.filter(
         status="paid").select_related("technician")
@@ -2155,17 +2230,18 @@ def admin_weekly_payments(request):
     elif f_receipt == "without":
         bottom_qs = bottom_qs.filter(Q(receipt__isnull=True) | Q(receipt=""))
 
-    bottom_qs = bottom_qs.order_by("-paid_week", "-week",
-                                   "technician__first_name", "technician__last_name")
+    bottom_qs = bottom_qs.order_by(
+        "-paid_week", "-week",
+        "technician__first_name", "technician__last_name"
+    )
 
-    # ------------------ Paginación estilo global ------------------
+    # ------------------ Paginación (historial pagado) ------------------
     # '5','10','20','todos'
     cantidad = (request.GET.get("cantidad") or "10").strip().lower()
     page_number = request.GET.get("page") or "1"
 
     if cantidad == "todos":
-        # la plantilla itera y no usa atributos de Page en este modo
-        pagina = list(bottom_qs)
+        pagina = list(bottom_qs)  # renderizará como lista
     else:
         try:
             per_page = max(1, min(100, int(cantidad)))
@@ -2175,7 +2251,39 @@ def admin_weekly_payments(request):
         paginator = Paginator(bottom_qs, per_page)
         pagina = paginator.get_page(page_number)
 
-    # querystring para que los enlaces de paginación conserven los filtros
+    # ===== Desglose para el HISTORIAL (Paid) de los elementos renderizados en esta página =====
+    # Page es iterable; list(...) sirve para ambos casos
+    wp_list = list(pagina)
+    tech_ids_bottom = {wp.technician_id for wp in wp_list}
+    weeks_bottom = {wp.week for wp in wp_list}
+
+    details_map_bottom = {}
+    if tech_ids_bottom and weeks_bottom:
+        det_b = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id__in=tech_ids_bottom,
+                item__sesion__semana_pago_real__in=weeks_bottom,
+                item__sesion__estado__in=ESTADOS_OK,
+            )
+            .values(
+                "tecnico_id",
+                "item__sesion__semana_pago_real",
+                project_id=F("item__sesion__proyecto_id"),
+            )
+            .annotate(subtotal=Sum("subtotal"))
+            .order_by("item__sesion__semana_pago_real", "project_id")
+        )
+        for r in det_b:
+            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            details_map_bottom.setdefault(key, []).append(
+                {"project_id": r["project_id"],
+                    "subtotal": r["subtotal"] or Decimal("0")}
+            )
+    for wp in wp_list:
+        wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
+
+    # Querystring para mantener filtros en la paginación
     keep = {
         "f_tech": f_tech,
         "f_week": f_week_input,
@@ -2187,9 +2295,11 @@ def admin_weekly_payments(request):
 
     return render(request, "operaciones/pagos_admin_list.html", {
         "current_week": current_week,
+
+        # TOP (pendientes de esta semana) con details adjuntos
         "top": top,
 
-        # historial
+        # Historial pagado (cada objeto ya trae .details)
         "pagina": pagina,
         "cantidad": cantidad,
         "filters_qs": filters_qs,
@@ -2232,6 +2342,66 @@ def admin_unpay(request, pk: int):
 
     messages.success(request, "Payment reverted. It is now pending again.")
     return redirect("operaciones:admin_weekly_payments")
+
+
+def _is_admin(user) -> bool:
+    # Adecuado a tu modelo de usuario
+    return getattr(user, "rol", "") == "admin" or getattr(user, "is_superuser", False)
+
+
+def _session_is_paid_locked(sesion) -> bool:
+    """
+    Queda bloqueada si existe al menos un WeeklyPayment en estado 'paid'
+    para (técnico de la sesión, semana real de la sesión).
+    """
+    week = (sesion.semana_pago_real or "").upper()
+    if not week:
+        return False
+    tech_ids = list(sesion.tecnicos_sesion.values_list(
+        "tecnico_id", flat=True))
+    if not tech_ids:
+        return False
+    return WeeklyPayment.objects.filter(
+        week=week, technician_id__in=tech_ids, status="paid"
+    ).exists()
+
+
+@login_required
+@require_POST
+def billing_set_real_week(request, pk: int):
+    """
+    Actualiza 'semana_pago_real' de una SesionBilling.
+    - Si hay pagos PAID relacionados, SOLO admin puede modificar.
+    - Re-sincroniza totales semanales alrededor del cambio.
+    """
+    sesion = get_object_or_404(SesionBilling, pk=pk)
+    new_week = (request.POST.get("week") or "").strip().upper()
+    if not new_week:
+        return JsonResponse({"ok": False, "error": "MISSING_WEEK"}, status=400)
+
+    is_admin = _is_admin(request.user)
+
+    # ¿Bloqueada por pagos 'PAID'?
+    if _session_is_paid_locked(sesion) and not is_admin:
+        return JsonResponse({
+            "ok": False,
+            "error": "LOCKED_PAID",
+            "message": "This session has PAID weekly payments. Only admins can change the real pay week."
+        }, status=403)
+
+    old_week = (sesion.semana_pago_real or "").upper()
+    sesion.semana_pago_real = new_week
+    sesion.save(update_fields=["semana_pago_real", "updated_at"])
+
+    # Re-sincroniza los totales semanales de ambas semanas
+    try:
+        if old_week:
+            _sync_weekly_totals(week=old_week)
+        _sync_weekly_totals(week=new_week)
+    except Exception:
+        pass
+
+    return JsonResponse({"ok": True, "week": new_week})
 
 
 @require_POST
@@ -2340,7 +2510,14 @@ def admin_mark_paid(request, pk: int):
 @login_required
 @never_cache
 def user_weekly_payments(request):
-    """Vista del trabajador: semanas + aprobar/rechazar."""
+    """
+    Vista del trabajador:
+    - Sincroniza sus registros (sin crear nuevos).
+    - Lista sus WeeklyPayment.
+    - Adjunta 'details' = [(project_id, subtotal), ...] por cada (week).
+    """
+    from django.db.models import Sum, F
+
     # sincroniza SOLO este técnico, sin crear weeklies
     sync_weekly_totals_no_create(technician_id=request.user.id)
 
@@ -2369,7 +2546,7 @@ def user_weekly_payments(request):
         .delete())
 
     # Lista solo los que sí tienen producción vigente
-    mine = (
+    mine_qs = (
         WeeklyPayment.objects
         .filter(technician=request.user)
         .annotate(has_prod=Exists(prod_exists))
@@ -2377,6 +2554,35 @@ def user_weekly_payments(request):
         .select_related("technician")
         .order_by("-week")
     )
+    mine = list(mine_qs)
+
+    # Desglose por proyecto para las semanas visibles del usuario
+    weeks = {wp.week for wp in mine}
+    details_map = {}
+    if weeks:
+        det = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id=request.user.id,
+                item__sesion__semana_pago_real__in=weeks,
+                item__sesion__estado__in=ESTADOS_OK,
+            )
+            .values(
+                "item__sesion__semana_pago_real",
+                project_id=F("item__sesion__proyecto_id"),
+            )
+            .annotate(subtotal=Sum("subtotal"))
+            .order_by("item__sesion__semana_pago_real", "project_id")
+        )
+        for r in det:
+            key = r["item__sesion__semana_pago_real"]
+            details_map.setdefault(key, []).append(
+                {"project_id": r["project_id"], "subtotal": r["subtotal"] or 0}
+            )
+
+    # Adjunta details a cada fila
+    for wp in mine:
+        wp.details = details_map.get(wp.week, [])
 
     return render(request, "operaciones/pagos_user_list.html", {
         "current_week": current_week,
