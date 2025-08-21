@@ -111,26 +111,25 @@
           <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
 
           <!-- Project status -->
-    <!-- Project status -->
-<td class="p-2 border" data-status-cell>
-  {% if s.estado == "aprobado_pm" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
-  {% elif s.estado == "rechazado_pm" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
-  {% elif s.estado == "aprobado_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
-  {% elif s.estado == "rechazado_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
-  {% elif s.estado == "en_revision_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
-  {% elif s.estado == "finalizado" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
-  {% elif s.estado == "en_proceso" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
-  {% else %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
-  {% endif %}
-</td>
+          <td class="p-2 border" data-status-cell>
+            {% if s.estado == "aprobado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+            {% elif s.estado == "rechazado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+            {% elif s.estado == "aprobado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+            {% elif s.estado == "rechazado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+            {% elif s.estado == "en_revision_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+            {% elif s.estado == "finalizado" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+            {% elif s.estado == "en_proceso" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+            {% endif %}
+          </td>
 
           <!-- Technicians -->
           <td class="p-2 border">
@@ -154,11 +153,21 @@
           <td class="p-2 border text-right">
             {% if s.diferencia %}${{ s.diferencia|floatformat:2 }}{% else %}—{% endif %}
           </td>
-  <td class="p-2 border" data-col="semana-real">
+
+        
+         {# --- Real pay week (con candado para roles sin permiso) --- #}
+<td class="p-2 border" data-col="semana-real">
   <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
 
-  {% if can_edit_real_week %}
-    <!-- Editable -->
+  {# Si el usuario NO tiene permiso (p.ej., Supervisor) -> mostrar candado #}
+  {% if not can_edit_real_week %}
+    <button type="button"
+            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
+            title="Only PM/Finance/Admin can edit the real pay week.">
+      🔒
+    </button>
+  {% else %}
+    {# PM / Finanzas / Admin -> pueden editar #}
     <input type="text"
            id="sr-input-{{ s.id }}"
            class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
@@ -170,28 +179,35 @@
             data-url="{% url 'operaciones:billing_update_semana' s.id %}">
       ✏️
     </button>
-  {% else %}
-    <!-- No editable: candado + tooltip (no se crea input editable) -->
-    <button type="button"
-            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
-            title="You don’t have permission to edit this field.">
-      🔒
-    </button>
   {% endif %}
 </td>
 
+          {# ======== FIN CAMBIO EN TD ======== #}
+
+          <!-- Actions -->
           <td class="p-2 border text-center">
-            <div class="flex items-center justify-center gap-3">
-              <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
-              <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Photo Reqs</a>
-              <button type="button"
-                      class="btn-open-delete text-red-600 hover:underline"
-                      data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
-                      data-label="#{{ s.id }} – {{ s.proyecto_id }}">
-                Delete
-              </button>
-              <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
-            </div>
+            {% if s.estado == "aprobado_supervisor" or s.estado == "aprobado_pm" or s.estado == "aprobado_finanzas" %}
+              <!-- Solo botón para renovar a Assigned -->
+              <form method="post" action="{% url 'operaciones:billing_reopen_asignado' s.id %}" class="inline">
+                {% csrf_token %}
+                <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded"
+                        title="Renew status to Assigned so technicians can retake photos and re-upload.">
+                  Renew to Assigned
+                </button>
+              </form>
+            {% else %}
+              <div class="flex items-center justify-center gap-3">
+                <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
+                <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Photo Reqs</a>
+                <button type="button"
+                        class="btn-open-delete text-red-600 hover:underline"
+                        data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
+                        data-label="#{{ s.id }} – {{ s.proyecto_id }}">
+                  Delete
+                </button>
+                <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
+              </div>
+            {% endif %}
           </td>
         </tr>
 
@@ -386,155 +402,6 @@ document.addEventListener('click', function(e){
 });
 </script>
 
-<!-- Live filters + selection + export -->
-<script>
-(function(){
-  const table = document.getElementById('billing-table');
-  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
-  const inputs = {
-    date:   document.getElementById('f-date'),
-    projid: document.getElementById('f-projid'),
-    week:   document.getElementById('f-week'),
-    tech:   document.getElementById('f-tech'),
-    client: document.getElementById('f-client'),
-    status: document.getElementById('f-status'),
-  };
-  const btnClear = document.getElementById('btn-clear');
-
-  const chkAll = document.getElementById('chk-all');
-  const exportBtn = document.getElementById('btn-export');
-  const exportIdsInput = document.getElementById('export-ids');
-
-  const lc = s => (s || '').toLowerCase();
-
-  function v(el){ return lc(el?.value || ''); }
-
-  function applyFilters(){
-    const f = {
-      date: v(inputs.date),
-      projid: v(inputs.projid),
-      week: v(inputs.week),
-      tech: v(inputs.tech),
-      client: v(inputs.client),
-      status: v(inputs.status),
-    };
-
-    allRows.forEach(tr => {
-      // Status robusto: usa td[data-status-cell] -> data-search -> tr.dataset.status -> texto del td
-      const tdStatus = tr.querySelector('td[data-status-cell]');
-      const statusHaystack = lc(
-        (tdStatus?.dataset.search) ||
-        (tr.dataset.status) ||
-        (tdStatus?.textContent) ||
-        ''
-      );
-
-      const ok =
-        (!f.date   || lc(tr.dataset.date).includes(f.date))   &&
-        (!f.projid || lc(tr.dataset.projid).includes(f.projid)) &&
-        (!f.week   || lc(tr.dataset.week).includes(f.week))   &&
-        (!f.tech   || lc(tr.dataset.tech).includes(f.tech))   &&
-        (!f.client || lc(tr.dataset.client).includes(f.client)) &&
-        (!f.status || statusHaystack.includes(f.status));
-
-      tr.style.display = ok ? '' : 'none';
-
-      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
-      if (detailId){
-        const det = document.getElementById(detailId);
-        if(det) det.style.display = ok ? '' : 'none';
-      }
-    });
-
-    syncHeaderCheckbox();
-    syncExportState();
-  }
-
-  Object.values(inputs).forEach(i => i.addEventListener('input', applyFilters));
-  btnClear.addEventListener('click', ()=>{
-    Object.values(inputs).forEach(i => i.value = '');
-    applyFilters();
-  });
-
-  function visibleMainRows(){
-    return allRows.filter(tr => tr.style.display !== 'none');
-  }
-  function rowCheckboxes(scopeRows){
-    return scopeRows.map(tr => tr.querySelector('.row-chk')).filter(Boolean);
-  }
-
-  function selectedIds(){
-    const ids = [];
-    allRows.forEach(tr => {
-      const c = tr.querySelector('.row-chk');
-      if (c && c.checked) ids.push(c.value);
-    });
-    return ids;
-  }
-
-  function syncHeaderCheckbox(){
-    const chks = rowCheckboxes(visibleMainRows());
-    if (!chks.length){ chkAll.checked = false; chkAll.indeterminate = false; return; }
-    const nSel = chks.filter(c => c.checked).length;
-    chkAll.checked = nSel === chks.length;
-    chkAll.indeterminate = nSel > 0 && nSel < chks.length;
-  }
-
-  function syncExportState(){
-    const ids = selectedIds();
-    const enabled = ids.length > 0;
-    exportBtn.disabled = !enabled;
-    exportBtn.className = enabled
-      ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
-      : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
-    exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
-    exportIdsInput.value = ids.join(",");
-  }
-
-  chkAll.addEventListener('change', ()=>{
-    rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
-    syncExportState();
-  });
-
-  document.addEventListener('change', (e)=>{
-    if (e.target.classList.contains('row-chk')){
-      syncHeaderCheckbox();
-      syncExportState();
-    }
-  });
-
-  // init
-  applyFilters();
-})();
-</script>
-
-<!-- Delete modal (unchanged) -->
-<div id="modal-delete" class="fixed inset-0 hidden z-50">
-  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
-
-  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
-    <div class="flex items-start gap-3">
-      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-        <svg class="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
-        </svg>
-      </div>
-      <div class="flex-1">
-        <h3 class="text-lg font-semibold">Delete billing?</h3>
-        <p class="mt-1 text-sm text-gray-600">
-          This action cannot be undone. You are about to delete <span id="delete-label" class="font-medium"></span>.
-        </p>
-      </div>
-    </div>
-
-    <form id="delete-form" method="post" action="#" class="mt-5 flex justify-end gap-2">
-      {% csrf_token %}
-      <button type="button" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
-      <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
-    </form>
-  </div>
-</div>
-
 <script>
 (function(){
   const table = document.getElementById('billing-table');
@@ -557,7 +424,6 @@ document.addEventListener('click', function(e){
   const norm = s => lc(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const v   = el => norm(el?.value || '');
 
-  // Construye un haystack bilingüe a partir del texto visible del badge
   function statusHaystackFor(tr){
     const td = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
     const txt = norm(td?.textContent || '');
@@ -570,7 +436,6 @@ document.addEventListener('click', function(e){
     if (txt.includes('in progress'))       extras += ' en proceso progress';
     if (txt.includes('assigned'))          extras += ' asignado assigned';
 
-    // opcional: añade código interno si lo tienes en data-status
     const code = tr.dataset.status || '';
     return norm(txt + ' ' + extras + ' ' + code);
   }
@@ -648,32 +513,53 @@ document.addEventListener('click', function(e){
     }
   });
 
-  // init
   applyFilters();
 })();
 </script>
 
+<!-- Delete modal (unchanged) -->
+<div id="modal-delete" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <h3 class="text-lg font-semibold">Delete billing?</h3>
+        <p class="mt-1 text-sm text-gray-600">
+          This action cannot be undone. You are about to delete <span id="delete-label" class="font-medium"></span>.
+        </p>
+      </div>
+    </div>
+
+    <form id="delete-form" method="post" action="#" class="mt-5 flex justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
+    </form>
+  </div>
+</div>
+
 <script>
 (function(){
-  const modal     = document.getElementById('modal-delete');
-  const form      = document.getElementById('delete-form');
-  const lbl       = document.getElementById('delete-label');
+  const modal = document.getElementById('modal-delete');
+  const form  = document.getElementById('delete-form');
+  const lbl   = document.getElementById('delete-label');
 
-  // Abrir modal desde los botones "Delete" de la tabla
+  // Abrir modal desde el botón "Delete"
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.btn-open-delete');
     if (!btn) return;
-
-    const url   = btn.getAttribute('data-delete-url');
-    const label = btn.getAttribute('data-label') || '';
-
-    form.setAttribute('action', url);
-    lbl.textContent = label;
-
+    form.action = btn.getAttribute('data-delete-url');
+    lbl.textContent = btn.getAttribute('data-label') || '';
     modal.classList.remove('hidden');
   });
 
-  // Cerrar modal (click en overlay o botón "Cancel")
+  // Cerrar modal (overlay o botón Cancel)
   document.addEventListener('click', function(e){
     if (e.target.hasAttribute('data-close-modal')){
       modal.classList.add('hidden');
@@ -688,22 +574,132 @@ document.addEventListener('click', function(e){
   });
 
   // Evitar doble submit
-  form.addEventListener('submit', function(e){
+  form.addEventListener('submit', function(){
     const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn){
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Deleting...';
-    }
+    if (submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Deleting...'; }
   });
 })();
 </script>
 
 <script>
 (function(){
-  // ➕ flag de permisos desde el backend
+  const table = document.getElementById('billing-table');
+  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
+  const inputs = {
+    date:   document.getElementById('f-date'),
+    projid: document.getElementById('f-projid'),
+    week:   document.getElementById('f-week'),
+    tech:   document.getElementById('f-tech'),
+    client: document.getElementById('f-client'),
+    status: document.getElementById('f-status'),
+  };
+  const btnClear = document.getElementById('btn-clear');
+
+  const chkAll = document.getElementById('chk-all');
+  const exportBtn = document.getElementById('btn-export');
+  const exportIdsInput = document.getElementById('export-ids');
+
+  const lc  = s => (s || '').toLowerCase();
+  const norm = s => lc(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const v   = el => norm(el?.value || '');
+
+  function statusHaystackFor(tr){
+    const td = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
+    const txt = norm(td?.textContent || '');
+    let extras = '';
+    if (txt.includes('approved'))          extras += ' aprobado approved';
+    if (txt.includes('rejected'))          extras += ' rechazado rejected';
+    if (txt.includes('supervisor review')) extras += ' en revision revision review';
+    if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
+    if (txt.includes('in progress'))       extras += ' en proceso progress';
+    if (txt.includes('assigned'))          extras += ' asignado assigned';
+    const code = tr.dataset.status || '';
+    return norm(txt + ' ' + extras + ' ' + code);
+  }
+
+  function applyFilters(){
+    const f = {
+      date: v(inputs.date),
+      projid: v(inputs.projid),
+      week: v(inputs.week),
+      tech: v(inputs.tech),
+      client: v(inputs.client),
+      status: v(inputs.status),
+    };
+
+    allRows.forEach(tr => {
+      const ok =
+        (!f.date   || lc(tr.dataset.date).includes(f.date)) &&
+        (!f.projid || lc(tr.dataset.projid).includes(f.projid)) &&
+        (!f.week   || lc(tr.dataset.week).includes(f.week)) &&
+        (!f.tech   || lc(tr.dataset.tech).includes(f.tech)) &&
+        (!f.client || lc(tr.dataset.client).includes(f.client)) &&
+        (!f.status || statusHaystackFor(tr).includes(f.status));
+
+      tr.style.display = ok ? '' : 'none';
+
+      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+      if (detailId){
+        const det = document.getElementById(detailId);
+        if(det) det.style.display = ok ? '' : 'none';
+      }
+    });
+
+    syncHeaderCheckbox();
+    syncExportState();
+  }
+
+  Object.values(inputs).forEach(i => i.addEventListener('input', applyFilters));
+  btnClear.addEventListener('click', ()=>{
+    Object.values(inputs).forEach(i => i.value = '');
+    applyFilters();
+  });
+
+  function visibleMainRows(){ return allRows.filter(tr => tr.style.display !== 'none'); }
+  function rowCheckboxes(rows){ return rows.map(tr => tr.querySelector('.row-chk')).filter(Boolean); }
+  function selectedIds(){
+    const ids = [];
+    allRows.forEach(tr => { const c = tr.querySelector('.row-chk'); if (c && c.checked) ids.push(c.value); });
+    return ids;
+  }
+  function syncHeaderCheckbox(){
+    const chks = rowCheckboxes(visibleMainRows());
+    if (!chks.length){ chkAll.checked = false; chkAll.indeterminate = false; return; }
+    const nSel = chks.filter(c => c.checked).length;
+    chkAll.checked = nSel === chks.length;
+    chkAll.indeterminate = nSel > 0 && nSel < chks.length;
+  }
+  function syncExportState(){
+    const ids = selectedIds();
+    const enabled = ids.length > 0;
+    exportBtn.disabled = !enabled;
+    exportBtn.className = enabled
+      ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
+      : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
+    exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
+    exportIdsInput.value = ids.join(",");
+  }
+  chkAll.addEventListener('change', ()=>{
+    rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
+    syncExportState();
+  });
+  document.addEventListener('change', (e)=>{
+    if (e.target.classList.contains('row-chk')){
+      syncHeaderCheckbox();
+      syncExportState();
+    }
+  });
+
+  applyFilters();
+})();
+</script>
+
+<script>
+(function(){
+  // Mantengo la bandera por compatibilidad aunque ya no bloquea el "toEdit" globalmente
   const CAN_EDIT_REAL_WEEK = {{ can_edit_real_week|yesno:"true,false" }};
 
-  // ➕ toast minimalista (no interfiere con tu modal de Delete)
+  // Toast simple
   function toast(msg, type='error'){
     const bg = type === 'success' ? 'bg-green-600' : (type === 'info' ? 'bg-blue-600' : 'bg-red-600');
     const el = document.createElement('div');
@@ -713,7 +709,7 @@ document.addEventListener('click', function(e){
     setTimeout(()=> el.remove(), 2500);
   }
 
-  // CSRF (Django)
+  // CSRF
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
@@ -721,14 +717,10 @@ document.addEventListener('click', function(e){
   const csrftoken = getCookie('csrftoken');
 
   function toEdit(id){
-    // Si no tiene permiso, mostramos aviso elegante y salimos
-    if(!CAN_EDIT_REAL_WEEK){
-      toast("You don’t have permission to edit this field.", "error");
-      return;
-    }
+    // Ya no bloqueamos por rol aquí: si aparece el lápiz es editable.
     const view = document.getElementById(`sr-view-${id}`);
     const input = document.getElementById(`sr-input-${id}`);
-    if (!input) return; // por seguridad
+    if (!input) return;
     view.classList.add("hidden");
     input.classList.remove("hidden");
     input.focus();
@@ -750,8 +742,7 @@ document.addEventListener('click', function(e){
     try { data = await resp.json(); } catch(e) {}
 
     if (resp.status === 403){
-      // 🔒 Manejo elegante de Forbidden
-      toast("You don’t have permission to edit this field.", "error");
+      toast("Locked (PAID). Only admins can edit.", "error");
       throw new Error("forbidden");
     }
     if (!resp.ok){
@@ -768,14 +759,11 @@ document.addEventListener('click', function(e){
   // Click en ✏️
   document.addEventListener("click", function(e){
     const btn = e.target.closest(".sr-edit");
-    if (btn) {
-      toEdit(btn.dataset.id);
-      return;
-    }
-    // Click en 🔒
+    if (btn) { toEdit(btn.dataset.id); return; }
+
     const lock = e.target.closest(".sr-edit-locked");
     if (lock){
-      toast("You don’t have permission to edit this field.", "error");
+      toast("Locked (PAID). Only admins can edit.", "error");
     }
   });
 
@@ -800,9 +788,9 @@ document.addEventListener('click', function(e){
         toView(id, saved);
       }catch(err){
         if (err.message === "forbidden"){
-          toView(id, input.value); // vuelve a vista si fue 403
+          toView(id, input.value);
         } else {
-          input.focus(); // deja al usuario corrigiendo
+          input.focus();
         }
       }
     }

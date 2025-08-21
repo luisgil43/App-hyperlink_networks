@@ -1,4 +1,5 @@
 # operaciones/views_billing_exec.py
+from django.db.models import OuterRef, Subquery, Sum, Value, DecimalField, Case, When, IntegerField
 from botocore.client import Config
 from datetime import timedelta
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
@@ -60,14 +61,24 @@ def storage_file_exists(filefield) -> bool:
 # TÉCNICO
 # ============================
 
+
 @login_required
 @rol_requerido('usuario', 'admin', 'pm', 'supervisor')
 def mis_assignments(request):
+    # Estados visibles (se excluyen todos los aprobados)
+    visibles = [
+        'asignado',
+        'en_proceso',
+        'en_revision_supervisor',
+        'rechazado_supervisor',
+        'rechazado_pm',
+        'rechazado_finanzas',
+    ]
+
     base_qs = (
         SesionBillingTecnico.objects
         .select_related("sesion")
-        .filter(tecnico=request.user)
-        .order_by("-id")
+        .filter(tecnico=request.user, estado__in=visibles)
     )
 
     # Subquery: total del técnico para cada sesión
@@ -81,12 +92,28 @@ def mis_assignments(request):
 
     dec_field = DecimalField(max_digits=12, decimal_places=2)
 
-    asignaciones = base_qs.annotate(
-        my_total=Coalesce(
-            Subquery(ibt, output_field=dec_field),
-            Value(Decimal("0.00"), output_field=dec_field),
-            output_field=dec_field
+    asignaciones = (
+        base_qs
+        .annotate(
+            my_total=Coalesce(
+                Subquery(ibt, output_field=dec_field),
+                Value(Decimal("0.00"), output_field=dec_field),
+                output_field=dec_field
+            ),
+            # Prioridad de estado para ordenar
+            estado_priority=Case(
+                When(estado='asignado',               then=Value(1)),
+                When(estado='en_proceso',             then=Value(2)),
+                When(estado='en_revision_supervisor', then=Value(3)),
+                When(estado='rechazado_supervisor',   then=Value(4)),
+                When(estado='rechazado_pm',           then=Value(5)),
+                When(estado='rechazado_finanzas',     then=Value(6)),
+                default=Value(999),
+                output_field=IntegerField(),
+            ),
         )
+        # Orden final: prioridad de estado, luego fecha de creación desc, luego id desc
+        .order_by('estado_priority', '-sesion__creado_en', '-id')
     )
 
     return render(

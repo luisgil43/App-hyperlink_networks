@@ -7,23 +7,24 @@
 <div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <div class="flex items-center justify-between mb-4">
-  <!-- 🔙 Botón Back -->
-  <div class="flex items-center gap-2">
-    <a href="{% url 'operaciones:produccion_usuario' %}" 
-       class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
-      ← Back
-    </a>
-    <h1 class="text-2xl font-bold">💵 Approve my payment</h1>
-  </div>
+    <!-- 🔙 Botón Back -->
+    <div class="flex items-center gap-2">
+      <a href="{% url 'operaciones:produccion_usuario' %}" 
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
+        ← Back
+      </a>
+      <h1 class="text-2xl font-bold">💵 Approve my payment</h1>
+    </div>
 
-  <!-- Semana actual -->
-  <div class="text-sm text-gray-600">Current week: <b>{{ current_week }}</b></div>
-</div>
+    <!-- Semana actual -->
+    <div class="text-sm text-gray-600">Current week: <b>{{ current_week }}</b></div>
+  </div>
 
   <div class="overflow-x-auto">
     <table class="table-auto w-full text-sm min-w-[900px]" style="white-space: nowrap;">
       <thead class="bg-gray-100">
         <tr>
+          <th class="w-10"></th>
           <th class="p-2 text-left">Pay week</th>
           <th class="p-2 text-right">Total</th>
           <th class="p-2 text-left">Status</th>
@@ -34,56 +35,94 @@
       </thead>
       <tbody>
         {% for r in mine %}
-        <tr class="border-b">
+        <!-- Fila principal -->
+        <tr class="border-b align-top">
+          <td class="p-2 text-center">
+            <button type="button"
+                    class="btn-toggle inline-flex w-7 h-7 items-center justify-center rounded hover:bg-gray-100"
+                    data-target="det-user-{{ r.id }}" aria-expanded="false" aria-controls="det-user-{{ r.id }}">
+              <svg class="chev w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414L10 12.414 6.293 8.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </td>
+
           <td class="p-2">{{ r.week }}</td>
           <td class="p-2 text-right">${{ r.amount|floatformat:2 }}</td>
           <td class="p-2">
-  {% if r.status == "pending_user" %}
-    <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending my approval</span>
-  {% elif r.status == "pending_payment" or r.status == "approved_user" %}
-    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Waiting for payment</span>
-  {% elif r.status == "rejected_user" %}
-    <div class="flex flex-col gap-1">
-      <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full">I rejected</span>
-      {% if r.reject_reason %}
-        <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 max-w-lg">
-          <b>Reason:</b> {{ r.reject_reason }}
-        </div>
-      {% endif %}
-      <div class="text-xs text-gray-500">Waiting for admin to reset to “Pending my approval”.</div>
-    </div>
-  {% elif r.status == "paid" %}
-    <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full">Paid</span>
-  {% endif %}
-</td>
+            {% if r.status == "pending_user" %}
+              <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending my approval</span>
+            {% elif r.status == "pending_payment" or r.status == "approved_user" %}
+              <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Waiting for payment</span>
+            {% elif r.status == "rejected_user" %}
+              <div class="flex flex-col gap-1">
+                <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full">I rejected</span>
+                {% if r.reject_reason %}
+                  <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 max-w-lg">
+                    <b>Reason:</b> {{ r.reject_reason }}
+                  </div>
+                {% endif %}
+                <div class="text-xs text-gray-500">Waiting for admin to reset to “Pending my approval”.</div>
+              </div>
+            {% elif r.status == "paid" %}
+              <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full">Paid</span>
+            {% endif %}
+          </td>
           <td class="p-2">{{ r.paid_week|default:"—" }}</td>
           <td class="p-2">
             {% if r.receipt %}
               <a class="text-blue-600 underline" href="{{ r.receipt.url }}" target="_blank" rel="noopener">View</a>
             {% else %}—{% endif %}
           </td>
-         <td class="p-2">
-  {% if r.status == "pending_user" %}
-    <form method="post" action="{% url 'operaciones:user_approve_payment' r.id %}" class="inline">
-      {% csrf_token %}
-      <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded">Approve</button>
-    </form>
-    <button type="button"
-            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-            onclick="openReject({{ r.id }})">
-      Reject
-    </button>
-  {% else %}
-    <!-- Botones desactivados visualmente -->
-    <div class="flex items-center gap-2">
-      <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Approve</button>
-      <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Reject</button>
-    </div>
-  {% endif %}
-</td>
+          <td class="p-2">
+            {% if r.status == "pending_user" %}
+              <form method="post" action="{% url 'operaciones:user_approve_payment' r.id %}" class="inline">
+                {% csrf_token %}
+                <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded">Approve</button>
+              </form>
+              <button type="button"
+                      class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                      onclick="openReject({{ r.id }})">
+                Reject
+              </button>
+            {% else %}
+              <!-- Botones desactivados visualmente -->
+              <div class="flex items-center gap-2">
+                <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Approve</button>
+                <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Reject</button>
+              </div>
+            {% endif %}
+          </td>
+        </tr>
+
+        <!-- Fila de detalle: Project ID + Subtotal -->
+        <tr id="det-user-{{ r.id }}" class="hidden">
+          <td class="p-0"></td>
+          <td colspan="6" class="bg-gray-50 p-3">
+            <div class="overflow-x-auto rounded border">
+              <table class="min-w-[360px] w-full text-xs">
+                <thead class="bg-gray-100">
+                  <tr>
+                    <th class="p-2 text-left">Project ID</th>
+                    <th class="p-2 text-right">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in r.details %}
+                  <tr class="border-t">
+                    <td class="p-2">{{ d.project_id }}</td>
+                    <td class="p-2 text-right">${{ d.subtotal|floatformat:2 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="2" class="p-2 text-center text-gray-500">No breakdown.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </td>
         </tr>
         {% empty %}
-        <tr><td colspan="6" class="p-4 text-center text-gray-500">No records.</td></tr>
+        <tr><td colspan="7" class="p-4 text-center text-gray-500">No records.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -107,6 +146,19 @@
 </div>
 
 <script>
+  // Toggle de filas (chevron)
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.btn-toggle');
+    if(!btn) return;
+    const id = btn.getAttribute('data-target');
+    const row = document.getElementById(id);
+    const chev = btn.querySelector('.chev');
+    const open = !row.classList.contains('hidden');
+    row.classList.toggle('hidden');
+    if (chev) chev.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+    btn.setAttribute('aria-expanded', (!open).toString());
+  });
+
   // Controls for reject modal
   function openReject(id) {
     const fm = document.getElementById('reject-form');
@@ -121,4 +173,3 @@
   }
 </script>
 {% endblock %}
-
