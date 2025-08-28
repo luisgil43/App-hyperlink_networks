@@ -1,3 +1,6 @@
+from django.db.models import Sum, Case, When, Q, Value, DecimalField, F, ExpressionWrapper
+from django.db.models.functions import Coalesce
+from django.db.models import Sum, F, Q, Case, When, Value, DecimalField
 from django.db.models import Sum, F
 from django.utils.timezone import is_aware
 import xlwt
@@ -55,21 +58,38 @@ User = get_user_model()
 @login_required
 @rol_requerido('facturacion', 'admin')
 def listar_cartola(request):
-    cantidad = request.GET.get('cantidad', '10')
-    cantidad = 1000000 if cantidad == 'todos' else int(cantidad)
+    from datetime import datetime, time, timedelta
+    from django.contrib import messages
+    from django.core.paginator import Paginator
+    from django.db import models
+    from django.db.models import Q
+    from django.utils import timezone
 
-    # Capturar filtros
-    du = request.GET.get('du', '').strip()
-    fecha = request.GET.get('fecha', '').strip()
-    proyecto = request.GET.get('proyecto', '').strip()
-    categoria = request.GET.get('categoria', '').strip()
-    tipo = request.GET.get('tipo', '').strip()
-    rut_factura = request.GET.get('rut_factura', '').strip()
-    estado = request.GET.get('estado', '').strip()
+    def parse_date_any(s: str):
+        """Devuelve date para varios formatos comunes o None."""
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+        return None
+
+    params = request.GET.copy()
+
+    cantidad = params.get('cantidad', '10')
+    page_number = params.get('page', '1')
+    cantidad_int = 1000000 if cantidad == 'todos' else int(cantidad)
+
+    du = params.get('du', '').strip()
+    fecha_str = params.get('fecha', '').strip()
+    proyecto = params.get('proyecto', '').strip()
+    categoria = params.get('categoria', '').strip()
+    tipo = params.get('tipo', '').strip()
+    estado = params.get('estado', '').strip()
 
     movimientos = CartolaMovimiento.objects.all().order_by('-fecha')
 
-    # Filtrar por usuario (busca en rut, nombre y apellido)
+    # Usuario (username, nombre, apellido)
     if du:
         movimientos = movimientos.filter(
             Q(usuario__username__icontains=du) |
@@ -77,14 +97,32 @@ def listar_cartola(request):
             Q(usuario__last_name__icontains=du)
         )
 
-    # Filtrar por fecha con validación segura (dd-mm-yyyy → yyyy-mm-dd)
-    if fecha:
-        try:
-            fecha_valida = datetime.strptime(fecha, "%d-%m-%Y").date()
-            movimientos = movimientos.filter(fecha__date=fecha_valida)
-        except ValueError:
-            messages.warning(
-                request, "Invalid date format. Please use DD-MM-YYYY.")
+    # ===== Filtro de FECHA =====
+    if fecha_str:
+        solo_digitos = fecha_str.isdigit()
+        if solo_digitos and 1 <= int(fecha_str) <= 31:
+            # Buscar por día del mes (cualquier mes/año)
+            dia = int(fecha_str)
+            movimientos = movimientos.filter(fecha__day=dia)
+        else:
+            fecha_valida = parse_date_any(fecha_str)
+            if not fecha_valida:
+                messages.warning(
+                    request, "Invalid date. Use DD-MM-YYYY or only the day (e.g. 20).")
+            else:
+                campo_fecha = CartolaMovimiento._meta.get_field('fecha')
+                if isinstance(campo_fecha, models.DateTimeField):
+                    # Rango del día en la zona horaria activa
+                    tz = timezone.get_current_timezone()
+                    start = timezone.make_aware(
+                        datetime.combine(fecha_valida, time.min), tz)
+                    end = start + timedelta(days=1)
+                    movimientos = movimientos.filter(
+                        fecha__gte=start, fecha__lt=end)
+                else:
+                    # Si es DateField: igualdad directa
+                    movimientos = movimientos.filter(fecha=fecha_valida)
+    # ===========================
 
     if proyecto:
         movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
@@ -92,33 +130,38 @@ def listar_cartola(request):
         movimientos = movimientos.filter(tipo__categoria__icontains=categoria)
     if tipo:
         movimientos = movimientos.filter(tipo__nombre__icontains=tipo)
-    if rut_factura:
-        movimientos = movimientos.filter(rut_factura__icontains=rut_factura)
     if estado:
         movimientos = movimientos.filter(status=estado)
 
     # Paginación
-    paginator = Paginator(movimientos, cantidad)
-    page_number = request.GET.get('page')
+    paginator = Paginator(movimientos, cantidad_int)
     pagina = paginator.get_page(page_number)
+
+    # QS para paginación manteniendo filtros
+    params_no_page = params.copy()
+    params_no_page.pop('page', None)
+    base_qs = params_no_page.urlencode()
+    full_qs = params.urlencode()
 
     estado_choices = CartolaMovimiento.ESTADOS
     filtros = {
         'du': du,
-        'fecha': fecha,
+        'fecha': fecha_str,
         'proyecto': proyecto,
         'categoria': categoria,
         'tipo': tipo,
-        'rut_factura': rut_factura,
         'estado': estado,
     }
 
-    return render(request, 'facturacion/listar_cartola.html', {
+    ctx = {
         'pagina': pagina,
-        'cantidad': request.GET.get('cantidad', '10'),
+        'cantidad': cantidad,
         'estado_choices': estado_choices,
-        'filtros': filtros
-    })
+        'filtros': filtros,
+        'base_qs': base_qs,
+        'full_qs': full_qs,
+    }
+    return render(request, 'facturacion/listar_cartola.html', ctx)
 
 
 @login_required
@@ -350,28 +393,109 @@ def eliminar_movimiento(request, pk):
 def listar_saldos_usuarios(request):
     cantidad = request.GET.get('cantidad', '5')
 
-    # Agrupar por usuario y calcular rendido y disponible
-    saldos = (CartolaMovimiento.objects
-              .values('usuario__id', 'usuario__first_name', 'usuario__last_name', 'usuario__email')
-              .annotate(
-                  monto_rendido=Sum('cargos'),
-                  monto_asignado=Sum('abonos'),
-              )
-              .order_by('usuario__first_name'))
+    # Estados según tu modelo (pendientes por etapa)
+    USER_PENDING = ['pendiente_abono_usuario']
+    SUP_PENDING = ['pendiente_supervisor']
+    PM_PENDING = ['aprobado_supervisor']   # esperando PM
+    FIN_PENDING = ['aprobado_pm']           # esperando Finanzas
 
-    # Calcular monto disponible
-    for s in saldos:
-        s['monto_disponible'] = (
-            s['monto_asignado'] or 0) - (s['monto_rendido'] or 0)
+    # Constante decimal tipada (¡clave para evitar el FieldError!)
+    DEC = DecimalField(max_digits=12, decimal_places=2)
+    V0 = Value(Decimal('0.00'), output_field=DEC)
 
-    # Paginación como facturación
-    if cantidad == 'todos':
-        paginator = Paginator(saldos, saldos.count() or 1)  # Todo en 1 página
-    else:
-        paginator = Paginator(saldos, int(cantidad))
+    # Sumas condicionadas (usar V0 en default)
+    pend_user_abonos = Sum(
+        Case(
+            When(Q(abonos__gt=0) & Q(status__in=USER_PENDING), then=F('abonos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_sup_abonos = Sum(
+        Case(
+            When(Q(abonos__gt=0) & Q(status__in=SUP_PENDING), then=F('abonos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_sup_cargos = Sum(
+        Case(
+            When(Q(cargos__gt=0) & Q(status__in=SUP_PENDING), then=F('cargos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_pm_abonos = Sum(
+        Case(
+            When(Q(abonos__gt=0) & Q(status__in=PM_PENDING), then=F('abonos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_pm_cargos = Sum(
+        Case(
+            When(Q(cargos__gt=0) & Q(status__in=PM_PENDING), then=F('cargos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_fin_abonos = Sum(
+        Case(
+            When(Q(abonos__gt=0) & Q(status__in=FIN_PENDING), then=F('abonos')),
+            default=V0, output_field=DEC,
+        )
+    )
+    pend_fin_cargos = Sum(
+        Case(
+            When(Q(cargos__gt=0) & Q(status__in=FIN_PENDING), then=F('cargos')),
+            default=V0, output_field=DEC,
+        )
+    )
 
-    page_number = request.GET.get('page')
-    pagina = paginator.get_page(page_number)
+    qs = (
+        CartolaMovimiento.objects
+        .values('usuario__id', 'usuario__first_name', 'usuario__last_name', 'usuario__email')
+        .annotate(
+            # Totales base (Coalesce con V0 decimal)
+            monto_rendido=Coalesce(Sum('cargos'), V0, output_field=DEC),
+            monto_asignado=Coalesce(Sum('abonos'), V0, output_field=DEC),
+
+            # Pendiente por usuario (solo abonos)
+            pend_user=pend_user_abonos,
+
+            # Parciales por etapa
+            _pend_sup_abonos=pend_sup_abonos,
+            _pend_sup_cargos=pend_sup_cargos,
+            _pend_pm_abonos=pend_pm_abonos,
+            _pend_pm_cargos=pend_pm_cargos,
+            _pend_fin_abonos=pend_fin_abonos,
+            _pend_fin_cargos=pend_fin_cargos,
+        )
+        .annotate(
+            # Combinar abonos+cargos en SQL (usa Coalesce(..., V0))
+            pend_sup=ExpressionWrapper(
+                Coalesce(F('_pend_sup_abonos'), V0, output_field=DEC) +
+                Coalesce(F('_pend_sup_cargos'), V0, output_field=DEC),
+                output_field=DEC,
+            ),
+            pend_pm=ExpressionWrapper(
+                Coalesce(F('_pend_pm_abonos'), V0, output_field=DEC) +
+                Coalesce(F('_pend_pm_cargos'), V0, output_field=DEC),
+                output_field=DEC,
+            ),
+            pend_fin=ExpressionWrapper(
+                Coalesce(F('_pend_fin_abonos'), V0, output_field=DEC) +
+                Coalesce(F('_pend_fin_cargos'), V0, output_field=DEC),
+                output_field=DEC,
+            ),
+            # Disponible: asignado - rendido (todo decimal)
+            monto_disponible=ExpressionWrapper(
+                Coalesce(F('monto_asignado'), V0, output_field=DEC) -
+                Coalesce(F('monto_rendido'), V0, output_field=DEC),
+                output_field=DEC,
+            ),
+        )
+        .order_by('usuario__first_name', 'usuario__last_name')
+    )
+
+    paginator = Paginator(
+        qs, qs.count() or 1) if cantidad == 'todos' else Paginator(qs, int(cantidad))
+    pagina = paginator.get_page(request.GET.get('page'))
 
     return render(request, 'facturacion/listar_saldos_usuarios.html', {
         'saldos': pagina,
@@ -440,47 +564,88 @@ def exportar_cartola(request):
 
 
 @login_required
+@rol_requerido('facturacion', 'admin')
 def exportar_saldos(request):
-    """
-    Exporta todos los saldos disponibles en un archivo Excel.
-    Los títulos visibles estarán en inglés, pero el código comentado queda en español.
-    """
-    from facturacion.models import CartolaMovimiento
+    from django.db.models import Sum, Case, When, Q, Value, DecimalField, F
+    import xlwt
+    from django.http import HttpResponse
 
-    # Agrupamos por usuario para obtener montos rendidos y disponibles
-    balances = (CartolaMovimiento.objects
-                .values('usuario__first_name', 'usuario__last_name')
-                .annotate(
-                    rendered_amount=Sum('cargos', default=0),
-                    available_amount=Sum(F('abonos') - F('cargos'), default=0)
-                )
-                .order_by('usuario__first_name', 'usuario__last_name'))
+    USER_PENDING = ['pendiente_usuario',
+                    'pendiente_aprobacion_usuario', 'pendiente_abono_usuario']
+    SUP_PENDING = ['pendiente_supervisor']
+    PM_PENDING = ['aprobado_supervisor', 'pendiente_pm']
+    FIN_PENDING = ['aprobado_pm', 'pendiente_finanzas']
 
-    # Configuramos respuesta HTTP para descarga directa
+    def _sum_pending_abonos(status_list):
+        return Sum(
+            Case(
+                When(Q(abonos__gt=0) & Q(status__in=status_list), then=F('abonos')),
+                default=Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
+
+    def _sum_pending_cargos(status_list):
+        return Sum(
+            Case(
+                When(Q(cargos__gt=0) & Q(status__in=status_list), then=F('cargos')),
+                default=Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
+
+    balances = (
+        CartolaMovimiento.objects
+        .values('usuario__first_name', 'usuario__last_name')
+        .annotate(
+            rendered_amount=Sum('cargos', default=0),
+            assigned_amount=Sum('abonos', default=0),
+            available_amount=Sum(F('abonos') - F('cargos'), default=0),
+
+            pending_user=_sum_pending_abonos(USER_PENDING),
+
+            sup_abonos=_sum_pending_abonos(SUP_PENDING),
+            sup_cargos=_sum_pending_cargos(SUP_PENDING),
+
+            pm_abonos=_sum_pending_abonos(PM_PENDING),
+            pm_cargos=_sum_pending_cargos(PM_PENDING),
+
+            fin_abonos=_sum_pending_abonos(FIN_PENDING),
+            fin_cargos=_sum_pending_cargos(FIN_PENDING),
+        )
+        .order_by('usuario__first_name', 'usuario__last_name')
+    )
+
     response = HttpResponse(content_type='application/octet-stream')
     response['Content-Disposition'] = 'attachment; filename="available_balances.xls"'
     response['X-Content-Type-Options'] = 'nosniff'
 
-    # Creamos el archivo Excel
     wb = xlwt.Workbook(encoding='utf-8')
     ws = wb.add_sheet('Available Balances')
 
-    # Estilos
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     currency_style = xlwt.easyxf(num_format_str='$#,##0.00')
 
-    # Cabeceras en inglés
-    columns = ["User", "Rendered Amount", "Available Amount"]
-    for col_num, column_title in enumerate(columns):
-        ws.write(0, col_num, column_title, header_style)
+    columns = [
+        "User", "Amount Rendered", "Assigned Amount", "Available Amount",
+        "Pending (User)", "Pending (Supervisor)", "Pending (PM)", "Pending (Finance)"
+    ]
+    for col, title in enumerate(columns):
+        ws.write(0, col, title, header_style)
 
-    # Escribir los datos
-    for row_num, b in enumerate(balances, start=1):
-        user_name = f"{b['usuario__first_name']} {b['usuario__last_name']}"
-        ws.write(row_num, 0, user_name)
-        ws.write(row_num, 1, float(b['rendered_amount'] or 0), currency_style)
-        ws.write(row_num, 2, float(b['available_amount'] or 0), currency_style)
+    for r, b in enumerate(balances, start=1):
+        pend_sup = float((b['sup_abonos'] or 0) + (b['sup_cargos'] or 0))
+        pend_pm = float((b['pm_abonos'] or 0) + (b['pm_cargos'] or 0))
+        pend_fin = float((b['fin_abonos'] or 0) + (b['fin_cargos'] or 0))
 
-    # Guardar archivo
+        ws.write(r, 0, f"{b['usuario__first_name']} {b['usuario__last_name']}")
+        ws.write(r, 1, float(b['rendered_amount'] or 0), currency_style)
+        ws.write(r, 2, float(b['assigned_amount'] or 0), currency_style)
+        ws.write(r, 3, float(b['available_amount'] or 0), currency_style)
+        ws.write(r, 4, float(b['pending_user'] or 0), currency_style)
+        ws.write(r, 5, pend_sup, currency_style)
+        ws.write(r, 6, pend_pm,  currency_style)
+        ws.write(r, 7, pend_fin, currency_style)
+
     wb.save(response)
     return response
