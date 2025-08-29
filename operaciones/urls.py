@@ -175,6 +175,10 @@ urlpatterns = [
     path(
         "billing/<int:pk>/reopen-asignado/",
         views.billing_reopen_asignado,
-        name="billing_reopen_asignado",
-    ),
+        name="billing_reopen_asignado"),
+    path("billing/send-to-finance/", views.billing_send_to_finance,
+         name="billing_send_finance"),
+    path("billing/finance/mark-in-review/<int:pk>/",
+         views.billing_mark_in_review, name="billing_mark_in_review"),
+
 ]

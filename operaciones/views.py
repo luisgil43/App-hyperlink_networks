@@ -1199,19 +1199,112 @@ def exportar_billing_excel(request):
 
 
 @login_required
+@rol_requerido('admin', 'pm')
+@require_POST
+@transaction.atomic
+def billing_send_to_finance(request):
+    """
+    Marca una lista de billings como 'sent' para Finanzas.
+    Acepta:
+      - form-urlencoded: ids="1,2,3"&note="opcional"
+      - application/json: {"ids":[1,2,3],"note":"..."}
+    Valida que el estado operativo sea >= aprobado_supervisor.
+    """
+    # --- parse ids + note ---
+    ids, note = [], ""
+    if request.content_type and "application/json" in request.content_type:
+        import json
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+            ids = [int(x)
+                   for x in (payload.get("ids") or []) if str(x).isdigit()]
+            note = (payload.get("note") or "").strip()
+        except Exception:
+            return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
+    else:
+        raw = (request.POST.get("ids") or "").strip()
+        ids = [int(x) for x in raw.split(",") if x.isdigit()]
+        note = (request.POST.get("note") or "").strip()
+
+    if not ids:
+        return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
+
+    # --- validar estado operativo permitido ---
+    allowed_ops = ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
+    invalid_exists = (SesionBilling.objects
+                      .filter(id__in=ids)
+                      .exclude(estado__in=allowed_ops)
+                      .exists())
+    if invalid_exists:
+        return JsonResponse(
+            {"ok": False,
+             "error": "INVALID_STATUS",
+             "message": 'Only billings "Approved by supervisor" (or higher) can be sent.'},
+            status=400
+        )
+
+    # --- actualizar ---
+    now = timezone.now()
+    qs = SesionBilling.objects.select_for_update().filter(
+        id__in=ids, estado__in=allowed_ops)
+    updated = 0
+    for s in qs:
+        s.finance_status = "sent"
+        s.finance_sent_at = now
+        s.finance_updated_at = now
+        if note:
+            prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
+            s.finance_note = (
+                s.finance_note + "\n" if s.finance_note else "") + prefix + note
+        s.save(update_fields=[
+               "finance_status", "finance_sent_at", "finance_updated_at", "finance_note"])
+        updated += 1
+
+    # respuesta
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({"ok": True, "count": updated})
+    messages.success(request, f"Sent to Finance: {updated}.")
+    return redirect("operaciones:listar_billing")
+
+
+@login_required
+@rol_requerido('admin', 'pm')
+@require_POST
+@transaction.atomic
+def billing_mark_in_review(request, pk: int):
+    s = get_object_or_404(SesionBilling, pk=pk)
+    if s.finance_status != "rejected":
+        messages.info(request, "Only applies when Finance has rejected it.")
+        return redirect("operaciones:listar_billing")
+
+    note = (request.POST.get("reason")
+            or request.POST.get("note") or "").strip()
+    now = timezone.now()
+
+    # Lo dejamos como "in_review" (aparece en Finanzas con scope=open)
+    s.finance_status = "in_review"
+    s.finance_updated_at = now
+
+    if note:
+        prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
+        s.finance_note = (
+            s.finance_note + "\n" if s.finance_note else "") + prefix + note
+
+    s.save(update_fields=["finance_status",
+           "finance_updated_at", "finance_note"])
+    messages.success(request, "Marked as 'In review' for Finance.")
+    return redirect("operaciones:listar_billing")
+
+
+@login_required
 @require_POST
 def billing_reopen_asignado(request, pk):
     obj = get_object_or_404(SesionBilling, pk=pk)
 
-    # Sólo tiene sentido si estaba aprobado
     if obj.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"):
         with transaction.atomic():
-            # 1) Reabrir el proyecto
             obj.estado = "asignado"
             obj.save(update_fields=["estado"])
-
-            # 2) Reabrir TODAS las asignaciones de esa sesión
-            #    (vuelven a 'asignado' y se limpian marcas de flujo)
             obj.tecnicos_sesion.all().update(
                 estado="asignado",
                 aceptado_en=None,
@@ -1220,24 +1313,25 @@ def billing_reopen_asignado(request, pk):
                 supervisor_comentario="",
                 pm_revisado_en=None,
                 pm_comentario="",
-                reintento_habilitado=True,   # opcional: permite re-subida
+                reintento_habilitado=True,
             )
-
         messages.success(
-            request,
-            f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated."
-        )
+            request, f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated.")
     else:
         messages.info(request, "This record is not in an approved state.")
-
-    # Regresa a la lista (o a la página previa si existe)
     return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/operaciones/billing/listar/"))
 
 
 @login_required
 def listar_billing(request):
+    """
+    Operaciones: ocultar únicamente lo que ya está en Finanzas
+    (sent / in_review / pending / paid). Todo lo demás se muestra
+    (incluye NULL, '', rejected, draft, etc.).
+    """
     qs = (
         SesionBilling.objects
+        .exclude(finance_status__in=["sent", "in_review", "pending", "paid"])
         .order_by("-creado_en")
         .prefetch_related(
             Prefetch(
@@ -1252,14 +1346,17 @@ def listar_billing(request):
                 queryset=SesionBillingTecnico.objects
                 .select_related("tecnico")
                 .prefetch_related(
-                    Prefetch("evidencias", queryset=EvidenciaFotoBilling.objects.only(
-                        "id", "imagen", "tecnico_sesion_id", "requisito_id").order_by("-id"))
+                    Prefetch(
+                        "evidencias",
+                        queryset=EvidenciaFotoBilling.objects.only(
+                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
+                        ).order_by("-id")
+                    )
                 )
             ),
         )
     )
 
-    # Paginación
     cantidad = request.GET.get("cantidad", "10")
     if cantidad == "todos":
         pagina = Paginator(qs, qs.count() or 1).get_page(1)
@@ -1270,7 +1367,6 @@ def listar_billing(request):
             per_page = 10
         pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
-    # ✅ Quienes pueden editar "Real pay week" (todo lo visible al usuario irá en inglés en el template)
     can_edit_real_week = (
         getattr(request.user, "es_pm", False)
         or getattr(request.user, "es_facturacion", False)
@@ -1281,11 +1377,8 @@ def listar_billing(request):
     return render(
         request,
         "operaciones/billing_listar.html",
-        {
-            "pagina": pagina,
-            "cantidad": cantidad,
-            "can_edit_real_week": can_edit_real_week,  # <-- flag al template
-        },
+        {"pagina": pagina, "cantidad": cantidad,
+            "can_edit_real_week": can_edit_real_week},
     )
 # ===== Crear / Editar =====
 

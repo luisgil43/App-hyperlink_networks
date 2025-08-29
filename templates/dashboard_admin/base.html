@@ -175,7 +175,7 @@
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
               <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Invoices</a></li>
+              <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Invoices</a></li>
               <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
               <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
           </ul>
