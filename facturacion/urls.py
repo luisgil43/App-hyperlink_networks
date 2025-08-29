@@ -37,5 +37,7 @@ urlpatterns = [
          views.invoice_mark_paid, name="invoice_mark_paid"),
     path("invoices/<int:pk>/reject/", views.invoice_reject, name="invoice_reject"),
     path("invoices/<int:pk>/remove/", views.invoice_remove, name="invoice_remove"),
+    path('invoices/<int:pk>/update-real/',
+         views.invoice_update_real, name='invoice_update_real'),
 
 ]
