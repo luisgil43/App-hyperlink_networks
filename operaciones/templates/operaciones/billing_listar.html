@@ -9,23 +9,37 @@
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Billing</h1>
 
-    <div class="flex items-center gap-2">
-      <!-- Export selected -->
-      <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}">
-        {% csrf_token %}
-        <input type="hidden" name="ids" id="export-ids">
-        <button type="submit" id="btn-export"
-                class="bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed"
-                disabled>
-          Export selected
-        </button>
-      </form>
-
-      <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
-        ➕ New Billing
-      </a>
+<!-- Toolbar (right side): Bulk actions -->
+<div class="flex items-center gap-2">
+  <!-- Actions dropdown -->
+  <div class="relative" id="bulk-actions">
+    <button type="button" id="btn-actions"
+            class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled>
+      Actions ▾
+    </button>
+    <div id="menu-actions"
+         class="hidden absolute right-0 mt-2 w-64 bg-white border rounded-xl shadow-lg z-10 overflow-hidden">
+      <button type="button" data-action="export"
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
+      <button type="button" data-action="send"
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
+      <button type="button" data-action="both"
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
     </div>
   </div>
+
+  <!-- Hidden export form (kept for server export endpoint) -->
+  <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
+    {% csrf_token %}
+    <input type="hidden" name="ids" id="export-ids">
+  </form>
+
+  <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+    ➕ New Billing
+  </a>
+</div>
+</div>
 
   <!-- Quick filters -->
   <div class="grid sm:grid-cols-6 gap-2 mb-3">
@@ -63,6 +77,7 @@
           <th class="p-2 border text-right">Company Billing</th>
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Different</th>
+<th class="p-2 border text-left">Finance Status</th>
           <th class="p-2 border text-left">Real pay week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
@@ -150,11 +165,50 @@
           <td class="p-2 border text-right">
             {% if s.real_company_billing %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
           </td>
-          <td class="p-2 border text-right">
-            {% if s.diferencia %}${{ s.diferencia|floatformat:2 }}{% else %}—{% endif %}
-          </td>
+<td class="p-2 border text-right">
+  {% if s.diferencia is not None and s.real_company_billing and s.subtotal_empresa %}
+    {% if s.real_company_billing < s.subtotal_empresa %}
+      {# Real < Company → rojo y negativo #}
+      <span class="font-semibold text-red-600">
+        - ${{ s.diferencia|floatformat:2 }}
+      </span>
+    {% elif s.real_company_billing > s.subtotal_empresa %}
+      {# Real > Company → verde y positivo #}
+      <span class="font-semibold text-green-600">
+        + ${{ s.diferencia|floatformat:2|cut:"-" }}
+      </span>
+    {% else %}
+      <span class="text-gray-700">$0.00</span>
+    {% endif %}
+  {% else %}
+    — 
+  {% endif %}
+</td>
 
-        
+<!-- Finance status -->
+<td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
+  {% if s.finance_status == "sent" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to Finance</span>
+  {% elif s.finance_status == "in_review" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
+  {% elif s.finance_status == "rejected" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
+  {% elif s.finance_status == "pending" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
+  {% elif s.finance_status == "paid" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
+  {% else %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
+  {% endif %}
+
+  {% if s.finance_note %}
+    <div class="mt-1 text-xs text-gray-500">
+      <div class="whitespace-pre-line break-normal hyphens-auto">
+        Note: {{ s.finance_note }}
+      </div>
+    </div>
+  {% endif %}
+</td>        
          {# --- Real pay week (con candado para roles sin permiso) --- #}
 <td class="p-2 border" data-col="semana-real">
   <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
@@ -177,7 +231,7 @@
             class="sr-edit text-xs text-blue-600 underline"
             data-id="{{ s.id }}"
             data-url="{% url 'operaciones:billing_update_semana' s.id %}">
-      ✏️
+     ✏️
     </button>
   {% endif %}
 </td>
@@ -208,6 +262,18 @@
                 <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
               </div>
             {% endif %}
+{% if s.finance_status == "rejected" %}
+  <form method="post"
+        action="{% url 'operaciones:billing_mark_in_review' s.id %}"
+        class="inline form-inreview">
+    {% csrf_token %}
+    <button class="text-amber-700 hover:underline"
+            title="Mark as 'In review' while you correct this billing">
+      Mark as in review
+    </button>
+  </form>
+{% endif %}
+
           </td>
         </tr>
 
@@ -544,6 +610,206 @@ document.addEventListener('click', function(e){
   </div>
 </div>
 
+<!-- Finance note modal (SEPARATE, not inside #modal-delete) -->
+<div id="modal-finance" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-finance></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 id="finance-title" class="text-lg font-semibold mb-3">Send to Finance</h3>
+
+    <form id="finance-form" class="space-y-4">
+      {% csrf_token %}
+      <label class="block text-sm text-gray-700">Note for Finance (optional)</label>
+      <textarea id="finance-note" class="w-full border rounded-lg px-3 py-2 h-24"
+                placeholder="Write a short note…"></textarea>
+
+      <input type="hidden" id="finance-mode" value="send"><!-- send | both -->
+      <input type="hidden" id="finance-ids-hidden" value="">
+
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" id="finance-cancel"
+                class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
+          Cancel
+        </button>
+        <button type="submit" id="finance-submit"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+          Send
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Info / Warning modal -->
+<div id="modal-info" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-info></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold">Can’t send to Finance</h3>
+    <p id="info-message" class="mt-2 text-sm text-gray-600">
+      <!-- message injected by JS -->
+    </p>
+    <div class="mt-5 flex justify-end">
+      <button id="info-ok" type="button"
+              class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+        OK
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- In-review justification modal -->
+<div id="modal-inreview" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-inreview></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Brief explanation for Finance</h3>
+    <p class="text-sm text-gray-600 mb-3">
+      Tell Finance what changed so they can re-check this billing.
+    </p>
+    <form id="inreview-form" class="space-y-4">
+      {% csrf_token %}
+      <textarea id="inreview-reason"
+                class="w-full border rounded-lg px-3 py-2 h-28 whitespace-pre-line break-normal hyphens-auto"
+                placeholder="E.g. We updated the photo set and corrected the company rate for item 3."
+                maxlength="1000"></textarea>
+
+      <div class="flex justify-end gap-2">
+        <button type="button" id="inreview-cancel"
+                class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
+          Cancel
+        </button>
+        <button type="submit"
+                class="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700">
+          Send to Finance
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<script>
+(function(){
+  const infoModal = document.getElementById('modal-info');
+  const infoMsg   = document.getElementById('info-message');
+
+  function openInfo(msg){
+    infoMsg.textContent = msg || '';
+    infoModal.classList.remove('hidden');
+  }
+  function closeInfo(){
+    infoModal.classList.add('hidden');
+  }
+
+  document.getElementById('info-ok')?.addEventListener('click', closeInfo);
+  infoModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-info')) closeInfo(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !infoModal.classList.contains('hidden')) closeInfo(); });
+
+  // 👇 disponible globalmente para reusar donde quieras
+  window.showInvalidStatusModal = function(){
+    openInfo('Only billings with status "Approved by supervisor" (or higher) can be sent to Finance. Please deselect items that are In progress, Rejected, or Pending review.');
+  };
+})();
+</script>
+
+<script>
+(function(){
+  // === CSRF helper (si ya lo tienes, omite esto) ===
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  // === Toast simple (opcional) ===
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2200);
+  }
+
+  // === Modal refs ===
+  const inModal   = document.getElementById('modal-inreview');
+  const inForm    = document.getElementById('inreview-form');
+  const inReason  = document.getElementById('inreview-reason');
+  const inCancel  = document.getElementById('inreview-cancel');
+
+  let inReviewPostUrl = null; // acción del form original
+
+  function openInReviewModal(actionUrl){
+    inReviewPostUrl = actionUrl;
+    inReason.value = '';
+    inModal.classList.remove('hidden');
+    inReason.focus();
+  }
+  function closeInReviewModal(){
+    inModal.classList.add('hidden');
+    inReviewPostUrl = null;
+  }
+
+  // Cerrar modal: overlay / botón / ESC
+  inCancel?.addEventListener('click', closeInReviewModal);
+  inModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-inreview')) closeInReviewModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !inModal.classList.contains('hidden')) closeInReviewModal(); });
+
+  // 1) Intercepta el submit del form original para abrir modal
+  document.addEventListener('submit', function(e){
+    const f = e.target.closest('.form-inreview');
+    if(!f) return;
+    e.preventDefault(); // no postees aún
+    openInReviewModal(f.getAttribute('action'));
+  });
+
+  // 2) Al confirmar en el modal, POST con la nota
+  inForm?.addEventListener('submit', async function(e){
+    e.preventDefault();
+    if(!inReviewPostUrl) return;
+
+    const reason = (inReason.value || '').trim();
+    // Si quieres hacerlo obligatorio, descomenta:
+    // if(!reason){ inReason.focus(); return; }
+
+    try{
+      const form = new FormData();
+      // Usamos 'reason' como en el modal de rechazo (coherencia),
+      // si tu view espera otro nombre (p.ej. 'note'), duplícalo:
+      form.append('reason', reason);
+      form.append('note', reason);
+
+      const resp = await fetch(inReviewPostUrl, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+        body: form
+      });
+
+      // Soporte para responses JSON o redirect
+      let payload = null;
+      try { payload = await resp.json(); } catch(_){}
+
+      if(!resp.ok){
+        const msg = (payload && (payload.error || payload.message)) || `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      // OK: cerramos y refrescamos
+      closeInReviewModal();
+      // Si tu view ya hace messages.success, con reload basta:
+      window.location.reload();
+
+    }catch(err){
+      toast(err.message || 'Failed to send to Finance', 'error');
+    }
+  });
+})();
+</script>
+
+
+
 <script>
 (function(){
   const modal = document.getElementById('modal-delete');
@@ -577,6 +843,142 @@ document.addEventListener('click', function(e){
   form.addEventListener('submit', function(){
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Deleting...'; }
+  });
+})();
+</script>
+
+
+<!-- 1) MENU -> abre modal (con validación de estatus) -->
+<script>
+(function(){
+  // === Listener del menú (abre modal) ===
+  const menu         = document.getElementById('menu-actions');
+  const exportForm   = document.getElementById('export-form');
+  const exportIdsInp = document.getElementById('export-ids');
+
+  /*⬇️⬇️⬇️  AÑADIR ESTA FUNCIÓN AQUÍ  ⬇️⬇️⬇️ */
+  function openFinanceModal(ids, mode){
+    const modal  = document.getElementById('modal-finance');
+    const title  = document.getElementById('finance-title');
+    const submit = document.getElementById('finance-submit');
+
+    document.getElementById('finance-ids-hidden').value = (ids || []).join(',');
+    document.getElementById('finance-mode').value = mode || 'send';
+
+    if(mode === 'both'){
+      title.textContent  = 'Export & Send to Finance';
+      submit.textContent = 'Export & Send';
+    }else{
+      title.textContent  = 'Send to Finance';
+      submit.textContent = 'Send';
+    }
+    modal.classList.remove('hidden');
+    document.getElementById('finance-note').focus();
+  }
+  /* ⬆️⬆️⬆️  FIN DE LA FUNCIÓN AÑADIDA  ⬆️⬆️⬆️ */
+
+  menu.addEventListener('click', (e)=>{
+    // Evita que dispare el otro listener del mismo menú (el del prompt)
+    e.stopImmediatePropagation();
+
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    menu.classList.add('hidden');
+
+    const ids = Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
+    if(!ids.length) return;
+
+    const action = btn.getAttribute('data-action');
+
+    if(action === 'export'){
+      // Export no necesita validación de estatus
+      exportIdsInp.value = ids.join(',');
+      exportForm.submit();
+      return;
+    }
+
+    // ✅ Validar estatus antes de abrir el modal (solo para send/both)
+    const invalid = ids.filter(id => {
+      const tr = document.querySelector(`.row-chk[value="${id}"]`)?.closest('tr');
+      const t  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
+      return !/approved by supervisor|approved by pm|approved by finance/.test(t);
+    });
+
+    if(invalid.length){
+      window.showInvalidStatusModal();
+      return;
+    }
+
+    // Abre el modal de nota para enviar
+    if(action === 'send'){
+      openFinanceModal(ids, 'send');
+    }else if(action === 'both'){
+      openFinanceModal(ids, 'both');
+    }
+  });
+})();
+</script>
+
+
+<script>
+(function(){
+  const modal   = document.getElementById('modal-finance');
+  const form    = document.getElementById('finance-form');
+  const noteEl  = document.getElementById('finance-note');
+  const modeEl  = document.getElementById('finance-mode');
+  const idsEl   = document.getElementById('finance-ids-hidden');
+
+  const exportForm   = document.getElementById('export-form');
+  const exportIdsInp = document.getElementById('export-ids');
+  const actionsBtn   = document.getElementById('btn-actions');
+
+  function closeFinanceModal(){
+    modal.classList.add('hidden');
+    noteEl.value = '';
+  }
+
+  // Remueve del DOM las filas seleccionadas (y su detalle)
+  function removeRows(ids){
+    ids.forEach(id => {
+      const chk = document.querySelector(`.row-chk[value="${id}"]`);
+      if(!chk) return;
+      const main = chk.closest('tr[data-row="main"]');
+      const detId = main?.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+      if(main) main.remove();
+      if(detId) document.getElementById(detId)?.remove();
+    });
+
+    // deshabilita Actions si ya no hay seleccionados
+    const anySelected = document.querySelectorAll('.row-chk:checked').length > 0;
+    if(actionsBtn) actionsBtn.disabled = !anySelected;
+  }
+
+  // Cerrar
+  document.getElementById('finance-cancel').addEventListener('click', closeFinanceModal);
+  modal.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-finance')) closeFinanceModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal(); });
+
+  // Enviar
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const ids  = idsEl.value ? idsEl.value.split(',') : [];
+    const mode = modeEl.value;     // send | both
+    try{
+      await window.sendToFinance(ids, noteEl.value.trim());
+
+      // ✅ ya enviados: quítalos del listado sin recargar
+      removeRows(ids);
+
+      if(mode === 'both'){
+        exportIdsInp.value = ids.join(',');
+        exportForm.submit();   // dispara export
+      } // si es solo "send", no hacemos nada más
+
+    }catch(err){
+      alert(err.message || 'Unexpected error');
+    }finally{
+      closeFinanceModal();
+    }
   });
 })();
 </script>
@@ -756,7 +1158,7 @@ document.addEventListener('click', function(e){
     return data.semana;
   }
 
-  // Click en ✏️
+  // Click en✏️
   document.addEventListener("click", function(e){
     const btn = e.target.closest(".sr-edit");
     if (btn) { toEdit(btn.dataset.id); return; }
@@ -797,4 +1199,104 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
+
+<script>
+(function(){
+  // CSRF
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  // Elements
+  const actionsBtn   = document.getElementById('btn-actions');
+  const menu         = document.getElementById('menu-actions');
+  const exportForm   = document.getElementById('export-form');
+  const exportIdsInp = document.getElementById('export-ids');
+  const chkAll       = document.getElementById('chk-all');
+
+  // Selected IDs
+  function selectedIds(){
+    return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
+  }
+
+  // Enable/disable dropdown trigger
+  function setActionsEnabled(){
+    const any = selectedIds().length > 0;
+    actionsBtn.disabled = !any;
+  }
+
+  // Open/close menu
+  actionsBtn?.addEventListener('click', () => {
+    if(actionsBtn.disabled) return;
+    menu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.contains(e.target) && !actionsBtn.contains(e.target)){
+      menu.classList.add('hidden');
+    }
+  });
+
+  // React to selections
+  chkAll?.addEventListener('change', setActionsEnabled);
+  document.addEventListener('change', (e)=>{
+    if(e.target.classList.contains('row-chk')) setActionsEnabled();
+  });
+  setActionsEnabled();
+
+  // Call: send to Finance
+  async function sendToFinance(ids, note){
+    const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: JSON.stringify({ ids: ids, note: note || "" })
+    });
+    if(!resp.ok){
+      let msg = 'HTTP ' + resp.status;
+      try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch(_){}
+      throw new Error('Could not send to Finance: ' + msg);
+    }
+    return resp.json();
+  }
+
+  // 👇 Hago accesible la función al modal (scope global)
+  window.sendToFinance = sendToFinance;
+
+  // Handle clicks in menu (queda tal cual, pero NO se ejecutará
+  // cuando el otro listener haga stopImmediatePropagation)
+  menu.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    menu.classList.add('hidden');
+
+    const ids = selectedIds();
+    if(!ids.length) return;
+
+    const action = btn.getAttribute('data-action');
+    try{
+      if(action === 'export'){
+        exportIdsInp.value = ids.join(',');
+        exportForm.submit();
+      }else if(action === 'send'){
+        const note = prompt("Note for Finance (optional):", "");
+        await sendToFinance(ids, note);
+        location.reload();
+      }else if(action === 'both'){
+        const note = prompt("Note for Finance (optional):", "");
+        await sendToFinance(ids, note);     // 1) send
+        exportIdsInp.value = ids.join(','); // 2) export
+        exportForm.submit();
+      }
+    }catch(err){
+      alert(err.message || "Unexpected error");
+    }
+  });
+})();
+</script>
+
 {% endblock %}

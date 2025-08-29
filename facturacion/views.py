@@ -1,3 +1,11 @@
+from django.http import (
+    HttpResponseBadRequest,
+    JsonResponse,
+    HttpResponseNotAllowed,)
+from django.utils import timezone
+from django.shortcuts import render, redirect, get_object_or_404
+from operaciones.models import SesionBilling
+from django.db import transaction
 from django.db.models import Sum, Case, When, Q, Value, DecimalField, F, ExpressionWrapper
 from django.db.models.functions import Coalesce
 from django.db.models import Sum, F, Q, Case, When, Value, DecimalField
@@ -649,3 +657,200 @@ def exportar_saldos(request):
 
     wb.save(response)
     return response
+
+
+def _parse_decimal(val: str | None) -> Decimal | None:
+    if val is None:
+        return None
+    s = (str(val) or "").strip().replace(",", "")
+    if s == "":
+        return None
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _can_edit_real_week(user) -> bool:
+    """
+    PM / Finance / Admin can edit the real pay week.
+    Ajusta esto a tu lógica de roles si usas permisos/grupos.
+    """
+    try:
+        from usuarios.utils import user_has_any_role  # opcional
+        return user_has_any_role(user, ["pm", "facturacion", "admin"])
+    except Exception:
+        # Fallback: usa el decorador que ya aplicamos a la vista
+        return True
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+def invoices_list(request):
+    """
+    Finance invoices list with the same columns and layout conventions
+    you have in Operations (Billing List).
+    """
+    scope = request.GET.get("scope", "open")  # open | all | paid
+
+    qs = (
+        SesionBilling.objects.all()
+        .select_related()
+        .prefetch_related(
+            "tecnicos_sesion__tecnico",
+            "tecnicos_sesion__evidencias",
+            "items",
+            "items__desglose_tecnico__tecnico",
+        )
+        .order_by("-creado_en")
+    )
+
+    if scope == "paid":
+        qs = qs.filter(finance_status="paid")
+    elif scope == "all":
+        pass
+    else:
+        qs = qs.filter(finance_status__in=[
+                       "sent", "in_review", "pending", "rejected"])
+
+    cantidad = request.GET.get("cantidad", "10")
+    try:
+        per_page = 1000000 if cantidad == "todos" else int(cantidad)
+    except Exception:
+        per_page = 10
+        cantidad = "10"
+
+    from django.core.paginator import Paginator
+    paginator = Paginator(qs, per_page)
+    page_number = request.GET.get("page")
+    pagina = paginator.get_page(page_number)
+
+    ctx = {
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "scope": scope,
+        "can_edit_real_week": _can_edit_real_week(request.user),
+    }
+    return render(request, "facturacion/invoices_list.html", ctx)
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+def invoice_update_real(request, pk: int):
+    """
+    AJAX: Update Real Company Billing and/or Real Pay Week.
+    Returns JSON with the new values and difference.
+    """
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=pk)
+    real = _parse_decimal(request.POST.get("real"))
+    week = (request.POST.get("week") or "").strip()
+
+    with transaction.atomic():
+        changed_fields = []
+
+        if real is not None and real != s.real_company_billing:
+            s.real_company_billing = real
+            changed_fields.append("real_company_billing")
+            if s.finance_status in ("sent", "in_review") and real is not None:
+                s.finance_status = "pending"
+                changed_fields.append("finance_status")
+
+        if week != "" and week != s.semana_pago_real:
+            s.semana_pago_real = week
+            changed_fields.append("semana_pago_real")
+
+        if changed_fields:
+            s.save(update_fields=changed_fields)
+
+    diff = None
+    if s.real_company_billing is not None:
+        diff = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
+
+    return JsonResponse({
+        "ok": True,
+        "real": f"{s.real_company_billing:.2f}" if s.real_company_billing is not None else "",
+        "week": s.semana_pago_real or "",
+        "difference": f"{diff:.2f}" if diff is not None else "",
+        "finance_status": s.finance_status,
+    })
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+def invoice_mark_paid(request, pk: int):
+    """
+    Mark invoice as Paid.
+    - Requires real_company_billing not null
+    - If difference > 0 (we receive less than company billing), require client-side confirmation (force=1)
+    """
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=pk)
+    if s.real_company_billing is None:
+        return HttpResponseBadRequest("Real Company Billing is required before marking as paid.")
+
+    difference = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
+    force = (request.POST.get("force") or "") == "1"
+
+    if difference > 0 and not force:
+        return JsonResponse({
+            "ok": False,
+            "confirm": True,
+            "message": "You are collecting less than expected. Do you still want to mark it as paid?"
+        }, status=409)
+
+    with transaction.atomic():
+        s.finance_status = "paid"
+        if not s.semana_pago_real:
+            y, w, _ = timezone.localdate().isocalendar()
+            s.semana_pago_real = f"{y}-W{int(w):02d}"
+        s.save(update_fields=["finance_status", "semana_pago_real"])
+
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+def invoice_reject(request, pk: int):
+    """
+    Reject invoice back to Operations with a reason.
+    Sets finance_status='rejected' and stores the note.
+    """
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    reason = (request.POST.get("reason") or "").strip()
+    if not reason:
+        return HttpResponseBadRequest("A rejection reason is required.")
+
+    s = get_object_or_404(SesionBilling, pk=pk)
+    with transaction.atomic():
+        s.finance_status = "rejected"
+        s.finance_note = reason
+        s.save(update_fields=["finance_status", "finance_note"])
+
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+def invoice_remove(request, pk: int):
+    """
+    Remove invoice from Finance queue (does NOT delete the billing).
+    Sets finance_status='none' and clears finance_note.
+    """
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=pk)
+    with transaction.atomic():
+        s.finance_status = "none"
+        s.finance_note = ""
+        s.save(update_fields=["finance_status", "finance_note"])
+
+    messages.success(request, f"Billing #{s.pk} removed from Finance queue.")
+    return redirect("facturacion:invoices")

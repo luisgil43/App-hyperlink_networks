@@ -11,18 +11,34 @@
       📋 Photo Requirements — Billing #{{ sesion.id }}
     </h1>
 
-<div class="flex items-center gap-2">
-  <!-- Open import screen -->
-  <a href="{% url 'operaciones:import_requirements_page' sesion.id %}"
-     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow focus:outline-none focus:ring-2 focus:ring-blue-400">
-    Import Requirements (CSV/XLSX)
-  </a>
-</div>
-
+    <div class="flex items-center gap-2">
+      <!-- Open import screen -->
+      <a href="{% url 'operaciones:import_requirements_page' sesion.id %}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow focus:outline-none focus:ring-2 focus:ring-blue-400">
+        Import Requirements (CSV/XLSX)
+      </a>
+    </div>
   </div>
 
   <form method="post" class="space-y-6" id="req-form" autocomplete="off">
     {% csrf_token %}
+
+    <!-- NEW: Special project toggle -->
+    <div class="border rounded-2xl p-4 sm:p-5">
+      <label class="inline-flex items-start gap-3">
+        <input type="checkbox"
+               name="proyecto_especial"
+               value="1"
+               {% if sesion.proyecto_especial %}checked{% endif %}
+               class="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded">
+        <span>
+          <span class="font-semibold">Special project</span>
+          <span class="block text-sm text-gray-600 mt-0.5">
+            If enabled, “Extra” photos will require Title and Address, and the report will use those fields.
+          </span>
+        </span>
+      </label>
+    </div>
 
     <div class="border rounded-2xl p-4 sm:p-5">
       <div class="flex items-center justify-between mb-3">
@@ -107,7 +123,7 @@
     wrap.innerHTML = `
       <input type="hidden" name="id[]" value="">
       <input name="name[]" class="sm:col-span-6 border rounded-xl p-2" placeholder="Name" required autocomplete="off">
-      <input name="order[]" class="sm:col-span-2 border rounded-xl p-2" type="number" value="${idx}" min="0" inputmode="numeric" autocomplete="off">
+      <input name="order[]" class="sm:col-span-2 border rounded-xl p-2" type="number" value="\${idx}" min="0" inputmode="numeric" autocomplete="off">
       <label class="sm:col-span-3 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
         <input type="checkbox" class="obl-toggle" checked>
         <span class="text-sm">Required</span>

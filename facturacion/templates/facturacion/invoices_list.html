@@ -1,0 +1,766 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block title %}Invoices{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💼 Invoices</h1>
+
+    <!-- Scope filter (Finance view specific) -->
+    <form method="get" class="flex items-center gap-2">
+      <input type="hidden" name="cantidad" value="{{ cantidad }}">
+      <select name="scope" class="border rounded-lg px-3 py-2" onchange="this.form.submit()">
+        <option value="open" {% if scope == "open" %}selected{% endif %}>Open (in process)</option>
+        <option value="paid" {% if scope == "paid" %}selected{% endif %}>Paid</option>
+        <option value="all"  {% if scope == "all" %}selected{% endif %}>All</option>
+      </select>
+    </form>
+  </div>
+
+  <!-- Quick filters -->
+  <div class="grid sm:grid-cols-6 gap-2 mb-3">
+    <input id="f-date"    class="border rounded px-3 py-2 quick-filter" placeholder="Date">
+    <input id="f-projid"  class="border rounded px-3 py-2 quick-filter" placeholder="Project ID">
+    <input id="f-week"    class="border rounded px-3 py-2 quick-filter" placeholder="Week">
+    <input id="f-tech"    class="border rounded px-3 py-2 quick-filter" placeholder="Technicians">
+    <input id="f-client"  class="border rounded px-3 py-2 quick-filter" placeholder="Client">
+    <div class="flex gap-2">
+      <input id="f-status" class="border rounded px-3 py-2 w-full quick-filter" placeholder="Status">
+      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="rounded-xl border border-gray-200 overflow-x-auto">
+    <table id="billing-table" class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+        <tr>
+          <th class="p-2 border w-10"></th> <!-- caret -->
+          <th class="p-2 border text-left">Date</th>
+          <th class="p-2 border text-left">Project ID</th>
+          <th class="p-2 border text-left">Project address</th>
+          <th class="p-2 border text-left">Week</th>
+          <th class="p-2 border text-left">Status</th>
+          <th class="p-2 border text-left">Technicians</th>
+          <th class="p-2 border text-left">Client</th>
+          <th class="p-2 border text-left">City</th>
+          <th class="p-2 border text-left">Project</th>
+          <th class="p-2 border text-left">Office</th>
+          <th class="p-2 border text-right">Technical Billing</th>
+          <th class="p-2 border text-right">Company Billing</th>
+          <th class="p-2 border text-right">Real Company Billing</th>
+          <th class="p-2 border text-right">Difference</th>
+          <th class="p-2 border text-left">Finance status</th>
+          <th class="p-2 border text-left">Real pay week</th>
+          <th class="p-2 border text-center">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody class="text-left">
+        {% for s in pagina.object_list %}
+        <!-- Main row -->
+        <tr class="border-t align-top"
+            data-row="main"
+            data-id="{{ s.id }}"
+            data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
+            data-projid="{{ s.proyecto_id|default:''|lower }}"
+            data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
+            data-status="{% if s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% elif s.estado == 'en_proceso' %}en proceso in progress progress{% else %}asignado assigned{% endif %}"
+            data-client="{{ s.cliente|default:''|lower }}"
+            data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+
+          <!-- caret -->
+          <td class="p-2 border text-center">
+            <button type="button"
+                    class="btn-toggle-detalle inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 transition"
+                    data-target="detalle-{{ s.id }}"
+                    aria-expanded="false"
+                    aria-controls="detalle-{{ s.id }}">
+              <svg class="chevron w-4 h-4 transition-transform" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414L10 12.414 6.293 8.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </td>
+
+          <td class="p-2 border">{{ s.creado_en|date:"Y-m-d H:i" }}</td>
+          <td class="p-2 border">{{ s.proyecto_id }}</td>
+
+          <!-- Project address -->
+          <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;">
+            {% if s.direccion_proyecto %}
+              {% if s.maps_href == s.direccion_proyecto %}
+                <a href="{{ s.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+              {% else %}
+                <div class="whitespace-normal break-words">{{ s.direccion_proyecto }}</div>
+                <a href="{{ s.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
+
+          <!-- Project status -->
+          <td class="p-2 border" data-status-cell>
+            {% if s.estado == "aprobado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+            {% elif s.estado == "rechazado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+            {% elif s.estado == "aprobado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+            {% elif s.estado == "rechazado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+            {% elif s.estado == "en_revision_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+            {% elif s.estado == "finalizado" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+            {% elif s.estado == "en_proceso" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+            {% endif %}
+          </td>
+
+          <!-- Technicians -->
+          <td class="p-2 border">
+            {% for st in s.tecnicos_sesion.all %}
+              <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-50 border rounded mr-1">
+                {{ st.tecnico.get_full_name|default:st.tecnico.username }} ({{ st.porcentaje|floatformat:2 }}%)
+              </span>
+            {% empty %}-{% endfor %}
+          </td>
+
+          <td class="p-2 border">{{ s.cliente }}</td>
+          <td class="p-2 border">{{ s.ciudad }}</td>
+          <td class="p-2 border">{{ s.proyecto }}</td>
+          <td class="p-2 border">{{ s.oficina }}</td>
+
+          <td class="p-2 border text-right">${{ s.subtotal_tecnico|floatformat:2 }}</td>
+          <td class="p-2 border text-right">${{ s.subtotal_empresa|floatformat:2 }}</td>
+
+          <!-- Real Company Billing (inline edit) -->
+          <td class="p-2 border text-right" data-col="real">
+            <span class="real-view" id="real-view-{{ s.id }}">
+              {% if s.real_company_billing %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
+            </span>
+            <input type="text" inputmode="decimal" placeholder="0.00"
+                   class="real-input hidden border rounded px-2 py-1 text-sm w-28 text-right"
+                   id="real-input-{{ s.id }}"
+                   value="{% if s.real_company_billing %}{{ s.real_company_billing|floatformat:2 }}{% endif %}">
+            <button type="button" class="real-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
+          </td>
+
+          <!-- Difference -->
+          <td class="p-2 border text-right" id="diff-{{ s.id }}">
+            {% if s.diferencia is not None and s.real_company_billing and s.subtotal_empresa %}
+              {% if s.real_company_billing < s.subtotal_empresa %}
+                <span class="font-semibold text-red-600">- ${{ s.diferencia|floatformat:2 }}</span>
+              {% elif s.real_company_billing > s.subtotal_empresa %}
+                <span class="font-semibold text-green-600">+ ${{ s.diferencia|floatformat:2|cut:"-" }}</span>
+              {% else %}
+                <span class="text-gray-700">$0.00</span>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Finance status -->
+        <!-- Finance status (anchura + envoltura agradable) -->
+<td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
+  {% if s.finance_status == "sent" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to Finance</span>
+  {% elif s.finance_status == "in_review" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
+  {% elif s.finance_status == "rejected" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
+  {% elif s.finance_status == "pending" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
+  {% elif s.finance_status == "paid" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
+  {% else %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
+  {% endif %}
+
+  {% if s.finance_note %}
+    <div class="mt-1 text-xs text-gray-500">
+      <div class="whitespace-pre-line break-normal hyphens-auto">
+        Note: {{ s.finance_note }}
+      </div>
+    </div>
+  {% endif %}
+</td>
+
+          <!-- Real pay week (inline edit) -->
+          <td class="p-2 border" data-col="week">
+            <span class="week-view" id="week-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+            {% if can_edit_real_week %}
+              <input type="text" placeholder="YYYY-W##" class="week-input hidden border rounded px-2 py-1 text-sm w-28"
+                    id="week-input-{{ s.id }}" value="{{ s.semana_pago_real|default:'' }}">
+              <button type="button" class="week-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
+            {% else %}
+              <button type="button" class="text-xs text-gray-400 cursor-not-allowed" title="Only PM/Finance/Admin can edit.">🔒</button>
+            {% endif %}
+          </td>
+
+          <!-- Actions -->
+          <td class="p-2 border text-center">
+            <div class="flex items-center justify-center gap-3">
+              {% if not s.real_company_billing %}
+                <button type="button" class="text-blue-600 hover:underline real-edit" data-id="{{ s.id }}">Edit</button>
+                <form method="post" action="{% url 'facturacion:invoice_remove' s.id %}" class="inline">
+                  {% csrf_token %}
+                  <button class="text-red-600 hover:underline">Remove</button>
+                </form>
+              {% else %}
+                {% if s.finance_status != "paid" %}
+                  {% if s.diferencia and s.diferencia|floatformat:2 != '0.00' %}
+                    <button type="button" class="btn-reject text-red-600 hover:underline" data-id="{{ s.id }}">Reject</button>
+                  {% endif %}
+                  <button type="button" class="btn-paid text-green-700 hover:underline" data-id="{{ s.id }}">Mark as paid</button>
+                {% endif %}
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+
+        <!-- Detail row -->
+        <tr id="detalle-{{ s.id }}" class="hidden">
+          <td class="border"></td>  <!-- caret -->
+          <!-- 17 columnas visibles arriba -> colspan = 16 -->
+          <td class="p-3 border bg-gray-50" colspan="16">
+
+            <!-- Items -->
+            <div class="overflow-x-auto rounded border">
+              <table class="min-w-[1000px] w-full text-xs">
+                <thead class="bg-gray-100 text-gray-800">
+                  <tr>
+                    <th class="p-2 text-left">Job Code</th>
+                    <th class="p-2 text-left">Work Type</th>
+                    <th class="p-2 text-left">Description</th>
+                    <th class="p-2 text-left">UOM</th>
+                    <th class="p-2 text-right">Quantity</th>
+                    <th class="p-2 text-left">Technical Rate</th>
+                    <th class="p-2 text-right">Company Rate</th>
+                    <th class="p-2 text-right">Subtotal Technical</th>
+                    <th class="p-2 text-right">Subtotal Company</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for it in s.items.all %}
+                  <tr class="border-t">
+                    <td class="p-2">{{ it.codigo_trabajo }}</td>
+                    <td class="p-2">{{ it.tipo_trabajo }}</td>
+                    <td class="p-2">{{ it.descripcion }}</td>
+                    <td class="p-2">{{ it.unidad_medida }}</td>
+                    <td class="p-2 text-right">{{ it.cantidad|floatformat:2 }}</td>
+                    <td class="p-2">
+                      <div class="space-y-1">
+                        {% for bd in it.desglose_tecnico.all %}
+                          <div class="flex gap-1 items-baseline">
+                            <span class="px-1 rounded bg-gray-100">
+                              {{ bd.tecnico.get_full_name|default:bd.tecnico.username }}
+                            </span>
+                            <span class="text-gray-700">
+                              {{ bd.tarifa_base|floatformat:2 }} × {{ bd.porcentaje|floatformat:2 }}% = <b>{{ bd.tarifa_efectiva|floatformat:2 }}</b>
+                            </span>
+                          </div>
+                        {% empty %}
+                          <span class="text-gray-400">—</span>
+                        {% endfor %}
+                      </div>
+                    </td>
+                    <td class="p-2 text-right">{{ it.precio_empresa|floatformat:2 }}</td>
+                    <td class="p-2 text-right">{{ it.subtotal_tecnico|floatformat:2 }}</td>
+                    <td class="p-2 text-right">{{ it.subtotal_empresa|floatformat:2 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="9" class="p-3 text-center text-gray-500">No items.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Assignments -->
+            <div class="mt-6">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
+                {% if s.reporte_fotografico %}
+                  <a class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded" href="{{ s.reporte_fotografico.url }}" target="_blank" rel="noopener">
+                    ⬇️ Download Photo Report
+                  </a>
+                {% else %}
+                  <span class="text-xs text-gray-500">Report will be generated on approval</span>
+                {% endif %}
+              </div>
+              <div class="overflow-x-auto rounded border">
+                <table class="min-w-[900px] w-full text-xs">
+                  <thead class="bg-gray-100 text-gray-800">
+                    <tr>
+                      <th class="p-2 text-left">Technician</th>
+                      <th class="p-2 text-right">%</th>
+                      <th class="p-2 text-left">Accepted</th>
+                      <th class="p-2 text-left">Finished</th>
+                      <th class="p-2 text-left">Reviewed</th>
+                      <th class="p-2 text-left">Photos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for asig in s.tecnicos_sesion.all %}
+                    <tr class="border-t">
+                      <td class="p-2">{{ asig.tecnico.get_full_name|default:asig.tecnico.username }}</td>
+                      <td class="p-2 text-right">{{ asig.porcentaje|floatformat:2 }}%</td>
+                      <td class="p-2">{{ asig.aceptado_en|date:"Y-m-d H:i"|default:"—" }}</td>
+                      <td class="p-2">{{ asig.finalizado_en|date:"Y-m-d H:i"|default:"—" }}</td>
+                      <td class="p-2">{{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}</td>
+                      <td class="p-2">
+                        <div class="flex gap-1">
+                          {% for ev in asig.evidencias.all|slice:":3" %}
+                            <img src="{{ ev.imagen.url }}" class="w-10 h-10 object-cover rounded border" loading="lazy" alt="photo">
+                          {% empty %}
+                            <span class="text-gray-400">—</span>
+                          {% endfor %}
+                        </div>
+                      </td>
+                    </tr>
+                    {% empty %}
+                      <tr><td colspan="6" class="p-2 text-center text-gray-500">No assignments.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </td>
+        </tr>
+
+        {% empty %}
+        <tr>
+          <td colspan="18" class="p-4 text-center text-gray-500">No invoices found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form method="get" class="flex items-center gap-2">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
+        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+      </select>
+    </form>
+  </div>
+
+  <div class="mt-2 flex justify-center text-sm">
+    {% if cantidad == 'todos' %}
+      <span>Page 1 of 1</span>
+    {% else %}
+      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+    {% endif %}
+  </div>
+
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous and cantidad != 'todos' %}
+      <a href="?page=1&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next and cantidad != 'todos' %}
+      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Row expand JS -->
+<script>
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.btn-toggle-detalle');
+  if(!btn) return;
+  const id = btn.getAttribute('data-target');
+  const fila = document.getElementById(id);
+  const chevron = btn.querySelector('.chevron');
+
+  if (fila.classList.contains('hidden')) {
+    fila.classList.remove('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    chevron.style.transform = 'rotate(90deg)';
+  } else {
+    fila.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+    chevron.style.transform = 'rotate(0deg)';
+  }
+});
+</script>
+
+<!-- Filters -->
+<script>
+(function(){
+  const table = document.getElementById('billing-table');
+  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
+  const inputs = {
+    date:   document.getElementById('f-date'),
+    projid: document.getElementById('f-projid'),
+    week:   document.getElementById('f-week'),
+    tech:   document.getElementById('f-tech'),
+    client: document.getElementById('f-client'),
+    status: document.getElementById('f-status'),
+  };
+  const btnClear = document.getElementById('btn-clear');
+
+  const lc  = s => (s || '').toLowerCase();
+  const norm = s => lc(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const v   = el => norm(el?.value || '');
+
+  function statusHaystackFor(tr){
+    const td = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
+    const txt = norm(td?.textContent || '');
+    let extras = '';
+    if (txt.includes('approved'))          extras += ' aprobado approved';
+    if (txt.includes('rejected'))          extras += ' rechazado rejected';
+    if (txt.includes('supervisor review')) extras += ' en revision revision review';
+    if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
+    if (txt.includes('in progress'))       extras += ' en proceso progress';
+    if (txt.includes('assigned'))          extras += ' asignado assigned';
+    const code = tr.dataset.status || '';
+    return norm(txt + ' ' + extras + ' ' + code);
+  }
+
+  function applyFilters(){
+    const f = {
+      date: v(inputs.date),
+      projid: v(inputs.projid),
+      week: v(inputs.week),
+      tech: v(inputs.tech),
+      client: v(inputs.client),
+      status: v(inputs.status),
+    };
+
+    allRows.forEach(tr => {
+      const ok =
+        (!f.date   || tr.dataset.date.toLowerCase().includes(f.date)) &&
+        (!f.projid || tr.dataset.projid.toLowerCase().includes(f.projid)) &&
+        (!f.week   || tr.dataset.week.toLowerCase().includes(f.week)) &&
+        (!f.tech   || (tr.dataset.tech||'').toLowerCase().includes(f.tech)) &&
+        (!f.client || tr.dataset.client.toLowerCase().includes(f.client)) &&
+        (!f.status || statusHaystackFor(tr).includes(f.status));
+
+      tr.style.display = ok ? '' : 'none';
+
+      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+      if (detailId){
+        const det = document.getElementById(detailId);
+        if(det) det.style.display = ok ? '' : 'none';
+      }
+    });
+  }
+
+  Object.values(inputs).forEach(i => i.addEventListener('input', applyFilters));
+  btnClear.addEventListener('click', ()=>{ Object.values(inputs).forEach(i => i.value = ''); applyFilters(); });
+  applyFilters();
+})();
+</script>
+
+<!-- ===== Rejection modal (bonito) ===== -->
+<div id="modal-reject" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-reject></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Reject invoice</h3>
+    <form id="reject-form" class="space-y-4">
+      {% csrf_token %}
+      <p class="text-sm text-gray-600">Enter a rejection reason (this will be visible in Operations).</p>
+      <textarea id="reject-reason" class="w-full border rounded-lg px-3 py-2 h-28" placeholder="Write the reason…"></textarea>
+      <input type="hidden" id="reject-id" value="">
+      <div class="flex justify-end gap-2">
+        <button type="button" id="reject-cancel" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Reject</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<div id="modal-paid" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-paid></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Mark as paid</h3>
+    <p id="paid-message" class="text-sm text-gray-700 mb-4">
+      <!-- Se rellena por JS con el mensaje del servidor -->
+    </p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="paid-cancel"
+              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+      <button type="button" id="paid-confirm"
+              class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
+        Yes, mark as paid
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Inline edit + finance actions -->
+<script>
+(function(){
+  /* ===================== CSRF + utilidades ===================== */
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2200);
+  }
+
+  async function ajaxForm(url, data){
+    const form = new FormData();
+    Object.entries(data || {}).forEach(([k,v])=> form.append(k, v));
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      body: form
+    });
+    let payload = null;
+    try { payload = await resp.json(); } catch(_){}
+    if(!resp.ok){
+      const msg = (payload && (payload.error || payload.message)) || `HTTP ${resp.status}`;
+      throw new Error(msg);
+    }
+    return payload || { ok: true };
+  }
+
+  /* ===================== Inline edit: Real Company Billing ===================== */
+  function enterEditReal(id){
+    document.getElementById(`real-view-${id}`).classList.add("hidden");
+    const input = document.getElementById(`real-input-${id}`);
+    input.classList.remove("hidden");
+    input.focus(); input.select?.();
+  }
+  function exitEditReal(id, val){
+    const view = document.getElementById(`real-view-${id}`);
+    const input = document.getElementById(`real-input-${id}`);
+    view.textContent = val ? `$${Number(val).toFixed(2)}` : '—';
+    view.classList.remove("hidden");
+    input.classList.add("hidden");
+  }
+
+  /* ===================== Inline edit: Real Pay Week ===================== */
+  function enterEditWeek(id){
+    const input = document.getElementById(`week-input-${id}`);
+    if (!input) return;
+    document.getElementById(`week-view-${id}`).classList.add("hidden");
+    input.classList.remove("hidden");
+    input.focus();
+  }
+  function exitEditWeek(id, val){
+    const view = document.getElementById(`week-view-${id}`);
+    const input = document.getElementById(`week-input-${id}`);
+    view.textContent = val || '—';
+    view.classList.remove("hidden");
+    if (input) input.classList.add("hidden");
+  }
+
+  /* ===================== Clicks en ✏️ ===================== */
+  document.addEventListener("click", (e)=>{
+    const realBtn = e.target.closest(".real-edit");
+    if (realBtn){ enterEditReal(realBtn.dataset.id); return; }
+    const weekBtn = e.target.closest(".week-edit");
+    if (weekBtn){ enterEditWeek(weekBtn.dataset.id); return; }
+  });
+
+  /* ===================== Guardar con Enter / cancelar con Escape ===================== */
+  // REAL
+  document.addEventListener("keydown", async (e)=>{
+    const input = e.target.closest(".real-input");
+    if(!input || input.classList.contains("hidden")) return;
+    const id = input.id.replace("real-input-","");
+
+    if(e.key === "Escape"){ exitEditReal(id, input.value); return; }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      try{
+        const url = `{% url 'facturacion:invoices' %}`.replace("/invoices/", `/invoices/${id}/update-real/`);
+        await ajaxForm(url, { real: input.value });
+        // Recalcula en servidor; refresca para que difference/estado se sincronicen
+        window.location.reload();
+      }catch(err){
+        toast(err.message || "Save failed", "error");
+        input.focus();
+      }
+    }
+  });
+
+  // WEEK
+  document.addEventListener("keydown", async (e)=>{
+    const input = e.target.closest(".week-input");
+    if(!input || input.classList.contains("hidden")) return;
+    const id = input.id.replace("week-input-","");
+    if(e.key === "Escape"){ exitEditWeek(id, input.value); return; }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      try{
+        const url = `{% url 'facturacion:invoices' %}`.replace("/invoices/", `/invoices/${id}/update-real/`);
+        const payload = await ajaxForm(url, { week: input.value });
+        exitEditWeek(id, payload.week);
+        toast("Saved.", "success");
+      }catch(err){
+        toast(err.message || "Save failed", "error");
+        input.focus();
+      }
+    }
+  });
+
+  /* ===================== Modal de RECHAZO ===================== */
+  const rejectModal   = document.getElementById('modal-reject');
+  const rejectForm    = document.getElementById('reject-form');
+  const rejectReason  = document.getElementById('reject-reason');
+  const rejectIdInput = document.getElementById('reject-id');
+
+  function openReject(id){
+    if(!rejectModal) return;
+    rejectIdInput.value = id;
+    rejectReason.value = '';
+    rejectModal.classList.remove('hidden');
+    rejectReason.focus();
+  }
+  function closeReject(){ if(rejectModal) rejectModal.classList.add('hidden'); }
+
+  // Abrir modal rechazo
+  document.addEventListener("click", (e)=>{
+    const btn = e.target.closest(".btn-reject");
+    if(!btn) return;
+    openReject(btn.dataset.id);
+  });
+
+  // Cerrar modal rechazo
+  const rejectCancelBtn = document.getElementById('reject-cancel');
+  if (rejectCancelBtn) rejectCancelBtn.addEventListener('click', closeReject);
+  if (rejectModal){
+    rejectModal.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-reject')) closeReject(); });
+  }
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && rejectModal && !rejectModal.classList.contains('hidden')) closeReject(); });
+
+  // Enviar rechazo
+  if (rejectForm){
+    rejectForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const id = rejectIdInput.value;
+      const reason = (rejectReason.value || '').trim();
+      if(!reason){ rejectReason.focus(); return; }
+      try{
+        const url = `{% url 'facturacion:invoices' %}`.replace("/invoices/", `/invoices/${id}/reject/`);
+        await ajaxForm(url, { reason });
+        closeReject();
+        window.location.reload();
+      }catch(err){
+        toast(err.message || "Reject failed", "error");
+      }
+    });
+  }
+
+  /* ===================== Modal 'MARK AS PAID' ===================== */
+  const paidModal     = document.getElementById('modal-paid');
+  const paidMsg       = document.getElementById('paid-message');
+  const paidBtnOk     = document.getElementById('paid-confirm');
+  const paidBtnCancel = document.getElementById('paid-cancel');
+  let paidCurrentId   = null;
+  let paidPostUrl     = null;
+
+  function openPaidModal(id, message, url){
+    if(!paidModal) return;
+    paidCurrentId = id;
+    paidPostUrl   = url;
+    if (paidMsg) paidMsg.textContent = message || "You are collecting less than expected. Do you still want to mark it as paid?";
+    paidModal.classList.remove('hidden');
+  }
+  function closePaidModal(){
+    if(!paidModal) return;
+    paidModal.classList.add('hidden');
+    paidCurrentId = null;
+    paidPostUrl   = null;
+  }
+
+  if (paidModal){
+    paidModal.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-paid')) closePaidModal(); });
+  }
+  if (paidBtnCancel) paidBtnCancel.addEventListener('click', closePaidModal);
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && paidModal && !paidModal.classList.contains('hidden')) closePaidModal(); });
+
+  // Confirmar "Mark as paid" (forzado)
+  if (paidBtnOk){
+    paidBtnOk.addEventListener('click', async ()=>{
+      if(!paidCurrentId || !paidPostUrl) return;
+      try{
+        const form = new FormData();
+        form.append("force", "1");
+        const resp = await fetch(paidPostUrl, {
+          method: "POST",
+          headers: { "X-CSRFToken": csrftoken, "X-Requested-With": "XMLHttpRequest" },
+          body: form
+        });
+        if(!resp.ok){
+          const t = await resp.text();
+          throw new Error(t || ("HTTP " + resp.status));
+        }
+        closePaidModal();
+        window.location.reload();
+      }catch(err){
+        toast(err.message || "Mark paid failed", "error");
+      }
+    });
+  }
+
+  /* ===================== Acción: Mark as paid (sin confirm feo) ===================== */
+  document.addEventListener("click", async (e)=>{
+    const btn = e.target.closest(".btn-paid");
+    if(!btn) return;
+
+    const id  = btn.dataset.id;
+    const url = `{% url 'facturacion:invoices' %}`.replace("/invoices/", `/invoices/${id}/mark-paid/`);
+
+    try{
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrftoken, "X-Requested-With": "XMLHttpRequest" }
+      });
+
+      if (resp.status === 409){
+        // El backend indica diferencia y requiere confirmación
+        const payload = await resp.json().catch(()=> ({}));
+        if (payload && payload.confirm){
+          openPaidModal(id, payload.message, url);
+          return; // el POST con force lo dispara el botón del modal
+        }
+      }
+
+      if(!resp.ok){
+        const t = await resp.text();
+        throw new Error(t || ("HTTP " + resp.status));
+      }
+
+      // Marcado como pagado sin conflicto
+      window.location.reload();
+
+    }catch(err){
+      toast(err.message || "Mark paid failed", "error");
+    }
+  });
+
+})();
+</script>
+{% endblock %}

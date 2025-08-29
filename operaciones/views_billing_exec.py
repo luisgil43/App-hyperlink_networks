@@ -269,16 +269,20 @@ def upload_evidencias(request, pk):
     def _is_safe_wasabi_key(key: str) -> bool:
         return bool(key) and ".." not in key and not key.startswith("/")
 
-    def _create_evidencia_from_key(req_id, key, nota, lat, lng, acc, taken_dt):
+    # ➕ UPDATED: allow saving manual title/address for special projects (when req is None)
+    def _create_evidencia_from_key(req_id, key, nota, lat, lng, acc, taken_dt,
+                                   titulo_manual="", direccion_manual=""):
         return EvidenciaFotoBilling.objects.create(
             tecnico_sesion=a,
             requisito_id=req_id,
-            imagen=key,  # tu storage debe aceptar la clave directa
+            imagen=key,  # your storage accepts the direct key
             nota=nota or "",
             lat=lat or None,
             lng=lng or None,
             gps_accuracy_m=acc or None,
             client_taken_at=taken_dt,
+            titulo_manual=titulo_manual or "",
+            direccion_manual=direccion_manual or "",
         )
 
     # Can upload in current state?
@@ -306,6 +310,20 @@ def upload_evidencias(request, pk):
         taken = request.POST.get("client_taken_at")
         taken_dt = parse_datetime(taken) if taken else None
 
+        # ✅ NEW: manual fields (only required if it's a special project AND no req_id = "Extra")
+        titulo_manual = (request.POST.get("titulo_manual") or "").strip()
+        direccion_manual = (request.POST.get("direccion_manual") or "").strip()
+
+        if s.proyecto_especial and not req_id:
+            if not titulo_manual:
+                messages.error(
+                    request, "Please enter a Title for the photo (special project).")
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+            if not direccion_manual:
+                messages.error(
+                    request, "Please enter an Address for the photo (special project).")
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+
         # If uploading for a specific requirement, enforce shared lock by title
         if req_id:
             req = get_object_or_404(
@@ -332,14 +350,16 @@ def upload_evidencias(request, pk):
         for key in wasabi_keys:
             if _is_safe_wasabi_key(key):
                 _create_evidencia_from_key(
-                    req_id, key, nota, lat, lng, acc, taken_dt)
+                    req_id, key, nota, lat, lng, acc, taken_dt,
+                    titulo_manual=titulo_manual, direccion_manual=direccion_manual
+                )
                 n += 1
 
         for f in files:
-            # 1) Convertir HEIC/HEIF a JPEG si corresponde
+            # 1) Convert HEIC/HEIF to JPEG if needed
             f_conv = _to_jpeg_if_needed(f)
 
-            # 2) Intentar leer EXIF por si el form no trajo geo/hora
+            # 2) Try EXIF if form didn't bring geo/time
             try:
                 f_conv.seek(0)
                 im = Image.open(f_conv)
@@ -349,20 +369,23 @@ def upload_evidencias(request, pk):
             finally:
                 f_conv.seek(0)
 
-            # 3) Resolver metadata final (prioridad: form → EXIF)
+            # 3) Final metadata (priority: form → EXIF)
             use_lat = lat or exif_lat
             use_lng = lng or exif_lng
             use_taken = taken_dt or exif_dt
 
-            ev = EvidenciaFotoBilling.objects.create(
+            EvidenciaFotoBilling.objects.create(
                 tecnico_sesion=a,
                 requisito_id=req_id,
-                imagen=f_conv,              # ya convertido si era HEIC
+                imagen=f_conv,              # already converted if it was HEIC
                 nota=nota,
                 lat=use_lat,
                 lng=use_lng,
                 gps_accuracy_m=acc,
-                client_taken_at=use_taken,  # tu template/report ya prioriza client_taken_at
+                client_taken_at=use_taken,  # your template/report already prioritizes client_taken_at
+                # NEW: keep manual fields if special project + extra
+                titulo_manual=titulo_manual,
+                direccion_manual=direccion_manual,
             )
             n += 1
 
@@ -415,7 +438,6 @@ def upload_evidencias(request, pk):
     )
     pendientes_aceptar = []
     for asg in asignaciones:
-        # Consider accepted if aceptado_en is set or state is not 'asignado'
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
             name = getattr(asg.tecnico, "get_full_name",
@@ -475,6 +497,9 @@ def upload_evidencias(request, pk):
             "direct_uploads_folder": direct_uploads_folder,
             "project_id": a.sesion.proyecto_id,
             "current_user_name": tech_name,
+
+            # ✅ NEW: flag for template logic
+            "is_proyecto_especial": s.proyecto_especial,
         },
     )
 
@@ -626,7 +651,6 @@ def presign_wasabi(request):
 
     key = _build_key(folder, filename)
 
-    # 👉 Cliente S3 con path-style + firma v4 (mismo que en recibos)
     s3 = boto3.client(
         "s3",
         endpoint_url=getattr(settings, "WASABI_ENDPOINT_URL",
@@ -641,6 +665,7 @@ def presign_wasabi(request):
 
     bucket = getattr(settings, "WASABI_BUCKET_NAME")
 
+    # ✅ NEW meta: address (optional). Title is saved in POST; address is useful in client JS too.
     meta_headers = {
         "x-amz-meta-lat": str(meta.get("lat") or ""),
         "x-amz-meta-lng": str(meta.get("lng") or ""),
@@ -648,12 +673,13 @@ def presign_wasabi(request):
         "x-amz-meta-user": request.user.get_full_name() or request.user.username,
         "x-amz-meta-project_id": str(meta.get("project_id") or ""),
         "x-amz-meta-technician": str(meta.get("technician") or ""),
+        "x-amz-meta-address": str(meta.get("address") or ""),  # NEW
     }
 
     fields = {
         "acl": "private",
         "Content-Type": content_type,
-        "success_action_status": "201",   # ← más friendly que 204
+        "success_action_status": "201",
         **meta_headers,
     }
     conditions = [
@@ -672,10 +698,8 @@ def presign_wasabi(request):
         Key=key,
         Fields=fields,
         Conditions=conditions,
-        ExpiresIn=300,  # un poco más de margen para varias fotos
+        ExpiresIn=300,
     )
-
-    # 👉 Fuerza path-style en la URL final (igual que en comprobantes)
     presigned["url"] = f"{settings.WASABI_ENDPOINT_URL.rstrip('/')}/{bucket}"
 
     return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})
@@ -690,10 +714,11 @@ def _is_safe_wasabi_key(key: str) -> bool:
     return isinstance(key, str) and key.startswith(SAFE_EVIDENCE_PREFIX) and ".." not in key
 
 
-def _create_evidencia_from_key(a, req_id, key, nota, lat, lng, acc, taken_dt):
+def _create_evidencia_from_key(a, req_id, key, nota, lat, lng, acc, taken_dt,
+                               titulo_manual="", direccion_manual=""):
     """
-    Crea EvidenciaFotoBilling apuntando a un objeto YA subido a Wasabi.
-    No re-sube bytes: asigna .name en el FileField y guarda.
+    Create EvidenciaFotoBilling pointing to an object ALREADY uploaded to Wasabi.
+    Doesn't re-upload bytes: assigns .name to the FileField and saves.
     """
     ev = EvidenciaFotoBilling(
         tecnico_sesion=a,
@@ -701,8 +726,10 @@ def _create_evidencia_from_key(a, req_id, key, nota, lat, lng, acc, taken_dt):
         nota=nota or "",
         lat=lat, lng=lng, gps_accuracy_m=acc,
         client_taken_at=taken_dt or None,
+        titulo_manual=titulo_manual or "",
+        direccion_manual=direccion_manual or "",
     )
-    ev.imagen.name = key.strip()  # clave S3/Wasabi ya existente
+    ev.imagen.name = key.strip()
     ev.save()
     return ev
 
@@ -867,90 +894,98 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
 def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
     """
-    XLSX con imágenes embebidas (2 por fila), sin notas.
-    - Encabezado del bloque = nombre del requisito (centrado).
-    - Imagen centrada en su recuadro y con borde.
-    - Debajo: Taken at / Lat / Lng.
-    - Gridlines ocultas.
+    XLSX with embedded images (2 per row).
+    - Block header = requirement name, or custom title for 'extra' when special project.
+    - Image centered inside a bordered box.
+    - Info row:
+        * Normal: Taken / Lat / Lng
+        * Special project + extra: Taken / Address (no Lat/Lng)
+    - Gridlines hidden.
     """
     import io
     import xlsxwriter
     from .models import EvidenciaFotoBilling
 
-    # Todas las evidencias del proyecto en orden
-    evs = (EvidenciaFotoBilling.objects
-           .filter(tecnico_sesion__sesion=sesion)
-           .select_related("requisito")
-           .order_by("requisito__orden", "tomada_en", "id"))
+    # All evidences in project order
+    evs = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=sesion)
+        .select_related("requisito")
+        .order_by("requisito__orden", "tomada_en", "id")
+    )
 
     bio = io.BytesIO()
     wb = xlsxwriter.Workbook(bio, {"in_memory": True})
     ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
 
-    # Ocultar cuadrícula (pantalla e impresión)
+    # Hide gridlines (screen and print)
     ws.hide_gridlines(2)
 
-    # ====== Formatos ======
+    # ====== Formats ======
     fmt_title = wb.add_format({
         "bold": True, "align": "center", "valign": "vcenter",
         "border": 1, "bg_color": "#E8EEF7"
     })
     fmt_head = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",   # ← centrado
+        "border": 1, "align": "center", "valign": "vcenter",
         "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
     })
-    fmt_box = wb.add_format({"border": 1})  # borde del recuadro de la imagen
+    fmt_box = wb.add_format({"border": 1})
     fmt_info = wb.add_format({
         "border": 1, "align": "center", "valign": "vcenter",
         "text_wrap": True, "font_size": 9
     })
 
-    # ====== Layout (2 por fila) ======
-    BLOCK_COLS = 6   # columnas por bloque
-    SEP_COLS = 1   # columna separadora
+    # ====== Layout (2 per row) ======
+    BLOCK_COLS = 6   # columns per block
+    SEP_COLS = 1     # separator column
     LEFT_COL = 0
     RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS  # 7
 
-    # Anchos de columnas
+    # Column widths
     for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
         ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)  # separador
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)  # separator
     for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
         ws.set_column(c, c, 13)
 
-    # Alturas por bloque
+    # Row heights per block
     HEAD_ROWS = 1
     ROWS_IMG = 12
     ROW_INFO = 1
     ROW_SPACE = 1
     BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
 
-    # Título hoja
+    # Sheet title
     ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
                    f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
 
     cur_row = 2
 
     def draw_block(r, c, ev):
-        # Encabezado del bloque: SOLO el nombre del requisito (centrado)
-        titulo_req = (getattr(ev.requisito, "titulo", "") or "Extra").strip()
-        ws.merge_range(r, c, r + HEAD_ROWS - 1, c + BLOCK_COLS - 1,
-                       titulo_req, fmt_head)
+        # ----- Header: requirement title or custom title for extra -----
+        titulo_req = (
+            (getattr(ev.requisito, "titulo", "") or "").strip()
+            or (ev.titulo_manual or "").strip()
+            or "Extra"
+        )
+        ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
+                       BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
             ws.set_row(rr, 20)
 
-        # Área para la imagen (con borde)
+        # ----- Image area (bordered) -----
         img_top = r + HEAD_ROWS
         for rr in range(img_top, img_top + ROWS_IMG):
             ws.set_row(rr, 18)
         ws.merge_range(img_top, c, img_top + ROWS_IMG -
                        1, c + BLOCK_COLS - 1, "", fmt_box)
 
-        # Dimensiones del contenedor aprox (px)
+        # Approx container dimensions (px)
         max_w_px = BLOCK_COLS * 60
         max_h_px = ROWS_IMG * 18
 
-        # Leer imagen, escalar y centrar
+        # Read image, scale, and center
         image_data = None
         x_scale = y_scale = 1.0
         scaled_w = scaled_h = None
@@ -986,26 +1021,32 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
                 "object_position": 1,
             })
 
-        # Fila de info: Taken / Lat / Lng
+        # ----- Info row -----
         info_row = img_top + ROWS_IMG
-        t1c0, t1c1 = c,     c + 1
-        t2c0, t2c1 = c + 2, c + 3
-        t3c0, t3c1 = c + 4, c + 5
-
         dt = ev.client_taken_at or ev.tomada_en
         taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
         lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
         lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
+        addr_txt = (ev.direccion_manual or "").strip()
 
-        ws.merge_range(info_row, t1c0, info_row, t1c1,
-                       f"Taken at\n{taken_txt}", fmt_info)
-        ws.merge_range(info_row, t2c0, info_row, t2c1,
-                       f"Lat\n{lat_txt}", fmt_info)
-        ws.merge_range(info_row, t3c0, info_row, t3c1,
-                       f"Lng\n{lng_txt}", fmt_info)
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            # Special project + extra: show Taken / Address (two wide blocks)
+            ws.merge_range(info_row, c,         info_row, c + 2,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 3,     info_row, c + 5,
+                           f"Address\n{addr_txt}",   fmt_info)
+        else:
+            # Normal: Taken / Lat / Lng
+            ws.merge_range(info_row, c,         info_row, c + 1,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 2,     info_row, c + 3,
+                           f"Lat\n{lat_txt}",        fmt_info)
+            ws.merge_range(info_row, c + 4,     info_row, c + 5,
+                           f"Lng\n{lng_txt}",        fmt_info)
+
         ws.set_row(info_row, 30)
 
-    # Pintar 2 por fila
+    # Paint 2 per row
     idx = 0
     for ev in evs:
         if idx % 2 == 0:
@@ -1064,13 +1105,15 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 @rol_requerido('supervisor', 'admin', 'pm')
 def configurar_requisitos(request, sesion_id):
     """
-    Configura una ÚNICA lista de requisitos por PROYECTO y la replica
-    a TODOS los técnicos asignados (sobrescribe sus listas).
-    Formularios esperados (arrays paralelos):
-      - name[]        (str, obligatorio)
-      - order[]       (int, opcional)
-      - mandatory[]   ("0" / "1", opcional)
-      - delete_id[]   (ids de la vista actual; solo afecta la UI, no se usan)
+    Configure a SINGLE requirements list per PROJECT and replicate it
+    to ALL assigned technicians (overwrites their lists).
+    Expected form arrays (parallel):
+      - name[]        (str, required)
+      - order[]       (int, optional)
+      - mandatory[]   ("0" / "1", optional)
+      - delete_id[]   (UI-only; not used in backend)
+    Additionally, accepts:
+      - proyecto_especial (checkbox) -> marks the session as a special project.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     asignaciones = list(
@@ -1080,8 +1123,7 @@ def configurar_requisitos(request, sesion_id):
          .all()
     )
 
-    # Para precargar en GET: tomamos como "lista canónica" la del primer técnico,
-    # si existe. Si no hay técnicos o no tienen requisitos, la lista inicia vacía.
+    # Preload canonical list from the first technician, if any
     canonical = []
     if asignaciones and asignaciones[0].requisitos.exists():
         canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
@@ -1089,12 +1131,17 @@ def configurar_requisitos(request, sesion_id):
     if request.method == "POST":
         try:
             with transaction.atomic():
-                # 1) Leer la lista compartida desde el form
+                # ✅ NEW: update special-project flag from checkbox
+                s.proyecto_especial = bool(
+                    request.POST.get("proyecto_especial"))
+                s.save(update_fields=["proyecto_especial"])
+
+                # 1) Read the shared list from the form
                 names = request.POST.getlist("name[]")
                 orders = request.POST.getlist("order[]")
                 mand = request.POST.getlist("mandatory[]")  # "0"/"1"
 
-                # Construir una lista normalizada (ignora filas vacías)
+                # Build a normalized list (skip empty rows)
                 normalized = []
                 for i, nm in enumerate(names):
                     name = (nm or "").strip()
@@ -1107,7 +1154,7 @@ def configurar_requisitos(request, sesion_id):
                     mandatory = (mand[i] == "1") if i < len(mand) else True
                     normalized.append((order, name, mandatory))
 
-                # 2) Replicar en TODAS las asignaciones: borrar y crear
+                # 2) Replicate to ALL assignments: delete and create
                 for a in asignaciones:
                     RequisitoFotoBilling.objects.filter(
                         tecnico_sesion=a).delete()
@@ -1131,21 +1178,31 @@ def configurar_requisitos(request, sesion_id):
         except Exception as e:
             messages.error(request, f"Could not save requirements: {e}")
 
-        # En caso de error, re-render con lo enviado por el usuario
-        canonical = []  # mostramos lo posteado
+        # On error, re-render with posted data
+        canonical = []
 
-        class _Row:  # helper simple para el template
+        class _Row:
             def __init__(self, orden, titulo, obligatorio):
                 self.orden = orden
                 self.titulo = titulo
                 self.obligatorio = obligatorio
-        for (order, name, mandatory) in normalized:
-            canonical.append(_Row(order, name, mandatory))
+
+        # If normalized exists (may not if parsing failed before), reflect it
+        try:
+            for (order, name, mandatory) in normalized:
+                canonical.append(_Row(order, name, mandatory))
+        except Exception:
+            pass
 
     return render(
         request,
         "operaciones/billing_configurar_requisitos.html",
-        {"sesion": s, "requirements": canonical},
+        {
+            "sesion": s,
+            "requirements": canonical,
+            # ✅ NEW: expose flag for checkbox rendering in the template
+            "is_special": bool(s.proyecto_especial),
+        },
     )
 
 

@@ -30,5 +30,12 @@ urlpatterns = [
          name='listar_saldos_usuarios'),
     path('cartola/exportar/', views.exportar_cartola, name='exportar_cartola'),
     path('balances/exportar/', views.exportar_saldos, name='exportar_saldos'),
+    path("invoices/", views.invoices_list, name="invoices"),
+    path("invoices/<int:pk>/update-real/",
+         views.invoice_update_real, name="invoice_update_real"),
+    path("invoices/<int:pk>/mark-paid/",
+         views.invoice_mark_paid, name="invoice_mark_paid"),
+    path("invoices/<int:pk>/reject/", views.invoice_reject, name="invoice_reject"),
+    path("invoices/<int:pk>/remove/", views.invoice_remove, name="invoice_remove"),
 
 ]

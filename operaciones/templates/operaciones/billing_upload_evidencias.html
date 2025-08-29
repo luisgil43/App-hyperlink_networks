@@ -153,6 +153,39 @@
             <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
           </div>
 
+          {# --- NEW: Special project manual fields for Extra --- #}
+          {% if is_proyecto_especial %}
+          <div class="grid md:grid-cols-2 gap-3 mt-3">
+            <div>
+              <label for="titulo_manual" class="block text-sm font-semibold text-gray-700">
+                Title (required for Extra)
+              </label>
+              <input
+                type="text"
+                name="titulo_manual"
+                id="titulo_manual"
+                class="w-full border rounded-lg p-2"
+                placeholder="Write a title for this photo"
+                required
+              />
+            </div>
+
+            <div>
+              <label for="direccion_manual" class="block text-sm font-semibold text-gray-700">
+                Address (required for Extra)
+              </label>
+              <input
+                type="text"
+                name="direccion_manual"
+                id="direccion_manual"
+                class="w-full border rounded-lg p-2"
+                placeholder="Street, city…"
+                required
+              />
+            </div>
+          </div>
+          {% endif %}
+
           <button class="mt-2 bg-gray-800 text-white px-3 py-1 rounded">Upload</button>
         </form>
       </div>
@@ -167,21 +200,36 @@
               <button type="button"
                       class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-red-600 text-white text-sm hover:bg-red-700 btn-open-delete"
                       data-delete-url="{% url 'operaciones:eliminar_evidencia' a.pk ev.id %}"
-                      data-label="{{ ev.requisito.titulo|default:'Extra' }}"
+                      data-label="{{ ev.requisito.titulo|default:ev.titulo_manual|default:'Extra' }}"
                       data-img="{{ ev.imagen.url }}"
                       title="Delete photo">✕</button>
             {% endif %}
 
             <img src="{{ ev.imagen.url }}" class="w-full h-32 object-cover rounded" loading="lazy" alt="photo">
             <figcaption class="text-xs mt-1 space-y-0.5">
-              <div class="font-medium">{{ ev.requisito.titulo|default:"Extra" }}</div>
+              <div class="font-medium">
+                {% if ev.requisito %}{{ ev.requisito.titulo }}
+                {% elif ev.titulo_manual %}{{ ev.titulo_manual }}
+                {% else %}Extra{% endif %}
+              </div>
               <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
-              {% if ev.lat and ev.lng %}
-                <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
-                <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
+
+              {# NEW: If special project and this is an Extra, show Address instead of Lat/Lng #}
+              {% if is_proyecto_especial and not ev.requisito_id %}
+                {% if ev.direccion_manual %}
+                  <div>📍 {{ ev.direccion_manual }}</div>
+                {% else %}
+                  <div class="text-gray-400">📍 No address</div>
+                {% endif %}
               {% else %}
-                <div class="text-gray-400">📍 No GPS</div>
+                {% if ev.lat and ev.lng %}
+                  <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
+                  <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
+                {% else %}
+                  <div class="text-gray-400">📍 No GPS</div>
+                {% endif %}
               {% endif %}
+
               <div class="text-gray-600">{{ ev.nota }}</div>
             </figcaption>
           </figure>
@@ -480,7 +528,9 @@
           lng: lngEl ? lngEl.value : "",
           taken_at: takenEl ? takenEl.value : new Date().toISOString(),
           project_id: window.PROJECT_ID || "",
-          technician: window.CURRENT_USER_NAME || ""
+          technician: window.CURRENT_USER_NAME || "",
+          // NEW: include address if present (special project extra)
+          address: (form.querySelector('input[name="direccion_manual"]')?.value || "")
         };
 
         try {

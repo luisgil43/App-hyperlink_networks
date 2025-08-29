@@ -76,15 +76,29 @@ def upload_to_reporte_fotografico_proyecto(instance, filename: str) -> str:
     return upload_to_project_report(instance, filename)
 
 
+# ----------------------------- Estados finanzas --------------------------- #
+
+FINANCE_STATUS = [
+    ("none", "—"),
+    ("sent", "Enviado a Finanzas"),
+    ("pending", "Pendiente por cobrar"),
+    ("in_review", "En revisión"),
+    ("rejected", "Rechazado"),
+    ("paid", "Cobrado"),
+]
+
+
 class SesionBilling(models.Model):
     creado_en = models.DateTimeField(default=timezone.now)
+
+    # Identificación del proyecto
     proyecto_id = models.CharField(max_length=64)
     cliente = models.CharField(max_length=120)
     ciudad = models.CharField(max_length=120)
     proyecto = models.CharField(max_length=120)
     oficina = models.CharField(max_length=120)
 
-    # NUEVOS: ubicación y semana proyectada
+    # Ubicación y semana proyectada de pago
     direccion_proyecto = models.CharField(
         "Project address / Google Maps link",
         max_length=500,
@@ -95,10 +109,16 @@ class SesionBilling(models.Model):
         "Projected pay week (ISO)",
         max_length=10,
         blank=True,
-        default="",  # ej. 2025-W33
+        default="",  # e.g., 2025-W33
     )
 
-    # Estado y reporte a nivel PROYECTO
+    # Proyectos especiales (permite título/dirección manual en evidencias)
+    proyecto_especial = models.BooleanField(
+        default=False,
+        help_text="If enabled, 'extra' photos can include user-entered Title and Address; the report will use those fields."
+    )
+
+    # Estado operativo y reporte único del proyecto
     estado = models.CharField(
         max_length=32,
         choices=ESTADOS_PROY,
@@ -114,17 +134,15 @@ class SesionBilling(models.Model):
         max_length=1024,
     )
 
+    # Totales
     subtotal_tecnico = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00")
-    )
+        max_digits=12, decimal_places=2, default=Decimal("0.00"))
     subtotal_empresa = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00")
-    )
+        max_digits=12, decimal_places=2, default=Decimal("0.00"))
     real_company_billing = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
-    )
+        max_digits=12, decimal_places=2, null=True, blank=True)
 
-    # NUEVO: semana real de pago
+    # Semana real de pago (operaciones)
     semana_pago_real = models.CharField(
         "Real pay week (ISO)",
         max_length=10,
@@ -132,25 +150,46 @@ class SesionBilling(models.Model):
         default="",
     )
 
+    # =============================== FINANZAS ============================== #
+    # 👇 NUEVO: estado/motivo y marcas de envío/actualización para Finanzas.
+    finance_status = models.CharField(
+        max_length=20, choices=FINANCE_STATUS, default="none", db_index=True
+    )
+    finance_note = models.TextField(blank=True, default="")
+    finance_sent_at = models.DateTimeField(null=True, blank=True)
+    finance_updated_at = models.DateTimeField(auto_now=True)
+    # ====================================================================== #
+
     class Meta:
         ordering = ("-creado_en",)
         indexes = [
             models.Index(fields=["proyecto_id"]),
             models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
             models.Index(fields=["estado"]),
+            # finance_status ya tiene db_index=True; este Index extra no es necesario.
         ]
 
     @property
     def diferencia(self):
+        """
+        Diferencia entre lo presupuestado a cliente (subtotal_empresa)
+        y lo realmente facturado/cobrado (real_company_billing).
+        None si aún no hay valor real.
+        """
         if self.real_company_billing is None:
             return None
         return (self.subtotal_empresa or Decimal("0.00")) - self.real_company_billing
 
     @property
+    def difference_is_zero(self):
+        d = self.diferencia
+        return d is not None and d == 0
+
+    @property
     def maps_href(self) -> str:
         """
-        Si 'direccion_proyecto' es un link, se retorna tal cual.
-        Si es texto, se construye un link de Google Maps (Search).
+        Si 'direccion_proyecto' es URL, devuélvela.
+        Si es texto, construye un link de búsqueda en Google Maps.
         """
         val = (self.direccion_proyecto or "").strip()
         if not val:
@@ -158,7 +197,7 @@ class SesionBilling(models.Model):
         low = val.lower()
         if low.startswith("http://") or low.startswith("https://"):
             return val
-        from urllib.parse import quote_plus  # import local para copy/paste
+        from urllib.parse import quote_plus
         return f"https://www.google.com/maps/search/?api=1&query={quote_plus(val)}"
 
     def __str__(self):
@@ -166,7 +205,7 @@ class SesionBilling(models.Model):
 
     def recomputar_estado_desde_asignaciones(self, save: bool = True) -> str:
         """
-        Recalcula y sincroniza el estado del proyecto con las asignaciones.
+        Recalcula el estado operativo desde las asignaciones (técnicos).
         Prioridad: en_revision_supervisor > en_proceso > aprob/rechazos > asignado.
         """
         estados = list(self.tecnicos_sesion.values_list("estado", flat=True))
@@ -184,8 +223,6 @@ class SesionBilling(models.Model):
                 nuevo = "aprobado_supervisor"
             elif any(e == "rechazado_supervisor" for e in estados):
                 nuevo = "rechazado_supervisor"
-            else:
-                nuevo = "asignado"
 
         if self.estado != nuevo:
             self.estado = nuevo
@@ -368,7 +405,8 @@ class RequisitoFotoBilling(models.Model):
 
 class EvidenciaFotoBilling(models.Model):
     tecnico_sesion = models.ForeignKey(
-        SesionBillingTecnico, on_delete=models.CASCADE, related_name="evidencias")
+        SesionBillingTecnico, on_delete=models.CASCADE, related_name="evidencias"
+    )
     requisito = models.ForeignKey(
         RequisitoFotoBilling,
         null=True,
@@ -382,17 +420,27 @@ class EvidenciaFotoBilling(models.Model):
         validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
         max_length=1024,
     )
-    nota = models.CharField(max_length=255, blank=True)
+    nota = models.CharField("Note", max_length=255, blank=True)
     tomada_en = models.DateTimeField(default=timezone.now)
 
-    # Metadatos cliente (opcional)
+    # Client metadata (optional)
     lat = models.DecimalField(
-        max_digits=9, decimal_places=6, null=True, blank=True)
+        "Latitude", max_digits=9, decimal_places=6, null=True, blank=True
+    )
     lng = models.DecimalField(
-        max_digits=9, decimal_places=6, null=True, blank=True)
+        "Longitude", max_digits=9, decimal_places=6, null=True, blank=True
+    )
     gps_accuracy_m = models.DecimalField(
-        max_digits=7, decimal_places=2, null=True, blank=True)
-    client_taken_at = models.DateTimeField(null=True, blank=True)
+        "GPS accuracy (m)", max_digits=7, decimal_places=2, null=True, blank=True
+    )
+    client_taken_at = models.DateTimeField(
+        "Taken at (client)", null=True, blank=True)
+
+    # NEW: For special projects (replacing default "Extra" behavior)
+    titulo_manual = models.CharField(
+        "Custom title", max_length=200, blank=True)
+    direccion_manual = models.CharField(
+        "Custom address", max_length=255, blank=True)
 
     class Meta:
         ordering = ("requisito__orden", "tomada_en", "id")
@@ -402,8 +450,11 @@ class EvidenciaFotoBilling(models.Model):
         ]
 
     def __str__(self):
-        tag = self.requisito.titulo if self.requisito_id else "Extra"
-        return f"Evidencia {tag} ({self.tecnico_sesion_id})"
+        if self.requisito_id:
+            return f"Evidence {self.requisito.titulo} (session {self.tecnico_sesion_id})"
+        elif self.titulo_manual:
+            return f"Evidence {self.titulo_manual} (session {self.tecnico_sesion_id})"
+        return f"Evidence Extra (session {self.tecnico_sesion_id})"
 
 
 # =========================== PAGOS SEMANALES ============================ #
