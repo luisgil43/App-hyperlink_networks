@@ -1,3 +1,5 @@
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse, HttpResponseForbidden
 from django.http import (
     HttpResponseBadRequest,
     JsonResponse,
@@ -682,6 +684,56 @@ def _can_edit_real_week(user) -> bool:
     except Exception:
         # Fallback: usa el decorador que ya aplicamos a la vista
         return True
+
+
+@require_POST
+def invoice_update_real(request, pk):
+    # Solo para AJAX
+    if request.headers.get('x-requested-with') != 'XMLHttpRequest':
+        return HttpResponseForbidden('AJAX only')
+
+    s = get_object_or_404(SesionBilling, pk=pk)
+
+    real_raw = request.POST.get('real', None)
+    week_raw = request.POST.get('week', None)
+
+    with transaction.atomic():
+        updated_fields = []
+
+        # ----- Real Company Billing -----
+        if real_raw is not None:
+            raw = (real_raw or '').strip()
+
+            # Permitir guardar en blanco (o "-" o "—")
+            if raw in ('', '-', '—', 'null', 'None'):
+                s.real_company_billing = None
+            else:
+                # Normalizar: quitar $ , espacios y separadores de miles
+                txt = raw.replace('$', '').replace(',', '').replace(' ', '')
+                try:
+                    s.real_company_billing = Decimal(txt)
+                except (InvalidOperation, ValueError):
+                    return JsonResponse(
+                        {'error': 'Invalid amount.'},
+                        status=400
+                    )
+            updated_fields.append('real_company_billing')
+
+        # ----- Real pay week (opcional) -----
+        if week_raw is not None:
+            s.semana_pago_real = (week_raw or '').strip()  # permite blanco
+            updated_fields.append('semana_pago_real')
+
+        if updated_fields:
+            # ya existe en tu modelo
+            updated_fields.append('finance_updated_at')
+            s.save(update_fields=updated_fields)
+
+    return JsonResponse({
+        'ok': True,
+        'real': (None if s.real_company_billing is None else f'{s.real_company_billing:.2f}'),
+        'week': s.semana_pago_real,
+    })
 
 
 @login_required
