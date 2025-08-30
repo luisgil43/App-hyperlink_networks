@@ -147,10 +147,10 @@
               {% if s.real_company_billing is not None %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
             </span>
 
-            <input type="text" inputmode="decimal" placeholder="0.00"
-                   class="real-input hidden border rounded px-2 py-1 text-sm w-28 text-right"
-                   id="real-input-{{ s.id }}"
-                   value="{% if s.real_company_billing is not None %}{{ s.real_company_billing|floatformat:2 }}{% endif %}">
+           <input type="text" inputmode="decimal" enterkeyhint="done" pattern="[0-9]*[.,]?[0-9]*"
+       class="real-input hidden border rounded px-2 py-1 text-sm w-28 text-right"
+       id="real-input-{{ s.id }}"
+       value="{% if s.real_company_billing is not None %}{{ s.real_company_billing|floatformat:2 }}{% endif %}">
             <button type="button" class="real-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
           </td>
 
@@ -621,6 +621,37 @@ function exitEditReal(id, val){
       }
     }
   });
+
+// iOS: guardar también al salir del campo (blur) o al cambiar (change)
+async function saveRealFromInput(input){
+  if (!input || input.classList.contains('hidden')) return;
+  // evita doble POST si Enter y blur se disparan seguidos
+  if (input.dataset.saving === '1') return;
+  input.dataset.saving = '1';
+
+  const id  = input.id.replace('real-input-','');
+  try{
+    const url = `{% url 'facturacion:invoices' %}`.replace('/invoices/', `/invoices/${id}/update-real/`);
+    await ajaxForm(url, { real: input.value });
+    window.location.reload();
+  }catch(err){
+    input.dataset.saving = '';          // permite reintentar
+    toast(err.message || 'Save failed', 'error');
+    input.focus();
+  }
+}
+
+// captura en fase de captura para que no se pierda aunque el input se oculte
+document.addEventListener('focusout', (e)=>{
+  const input = e.target.closest('.real-input');
+  if (input) saveRealFromInput(input);
+}, true);
+
+// algunos teclados disparan change y no blur; lo cubrimos también
+document.addEventListener('change', (e)=>{
+  const input = e.target.closest('.real-input');
+  if (input) saveRealFromInput(input);
+});
 
   // WEEK
   document.addEventListener("keydown", async (e)=>{
