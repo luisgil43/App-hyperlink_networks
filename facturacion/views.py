@@ -686,56 +686,6 @@ def _can_edit_real_week(user) -> bool:
         return True
 
 
-@require_POST
-def invoice_update_real(request, pk):
-    # Solo para AJAX
-    if request.headers.get('x-requested-with') != 'XMLHttpRequest':
-        return HttpResponseForbidden('AJAX only')
-
-    s = get_object_or_404(SesionBilling, pk=pk)
-
-    real_raw = request.POST.get('real', None)
-    week_raw = request.POST.get('week', None)
-
-    with transaction.atomic():
-        updated_fields = []
-
-        # ----- Real Company Billing -----
-        if real_raw is not None:
-            raw = (real_raw or '').strip()
-
-            # Permitir guardar en blanco (o "-" o "—")
-            if raw in ('', '-', '—', 'null', 'None'):
-                s.real_company_billing = None
-            else:
-                # Normalizar: quitar $ , espacios y separadores de miles
-                txt = raw.replace('$', '').replace(',', '').replace(' ', '')
-                try:
-                    s.real_company_billing = Decimal(txt)
-                except (InvalidOperation, ValueError):
-                    return JsonResponse(
-                        {'error': 'Invalid amount.'},
-                        status=400
-                    )
-            updated_fields.append('real_company_billing')
-
-        # ----- Real pay week (opcional) -----
-        if week_raw is not None:
-            s.semana_pago_real = (week_raw or '').strip()  # permite blanco
-            updated_fields.append('semana_pago_real')
-
-        if updated_fields:
-            # ya existe en tu modelo
-            updated_fields.append('finance_updated_at')
-            s.save(update_fields=updated_fields)
-
-    return JsonResponse({
-        'ok': True,
-        'real': (None if s.real_company_billing is None else f'{s.real_company_billing:.2f}'),
-        'week': s.semana_pago_real,
-    })
-
-
 @login_required
 @rol_requerido("facturacion", "admin")
 def invoices_list(request):
@@ -757,13 +707,15 @@ def invoices_list(request):
         .order_by("-creado_en")
     )
 
+    FINANCE_OPEN = ("sent", "in_review", "pending", "rejected")
+
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
     elif scope == "all":
-        pass
-    else:
-        qs = qs.filter(finance_status__in=[
-                       "sent", "in_review", "pending", "rejected"])
+        # Mostrar todo lo que compete a Finanzas (open + paid), pero NO los removidos
+        qs = qs.exclude(finance_status="none")
+    else:  # "open"
+        qs = qs.filter(finance_status__in=FINANCE_OPEN)
 
     cantidad = request.GET.get("cantidad", "10")
     try:
@@ -786,47 +738,62 @@ def invoices_list(request):
     return render(request, "facturacion/invoices_list.html", ctx)
 
 
-@login_required
-@rol_requerido("facturacion", "admin")
-def invoice_update_real(request, pk: int):
-    """
-    AJAX: Update Real Company Billing and/or Real Pay Week.
-    Returns JSON with the new values and difference.
-    """
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["POST"])
+@require_POST
+def invoice_update_real(request, pk):
+    # Solo AJAX
+    if request.headers.get('x-requested-with') != 'XMLHttpRequest':
+        return HttpResponseForbidden('AJAX only')
 
     s = get_object_or_404(SesionBilling, pk=pk)
-    real = _parse_decimal(request.POST.get("real"))
-    week = (request.POST.get("week") or "").strip()
+
+    real_raw = request.POST.get('real', None)
+    week_raw = request.POST.get('week', None)
 
     with transaction.atomic():
-        changed_fields = []
+        updated_fields = []
 
-        if real is not None and real != s.real_company_billing:
-            s.real_company_billing = real
-            changed_fields.append("real_company_billing")
-            if s.finance_status in ("sent", "in_review") and real is not None:
-                s.finance_status = "pending"
-                changed_fields.append("finance_status")
+        # ----- Real Company Billing -----
+        # la clave llegó (aunque sea vacía)
+        if real_raw is not None:
+            raw = (real_raw or '').strip()
 
-        if week != "" and week != s.semana_pago_real:
-            s.semana_pago_real = week
-            changed_fields.append("semana_pago_real")
+            # Vacío o guiones => NULL en DB
+            if raw in ('', '-', '—', 'null', 'None'):
+                s.real_company_billing = None
+                updated_fields.append('real_company_billing')
+            else:
+                # normaliza $ , espacios y miles
+                txt = raw.replace('$', '').replace(',', '').replace(' ', '')
+                try:
+                    s.real_company_billing = Decimal(txt)
+                    updated_fields.append('real_company_billing')
+                    # si estaba “sent/in_review” y ahora hay número => pending
+                    if s.finance_status in ('sent', 'in_review'):
+                        s.finance_status = 'pending'
+                        updated_fields.append('finance_status')
+                except (InvalidOperation, ValueError):
+                    return JsonResponse({'error': 'Invalid amount.'}, status=400)
 
-        if changed_fields:
-            s.save(update_fields=changed_fields)
+        # ----- Real pay week (permite vacío) -----
+        if week_raw is not None:
+            s.semana_pago_real = (week_raw or '').strip()
+            updated_fields.append('semana_pago_real')
 
+        if updated_fields:
+            updated_fields.append('finance_updated_at')  # tu campo auto_now
+            s.save(update_fields=updated_fields)
+
+    # difference solo si hay real
     diff = None
     if s.real_company_billing is not None:
-        diff = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
+        diff = (s.subtotal_empresa or Decimal('0')) - s.real_company_billing
 
     return JsonResponse({
-        "ok": True,
-        "real": f"{s.real_company_billing:.2f}" if s.real_company_billing is not None else "",
-        "week": s.semana_pago_real or "",
-        "difference": f"{diff:.2f}" if diff is not None else "",
-        "finance_status": s.finance_status,
+        'ok': True,
+        'real': (None if s.real_company_billing is None else f'{s.real_company_billing:.2f}'),
+        'week': s.semana_pago_real or '',
+        'difference': ('' if diff is None else f'{diff:.2f}'),
+        'finance_status': s.finance_status,
     })
 
 
