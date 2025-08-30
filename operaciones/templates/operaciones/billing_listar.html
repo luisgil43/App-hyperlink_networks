@@ -930,35 +930,13 @@ document.addEventListener('click', function(e){
 
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
-  const actionsBtn   = document.getElementById('btn-actions');
 
   function closeFinanceModal(){
     modal.classList.add('hidden');
     noteEl.value = '';
   }
 
-  // Remueve del DOM las filas seleccionadas (y su detalle)
-  function removeRows(ids){
-    ids.forEach(id => {
-      const chk = document.querySelector(`.row-chk[value="${id}"]`);
-      if(!chk) return;
-      const main = chk.closest('tr[data-row="main"]');
-      const detId = main?.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
-      if(main) main.remove();
-      if(detId) document.getElementById(detId)?.remove();
-    });
-
-    // deshabilita Actions si ya no hay seleccionados
-    const anySelected = document.querySelectorAll('.row-chk:checked').length > 0;
-    if(actionsBtn) actionsBtn.disabled = !anySelected;
-  }
-
-  // Cerrar
-  document.getElementById('finance-cancel').addEventListener('click', closeFinanceModal);
-  modal.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-finance')) closeFinanceModal(); });
-  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal(); });
-
-  // Enviar
+  // ⬇️⬇️⬇️  REEMPLAZO DEL HANDLER "Enviar"  ⬇️⬇️⬇️
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const ids  = idsEl.value ? idsEl.value.split(',') : [];
@@ -966,14 +944,15 @@ document.addEventListener('click', function(e){
     try{
       await window.sendToFinance(ids, noteEl.value.trim());
 
-      // ✅ ya enviados: quítalos del listado sin recargar
-      removeRows(ids);
-
       if(mode === 'both'){
+        // Dispara export y luego refresca la tabla por si tu export no navega
         exportIdsInp.value = ids.join(',');
-        exportForm.submit();   // dispara export
-      } // si es solo "send", no hacemos nada más
-
+        exportForm.submit();
+        setTimeout(()=> location.reload(), 1200);
+      }else{
+        // Solo "send": refrescar tabla inmediatamente
+        location.reload();
+      }
     }catch(err){
       alert(err.message || 'Unexpected error');
     }finally{

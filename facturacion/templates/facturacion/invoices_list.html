@@ -156,41 +156,46 @@
 
           <!-- Difference -->
           <td class="p-2 border text-right" id="diff-{{ s.id }}">
-            {% if s.diferencia is not None and s.subtotal_empresa %}
-              {% if s.real_company_billing < s.subtotal_empresa %}
-                <span class="font-semibold text-red-600">- ${{ s.diferencia|floatformat:2 }}</span>
-              {% elif s.real_company_billing > s.subtotal_empresa %}
-                <span class="font-semibold text-green-600">+ ${{ s.diferencia|floatformat:2|cut:"-" }}</span>
-              {% else %}
-                <span class="text-gray-700">$0.00</span>
-              {% endif %}
-            {% else %}—{% endif %}
-          </td>
+  {# Solo mostrar si hay un número > 0 en real_company_billing #}
+  {% if s.real_company_billing and s.subtotal_empresa %}
+    {% if s.real_company_billing < s.subtotal_empresa %}
+      <span class="font-semibold text-red-600">- ${{ s.diferencia|floatformat:2 }}</span>
+    {% elif s.real_company_billing > s.subtotal_empresa %}
+      <span class="font-semibold text-green-600">+ ${{ s.diferencia|floatformat:2|cut:"-" }}</span>
+    {% else %}
+      <span class="text-gray-700">$0.00</span>
+    {% endif %}
+  {% else %}
+    —   {# en blanco, raya o 0 -> no mostrar diferencia #}
+  {% endif %}
+</td>
 
           <!-- Finance status -->
           <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
-            {% if s.finance_status == "sent" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to Client</span>
-            {% elif s.finance_status == "in_review" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
-            {% elif s.finance_status == "rejected" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
-            {% elif s.finance_status == "pending" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
-            {% elif s.finance_status == "paid" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
-            {% else %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
-            {% endif %}
+  {% if s.finance_status == "sent" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+      Sent to client
+    </span>
+  {% elif s.finance_status == "in_review" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
+  {% elif s.finance_status == "rejected" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
+  {% elif s.finance_status == "pending" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
+  {% elif s.finance_status == "paid" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
+  {% else %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
+  {% endif %}
 
-            {% if s.finance_note %}
-              <div class="mt-1 text-xs text-gray-500">
-                <div class="whitespace-pre-line break-normal hyphens-auto">
-                  Note: {{ s.finance_note }}
-                </div>
-              </div>
-            {% endif %}
-          </td>
+  {% if s.finance_note %}
+    <div class="mt-1 text-xs text-gray-500">
+      <div class="whitespace-pre-line break-normal hyphens-auto">
+        Note: {{ s.finance_note }}
+      </div>
+    </div>
+  {% endif %}
+</td>
 
           <!-- Real pay week (inline edit) -->
           <td class="p-2 border" data-col="week">
@@ -205,23 +210,29 @@
           </td>
 
           <!-- Actions -->
-          <td class="p-2 border text-center">
-            <div class="flex items-center justify-center gap-3">
-              {% if s.real_company_billing is None %}
-                <button type="button" class="text-blue-600 hover:underline real-edit" data-id="{{ s.id }}">Edit</button>
-                <form method="post" action="{% url 'facturacion:invoice_remove' s.id %}" class="inline">
-                  {% csrf_token %}<button class="text-red-600 hover:underline">Remove</button>
-                </form>
-              {% else %}
-                {% if s.finance_status != "paid" %}
-                  {% if s.diferencia is not None and s.diferencia|floatformat:2 != '0.00' %}
-                    <button type="button" class="btn-reject text-red-600 hover:underline" data-id="{{ s.id }}">Reject</button>
-                  {% endif %}
-                  <button type="button" class="btn-paid text-green-700 hover:underline" data-id="{{ s.id }}">Mark as paid</button>
-                {% endif %}
-              {% endif %}
-            </div>
-          </td>
+        <td class="p-2 border text-center">
+  <div class="flex items-center justify-center gap-3">
+
+    {# Remove SIEMPRE visible #}
+    <form method="post" action="{% url 'facturacion:invoice_remove' s.id %}" class="inline">
+      {% csrf_token %}
+      <button class="text-red-600 hover:underline">Remove</button>
+    </form>
+
+    {# Edit solo cuando no hay real cargado #}
+    {% if s.real_company_billing is None %}
+      <button type="button" class="text-blue-600 hover:underline real-edit" data-id="{{ s.id }}">Edit</button>
+    {% else %}
+      {% if s.finance_status != "paid" %}
+        {% if s.diferencia is not None and s.diferencia|floatformat:2 != '0.00' %}
+          <button type="button" class="btn-reject text-red-600 hover:underline" data-id="{{ s.id }}">Reject</button>
+        {% endif %}
+        <button type="button" class="btn-paid text-green-700 hover:underline" data-id="{{ s.id }}">Mark as paid</button>
+      {% endif %}
+    {% endif %}
+
+  </div>
+</td>
         </tr>
 
         <!-- Detail row -->
@@ -544,21 +555,27 @@ document.addEventListener('click', function(e){
   }
 
   /* ===================== Inline edit: Real Company Billing ===================== */
-  function enterEditReal(id){
-    document.getElementById(`real-view-${id}`).classList.add("hidden");
-    const input = document.getElementById(`real-input-${id}`);
-    input.classList.remove("hidden");
-    input.focus(); input.select?.();
-  }
-  function exitEditReal(id, val){
-    const view  = document.getElementById(`real-view-${id}`);
-    const input = document.getElementById(`real-input-${id}`);
-    const raw   = (val ?? '').toString().trim();
-    const isEmpty = (raw === '' || raw === '-' || raw === '—');
-    view.textContent = isEmpty ? '—' : `$${Number(raw).toFixed(2)}`;
-    view.classList.remove("hidden");
-    input.classList.add("hidden");
-  }
+function enterEditReal(id){
+  document.getElementById(`real-view-${id}`).classList.add("hidden");
+  const input = document.getElementById(`real-input-${id}`);
+  input.classList.remove("hidden");
+
+  const cur = (input.value || '').trim().replace('$','').replace(/,/g,'');
+  if (cur === '0' || cur === '0.00') input.value = '';
+
+  input.setAttribute('placeholder', '—');
+  input.focus(); input.select?.();
+}
+
+function exitEditReal(id, val){
+  const view  = document.getElementById(`real-view-${id}`);
+  const input = document.getElementById(`real-input-${id}`);
+  const raw   = (val ?? '').toString().trim();
+  const isEmpty = (raw === '' || raw === '-' || raw === '—');
+  view.textContent = isEmpty ? '—' : `$${Number(raw).toFixed(2)}`;
+  view.classList.remove("hidden");
+  input.classList.add("hidden");
+}
 
   /* ===================== Inline edit: Real Pay Week ===================== */
   function enterEditWeek(id){
