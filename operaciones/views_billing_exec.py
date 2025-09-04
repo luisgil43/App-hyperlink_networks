@@ -465,6 +465,7 @@ def upload_evidencias(request, pk):
     # -------- Direct uploads context (unchanged UI; only data for JS) --------
     proj_id = (a.sesion.proyecto_id or "project").strip()
     proj_slug = slugify(proj_id) or "project"
+    sess_tag = f"{proj_slug}-{a.sesion_id}"  # <-- ÚNICO CAMBIO: tag por sesión
 
     tech = a.tecnico
     tech_name = (
@@ -474,7 +475,7 @@ def upload_evidencias(request, pk):
     )
     tech_slug = slugify(tech_name) or f"user-{tech.id}"
 
-    direct_uploads_folder = f"operaciones/reporte_fotografico/{proj_slug}/{tech_slug}/evidencia/"
+    direct_uploads_folder = f"operaciones/reporte_fotografico/{sess_tag}/{tech_slug}/evidencia/"
 
     return render(
         request,
@@ -741,12 +742,13 @@ def _create_evidencia_from_key(a, req_id, key, nota, lat, lng, acc, taken_dt,
 
 def _project_report_key(sesion: SesionBilling) -> str:
     """
-    Ruta determinística para el reporte único por PROYECTO.
-    Ej: operaciones/reporte_fotografico/<proj>/project/<proj>.xlsx
+    Ruta determinística para el reporte por PROYECTO **por sesión**.
+    Ej: operaciones/reporte_fotografico/<proj>-<sesion_id>/project/<proj>-<sesion_id>.xlsx
     """
     proj_slug = slugify(
         sesion.proyecto_id or f"billing-{sesion.id}") or f"billing-{sesion.id}"
-    return f"operaciones/reporte_fotografico/{proj_slug}/project/{proj_slug}.xlsx"
+    sess_tag = f"{proj_slug}-{sesion.id}"
+    return f"operaciones/reporte_fotografico/{sess_tag}/project/{sess_tag}.xlsx"
 
 
 @login_required
@@ -797,9 +799,10 @@ def revisar_sesion(request, sesion_id):
             except Exception:
                 pass
 
-            filename = f"REPORTE FOTOGRAFICO {s.proyecto_id}.xlsx"
+            # p.ej. operaciones/reporte_fotografico/g033b-42/project/g033b-42.xlsx
+            report_key = _project_report_key(s)
             s.reporte_fotografico.save(
-                filename, ContentFile(bytes_excel), save=False)
+                report_key, ContentFile(bytes_excel), save=False)
 
             # >>> NUEVO: fijar semana real = semana siguiente a la aprobación (si no existe)
             now = timezone.now()
@@ -876,6 +879,57 @@ def revisar_sesion(request, sesion_id):
 
 
 @login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+def generar_reporte_parcial_proyecto(request, sesion_id):
+    """
+    Genera un XLSX con todas las fotos actuales de la sesión **sin** cambiar estados
+    ni guardar como 'reporte_fotografico'. Sirve para avances diarios.
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
+
+    proj_slug = slugify(
+        s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
+    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
+
+    from io import BytesIO
+    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm', 'usuario')
+def generar_reporte_parcial_asignacion(request, asignacion_id):
+    """
+    XLSX solo con las evidencias de **una** asignación (tecnico_sesion).
+    - El técnico puede descargar el suyo.
+    - Supervisor/PM/Admin pueden descargar el de cualquiera.
+    """
+    a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
+
+    # permisos: dueño o staff
+    is_owner = (a.tecnico_id == request.user.id)
+    is_staff = getattr(request.user, "rol", "") in (
+        "supervisor", "pm", "admin")
+    if not (is_owner or is_staff):
+        raise Http404()
+
+    ev_qs = (
+        a.evidencias.select_related("requisito")
+         .order_by("requisito__orden", "tomada_en", "id")
+    )
+    bytes_excel = _bytes_excel_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
+
+    proj_slug = slugify(
+        a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
+    tech_slug = slugify(a.tecnico.get_full_name(
+    ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
+    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
+
+    from io import BytesIO
+    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
+
+
+@login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     # Permisos: supervisor/pm/admin o técnicos asignados al proyecto
@@ -890,6 +944,141 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
         return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
     return FileResponse(s.reporte_fotografico.open("rb"), as_attachment=True, filename="photo_report.xlsx")
+
+
+def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> bytes:
+    """
+    Igual a _bytes_excel_reporte_fotografico, pero permite inyectar un queryset de evidencias.
+    Si ev_qs = None, usa todas las evidencias de la sesión.
+    """
+    import io
+    import xlsxwriter
+    from .models import EvidenciaFotoBilling
+
+    if ev_qs is None:
+        ev_qs = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion=sesion)
+            .select_related("requisito")
+            .order_by("requisito__orden", "tomada_en", "id")
+        )
+
+    # ==== (copia del cuerpo de _bytes_excel_reporte_fotografico, pero usando ev_qs) ====
+    bio = io.BytesIO()
+    wb = xlsxwriter.Workbook(bio, {"in_memory": True})
+    ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
+    ws.hide_gridlines(2)
+
+    fmt_title = wb.add_format({"bold": True, "align": "center",
+                              "valign": "vcenter", "border": 1, "bg_color": "#E8EEF7"})
+    fmt_head = wb.add_format({"border": 1, "align": "center", "valign": "vcenter",
+                             "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11})
+    fmt_box = wb.add_format({"border": 1})
+    fmt_info = wb.add_format({"border": 1, "align": "center",
+                             "valign": "vcenter", "text_wrap": True, "font_size": 9})
+
+    BLOCK_COLS, SEP_COLS = 6, 1
+    LEFT_COL = 0
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, 13)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, 13)
+
+    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
+    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+
+    ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
+                   f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
+    cur_row = 2
+
+    def draw_block(r, c, ev):
+        titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip() or (
+            ev.titulo_manual or "").strip() or "Extra")
+        ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
+                       BLOCK_COLS - 1, titulo_req, fmt_head)
+        for rr in range(r, r + HEAD_ROWS):
+            ws.set_row(rr, 20)
+
+        img_top = r + HEAD_ROWS
+        for rr in range(img_top, img_top + ROWS_IMG):
+            ws.set_row(rr, 18)
+        ws.merge_range(img_top, c, img_top + ROWS_IMG -
+                       1, c + BLOCK_COLS - 1, "", fmt_box)
+
+        max_w_px = BLOCK_COLS * 60
+        max_h_px = ROWS_IMG * 18
+
+        image_data = None
+        x_scale = y_scale = 1.0
+        scaled_w = scaled_h = None
+        try:
+            from PIL import Image
+            ev.imagen.open("rb")
+            raw = ev.imagen.read()
+            image_data = io.BytesIO(raw)
+            with Image.open(io.BytesIO(raw)) as im:
+                w, h = im.size
+            sx = max_w_px / float(w)
+            sy = max_h_px / float(h)
+            scale = min(sx, sy, 1.0)
+            x_scale = y_scale = scale
+            scaled_w = int(w * scale)
+            scaled_h = int(h * scale)
+        except Exception:
+            try:
+                ev.imagen.open("rb")
+                image_data = io.BytesIO(ev.imagen.read())
+                scaled_w = max_w_px
+                scaled_h = max_h_px
+            except Exception:
+                image_data = None
+
+        if image_data:
+            x_off = max((max_w_px - (scaled_w or max_w_px)) // 2, 0)
+            y_off = max((max_h_px - (scaled_h or max_h_px)) // 2, 0)
+            ws.insert_image(img_top, c, ev.imagen.name, {
+                "image_data": image_data,
+                "x_scale": x_scale, "y_scale": y_scale,
+                "x_offset": x_off, "y_offset": y_off,
+                "object_position": 1,
+            })
+
+        info_row = img_top + ROWS_IMG
+        dt = ev.client_taken_at or ev.tomada_en
+        taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+        lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
+        lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
+        addr_txt = (ev.direccion_manual or "").strip()
+
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            ws.merge_range(info_row, c, info_row, c + 2,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 3, info_row, c + 5,
+                           f"Address\n{addr_txt}", fmt_info)
+        else:
+            ws.merge_range(info_row, c, info_row, c + 1,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 2, info_row, c +
+                           3, f"Lat\n{lat_txt}", fmt_info)
+            ws.merge_range(info_row, c + 4, info_row, c +
+                           5, f"Lng\n{lng_txt}", fmt_info)
+        ws.set_row(info_row, 30)
+
+    idx = 0
+    for ev in ev_qs:
+        if idx % 2 == 0:
+            draw_block(cur_row, LEFT_COL, ev)
+        else:
+            draw_block(cur_row, RIGHT_COL, ev)
+            cur_row += BLOCK_ROWS + ROW_SPACE
+        idx += 1
+    if idx % 2 == 1:
+        cur_row += BLOCK_ROWS + ROW_SPACE
+
+    wb.close()
+    return bio.getvalue()
 
 
 def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:

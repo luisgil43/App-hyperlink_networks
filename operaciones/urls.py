@@ -181,4 +181,9 @@ urlpatterns = [
     path("billing/finance/mark-in-review/<int:pk>/",
          views.billing_mark_in_review, name="billing_mark_in_review"),
 
+    path("operaciones/billing/<int:sesion_id>/reporte-parcial/",
+         b.generar_reporte_parcial_proyecto, name="generar_reporte_parcial_proyecto"),
+    path("operaciones/billing/asignacion/<int:asignacion_id>/reporte-parcial/",
+         b.generar_reporte_parcial_asignacion, name="generar_reporte_parcial_asignacion"),
+
 ]
