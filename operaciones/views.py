@@ -1,4 +1,5 @@
 # operaciones/views.py
+from django.db.models import Count
 from .models import SesionBilling  # <-- AJUSTA este import al modelo correcto
 from django.http import HttpResponseRedirect
 from django.utils.http import urlencode
@@ -1415,13 +1416,15 @@ def crear_billing(request):
     })
 
 
+WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
+
+
 @login_required
 def editar_billing(request, sesion_id: int):
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
 
     # POST -> guardar y redirigir (PRG)
     if request.method == "POST":
-        # <-- redirect al listar
         return _guardar_billing(request, sesion=sesion)
 
     # Combos
@@ -1455,6 +1458,49 @@ def editar_billing(request, sesion_id: int):
         "items": items,
         "ids_tecnicos": ids_tecnicos,
     })
+
+
+def _actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, nuevos_ids: list[int]) -> None:
+    """
+    - NO elimina en masa.
+    - Mantiene asignaciones que ya tengan evidencias.
+    - Elimina sólo asignaciones sin evidencias y que ya no estén en la lista.
+    - Actualiza/crea porcentajes según repartir_100 de los ids solicitados.
+      Si tuvimos que conservar un técnico “viejo” por tener fotos, ese conserva su % original.
+    """
+    existentes = {
+        ts.tecnico_id: ts for ts in sesion.tecnicos_sesion.select_related("tecnico")}
+    nuevos_ids = [int(x) for x in nuevos_ids]
+
+    # 1) Crear/actualizar los solicitados
+    partes_nuevas = repartir_100(len(nuevos_ids)) if nuevos_ids else []
+    for tid, pct in zip(nuevos_ids, partes_nuevas):
+        if tid in existentes:
+            ts = existentes[tid]
+            if ts.porcentaje != pct:
+                ts.porcentaje = pct
+                ts.save(update_fields=["porcentaje"])
+        else:
+            SesionBillingTecnico.objects.create(
+                sesion=sesion, tecnico_id=tid, porcentaje=pct
+            )
+
+    # 2) Eliminar sólo los que NO están en la lista y NO tienen fotos
+    for tid, ts in list(existentes.items()):
+        if tid in nuevos_ids:
+            continue
+        tiene_fotos = EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion=ts).exists()
+        if tiene_fotos:
+            # Lo conservamos y avisamos (para que el usuario sepa por qué “no se fue”)
+            messages.warning(
+                # tolerante en tareas
+                None if hasattr(messages, "_queued_messages") else sesion,
+                f"No se eliminó a {getattr(ts.tecnico, 'get_full_name', lambda: ts.tecnico.username)()} "
+                "porque ya tiene fotos registradas en esta sesión."
+            )
+            continue
+        ts.delete()
 
 
 @login_required
@@ -1510,20 +1556,15 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     semana_pago_proyectada = (request.POST.get(
         "semana_pago_proyectada") or "").strip()
     if semana_pago_proyectada and not WEEK_RE.match(semana_pago_proyectada):
-        # si viene en formato inesperado, lo guardamos vacío (opcional)
         semana_pago_proyectada = ""
 
     # Validación mínima
     if not (proyecto_id and cliente and ciudad and proyecto and oficina):
         messages.error(request, "Complete all header fields.")
         return redirect(request.path)
-
-    # 👇 Cambio: exigir técnicos SOLO cuando se crea.
-    if sesion is None:
-        if not ids:
-            messages.error(request, "Select at least one technician.")
-            return redirect(request.path)
-    # En edición no exigimos 'ids' si ya existen asignaciones; preservamos las actuales.
+    if not ids:
+        messages.error(request, "Select at least one technician.")
+        return redirect(request.path)
 
     # Items
     import json
@@ -1539,7 +1580,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             return HttpResponseBadRequest("Cada fila requiere Job Code y Amount.")
         filas.append({"codigo": cod, "cantidad": Decimal(str(cant))})
 
-    # Crear/actualizar sesión
+    # Crear/actualizar sesión (NO tocar estado aquí)
     if sesion is None:
         sesion = SesionBilling.objects.create(
             proyecto_id=proyecto_id,
@@ -1550,14 +1591,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             direccion_proyecto=direccion_proyecto,
             semana_pago_proyectada=semana_pago_proyectada,
         )
-        # Al crear SÍ generamos asignaciones con reparto 100/n
-        partes = repartir_100(len(ids))
-        for tid, pct in zip(ids, partes):
-            SesionBillingTecnico.objects.create(
-                sesion=sesion, tecnico_id=tid, porcentaje=pct
-            )
     else:
-        # Al editar: solo actualizamos encabezado; NO tocamos estado ni asignaciones
         sesion.proyecto_id = proyecto_id
         sesion.cliente = cliente
         sesion.ciudad = ciudad
@@ -1567,28 +1601,29 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         sesion.semana_pago_proyectada = semana_pago_proyectada
         sesion.save()
 
-        # Si por alguna razón aún no hay asignaciones, usamos las que vengan en el POST
-        if not sesion.tecnicos_sesion.exists() and ids:
-            partes = repartir_100(len(ids))
-            for tid, pct in zip(ids, partes):
-                SesionBillingTecnico.objects.create(
-                    sesion=sesion, tecnico_id=tid, porcentaje=pct
-                )
+    # 🔒 IMPORTANTÍSIMO: actualizar técnicos SIN borrar evidencias
+    _actualizar_tecnicos_preservando_fotos(sesion, ids)
 
-    # Rehacer items (esto no afecta fotos, que dependen de SesionBillingTecnico)
+    # Recalcular “partes” usando lo que haya quedado en BD (incluye
+    # técnicos nuevos, y conserva los “viejos” con fotos)
+    actuales = list(
+        sesion.tecnicos_sesion.values_list(
+            "tecnico_id", "porcentaje").order_by("id")
+    )
+    ids_def = [tid for (tid, _) in actuales]
+    partes_def = [pct for (_, pct) in actuales]
+
+    # Rehacer items (esto no afecta las fotos)
     sesion.items.all().delete()
     total_emp = Decimal("0.00")
     total_tec = Decimal("0.00")
 
-    # 👇 Siempre tomaremos las asignaciones VIGENTES de la sesión
-    asignaciones_vigentes = list(
-        sesion.tecnicos_sesion.values_list("tecnico_id", "porcentaje")
-    )
-
     for fila in filas:
         meta = _meta_codigo(cliente, ciudad, proyecto, oficina, fila["codigo"])
         if not meta:
-            return HttpResponseBadRequest(f"Código '{fila['codigo']}' no existe con los filtros.")
+            return HttpResponseBadRequest(
+                f"Código '{fila['codigo']}' no existe con los filtros."
+            )
         precio_emp = _precio_empresa(
             cliente, ciudad, proyecto, oficina, fila["codigo"])
         sub_emp = money(precio_emp * fila["cantidad"])
@@ -1602,19 +1637,23 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             cantidad=money(fila["cantidad"]),
             precio_empresa=precio_emp,
             subtotal_empresa=sub_emp,
-            subtotal_tecnico=Decimal("0.00")
+            subtotal_tecnico=Decimal("0.00"),
         )
 
         sub_tecs = Decimal("0.00")
-        # 👇 Desglose usando técnicos/porcentajes actuales (no 100/n nuevo)
-        for tid, pct in asignaciones_vigentes:
-            base = _tarifa_tecnico(tid, cliente, ciudad,
-                                   proyecto, oficina, fila["codigo"])
-            efectiva = money(base * (pct/Decimal("100")))
+        for tid, pct in zip(ids_def, partes_def):
+            base = _tarifa_tecnico(
+                tid, cliente, ciudad, proyecto, oficina, fila["codigo"]
+            )
+            efectiva = money(base * (pct / Decimal("100")))
             subtotal = money(efectiva * item.cantidad)
             ItemBillingTecnico.objects.create(
-                item=item, tecnico_id=tid, tarifa_base=base,
-                porcentaje=pct, tarifa_efectiva=efectiva, subtotal=subtotal
+                item=item,
+                tecnico_id=tid,
+                tarifa_base=base,
+                porcentaje=pct,
+                tarifa_efectiva=efectiva,
+                subtotal=subtotal,
             )
             sub_tecs += subtotal
 
@@ -1628,7 +1667,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     sesion.subtotal_tecnico = money(total_tec)
     sesion.save(update_fields=["subtotal_empresa", "subtotal_tecnico"])
 
-    messages.success(request, "Billing saved successfully.")
+    messages.success(request, "Billing saved successfully (photos preserved).")
     return redirect("operaciones:listar_billing")
 
 
@@ -1640,13 +1679,18 @@ def _recalcular_items_sesion(sesion: SesionBilling):
         it.desglose_tecnico.all().delete()
         sub = Decimal("0.00")
         for tid, pct in zip(ids, partes):
-            base = _tarifa_tecnico(tid, sesion.cliente, sesion.ciudad,
-                                   sesion.proyecto, sesion.oficina, it.codigo_trabajo)
-            efectiva = money(base * (pct/Decimal("100")))
+            base = _tarifa_tecnico(
+                tid, sesion.cliente, sesion.ciudad, sesion.proyecto, sesion.oficina, it.codigo_trabajo
+            )
+            efectiva = money(base * (pct / Decimal("100")))
             subtotal = money(efectiva * it.cantidad)
             ItemBillingTecnico.objects.create(
-                item=it, tecnico_id=tid, tarifa_base=base,
-                porcentaje=pct, tarifa_efectiva=efectiva, subtotal=subtotal
+                item=it,
+                tecnico_id=tid,
+                tarifa_base=base,
+                porcentaje=pct,
+                tarifa_efectiva=efectiva,
+                subtotal=subtotal,
             )
             sub += subtotal
         it.subtotal_tecnico = sub
