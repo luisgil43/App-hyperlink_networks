@@ -67,11 +67,12 @@
 {% endif %}
  
 {% if project_report_exists %}
-    <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
-       href="{{ project_report_url }}">
-      Download current report
-    </a>
-  {% endif %}
+  <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
+     href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}">
+    Download current report
+  </a>
+{% endif %}
+
 </div>
 
 {# Botones / mensajes de estado del proyecto #}
