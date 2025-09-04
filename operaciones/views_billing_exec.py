@@ -1,4 +1,8 @@
 # operaciones/views_billing_exec.py
+
+from tempfile import NamedTemporaryFile
+import xlsxwriter
+from operaciones.excel_images import tmp_jpeg_from_filefield
 from django.db.models import OuterRef, Subquery, Sum, Value, DecimalField, Case, When, IntegerField
 from botocore.client import Config
 from datetime import timedelta
@@ -878,6 +882,175 @@ def revisar_sesion(request, sesion_id):
 # ============================
 
 
+def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
+    """
+    Genera el XLSX en un archivo temporal y devuelve su ruta (path).
+    Usa imágenes recomprimidas/resizeadas en archivos temporales.
+    RAM baja + sin timeouts del worker al enviar el archivo.
+    """
+    # 1) crear archivo temporal para el XLSX
+    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+
+    # 2) Workbook a disco (no BytesIO)
+    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
+    ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
+    ws.hide_gridlines(2)
+
+    fmt_title = wb.add_format({
+        "bold": True, "align": "center", "valign": "vcenter",
+        "border": 1, "bg_color": "#E8EEF7"
+    })
+    fmt_head = wb.add_format({
+        "border": 1, "align": "center", "valign": "vcenter",
+        "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
+    })
+    fmt_box = wb.add_format({"border": 1})
+    fmt_info = wb.add_format({
+        "border": 1, "align": "center", "valign": "vcenter",
+        "text_wrap": True, "font_size": 9
+    })
+
+    BLOCK_COLS, SEP_COLS = 6, 1
+    LEFT_COL = 0
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, 13)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, 13)
+
+    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
+    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+
+    ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
+                   f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
+    cur_row = 2
+
+    # contenedor (px) donde se “encaja” la imagen
+    max_w_px = BLOCK_COLS * 60
+    max_h_px = ROWS_IMG * 18
+
+    def draw_block(r, c, ev):
+        titulo_req = (
+            (getattr(ev.requisito, "titulo", "") or "").strip()
+            or (ev.titulo_manual or "").strip()
+            or "Extra"
+        )
+        ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
+                       BLOCK_COLS - 1, titulo_req, fmt_head)
+        for rr in range(r, r + HEAD_ROWS):
+            ws.set_row(rr, 20)
+
+        img_top = r + HEAD_ROWS
+        for rr in range(img_top, img_top + ROWS_IMG):
+            ws.set_row(rr, 18)
+        ws.merge_range(img_top, c, img_top + ROWS_IMG -
+                       1, c + BLOCK_COLS - 1, "", fmt_box)
+
+        # === NUEVO: crear JPEG reducido en tmp ===
+        try:
+            tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
+            sx = max_w_px / float(w)
+            sy = max_h_px / float(h)
+            scale = min(sx, sy, 1.0)
+            scaled_w = int(w * scale)
+            scaled_h = int(h * scale)
+            x_off = max((max_w_px - scaled_w) // 2, 0)
+            y_off = max((max_h_px - scaled_h) // 2, 0)
+
+            ws.insert_image(img_top, c, tmp_img_path, {
+                "x_scale": scale, "y_scale": scale,
+                "x_offset": x_off, "y_offset": y_off,
+                "object_position": 1,
+            })
+        except Exception:
+            # si la imagen está corrupta, continua sin romper todo
+            pass
+
+        info_row = img_top + ROWS_IMG
+        dt = ev.client_taken_at or ev.tomada_en
+        taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+        lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
+        lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
+        addr_txt = (ev.direccion_manual or "").strip()
+
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            ws.merge_range(info_row, c, info_row, c + 2,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 3, info_row, c + 5,
+                           f"Address\n{addr_txt}", fmt_info)
+        else:
+            ws.merge_range(info_row, c,     info_row, c + 1,
+                           f"Taken at\n{taken_txt}", fmt_info)
+            ws.merge_range(info_row, c + 2, info_row, c + 3,
+                           f"Lat\n{lat_txt}",       fmt_info)
+            ws.merge_range(info_row, c + 4, info_row, c + 5,
+                           f"Lng\n{lng_txt}",       fmt_info)
+        ws.set_row(info_row, 30)
+
+    # iterar sin cargar todo en RAM
+    idx = 0
+    for ev in ev_qs.iterator():
+        if idx % 2 == 0:
+            draw_block(cur_row, LEFT_COL, ev)
+        else:
+            draw_block(cur_row, RIGHT_COL, ev)
+            cur_row += BLOCK_ROWS + ROW_SPACE
+        idx += 1
+    if idx % 2 == 1:
+        cur_row += BLOCK_ROWS + ROW_SPACE
+
+    wb.close()
+    return tmp_xlsx.name
+
+
+def _xlsx_path_reporte_fotografico(sesion: SesionBilling) -> str:
+    from .models import EvidenciaFotoBilling
+    ev_qs = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=sesion)
+        .select_related("requisito")
+        .order_by("requisito__orden", "tomada_en", "id")
+    )
+    return _xlsx_path_from_evqs(sesion, ev_qs)
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+def generar_reporte_parcial_proyecto(request, sesion_id):
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    xlsx_path = _xlsx_path_reporte_fotografico_qs(s, ev_qs=None)
+
+    proj_slug = slugify(
+        s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
+    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
+    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm', 'usuario')
+def generar_reporte_parcial_asignacion(request, asignacion_id):
+    a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
+    is_owner = (a.tecnico_id == request.user.id)
+    is_staff = getattr(request.user, "rol", "") in (
+        "supervisor", "pm", "admin")
+    if not (is_owner or is_staff):
+        raise Http404()
+
+    ev_qs = (a.evidencias.select_related("requisito")
+             .order_by("requisito__orden", "tomada_en", "id"))
+    xlsx_path = _xlsx_path_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
+
+    proj_slug = slugify(
+        a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
+    tech_slug = slugify(a.tecnico.get_full_name(
+    ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
+    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
+    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
+
+
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def generar_reporte_parcial_proyecto(request, sesion_id):
@@ -927,6 +1100,34 @@ def generar_reporte_parcial_asignacion(request, asignacion_id):
 
     from io import BytesIO
     return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
+
+
+@login_required
+def regenerar_reporte_fotografico_proyecto(request, sesion_id):
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+    if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
+        raise Http404()
+    try:
+        xlsx_path = _xlsx_path_reporte_fotografico(s)
+        # reemplazar archivo anterior si existía
+        if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
+            try:
+                s.reporte_fotografico.delete(save=False)
+            except Exception:
+                pass
+        # subir el archivo desde disco (stream) al FileField
+        with open(xlsx_path, "rb") as f:
+            filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
+            s.reporte_fotografico.save(
+                filename, ContentFile(f.read()), save=True)
+
+        messages.success(
+            request, "Project photographic report regenerated successfully.")
+        return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
+    except Exception as e:
+        messages.error(
+            request, f"Could not generate the photographic report: {e}")
+        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
 
 @login_required
