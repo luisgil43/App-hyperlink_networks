@@ -1,5 +1,7 @@
 # operaciones/views_billing_exec.py
 
+from django.utils.http import http_date
+from urllib.parse import urlencode
 from tempfile import NamedTemporaryFile
 import xlsxwriter
 from operaciones.excel_images import tmp_jpeg_from_filefield
@@ -1119,23 +1121,27 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
         raise Http404()
+
     try:
-        xlsx_path = _xlsx_path_reporte_fotografico(s)
-        # reemplazar archivo anterior si existía
+        bytes_excel = _bytes_excel_reporte_fotografico(s)
+
+        # elimina anterior si existe (misma key => real replace en storage)
         if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
             try:
                 s.reporte_fotografico.delete(save=False)
             except Exception:
                 pass
-        # subir el archivo desde disco (stream) al FileField
-        with open(xlsx_path, "rb") as f:
-            filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
-            s.reporte_fotografico.save(
-                filename, ContentFile(f.read()), save=True)
+
+        # ✅ usar SIEMPRE la misma ruta por sesión
+        # ej: operaciones/reporte_fotografico/<proj>-<id>/project/<proj>-<id>.xlsx
+        report_key = _project_report_key(s)
+        s.reporte_fotografico.save(
+            report_key, ContentFile(bytes_excel), save=True)
 
         messages.success(
             request, "Project photographic report regenerated successfully.")
         return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
+
     except Exception as e:
         messages.error(
             request, f"Could not generate the photographic report: {e}")
@@ -1145,7 +1151,6 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 @login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Permisos: supervisor/pm/admin o técnicos asignados al proyecto
     allowed = (getattr(request.user, "rol", "") in ("supervisor", "pm", "admin")) \
         or s.tecnicos_sesion.filter(tecnico=request.user).exists()
     if not allowed:
@@ -1156,7 +1161,16 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
             request, "The photo report is not available. You can regenerate it now.")
         return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
-    return FileResponse(s.reporte_fotografico.open("rb"), as_attachment=True, filename="photo_report.xlsx")
+    # Abrimos y transmitimos nosotros: no usamos la URL presignada
+    f = s.reporte_fotografico.open("rb")
+    filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
+    resp = FileResponse(f, as_attachment=True, filename=filename)
+
+    # Evitar caché del navegador/CDN intermedio
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = http_date(0)
+    return resp
 
 
 def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> bytes:
