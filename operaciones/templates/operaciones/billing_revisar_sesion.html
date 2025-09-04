@@ -41,52 +41,53 @@
     </div>
   </div>
 
-  {# ---- BARRA DE ACCIONES: Back / Aprobar / Rechazar ---- #}
- <div class="flex items-center gap-2">
-  <!-- Back -->
+{# ---- BARRA DE ACCIONES ---- #}
+<div class="flex flex-wrap items-center gap-2 mb-3">
+
+  <!-- Back: gris, mismo tamaño -->
   <a href="{% url 'operaciones:listar_billing' %}"
-     class="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded shadow">
+     class="inline-flex items-center px-4 py-2 rounded border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50">
     ⬅️ Back
   </a>
 
-  <!-- Partial report: SIEMPRE visible -->
-  <a href="{% url 'operaciones:generar_reporte_parcial_proyecto' s.id %}"
-     class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded shadow">
+<!-- Botón condicional: Partial report -->
+{% if s.estado == 'en_proceso' or s.estado == 'en_revision_supervisor' or s.estado == 'rechazado_supervisor' %}
+  <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
+     href="{% url 'operaciones:generar_reporte_parcial_proyecto' s.id %}">
     📸 Partial report
   </a>
+{% endif %}
 
-  {% if can_review %}
-    <!-- Aprobar y generar reporte -->
-    <form method="post" action="{% url 'operaciones:revisar_sesion' s.id %}" class="inline">
-      {% csrf_token %}
-      <input type="hidden" name="accion" value="aprobar">
-      <button type="submit"
-              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow">
-        ✅ Approve & Generate Report
-      </button>
-    </form>
-
-    <!-- Rechazar -->
-    <button type="button"
-            onclick="openRejectModal()"
-            class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow">
-      ❌ Reject
-    </button>
-  {% else %}
-    <div class="text-sm text-gray-500">
-      This project is not ready for supervisor review.
-    </div>
+<!-- Botón condicional: Regenerate report -->
+{% if s.estado == 'aprobado_supervisor' or s.estado == 'aprobado_pm' %}
+  <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
+     href="{% url 'operaciones:regenerar_reporte_fotografico_proyecto' s.id %}">
+    📸 Regenerate report (replace final)
+  </a>
+{% endif %}
+ 
+{% if project_report_exists %}
+    <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
+       href="{{ project_report_url }}">
+      Download current report
+    </a>
   {% endif %}
 </div>
 
-  {# Aviso / descarga del reporte si existe #}
-  {% if project_report_exists %}
-    <div class="mb-6 p-3 rounded bg-blue-50 text-blue-800 text-sm flex items-center justify-between">
-      <div>📄 A photo report already exists for this project.</div>
-      <a href="{{ project_report_url }}" target="_blank" rel="noopener"
-         class="text-blue-700 underline hover:no-underline">Download current report</a>
-    </div>
-  {% endif %}
+{# Botones / mensajes de estado del proyecto #}
+{% if s.estado == "en_revision_supervisor" %}
+  <form method="post" action="{% url 'operaciones:revisar_sesion' s.id %}" class="flex gap-2 mb-2">
+    {% csrf_token %}
+    <button type="submit" name="accion" value="aprobar"
+            class="inline-flex items-center px-4 py-2 rounded shadow bg-green-600 hover:bg-green-700 text-white">
+      ✅ Approve & Generate Report
+    </button>
+    <button type="button" onclick="openRejectModal()"
+            class="inline-flex items-center px-4 py-2 rounded shadow bg-red-600 hover:bg-red-700 text-white">
+      ❌ Reject
+    </button>
+  </form>
+{% endif %}
 
   <!-- Technicians (solo nombres y %; SIN estado por técnico) -->
   <div class="mb-6">
@@ -158,27 +159,52 @@
               <img src="{{ ev.imagen.url }}" class="w-full h-40 object-cover rounded" alt="Photo">
             </div>
 
-            <figcaption class="text-xs mt-1">
-              <div class="font-medium">{{ ev.requisito.titulo|default:"Extra" }}</div>
-              <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
+           <figcaption class="text-xs mt-1">
+  {# Título #}
+  <div class="font-medium">
+    {% if s.proyecto_especial and not ev.requisito_id %}
+      {{ ev.titulo_manual|default:"Extra" }}
+    {% else %}
+      {{ ev.requisito.titulo|default:"Extra" }}
+    {% endif %}
+  </div>
 
-              <div class="text-gray-600">
-                {% if ev.lat and ev.lng %}
-                  📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
-                  <a class="ml-1 text-blue-600 hover:underline" target="_blank"
-                     href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
-                  {% if ev.gps_accuracy_m %}
-                    <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
-                  {% endif %}
-                {% else %}
-                  <span class="text-gray-400">📍 No GPS</span>
-                {% endif %}
-              </div>
+  {# Fecha #}
+  <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
 
-              {% if ev.nota %}
-                <div class="text-gray-600">{{ ev.nota }}</div>
-              {% endif %}
-            </figcaption>
+  {# Dirección o coordenadas #}
+  <div class="text-gray-600">
+    {% if s.proyecto_especial and not ev.requisito_id %}
+      {% if ev.direccion_manual %}
+        📍 {{ ev.direccion_manual }}
+      {% else %}
+        <span class="text-gray-400">📍 Sin dirección</span>
+      {% endif %}
+      {% if ev.lat and ev.lng %}
+        <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+           href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
+        {% if ev.gps_accuracy_m %}
+          <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+        {% endif %}
+      {% endif %}
+    {% else %}
+      {% if ev.lat and ev.lng %}
+        📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
+        <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+           href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
+        {% if ev.gps_accuracy_m %}
+          <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+        {% endif %}
+      {% else %}
+        <span class="text-gray-400">📍 No GPS</span>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if ev.nota %}
+    <div class="text-gray-600">{{ ev.nota }}</div>
+  {% endif %}
+</figcaption>
           </figure>
         {% empty %}
           <div class="text-gray-500 text-sm">This technician does not have any photos yet.</div>

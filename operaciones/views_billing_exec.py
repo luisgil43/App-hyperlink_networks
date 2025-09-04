@@ -1025,12 +1025,20 @@ def _xlsx_path_reporte_fotografico(sesion: SesionBilling) -> str:
 @rol_requerido('supervisor', 'admin', 'pm')
 def generar_reporte_parcial_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    xlsx_path = _xlsx_path_reporte_fotografico_qs(s, ev_qs=None)
 
+    # ⛔ Si ya está aprobado (o más), redirigir a regenerar (sustituye el final)
+    if s.estado in ("aprobado_supervisor", "aprobado_pm"):
+        messages.info(
+            request, "Project already approved — regenerating final report instead.")
+        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
+
+    # (el resto tal cual: generar bytes y devolver FileResponse sin guardar)
+    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
     proj_slug = slugify(
         s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
     filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
+    from io import BytesIO
+    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
 
 
 @login_required
