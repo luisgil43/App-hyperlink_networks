@@ -1517,9 +1517,13 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     if not (proyecto_id and cliente and ciudad and proyecto and oficina):
         messages.error(request, "Complete all header fields.")
         return redirect(request.path)
-    if not ids:
-        messages.error(request, "Select at least one technician.")
-        return redirect(request.path)
+
+    # 👇 Cambio: exigir técnicos SOLO cuando se crea.
+    if sesion is None:
+        if not ids:
+            messages.error(request, "Select at least one technician.")
+            return redirect(request.path)
+    # En edición no exigimos 'ids' si ya existen asignaciones; preservamos las actuales.
 
     # Items
     import json
@@ -1546,7 +1550,14 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             direccion_proyecto=direccion_proyecto,
             semana_pago_proyectada=semana_pago_proyectada,
         )
+        # Al crear SÍ generamos asignaciones con reparto 100/n
+        partes = repartir_100(len(ids))
+        for tid, pct in zip(ids, partes):
+            SesionBillingTecnico.objects.create(
+                sesion=sesion, tecnico_id=tid, porcentaje=pct
+            )
     else:
+        # Al editar: solo actualizamos encabezado; NO tocamos estado ni asignaciones
         sesion.proyecto_id = proyecto_id
         sesion.cliente = cliente
         sesion.ciudad = ciudad
@@ -1556,18 +1567,23 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         sesion.semana_pago_proyectada = semana_pago_proyectada
         sesion.save()
 
-    # Técnicos con reparto 100/n
-    sesion.tecnicos_sesion.all().delete()
-    partes = repartir_100(len(ids))
-    for tid, pct in zip(ids, partes):
-        SesionBillingTecnico.objects.create(
-            sesion=sesion, tecnico_id=tid, porcentaje=pct
-        )
+        # Si por alguna razón aún no hay asignaciones, usamos las que vengan en el POST
+        if not sesion.tecnicos_sesion.exists() and ids:
+            partes = repartir_100(len(ids))
+            for tid, pct in zip(ids, partes):
+                SesionBillingTecnico.objects.create(
+                    sesion=sesion, tecnico_id=tid, porcentaje=pct
+                )
 
-    # Rehacer items
+    # Rehacer items (esto no afecta fotos, que dependen de SesionBillingTecnico)
     sesion.items.all().delete()
     total_emp = Decimal("0.00")
     total_tec = Decimal("0.00")
+
+    # 👇 Siempre tomaremos las asignaciones VIGENTES de la sesión
+    asignaciones_vigentes = list(
+        sesion.tecnicos_sesion.values_list("tecnico_id", "porcentaje")
+    )
 
     for fila in filas:
         meta = _meta_codigo(cliente, ciudad, proyecto, oficina, fila["codigo"])
@@ -1590,7 +1606,8 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         )
 
         sub_tecs = Decimal("0.00")
-        for tid, pct in zip(ids, partes):
+        # 👇 Desglose usando técnicos/porcentajes actuales (no 100/n nuevo)
+        for tid, pct in asignaciones_vigentes:
             base = _tarifa_tecnico(tid, cliente, ciudad,
                                    proyecto, oficina, fila["codigo"])
             efectiva = money(base * (pct/Decimal("100")))
@@ -1637,7 +1654,6 @@ def _recalcular_items_sesion(sesion: SesionBilling):
         total_tec += sub
     sesion.subtotal_tecnico = money(total_tec)
     sesion.save(update_fields=["subtotal_tecnico"])
-
 
 # ===== Búsquedas / AJAX =====
 

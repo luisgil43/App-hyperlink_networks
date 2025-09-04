@@ -42,37 +42,42 @@
   </div>
 
   {# ---- BARRA DE ACCIONES: Back / Aprobar / Rechazar ---- #}
-  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-    <a href="{% url 'operaciones:listar_billing' %}"
-       class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded shadow inline-flex items-center gap-1">
-      ⬅️ Back
-    </a>
+ <div class="flex items-center gap-2">
+  <!-- Back -->
+  <a href="{% url 'operaciones:listar_billing' %}"
+     class="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded shadow">
+    ⬅️ Back
+  </a>
 
-    {% if can_review %}
-      <div class="flex items-center gap-2">
-        <!-- Aprobar y generar reporte (POST a esta misma vista) -->
-        <form method="post" action="{% url 'operaciones:revisar_sesion' s.id %}">
-          {% csrf_token %}
-          <input type="hidden" name="accion" value="aprobar">
-          <button type="submit"
-                  class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow">
-            ✅ Approve & Generate Report
-          </button>
-        </form>
+  <!-- Partial report: SIEMPRE visible -->
+  <a href="{% url 'operaciones:generar_reporte_parcial_proyecto' s.id %}"
+     class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded shadow">
+    📸 Partial report
+  </a>
 
-        <!-- Rechazar: abre modal -->
-        <button type="button"
-                onclick="openRejectModal()"
-                class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow">
-          ❌ Reject
-        </button>
-      </div>
-    {% else %}
-      <div class="text-sm text-gray-500">
-        This project is not ready for supervisor review.
-      </div>
-    {% endif %}
-  </div>
+  {% if can_review %}
+    <!-- Aprobar y generar reporte -->
+    <form method="post" action="{% url 'operaciones:revisar_sesion' s.id %}" class="inline">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="aprobar">
+      <button type="submit"
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow">
+        ✅ Approve & Generate Report
+      </button>
+    </form>
+
+    <!-- Rechazar -->
+    <button type="button"
+            onclick="openRejectModal()"
+            class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow">
+      ❌ Reject
+    </button>
+  {% else %}
+    <div class="text-sm text-gray-500">
+      This project is not ready for supervisor review.
+    </div>
+  {% endif %}
+</div>
 
   {# Aviso / descarga del reporte si existe #}
   {% if project_report_exists %}
