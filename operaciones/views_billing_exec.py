@@ -678,7 +678,8 @@ def presign_wasabi(request):
         "x-amz-meta-user": request.user.get_full_name() or request.user.username,
         "x-amz-meta-project_id": str(meta.get("project_id") or ""),
         "x-amz-meta-technician": str(meta.get("technician") or ""),
-        "x-amz-meta-address": str(meta.get("address") or ""),  # NEW
+        "x-amz-meta-address": str(meta.get("address") or ""),
+        "x-amz-meta-title": str(meta.get("title") or ""),  # NEW
     }
 
     fields = {
@@ -933,11 +934,14 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
     max_h_px = ROWS_IMG * 18
 
     def draw_block(r, c, ev):
-        titulo_req = (
-            (getattr(ev.requisito, "titulo", "") or "").strip()
-            or (ev.titulo_manual or "").strip()
-            or "Extra"
-        )
+        # Encabezado por bloque
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
+            titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
+        else:
+            # Caso normal: requisito > (fallback) Extra
+            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
+                          or "Extra")
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
@@ -1195,8 +1199,13 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
     cur_row = 2
 
     def draw_block(r, c, ev):
-        titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip() or (
-            ev.titulo_manual or "").strip() or "Extra")
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
+            titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
+        else:
+            # Caso normal: requisito > (fallback) Extra
+            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
+                          or "Extra")
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
@@ -1354,11 +1363,13 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
 
     def draw_block(r, c, ev):
         # ----- Header: requirement title or custom title for extra -----
-        titulo_req = (
-            (getattr(ev.requisito, "titulo", "") or "").strip()
-            or (ev.titulo_manual or "").strip()
-            or "Extra"
-        )
+        if sesion.proyecto_especial and ev.requisito_id is None:
+            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
+            titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
+        else:
+            # Caso normal: requisito > (fallback) Extra
+            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
+                          or "Extra")
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
