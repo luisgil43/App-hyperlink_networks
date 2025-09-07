@@ -307,7 +307,25 @@
                     <td class="p-2">{{ it.tipo_trabajo }}</td>
                     <td class="p-2">{{ it.descripcion }}</td>
                     <td class="p-2">{{ it.unidad_medida }}</td>
-                    <td class="p-2 text-right">{{ it.cantidad|floatformat:2 }}</td>
+                       {# ====== Quantity editable ====== #}
+    <td class="p-2 text-right align-middle"
+        data-col="qty"
+        data-update-url="{% url 'operaciones:billing_item_update_qty' it.id %}">
+      <span class="qty-view" id="qty-view-{{ it.id }}">{{ it.cantidad|floatformat:2 }}</span>
+
+      {% if can_edit_items %}
+        <input type="number" step="0.01" min="0"
+               id="qty-input-{{ it.id }}"
+               class="qty-input hidden border rounded px-2 py-1 text-sm w-24 text-right"
+               value="{{ it.cantidad|floatformat:2 }}" />
+        <button type="button"
+                class="qty-edit text-xs text-blue-600 underline align-middle"
+                data-id="{{ it.id }}">
+          ✏️
+        </button>
+      {% endif %}
+    </td>
+    {# ====== /Quantity editable ====== #}
                     <td class="p-2">
                       <div class="space-y-1">
                         {% for bd in it.desglose_tecnico.all %}
@@ -1277,5 +1295,136 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
+
+<script>
+(function(){
+  // ==== helpers ====
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 1800);
+  }
+
+  // === al hacer click en ✏️, cambia a modo edición ===
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.qty-edit');
+    if(!btn) return;
+    const id = btn.getAttribute('data-id');
+    const view = document.getElementById(`qty-view-${id}`);
+    const input = document.getElementById(`qty-input-${id}`);
+    if(!input) return;
+
+    view.classList.add('hidden');
+    input.classList.remove('hidden');
+    input.focus();
+    input.select();
+  });
+
+  // === Guardar con Enter / cancelar con Esc ===
+  document.addEventListener('keydown', async function(e){
+    const input = e.target.closest('.qty-input');
+    if(!input || input.classList.contains('hidden')) return;
+
+    const id = input.id.replace('qty-input-','');
+    const td = input.closest('td[data-col="qty"]');
+    const url = td?.getAttribute('data-update-url');
+
+    if(e.key === 'Escape'){
+      // cancelar
+      input.classList.add('hidden');
+      document.getElementById(`qty-view-${id}`)?.classList.remove('hidden');
+      return;
+    }
+
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+
+    // validación simple
+    let value = input.value.trim();
+    if(value === ''){
+      toast('Quantity is required', 'error');
+      return;
+    }
+    const n = Number(value.replace(',', '.'));
+    if(Number.isNaN(n) || n < 0){
+      toast('Invalid quantity', 'error');
+      return;
+    }
+
+    try{
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cantidad: n })
+      });
+
+      let data = null;
+      try { data = await resp.json(); } catch(_){}
+
+      if(!resp.ok || !data || data.ok !== true){
+        const msg = (data && (data.error || data.message)) || `Save failed (HTTP ${resp.status})`;
+        throw new Error(msg);
+      }
+
+      // Éxito: actualiza la vista
+      const view = document.getElementById(`qty-view-${id}`);
+      view.textContent = Number(data.cantidad ?? n).toFixed(2);
+      input.classList.add('hidden');
+      view.classList.remove('hidden');
+
+      // Si el backend envía subtotales de item, actualízalos
+      if(typeof data.subtotal_tecnico !== 'undefined'){
+        const celTec = document.getElementById(`it-subt-tec-${id}`);
+        if(celTec) celTec.textContent = Number(data.subtotal_tecnico).toFixed(2);
+      }
+      if(typeof data.subtotal_empresa !== 'undefined'){
+        const celEmp = document.getElementById(`it-subt-emp-${id}`);
+        if(celEmp) celEmp.textContent = Number(data.subtotal_empresa).toFixed(2);
+      }
+
+      // Si envía totales de la sesión, los puedes refrescar en la fila principal:
+      // (estos IDs son opcionales: añádelos si quieres actualizar sin recargar)
+      if(data.parent){
+        const sid = String(data.parent.id || td.closest('tr[data-parent-session]')?.dataset.parentSession || '');
+        const mainRow = document.querySelector(`tr[data-row="main"] input.row-chk[value="${sid}"]`)?.closest('tr');
+        if(mainRow){
+          const tdTec  = mainRow.querySelector('td:nth-child(13)'); // "Technical Billing" col
+          const tdEmp  = mainRow.querySelector('td:nth-child(14)'); // "Company Billing" col
+          const tdReal = mainRow.querySelector('td:nth-child(15)'); // "Real Company Billing"
+          const tdDiff = mainRow.querySelector('td:nth-child(16)'); // "Different"
+
+          if(tdTec && typeof data.parent.subtotal_tecnico !== 'undefined')
+            tdTec.textContent = '$' + Number(data.parent.subtotal_tecnico).toFixed(2);
+          if(tdEmp && typeof data.parent.subtotal_empresa !== 'undefined')
+            tdEmp.textContent = '$' + Number(data.parent.subtotal_empresa).toFixed(2);
+          if(tdReal && typeof data.parent.real_company_billing !== 'undefined')
+            tdReal.textContent = data.parent.real_company_billing === null ? '—' : ('$' + Number(data.parent.real_company_billing).toFixed(2));
+          if(tdDiff && typeof data.parent.diferencia_text !== 'undefined'){
+            // Puedes devolver ya formateado 'diferencia_text' desde la vista para evitar lógica de color aquí
+            tdDiff.innerHTML = data.parent.diferencia_text;
+          }
+        }
+      }
+
+      toast('Saved', 'success');
+
+    }catch(err){
+      toast(err.message || 'Error saving', 'error');
+      // fallback: recarga si algo salió raro
+      // location.reload();
+    }
+  });
+})();
+</script>
+
 
 {% endblock %}

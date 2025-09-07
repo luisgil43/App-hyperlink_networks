@@ -1,4 +1,5 @@
 # operaciones/views.py
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.db.models import Count
 from .models import SesionBilling  # <-- AJUSTA este import al modelo correcto
 from django.http import HttpResponseRedirect
@@ -1325,11 +1326,6 @@ def billing_reopen_asignado(request, pk):
 
 @login_required
 def listar_billing(request):
-    """
-    Operaciones: ocultar únicamente lo que ya está en Finanzas
-    (sent / in_review / pending / paid). Todo lo demás se muestra
-    (incluye NULL, '', rejected, draft, etc.).
-    """
     qs = (
         SesionBilling.objects
         .exclude(finance_status__in=["sent", "in_review", "pending", "paid"])
@@ -1374,13 +1370,129 @@ def listar_billing(request):
         or getattr(request.user, "es_admin_general", False)
         or request.user.is_superuser
     )
+    # ✏️ SOLO ADMIN
+    can_edit_items = bool(
+        getattr(request.user, "es_admin_general", False) or request.user.is_superuser)
 
     return render(
         request,
         "operaciones/billing_listar.html",
-        {"pagina": pagina, "cantidad": cantidad,
-            "can_edit_real_week": can_edit_real_week},
+        {
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "can_edit_real_week": can_edit_real_week,
+            "can_edit_items": can_edit_items,  # <-- aquí
+        },
     )
+
+
+@login_required
+@require_POST
+def billing_item_update_qty(request, item_id: int):
+    # Solo admin
+    is_admin = bool(getattr(request.user, "es_admin_general",
+                    False) or request.user.is_superuser)
+    if not is_admin:
+        return HttpResponseForbidden("Solo admin puede editar cantidades en línea.")
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+        cantidad = payload.get("cantidad", None)
+        if cantidad is None:
+            return HttpResponseBadRequest("Falta 'cantidad'.")
+        cantidad = Decimal(str(cantidad))
+        if cantidad < 0:
+            return HttpResponseBadRequest("Cantidad inválida.")
+    except (json.JSONDecodeError, InvalidOperation):
+        return HttpResponseBadRequest("Payload inválido.")
+
+    try:
+        item = ItemBilling.objects.select_related(
+            "sesion").prefetch_related("desglose_tecnico").get(pk=item_id)
+    except ItemBilling.DoesNotExist:
+        return HttpResponseBadRequest("Item no existe.")
+
+    sesion = item.sesion  # SesionBilling
+
+    # Si NO quieres permitir edición cuando la sesión está "paid", descomenta:
+    # if sesion.finance_status == "paid":
+    #     return HttpResponseForbidden("No se puede editar un billing pagado.")
+
+    with transaction.atomic():
+        # Recalcular subtotales del item
+        # subtotal_empresa = precio_empresa * cantidad
+        subtotal_empresa = (item.precio_empresa or Decimal("0")) * cantidad
+
+        # subtotal_tecnico: si hay desglose_tecnico -> sum(tarifa_efectiva * cantidad)
+        # si tu modelo ya lo calcula con una propiedad/método, úsalo en su lugar.
+        subtotal_tecnico = Decimal("0")
+        for bd in item.desglose_tecnico.all():
+            # tarifa_efectiva usualmente es tarifa_base * (porcentaje/100)
+            tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
+            if tarifa_efectiva is None:
+                base = Decimal(bd.tarifa_base or 0)
+                pct = Decimal(bd.porcentaje or 0) / Decimal("100")
+                tarifa_efectiva = base * pct
+            subtotal_tecnico += (tarifa_efectiva or Decimal("0")) * cantidad
+
+        # ⚠️ Evitar save() si tienes señales que tocan 'estado':
+        ItemBilling.objects.filter(pk=item.pk).update(
+            cantidad=cantidad,
+            subtotal_empresa=subtotal_empresa,
+            subtotal_tecnico=subtotal_tecnico,
+        )
+
+        # Recalcular totales de la sesión (sin tocar estado)
+        # Vuelve a leer items de la sesión con lock opcional
+        items_qs = ItemBilling.objects.select_related(None).filter(sesion=sesion).only(
+            "subtotal_tecnico", "subtotal_empresa"
+        )
+        total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))[
+            "s"] or Decimal("0")
+        total_empresa = items_qs.aggregate(s=Sum("subtotal_empresa"))[
+            "s"] or Decimal("0")
+
+        # No modificar 'estado' NI 'finance_status'
+        SesionBilling.objects.filter(pk=sesion.pk).update(
+            subtotal_tecnico=total_tecnico,
+            subtotal_empresa=total_empresa,
+            # real_company_billing: no lo tocamos
+        )
+
+        # Preparar diferencia para la respuesta
+        sesion_refrescada = SesionBilling.objects.only(
+            "id", "subtotal_tecnico", "subtotal_empresa", "real_company_billing"
+        ).get(pk=sesion.pk)
+        diff_text = "—"
+        if sesion_refrescada.real_company_billing is not None:
+            diff = sesion_refrescada.real_company_billing - sesion_refrescada.subtotal_empresa
+            if diff < 0:
+                diff_text = f"<span class='font-semibold text-red-600'>- ${abs(diff):.2f}</span>"
+            elif diff > 0:
+                diff_text = f"<span class='font-semibold text-green-600'>+ ${diff:.2f}</span>"
+            else:
+                diff_text = "<span class='text-gray-700'>$0.00</span>"
+
+    return JsonResponse({
+        "ok": True,
+        "item_id": item.pk,
+        "cantidad": float(cantidad),
+        "subtotal_tecnico": float(subtotal_tecnico),
+        "subtotal_empresa": float(subtotal_empresa),
+        "parent": {
+            "id": sesion_refrescada.pk,
+            "subtotal_tecnico": float(sesion_refrescada.subtotal_tecnico or 0),
+            "subtotal_empresa": float(sesion_refrescada.subtotal_empresa or 0),
+            "real_company_billing": (
+                float(sesion_refrescada.real_company_billing)
+                if sesion_refrescada.real_company_billing is not None
+                else None
+            ),
+            "diferencia_text": diff_text,
+        }
+    })
+
+
 # ===== Crear / Editar =====
 
 
@@ -1457,6 +1569,79 @@ def editar_billing(request, sesion_id: int):
         "tecnicos": tecnicos,
         "items": items,
         "ids_tecnicos": ids_tecnicos,
+    })
+
+
+@login_required
+@require_POST
+def billing_update_item_qty(request, item_id: int):
+    """
+    Actualiza la cantidad de un ItemBilling y recalcula subtotales
+    SIN cambiar el estado de la SesionBilling.
+    Solo Admin general o superuser.
+    """
+    item = get_object_or_404(
+        ItemBilling.objects.select_related("sesion"), pk=item_id)
+    user = request.user
+
+    is_admin = user.is_superuser or getattr(user, "es_admin_general", False)
+    if not is_admin:
+        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+
+    # (Opcional) Bloquear si ya está pagado salvo superuser
+    if item.sesion.finance_status == "paid" and not user.is_superuser:
+        return JsonResponse({"ok": False, "error": "paid-locked"}, status=403)
+
+    qty_raw = (request.POST.get("cantidad") or "").strip()
+    try:
+        qty = Decimal(qty_raw)
+    except (InvalidOperation, TypeError):
+        return JsonResponse({"ok": False, "error": "invalid-quantity"}, status=400)
+
+    if qty < 0:
+        return JsonResponse({"ok": False, "error": "negative-quantity"}, status=400)
+
+    old_estado = item.sesion.estado  # ← preservamos
+    sesion = item.sesion
+
+    with transaction.atomic():
+        # 1) Actualizar ítem
+        item.cantidad = qty
+        item.subtotal_empresa = (item.precio_empresa or Decimal("0")) * qty
+
+        # Recalcular desglose técnico del ítem
+        total_tech = Decimal("0")
+        for d in ItemBillingTecnico.objects.filter(item=item).select_related("item"):
+            d.subtotal = (d.tarifa_efectiva or Decimal("0")) * qty
+            d.save(update_fields=["subtotal"])
+            total_tech += d.subtotal
+
+        item.subtotal_tecnico = total_tech
+        item.save(update_fields=["cantidad",
+                  "subtotal_empresa", "subtotal_tecnico"])
+
+        # 2) Recalcular totales de la sesión
+        aggr = sesion.items.aggregate(
+            total_tecnico=Sum("subtotal_tecnico"),
+            total_empresa=Sum("subtotal_empresa"),
+        )
+        sesion.subtotal_tecnico = aggr["total_tecnico"] or Decimal("0")
+        sesion.subtotal_empresa = aggr["total_empresa"] or Decimal("0")
+        # ¡NO cambiamos el estado!
+        sesion.save(update_fields=["subtotal_tecnico", "subtotal_empresa"])
+
+        # Por seguridad, si algo externo tocó el estado, lo forzamos al anterior
+        if sesion.estado != old_estado:
+            SesionBilling.objects.filter(
+                pk=sesion.pk).update(estado=old_estado)
+
+    return JsonResponse({
+        "ok": True,
+        "cantidad": f"{item.cantidad:.2f}",
+        "itemSubtotalEmpresa": f"{item.subtotal_empresa:.2f}",
+        "itemSubtotalTecnico": f"{item.subtotal_tecnico:.2f}",
+        "sesionSubtotalEmpresa": f"{sesion.subtotal_empresa:.2f}",
+        "sesionSubtotalTecnico": f"{sesion.subtotal_tecnico:.2f}",
     })
 
 

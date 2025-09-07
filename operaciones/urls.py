@@ -185,5 +185,7 @@ urlpatterns = [
          b.generar_reporte_parcial_proyecto, name="generar_reporte_parcial_proyecto"),
     path("operaciones/billing/asignacion/<int:asignacion_id>/reporte-parcial/",
          b.generar_reporte_parcial_asignacion, name="generar_reporte_parcial_asignacion"),
+    path("billing/items/<int:item_id>/qty/",
+         views.billing_item_update_qty, name="billing_item_update_qty"),
 
 ]

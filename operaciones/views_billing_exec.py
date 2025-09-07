@@ -904,173 +904,351 @@ def revisar_sesion(request, sesion_id):
 # REPORTE FOTOGRÁFICO — PROYECTO
 # ============================
 
+# ---- Nombre de archivos ----
 
-def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
+
+def _excel_filename(servicio) -> str:
+    from .models import _site_name_for
+    sitio = _site_name_for(servicio) or "Sitio"
+    idc = (servicio.id_claro or f"DU{servicio.du}" or "Proyecto").replace(
+        "/", "-")
+    base = f"{idc}_{sitio} - Mantencion Correctiva".strip()
+    return f"{base}.xlsx"
+
+
+def _excel_filename_parcial(servicio) -> str:
+    from .models import _site_name_for
+    sitio = _site_name_for(servicio) or "Sitio"
+    idc = (servicio.id_claro or f"DU{servicio.du}" or "Proyecto").replace(
+        "/", "-")
+    base = f"{idc}_{sitio} - Mantencion Correctiva (PARCIAL)".strip()
+    return f"{base}.xlsx"
+
+# ---- JPEG temporal reescalado (baja RAM / I/O rápido) ----
+
+
+def _tmp_jpeg_from_filefield(filefield, max_px=1600, quality=85):
     """
-    Genera el XLSX en un archivo temporal y devuelve su ruta (path).
-    Usa imágenes recomprimidas/resizeadas en archivos temporales.
-    RAM baja + sin timeouts del worker al enviar el archivo.
+    Devuelve (path_tmp_jpg, width_px, height_px).
+    - Convierte/reescalado (lado mayor = max_px).
+    - Usa archivo temporal en disco (no devuelve bytes en RAM).
     """
-    # 1) crear archivo temporal para el XLSX
-    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
-    tmp_xlsx.close()
+    filefield.open("rb")
+    raw = filefield.read()
+    im = Image.open(io.BytesIO(raw))
+    im = im.convert("RGB")
+    w, h = im.size
+    scale = 1.0
+    if max(w, h) > max_px:
+        scale = max_px / float(max(w, h))
+        im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        w, h = im.size
 
-    # 2) Workbook a disco (no BytesIO)
-    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
-    ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
-    ws.hide_gridlines(2)
+    tmp = NamedTemporaryFile(delete=False, suffix=".jpg")
+    tmp_path = tmp.name
+    im.save(tmp_path, format="JPEG", quality=quality, optimize=True)
+    tmp.close()
+    return tmp_path, w, h
 
-    fmt_title = wb.add_format({
-        "bold": True, "align": "center", "valign": "vcenter",
-        "border": 1, "bg_color": "#E8EEF7"
-    })
-    fmt_head = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
-    })
-    fmt_box = wb.add_format({"border": 1})
-    fmt_info = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "text_wrap": True, "font_size": 9
-    })
+# ---- Cargar workbook desde template o crear uno nuevo ----
 
+
+def _wb_from_template():
+    from openpyxl import load_workbook, Workbook
+    tpl_path = getattr(settings, "REPORTE_FOTOS_TEMPLATE_XLSX", "")
+    if tpl_path and os.path.exists(tpl_path):
+        try:
+            # data_only=False para preservar fórmulas/formatos
+            return load_workbook(tpl_path)
+        except Exception:
+            pass
+    # Fallback si no hay template: workbook vacío con Hoja 1 básica
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "HOJA 1"
+    ws["A1"] = "REPORTE FOTOGRÁFICO"
+    return wb
+
+# ============================
+# REPORTE FOTOGRÁFICO — PROYECTO
+# ============================
+
+
+def _xlsx_path_from_evqs(servicio, ev_qs) -> str:
+    """
+    Genera el XLSX en un archivo temporal y devuelve su PATH.
+    - Hoja 1: se trae del template (openpyxl).
+    - Hoja 2: 'REPORTE' con 2 bloques por fila, imágenes reescaladas a JPEG temporal.
+    - Itera con .iterator() para no cargar todo en memoria.
+    """
+    from openpyxl.styles import Alignment, Font, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.drawing.image import Image as XLImage
+
+    # 1) Workbook base (con Hoja 1 del template)
+    wb = _wb_from_template()
+
+    # 2) Hoja 2 = REPORTE
+    if "REPORTE" in wb.sheetnames:
+        ws = wb["REPORTE"]
+        wb.remove(ws)
+    ws = wb.create_sheet("REPORTE")
+
+    # Grid/formatos
+    ws.sheet_view.showGridLines = False
+
+    # Bordes
+    thin = Side(style="thin", color="000000")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Cols layout (2 bloques por fila)
     BLOCK_COLS, SEP_COLS = 6, 1
-    LEFT_COL = 0
+    LEFT_COL = 1  # 1-based (col A)
+    # 1 + 6 + 1 = 8 -> col H es separador; bloque der inicia en I
     RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+    # ajustamos con índices 1-based:
+    # izq: A..F  | G = separador | der: I..N  (dejamos H de separador visible)
+    # Para simplificar: usaremos A..F (6), G sep, H..M (6)
+    # => RIGHT_COL_BASE=8; pero trabajaremos directo con letras.
 
-    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
-    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
+    # Anchos de columnas
+    def set_block_cols(col_start_letter):
+        idx = ws[col_start_letter][0].column  # número de columna
+        for off in range(0, BLOCK_COLS):
+            ws.column_dimensions[get_column_letter(idx + off)].width = 13
 
+    # Izquierda A..F, separador G, derecha H..M
+    set_block_cols("A")
+    ws.column_dimensions["G"].width = 2
+    set_block_cols("H")
+
+    # Alturas por bloque
     HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
-    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+    # Altura aproximada de cada fila
 
-    ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
-                   f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
-    cur_row = 2
+    def set_rows(r0, count, height):
+        for r in range(r0, r0 + count):
+            ws.row_dimensions[r].height = height
 
-    # contenedor (px) donde se “encaja” la imagen
+    # Título hoja
+    from .models import _site_name_for
+    site_name = _site_name_for(servicio)
+    title = f"ID CLARO: {servicio.id_claro or ''} — SITIO: {site_name or ''}"
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=12)
+    cell_title = ws.cell(row=1, column=1, value=title)
+    cell_title.alignment = Alignment(horizontal="center", vertical="center")
+    cell_title.font = Font(bold=True)
+    ws.row_dimensions[1].height = 24
+
+    cur_row = 3  # dejamos una fila en blanco después del título
+
+    # contenedor (px) donde se “encaja” la imagen (aprox equivalente a xlsxwriter)
     max_w_px = BLOCK_COLS * 60
     max_h_px = ROWS_IMG * 18
 
-    def draw_block(r, c, ev):
-        # Encabezado por bloque
-        if sesion.proyecto_especial and ev.requisito_id is None:
-            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
-            titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
+    def _draw_block(top_row: int, left_col_idx: int, ev) -> None:
+        """
+        Dibuja un bloque (header + caja imagen + info) a partir de (top_row, left_col_idx 1-based).
+        """
+        # Header
+        if servicio.sesion_fotos.proyecto_especial and ev.requisito_id is None:
+            titulo_req = (ev.titulo_manual or "").strip() or "Extra"
         else:
-            # Caso normal: requisito > (fallback) Extra
-            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
-                          or "Extra")
-        ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
-                       BLOCK_COLS - 1, titulo_req, fmt_head)
-        for rr in range(r, r + HEAD_ROWS):
-            ws.set_row(rr, 20)
+            titulo_req = ((getattr(ev.requisito, "titulo", "")
+                          or "").strip() or "Extra")
 
-        img_top = r + HEAD_ROWS
-        for rr in range(img_top, img_top + ROWS_IMG):
-            ws.set_row(rr, 18)
-        ws.merge_range(img_top, c, img_top + ROWS_IMG -
-                       1, c + BLOCK_COLS - 1, "", fmt_box)
+        # Header merge: 1 fila alto, 6 cols ancho
+        ws.merge_cells(
+            start_row=top_row,
+            start_column=left_col_idx,
+            end_row=top_row,
+            end_column=left_col_idx + BLOCK_COLS - 1
+        )
+        c_head = ws.cell(row=top_row, column=left_col_idx, value=titulo_req)
+        c_head.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True)
+        c_head.font = Font(bold=True)
+        set_rows(top_row, 1, 20)
+        # Borde a header
+        for cc in range(left_col_idx, left_col_idx + BLOCK_COLS):
+            ws.cell(row=top_row, column=cc).border = border_all
 
-        # === NUEVO: crear JPEG reducido en tmp ===
+        # Caja imagen: 12 filas, 6 cols (solo borde)
+        img_top = top_row + 1
+        img_bottom = img_top + ROWS_IMG - 1
+        ws.merge_cells(
+            start_row=img_top, start_column=left_col_idx,
+            end_row=img_bottom, end_column=left_col_idx + BLOCK_COLS - 1
+        )
+        # Alto filas imagen
+        set_rows(img_top, ROWS_IMG, 18)
+        # Poner borde a toda el área:
+        for rr in range(img_top, img_bottom + 1):
+            for cc in range(left_col_idx, left_col_idx + BLOCK_COLS):
+                ws.cell(row=rr, column=cc).border = border_all
+
+        # Imagen (reescalada a temp JPG y con tamaño explícito)
         try:
-            tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
+            tmp_img_path, w, h = _tmp_jpeg_from_filefield(
+                ev.imagen, max_px=1600, quality=85)
+            # escalar a caja (px)
             sx = max_w_px / float(w)
             sy = max_h_px / float(h)
             scale = min(sx, sy, 1.0)
             scaled_w = int(w * scale)
             scaled_h = int(h * scale)
-            x_off = max((max_w_px - scaled_w) // 2, 0)
-            y_off = max((max_h_px - scaled_h) // 2, 0)
 
-            ws.insert_image(img_top, c, tmp_img_path, {
-                "x_scale": scale, "y_scale": scale,
-                "x_offset": x_off, "y_offset": y_off,
-                "object_position": 1,
-            })
+            xl_img = XLImage(tmp_img_path)
+            xl_img.width = scaled_w
+            xl_img.height = scaled_h
+
+            # ancla: celda superior-izq de la caja (col, fila)
+            anchor_col_letter = get_column_letter(left_col_idx)
+            anchor = f"{anchor_col_letter}{img_top}"
+            ws.add_image(xl_img, anchor)
         except Exception:
-            # si la imagen está corrupta, continua sin romper todo
+            # si la imagen está corrupta o algo falla: no romper
             pass
 
-        info_row = img_top + ROWS_IMG
+        # Fila info: 1 fila, 6 cols
+        info_row = img_bottom + 1
+        set_rows(info_row, 1, 30)
         dt = ev.client_taken_at or ev.tomada_en
         taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
         lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
         lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
         addr_txt = (ev.direccion_manual or "").strip()
 
-        if sesion.proyecto_especial and ev.requisito_id is None:
-            ws.merge_range(info_row, c, info_row, c + 2,
-                           f"Taken at\n{taken_txt}", fmt_info)
-            ws.merge_range(info_row, c + 3, info_row, c + 5,
-                           f"Address\n{addr_txt}", fmt_info)
-        else:
-            ws.merge_range(info_row, c,     info_row, c + 1,
-                           f"Taken at\n{taken_txt}", fmt_info)
-            ws.merge_range(info_row, c + 2, info_row, c + 3,
-                           f"Lat\n{lat_txt}",       fmt_info)
-            ws.merge_range(info_row, c + 4, info_row, c + 5,
-                           f"Lng\n{lng_txt}",       fmt_info)
-        ws.set_row(info_row, 30)
+        def merge_write(c0, c1, text):
+            ws.merge_cells(
+                start_row=info_row, start_column=c0,
+                end_row=info_row, end_column=c1
+            )
+            cell = ws.cell(row=info_row, column=c0, value=text)
+            cell.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True)
+            # borde a todo el rango
+            for cc in range(c0, c1 + 1):
+                ws.cell(row=info_row, column=cc).border = border_all
 
-    # iterar sin cargar todo en RAM
-    idx = 0
-    for ev in ev_qs.iterator():
-        if idx % 2 == 0:
-            draw_block(cur_row, LEFT_COL, ev)
+        if servicio.sesion_fotos.proyecto_especial and ev.requisito_id is None:
+            merge_write(left_col_idx, left_col_idx + 2, f"Tomada\n{taken_txt}")
+            merge_write(left_col_idx + 3, left_col_idx +
+                        5, f"Dirección\n{addr_txt}")
         else:
-            draw_block(cur_row, RIGHT_COL, ev)
-            cur_row += BLOCK_ROWS + ROW_SPACE
+            merge_write(left_col_idx, left_col_idx + 1, f"Tomada\n{taken_txt}")
+            merge_write(left_col_idx + 2, left_col_idx + 3, f"Lat\n{lat_txt}")
+            merge_write(left_col_idx + 4, left_col_idx + 5, f"Lng\n{lng_txt}")
+
+    # Iteración eficiente
+    idx = 0
+    # Si es queryset Django, usar iterator() para 100-200 fotos sin tragar RAM
+    iterator = getattr(ev_qs, "iterator", None)
+    ev_iter = ev_qs.iterator() if callable(iterator) else ev_qs
+
+    for ev in ev_iter:
+        # bloque izq = A..F (col 1), der = H..M (col 8+1=9)
+        if idx % 2 == 0:
+            _draw_block(cur_row, 1, ev)   # A..F
+        else:
+            _draw_block(cur_row, 8, ev)   # H..M (porque G es separador)
+            # + espacio entre bloques verticales
+            # HEAD_ROWS + ROWS_IMG + ROW_INFO + ROW_SPACE
+            cur_row += (1 + 12 + 1) + 1
         idx += 1
     if idx % 2 == 1:
-        cur_row += BLOCK_ROWS + ROW_SPACE
+        # si se quedó solo el bloque izquierdo, también avanzamos
+        cur_row += (1 + 12 + 1) + 1
 
-    wb.close()
+    # 3) Guardar a disco y devolver path
+    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+    wb.save(tmp_xlsx.name)
     return tmp_xlsx.name
 
 
-def _xlsx_path_reporte_fotografico(sesion: SesionBilling) -> str:
-    from .models import EvidenciaFotoBilling
+def _xlsx_path_reporte_fotografico(servicio) -> str:
+    from .models import EvidenciaFoto
+    sesion = servicio.sesion_fotos
     ev_qs = (
-        EvidenciaFotoBilling.objects
+        EvidenciaFoto.objects
         .filter(tecnico_sesion__sesion=sesion)
         .select_related("requisito")
         .order_by("requisito__orden", "tomada_en", "id")
     )
-    return _xlsx_path_from_evqs(sesion, ev_qs)
+    return _xlsx_path_from_evqs(servicio, ev_qs)
 
 
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
-def generar_reporte_parcial_proyecto(request, sesion_id):
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-
-    if s.estado in ("aprobado_supervisor", "aprobado_pm"):
-        messages.info(
-            "Project already approved — regenerating final report instead.")
-        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
-
-    xlsx_path = _xlsx_path_reporte_fotografico(s)
-    proj_slug = slugify(
-        s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
-    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
-
-
-def _xlsx_path_reporte_fotografico_qs(sesion: SesionBilling, ev_qs):
+@rol_requerido('supervisor', 'admin')
+def generar_reporte_parcial_proyecto(request, servicio_id: int):
     """
-    Igual que _xlsx_path_reporte_fotografico, pero permitiendo inyectar un queryset de evidencias.
+    Genera un REPORTE PARCIAL en XLSX con:
+      - Hoja 1 desde template
+      - Hoja 2 'REPORTE' con fotos embebidas (JPG temporales)
+    Estados permitidos: en_progreso / en_revision_supervisor / rechazado_supervisor.
+    Descarga directa (FileResponse).
     """
-    if ev_qs is None:
-        from .models import EvidenciaFotoBilling
-        ev_qs = (EvidenciaFotoBilling.objects
-                 .filter(tecnico_sesion__sesion=sesion)
-                 .select_related("requisito")
-                 .order_by("requisito__orden", "tomada_en", "id"))
-    return _xlsx_path_from_evqs(sesion, ev_qs)
+    servicio = get_object_or_404(ServicioCotizado, pk=servicio_id)
+    estados_permitidos = {'en_progreso',
+                          'en_revision_supervisor', 'rechazado_supervisor'}
+    if servicio.estado not in estados_permitidos:
+        messages.warning(
+            request,
+            "El reporte parcial solo está disponible mientras el proyecto está en proceso o en revisión."
+        )
+        return redirect('operaciones:fotos_revisar_sesion', servicio_id=servicio.id)
+
+    try:
+        xlsx_path = _xlsx_path_reporte_fotografico(servicio)
+    except Exception as e:
+        messages.error(request, f"No se pudo generar el reporte parcial: {e}")
+        return redirect('operaciones:fotos_revisar_sesion', servicio_id=servicio.id)
+
+    filename = _excel_filename_parcial(servicio)
+    # Enviar el archivo directamente desde disco (streaming)
+    resp = FileResponse(open(xlsx_path, "rb"),
+                        as_attachment=True, filename=filename)
+    # Evitar cache
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    return resp
+
+
+@login_required
+@rol_requerido('supervisor', 'admin')
+def generar_reporte_parcial_proyecto(request, servicio_id: int):
+    """
+    Genera un REPORTE PARCIAL en XLSX con:
+      - Hoja 1 desde template
+      - Hoja 2 'REPORTE' con fotos embebidas (JPG temporales)
+    Estados permitidos: en_progreso / en_revision_supervisor / rechazado_supervisor.
+    Descarga directa (FileResponse).
+    """
+    servicio = get_object_or_404(ServicioCotizado, pk=servicio_id)
+    estados_permitidos = {'en_progreso',
+                          'en_revision_supervisor', 'rechazado_supervisor'}
+    if servicio.estado not in estados_permitidos:
+        messages.warning(
+            request,
+            "El reporte parcial solo está disponible mientras el proyecto está en proceso o en revisión."
+        )
+        return redirect('operaciones:fotos_revisar_sesion', servicio_id=servicio.id)
+
+    try:
+        xlsx_path = _xlsx_path_reporte_fotografico(servicio)
+    except Exception as e:
+        messages.error(request, f"No se pudo generar el reporte parcial: {e}")
+        return redirect('operaciones:fotos_revisar_sesion', servicio_id=servicio.id)
+
+    filename = _excel_filename_parcial(servicio)
+    # Enviar el archivo directamente desde disco (streaming)
+    resp = FileResponse(open(xlsx_path, "rb"),
+                        as_attachment=True, filename=filename)
+    # Evitar cache
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    return resp
 
 
 @login_required
