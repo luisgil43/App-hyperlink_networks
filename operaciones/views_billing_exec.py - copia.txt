@@ -1,46 +1,44 @@
+# operaciones/views_billing_exec.py
+
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
+from django.db.models import Case, When, Value, IntegerField
+from django.core.files import File
 from django.utils.http import http_date
 from urllib.parse import urlencode
 from tempfile import NamedTemporaryFile
 import xlsxwriter
 from operaciones.excel_images import tmp_jpeg_from_filefield
-from django.db.models import OuterRef, Subquery, Sum, Value, DecimalField, Case, When, IntegerField
 from botocore.client import Config
 from datetime import timedelta
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from openpyxl import Workbook
 from django.http import HttpResponse
 import csv
-from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
-from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponseBadRequest
+from openpyxl import load_workbook
 import uuid
 import json
 from django.conf import settings
 import boto3
 from decimal import Decimal
 import io
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import (
-    Count, Sum, Subquery, OuterRef, DecimalField, Value
-)
+    Count, Sum, Subquery, OuterRef, DecimalField, Value)
 from django.db.models.functions import Coalesce
-from django.http import FileResponse, Http404, HttpResponseForbidden
+from django.http import FileResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
-
-from .models import (
-    SesionBilling, SesionBillingTecnico, ItemBillingTecnico,
-    RequisitoFotoBilling, EvidenciaFotoBilling
-)
+import os
+from .models import (SesionBilling, SesionBillingTecnico,
+                     ItemBillingTecnico, RequisitoFotoBilling, EvidenciaFotoBilling)
 from usuarios.decoradores import rol_requerido
-
 from io import BytesIO
 from PIL import Image, ExifTags
 from pillow_heif import register_heif_opener
@@ -458,10 +456,8 @@ def upload_evidencias(request, pk):
     )
 
     # Evidences list (for right column)
-    evidencias = (
-        a.evidencias
-         .select_related("requisito")
-         .order_by("requisito__orden", "tomada_en", "id")
+    evidencias = _order_evidencias(
+        a.evidencias.select_related("requisito")
     )
 
     can_delete = puede_subir  # only let them delete while they can upload
@@ -756,6 +752,23 @@ def _project_report_key(sesion: SesionBilling) -> str:
     return f"operaciones/reporte_fotografico/{sess_tag}/project/{sess_tag}.xlsx"
 
 
+def _order_evidencias(qs):
+    """
+    Ordena: primero con requisito (por orden del requisito), luego las extras (sin requisito),
+    y dentro de cada grupo por fecha e id.
+    """
+    return (qs
+            .annotate(
+                is_extra=Case(
+                    When(requisito__isnull=True, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by('is_extra', 'requisito__orden', 'tomada_en', 'id')
+            )
+
+
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 @transaction.atomic
@@ -766,6 +779,8 @@ def revisar_sesion(request, sesion_id):
     - Al aprobar se genera y guarda UN Excel con imágenes embebidas.
     - Botones visibles si el proyecto está 'en_revision_supervisor'.
     """
+    from django.core.files import File  # import local para no tocar cabecera
+
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
     asignaciones = (
@@ -786,13 +801,14 @@ def revisar_sesion(request, sesion_id):
 
         if not can_review:
             messages.error(
-                request, "This project is not ready for supervisor review.")
+                request, "This project is not ready for supervisor review."
+            )
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         if accion == "aprobar":
-            # Generar XLSX con imágenes embebidas
+            # Generar XLSX a disco (bajo RAM) para evitar timeouts y 502
             try:
-                bytes_excel = _bytes_excel_reporte_fotografico(s)
+                xlsx_path = _xlsx_path_reporte_fotografico(s)
             except Exception as e:
                 messages.error(request, f"No se pudo generar el informe: {e}")
                 return redirect("operaciones:revisar_sesion", sesion_id=s.id)
@@ -804,19 +820,22 @@ def revisar_sesion(request, sesion_id):
             except Exception:
                 pass
 
-            # p.ej. operaciones/reporte_fotografico/g033b-42/project/g033b-42.xlsx
+            # Guardar con ruta determinística por sesión
             report_key = _project_report_key(s)
-            s.reporte_fotografico.save(
-                report_key, ContentFile(bytes_excel), save=False)
+            try:
+                with open(xlsx_path, "rb") as fh:
+                    s.reporte_fotografico.save(
+                        report_key, File(fh), save=False)
+            except Exception as e:
+                messages.error(request, f"No se pudo adjuntar el informe: {e}")
+                return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-            # >>> NUEVO: fijar semana real = semana siguiente a la aprobación (si no existe)
+            # Fijar semana real = semana siguiente a la aprobación (si no existe)
             now = timezone.now()
             if not s.semana_pago_real:
-                # próximo lunes respecto a 'now'
                 next_monday = now + timedelta(days=(7 - now.weekday()))
                 iso_year, iso_week, _ = next_monday.isocalendar()
                 s.semana_pago_real = f"{iso_year}-W{iso_week:02d}"
-            # <<< NUEVO
 
             # Actualizar estados
             s.estado = "aprobado_supervisor"
@@ -829,11 +848,15 @@ def revisar_sesion(request, sesion_id):
                 a.supervisor_revisado_en = now
                 a.reintento_habilitado = False
                 a.save(update_fields=[
-                    "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
+                    "estado",
+                    "supervisor_comentario",
+                    "supervisor_revisado_en",
+                    "reintento_habilitado",
                 ])
 
             messages.success(
-                request, "Project approved by Supervisor. Photo report generated.")
+                request, "Project approved by Supervisor. Photo report generated."
+            )
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         elif accion == "rechazar":
@@ -847,11 +870,15 @@ def revisar_sesion(request, sesion_id):
                 a.supervisor_revisado_en = now
                 a.reintento_habilitado = True
                 a.save(update_fields=[
-                    "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
+                    "estado",
+                    "supervisor_comentario",
+                    "supervisor_revisado_en",
+                    "reintento_habilitado",
                 ])
 
             messages.warning(
-                request, "Project rejected. Reupload enabled for technicians.")
+                request, "Project rejected. Reupload enabled for technicians."
+            )
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         else:
@@ -861,184 +888,320 @@ def revisar_sesion(request, sesion_id):
     # Para template
     evidencias_por_asig = []
     for a in asignaciones:
-        evs = (a.evidencias
-               .select_related("requisito")
-               .order_by("requisito__orden", "tomada_en", "id"))
+        evs = _order_evidencias(
+            a.evidencias.select_related("requisito")
+        )
         evidencias_por_asig.append((a, evs))
 
     project_report_exists = bool(
         s.reporte_fotografico and getattr(s.reporte_fotografico, "name", "")
     )
 
-    return render(request, "operaciones/billing_revisar_sesion.html", {
-        "s": s,
-        "evidencias_por_asig": evidencias_por_asig,
-        "can_review": can_review,
-        "project_report_exists": project_report_exists,
-        "project_report_url": s.reporte_fotografico.url if project_report_exists else "",
-    })
+    return render(
+        request,
+        "operaciones/billing_revisar_sesion.html",
+        {
+            "s": s,
+            "evidencias_por_asig": evidencias_por_asig,
+            "can_review": can_review,
+            "project_report_exists": project_report_exists,
+            "project_report_url": s.reporte_fotografico.url if project_report_exists else "",
+        },
+    )
+# ============================
+# REPORTE FOTOGRÁFICO — PROYECTO
+# ============================
+
+# ---- Nombre de archivos ----
+
+
+def _excel_filename(sesion) -> str:
+    """
+    Nombre “humano” para un XLSX completo de la sesión (proyecto).
+    """
+    proj = (getattr(sesion, "proyecto_id", "") or "Proyecto").replace("/", "-")
+    return f"{proj} - Photographic Report.xlsx"
+
+
+def _excel_filename_parcial(sesion) -> str:
+    """
+    Nombre “humano” para un XLSX PARCIAL de la sesión.
+    """
+    proj = (getattr(sesion, "proyecto_id", "") or "Proyecto").replace("/", "-")
+    return f"{proj} - Photographic Report (PARCIAL).xlsx"
+
+# ---- JPEG temporal reescalado (baja RAM / I/O rápido) ----
+
+
+def _tmp_jpeg_from_filefield(filefield, max_px=1600, quality=85):
+    """
+    Devuelve (path_tmp_jpg, width_px, height_px).
+    - Convierte/reescalado (lado mayor = max_px).
+    - Usa archivo temporal en disco (no devuelve bytes en RAM).
+    """
+    filefield.open("rb")
+    raw = filefield.read()
+    im = Image.open(io.BytesIO(raw))
+    im = im.convert("RGB")
+    w, h = im.size
+    scale = 1.0
+    if max(w, h) > max_px:
+        scale = max_px / float(max(w, h))
+        im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        w, h = im.size
+
+    tmp = NamedTemporaryFile(delete=False, suffix=".jpg")
+    tmp_path = tmp.name
+    im.save(tmp_path, format="JPEG", quality=quality, optimize=True)
+    tmp.close()
+    return tmp_path, w, h
+
+# ---- Cargar workbook desde template o crear uno nuevo ----
+
+
+def _wb_from_template():
+    from openpyxl import load_workbook, Workbook
+    tpl_path = getattr(settings, "REPORTE_FOTOS_TEMPLATE_XLSX", "")
+    if tpl_path and os.path.exists(tpl_path):
+        try:
+            # data_only=False para preservar fórmulas/formatos
+            return load_workbook(tpl_path)
+        except Exception:
+            pass
+    # Fallback si no hay template: workbook vacío con Hoja 1 básica
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "HOJA 1"
+    ws["A1"] = "REPORTE FOTOGRÁFICO"
+    return wb
 
 # ============================
 # REPORTE FOTOGRÁFICO — PROYECTO
 # ============================
 
 
-def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
+def _xlsx_path_from_evqs(sesion, ev_qs) -> str:
     """
-    Genera el XLSX en un archivo temporal y devuelve su ruta (path).
-    Usa imágenes recomprimidas/resizeadas en archivos temporales.
-    RAM baja + sin timeouts del worker al enviar el archivo.
+    Genera el XLSX en un archivo temporal en disco y devuelve su PATH.
+    - Hoja 1: viene del template (si existe) o una básica.
+    - Hoja 2: 'REPORTE' con 2 bloques por fila; imágenes reescaladas a JPEG temporal.
+    - Pensado para SesionBilling (Billing), no usa _site_name_for ni campos de ServicioCotizado.
     """
-    # 1) crear archivo temporal para el XLSX
-    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
-    tmp_xlsx.close()
+    from openpyxl.styles import Alignment, Font, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.drawing.image import Image as XLImage
 
-    # 2) Workbook a disco (no BytesIO)
-    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
-    ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
-    ws.hide_gridlines(2)
+    # 1) Workbook base (con Hoja 1 del template)
+    wb = _wb_from_template()
 
-    fmt_title = wb.add_format({
-        "bold": True, "align": "center", "valign": "vcenter",
-        "border": 1, "bg_color": "#E8EEF7"
-    })
-    fmt_head = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
-    })
-    fmt_box = wb.add_format({"border": 1})
-    fmt_info = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "text_wrap": True, "font_size": 9
-    })
+    # 2) Hoja 2 = REPORTE
+    if "REPORTE" in wb.sheetnames:
+        ws = wb["REPORTE"]
+        wb.remove(ws)
+    ws = wb.create_sheet("REPORTE")
 
+    # Grid/formatos
+    ws.sheet_view.showGridLines = False
+
+    thin = Side(style="thin", color="000000")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Layout: 2 bloques por fila (cada bloque 6 columnas) con 1 columna separadora
     BLOCK_COLS, SEP_COLS = 6, 1
-    LEFT_COL = 0
-    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+    LEFT_COL = 1                          # A..F
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + \
+        SEP_COLS  # H..M (G es separador visual)
 
-    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
-    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
+    # Anchos de columnas
+    def set_block_cols(col_start_letter):
+        idx = ws[col_start_letter][0].column  # número de columna 1-based
+        for off in range(0, BLOCK_COLS):
+            ws.column_dimensions[get_column_letter(idx + off)].width = 13
 
+    set_block_cols("A")
+    ws.column_dimensions["G"].width = 2     # separador
+    set_block_cols("H")
+
+    # Alturas por bloque
     HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
-    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
 
-    ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
-                   f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
-    cur_row = 2
+    def set_rows(r0, count, height):
+        for r in range(r0, r0 + count):
+            ws.row_dimensions[r].height = height
 
-    # contenedor (px) donde se “encaja” la imagen
+    # Título hoja (Billing usa SesionBilling)
+    title = f"ID PROJECT: {getattr(sesion, 'proyecto_id', '')}"
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=12)
+    cell_title = ws.cell(row=1, column=1, value=title)
+    cell_title.alignment = Alignment(horizontal="center", vertical="center")
+    cell_title.font = Font(bold=True)
+    ws.row_dimensions[1].height = 24
+
+    cur_row = 3  # dejamos una fila en blanco después del título
+
+    # “Caja” destino de la imagen en píxeles (aprox)
     max_w_px = BLOCK_COLS * 60
     max_h_px = ROWS_IMG * 18
 
-    def draw_block(r, c, ev):
-        # Encabezado por bloque
-        if sesion.proyecto_especial and ev.requisito_id is None:
-            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
-            titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
+    def _draw_block(top_row: int, left_col_idx: int, ev) -> None:
+        """
+        Dibuja un bloque (header + caja imagen + info) a partir de (top_row, left_col_idx 1-based).
+        """
+        # Header: requisito o, en proyecto especial + extra, título manual
+        if getattr(sesion, "proyecto_especial", False) and ev.requisito_id is None:
+            titulo_req = (ev.titulo_manual or "").strip() or "Extra"
         else:
-            # Caso normal: requisito > (fallback) Extra
-            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
-                          or "Extra")
-        ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
-                       BLOCK_COLS - 1, titulo_req, fmt_head)
-        for rr in range(r, r + HEAD_ROWS):
-            ws.set_row(rr, 20)
+            titulo_req = ((getattr(ev.requisito, "titulo", "")
+                          or "").strip() or "Extra")
 
-        img_top = r + HEAD_ROWS
-        for rr in range(img_top, img_top + ROWS_IMG):
-            ws.set_row(rr, 18)
-        ws.merge_range(img_top, c, img_top + ROWS_IMG -
-                       1, c + BLOCK_COLS - 1, "", fmt_box)
+        # Header merge (1 fila x 6 columnas)
+        ws.merge_cells(
+            start_row=top_row,
+            start_column=left_col_idx,
+            end_row=top_row,
+            end_column=left_col_idx + BLOCK_COLS - 1
+        )
+        c_head = ws.cell(row=top_row, column=left_col_idx, value=titulo_req)
+        c_head.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True)
+        c_head.font = Font(bold=True)
+        set_rows(top_row, 1, 20)
+        for cc in range(left_col_idx, left_col_idx + BLOCK_COLS):
+            ws.cell(row=top_row, column=cc).border = border_all
 
-        # === NUEVO: crear JPEG reducido en tmp ===
+        # Caja imagen (12 filas x 6 columnas) con borde
+        img_top = top_row + 1
+        img_bottom = img_top + ROWS_IMG - 1
+        ws.merge_cells(
+            start_row=img_top, start_column=left_col_idx,
+            end_row=img_bottom, end_column=left_col_idx + BLOCK_COLS - 1
+        )
+        set_rows(img_top, ROWS_IMG, 18)
+        for rr in range(img_top, img_bottom + 1):
+            for cc in range(left_col_idx, left_col_idx + BLOCK_COLS):
+                ws.cell(row=rr, column=cc).border = border_all
+
+        # Imagen (reescalada a temp JPG)
         try:
-            tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
+            tmp_img_path, w, h = _tmp_jpeg_from_filefield(
+                ev.imagen, max_px=1600, quality=85)
             sx = max_w_px / float(w)
             sy = max_h_px / float(h)
             scale = min(sx, sy, 1.0)
             scaled_w = int(w * scale)
             scaled_h = int(h * scale)
-            x_off = max((max_w_px - scaled_w) // 2, 0)
-            y_off = max((max_h_px - scaled_h) // 2, 0)
 
-            ws.insert_image(img_top, c, tmp_img_path, {
-                "x_scale": scale, "y_scale": scale,
-                "x_offset": x_off, "y_offset": y_off,
-                "object_position": 1,
-            })
+            xl_img = XLImage(tmp_img_path)
+            xl_img.width = scaled_w
+            xl_img.height = scaled_h
+
+            anchor_col_letter = get_column_letter(left_col_idx)
+            anchor = f"{anchor_col_letter}{img_top}"
+            ws.add_image(xl_img, anchor)
         except Exception:
-            # si la imagen está corrupta, continua sin romper todo
+            # si la imagen está corrupta o algo falla: no romper el reporte
             pass
 
-        info_row = img_top + ROWS_IMG
+        # Fila info (1 fila x 6 columnas)
+        info_row = img_bottom + 1
+        set_rows(info_row, 1, 30)
         dt = ev.client_taken_at or ev.tomada_en
         taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
         lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
         lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
         addr_txt = (ev.direccion_manual or "").strip()
 
-        if sesion.proyecto_especial and ev.requisito_id is None:
-            ws.merge_range(info_row, c, info_row, c + 2,
-                           f"Taken at\n{taken_txt}", fmt_info)
-            ws.merge_range(info_row, c + 3, info_row, c + 5,
-                           f"Address\n{addr_txt}", fmt_info)
-        else:
-            ws.merge_range(info_row, c,     info_row, c + 1,
-                           f"Taken at\n{taken_txt}", fmt_info)
-            ws.merge_range(info_row, c + 2, info_row, c + 3,
-                           f"Lat\n{lat_txt}",       fmt_info)
-            ws.merge_range(info_row, c + 4, info_row, c + 5,
-                           f"Lng\n{lng_txt}",       fmt_info)
-        ws.set_row(info_row, 30)
+        def merge_write(c0, c1, text):
+            ws.merge_cells(start_row=info_row, start_column=c0,
+                           end_row=info_row, end_column=c1)
+            cell = ws.cell(row=info_row, column=c0, value=text)
+            cell.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True)
+            for cc in range(c0, c1 + 1):
+                ws.cell(row=info_row, column=cc).border = border_all
 
-    # iterar sin cargar todo en RAM
-    idx = 0
-    for ev in ev_qs.iterator():
-        if idx % 2 == 0:
-            draw_block(cur_row, LEFT_COL, ev)
+        if getattr(sesion, "proyecto_especial", False) and ev.requisito_id is None:
+            merge_write(left_col_idx, left_col_idx +
+                        2, f"Taken at\n{taken_txt}")
+            merge_write(left_col_idx + 3, left_col_idx +
+                        5, f"Address\n{addr_txt}")
         else:
-            draw_block(cur_row, RIGHT_COL, ev)
-            cur_row += BLOCK_ROWS + ROW_SPACE
+            merge_write(left_col_idx, left_col_idx +
+                        1, f"Taken at\n{taken_txt}")
+            merge_write(left_col_idx + 2, left_col_idx + 3, f"Lat\n{lat_txt}")
+            merge_write(left_col_idx + 4, left_col_idx + 5, f"Lng\n{lng_txt}")
+
+    # Iteración eficiente (si es queryset, usa .iterator())
+    idx = 0
+    iterator = getattr(ev_qs, "iterator", None)
+    ev_iter = ev_qs.iterator() if callable(iterator) else ev_qs
+
+    for ev in ev_iter:
+        if idx % 2 == 0:
+            _draw_block(cur_row, LEFT_COL, ev)   # A..F
+        else:
+            _draw_block(cur_row, RIGHT_COL, ev)  # H..M
+            cur_row += (1 + 12 + 1) + 1          # HEAD + IMG + INFO + SPACE
         idx += 1
     if idx % 2 == 1:
-        cur_row += BLOCK_ROWS + ROW_SPACE
+        cur_row += (1 + 12 + 1) + 1
 
-    wb.close()
+    # Guardar a disco temporal
+    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+    wb.save(tmp_xlsx.name)
     return tmp_xlsx.name
 
 
-def _xlsx_path_reporte_fotografico(sesion: SesionBilling) -> str:
-    from .models import EvidenciaFotoBilling
-    ev_qs = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion=sesion)
-        .select_related("requisito")
-        .order_by("requisito__orden", "tomada_en", "id")
-    )
+def _xlsx_path_reporte_fotografico(sesion, ev_qs=None) -> str:
+    if ev_qs is None:
+        ev_qs = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion=sesion)
+            .select_related("requisito")
+            .order_by("requisito__orden", "tomada_en", "id")
+        )
     return _xlsx_path_from_evqs(sesion, ev_qs)
 
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
-def generar_reporte_parcial_proyecto(request, sesion_id):
+def generar_reporte_parcial_proyecto(request, sesion_id: int):
+    """
+    Genera un REPORTE PARCIAL (XLSX) del PROYECTO (toda la sesión Billing).
+    Estados permitidos: en_proceso / en_revision_supervisor / rechazado_supervisor.
+    Devuelve descarga directa.
+    """
+    # ✅ Billing: usamos SesionBilling, NO ServicioCotizado
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    # ⛔ Si ya está aprobado (o más), redirigir a regenerar (sustituye el final)
-    if s.estado in ("aprobado_supervisor", "aprobado_pm"):
-        messages.info(
-            request, "Project already approved — regenerating final report instead.")
-        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
+    estados_permitidos = {'en_proceso',
+                          'en_revision_supervisor', 'rechazado_supervisor'}
+    if s.estado not in estados_permitidos:
+        messages.warning(
+            request,
+            "El reporte parcial solo está disponible mientras el proyecto está en proceso o en revisión."
+        )
+        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-    # (el resto tal cual: generar bytes y devolver FileResponse sin guardar)
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
+    try:
+        # ✅ Billing: usa el generador que trabaja con EvidenciaFotoBilling
+        xlsx_bytes = _bytes_excel_reporte_fotografico(s)
+    except Exception as e:
+        messages.error(request, f"No se pudo generar el reporte parcial: {e}")
+        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+
+    # Nombre de archivo legible
     proj_slug = slugify(
         s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
-    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
+    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{s.id} (PARTIAL).xlsx"
+
+    # Stream directo desde memoria (sin tocar disco)
+    bio = io.BytesIO(xlsx_bytes)
+    resp = FileResponse(bio, as_attachment=True, filename=filename)
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    return resp
 
 
 @login_required
@@ -1053,7 +1216,7 @@ def generar_reporte_parcial_asignacion(request, asignacion_id):
 
     ev_qs = (a.evidencias.select_related("requisito")
              .order_by("requisito__orden", "tomada_en", "id"))
-    xlsx_path = _xlsx_path_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
+    xlsx_path = _xlsx_path_reporte_fotografico(a.sesion, ev_qs=ev_qs)
 
     proj_slug = slugify(
         a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
@@ -1064,57 +1227,6 @@ def generar_reporte_parcial_asignacion(request, asignacion_id):
 
 
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
-def generar_reporte_parcial_proyecto(request, sesion_id):
-    """
-    Genera un XLSX con todas las fotos actuales de la sesión **sin** cambiar estados
-    ni guardar como 'reporte_fotografico'. Sirve para avances diarios.
-    """
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
-
-    proj_slug = slugify(
-        s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
-    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
-
-
-@login_required
-@rol_requerido('supervisor', 'admin', 'pm', 'usuario')
-def generar_reporte_parcial_asignacion(request, asignacion_id):
-    """
-    XLSX solo con las evidencias de **una** asignación (tecnico_sesion).
-    - El técnico puede descargar el suyo.
-    - Supervisor/PM/Admin pueden descargar el de cualquiera.
-    """
-    a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
-
-    # permisos: dueño o staff
-    is_owner = (a.tecnico_id == request.user.id)
-    is_staff = getattr(request.user, "rol", "") in (
-        "supervisor", "pm", "admin")
-    if not (is_owner or is_staff):
-        raise Http404()
-
-    ev_qs = (
-        a.evidencias.select_related("requisito")
-         .order_by("requisito__orden", "tomada_en", "id")
-    )
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
-
-    proj_slug = slugify(
-        a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
-    tech_slug = slugify(a.tecnico.get_full_name(
-    ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
-    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
-
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
-
-
-@login_required
 def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
@@ -1122,26 +1234,16 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 
     try:
         xlsx_path = _xlsx_path_reporte_fotografico(s)
-        # reemplazar archivo anterior si existía
-        bytes_excel = _bytes_excel_reporte_fotografico(s)
 
-        # elimina anterior si existe (misma key => real replace en storage)
         if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
             try:
                 s.reporte_fotografico.delete(save=False)
             except Exception:
                 pass
-        # subir el archivo desde disco (stream) al FileField
-        with open(xlsx_path, "rb") as f:
-            filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
-            s.reporte_fotografico.save(
-                filename, ContentFile(f.read()), save=True)
 
-        # ✅ usar SIEMPRE la misma ruta por sesión
-        # ej: operaciones/reporte_fotografico/<proj>-<id>/project/<proj>-<id>.xlsx
         report_key = _project_report_key(s)
-        s.reporte_fotografico.save(
-            report_key, ContentFile(bytes_excel), save=True)
+        with open(xlsx_path, "rb") as f:
+            s.reporte_fotografico.save(report_key, File(f), save=True)
 
         messages.success(
             request, "Project photographic report regenerated successfully.")
@@ -1156,7 +1258,6 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 @login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Permisos: supervisor/pm/admin o técnicos asignados al proyecto
     allowed = (getattr(request.user, "rol", "") in ("supervisor", "pm", "admin")) \
         or s.tecnicos_sesion.filter(tecnico=request.user).exists()
     if not allowed:
@@ -1167,7 +1268,6 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
             request, "The photo report is not available. You can regenerate it now.")
         return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
-    return FileResponse(s.reporte_fotografico.open("rb"), as_attachment=True, filename="photo_report.xlsx")
     # Abrimos y transmitimos nosotros: no usamos la URL presignada
     f = s.reporte_fotografico.open("rb")
     filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
@@ -1491,37 +1591,6 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
     wb.close()
     return bio.getvalue()
 
-
-@login_required
-def regenerar_reporte_fotografico_proyecto(request, sesion_id):
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Only supervisor/pm/admin
-    if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
-        raise Http404()
-
-    try:
-        bytes_excel = _bytes_excel_reporte_fotografico(s)
-
-        if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
-            try:
-                s.reporte_fotografico.delete(save=False)
-            except Exception:
-                pass
-
-        filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
-        s.reporte_fotografico.save(
-            filename, ContentFile(bytes_excel), save=True
-        )
-        messages.success(
-            request, "Project photographic report regenerated successfully."
-        )
-        return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
-
-    except Exception as e:
-        messages.error(
-            request, f"Could not generate the photographic report: {e}"
-        )
-        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
 # ============================
 # CONFIGURAR REQUISITOS (¡la que faltaba!)

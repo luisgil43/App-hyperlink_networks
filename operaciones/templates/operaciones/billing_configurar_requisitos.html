@@ -103,69 +103,176 @@
 </div>
 
 <script>
-  // Initialize checkbox state on DOM ready
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.req-row').forEach(row => {
-      const hidden = row.querySelector('input[type="hidden"][name="mandatory[]"]');
-      const cb = row.querySelector('.obl-toggle');
-      if (hidden && cb) cb.checked = (hidden.value === "1");
-    });
-  });
-
-  function addReq() {
-    const list = document.getElementById('req-list');
-    const idx = list.querySelectorAll('.req-row').length;
-
-    const wrap = document.createElement('div');
-    wrap.className = "grid grid-cols-1 sm:grid-cols-12 gap-2 items-start req-row";
-    wrap.dataset.existing = "0";
-
-    wrap.innerHTML = `
-      <input type="hidden" name="id[]" value="">
-      <input name="name[]" class="sm:col-span-6 border rounded-xl p-2" placeholder="Name" required autocomplete="off">
-      <input name="order[]" class="sm:col-span-2 border rounded-xl p-2" type="number" value="\${idx}" min="0" inputmode="numeric" autocomplete="off">
-      <label class="sm:col-span-3 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
-        <input type="checkbox" class="obl-toggle" checked>
-        <span class="text-sm">Required</span>
-        <input type="hidden" name="mandatory[]" value="1">
-      </label>
-      <div class="sm:col-span-1 flex sm:justify-end">
-        <button type="button"
-                class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50"
-                onclick="removeReq(this, null)">
-          🗑️
-        </button>
-      </div>
-    `;
-
-    list.appendChild(wrap);
+  // --- Util: próximo valor de orden (máximo + 1) ---
+  function nextOrderValue() {
+    const vals = Array.from(document.querySelectorAll('input[name="order[]"]'))
+      .map(el => parseInt(el.value, 10))
+      .filter(Number.isFinite);
+    return vals.length ? Math.max(...vals) + 1 : 0;
   }
 
+  // --- Reindexa todos los "order[]" (0..N-1) ---
+  function reindexOrders() {
+    const ords = document.querySelectorAll('input[name="order[]"]');
+    ords.forEach((el, i) => { el.value = i; });
+  }
+
+  // --- Sincroniza checkbox visible con hidden mandatory[] ---
+  function syncMandatory(row) {
+    const cb = row.querySelector('input.obl-toggle');
+    const hidden = row.querySelector('input[name="mandatory[]"]');
+    if (!cb || !hidden) return;
+    hidden.value = cb.checked ? "1" : "0";
+  }
+
+  // --- Crea una fila desde cero (sin innerHTML) ---
+  function createEmptyRow() {
+    const row = document.createElement('div');
+    row.className = 'grid grid-cols-1 sm:grid-cols-12 gap-2 items-start req-row';
+    row.dataset.existing = '0';
+
+    // oculto id[]
+    const idHidden = document.createElement('input');
+    idHidden.type = 'hidden';
+    idHidden.name = 'id[]';
+    idHidden.value = '';
+
+    // name[]
+    const nameInp = document.createElement('input');
+    nameInp.name = 'name[]';
+    nameInp.className = 'sm:col-span-6 border rounded-xl p-2';
+    nameInp.placeholder = 'Nombre del requisito';
+    nameInp.autocomplete = 'off';
+    nameInp.required = true;
+    nameInp.value = '';
+
+    // order[]
+    const orderInp = document.createElement('input');
+    orderInp.name = 'order[]';
+    orderInp.type = 'number';
+    orderInp.min = '0';
+    orderInp.inputMode = 'numeric';
+    orderInp.autocomplete = 'off';
+    orderInp.className = 'sm:col-span-2 border rounded-xl p-2';
+    orderInp.value = String(nextOrderValue());
+
+    // label contenedor del "Obligatorio"
+    const lab = document.createElement('label');
+    lab.className = 'sm:col-span-3 flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2';
+
+    // checkbox visible
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'obl-toggle';
+    cb.checked = true;
+
+    const spanTxt = document.createElement('span');
+    spanTxt.className = 'text-sm';
+    spanTxt.textContent = 'Required';
+
+    // hidden mandatory[]
+    const mandHidden = document.createElement('input');
+    mandHidden.type = 'hidden';
+    mandHidden.name = 'mandatory[]';
+    mandHidden.value = '1';
+
+    cb.addEventListener('change', () => { mandHidden.value = cb.checked ? '1' : '0'; });
+
+    lab.appendChild(cb);
+    lab.appendChild(spanTxt);
+    lab.appendChild(mandHidden);
+
+    // acciones (eliminar)
+    const actions = document.createElement('div');
+    actions.className = 'sm:col-span-1 flex sm:justify-end';
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50';
+    delBtn.textContent = '🗑️';
+    delBtn.addEventListener('click', () => removeReq(delBtn, null));
+    actions.appendChild(delBtn);
+
+    // ensamblar
+    row.appendChild(idHidden);
+    row.appendChild(nameInp);
+    row.appendChild(orderInp);
+    row.appendChild(lab);
+    row.appendChild(actions);
+
+    return row;
+  }
+
+  // --- Agregar fila ---
+  function addReq() {
+    const list = document.getElementById('req-list');
+    const last = list.querySelector('.req-row:last-of-type');
+
+    let row;
+    if (last) {
+      // clonar estructura existente (por si cambiaste clases), pero limpiando valores
+      row = last.cloneNode(true);
+      row.dataset.existing = '0';
+
+      const idInput   = row.querySelector('input[name="id[]"]');
+      const nameInput = row.querySelector('input[name="name[]"]');
+      const orderInp  = row.querySelector('input[name="order[]"]');
+      const cbYN      = row.querySelector('input.obl-toggle');
+      const hiddenMan = row.querySelector('input[name="mandatory[]"]');
+      const delBtn    = row.querySelector('.remove-btn');
+
+      if (idInput)   idInput.value = '';
+      if (nameInput) { nameInput.value = ''; nameInput.placeholder = 'Nombre del requisito'; }
+      if (orderInp)  orderInp.value = String(nextOrderValue());
+      if (cbYN)      cbYN.checked = true;
+      if (hiddenMan) hiddenMan.value = '1';
+      if (delBtn) {
+        // quitar listeners inline anteriores
+        const newBtn = delBtn.cloneNode(true);
+        newBtn.addEventListener('click', () => removeReq(newBtn, null));
+        delBtn.replaceWith(newBtn);
+      }
+    } else {
+      row = createEmptyRow();
+    }
+
+    list.appendChild(row);
+  }
+
+  // --- Eliminar fila ---
   function removeReq(btn, reqId) {
     const row = btn.closest('.req-row');
     if (reqId) {
-      const bag = document.getElementById('delete-bag');
-      const hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      hidden.name = 'delete_id[]';
-      hidden.value = String(reqId);
-      bag.appendChild(hidden);
+      const bag = document.getElementById('delete-bag') || document.body.appendChild(Object.assign(document.createElement('div'), { id:'delete-bag' }));
+      const h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'delete_id[]'; h.value = String(reqId);
+      bag.appendChild(h);
     }
     row.remove();
     reindexOrders();
   }
 
-  function reindexOrders() {
-    const ords = document.querySelectorAll('input[name="order[]"]');
-    ords.forEach((inp, i) => { inp.value = i; });
-  }
+  // --- Limpieza al cargar: si hay "${name}" residuales, limpiarlos ---
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('input[name="name[]"]').forEach(inp => {
+      if (/\$\{\s*name\s*\}/i.test(inp.value)) inp.value = '';
+      if (!inp.placeholder) inp.placeholder = 'Nombre del requisito';
+    });
 
-  document.addEventListener('change', (e) => {
-    if (e.target.classList.contains('obl-toggle')) {
-      const row = e.target.closest('.req-row');
-      const hidden = row.querySelector('input[type="hidden"][name="mandatory[]"]');
-      if (hidden) hidden.value = e.target.checked ? "1" : "0";
-    }
+    // Asegurar que todos los checkboxes sincronicen con su hidden
+    document.querySelectorAll('.req-row').forEach(row => {
+      const cb = row.querySelector('input.obl-toggle');
+      if (cb) {
+        cb.addEventListener('change', () => syncMandatory(row));
+        syncMandatory(row);
+      }
+    });
   });
+
+  // Exponer funciones si las llamas desde atributos HTML
+  window.addReq = addReq;
+  window.removeReq = removeReq;
 </script>
+
+
 {% endblock %}

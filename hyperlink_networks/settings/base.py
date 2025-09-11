@@ -11,8 +11,16 @@ load_dotenv()
 # ==============================
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'unsafe-secret-key')
+
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+
+
+if DEBUG:
+    SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-key')  # solo dev
+else:
+    SECRET_KEY = os.environ['DJANGO_SECRET_KEY']  # obliga env en prod
+
+
 ALLOWED_HOSTS = [
     'app-hyperlink-networks.onrender.com',
     'localhost',
@@ -212,8 +220,15 @@ EMAIL_HOST = os.environ.get('EMAIL_HOST', 'mail.grupogzs.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 465))
 EMAIL_USE_TLS = False
 EMAIL_USE_SSL = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'planix@grupogzs.com')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '}xZs%l%xGFb3')
+# EMAIL (SMTP)
+if DEBUG:
+    EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'dev@example.com')
+    EMAIL_HOST_PASSWORD = os.getenv(
+        'EMAIL_HOST_PASSWORD', 'dev-password')  # placeholder sin valor real
+else:
+    EMAIL_HOST_USER = os.environ['EMAIL_HOST_USER']          # obliga env
+    EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']  # obliga env
+
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # ==============================
