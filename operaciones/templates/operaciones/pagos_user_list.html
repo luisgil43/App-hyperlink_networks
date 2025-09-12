@@ -48,7 +48,14 @@
           </td>
 
           <td class="p-2">{{ r.week }}</td>
-          <td class="p-2 text-right">${{ r.amount|floatformat:2 }}</td>
+        <td class="p-2 text-right">
+  {% if r.display_amount < 0 %}
+    <span class="text-red-600">-${{ r.display_amount|floatformat:2|cut:"-" }}</span>
+  {% else %}
+    ${{ r.display_amount|floatformat:2 }}
+  {% endif %}
+</td>
+
           <td class="p-2">
             {% if r.status == "pending_user" %}
               <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending my approval</span>
@@ -111,7 +118,14 @@
                   {% for d in r.details %}
                   <tr class="border-t">
                     <td class="p-2">{{ d.project_id }}</td>
-                    <td class="p-2 text-right">${{ d.subtotal|floatformat:2 }}</td>
+                    <td class="p-2 text-right">
+  {% if d.subtotal < 0 %}
+    <span class="text-red-600">-${{ d.subtotal|floatformat:2|cut:"-" }}</span>
+  {% else %}
+    ${{ d.subtotal|floatformat:2 }}
+  {% endif %}
+</td>
+
                   </tr>
                   {% empty %}
                   <tr><td colspan="2" class="p-2 text-center text-gray-500">No breakdown.</td></tr>

@@ -91,12 +91,36 @@
       </div>
     </div>
 
+  <!-- Direct Discount -->
+  <div class="md:col-span-3">
+    <label class="inline-flex items-center gap-2">
+      <input type="checkbox"
+             name="direct_discount"
+             id="direct_discount"
+             value="1"
+             class="h-4 w-4 rounded border-gray-300"
+             {% if sesion and sesion.is_direct_discount %}checked{% endif %}>
+      <span class="text-sm font-medium">Direct discount (skip technician approval)</span>
+    </label>
+    <p id="dd-hint"
+       class="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 hidden">
+      This billing will go straight to payroll deductions. Quantities must be negative (e.g., -1).
+    </p>
+  </div>
+
+
     <!-- Items Table -->
     <div class="mt-6">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="text-lg font-semibold">Items</h2>
-        <button type="button" id="btn-add-row" class="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Add Row</button>
-      </div>
+     <div class="flex items-center justify-between mb-2">
+  <h2 class="text-lg font-semibold">Items</h2>
+  <div class="flex items-center gap-2">
+    <span id="dd-banner"
+          class="hidden text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+      Direct discount mode: quantities must be negative
+    </span>
+    <button type="button" id="btn-add-row" class="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Add Row</button>
+  </div>
+</div>
 
       <div class="overflow-x-auto rounded-xl border">
         <table class="min-w-[1100px] w-full text-sm" id="items-table">
@@ -221,6 +245,23 @@ const urls = {
   buscarCodigos: "{% url 'operaciones:ajax_buscar_codigos' %}",
   detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
 };
+
+
+
+/* === Direct Discount toggles === */
+const dd       = document.getElementById('direct_discount');
+const ddHint   = document.getElementById('dd-hint');
+const ddBanner = document.getElementById('dd-banner');
+
+function syncDirectDiscountUI(){
+  const on = !!(dd && dd.checked);
+  if (ddHint)   ddHint.classList.toggle('hidden', !on);
+  if (ddBanner) ddBanner.classList.toggle('hidden', !on);
+}
+if (dd) { dd.addEventListener('change', syncDirectDiscountUI); }
+syncDirectDiscountUI();
+
+
 
 /* === Modal técnicos === */
 const modal = document.getElementById('tech-modal');

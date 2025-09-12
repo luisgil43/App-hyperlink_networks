@@ -7,47 +7,32 @@
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold">👷‍♂️ My Production</h1>
 
-
-
     <div class="text-sm text-gray-600">
       Current week: <b>{{ current_week }}</b> ·
       Total production payable (current week): <b>${{ total_semana_actual|floatformat:2 }}</b>
     </div>
-
-
   </div>
 
+  <!-- Week picker -->
+  <form id="week-form" method="get"
+        class="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+      <label for="week_display" class="text-sm text-gray-700">Select week:</label>
+      <input id="week_display" type="text" class="border rounded px-3 py-1 w-40" placeholder="Pick a week" autocomplete="off">
+      <input id="week" name="week" type="hidden" value="{{ week_filter|default:'all' }}">
+      <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded">Apply</button>
+      <a href="?week=all" class="text-blue-600 underline">Show all</a>
+    </div>
 
-<!-- ✅ Week picker con Flatpickr (locale en) -->
-<form id="week-form" method="get"
-      class="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-
-  <!-- 🔹 Izquierda: picker + botones -->
-  <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-    <label for="week_display" class="text-sm text-gray-700">Select week:</label>
-
-    <!-- input visible (calendario) -->
-    <input id="week_display" type="text"
-           class="border rounded px-3 py-1 w-40"
-           placeholder="Pick a week" autocomplete="off">
-
-    <!-- input real que se envía (YYYY-W##) -->
-    <input id="week" name="week" type="hidden" value="{{ week_filter|default:'all' }}">
-
-    <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded">Apply</button>
-    <a href="?week=all" class="text-blue-600 underline">Show all</a>
-  </div>
-
-  <!-- 🔹 Derecha: botón "My payment" (responsivo) -->
-  <div class="w-full sm:w-auto">
-    <a href="{% url 'operaciones:user_weekly_payments' %}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow
-              w-full sm:w-auto text-center whitespace-nowrap">
-      <span class="sm:hidden">💵 My payment</span>
-      <span class="hidden sm:inline">💵 Approve my payment</span>
-    </a>
-  </div>
-</form>
+    <div class="w-full sm:w-auto">
+      <a href="{% url 'operaciones:user_weekly_payments' %}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow
+                w-full sm:w-auto text-center whitespace-nowrap">
+        <span class="sm:hidden">💵 My payment</span>
+        <span class="hidden sm:inline">💵 Approve my payment</span>
+      </a>
+    </div>
+  </form>
 
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
     <table class="table-auto text-sm w-full min-w-[1400px]">
@@ -62,7 +47,6 @@
           <th class="p-2 border text-left">Project</th>
           <th class="p-2 border text-left">Office</th>
           <th class="p-2 border text-right">Technical Billing</th>
-          
         </tr>
       </thead>
       <tbody>
@@ -75,36 +59,51 @@
           </td>
           <td class="p-2 border">{{ r.project_id }}</td>
           <td class="p-2 border">{{ r.real_week }}</td>
-          <!-- Badge de estado en inglés (la vista ya filtra aprobados; dejamos mapping por si acaso) -->
-          <td class="p-2 border">
-            {% if r.status == "aprobado_pm" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
-            {% elif r.status == "aprobado_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
-            {% elif r.status == "aprobado_finanzas" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Approved by Finance</span>
-            {% elif r.status == "rechazado_pm" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
-            {% elif r.status == "rechazado_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
-            {% elif r.status == "en_revision_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
-            {% elif r.status == "finalizado" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
-            {% elif r.status == "en_proceso" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In Progress</span>
-            {% else %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
-            {% endif %}
-          </td>
+
+          <!-- Status (incluye "descuento") -->
+     <td class="p-2 border">
+  {% if r.is_discount %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+      Direct discount
+    </span>
+  {% elif r.status == "aprobado_pm" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+  {% elif r.status == "aprobado_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
+  {% elif r.status == "aprobado_finanzas" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Approved by Finance</span>
+  {% elif r.status == "rechazado_pm" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+  {% elif r.status == "rechazado_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
+  {% elif r.status == "en_revision_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
+  {% elif r.status == "finalizado" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+  {% elif r.status == "en_proceso" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In Progress</span>
+  {% else %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+  {% endif %}
+</td>
+
 
           <td class="p-2 border">{{ r.client }}</td>
           <td class="p-2 border">{{ r.city }}</td>
           <td class="p-2 border">{{ r.project }}</td>
           <td class="p-2 border">{{ r.office }}</td>
-          <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
-          
+
+          <!-- Total técnico (con descuento si es negativo) -->
+          <td class="p-2 border text-right">
+            {% if r.total_tecnico < 0 %}
+              <span class="text-red-600">-${{ r.total_tecnico|floatformat:2|cut:"-" }}</span>
+            {% else %}
+              ${{ r.total_tecnico|floatformat:2 }}
+            {% endif %}
+          </td>
         </tr>
+
+        <!-- Detalle -->
         <tr id="det-{{ forloop.counter }}" class="hidden">
           <td class="border"></td>
           <td class="p-3 border bg-gray-50" colspan="9">
@@ -130,7 +129,13 @@
                     <td class="p-2">{{ d.uom }}</td>
                     <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
                     <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
-                    <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
+                    <td class="p-2 text-right">
+                      {% if d.subtotal_tec < 0 %}
+                        <span class="text-red-600">-${{ d.subtotal_tec|floatformat:2|cut:"-" }}</span>
+                      {% else %}
+                        {{ d.subtotal_tec|floatformat:2 }}
+                      {% endif %}
+                    </td>
                   </tr>
                   {% empty %}
                   <tr><td colspan="7" class="p-2 text-center text-gray-500">No items.</td></tr>
@@ -170,7 +175,6 @@ document.addEventListener('click', function(e){
 <script>
 /* === Helper: formatea a ISO week YYYY-W## === */
 function isoWeekString(d){
-  // d es Date en local. Calculamos ISO week (lunes como primer día)
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
@@ -182,46 +186,39 @@ function isoWeekString(d){
 }
 
 (function(){
-  const hiddenInput = document.getElementById('week');
+  const hiddenInput  = document.getElementById('week');
   const displayInput = document.getElementById('week_display');
 
-  // valor inicial: si viene ?week=YYYY-W## lo mostramos con "Week NN, YYYY"
-  const initial = (hiddenInput.value && hiddenInput.value.toLowerCase() !== 'all') ? hiddenInput.value : '{{ current_week }}';
-  // Convertimos YYYY-W## a una fecha aproximada (lunes de esa semana)
   function dateFromIsoWeek(iso){
     const [y, w] = iso.replace('W','').split('-');
     const year = parseInt(y,10), week = parseInt(w,10);
     const simple = new Date(Date.UTC(year,0,1 + (week - 1) * 7));
     const dow = simple.getUTCDay();
-    const ISOweekStart = simple;
+    const ISOweekStart = new Date(simple);
     if (dow <= 4) ISOweekStart.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
-    else ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
+    else          ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
     return new Date(ISOweekStart);
   }
 
+  const initial = (hiddenInput.value && hiddenInput.value.toLowerCase() !== 'all') ? hiddenInput.value : '{{ current_week }}';
   const initialDate = dateFromIsoWeek(initial);
-  // Inicia Flatpickr con plugin de semana (todo en EN por defecto)
-  const fp = flatpickr(displayInput, {
+
+  flatpickr(displayInput, {
     plugins: [new weekSelect({})],
-    dateFormat: "F j, Y",         // formato visible
+    dateFormat: "F j, Y",
     defaultDate: initialDate,
     allowInput: false,
-    clickOpens: true,
-    // Cuando se selecciona una fecha (semana), guardamos YYYY-W## en el hidden
-    onChange: function(selectedDates){
+    onChange(selectedDates){
       if (selectedDates && selectedDates[0]){
         hiddenInput.value = isoWeekString(selectedDates[0]);
       }
     },
-    onReady: function(){
-      // Asegura que, si el valor era "all", lo fijamos a la semana actual visualmente
+    onReady(){
       if (!hiddenInput.value || hiddenInput.value.toLowerCase() === 'all'){
         hiddenInput.value = '{{ current_week }}';
       }
     }
   });
-
-  // Si el usuario borra con el botón "Show all", el link ya fija week=all.
 })();
 </script>
 {% endblock %}

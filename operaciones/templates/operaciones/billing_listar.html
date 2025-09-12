@@ -90,7 +90,16 @@
             data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
             data-projid="{{ s.proyecto_id|default:''|lower }}"
             data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
-            data-status="{% if s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% elif s.estado == 'en_proceso' %}en proceso in progress progress{% else %}asignado assigned{% endif %}"
+           data-status="{% if s.is_direct_discount %}descuento discount direct descuento directo{% 
+elif s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% 
+elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% 
+elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% 
+elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% 
+elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% 
+elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% 
+elif s.estado == 'en_proceso' %}en proceso in progress progress{% 
+else %}asignado assigned{% endif %}"
+
             data-client="{{ s.cliente|default:''|lower }}"
             data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
           <td class="p-2 border text-center">
@@ -126,25 +135,30 @@
           <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
 
           <!-- Project status -->
-          <td class="p-2 border" data-status-cell>
-            {% if s.estado == "aprobado_pm" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
-            {% elif s.estado == "rechazado_pm" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
-            {% elif s.estado == "aprobado_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
-            {% elif s.estado == "rechazado_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
-            {% elif s.estado == "en_revision_supervisor" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
-            {% elif s.estado == "finalizado" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
-            {% elif s.estado == "en_proceso" %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
-            {% else %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
-            {% endif %}
-          </td>
+     <td class="p-2 border" data-status-cell>
+  {% if s.is_direct_discount %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+      Direct discount
+    </span>
+  {% elif s.estado == "aprobado_pm" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+  {% elif s.estado == "rechazado_pm" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+  {% elif s.estado == "aprobado_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+  {% elif s.estado == "rechazado_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+  {% elif s.estado == "en_revision_supervisor" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+  {% elif s.estado == "finalizado" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+  {% elif s.estado == "en_proceso" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+  {% else %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+  {% endif %}
+</td>
+
 
           <!-- Technicians -->
           <td class="p-2 border">
@@ -509,20 +523,21 @@ document.addEventListener('click', function(e){
   const v   = el => norm(el?.value || '');
 
   function statusHaystackFor(tr){
-    const td = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
-    const txt = norm(td?.textContent || '');
-    let extras = '';
+  const td  = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
+  const txt = norm(td?.textContent || '');
+  let extras = '';
 
-    if (txt.includes('approved'))          extras += ' aprobado approved';
-    if (txt.includes('rejected'))          extras += ' rechazado rejected';
-    if (txt.includes('supervisor review')) extras += ' en revision revision review';
-    if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
-    if (txt.includes('in progress'))       extras += ' en proceso progress';
-    if (txt.includes('assigned'))          extras += ' asignado assigned';
+  if (txt.includes('approved'))          extras += ' aprobado approved';
+  if (txt.includes('rejected'))          extras += ' rechazado rejected';
+  if (txt.includes('supervisor review')) extras += ' en revision revision review';
+  if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
+  if (txt.includes('in progress'))       extras += ' en proceso progress';
+  if (txt.includes('assigned'))          extras += ' asignado assigned';
+  if (txt.includes('discount'))          extras += ' descuento discount direct descuento directo'; // ← NUEVO
 
-    const code = tr.dataset.status || '';
-    return norm(txt + ' ' + extras + ' ' + code);
-  }
+  const code = tr.dataset.status || '';
+  return norm(txt + ' ' + extras + ' ' + code);
+}
 
   function applyFilters(){
     const f = {

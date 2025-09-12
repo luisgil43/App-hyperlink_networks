@@ -87,9 +87,26 @@ FINANCE_STATUS = [
     ("paid", "Cobrado"),
 ]
 
+indexes = [
+    models.Index(fields=["proyecto_id"]),
+    models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
+    models.Index(fields=["estado"]),
+    models.Index(fields=["is_direct_discount"]),  # ← NUEVO
+]
+
 
 class SesionBilling(models.Model):
     creado_en = models.DateTimeField(default=timezone.now)
+
+    is_direct_discount = models.BooleanField(default=False, db_index=True)
+
+    origin_session = models.ForeignKey(
+        "self",
+        null=True, blank=True,
+        related_name="discounts",
+        on_delete=models.SET_NULL,
+        help_text="If set, this discount corrects the referenced session."
+    )
 
     # Identificación del proyecto
     proyecto_id = models.CharField(max_length=64)
