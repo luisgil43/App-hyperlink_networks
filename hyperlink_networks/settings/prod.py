@@ -27,6 +27,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+
     'whitenoise.middleware.WhiteNoiseMiddleware',  # 2°
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -36,6 +37,27 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',  # ← primero
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# ==============================
+# Configuración de Axes
+# ==============================
+
+AXES_ENABLED = True
+AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', 3))
+AXES_COOLOFF_TIME = timedelta(minutes=int(
+    os.environ.get('AXES_COOLOFF_MINUTES', 20)))
+AXES_LOCK_OUT_AT_FAILURE = True
+AXES_RESET_ON_SUCCESS = True
+
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # simple y robusto
+AXES_LOCKOUT_CALLABLE = None           # (dejamos default)
+AXES_LOCKOUT_TEMPLATE = 'usuarios/login_bloqueado.html'
 
 # Archivos multimedia (ajustado para Wasabi)
 # Aunque Wasabi maneja los archivos, definimos MEDIA_URL apuntando al bucket

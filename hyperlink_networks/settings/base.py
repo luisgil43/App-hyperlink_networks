@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import dj_database_url
 from django.urls import reverse_lazy
+from datetime import timedelta
 
 load_dotenv()
 
@@ -59,6 +60,8 @@ INSTALLED_APPS = [
     'dal_select2',
     'widget_tweaks',
     'django.contrib.humanize',
+    'axes',
+    # 'ratelimit',
 
     # Local apps
     'liquidaciones',
@@ -72,6 +75,13 @@ INSTALLED_APPS = [
     'usuarios',
     'dashboard_admin.apps.DashboardAdminConfig',
 ]
+
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',  # ← primero
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 
 # ==============================
 # MIDDLEWARE
@@ -88,6 +98,23 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'usuarios.middleware.SessionExpiryMiddleware',
 ]
+
+
+RATELIMIT_USE_CACHE = 'default'
+# ==============================
+# Configuración de Axes
+# ==============================
+
+AXES_ENABLED = True
+AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', 3))
+AXES_COOLOFF_TIME = timedelta(minutes=int(
+    os.environ.get('AXES_COOLOFF_MINUTES', 15)))
+AXES_LOCK_OUT_AT_FAILURE = True
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # simple y robusto
+AXES_LOCKOUT_CALLABLE = None           # (dejamos default)
+AXES_LOCKOUT_TEMPLATE = 'usuarios/login_bloqueado.html'
 
 # ==============================
 # URLS & WSGI

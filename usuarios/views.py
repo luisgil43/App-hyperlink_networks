@@ -27,6 +27,17 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
 from django.core.cache import cache
+from django.utils.decorators import method_decorator
+from usuarios.decoradores import ratelimit, axes_dispatch
+from functools import wraps
+from usuarios.decoradores import axes_post_only
+
+
+def rate_limit_handler(request, exception=None):
+    # Usa tu template si quieres:
+    return render(request, 'usuarios/too_many_requests.html', status=429)
+    # o simple:
+    # return HttpResponseTooManyRequests("Too many requests. Please try again later.")
 
 
 def no_autorizado_view(request):
@@ -73,6 +84,8 @@ def subir_firma_representante(request):
 User = get_user_model()
 
 
+@ratelimit(key='ip', rate='5/m', block=True)          # máx 5 por minuto por IP
+@ratelimit(key='post:email', rate='3/h', block=True)
 def recuperar_contraseña(request):
     es_admin_param = request.GET.get('admin') == 'true'
 
@@ -164,25 +177,29 @@ def resetear_contraseña(request, usuario_id, token):
     return render(request, 'usuarios/resetear_contraseña.html', {'usuario': usuario})
 
 
+def axes_post_only(view_func):
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if request.method.upper() == 'POST':
+            return axes_dispatch(view_func)(request, *args, **kwargs)
+        return view_func(request, *args, **kwargs)
+    return _wrapped
+
+
+# throttle por IP solo en POST
+@ratelimit(key='ip', rate='10/m', block=True, method=['POST'])
+@axes_post_only  # Axes solo actúa en POST (no bloquea el GET del login)
 def login_unificado(request):
     form = AuthenticationForm(request, data=request.POST or None)
-
     if request.method == 'POST':
         if form.is_valid():
             user = form.get_user()
             login(request, user)
-
-            # 🚩 Caso 1: solo tiene rol de usuario
             if user.roles.count() == 1 and user.tiene_rol('usuario'):
                 return redirect('dashboard:index')
-
-            # 🚩 Caso 2: tiene más de un rol
             return redirect('usuarios:seleccionar_rol')
-
         else:
-            # --- Mensaje mostrado al usuario en inglés ---
             messages.error(request, "Invalid credentials.")
-
     return render(request, 'usuarios/login.html', {'form': form})
 
 

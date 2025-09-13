@@ -1,0 +1,42 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account locked</title>
+  <style>
+    :root{--bg:#f7fafc;--card:#ffffff;--text:#1a202c;--muted:#4a5568;--brand:#2563eb;}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+         font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Inter,"Helvetica Neue",Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji";}
+    .container{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{background:var(--card);border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,.08);max-width:520px;width:100%;padding:28px}
+    .h1{font-size:22px;font-weight:800;margin:0 0 8px}
+    .p{color:var(--muted);margin:0 0 14px;line-height:1.55}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+    .btn{appearance:none;display:inline-block;padding:10px 16px;border-radius:12px;border:1px solid transparent;text-decoration:none;font-weight:700}
+    .btn-primary{background:var(--brand);color:#fff}
+    .btn-outline{border-color:#cbd5e1;color:var(--text);background:#fff}
+    .small{font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1 class="h1">Account locked</h1>
+      <p class="p">Too many failed login attempts from your account or device. For your security, sign-in is temporarily disabled.</p>
+      <p class="p small">Please wait a few minutes and try again. If you forgot your password, you can reset it below.</p>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="{% url 'usuarios:login_unificado' %}">Try again</a>
+        <a class="btn btn-outline" href="{% url 'usuarios:recuperar_contraseña' %}">Reset password</a>
+      </div>
+
+      <p class="p small" style="margin-top:16px">
+        If this wasn’t you, change your password and enable 2FA for your account.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
