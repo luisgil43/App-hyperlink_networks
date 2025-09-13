@@ -188,4 +188,9 @@ urlpatterns = [
     path("billing/items/<int:item_id>/qty/",
          views.billing_item_update_qty, name="billing_item_update_qty"),
 
+    path("operaciones/fotos/upload-ajax/<int:pk>/",
+         b.upload_evidencias_ajax, name="fotos_upload_ajax"),
+    path("fotos/asignacion/<int:asig_id>/status/", b.fotos_status_json,
+         name="fotos_status_json"),
+
 ]

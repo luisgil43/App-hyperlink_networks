@@ -251,19 +251,11 @@ def _exif_to_latlng_taken_at(image):
         return None, None, None
 
 
+"""
 @login_required
 @rol_requerido('usuario')
 def upload_evidencias(request, pk):
-    """
-    Upload evidence with team-wide locking by shared requirement title:
-    - As soon as *anyone* uploads at least one photo for a given requirement *title*
-      in the session, that title is "locked" for everyone (no more uploads for that title).
-    - Deleting the last photo with that title will unlock it automatically (because
-      we derive the lock from current evidences).
-    - 'Finish' is enabled only if:
-        (a) all mandatory shared titles have at least one photo (by anyone), AND
-        (b) all assignees have accepted (started).
-    """
+
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
     # tiny local utilities (requested: no helpers outside the views)
@@ -507,6 +499,490 @@ def upload_evidencias(request, pk):
             "is_proyecto_especial": s.proyecto_especial,
         },
     )
+"""
+
+
+# --- VISTAS: copiar/pegar reemplazando las actuales ---
+
+@login_required
+@rol_requerido('usuario')
+def upload_evidencias(request, pk):
+    """
+    Carga de evidencias con 'lock' por TÍTULO compartido a nivel de sesión:
+    - Apenas alguien sube foto para un título de requisito en la sesión, ese título
+      queda bloqueado para todos.
+    - Al eliminar la última foto con ese título, se desbloquea.
+    - 'Finish' habilitado solo si:
+        (a) todos los títulos obligatorios tienen al menos una foto (de cualquiera), y
+        (b) todos los asignados han aceptado (Start).
+    """
+    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+
+    # utilitos locales
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    def _is_safe_wasabi_key(key: str) -> bool:
+        return bool(key) and ".." not in key and not key.startswith("/")
+
+    def _create_evidencia_from_key(
+        req_id, key, nota, lat, lng, acc, taken_dt,
+        titulo_manual="", direccion_manual=""
+    ):
+        return EvidenciaFotoBilling.objects.create(
+            tecnico_sesion=a,
+            requisito_id=req_id,
+            imagen=key,
+            nota=nota or "",
+            lat=lat or None,
+            lng=lng or None,
+            gps_accuracy_m=acc or None,
+            client_taken_at=taken_dt,
+            titulo_manual=titulo_manual or "",
+            direccion_manual=direccion_manual or "",
+        )
+
+    # ⛳️ NUEVO: si el técnico fue agregado tarde y no tiene requisitos,
+    # clonamos automáticamente los requisitos de otros técnicos de la MISMA sesión.
+    def _ensure_requisitos_para_asignacion():
+        if a.requisitos.exists():
+            return
+        base_qs = (RequisitoFotoBilling.objects
+                   .filter(tecnico_sesion__sesion=a.sesion)
+                   .order_by("orden", "id")
+                   .select_related("tecnico_sesion"))
+        to_create, seen = [], set()
+        orden_fallback = 0
+        for br in base_qs:
+            key = _norm_title(br.titulo)
+            if not key or key in seen:
+                continue
+            orden_fallback += 1
+            to_create.append(RequisitoFotoBilling(
+                tecnico_sesion=a,
+                titulo=br.titulo,
+                descripcion=br.descripcion,
+                obligatorio=br.obligatorio,
+                orden=br.orden or orden_fallback,
+            ))
+            seen.add(key)
+        if to_create:
+            RequisitoFotoBilling.objects.bulk_create(to_create)
+
+    # garantizamos requisitos antes de seguir
+    _ensure_requisitos_para_asignacion()
+
+    # Permisos para subir según estado
+    puede_subir = (a.estado == "en_proceso") or (
+        a.estado == "rechazado_supervisor" and a.reintento_habilitado
+    )
+    if not puede_subir and request.method != "GET":
+        messages.info(request, "This assignment is not open for uploads.")
+        return redirect("operaciones:mis_assignments")
+
+    s = a.sesion
+
+    # -------------------- POST (upload normal / direct keys) --------------------
+    if request.method == "POST":
+        req_id = request.POST.get("req_id") or None
+        nota = (request.POST.get("nota") or "").strip()
+
+        files = request.FILES.getlist("imagenes[]")
+        wasabi_keys = request.POST.getlist(
+            "wasabi_keys[]") if settings.DIRECT_UPLOADS_ENABLED else []
+
+        lat = request.POST.get("lat") or None
+        lng = request.POST.get("lng") or None
+        acc = request.POST.get("acc") or None
+        taken = request.POST.get("client_taken_at")
+        taken_dt = parse_datetime(taken) if taken else None
+
+        # Special project (Extra): título/dirección manual
+        titulo_manual = (request.POST.get("titulo_manual") or "").strip()
+        direccion_manual = (request.POST.get("direccion_manual") or "").strip()
+
+        if s.proyecto_especial and not req_id:
+            if not titulo_manual:
+                messages.error(
+                    request, "Please enter a Title for the photo (special project).")
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+            if not direccion_manual:
+                messages.error(
+                    request, "Please enter an Address for the photo (special project).")
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+        # Lock por título (si es requisito)
+        if req_id:
+            req = get_object_or_404(
+                RequisitoFotoBilling, pk=req_id, tecnico_sesion=a)
+            shared_key = _norm_title(req.titulo)
+            taken_titles = EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion=s, requisito__isnull=False
+            ).values_list("requisito__titulo", flat=True)
+            locked_title_set = {_norm_title(t) for t in taken_titles if t}
+            if shared_key in locked_title_set:
+                messages.warning(
+                    request,
+                    "This requirement is already covered by the team. "
+                    "Remove the existing photo to re-activate it."
+                )
+                return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+        # Crear evidencias desde keys directas (Wasabi)
+        n = 0
+        for key in wasabi_keys:
+            if _is_safe_wasabi_key(key):
+                _create_evidencia_from_key(
+                    req_id, key, nota, lat, lng, acc, taken_dt,
+                    titulo_manual=titulo_manual, direccion_manual=direccion_manual
+                )
+                n += 1
+
+        # Crear evidencias desde archivos
+        for f in files:
+            f_conv = _to_jpeg_if_needed(f)
+            try:
+                f_conv.seek(0)
+                im = Image.open(f_conv)
+                exif_lat, exif_lng, exif_dt = _exif_to_latlng_taken_at(im)
+            except Exception:
+                exif_lat = exif_lng = exif_dt = None
+            finally:
+                f_conv.seek(0)
+
+            use_lat = lat or exif_lat
+            use_lng = lng or exif_lng
+            use_taken = taken_dt or exif_dt
+
+            EvidenciaFotoBilling.objects.create(
+                tecnico_sesion=a,
+                requisito_id=req_id,
+                imagen=f_conv,
+                nota=nota,
+                lat=use_lat,
+                lng=use_lng,
+                gps_accuracy_m=acc,
+                client_taken_at=use_taken,
+                titulo_manual=titulo_manual,
+                direccion_manual=direccion_manual,
+            )
+            n += 1
+
+        messages.success(request, f"{n} photo(s) uploaded.") if n else messages.info(
+            request, "No files selected.")
+        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+    # -------------------- GET (contexto de página) --------------------
+    requisitos = (
+        a.requisitos
+         .annotate(uploaded=Count("evidencias"))
+         .order_by("orden", "id")
+    )
+
+    # Títulos bloqueados por equipo (cualquiera en la sesión)
+    taken_titles = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s, requisito__isnull=False
+    ).values_list("requisito__titulo", flat=True)
+    locked_title_set = {_norm_title(t) for t in taken_titles if t}
+    locked_ids = [r.id for r in requisitos if _norm_title(
+        r.titulo) in locked_title_set]
+
+    # Faltantes globales (obligatorios por título)
+    required_titles = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, obligatorio=True)
+        .values_list("titulo", flat=True)
+    )
+    required_key_set = {_norm_title(t) for t in required_titles if t}
+    covered_key_set = locked_title_set
+    missing_keys = required_key_set - covered_key_set
+
+    sample_titles = list(
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, titulo__isnull=False)
+        .values_list("titulo", flat=True)
+    )
+    sample_map = {_norm_title(t): t for t in sample_titles if t}
+    faltantes_global = [sample_map.get(k, k) for k in sorted(missing_keys)]
+
+    # Aceptaciones
+    asignaciones = list(s.tecnicos_sesion.select_related("tecnico").all())
+    pendientes_aceptar = []
+    for asg in asignaciones:
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name",
+                           lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(name)
+    all_accepted = (len(pendientes_aceptar) == 0)
+
+    # Finish habilitado?
+    can_finish = (a.estado == "en_proceso" and len(
+        faltantes_global) == 0 and all_accepted)
+
+    evidencias = (
+        a.evidencias
+         .select_related("requisito")
+         .order_by("requisito__orden", "tomada_en", "id")
+    )
+
+    can_delete = puede_subir
+
+    # Contexto para direct uploads (JS)
+    proj_id = (a.sesion.proyecto_id or "project").strip()
+    proj_slug = slugify(proj_id) or "project"
+    sess_tag = f"{proj_slug}-{a.sesion_id}"
+
+    tech = a.tecnico
+    tech_name = (
+        getattr(tech, "get_full_name", lambda: "")()
+        or getattr(tech, "username", "")
+        or f"user-{tech.id}"
+    )
+    tech_slug = slugify(tech_name) or f"user-{tech.id}"
+
+    direct_uploads_folder = f"operaciones/reporte_fotografico/{sess_tag}/{tech_slug}/evidencia/"
+
+    return render(
+        request,
+        "operaciones/billing_upload_evidencias.html",
+        {
+            "a": a,
+            "requisitos": requisitos,
+            "evidencias": evidencias,
+            "can_delete": can_delete,
+
+            "locked_ids": locked_ids,
+            "faltantes_global": faltantes_global,
+            "pendientes_aceptar": pendientes_aceptar,
+            "can_finish": can_finish,
+
+            "direct_uploads_enabled": settings.DIRECT_UPLOADS_ENABLED,
+            "direct_uploads_max_mb": getattr(settings, "DIRECT_UPLOADS_MAX_MB", 15),
+            "direct_uploads_folder": direct_uploads_folder,
+            "project_id": a.sesion.proyecto_id,
+            "current_user_name": tech_name,
+
+            "is_proyecto_especial": s.proyecto_especial,
+        },
+    )
+
+
+@login_required
+@rol_requerido('usuario')
+@require_POST
+def upload_evidencias_ajax(request, pk):
+    """
+    Subida AJAX (una imagen por request) al estilo GZ Services.
+    """
+    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+    s = a.sesion
+
+    puede_subir = (a.estado == "en_proceso") or (
+        a.estado == "rechazado_supervisor" and a.reintento_habilitado)
+    if not puede_subir:
+        return JsonResponse({"ok": False, "error": "Asignación no abierta para subir fotos."}, status=400)
+
+    req_id = request.POST.get("req_id") or None
+    nota = (request.POST.get("nota") or "").strip()
+    lat = request.POST.get("lat") or None
+    lng = request.POST.get("lng") or None
+    acc = request.POST.get("acc") or None
+    taken = request.POST.get("client_taken_at")
+    taken_dt = parse_datetime(taken) if taken else None
+    titulo_manual = (request.POST.get("titulo_manual") or "").strip()
+    direccion_manual = (request.POST.get("direccion_manual") or "").strip()
+
+    if s.proyecto_especial and not req_id and not titulo_manual:
+        return JsonResponse({"ok": False, "error": "Ingresa un Título (proyecto especial)."}, status=400)
+
+    # Límite global de 4 "Extra" por sesión/proyecto
+    if not req_id:
+        total_extra = EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s, requisito__isnull=True
+        ).count()
+        if total_extra >= 4:
+            return JsonResponse({"ok": False, "error": "Límite alcanzado: máximo 4 fotos extra por proyecto."}, status=400)
+
+    file = request.FILES.get("imagen")
+    if not file:
+        return JsonResponse({"ok": False, "error": "No llegó la imagen."}, status=400)
+
+    f_conv = _to_jpeg_if_needed(file)
+    try:
+        f_conv.seek(0)
+        im = Image.open(f_conv)
+        exif_lat, exif_lng, exif_dt = _exif_to_latlng_taken_at(im)
+    except Exception:
+        exif_lat = exif_lng = exif_dt = None
+    finally:
+        f_conv.seek(0)
+
+    use_lat = lat or exif_lat
+    use_lng = lng or exif_lng
+    use_taken = taken_dt or exif_dt
+
+    ev = a.evidencias.create(
+        requisito_id=req_id,
+        imagen=f_conv,
+        nota=nota,
+        lat=use_lat, lng=use_lng, gps_accuracy_m=acc,
+        client_taken_at=use_taken,
+        titulo_manual=titulo_manual,
+        direccion_manual=direccion_manual or "",
+    )
+
+    # extras_left tras esta subida (global por sesión)
+    extras_left = max(0, 4 - EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s, requisito__isnull=True
+    ).count())
+
+    titulo = ev.requisito.titulo if ev.requisito_id else (
+        ev.titulo_manual or "Extra")
+    fecha_txt = timezone.localtime(
+        ev.client_taken_at or ev.tomada_en).strftime("%Y-%m-%d %H:%M")
+
+    return JsonResponse({
+        "ok": True,
+        "evidencia": {
+            "id": ev.id,
+            "url": ev.imagen.url,
+            "titulo": titulo,
+            "fecha": fecha_txt,
+            "lat": ev.lat, "lng": ev.lng, "acc": ev.gps_accuracy_m,
+            "req_id": int(req_id) if req_id else None,
+        },
+        "extras_left": extras_left,
+        "max_extra": 4,
+    })
+
+
+@rol_requerido('usuario')
+@login_required
+def fotos_status_json(request, asig_id: int):
+    """
+    JSON para el polling del front (GZ-style):
+    - can_finish
+    - faltantes_global (por título)
+    - requisitos (estado global/my_count)
+    - evidencias_nuevas (id > after)
+    - extras_left / max_extra
+    """
+    a = get_object_or_404(SesionBillingTecnico,
+                          pk=asig_id, tecnico=request.user)
+    s = a.sesion
+
+    # ⛳️ MISMO FIX: si el técnico no tiene requisitos aún, clonarlos de la sesión.
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    if not a.requisitos.exists():
+        base_qs = (RequisitoFotoBilling.objects
+                   .filter(tecnico_sesion__sesion=s)
+                   .order_by("orden", "id"))
+        to_create, seen = [], set()
+        orden_fallback = 0
+        for br in base_qs:
+            key = _norm_title(br.titulo)
+            if not key or key in seen:
+                continue
+            orden_fallback += 1
+            to_create.append(RequisitoFotoBilling(
+                tecnico_sesion=a,
+                titulo=br.titulo,
+                descripcion=br.descripcion,
+                obligatorio=br.obligatorio,
+                orden=br.orden or orden_fallback,
+            ))
+            seen.add(key)
+        if to_create:
+            RequisitoFotoBilling.objects.bulk_create(to_create)
+
+    after = int(request.GET.get("after", "0") or 0)
+
+    # Requisitos de esta asignación (ya garantizados)
+    reqs = list(
+        a.requisitos
+        .order_by("orden")
+        .values("id", "titulo", "obligatorio")
+    )
+
+    # Conteo propio del técnico
+    my_counts = {
+        x["requisito_id"]: x["c"]
+        for x in (EvidenciaFotoBilling.objects
+                  .filter(tecnico_sesion=a, requisito_id__isnull=False)
+                  .values("requisito_id")
+                  .annotate(c=Count("id")))
+    }
+
+    # Títulos ya cubiertos por el EQUIPO en la sesión
+    titles_done = {
+        _norm_title(t)
+        for t in (EvidenciaFotoBilling.objects
+                  .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
+                  .values_list("requisito__titulo", flat=True)
+                  .distinct())
+        if t
+    }
+
+    requisitos_json, faltantes = [], []
+    for r in reqs:
+        titulo = r["titulo"] or ""
+        global_done = (_norm_title(titulo) in titles_done)
+        my_count = my_counts.get(r["id"], 0)
+        if r["obligatorio"] and not global_done:
+            faltantes.append(titulo)
+        requisitos_json.append({
+            "id": r["id"],
+            "titulo": titulo,
+            "obligatorio": r["obligatorio"],
+            "team_count": 1 if global_done else 0,
+            "my_count": my_count,
+            "global_done": global_done,
+        })
+
+    # Evidencias nuevas desde 'after'
+    nuevas_qs = (EvidenciaFotoBilling.objects
+                 .filter(tecnico_sesion__sesion=s, id__gt=after)
+                 .order_by("id"))
+    evidencias_nuevas = [{
+        "id": ev.id,
+        "url": ev.imagen.url,
+        "req_id": ev.requisito_id,
+        "titulo": (ev.requisito.titulo if ev.requisito_id else (ev.titulo_manual or "Extra")),
+        "fecha": timezone.localtime(ev.client_taken_at or ev.tomada_en).strftime("%Y-%m-%d %H:%M"),
+        "lat": ev.lat, "lng": ev.lng, "acc": ev.gps_accuracy_m,
+    } for ev in nuevas_qs]
+
+    # Cupo global de extras (4 por sesión)
+    total_extra = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s, requisito__isnull=True
+    ).count()
+    extras_left = max(0, 4 - total_extra)
+
+    # ¿Faltan aceptaciones?
+    pendientes_aceptar = []
+    for asg in s.tecnicos_sesion.select_related("tecnico"):
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            nombre = getattr(asg.tecnico, "get_full_name",
+                             lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(nombre)
+
+    # Finish (mismo criterio que la página)
+    can_finish = (
+        a.estado == "en_proceso" and not faltantes and not pendientes_aceptar)
+
+    return JsonResponse({
+        "ok": True,
+        "can_finish": can_finish,
+        "faltantes_global": faltantes,
+        "requisitos": requisitos_json,
+        "evidencias_nuevas": evidencias_nuevas,
+        "extras_left": extras_left,
+        "max_extra": 4,
+    })
 
 
 @login_required
@@ -883,17 +1359,17 @@ def revisar_sesion(request, sesion_id):
 # ============================
 
 
-def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
+# --- helper: construir XLSX a DISCO desde un queryset de evidencias ---
+def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
     """
-    Genera el XLSX en un archivo temporal y devuelve su ruta (path).
-    Usa imágenes recomprimidas/resizeadas en archivos temporales.
-    RAM baja + sin timeouts del worker al enviar el archivo.
+    Crea el XLSX en un archivo temporal (disco) y devuelve su path.
+    - Escribe el workbook con xlsxwriter in_memory=False
+    - Reconvierte cada imagen a JPEG temporal reducido (tmp_jpeg_from_filefield)
+    - Itera el queryset con .iterator() para no cargar todo a RAM
     """
-    # 1) crear archivo temporal para el XLSX
     tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp_xlsx.close()
 
-    # 2) Workbook a disco (no BytesIO)
     wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
     ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
     ws.hide_gridlines(2)
@@ -929,19 +1405,18 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
                    f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
     cur_row = 2
 
-    # contenedor (px) donde se “encaja” la imagen
+    # contenedor (px) donde se encaja la imagen
     max_w_px = BLOCK_COLS * 60
     max_h_px = ROWS_IMG * 18
 
     def draw_block(r, c, ev):
-        # Encabezado por bloque
+        # encabezado de bloque
         if sesion.proyecto_especial and ev.requisito_id is None:
-            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
             titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
         else:
-            # Caso normal: requisito > (fallback) Extra
-            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
-                          or "Extra")
+            titulo_req = ((getattr(ev.requisito, "titulo", "")
+                          or "").strip() or "Extra")
+
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
@@ -953,7 +1428,7 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
         ws.merge_range(img_top, c, img_top + ROWS_IMG -
                        1, c + BLOCK_COLS - 1, "", fmt_box)
 
-        # === NUEVO: crear JPEG reducido en tmp ===
+        # imagen: crear JPEG temporal reducido (rápido y poco RAM)
         try:
             tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
             sx = max_w_px / float(w)
@@ -970,7 +1445,7 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
                 "object_position": 1,
             })
         except Exception:
-            # si la imagen está corrupta, continua sin romper todo
+            # si una imagen falla, seguimos con el resto
             pass
 
         info_row = img_top + ROWS_IMG
@@ -981,10 +1456,10 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
         addr_txt = (ev.direccion_manual or "").strip()
 
         if sesion.proyecto_especial and ev.requisito_id is None:
-            ws.merge_range(info_row, c, info_row, c + 2,
+            ws.merge_range(info_row, c,     info_row, c + 2,
                            f"Taken at\n{taken_txt}", fmt_info)
             ws.merge_range(info_row, c + 3, info_row, c + 5,
-                           f"Address\n{addr_txt}", fmt_info)
+                           f"Address\n{addr_txt}",  fmt_info)
         else:
             ws.merge_range(info_row, c,     info_row, c + 1,
                            f"Taken at\n{taken_txt}", fmt_info)
@@ -994,7 +1469,6 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
                            f"Lng\n{lng_txt}",       fmt_info)
         ws.set_row(info_row, 30)
 
-    # iterar sin cargar todo en RAM
     idx = 0
     for ev in ev_qs.iterator():
         if idx % 2 == 0:
@@ -1010,84 +1484,46 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs) -> str:
     return tmp_xlsx.name
 
 
-def _xlsx_path_reporte_fotografico(sesion: SesionBilling) -> str:
-    from .models import EvidenciaFotoBilling
-    ev_qs = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion=sesion)
-        .select_related("requisito")
-        .order_by("requisito__orden", "tomada_en", "id")
-    )
+def _xlsx_path_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> str:
+    """
+    Wrapper cómodo: si no pasas ev_qs, usa TODAS las evidencias de la sesión.
+    Devuelve un path de archivo temporal listo para mandar con FileResponse.
+    """
+    if ev_qs is None:
+        ev_qs = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion=sesion)
+            .select_related("requisito")
+            .order_by("requisito__orden", "tomada_en", "id")
+        )
     return _xlsx_path_from_evqs(sesion, ev_qs)
 
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def generar_reporte_parcial_proyecto(request, sesion_id):
+    """
+    Genera un XLSX con TODAS las fotos actuales de la sesión sin tocar estados.
+    Usa escritura a disco + streaming para evitar OOM/timeouts con 200–300 fotos.
+    """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    # ⛔ Si ya está aprobado (o más), redirigir a regenerar (sustituye el final)
-    if s.estado in ("aprobado_supervisor", "aprobado_pm"):
-        messages.info(
-            request, "Project already approved — regenerating final report instead.")
-        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
+    xlsx_path = _xlsx_path_reporte_fotografico_qs(s, ev_qs=None)
 
-    # (el resto tal cual: generar bytes y devolver FileResponse sin guardar)
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
     proj_slug = slugify(
         s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
     filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
 
-
-@login_required
-@rol_requerido('supervisor', 'admin', 'pm', 'usuario')
-def generar_reporte_parcial_asignacion(request, asignacion_id):
-    a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
-    is_owner = (a.tecnico_id == request.user.id)
-    is_staff = getattr(request.user, "rol", "") in (
-        "supervisor", "pm", "admin")
-    if not (is_owner or is_staff):
-        raise Http404()
-
-    ev_qs = (a.evidencias.select_related("requisito")
-             .order_by("requisito__orden", "tomada_en", "id"))
-    xlsx_path = _xlsx_path_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
-
-    proj_slug = slugify(
-        a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
-    tech_slug = slugify(a.tecnico.get_full_name(
-    ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
-    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
     return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
 
 
-@login_required
-@rol_requerido('supervisor', 'admin', 'pm')
-def generar_reporte_parcial_proyecto(request, sesion_id):
-    """
-    Genera un XLSX con todas las fotos actuales de la sesión **sin** cambiar estados
-    ni guardar como 'reporte_fotografico'. Sirve para avances diarios.
-    """
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(s, ev_qs=None)
-
-    proj_slug = slugify(
-        s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
-    filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
-
-
+# --- REEMPLAZA este view ---
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm', 'usuario')
 def generar_reporte_parcial_asignacion(request, asignacion_id):
     """
-    XLSX solo con las evidencias de **una** asignación (tecnico_sesion).
-    - El técnico puede descargar el suyo.
-    - Supervisor/PM/Admin pueden descargar el de cualquiera.
+    XLSX solo con las evidencias de una asignación (técnico).
+    También usa archivo temporal en disco + streaming.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
 
@@ -1100,9 +1536,9 @@ def generar_reporte_parcial_asignacion(request, asignacion_id):
 
     ev_qs = (
         a.evidencias.select_related("requisito")
-         .order_by("requisito__orden", "tomada_en", "id")
+        .order_by("requisito__orden", "tomada_en", "id")
     )
-    bytes_excel = _bytes_excel_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
+    xlsx_path = _xlsx_path_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
 
     proj_slug = slugify(
         a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
@@ -1110,8 +1546,7 @@ def generar_reporte_parcial_asignacion(request, asignacion_id):
     ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
     filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
 
-    from io import BytesIO
-    return FileResponse(BytesIO(bytes_excel), as_attachment=True, filename=filename)
+    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
 
 
 @login_required
