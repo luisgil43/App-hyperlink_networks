@@ -49,7 +49,6 @@
               <div class="font-medium">
                 {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
 
-                {# Badge con data-req y estado inicial (done/pending) — sin {% with %} #}
                 <span class="ml-2 text-xs px-2 py-0.5 rounded req-badge
                              {% if r.id in locked_ids or r.uploaded > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}"
                       data-req="{{ r.id }}"
@@ -109,7 +108,7 @@
                         {% if r.id in locked_ids %}disabled{% endif %}>Grant Location</button>
               </div>
 
-              <button class="mt-2 px-3 py-1 rounded
+              <button type="submit" class="mt-2 px-3 py-1 rounded
                              {% if r.id in locked_ids %}bg-gray-300 text-white cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}"
                       {% if r.id in locked_ids %}disabled{% endif %}>
                 Upload
@@ -147,7 +146,6 @@
             <span class="time-status">🕒 —</span>
           </div>
 
-          {# --- Special project manual fields for Extra --- #}
           {% if is_proyecto_especial %}
           <div class="grid md:grid-cols-2 gap-3 mt-3">
             <div>
@@ -185,7 +183,7 @@
             <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
           </div>
 
-          <button class="mt-2 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-900">Upload</button>
+          <button type="submit" class="mt-2 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-900">Upload</button>
 
           <!-- Queue holder (AJAX progress items) -->
           <div class="mt-2 space-y-2 upload-queue"></div>
@@ -233,7 +231,6 @@
               </div>
               <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
 
-              {# Special project: show Address for Extras #}
               {% if is_proyecto_especial and not ev.requisito_id %}
                 {% if ev.direccion_manual %}
                   <div>📍 {{ ev.direccion_manual }}</div>
@@ -424,7 +421,7 @@
       });
     }
 
-    form.addEventListener('submit', (e)=>{ e.preventDefault(); });
+    // ❌ NO ponemos handler submit aquí para no interferir con el uploader AJAX.
   });
 
   // Delete modal
@@ -557,7 +554,13 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       lblGal.classList.toggle('opacity-60', !enabled);
     }
     if (filenameEl){
-      filenameEl.textContent = enabled ? (filenameEl.dataset.empty || 'No files selected') : 'Closed';
+      // 🔒 Solo sobre-escribir texto si NO hay archivos seleccionados
+      var haveFiles = Array.from(form.querySelectorAll('input[type=file]')).some(function(i){ return i.files && i.files.length; });
+      if (!enabled){
+        filenameEl.textContent = 'Closed';
+      } else if (!haveFiles) {
+        filenameEl.textContent = filenameEl.dataset.empty || 'No files selected';
+      }
     }
     var gps   = form ? form.querySelector('.gps-status') : null;
     var time  = form ? form.querySelector('.time-status') : null;
@@ -778,7 +781,14 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
                 const enabled = data.extras_left > 0;
                 extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
                 const fn = extraForm.querySelector('.filename');
-                if (fn) fn.textContent = enabled ? (fn.dataset.empty || 'No files selected') : 'Closed';
+                const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
+                if (fn) {
+                  if (!enabled) {
+                    fn.textContent = 'Closed';
+                  } else if (!haveFiles) {
+                    fn.textContent = fn.dataset.empty || 'No files selected';
+                  }
+                }
                 const gps = extraForm.querySelector('.gps-status');
                 if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';
               }
@@ -836,6 +846,9 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       ['lat','lng','acc','client_taken_at'].forEach(nm => {
         const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
       });
+      ['titulo_manual','direccion_manual','nota'].forEach(nm => {
+        const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
+      });
     });
   });
 
@@ -868,7 +881,11 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
           const enabled = j.extras_left > 0;
           extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
           const fn = extraForm.querySelector('.filename');
-          if (fn) fn.textContent = enabled ? (fn.dataset.empty || 'No files selected') : 'Closed';
+          const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
+          if (fn) {
+            if (!enabled) fn.textContent = 'Closed';
+            else if (!haveFiles) fn.textContent = fn.dataset.empty || 'No files selected';
+          }
           const gps = extraForm.querySelector('.gps-status');
           if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';
         }
