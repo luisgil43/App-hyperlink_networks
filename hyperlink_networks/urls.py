@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.views.generic.base import RedirectView
 from django.shortcuts import redirect
 from dashboard import views as dashboard_views
+from django.templatetags.static import static as static_url
 
 
 def health_check(request):
@@ -61,6 +62,12 @@ urlpatterns = [
     path('logistica/', include('logistica.urls', namespace='logistica')),
     path('operaciones/', include('operaciones.urls')),
     path('facturacion/', include('facturacion.urls')),
+    path('favicon.ico', RedirectView.as_view(
+        url=static_url('icons/favicon.ico'), permanent=True)),
+    path('apple-touch-icon.png',
+         RedirectView.as_view(url=static_url('icons/apple-touch-icon.png'), permanent=True)),
+    path('apple-touch-icon-precomposed.png',
+         RedirectView.as_view(url=static_url('icons/apple-touch-icon.png'), permanent=True)),
 
 ]
 

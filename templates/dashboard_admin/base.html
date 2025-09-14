@@ -1,11 +1,22 @@
 <!DOCTYPE html>
 {% load static %}
+
+
+
 {% load humanize %}
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+
+<link rel="icon" href="{% static 'images/favicon.ico' %}" sizes="any">
+<link rel="icon" type="image/png" href="{% static 'images/favicon-32.png' %}" sizes="32x32">
+<link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
+
+
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .rotate-90 { transform: rotate(90deg); }
