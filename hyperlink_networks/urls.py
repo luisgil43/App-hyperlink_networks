@@ -11,6 +11,7 @@ from django.views.generic.base import RedirectView
 from django.shortcuts import redirect
 from dashboard import views as dashboard_views
 from django.templatetags.static import static as static_url
+from django.contrib.staticfiles.storage import staticfiles_storage
 
 
 def health_check(request):
@@ -62,13 +63,41 @@ urlpatterns = [
     path('logistica/', include('logistica.urls', namespace='logistica')),
     path('operaciones/', include('operaciones.urls')),
     path('facturacion/', include('facturacion.urls')),
-    path('favicon.ico', RedirectView.as_view(
-        url=static_url('icons/favicon.ico'), permanent=True)),
-    path('apple-touch-icon.png',
-         RedirectView.as_view(url=static_url('icons/apple-touch-icon.png'), permanent=True)),
-    path('apple-touch-icon-precomposed.png',
-         RedirectView.as_view(url=static_url('icons/apple-touch-icon.png'), permanent=True)),
-
+    # Apple touch icons “legacy” en la raíz:
+    path(
+        "apple-touch-icon.png",
+        RedirectView.as_view(
+            url=staticfiles_storage.url("icons/apple-touch-icon.png"),
+            permanent=True,
+        ),
+        name="apple_touch_icon",
+    ),
+    path(
+        "apple-touch-icon-120x120.png",
+        RedirectView.as_view(
+            url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"),
+            permanent=True,
+        ),
+        name="apple_touch_icon_120",
+    ),
+    # Algunos agentes piden el "-precomposed" aunque ya no se use:
+    path(
+        "apple-touch-icon-120x120-precomposed.png",
+        RedirectView.as_view(
+            url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"),
+            permanent=True,
+        ),
+        name="apple_touch_icon_120_pre",
+    ),
+    # Favicon clásico en la raíz:
+    path(
+        "favicon.ico",
+        RedirectView.as_view(
+            url=staticfiles_storage.url("icons/favicon.ico"),
+            permanent=True,
+        ),
+        name="favicon_root",
+    ),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)
