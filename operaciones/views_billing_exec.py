@@ -1167,9 +1167,10 @@ def revisar_sesion(request, sesion_id):
 def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
     """
     Crea el XLSX en un archivo temporal (disco) y devuelve su path.
-    - Escribe el workbook con xlsxwriter in_memory=False
-    - Reconvierte cada imagen a JPEG temporal reducido (tmp_jpeg_from_filefield)
-    - Itera el queryset con .iterator() para no cargar todo a RAM
+    - Escribe con xlsxwriter in_memory=False (streaming).
+    - Convierte cada imagen a JPEG temporal reducido (tmp_jpeg_from_filefield).
+    - Itera el queryset con .iterator() para no cargar todo a RAM.
+    - Centra la imagen en su recuadro.
     """
     tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp_xlsx.close()
@@ -1192,47 +1193,55 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
         "text_wrap": True, "font_size": 9
     })
 
+    # Layout (2 por fila)
     BLOCK_COLS, SEP_COLS = 6, 1
     LEFT_COL = 0
     RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
 
-    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
-    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-
+    # Alturas/filas por bloque (debe ir ANTES de usar ROWS_IMG)
     HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
     BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
 
+    # Conversión aproximada a píxeles (coherente con set_column/set_row)
+    COL_W = 13           # mismo que set_column
+    IMG_ROW_H = 18       # mismo que set_row en el área de imagen
+    def col_px(w): return int(w * 7 + 5)
+    def row_px(h): return int(h * 4 / 3)
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    # Anchuras de columna
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+
+    # Título de hoja
     ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
                    f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
     cur_row = 2
 
-    # contenedor (px) donde se encaja la imagen
-    max_w_px = BLOCK_COLS * 60
-    max_h_px = ROWS_IMG * 18
-
     def draw_block(r, c, ev):
-        # encabezado de bloque
+        # Encabezado del bloque
         if sesion.proyecto_especial and ev.requisito_id is None:
             titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
         else:
             titulo_req = ((getattr(ev.requisito, "titulo", "")
                           or "").strip() or "Extra")
-
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
             ws.set_row(rr, 20)
 
+        # Área de imagen (marco)
         img_top = r + HEAD_ROWS
         for rr in range(img_top, img_top + ROWS_IMG):
-            ws.set_row(rr, 18)
+            ws.set_row(rr, IMG_ROW_H)
         ws.merge_range(img_top, c, img_top + ROWS_IMG -
                        1, c + BLOCK_COLS - 1, "", fmt_box)
 
-        # imagen: crear JPEG temporal reducido (rápido y poco RAM)
+        # Imagen: escala y centrado en píxeles del contenedor
         try:
             tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
             sx = max_w_px / float(w)
@@ -1249,9 +1258,10 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
                 "object_position": 1,
             })
         except Exception:
-            # si una imagen falla, seguimos con el resto
+            # si una imagen falla, continuamos con el resto
             pass
 
+        # Fila de información
         info_row = img_top + ROWS_IMG
         dt = ev.client_taken_at or ev.tomada_en
         taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
@@ -1263,7 +1273,7 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
             ws.merge_range(info_row, c,     info_row, c + 2,
                            f"Taken at\n{taken_txt}", fmt_info)
             ws.merge_range(info_row, c + 3, info_row, c + 5,
-                           f"Address\n{addr_txt}",  fmt_info)
+                           f"Address\n{addr_txt}",   fmt_info)
         else:
             ws.merge_range(info_row, c,     info_row, c + 1,
                            f"Taken at\n{taken_txt}", fmt_info)
@@ -1403,11 +1413,15 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
     if not s.reporte_fotografico or not storage_file_exists(s.reporte_fotografico):
         messages.warning(
-            request, "The photo report is not available. You can regenerate it now.")
-        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
+            request,
+            "The photo report is not available. You can regenerate it now."
+        )
+        return redirect(
+            "operaciones:regenerar_reporte_fotografico_proyecto",
+            sesion_id=s.id
+        )
 
-    return FileResponse(s.reporte_fotografico.open("rb"), as_attachment=True, filename="photo_report.xlsx")
-    # Abrimos y transmitimos nosotros: no usamos la URL presignada
+    # Abrimos y transmitimos nosotros: no usamos URL presignada
     f = s.reporte_fotografico.open("rb")
     filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
     resp = FileResponse(f, as_attachment=True, filename=filename)
@@ -1421,8 +1435,8 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
 def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> bytes:
     """
-    Igual a _bytes_excel_reporte_fotografico, pero permite inyectar un queryset de evidencias.
-    Si ev_qs = None, usa todas las evidencias de la sesión.
+    Igual que antes pero con centrado exacto de imagen.
+    Mantiene in_memory=True (para este caso) y sin cambios en el orden/iteración.
     """
     import io
     import xlsxwriter
@@ -1436,7 +1450,6 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
             .order_by("requisito__orden", "tomada_en", "id")
         )
 
-    # ==== (copia del cuerpo de _bytes_excel_reporte_fotografico, pero usando ev_qs) ====
     bio = io.BytesIO()
     wb = xlsxwriter.Workbook(bio, {"in_memory": True})
     ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
@@ -1453,14 +1466,25 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
     BLOCK_COLS, SEP_COLS = 6, 1
     LEFT_COL = 0
     RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
-    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
-    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
 
+    # Filas/constantes ANTES de calcular píxeles
     HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
     BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+
+    # Conversión a píxeles
+    COL_W = 13
+    IMG_ROW_H = 18
+    def col_px(w): return int(w * 7 + 5)
+    def row_px(h): return int(h * 4 / 3)
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    # Columnas
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
 
     ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
                    f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
@@ -1468,12 +1492,10 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
 
     def draw_block(r, c, ev):
         if sesion.proyecto_especial and ev.requisito_id is None:
-            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
             titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
         else:
-            # Caso normal: requisito > (fallback) Extra
-            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
-                          or "Extra")
+            titulo_req = ((getattr(ev.requisito, "titulo", "")
+                          or "").strip() or "Extra")
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
@@ -1481,13 +1503,11 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
 
         img_top = r + HEAD_ROWS
         for rr in range(img_top, img_top + ROWS_IMG):
-            ws.set_row(rr, 18)
+            ws.set_row(rr, IMG_ROW_H)
         ws.merge_range(img_top, c, img_top + ROWS_IMG -
                        1, c + BLOCK_COLS - 1, "", fmt_box)
 
-        max_w_px = BLOCK_COLS * 60
-        max_h_px = ROWS_IMG * 18
-
+        # Escala + centrado
         image_data = None
         x_scale = y_scale = 1.0
         scaled_w = scaled_h = None
@@ -1534,14 +1554,14 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
             ws.merge_range(info_row, c, info_row, c + 2,
                            f"Taken at\n{taken_txt}", fmt_info)
             ws.merge_range(info_row, c + 3, info_row, c + 5,
-                           f"Address\n{addr_txt}", fmt_info)
+                           f"Address\n{addr_txt}",   fmt_info)
         else:
             ws.merge_range(info_row, c, info_row, c + 1,
                            f"Taken at\n{taken_txt}", fmt_info)
-            ws.merge_range(info_row, c + 2, info_row, c +
-                           3, f"Lat\n{lat_txt}", fmt_info)
-            ws.merge_range(info_row, c + 4, info_row, c +
-                           5, f"Lng\n{lng_txt}", fmt_info)
+            ws.merge_range(info_row, c + 2, info_row, c + 3,
+                           f"Lat\n{lat_txt}",        fmt_info)
+            ws.merge_range(info_row, c + 4, info_row, c + 5,
+                           f"Lng\n{lng_txt}",        fmt_info)
         ws.set_row(info_row, 30)
 
     idx = 0
@@ -1561,19 +1581,13 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
 
 def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
     """
-    XLSX with embedded images (2 per row).
-    - Block header = requirement name, or custom title for 'extra' when special project.
-    - Image centered inside a bordered box.
-    - Info row:
-        * Normal: Taken / Lat / Lng
-        * Special project + extra: Taken / Address (no Lat/Lng)
-    - Gridlines hidden.
+    XLSX con imágenes embebidas (2 por fila) y centradas.
+    Mantiene el uso de memoria/flujo original.
     """
     import io
     import xlsxwriter
     from .models import EvidenciaFotoBilling
 
-    # All evidences in project order
     evs = (
         EvidenciaFotoBilling.objects
         .filter(tecnico_sesion__sesion=sesion)
@@ -1584,11 +1598,8 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
     bio = io.BytesIO()
     wb = xlsxwriter.Workbook(bio, {"in_memory": True})
     ws = wb.add_worksheet("PHOTOGRAPHIC REPORT")
-
-    # Hide gridlines (screen and print)
     ws.hide_gridlines(2)
 
-    # ====== Formats ======
     fmt_title = wb.add_format({
         "bold": True, "align": "center", "valign": "vcenter",
         "border": 1, "bg_color": "#E8EEF7"
@@ -1603,58 +1614,51 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
         "text_wrap": True, "font_size": 9
     })
 
-    # ====== Layout (2 per row) ======
-    BLOCK_COLS = 6   # columns per block
-    SEP_COLS = 1     # separator column
+    BLOCK_COLS, SEP_COLS = 6, 1
     LEFT_COL = 0
-    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS  # 7
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
 
-    # Column widths
-    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)  # separator
-    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-        ws.set_column(c, c, 13)
-
-    # Row heights per block
-    HEAD_ROWS = 1
-    ROWS_IMG = 12
-    ROW_INFO = 1
-    ROW_SPACE = 1
+    # Filas/constantes ANTES de calcular píxeles
+    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
     BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
 
-    # Sheet title
+    # Conversión a píxeles
+    COL_W = 13
+    IMG_ROW_H = 18
+    def col_px(w): return int(w * 7 + 5)
+    def row_px(h): return int(h * 4 / 3)
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    # Columnas
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+
     ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
                    f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
-
     cur_row = 2
 
     def draw_block(r, c, ev):
-        # ----- Header: requirement title or custom title for extra -----
         if sesion.proyecto_especial and ev.requisito_id is None:
-            # Fuerza usar el título manual en proyectos especiales (fotos “extra”)
             titulo_req = (ev.titulo_manual or "").strip() or "Title (missing)"
         else:
-            # Caso normal: requisito > (fallback) Extra
-            titulo_req = ((getattr(ev.requisito, "titulo", "") or "").strip()
-                          or "Extra")
+            titulo_req = ((getattr(ev.requisito, "titulo", "")
+                          or "").strip() or "Extra")
         ws.merge_range(r, c, r + HEAD_ROWS - 1, c +
                        BLOCK_COLS - 1, titulo_req, fmt_head)
         for rr in range(r, r + HEAD_ROWS):
             ws.set_row(rr, 20)
 
-        # ----- Image area (bordered) -----
         img_top = r + HEAD_ROWS
         for rr in range(img_top, img_top + ROWS_IMG):
-            ws.set_row(rr, 18)
+            ws.set_row(rr, IMG_ROW_H)
         ws.merge_range(img_top, c, img_top + ROWS_IMG -
                        1, c + BLOCK_COLS - 1, "", fmt_box)
 
-        # Approx container dimensions (px)
-        max_w_px = BLOCK_COLS * 60
-        max_h_px = ROWS_IMG * 18
-
-        # Read image, scale, and center
+        # Escala + centrado
         image_data = None
         x_scale = y_scale = 1.0
         scaled_w = scaled_h = None
@@ -1690,7 +1694,6 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
                 "object_position": 1,
             })
 
-        # ----- Info row -----
         info_row = img_top + ROWS_IMG
         dt = ev.client_taken_at or ev.tomada_en
         taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
@@ -1699,23 +1702,19 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
         addr_txt = (ev.direccion_manual or "").strip()
 
         if sesion.proyecto_especial and ev.requisito_id is None:
-            # Special project + extra: show Taken / Address (two wide blocks)
             ws.merge_range(info_row, c,         info_row, c + 2,
                            f"Taken at\n{taken_txt}", fmt_info)
             ws.merge_range(info_row, c + 3,     info_row, c + 5,
                            f"Address\n{addr_txt}",   fmt_info)
         else:
-            # Normal: Taken / Lat / Lng
             ws.merge_range(info_row, c,         info_row, c + 1,
                            f"Taken at\n{taken_txt}", fmt_info)
             ws.merge_range(info_row, c + 2,     info_row, c + 3,
                            f"Lat\n{lat_txt}",        fmt_info)
             ws.merge_range(info_row, c + 4,     info_row, c + 5,
                            f"Lng\n{lng_txt}",        fmt_info)
-
         ws.set_row(info_row, 30)
 
-    # Paint 2 per row
     idx = 0
     for ev in evs:
         if idx % 2 == 0:

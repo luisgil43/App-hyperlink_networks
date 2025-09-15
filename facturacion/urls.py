@@ -39,5 +39,8 @@ urlpatterns = [
     path("invoices/<int:pk>/remove/", views.invoice_remove, name="invoice_remove"),
     path('invoices/<int:pk>/update-real/',
          views.invoice_update_real, name='invoice_update_real'),
+    path("invoices/export/", views.invoices_export, name="invoices_export"),
+    path("invoices/<int:pk>/discount-verified/",
+         views.invoice_discount_verified, name="invoice_discount_verified"),
 
 ]

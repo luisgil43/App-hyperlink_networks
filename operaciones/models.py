@@ -80,6 +80,8 @@ def upload_to_reporte_fotografico_proyecto(instance, filename: str) -> str:
 
 FINANCE_STATUS = [
     ("none", "—"),
+    ("review_discount", "Review discount"),      # 👈 NUEVO
+    ("discount_applied", "Discount applied"),    # 👈 NUEVO
     ("sent", "Enviado a Finanzas"),
     ("pending", "Pendiente por cobrar"),
     ("in_review", "En revisión"),
@@ -98,8 +100,8 @@ indexes = [
 class SesionBilling(models.Model):
     creado_en = models.DateTimeField(default=timezone.now)
 
+    # ----- Descuentos directos -----
     is_direct_discount = models.BooleanField(default=False, db_index=True)
-
     origin_session = models.ForeignKey(
         "self",
         null=True, blank=True,
@@ -108,14 +110,14 @@ class SesionBilling(models.Model):
         help_text="If set, this discount corrects the referenced session."
     )
 
-    # Identificación del proyecto
+    # ----- Identificación del proyecto -----
     proyecto_id = models.CharField(max_length=64)
     cliente = models.CharField(max_length=120)
     ciudad = models.CharField(max_length=120)
     proyecto = models.CharField(max_length=120)
     oficina = models.CharField(max_length=120)
 
-    # Ubicación y semana proyectada de pago
+    # ----- Ubicación y semana proyectada de pago -----
     direccion_proyecto = models.CharField(
         "Project address / Google Maps link",
         max_length=500,
@@ -135,7 +137,7 @@ class SesionBilling(models.Model):
         help_text="If enabled, 'extra' photos can include user-entered Title and Address; the report will use those fields."
     )
 
-    # Estado operativo y reporte único del proyecto
+    # ----- Estado operativo y reporte único del proyecto -----
     estado = models.CharField(
         max_length=32,
         choices=ESTADOS_PROY,
@@ -151,13 +153,21 @@ class SesionBilling(models.Model):
         max_length=1024,
     )
 
-    # Totales
+    # ----- Totales -----
     subtotal_tecnico = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00"))
     subtotal_empresa = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00"))
     real_company_billing = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True)
+
+    # Semana del descuento (si aplica)
+    discount_week = models.CharField(
+        "Discount week (ISO)",
+        max_length=10,
+        blank=True,
+        default="",
+    )
 
     # Semana real de pago (operaciones)
     semana_pago_real = models.CharField(
@@ -168,7 +178,6 @@ class SesionBilling(models.Model):
     )
 
     # =============================== FINANZAS ============================== #
-    # 👇 NUEVO: estado/motivo y marcas de envío/actualización para Finanzas.
     finance_status = models.CharField(
         max_length=20, choices=FINANCE_STATUS, default="none", db_index=True
     )
@@ -183,16 +192,13 @@ class SesionBilling(models.Model):
             models.Index(fields=["proyecto_id"]),
             models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
             models.Index(fields=["estado"]),
-            # finance_status ya tiene db_index=True; este Index extra no es necesario.
+            models.Index(fields=["is_direct_discount"]),
         ]
 
+    # ---------------------- Helpers / business rules ---------------------- #
     @property
     def diferencia(self):
-        """
-        Diferencia entre lo presupuestado a cliente (subtotal_empresa)
-        y lo realmente facturado/cobrado (real_company_billing).
-        None si aún no hay valor real.
-        """
+        """subtotal_empresa - real_company_billing (None si no hay real)."""
         if self.real_company_billing is None:
             return None
         return (self.subtotal_empresa or Decimal("0.00")) - self.real_company_billing
@@ -204,10 +210,7 @@ class SesionBilling(models.Model):
 
     @property
     def maps_href(self) -> str:
-        """
-        Si 'direccion_proyecto' es URL, devuélvela.
-        Si es texto, construye un link de búsqueda en Google Maps.
-        """
+        """Devuelve la URL de maps a partir de 'direccion_proyecto'."""
         val = (self.direccion_proyecto or "").strip()
         if not val:
             return ""
@@ -246,6 +249,29 @@ class SesionBilling(models.Model):
             if save:
                 self.save(update_fields=["estado"])
         return self.estado
+
+    # ===== Nuevos helpers para el flujo de descuento ===== #
+    @property
+    def can_mark_discount_applied(self) -> bool:
+        """Se usa en la UI: muestra el botón 'Discount applied'."""
+        return self.is_direct_discount and self.finance_status == "review_discount"
+
+    def mark_discount_applied(self, note: str = ""):
+        """Transición explícita a 'discount_applied'."""
+        self.finance_status = "discount_applied"
+        if note:
+            self.finance_note = note
+            self.save(update_fields=["finance_status",
+                      "finance_note", "finance_updated_at"])
+        else:
+            self.save(update_fields=["finance_status", "finance_updated_at"])
+
+    # Forzar estado inicial correcto para descuentos directos
+    def save(self, *args, **kwargs):
+        # Si es descuento directo, el primer estado de finanzas debe ser "review_discount".
+        if self.is_direct_discount and self.finance_status in ("none", "", "sent"):
+            self.finance_status = "review_discount"
+        super().save(*args, **kwargs)
 
 
 class ItemBilling(models.Model):

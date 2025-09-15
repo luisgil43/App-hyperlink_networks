@@ -18,6 +18,14 @@
         <option value="paid" {% if scope == "paid" %}selected{% endif %}>Paid</option>
         <option value="all"  {% if scope == "all" %}selected{% endif %}>All</option>
       </select>
+ <!-- Export XLSX (con los filtros actuales) -->
+    <a
+      href="{% url 'facturacion:invoices_export' %}?scope={{ scope }}&cantidad={{ cantidad }}"
+      class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+      title="Export all fields to Excel"
+    >
+      ⬇️ Export
+    </a>
     </form>
   </div>
 
@@ -55,7 +63,7 @@
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Difference</th>
           <th class="p-2 border text-left">Finance status</th>
-          <th class="p-2 border text-left">Real pay week</th>
+          <th class="p-2 border text-left">Pay week / Discount week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
       </thead>
@@ -105,6 +113,11 @@
 
           <!-- Project status -->
           <td class="p-2 border" data-status-cell>
+  {% if s.is_direct_discount %}
+  <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+      Direct discount
+    </span>
+  {% else %}
             {% if s.estado == "aprobado_pm" %}
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
             {% elif s.estado == "rechazado_pm" %}
@@ -122,6 +135,7 @@
             {% else %}
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
             {% endif %}
+ {% endif %}
           </td>
 
           <!-- Technicians -->
@@ -171,11 +185,13 @@
 </td>
 
           <!-- Finance status -->
-          <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
-  {% if s.finance_status == "sent" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-      Sent to client
-    </span>
+<td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
+  {% if s.finance_status == "review_discount" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Review discount</span>
+  {% elif s.finance_status == "discount_applied" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Discount applied</span>
+  {% elif s.finance_status == "sent" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to client</span>
   {% elif s.finance_status == "in_review" %}
     <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
   {% elif s.finance_status == "rejected" %}
@@ -197,29 +213,53 @@
   {% endif %}
 </td>
 
+
           <!-- Real pay week (inline edit) -->
-          <td class="p-2 border" data-col="week">
-            <span class="week-view" id="week-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
-            {% if can_edit_real_week %}
-              <input type="text" placeholder="YYYY-W##" class="week-input hidden border rounded px-2 py-1 text-sm w-28"
-                    id="week-input-{{ s.id }}" value="{{ s.semana_pago_real|default:'' }}">
-              <button type="button" class="week-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
-            {% else %}
-              <button type="button" class="text-xs text-gray-400 cursor-not-allowed" title="Only PM/Finance/Admin can edit.">🔒</button>
-            {% endif %}
-          </td>
+     <td class="p-2 border" data-col="week">
+  <span class="week-view" id="week-view-{{ s.id }}">
+    {{ s.semana_pago_real|default:"—" }}
+    {% if s.semana_descuento or s.discount_week %}
+      <span class="text-gray-400"> / </span>
+      <span class="text-amber-700">
+        {{ s.semana_descuento|default:s.discount_week }}
+      </span>
+    {% endif %}
+  </span>
+
+  {% if can_edit_real_week %}
+    <input type="text" placeholder="YYYY-W##" class="week-input hidden border rounded px-2 py-1 text-sm w-28"
+           id="week-input-{{ s.id }}" value="{{ s.semana_pago_real|default:'' }}">
+    <button type="button" class="week-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
+  {% else %}
+    <button type="button" class="text-xs text-gray-400 cursor-not-allowed" title="Only PM/Finance/Admin can edit.">🔒</button>
+  {% endif %}
+</td>
+
 
           <!-- Actions -->
-        <td class="p-2 border text-center">
+      <td class="p-2 border text-center">
   <div class="flex items-center justify-center gap-3">
+    <!-- Remove (siempre) -->
+ <button type="button"
+        class="text-red-600 hover:underline btn-remove"
+        data-id="{{ s.id }}"
+        data-url="{% url 'facturacion:invoice_remove' s.id %}">
+  Remove
+</button>
 
-    {# Remove SIEMPRE visible #}
-    <form method="post" action="{% url 'facturacion:invoice_remove' s.id %}" class="inline">
-      {% csrf_token %}
-      <button class="text-red-600 hover:underline">Remove</button>
-    </form>
 
-    {# Edit solo cuando no hay real cargado #}
+    <!-- Discount verified (solo Direct Discount en revisión) -->
+  {% if s.is_direct_discount and s.finance_status == 'review_discount' %}
+  <button
+    type="button"
+    class="btn-discount-verified text-emerald-700 hover:underline"
+    data-id="{{ s.id }}"
+    data-url="{% url 'facturacion:invoice_discount_verified' s.id %}">
+    Discount verified
+  </button>
+{% endif %}
+
+    <!-- Edit / Reject / Mark paid (lógica existente) -->
     {% if s.real_company_billing is None %}
       <button type="button" class="text-blue-600 hover:underline real-edit" data-id="{{ s.id }}">Edit</button>
     {% else %}
@@ -230,7 +270,6 @@
         <button type="button" class="btn-paid text-green-700 hover:underline" data-id="{{ s.id }}">Mark as paid</button>
       {% endif %}
     {% endif %}
-
   </div>
 </td>
         </tr>
@@ -409,71 +448,187 @@ document.addEventListener('click', function(e){
 });
 </script>
 
-<!-- Filters -->
 <script>
 (function(){
-  const table = document.getElementById('billing-table');
-  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
-  const inputs = {
-    date:   document.getElementById('f-date'),
-    projid: document.getElementById('f-projid'),
-    week:   document.getElementById('f-week'),
-    tech:   document.getElementById('f-tech'),
-    client: document.getElementById('f-client'),
-    status: document.getElementById('f-status'),
-  };
-  const btnClear = document.getElementById('btn-clear');
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
 
-  const lc  = s => (s || '').toLowerCase();
-  const norm = s => lc(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const v   = el => norm(el?.value || '');
-
-  function statusHaystackFor(tr){
-    const td = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
-    const txt = norm(td?.textContent || '');
-    let extras = '';
-    if (txt.includes('approved'))          extras += ' aprobado approved';
-    if (txt.includes('rejected'))          extras += ' rechazado rejected';
-    if (txt.includes('supervisor review')) extras += ' en revision revision review';
-    if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
-    if (txt.includes('in progress'))       extras += ' en proceso progress';
-    if (txt.includes('assigned'))          extras += ' asignado assigned';
-    const code = tr.dataset.status || '';
-    return norm(txt + ' ' + extras + ' ' + code);
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' :
+               type === 'error'   ? 'bg-red-600'   : 'bg-blue-600';
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2000);
   }
 
-  function applyFilters(){
+  // Remove -> POST AJAX y sacar fila del DOM al éxito
+document.addEventListener("click", async (e)=>{
+  const btn = e.target.closest(".btn-remove");
+  if(!btn) return;
+
+  const url = btn.dataset.url;              // <— usa data-url directo
+  const id  = btn.dataset.id;
+
+  try{
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    });
+    const payload = await resp.json().catch(()=> ({}));
+    if(!resp.ok || !payload.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+
+    // Quita la fila del DOM
+    const tr = document.querySelector(`tr[data-row="main"][data-id="${id}"]`);
+    if (tr){
+      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+      tr.remove();
+      if (detailId) document.getElementById(detailId)?.remove();
+    }
+    toast("Removed. It returns to Operations.", "success");
+  }catch(err){
+    toast(err.message || "Remove failed", "error");
+  }
+});
+
+})();
+</script>
+
+<!-- Filters -->
+<script>
+(function () {
+  /* ===================== Filtros ===================== */
+  const table = document.getElementById("billing-table");
+  if (!table) return;
+
+  const allRows = Array.from(
+    table.querySelectorAll('tbody tr[data-row="main"]')
+  );
+  const inputs = {
+    date:   document.getElementById("f-date"),
+    projid: document.getElementById("f-projid"),
+    week:   document.getElementById("f-week"),
+    tech:   document.getElementById("f-tech"),
+    client: document.getElementById("f-client"),
+    status: document.getElementById("f-status"),
+  };
+  const btnClear = document.getElementById("btn-clear");
+
+  const lc   = (s) => (s || "").toLowerCase();
+  const norm = (s) => lc(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const v    = (el) => norm(el?.value || "");
+
+  function statusHaystackFor(tr) {
+    const td = tr.querySelector("td[data-status-cell]") || tr.querySelectorAll("td")[6];
+    const txt = norm(td?.textContent || "");
+    let extras = "";
+    if (txt.includes("approved"))          extras += " aprobado approved";
+    if (txt.includes("rejected"))          extras += " rechazado rejected";
+    if (txt.includes("supervisor review")) extras += " en revision revision review";
+    if (txt.includes("finished"))          extras += " finalizado pendiente revision review";
+    if (txt.includes("in progress"))       extras += " en proceso progress";
+    if (txt.includes("assigned"))          extras += " asignado assigned";
+    const code = tr.dataset.status || "";
+    return norm(txt + " " + extras + " " + code);
+  }
+
+  function applyFilters() {
     const f = {
-      date: v(inputs.date),
+      date:   v(inputs.date),
       projid: v(inputs.projid),
-      week: v(inputs.week),
-      tech: v(inputs.tech),
+      week:   v(inputs.week),
+      tech:   v(inputs.tech),
       client: v(inputs.client),
       status: v(inputs.status),
     };
 
-    allRows.forEach(tr => {
+    allRows.forEach((tr) => {
       const ok =
         (!f.date   || tr.dataset.date.toLowerCase().includes(f.date)) &&
         (!f.projid || tr.dataset.projid.toLowerCase().includes(f.projid)) &&
         (!f.week   || tr.dataset.week.toLowerCase().includes(f.week)) &&
-        (!f.tech   || (tr.dataset.tech||'').toLowerCase().includes(f.tech)) &&
+        (!f.tech   || (tr.dataset.tech || "").toLowerCase().includes(f.tech)) &&
         (!f.client || tr.dataset.client.toLowerCase().includes(f.client)) &&
         (!f.status || statusHaystackFor(tr).includes(f.status));
 
-      tr.style.display = ok ? '' : 'none';
+      tr.style.display = ok ? "" : "none";
 
-      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
-      if (detailId){
+      const detailId = tr.querySelector(".btn-toggle-detalle")?.getAttribute("data-target");
+      if (detailId) {
         const det = document.getElementById(detailId);
-        if(det) det.style.display = ok ? '' : 'none';
+        if (det) det.style.display = ok ? "" : "none";
       }
     });
   }
 
-  Object.values(inputs).forEach(i => i.addEventListener('input', applyFilters));
-  btnClear.addEventListener('click', ()=>{ Object.values(inputs).forEach(i => i.value = ''); applyFilters(); });
+  Object.values(inputs).forEach((i) => i?.addEventListener("input", applyFilters));
+  btnClear?.addEventListener("click", () => {
+    Object.values(inputs).forEach((i) => (i.value = ""));
+    applyFilters();
+  });
   applyFilters();
+
+  /* ===================== Utils para acciones ===================== */
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp("(^|; )" + name + "=([^;]*)"));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie("csrftoken");
+  const toastSafe = window.toast || ((msg) => console.log(msg));
+
+  /* ===================== Discount verified ===================== */
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".btn-discount-verified");
+    if (!btn) return;
+
+    const id = btn.dataset.id;
+    // Usa data-url si lo pusiste en el botón; si no, arma la URL con base al path de 'invoices'
+    const base = "{% url 'facturacion:invoices' %}"; // /facturacion/invoices/
+    const url =
+      btn.dataset.url ||
+      base.replace("/invoices/", `/invoices/${id}/discount-verified/`);
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrftoken,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      });
+
+      let payload = null;
+      try { payload = await resp.json(); } catch (_) {}
+
+      if (!resp.ok) {
+        const msg =
+          (payload && (payload.error || payload.message)) ||
+          `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      // Actualiza la UI sin recargar toda la página
+      const row = btn.closest("tr");
+      const cell = row?.querySelector('[data-finance-status]');
+      if (cell) {
+        cell.innerHTML =
+          '<span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Discount applied</span>';
+      }
+      btn.remove();
+      toastSafe("Discount applied.", "success");
+      // Si prefieres refrescar toda la página:
+      // window.location.reload();
+    } catch (err) {
+      toastSafe(err.message || "Operation failed", "error");
+    }
+  });
 })();
 </script>
 

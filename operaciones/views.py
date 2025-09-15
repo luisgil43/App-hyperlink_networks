@@ -1,4 +1,15 @@
 # operaciones/views.py
+from django.utils.text import slugify
+from django.http import HttpResponse, JsonResponse
+import xlsxwriter
+from io import BytesIO
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl import load_workbook, Workbook
+from openpyxl.drawing.image import Image as XLImage  # para copiar imágenes
+from openpyxl import Workbook, load_workbook
+from django.db.models import Case, When, IntegerField
+from django.http import JsonResponse, FileResponse, HttpResponseNotAllowed
+from django.db.models import Q, Prefetch
 from urllib.parse import urlencode
 from django.db.models import Q, F, Sum
 from django.db.models import Sum, Q, F
@@ -1233,29 +1244,40 @@ def exportar_billing_excel(request):
     return _xlsx_response(wb)
 
 
+# views.py
+
+
+def _norm(txt: str) -> str:
+    """minúsculas + sin espacios/guiones/underscores (para comparar estados)."""
+    if not txt:
+        return ""
+    t = txt.strip().lower()
+    return "".join(ch for ch in t if ch.isalnum())
+
+
 @login_required
 @rol_requerido('admin', 'pm')
 @require_POST
 @transaction.atomic
-def billing_send_to_finance(request):
+def billing_send_finance(request):
     """
-    Marca una lista de billings como 'sent' para Finanzas.
-    Acepta:
-      - form-urlencoded: ids="1,2,3"&note="opcional"
-      - application/json: {"ids":[1,2,3],"note":"..."}
-    Valida que el estado operativo sea >= aprobado_supervisor.
+    Enviar a Finanzas SOLO si:
+      - is_direct_discount == True  -> finance_status = 'review_discount'
+      - estado == 'Approved by supervisor' (ES/EN) -> finance_status = 'sent'
+    Nunca 400 por mezcla: envía lo válido y reporta skipped con motivo.
     """
-    # --- parse ids + note ---
+    # ---- parseo ids + nota ----
     ids, note = [], ""
-    if request.content_type and "application/json" in request.content_type:
+    ctype = (request.content_type or "").lower()
+
+    if "application/json" in ctype:
         import json
         try:
             payload = json.loads(request.body.decode("utf-8"))
-            ids = [int(x)
-                   for x in (payload.get("ids") or []) if str(x).isdigit()]
-            note = (payload.get("note") or "").strip()
         except Exception:
             return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
+        ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
+        note = (payload.get("note") or "").strip()
     else:
         raw = (request.POST.get("ids") or "").strip()
         ids = [int(x) for x in raw.split(",") if x.isdigit()]
@@ -1264,42 +1286,90 @@ def billing_send_to_finance(request):
     if not ids:
         return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
 
-    # --- validar estado operativo permitido ---
-    allowed_ops = ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
-    invalid_exists = (SesionBilling.objects
-                      .filter(id__in=ids)
-                      .exclude(estado__in=allowed_ops)
-                      .exists())
-    if invalid_exists:
-        return JsonResponse(
-            {"ok": False,
-             "error": "INVALID_STATUS",
-             "message": 'Only billings "Approved by supervisor" (or higher) can be sent.'},
-            status=400
-        )
+    # ---- reglas permitidas ----
+    allowed_supervisor_norms = {
+        "aprobadosupervisor",
+        "approvedsupervisor",
+        "approvedbysupervisor",
+        "aprobadoporsupervisor",
+    }
 
-    # --- actualizar ---
+    # Estados de finanzas que BLOQUEAN reenvío
+    blocked_fin = {
+        "sent", "senttofinance",
+        "reviewdiscount", "discountapplied",  # 👈 claves nuevas para descuentos
+        "inreview", "pending", "readyforpayment",
+        "paid", "rejected", "cancelled", "canceled",
+        "enviado", "enrevision", "pendiente", "listoparapago",
+        "pagado", "rechazado", "cancelado",
+    }
+
+    rows = list(SesionBilling.objects.filter(id__in=ids))
     now = timezone.now()
-    qs = SesionBilling.objects.select_for_update().filter(
-        id__in=ids, estado__in=allowed_ops)
+
     updated = 0
-    for s in qs:
-        s.finance_status = "sent"
-        s.finance_sent_at = now
-        s.finance_updated_at = now
+    updated_rows = []   # para devolver el estado final de cada id
+    skipped = []
+
+    # Decidir qué actualizar y a qué estado
+    plan = []  # (id, new_finance_status)
+
+    for s in rows:
+        estado_norm = _norm(getattr(s, "estado", ""))
+        fin_norm = _norm(getattr(s, "finance_status", ""))
+
+        # bloqueados por estado de finanzas
+        if fin_norm in blocked_fin:
+            skipped.append({
+                "id": s.id, "estado": s.estado,
+                "is_direct_discount": bool(s.is_direct_discount),
+                "finance_status": s.finance_status,
+                "skip_reason": "FINANCE_STATUS_BLOCKED",
+            })
+            continue
+
+        if getattr(s, "is_direct_discount", False) is True:
+            # Descuento directo: primer estado en finanzas -> review_discount
+            plan.append((s.id, "review_discount"))
+        elif estado_norm in allowed_supervisor_norms:
+            # Aprobado por supervisor: flujo normal -> sent
+            plan.append((s.id, "sent"))
+        else:
+            skipped.append({
+                "id": s.id, "estado": s.estado,
+                "is_direct_discount": bool(s.is_direct_discount),
+                "finance_status": s.finance_status,
+                "skip_reason": "NOT_ALLOWED_STATUS",
+            })
+
+    # aplicar updates con lock
+    by_id_new = {i: st for (i, st) in plan}
+    for s in SesionBilling.objects.select_for_update().filter(id__in=by_id_new.keys()):
+        new_status = by_id_new[s.id]
+        s.finance_status = new_status
+
+        # sent -> marca finance_sent_at; review_discount no
+        if new_status == "sent" and hasattr(s, "finance_sent_at"):
+            s.finance_sent_at = now
+        if hasattr(s, "finance_updated_at"):
+            s.finance_updated_at = now
+
         if note:
             prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
-            s.finance_note = (
-                s.finance_note + "\n" if s.finance_note else "") + prefix + note
-        s.save(update_fields=[
-               "finance_status", "finance_sent_at", "finance_updated_at", "finance_note"])
-        updated += 1
+            s.finance_note = ((s.finance_note + "\n")
+                              if s.finance_note else "") + prefix + note
 
-    # respuesta
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return JsonResponse({"ok": True, "count": updated})
-    messages.success(request, f"Sent to Finance: {updated}.")
-    return redirect("operaciones:listar_billing")
+        s.save(update_fields=[
+            "finance_status",
+            *(["finance_sent_at"] if new_status ==
+              "sent" and hasattr(s, "finance_sent_at") else []),
+            *(["finance_updated_at"] if hasattr(s, "finance_updated_at") else []),
+            *(["finance_note"] if note else []),
+        ])
+        updated += 1
+        updated_rows.append({"id": s.id, "finance_status": s.finance_status})
+
+    return JsonResponse({"ok": True, "count": updated, "updated": updated_rows, "skipped": skipped})
 
 
 @login_required
@@ -3018,16 +3088,40 @@ def billing_reopen_asignado(request, pk):
 
 @login_required
 def listar_billing(request):
+    # ===== Helpers dentro de la vista =====
+    def norm(s):
+        return (s or "").strip()
+
+    def parse_date(s):
+        s = norm(s)
+        if not s:
+            return None
+        # acepta "YYYY-MM-DD" o "YYYY/MM/DD"
+        s = s.replace("/", "-")
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    def qs_keep_from_request():
+        params = request.GET.copy()
+        params.pop("page", None)
+        return urlencode(params, doseq=True)
+
+    # ===== Base queryset (excluye lo que ya está en Finanzas) =====
     qs = (
         SesionBilling.objects
-        .exclude(finance_status__in=["sent", "in_review", "pending", "paid"])
+        .filter(Q(finance_status='none') | Q(finance_status='') | Q(finance_status__isnull=True))
         .order_by("-creado_en")
         .prefetch_related(
             Prefetch(
                 "items",
                 queryset=ItemBilling.objects.prefetch_related(
                     Prefetch(
-                        "desglose_tecnico", queryset=ItemBillingTecnico.objects.select_related("tecnico"))
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related(
+                            "tecnico")
+                    )
                 ),
             ),
             Prefetch(
@@ -3046,6 +3140,65 @@ def listar_billing(request):
         )
     )
 
+    # ===== Filtros GET sobre TODA la base =====
+    f = {
+        "date":   norm(request.GET.get("date")),
+        "projid": norm(request.GET.get("projid")),
+        "week":   norm(request.GET.get("week")),
+        "tech":   norm(request.GET.get("tech")),
+        "client": norm(request.GET.get("client")),
+        "status": norm(request.GET.get("status")),
+    }
+
+    # Fecha exacta (por día) si viene válida
+    d = parse_date(f["date"])
+    if d:
+        qs = qs.filter(creado_en__date=d)
+
+    if f["projid"]:
+        qs = qs.filter(proyecto_id__icontains=f["projid"])
+
+    if f["week"]:
+        # filtra por semana proyectada o real
+        qs = qs.filter(Q(semana_pago_proyectada__icontains=f["week"]) |
+                       Q(semana_pago_real__icontains=f["week"]))
+
+    if f["client"]:
+        qs = qs.filter(cliente__icontains=f["client"])
+
+    if f["tech"]:
+        # busca en nombre, username y apellidos
+        term = f["tech"]
+        qs = qs.filter(
+            Q(tecnicos_sesion__tecnico__first_name__icontains=term) |
+            Q(tecnicos_sesion__tecnico__last_name__icontains=term) |
+            Q(tecnicos_sesion__tecnico__username__icontains=term)
+        ).distinct()
+
+    if f["status"]:
+        s = f["status"].lower()
+        # mapeo sencillo de palabras clave -> estados
+        if any(k in s for k in ["discount", "descuento"]):
+            qs = qs.filter(is_direct_discount=True)
+        elif any(k in s for k in ["approved by supervisor", "aprobado supervisor"]):
+            qs = qs.filter(estado="aprobado_supervisor")
+        elif any(k in s for k in ["rejected by supervisor", "rechazado supervisor"]):
+            qs = qs.filter(estado="rechazado_supervisor")
+        elif any(k in s for k in ["approved by pm", "aprobado pm"]):
+            qs = qs.filter(estado="aprobado_pm")
+        elif any(k in s for k in ["rejected by pm", "rechazado pm"]):
+            qs = qs.filter(estado="rechazado_pm")
+        elif any(k in s for k in ["in supervisor review", "revision", "review"]):
+            qs = qs.filter(estado="en_revision_supervisor")
+        elif any(k in s for k in ["finished", "finalizado"]):
+            qs = qs.filter(estado="finalizado")
+        elif any(k in s for k in ["in progress", "proceso"]):
+            qs = qs.filter(estado="en_proceso")
+        elif any(k in s for k in ["assigned", "asignado"]):
+            qs = qs.filter(estado="asignado")
+        # si no calza, no filtra nada más
+
+    # ===== Paginación =====
     cantidad = request.GET.get("cantidad", "10")
     if cantidad == "todos":
         pagina = Paginator(qs, qs.count() or 1).get_page(1)
@@ -3056,26 +3209,28 @@ def listar_billing(request):
             per_page = 10
         pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
+    # ===== Permisos =====
     can_edit_real_week = (
         getattr(request.user, "es_pm", False)
         or getattr(request.user, "es_facturacion", False)
         or getattr(request.user, "es_admin_general", False)
         or request.user.is_superuser
     )
-    # ✏️ SOLO ADMIN
     can_edit_items = bool(
-        getattr(request.user, "es_admin_general", False) or request.user.is_superuser)
-
-    return render(
-        request,
-        "operaciones/billing_listar.html",
-        {
-            "pagina": pagina,
-            "cantidad": cantidad,
-            "can_edit_real_week": can_edit_real_week,
-            "can_edit_items": can_edit_items,  # <-- aquí
-        },
+        getattr(request.user, "es_admin_general",
+                False) or request.user.is_superuser
     )
+
+    ctx = {
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "can_edit_real_week": can_edit_real_week,
+        "can_edit_items": can_edit_items,
+        "f": f,                         # ← para repoblar inputs
+        "qs_keep": qs_keep_from_request(),  # ← para los links de paginación
+    }
+
+    return render(request, "operaciones/billing_listar.html", ctx)
 
 
 @login_required
@@ -5995,3 +6150,258 @@ def admin_reset_payment_status(request, pk: int):
 
     messages.success(request, "Status reset to 'Pending worker approval'.")
     return redirect("operaciones:admin_weekly_payments")
+
+
+# --- helper: existe en storage ---
+
+def storage_file_exists(fieldfile) -> bool:
+    try:
+        if not fieldfile:
+            return False
+        name = getattr(fieldfile, "name", None)
+        if not name:
+            return False
+        storage = getattr(fieldfile, "storage", default_storage)
+        return storage.exists(name)
+    except Exception:
+        return False
+
+# --- helper: elegir un Excel utilizable para una sesión ---
+
+
+def pick_excel_for_session(session):
+    """
+    Devuelve (FieldFile, etiqueta_hoja) o (None, None).
+    Prioriza el Excel único del proyecto; si no, busca uno de técnico.
+    Acepta solo extensiones compatibles con openpyxl (.xlsx/.xlsm/.xltx/.xltm).
+    """
+    def is_openpyxl_ext(name: str) -> bool:
+        name = (name or '').lower()
+        return name.endswith(('.xlsx', '.xlsm', '.xltx', '.xltm'))
+
+    # 1) nivel proyecto
+    f = getattr(session, "reporte_fotografico", None)
+    if storage_file_exists(f) and is_openpyxl_ext(getattr(f, "name", "")):
+        return f, str(session.proyecto_id or session.id)
+
+    # 2) nivel técnico (primer Excel válido)
+    for ts in session.tecnicos_sesion.select_related("tecnico").all():
+        tf = getattr(ts, "reporte_fotografico", None)
+        if storage_file_exists(tf) and is_openpyxl_ext(getattr(tf, "name", "")):
+            tech = getattr(ts.tecnico, "get_full_name", lambda: "")() or getattr(
+                ts.tecnico, "username", "") or str(ts.tecnico_id)
+            return tf, f"{session.proyecto_id or session.id} - {tech}"
+
+    return None, None
+
+# --- opción: localizar hoja fuente preferida ---
+
+
+def first_sheet(wb):
+    return wb["PHOTOGRAPHIC REPORT"] if "PHOTOGRAPHIC REPORT" in wb.sheetnames else wb.active
+
+
+# --- MERGE DE REPORTES A UN SOLO EXCEL ---
+
+
+@login_required
+@rol_requerido('supervisor', 'pm', 'admin', 'facturacion')
+@require_POST
+def billing_merge_excel(request):
+    """
+    Une varios 'reportes fotográficos' en un solo XLSX.
+    - Mantiene el comportamiento actual (xlsxwriter in-memory) y añade centrado preciso.
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        ids = [int(x) for x in (data.get("ids") or [])]
+    except Exception:
+        return HttpResponseBadRequest("JSON inválido.")
+
+    if not ids:
+        return HttpResponseBadRequest("No se recibieron IDs.")
+
+    sesiones = {s.id: s for s in SesionBilling.objects.filter(id__in=ids)}
+    ordered = [sesiones[i] for i in ids if i in sesiones]
+
+    out = BytesIO()
+    wb = xlsxwriter.Workbook(out, {"in_memory": True})
+
+    # formatos
+    fmt_title = wb.add_format({
+        "bold": True, "align": "center", "valign": "vcenter",
+        "border": 1, "bg_color": "#E8EEF7"
+    })
+    fmt_head = wb.add_format({
+        "border": 1, "align": "center", "valign": "vcenter",
+        "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
+    })
+    fmt_box = wb.add_format({"border": 1})
+    fmt_info = wb.add_format({
+        "border": 1, "align": "center", "valign": "vcenter",
+        "text_wrap": True, "font_size": 9
+    })
+
+    BLOCK_COLS, SEP_COLS = 6, 1
+    LEFT_COL = 0
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+
+    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
+    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+
+    # ——— Conversión realista a píxeles (sin cambiar layout ni tiempos) ———
+    COL_W = 13          # mismo valor que set_column
+    IMG_ROW_H = 18      # mismo valor que set_row
+    def col_px(w): return int(w * 7 + 5)
+    def row_px(h): return int(h * 4 / 3)
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    def _safe_sheet_name(base: str, used: set[str]):
+        name = (base or "sheet").strip()[:31] or "sheet"
+        if name not in used:
+            used.add(name)
+            return name
+        i = 2
+        while True:
+            candidate = (name[: (31 - len(f" ({i})"))] + f" ({i})")
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+            i += 1
+
+    skipped, used_names = [], set()
+    total_sheets = 0
+
+    for s in ordered:
+        ev_qs = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion=s)
+            .select_related("requisito")
+            .order_by("requisito__orden", "tomada_en", "id")
+        )
+        if not ev_qs.exists():
+            skipped.append(str(s.id))
+            continue
+
+        base = f"{slugify(s.proyecto_id or '')}-{s.id}".strip("-") or f"proj-{s.id}"
+        ws = wb.add_worksheet(_safe_sheet_name(base[:31], used_names))
+
+        ws.hide_gridlines(2)
+        for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+            ws.set_column(c, c, COL_W)
+        ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+        for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+            ws.set_column(c, c, COL_W)
+
+        ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
+                       f"ID PROJECT: {s.proyecto_id}", fmt_title)
+        cur_row = 2
+
+        idx = 0
+        for ev in ev_qs.iterator():
+            col = LEFT_COL if (idx % 2 == 0) else RIGHT_COL
+
+            # encabezado
+            if s.proyecto_especial and ev.requisito_id is None:
+                titulo_req = (
+                    ev.titulo_manual or "").strip() or "Title (missing)"
+            else:
+                titulo_req = (
+                    (getattr(ev.requisito, "titulo", "") or "").strip() or "Extra")
+            ws.merge_range(cur_row, col, cur_row + HEAD_ROWS - 1,
+                           col + BLOCK_COLS - 1, titulo_req, fmt_head)
+            for rr in range(cur_row, cur_row + HEAD_ROWS):
+                ws.set_row(rr, 20)
+
+            # área imagen
+            img_top = cur_row + HEAD_ROWS
+            for rr in range(img_top, img_top + ROWS_IMG):
+                ws.set_row(rr, IMG_ROW_H)
+            ws.merge_range(img_top, col, img_top + ROWS_IMG -
+                           1, col + BLOCK_COLS - 1, "", fmt_box)
+
+            # imagen: escala + centrado
+            try:
+                ev.imagen.open("rb")
+                raw = ev.imagen.read()
+                buf = BytesIO(raw)
+                try:
+                    from PIL import Image
+                    with Image.open(BytesIO(raw)) as im:
+                        w, h = im.size
+                except Exception:
+                    w = h = None
+
+                if w and h:
+                    sx = max_w_px / float(w)
+                    sy = max_h_px / float(h)
+                    scale = min(sx, sy, 1.0)
+                    x_scale = y_scale = scale
+                    scaled_w = int(w * scale)
+                    scaled_h = int(h * scale)
+                else:
+                    x_scale = y_scale = 1.0
+                    scaled_w = max_w_px
+                    scaled_h = max_h_px
+
+                x_off = max((max_w_px - (scaled_w or max_w_px)) // 2, 0)
+                y_off = max((max_h_px - (scaled_h or max_h_px)) // 2, 0)
+
+                ws.insert_image(img_top, col, ev.imagen.name, {
+                    "image_data": buf,
+                    "x_scale": x_scale, "y_scale": y_scale,
+                    "x_offset": x_off, "y_offset": y_off,
+                    "object_position": 1,
+                })
+            except Exception:
+                pass
+
+            # info
+            info_row = img_top + ROWS_IMG
+            dt = ev.client_taken_at or ev.tomada_en
+            taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+            lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
+            lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
+            addr_txt = (ev.direccion_manual or "").strip()
+
+            if s.proyecto_especial and ev.requisito_id is None:
+                ws.merge_range(info_row, col,     info_row, col +
+                               2, f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 3, info_row, col +
+                               5, f"Address\n{addr_txt}",   fmt_info)
+            else:
+                ws.merge_range(info_row, col,     info_row, col +
+                               1, f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 2, info_row, col +
+                               3, f"Lat\n{lat_txt}",        fmt_info)
+                ws.merge_range(info_row, col + 4, info_row, col +
+                               5, f"Lng\n{lng_txt}",        fmt_info)
+            ws.set_row(info_row, 30)
+
+            idx += 1
+            if idx % 2 == 0:
+                cur_row += BLOCK_ROWS + ROW_SPACE
+
+        if idx % 2 == 1:
+            cur_row += BLOCK_ROWS + ROW_SPACE
+
+        total_sheets += 1
+
+    wb.close()
+
+    if total_sheets == 0:
+        return JsonResponse(
+            {"error": "Ninguno de los seleccionados tiene fotos/reporte para combinar."},
+            status=400
+        )
+
+    out.seek(0)
+    resp = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="reportes_fotograficos_merged.xlsx"'
+    if skipped:
+        resp["X-Skipped-Ids"] = ",".join(skipped)
+    return resp

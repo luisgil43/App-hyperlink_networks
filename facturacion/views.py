@@ -1,3 +1,11 @@
+from django.urls import reverse
+import datetime as dt
+from operaciones.models import SesionBilling, ItemBillingTecnico
+from django.db.models import Prefetch
+from openpyxl import Workbook
+import datetime
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseForbidden
 from django.http import (
@@ -707,13 +715,25 @@ def invoices_list(request):
         .order_by("-creado_en")
     )
 
-    FINANCE_OPEN = ("sent", "in_review", "pending", "rejected")
+    # 👇 Consideramos "open" también los flujos de descuento directo
+    FINANCE_OPEN = (
+        "review_discount",     # primer estado para descuentos directos
+        "discount_applied",    # descuento confirmado, aún no cobrado
+        "sent",                # flujo normal (aprobado por supervisor)
+        "in_review",
+        "pending",
+        "rejected",
+    )
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
     elif scope == "all":
-        # Mostrar todo lo que compete a Finanzas (open + paid), pero NO los removidos
-        qs = qs.exclude(finance_status="none")
+        # Todo lo que compete a Finanzas (open + paid), excluyendo los que aún no se han enviado
+        qs = qs.exclude(
+            Q(finance_status='none') |
+            Q(finance_status='') |
+            Q(finance_status__isnull=True)
+        )
     else:  # "open"
         qs = qs.filter(finance_status__in=FINANCE_OPEN)
 
@@ -857,19 +877,188 @@ def invoice_reject(request, pk: int):
 
 @login_required
 @rol_requerido("facturacion", "admin")
+@require_POST
+@transaction.atomic
 def invoice_remove(request, pk: int):
     """
-    Remove invoice from Finance queue (does NOT delete the billing).
-    Sets finance_status='none' and clears finance_note.
+    Saca la sesión de la cola de Finanzas (NO borra el billing).
     """
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["POST"])
+    # 🔒 Bloqueamos por id y actualizamos sin invocar save()
+    updated = (
+        SesionBilling.objects
+        .filter(pk=pk)
+        .update(
+            finance_status="none",
+            finance_note="",
+            finance_sent_at=None,
+            finance_updated_at=timezone.now(),
+        )
+    )
 
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        # Si no existía, devolvemos error
+        if not updated:
+            return JsonResponse({"ok": False, "error": "Not found"}, status=404)
+        return JsonResponse({"ok": True, "id": pk, "finance_status": "none"})
+
+    messages.success(request, f"Billing #{pk} removed from Finance queue.")
+    return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
+
+
+@rol_requerido('facturacion', 'admin', 'pm')
+@require_POST
+def invoice_discount_verified(request, pk):
     s = get_object_or_404(SesionBilling, pk=pk)
-    with transaction.atomic():
-        s.finance_status = "none"
-        s.finance_note = ""
-        s.save(update_fields=["finance_status", "finance_note"])
 
-    messages.success(request, f"Billing #{s.pk} removed from Finance queue.")
-    return redirect("facturacion:invoices")
+    if not s.is_direct_discount:
+        return JsonResponse({"ok": False, "error": "NOT_DIRECT_DISCOUNT"}, status=400)
+
+    note = (request.POST.get("note") or "").strip()
+
+    # Primer estado de descuentos → discount_applied
+    s.finance_status = "discount_applied"
+    if note:
+        # apendea (igual que en otros flujos)
+        prefix = f"{timezone.now():%Y-%m-%d %H:%M} Finance: "
+        s.finance_note = ((s.finance_note + "\n")
+                          if s.finance_note else "") + prefix + note
+
+    s.save(update_fields=[
+        "finance_status",
+        *(["finance_note"] if note else []),
+        "finance_updated_at",  # auto_now se actualiza
+    ])
+
+    return JsonResponse({"ok": True, "finance_status": s.finance_status})
+
+
+def _to_excel_dt(value):
+    """Excel no admite tz-aware datetimes."""
+    if value is None:
+        return ""
+    return timezone.make_naive(value) if timezone.is_aware(value) else value
+
+
+@rol_requerido('facturacion', 'admin', 'pm')
+def invoices_export(request):
+    scope = request.GET.get("scope", "open")
+
+    qs = (
+        SesionBilling.objects
+        .select_related()
+        .prefetch_related(
+            "items",
+            Prefetch(
+                "items__desglose_tecnico",
+                queryset=ItemBillingTecnico.objects.select_related("tecnico")
+            ),
+            "tecnicos_sesion__tecnico",
+        )
+    )
+
+    # Solo los que corresponden al export: descuentos directos, aprobados supervisor/PM, o pagados.
+    qs = qs.filter(
+        Q(is_direct_discount=True) |
+        Q(estado__in=["aprobado_supervisor", "aprobado_pm"]) |
+        Q(finance_status__in=["paid"])
+    )
+
+    # Respeta el scope
+    if scope == "open":
+        qs = qs.exclude(finance_status="paid")
+    elif scope == "paid":
+        qs = qs.filter(finance_status="paid")
+    # scope == "all": sin filtro adicional
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Invoices"
+
+    headers = [
+        "ID", "Date", "Project ID", "Project address", "Projected week",
+        "Status",
+        "Technicians", "Client", "City", "Project", "Office",
+        "Technical Billing", "Company Billing", "Real Company Billing",
+        "Difference", "Finance status", "Finance note",
+        "Pay week / Discount week",
+    ]
+    ws.append(headers)
+
+    status_map = {
+        "aprobado_pm": "Approved by PM",
+        "rechazado_pm": "Rejected by PM",
+        "aprobado_supervisor": "Approved by supervisor",
+        "rechazado_supervisor": "Rejected by supervisor",
+        "en_revision_supervisor": "In supervisor review",
+        "finalizado": "Finished (pending review)",
+        "en_proceso": "In progress",
+        "asignado": "Assigned",
+    }
+    finance_map = {
+        "none": "—",
+        "review_discount": "Review discount",
+        "discount_applied": "Discount applied",
+        "sent": "Sent to client",
+        "pending": "Pending payment",
+        "in_review": "In review",
+        "rejected": "Rejected",
+        "paid": "Paid",
+    }
+
+    def _to_excel_dt(value):
+        """Excel no acepta tz-aware; devolver naive o vacío."""
+        if not value:
+            return ""
+        try:
+            return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) else value
+        except Exception:
+            return value
+
+    def techs_string(s):
+        parts = []
+        for st in s.tecnicos_sesion.all():
+            tech = st.tecnico
+            name = (tech.get_full_name() or tech.username) if tech else "—"
+            parts.append(f"{name} ({st.porcentaje:.2f}%)")
+        return ", ".join(parts)
+
+    for s in qs:
+        status_label = "Direct discount" if s.is_direct_discount else status_map.get(
+            s.estado, "Assigned")
+        finance_label = finance_map.get(s.finance_status, "—")
+        diff = s.diferencia if s.diferencia is not None else Decimal("0.00")
+
+        # Fusionar semanas
+        real_week = s.semana_pago_real or ""
+        disc_week = getattr(s, "discount_week", "") or getattr(
+            s, "semana_descuento", "") or ""
+        if real_week and disc_week:
+            week_cell = f"{real_week} / {disc_week}"
+        else:
+            week_cell = real_week or disc_week  # el que exista
+
+        ws.append([
+            s.id,
+            _to_excel_dt(s.creado_en),
+            s.proyecto_id,
+            s.direccion_proyecto,
+            s.semana_pago_proyectada,
+            status_label,
+            techs_string(s),
+            s.cliente, s.ciudad, s.proyecto, s.oficina,
+            float(s.subtotal_tecnico or 0),
+            float(s.subtotal_empresa or 0),
+            float(s.real_company_billing or 0),
+            float(diff or 0),
+            finance_label,
+            (s.finance_note or ""),
+            week_cell,
+        ])
+
+    now_str = timezone.now().strftime("%Y%m%d_%H%M%S")
+    resp = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    resp["Content-Disposition"] = f'attachment; filename="invoices_{now_str}.xlsx"'
+    wb.save(resp)
+    return resp

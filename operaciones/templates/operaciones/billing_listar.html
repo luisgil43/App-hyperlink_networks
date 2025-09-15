@@ -26,6 +26,7 @@
               class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
       <button type="button" data-action="both"
               class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
+<button type="button" data-action="merge_xlsx" class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
     </div>
   </div>
 
@@ -42,17 +43,18 @@
 </div>
 
   <!-- Quick filters -->
-  <div class="grid sm:grid-cols-6 gap-2 mb-3">
-    <input id="f-date"    class="border rounded px-3 py-2 quick-filter" placeholder="Date">
-    <input id="f-projid"  class="border rounded px-3 py-2 quick-filter" placeholder="Project ID">
-    <input id="f-week"    class="border rounded px-3 py-2 quick-filter" placeholder="Week">
-    <input id="f-tech"    class="border rounded px-3 py-2 quick-filter" placeholder="Technicians">
-    <input id="f-client"  class="border rounded px-3 py-2 quick-filter" placeholder="Client">
-    <div class="flex gap-2">
-      <input id="f-status" class="border rounded px-3 py-2 w-full quick-filter" placeholder="Status">
-      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
-    </div>
+<form id="filters-form" method="get" class="grid sm:grid-cols-6 gap-2 mb-3">
+  <input name="date"   value="{{ f.date }}"   id="f-date"   class="border rounded px-3 py-2" placeholder="Date (YYYY-MM-DD)" autocomplete="off">
+  <input name="projid" value="{{ f.projid }}" id="f-projid" class="border rounded px-3 py-2" placeholder="Project ID" autocomplete="off">
+  <input name="week"   value="{{ f.week }}"   id="f-week"   class="border rounded px-3 py-2" placeholder="Week" autocomplete="off">
+  <input name="tech"   value="{{ f.tech }}"   id="f-tech"   class="border rounded px-3 py-2" placeholder="Technicians" autocomplete="off">
+  <input name="client" value="{{ f.client }}" id="f-client" class="border rounded px-3 py-2" placeholder="Client" autocomplete="off">
+  <div class="flex gap-2">
+    <input name="status" value="{{ f.status }}" id="f-status" class="border rounded px-3 py-2 w-full" placeholder="Status" autocomplete="off">
+    <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
   </div>
+  <input type="hidden" name="cantidad" value="{{ cantidad }}">
+</form>
 
   <!-- Table -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
@@ -445,39 +447,39 @@ else %}asignado assigned{% endif %}"
     </table>
   </div>
 
-  <!-- Pagination controls -->
+<!-- Show per page -->
+<div id="pager">
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form method="get" class="flex items-center gap-2">
+      <!-- conserva filtros -->
+      <input type="hidden" name="date"   value="{{ f.date }}">
+      <input type="hidden" name="projid" value="{{ f.projid }}">
+      <input type="hidden" name="week"   value="{{ f.week }}">
+      <input type="hidden" name="tech"   value="{{ f.tech }}">
+      <input type="hidden" name="client" value="{{ f.client }}">
+      <input type="hidden" name="status" value="{{ f.status }}">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
       <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
-        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="todos"{% if cantidad == 'todos' %}selected{% endif %}>All</option>
       </select>
     </form>
   </div>
 
-  <div class="mt-2 flex justify-center text-sm">
-    {% if cantidad == 'todos' %}
-      <span>Page 1 of 1</span>
-    {% else %}
-      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-    {% endif %}
-  </div>
-
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous and cantidad != 'todos' %}
-      <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+      <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
     {% endif %}
     {% if pagina.has_next and cantidad != 'todos' %}
-      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
     {% endif %}
   </div>
-
 </div>
+
 
 <!-- Row expand JS -->
 <script>
@@ -515,7 +517,7 @@ document.addEventListener('click', function(e){
   const btnClear = document.getElementById('btn-clear');
 
   const chkAll = document.getElementById('chk-all');
-  const exportBtn = document.getElementById('btn-export');
+  const exportBtn = document.getElementById('btn-actions');  // el botón del dropdown
   const exportIdsInput = document.getElementById('export-ids');
 
   const lc  = s => (s || '').toLowerCase();
@@ -591,16 +593,15 @@ document.addEventListener('click', function(e){
     chkAll.checked = nSel === chks.length;
     chkAll.indeterminate = nSel > 0 && nSel < chks.length;
   }
-  function syncExportState(){
-    const ids = selectedIds();
-    const enabled = ids.length > 0;
+function syncExportState(){
+  const ids = selectedIds();
+  const enabled = ids.length > 0;
+  if (exportBtn){
     exportBtn.disabled = !enabled;
-    exportBtn.className = enabled
-      ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
-      : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
-    exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
-    exportIdsInput.value = ids.join(",");
   }
+  if (exportIdsInput) exportIdsInput.value = ids.join(",");
+}
+
   chkAll.addEventListener('change', ()=>{
     rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
     syncExportState();
@@ -727,22 +728,25 @@ document.addEventListener('click', function(e){
 (function(){
   const infoModal = document.getElementById('modal-info');
   const infoMsg   = document.getElementById('info-message');
+  const infoTitle = infoModal.querySelector('h3'); // ⬅️ tomar el <h3>
 
-  function openInfo(msg){
+  function openInfo(msg, title){
+    if (title) infoTitle.textContent = title; // ⬅️ título opcional
     infoMsg.textContent = msg || '';
     infoModal.classList.remove('hidden');
   }
-  function closeInfo(){
-    infoModal.classList.add('hidden');
-  }
+  function closeInfo(){ infoModal.classList.add('hidden'); }
 
   document.getElementById('info-ok')?.addEventListener('click', closeInfo);
   infoModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-info')) closeInfo(); });
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !infoModal.classList.contains('hidden')) closeInfo(); });
 
-  // 👇 disponible globalmente para reusar donde quieras
+  // 👇 exponer globalmente
+  window.openInfo = openInfo;
+
+  // sigue igual:
   window.showInvalidStatusModal = function(){
-    openInfo('Only billings with status "Approved by supervisor" (or higher) can be sent to Finance. Please deselect items that are In progress, Rejected, or Pending review.');
+    openInfo('Only billings with status "Approved by supervisor" or "Direct discount" can be sent to Finance. Deselect items that do not meet these conditions.');
   };
 })();
 </script>
@@ -922,6 +926,10 @@ document.addEventListener('click', function(e){
     if(!ids.length) return;
 
     const action = btn.getAttribute('data-action');
+if(action === 'merge_xlsx'){
+  if (window.mergeExcelReports) window.mergeExcelReports(ids);
+  return;
+}
 
     if(action === 'export'){
       // Export no necesita validación de estatus
@@ -931,11 +939,20 @@ document.addEventListener('click', function(e){
     }
 
     // ✅ Validar estatus antes de abrir el modal (solo para send/both)
-    const invalid = ids.filter(id => {
-      const tr = document.querySelector(`.row-chk[value="${id}"]`)?.closest('tr');
-      const t  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
-      return !/approved by supervisor|approved by pm|approved by finance/.test(t);
-    });
+// ✅ Solo “Approved by supervisor” o “Direct discount”
+function rowCanSendToFinance(tr){
+  const txt  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
+  const code = (tr?.dataset?.status || '').toLowerCase();
+  const isApprovedSupervisor = /approved by supervisor/.test(txt);
+  const isDirectDiscount     = /direct discount/.test(txt) || code.includes('discount');
+  return isApprovedSupervisor || isDirectDiscount;
+}
+
+const invalid = ids.filter(id => {
+  const tr = document.querySelector(`.row-chk[value="${id}"]`)?.closest('tr');
+  return !rowCanSendToFinance(tr);
+});
+
 
     if(invalid.length){
       window.showInvalidStatusModal();
@@ -969,21 +986,31 @@ document.addEventListener('click', function(e){
     noteEl.value = '';
   }
 
-  // ⬇️⬇️⬇️  REEMPLAZO DEL HANDLER "Enviar"  ⬇️⬇️⬇️
+  /* 👇👇 AÑADIR ESTO 👇👇 */
+  document.getElementById('finance-cancel')?.addEventListener('click', (e)=> {
+    e.preventDefault();
+    closeFinanceModal();
+  });
+  modal?.addEventListener('click', (e)=> {
+    if (e.target.hasAttribute('data-close-finance')) closeFinanceModal();
+  });
+  document.addEventListener('keydown', (e)=> {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal();
+  });
+  /* ☝️☝️ FIN AÑADIDO ☝️☝️ */
+
+  // handler de submit (como lo tienes)
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const ids  = idsEl.value ? idsEl.value.split(',') : [];
-    const mode = modeEl.value;     // send | both
+    const mode = modeEl.value;
     try{
       await window.sendToFinance(ids, noteEl.value.trim());
-
       if(mode === 'both'){
-        // Dispara export y luego refresca la tabla por si tu export no navega
         exportIdsInp.value = ids.join(',');
         exportForm.submit();
         setTimeout(()=> location.reload(), 1200);
       }else{
-        // Solo "send": refrescar tabla inmediatamente
         location.reload();
       }
     }catch(err){
@@ -1437,6 +1464,194 @@ document.addEventListener('click', function(e){
       // fallback: recarga si algo salió raro
       // location.reload();
     }
+  });
+})();
+</script>
+
+
+<script>
+(function(){
+  const form = document.getElementById('filters-form');
+  if(!form) return;
+
+  const table = document.getElementById('billing-table');
+  let t = null;
+
+  // Evita submit con Enter dentro del form de filtros
+  form.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') e.preventDefault();
+  });
+
+  async function fetchAndReplace(url){
+    const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+    const html = await resp.text();
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+
+    // Reemplaza <tbody>
+    const newTbody = doc.querySelector('#billing-table tbody');
+    const curTbody = table.querySelector('tbody');
+    if (newTbody && curTbody) curTbody.replaceWith(newTbody);
+
+    // Reemplaza paginación
+    const newPager = doc.getElementById('pager');
+    const curPager = document.getElementById('pager');
+    if (newPager && curPager) curPager.replaceWith(newPager);
+  }
+
+  function buildUrlFromForm(){
+    const data = new FormData(form);
+    const params = new URLSearchParams(data);
+    const url = new URL(location.href);
+    url.search = params.toString();
+    return url;
+  }
+
+  // Debounce al escribir
+  form.addEventListener('input', function(){
+    clearTimeout(t);
+    t = setTimeout(async ()=>{
+      const url = buildUrlFromForm();
+      // Actualiza la URL sin recargar (para que quede shareable)
+      history.replaceState(null, '', url.toString());
+      await fetchAndReplace(url.toString());
+    }, 350);
+  });
+
+  // Botón Clear: limpia filtros y refresca AJAX
+  document.getElementById('btn-clear')?.addEventListener('click', async ()=>{
+    // reset inputs visibles
+    form.querySelectorAll('input[type="text"]').forEach(i => i.value = '');
+    // conserva "cantidad"
+    const cant = form.querySelector('input[name="cantidad"]')?.value || '';
+    const url = new URL(location.href);
+    url.search = cant ? ('cantidad=' + encodeURIComponent(cant)) : '';
+    history.replaceState(null, '', url.toString());
+    await fetchAndReplace(url.toString());
+  });
+
+  // (Opcional) Interceptar clicks de paginación para que también sean AJAX
+  document.addEventListener('click', async (e)=>{
+    const a = e.target.closest('#pager a[href]');
+    if(!a) return;
+    e.preventDefault();
+    const url = new URL(a.href, location.origin);
+    history.replaceState(null, '', url.toString());
+    await fetchAndReplace(url.toString());
+  });
+})();
+</script>
+
+<script>
+(function(){
+  // === CSRF ===
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  // IDs seleccionados
+  function selectedIds(){
+    return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
+  }
+
+  // Descarga binaria helper
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'merged.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 10_000);
+  }
+
+  // === MERGE ===
+  async function mergeExcelReports(ids){
+    const resp = await fetch("{% url 'operaciones:billing_merge_excel' %}", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: JSON.stringify({ ids })
+    });
+
+    if(!resp.ok){
+      let msg = "Error al unir excels";
+      try { const d = await resp.json(); if(d && d.error) msg = d.error; } catch(_){}
+      window.openInfo(msg + ` (HTTP ${resp.status})`, 'Merge Excel reports');
+      return;
+    }
+
+    // Descargar
+    const blob = await resp.blob();
+    const ts = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const fname = `reportes_fotograficos_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xlsx`;
+    downloadBlob(blob, fname);
+
+    // Aviso de omitidos (si aplica)
+    const skipped = resp.headers.get('X-Skipped-Ids');
+    if(skipped){
+      window.openInfo("Se omitieron proyectos sin Excel disponible: " + skipped, 'Merge Excel reports');
+    }
+
+    // --- 🧹 limpiar UI tras éxito ---
+    // 1) cerrar menú
+    document.getElementById('menu-actions')?.classList.add('hidden');
+
+    // 2) destildar checkboxes seleccionados (y notificar a otros listeners)
+    ids.forEach(id => {
+      const chk = document.querySelector(`.row-chk[value="${id}"]`);
+      if (chk){
+        chk.checked = false;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    // 3) limpiar checkbox maestro
+    const header = document.getElementById('chk-all');
+    if (header){
+      header.checked = false;
+      header.indeterminate = false;
+    }
+
+    // 4) deshabilitar botón "Actions"
+    const btnActions = document.getElementById('btn-actions');
+    if (btnActions) btnActions.disabled = true;
+
+    // 5) limpiar hidden de export (por si se usa en otra acción)
+    const exportIds = document.getElementById('export-ids');
+    if (exportIds) exportIds.value = '';
+  }
+
+  // 👇 Exponer para que otros listeners puedan llamarla
+  window.mergeExcelReports = mergeExcelReports;
+
+  // === Integración con el menú Actions ===
+  const menu = document.getElementById('menu-actions');
+
+  // Este listener ya existe para abrir el modal de Finance. Lo extendemos para 'merge_xlsx'.
+  menu.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+
+    // Evita que otro listener del mismo menú también procese el click
+    e.stopImmediatePropagation();
+
+    const action = btn.getAttribute('data-action');
+    const ids = selectedIds();
+    if(!ids.length) return;
+
+    if(action === 'merge_xlsx'){
+      await mergeExcelReports(ids);
+      return; // no hagas nada más en este listener
+    }
+
+    // Deja que el resto de acciones (export/send/both) sigan su flujo en otros scripts
   });
 })();
 </script>

@@ -176,8 +176,11 @@ urlpatterns = [
         "billing/<int:pk>/reopen-asignado/",
         views.billing_reopen_asignado,
         name="billing_reopen_asignado"),
-    path("billing/send-to-finance/", views.billing_send_to_finance,
-         name="billing_send_finance"),
+    path(
+        "billing/send/finance/",
+        views.billing_send_finance,
+        name="billing_send_finance",
+    ),
     path("billing/finance/mark-in-review/<int:pk>/",
          views.billing_mark_in_review, name="billing_mark_in_review"),
 
@@ -192,5 +195,7 @@ urlpatterns = [
          b.upload_evidencias_ajax, name="fotos_upload_ajax"),
     path("fotos/asignacion/<int:asig_id>/status/", b.fotos_status_json,
          name="fotos_status_json"),
+    path("billing/merge-excel/", views.billing_merge_excel,
+         name="billing_merge_excel"),
 
 ]
