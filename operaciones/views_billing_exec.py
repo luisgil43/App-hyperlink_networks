@@ -1,3 +1,4 @@
+from django.core.files import File
 from django.utils.http import http_date
 from urllib.parse import urlencode
 from tempfile import NamedTemporaryFile
@@ -1038,13 +1039,12 @@ def _project_report_key(sesion: SesionBilling) -> str:
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
-@transaction.atomic
 def revisar_sesion(request, sesion_id):
     """
-    Revisión unificada POR PROYECTO.
-    - Supervisor aprueba/rechaza.
-    - Al aprobar se genera y guarda UN Excel con imágenes embebidas.
-    - Botones visibles si el proyecto está 'en_revision_supervisor'.
+    Unified PROJECT review.
+    - Supervisor approves/rejects.
+    - On approve, generates and stores ONE Excel with embedded photos (streamed to disk).
+    - Buttons visible when the project is in 'en_revision_supervisor'.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
@@ -1055,7 +1055,7 @@ def revisar_sesion(request, sesion_id):
          .all()
     )
 
-    # Sincroniza estado del proyecto con sus asignaciones
+    # Sync project state from its assignments
     s.recomputar_estado_desde_asignaciones()
 
     can_review = s.estado in {"en_revision_supervisor"}
@@ -1070,75 +1070,75 @@ def revisar_sesion(request, sesion_id):
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         if accion == "aprobar":
-            # Generar XLSX con imágenes embebidas
+            # 1) Build XLSX on DISK (streaming, low RAM)
             try:
-                bytes_excel = _bytes_excel_reporte_fotografico(s)
+                xlsx_path = _xlsx_path_reporte_fotografico_qs(s, ev_qs=None)
             except Exception as e:
-                messages.error(request, f"No se pudo generar el informe: {e}")
+                messages.error(request, f"Could not generate the report: {e}")
                 return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-            # Reemplazar archivo anterior si existía
+            # 2) Replace previous file if any
             try:
                 if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
                     s.reporte_fotografico.delete(save=False)
             except Exception:
                 pass
 
-            # p.ej. operaciones/reporte_fotografico/g033b-42/project/g033b-42.xlsx
+            # 3) Upload to FileField with a stable key per session/project
             report_key = _project_report_key(s)
-            s.reporte_fotografico.save(
-                report_key, ContentFile(bytes_excel), save=False)
+            with open(xlsx_path, "rb") as f:
+                s.reporte_fotografico.save(report_key, File(f), save=False)
 
-            # >>> NUEVO: fijar semana real = semana siguiente a la aprobación (si no existe)
+            # 4) Real payment week (next Monday) if not set
             now = timezone.now()
             if not s.semana_pago_real:
-                # próximo lunes respecto a 'now'
                 next_monday = now + timedelta(days=(7 - now.weekday()))
                 iso_year, iso_week, _ = next_monday.isocalendar()
                 s.semana_pago_real = f"{iso_year}-W{iso_week:02d}"
-            # <<< NUEVO
 
-            # Actualizar estados
-            s.estado = "aprobado_supervisor"
-            s.save(update_fields=["reporte_fotografico",
-                   "estado", "semana_pago_real"])
+            # 5) State updates in a short transaction
+            with transaction.atomic():
+                s.estado = "aprobado_supervisor"
+                s.save(update_fields=[
+                       "reporte_fotografico", "estado", "semana_pago_real"])
 
-            for a in asignaciones:
-                a.estado = "aprobado_supervisor"
-                a.supervisor_comentario = comentario
-                a.supervisor_revisado_en = now
-                a.reintento_habilitado = False
-                a.save(update_fields=[
-                    "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
-                ])
+                for a in asignaciones:
+                    a.estado = "aprobado_supervisor"
+                    a.supervisor_comentario = comentario
+                    a.supervisor_revisado_en = now
+                    a.reintento_habilitado = False
+                    a.save(update_fields=[
+                        "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
+                    ])
 
             messages.success(
                 request, "Project approved by Supervisor. Photo report generated.")
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         elif accion == "rechazar":
-            s.estado = "rechazado_supervisor"
-            s.save(update_fields=["estado"])
-
             now = timezone.now()
-            for a in asignaciones:
-                a.estado = "rechazado_supervisor"
-                a.supervisor_comentario = comentario or "Rejected."
-                a.supervisor_revisado_en = now
-                a.reintento_habilitado = True
-                a.save(update_fields=[
-                    "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
-                ])
+            with transaction.atomic():
+                s.estado = "rechazado_supervisor"
+                s.save(update_fields=["estado"])
+
+                for a in asignaciones:
+                    a.estado = "rechazado_supervisor"
+                    a.supervisor_comentario = comentario or "Rejected."
+                    a.supervisor_revisado_en = now
+                    a.reintento_habilitado = True
+                    a.save(update_fields=[
+                        "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"
+                    ])
 
             messages.warning(
                 request, "Project rejected. Reupload enabled for technicians.")
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         else:
-            messages.error(request, "Acción no reconocida.")
+            messages.error(request, "Unknown action.")
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-    # Para template
+    # GET: template data
     evidencias_por_asig = []
     for a in asignaciones:
         evs = (a.evidencias
@@ -1157,6 +1157,7 @@ def revisar_sesion(request, sesion_id):
         "project_report_exists": project_report_exists,
         "project_report_url": s.reporte_fotografico.url if project_report_exists else "",
     })
+
 
 # ============================
 # REPORTE FOTOGRÁFICO — PROYECTO
@@ -1284,7 +1285,7 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs):
         ws.set_row(info_row, 30)
 
     idx = 0
-    for ev in ev_qs.iterator():
+    for ev in ev_qs.iterator(chunk_size=100):
         if idx % 2 == 0:
             draw_block(cur_row, LEFT_COL, ev)
         else:
@@ -1331,75 +1332,12 @@ def generar_reporte_parcial_proyecto(request, sesion_id):
     return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
 
 
-# --- REEMPLAZA este view ---
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm', 'usuario')
-def generar_reporte_parcial_asignacion(request, asignacion_id):
-    """
-    XLSX solo con las evidencias de una asignación (técnico).
-    También usa archivo temporal en disco + streaming.
-    """
-    a = get_object_or_404(SesionBillingTecnico, pk=asignacion_id)
-
-    # permisos: dueño o staff
-    is_owner = (a.tecnico_id == request.user.id)
-    is_staff = getattr(request.user, "rol", "") in (
-        "supervisor", "pm", "admin")
-    if not (is_owner or is_staff):
-        raise Http404()
-
-    ev_qs = (
-        a.evidencias.select_related("requisito")
-        .order_by("requisito__orden", "tomada_en", "id")
-    )
-    xlsx_path = _xlsx_path_reporte_fotografico_qs(a.sesion, ev_qs=ev_qs)
-
-    proj_slug = slugify(
-        a.sesion.proyecto_id or f"billing-{a.sesion.id}") or f"billing-{a.sesion.id}"
-    tech_slug = slugify(a.tecnico.get_full_name(
-    ) or a.tecnico.username or f"user-{a.tecnico_id}") or f"user-{a.tecnico_id}"
-    filename = f"PHOTOGRAPHIC REPORT {proj_slug}-{a.sesion.id} - {tech_slug}.xlsx"
-
-    return FileResponse(open(xlsx_path, "rb"), as_attachment=True, filename=filename)
-
-
-@login_required
-def regenerar_reporte_fotografico_proyecto(request, sesion_id):
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-    if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
-        raise Http404()
-
-    try:
-        xlsx_path = _xlsx_path_reporte_fotografico(s)
-        # reemplazar archivo anterior si existía
-        bytes_excel = _bytes_excel_reporte_fotografico(s)
-
-        # elimina anterior si existe (misma key => real replace en storage)
-        if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
-            try:
-                s.reporte_fotografico.delete(save=False)
-            except Exception:
-                pass
-        # subir el archivo desde disco (stream) al FileField
-        with open(xlsx_path, "rb") as f:
-            filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
-            s.reporte_fotografico.save(
-                filename, ContentFile(f.read()), save=True)
-
-        # ✅ usar SIEMPRE la misma ruta por sesión
-        # ej: operaciones/reporte_fotografico/<proj>-<id>/project/<proj>-<id>.xlsx
-        report_key = _project_report_key(s)
-        s.reporte_fotografico.save(
-            report_key, ContentFile(bytes_excel), save=True)
-
-        messages.success(
-            request, "Project photographic report regenerated successfully.")
-        return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
-
-    except Exception as e:
-        messages.error(
-            request, f"Could not generate the photographic report: {e}")
-        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+@rol_requerido('supervisor', 'admin', 'pm')
+def generar_reporte_parcial_asignacion(request, asig_id):
+    """Compat: generate partial report by assignment -> redirect to project version."""
+    a = get_object_or_404(SesionBillingTecnico, pk=asig_id)
+    return redirect('operaciones:generar_reporte_parcial_proyecto', sesion_id=a.sesion_id)
 
 
 @login_required
@@ -1731,35 +1669,38 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
 
 
 @login_required
+@rol_requerido('supervisor', 'pm', 'admin')
 def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Only supervisor/pm/admin
-    if getattr(request.user, "rol", "") not in ("supervisor", "pm", "admin"):
-        raise Http404()
 
     try:
-        bytes_excel = _bytes_excel_reporte_fotografico(s)
+        # 1) Construir XLSX en DISCO (streaming, bajo RAM)
+        xlsx_path = _xlsx_path_reporte_fotografico_qs(s, ev_qs=None)
 
+        # 2) Reemplazar archivo anterior en el FileField (misma key = real replace)
         if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
             try:
                 s.reporte_fotografico.delete(save=False)
             except Exception:
                 pass
 
-        filename = f"PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx"
-        s.reporte_fotografico.save(
-            filename, ContentFile(bytes_excel), save=True
-        )
+        # Usa un nombre estable por sesión/proyecto para evitar duplicados en storage
+        proj_slug = slugify(
+            s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
+        stable_key = f"operaciones/reporte_fotografico/{proj_slug}-{s.id}/project/{proj_slug}-{s.id}.xlsx"
+
+        with open(xlsx_path, "rb") as f:
+            s.reporte_fotografico.save(stable_key, File(f), save=True)
+
         messages.success(
-            request, "Project photographic report regenerated successfully."
-        )
+            request, "Project photographic report regenerated successfully.")
         return redirect("operaciones:descargar_reporte_fotos_proyecto", sesion_id=s.id)
 
     except Exception as e:
         messages.error(
-            request, f"Could not generate the photographic report: {e}"
-        )
+            request, f"Could not generate the photographic report: {e}")
         return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+
 
 # ============================
 # CONFIGURAR REQUISITOS (¡la que faltaba!)
