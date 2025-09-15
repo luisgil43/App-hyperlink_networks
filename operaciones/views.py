@@ -6210,22 +6210,35 @@ def first_sheet(wb):
 def billing_merge_excel(request):
     """
     Une varios 'reportes fotográficos' en un solo XLSX.
-    - Mantiene el comportamiento actual (xlsxwriter in-memory) y añade centrado preciso.
+    ▶️ Cambios clave para producción:
+      - Escritura del XLSX a DISCO (in_memory=False) para reducir RAM y evitar 502.
+      - Inserción de imágenes desde archivos JPEG temporales (tmp_jpeg_from_filefield).
+      - Iteración con chunk_size para no cargar todo a memoria.
+      - Mensajes al usuario en INGLÉS.
     """
+    import json
+    from io import BytesIO
+    from tempfile import NamedTemporaryFile
+    import xlsxwriter
+    from django.http import HttpResponse, JsonResponse, FileResponse
+    from django.utils.text import slugify
+
     try:
         data = json.loads(request.body.decode("utf-8"))
         ids = [int(x) for x in (data.get("ids") or [])]
     except Exception:
-        return HttpResponseBadRequest("JSON inválido.")
+        return HttpResponseBadRequest("Invalid JSON payload.")
 
     if not ids:
-        return HttpResponseBadRequest("No se recibieron IDs.")
+        return HttpResponseBadRequest("No IDs were provided.")
 
     sesiones = {s.id: s for s in SesionBilling.objects.filter(id__in=ids)}
     ordered = [sesiones[i] for i in ids if i in sesiones]
 
-    out = BytesIO()
-    wb = xlsxwriter.Workbook(out, {"in_memory": True})
+    # 👉 Workbook a disco (streaming)
+    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
 
     # formatos
     fmt_title = wb.add_format({
@@ -6242,32 +6255,33 @@ def billing_merge_excel(request):
         "text_wrap": True, "font_size": 9
     })
 
+    # layout
     BLOCK_COLS, SEP_COLS = 6, 1
     LEFT_COL = 0
     RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
-
     HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
     BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
 
-    # ——— Conversión realista a píxeles (sin cambiar layout ni tiempos) ———
-    COL_W = 13          # mismo valor que set_column
-    IMG_ROW_H = 18      # mismo valor que set_row
+    # Conversión a píxeles para escalar/centrar
+    COL_W = 13
+    IMG_ROW_H = 18
     def col_px(w): return int(w * 7 + 5)
     def row_px(h): return int(h * 4 / 3)
     max_w_px = BLOCK_COLS * col_px(COL_W)
     max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
 
-    def _safe_sheet_name(base: str, used: set[str]):
+    # nombres de hoja seguros/únicos
+    def _safe_sheet_name(base: str, used: set):
         name = (base or "sheet").strip()[:31] or "sheet"
         if name not in used:
             used.add(name)
             return name
         i = 2
         while True:
-            candidate = (name[: (31 - len(f" ({i})"))] + f" ({i})")
-            if candidate not in used:
-                used.add(candidate)
-                return candidate
+            cand = (name[: (31 - len(f" ({i})"))] + f" ({i})")
+            if cand not in used:
+                used.add(cand)
+                return cand
             i += 1
 
     skipped, used_names = [], set()
@@ -6299,7 +6313,7 @@ def billing_merge_excel(request):
         cur_row = 2
 
         idx = 0
-        for ev in ev_qs.iterator():
+        for ev in ev_qs.iterator(chunk_size=100):
             col = LEFT_COL if (idx % 2 == 0) else RIGHT_COL
 
             # encabezado
@@ -6318,43 +6332,27 @@ def billing_merge_excel(request):
             img_top = cur_row + HEAD_ROWS
             for rr in range(img_top, img_top + ROWS_IMG):
                 ws.set_row(rr, IMG_ROW_H)
-            ws.merge_range(img_top, col, img_top + ROWS_IMG -
-                           1, col + BLOCK_COLS - 1, "", fmt_box)
+            ws.merge_range(img_top, col, img_top + ROWS_IMG - 1,
+                           col + BLOCK_COLS - 1, "", fmt_box)
 
-            # imagen: escala + centrado
+            # imagen: usa JPEG temporal reducido para bajar RAM y centrar
             try:
-                ev.imagen.open("rb")
-                raw = ev.imagen.read()
-                buf = BytesIO(raw)
-                try:
-                    from PIL import Image
-                    with Image.open(BytesIO(raw)) as im:
-                        w, h = im.size
-                except Exception:
-                    w = h = None
+                tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
+                sx = max_w_px / float(w)
+                sy = max_h_px / float(h)
+                scale = min(sx, sy, 1.0)
+                scaled_w = int(w * scale)
+                scaled_h = int(h * scale)
+                x_off = max((max_w_px - scaled_w) // 2, 0)
+                y_off = max((max_h_px - scaled_h) // 2, 0)
 
-                if w and h:
-                    sx = max_w_px / float(w)
-                    sy = max_h_px / float(h)
-                    scale = min(sx, sy, 1.0)
-                    x_scale = y_scale = scale
-                    scaled_w = int(w * scale)
-                    scaled_h = int(h * scale)
-                else:
-                    x_scale = y_scale = 1.0
-                    scaled_w = max_w_px
-                    scaled_h = max_h_px
-
-                x_off = max((max_w_px - (scaled_w or max_w_px)) // 2, 0)
-                y_off = max((max_h_px - (scaled_h or max_h_px)) // 2, 0)
-
-                ws.insert_image(img_top, col, ev.imagen.name, {
-                    "image_data": buf,
-                    "x_scale": x_scale, "y_scale": y_scale,
+                ws.insert_image(img_top, col, tmp_img_path, {
+                    "x_scale": scale, "y_scale": scale,
                     "x_offset": x_off, "y_offset": y_off,
                     "object_position": 1,
                 })
             except Exception:
+                # si una imagen falla, continuamos con el resto
                 pass
 
             # info
@@ -6366,17 +6364,17 @@ def billing_merge_excel(request):
             addr_txt = (ev.direccion_manual or "").strip()
 
             if s.proyecto_especial and ev.requisito_id is None:
-                ws.merge_range(info_row, col,     info_row, col +
-                               2, f"Taken at\n{taken_txt}", fmt_info)
-                ws.merge_range(info_row, col + 3, info_row, col +
-                               5, f"Address\n{addr_txt}",   fmt_info)
+                ws.merge_range(info_row, col,     info_row, col + 2,
+                               f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 3, info_row, col + 5,
+                               f"Address\n{addr_txt}",   fmt_info)
             else:
-                ws.merge_range(info_row, col,     info_row, col +
-                               1, f"Taken at\n{taken_txt}", fmt_info)
-                ws.merge_range(info_row, col + 2, info_row, col +
-                               3, f"Lat\n{lat_txt}",        fmt_info)
-                ws.merge_range(info_row, col + 4, info_row, col +
-                               5, f"Lng\n{lng_txt}",        fmt_info)
+                ws.merge_range(info_row, col,     info_row, col + 1,
+                               f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 2, info_row, col + 3,
+                               f"Lat\n{lat_txt}",        fmt_info)
+                ws.merge_range(info_row, col + 4, info_row, col + 5,
+                               f"Lng\n{lng_txt}",        fmt_info)
             ws.set_row(info_row, 30)
 
             idx += 1
@@ -6392,16 +6390,19 @@ def billing_merge_excel(request):
 
     if total_sheets == 0:
         return JsonResponse(
-            {"error": "Ninguno de los seleccionados tiene fotos/reporte para combinar."},
+            {"error": "None of the selected sessions has photos to merge."},
             status=400
         )
 
-    out.seek(0)
-    resp = HttpResponse(
-        out.getvalue(),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    resp["Content-Disposition"] = 'attachment; filename="reportes_fotograficos_merged.xlsx"'
+    # ▶️ Responder transmitiendo el archivo desde disco
+    f = open(tmp_xlsx.name, "rb")
+    resp = FileResponse(f, as_attachment=True,
+                        filename="merged_photo_reports.xlsx")
+    # Anti-caché (opcional, como en otras descargas)
+    from django.utils.http import http_date
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = http_date(0)
     if skipped:
         resp["X-Skipped-Ids"] = ",".join(skipped)
     return resp
