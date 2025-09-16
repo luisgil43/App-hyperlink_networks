@@ -35,8 +35,9 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # Cookies seguras en prod
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
 
 # ==============================
 # APPLICATIONS

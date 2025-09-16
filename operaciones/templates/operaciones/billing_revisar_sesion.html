@@ -18,26 +18,27 @@
 
       <!-- 🔹 Project Status (badge único por proyecto) -->
       <span class="ml-auto"></span>
-      <span class="text-sm">
-        <span class="mr-1 font-semibold text-gray-700">Status:</span>
-        {% if s.estado == "aprobado_pm" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
-        {% elif s.estado == "rechazado_pm" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
-        {% elif s.estado == "aprobado_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
-        {% elif s.estado == "rechazado_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
-        {% elif s.estado == "en_revision_supervisor" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
-        {% elif s.estado == "finalizado" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (Pending Review)</span>
-        {% elif s.estado == "en_proceso" %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
-        {% else %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
-        {% endif %}
-      </span>
+   <span class="text-sm">
+  <span class="mr-1 font-semibold text-gray-700">Status:</span>
+  <span id="project-status-badge">
+    {% if s.estado == "aprobado_pm" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+    {% elif s.estado == "rechazado_pm" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+    {% elif s.estado == "aprobado_supervisor" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>
+    {% elif s.estado == "rechazado_supervisor" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by Supervisor</span>
+    {% elif s.estado == "en_revision_supervisor" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In Supervisor Review</span>
+    {% elif s.estado == "en_proceso" %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+    {% else %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+    {% endif %}
+  </span>
+</span>
+
     </div>
   </div>
 
@@ -66,29 +67,56 @@
   </a>
 {% endif %}
  
-{% if project_report_exists %}
+{% if project_report_exists and not job_running %}
   <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
      href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}">
     Download current report
   </a>
 {% endif %}
 
+
 </div>
 
 {# Botones / mensajes de estado del proyecto #}
 {% if s.estado == "en_revision_supervisor" %}
-  <form method="post" action="{% url 'operaciones:revisar_sesion' s.id %}" class="flex gap-2 mb-2">
+  <form id="review-form" method="post" action="{% url 'operaciones:revisar_sesion' s.id %}" class="flex gap-2 mb-2">
     {% csrf_token %}
-    <button type="submit" name="accion" value="aprobar"
+    <input type="hidden" name="accion" id="accion-field" value="">
+
+    <button type="submit" data-action="aprobar"
             class="inline-flex items-center px-4 py-2 rounded shadow bg-green-600 hover:bg-green-700 text-white">
       ✅ Approve & Generate Report
     </button>
+
     <button type="button" onclick="openRejectModal()"
             class="inline-flex items-center px-4 py-2 rounded shadow bg-red-600 hover:bg-red-700 text-white">
       ❌ Reject
     </button>
   </form>
 {% endif %}
+
+<!-- Report status panel -->
+<div id="report-status"
+     class="report-status"
+     style="margin-top:1rem; padding:0.75rem 1rem; border:1px solid #e5e7eb; border-radius:0.5rem; background:#fafafa;">
+  <strong>Status:</strong>
+  <span id="report-status-text">
+    {% if project_report_exists %}
+      Report is ready. <a id="report-download-link" href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}">Download</a>
+    {% else %}
+      Waiting for photographic report…
+    {% endif %}
+  </span>
+</div>
+
+<!-- Partial report status panel -->
+<div id="partial-report-status"
+     class="report-status mt-3"
+     style="padding:0.75rem 1rem; border:1px solid #e5e7eb; border-radius:0.5rem; background:#fafafa;">
+  <strong>Partial report:</strong>
+  <span id="partial-status-text">Click “Partial report” to generate it in background.</span>
+</div>
+
 
   <!-- Technicians (solo nombres y %; SIN estado por técnico) -->
   <div class="mb-6">
@@ -300,4 +328,158 @@
     });
   })();
 </script>
+
+<script>
+(function () {
+  // Poll si hay job corriendo o si aún no hay archivo final listo
+  const shouldPoll = {{ job_running|yesno:"true,false" }} || !{{ project_report_exists|yesno:"true,false" }};
+  if (!shouldPoll) return;  // ✅ usar shouldPoll, no "alreadyReady"
+
+  const statusUrl   = "{% url 'operaciones:project_report_status' sesion_id=s.id %}";
+  const downloadUrl = "{% url 'operaciones:descargar_reporte_fotos_proyecto' sesion_id=s.id %}";
+
+  const textEl    = document.getElementById('report-status-text');
+  const badgeWrap = document.getElementById('project-status-badge');
+  const reviewForm = document.getElementById('review-form');
+
+  let running = true, delay = 4000, maxDelay = 15000;
+  const start = Date.now(), maxDurationMs = 10 * 60 * 1000;
+
+  function setText(html){ if (textEl) textEl.innerHTML = html; }
+  function markApprovedUI(){
+    if (badgeWrap){
+      badgeWrap.innerHTML = '<span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by Supervisor</span>';
+    }
+    if (reviewForm){ reviewForm.remove(); }
+  }
+
+  async function poll(){
+    if (!running) return;
+    if (Date.now() - start > maxDurationMs){
+      setText("Timed out while generating the report. Please refresh or try again.");
+      running = false; return;
+    }
+    try{
+      const r = await fetch(statusUrl, { cache: "no-store" });
+      if (!r.ok) throw new Error(String(r.status));
+      const data = await r.json();
+      const state = (data.state || "none").toLowerCase();
+
+      if (state === "pending"){
+        setText("Queued to start…");
+      } else if (state === "processing"){
+        const t = Number(data.total);
+        const p = Number(data.processed);
+        const tDisp = Number.isFinite(t) ? t : "—";
+        const pDisp = Number.isFinite(p) ? p : "—";
+        setText(`Generating photographic report… ${pDisp}/${tDisp} photos`);
+        delay = Math.min(maxDelay, delay + 1000);
+      } else if (state === "ok"){
+        setText(`Report is ready. <a href="${downloadUrl}">Download</a>`);
+        markApprovedUI();
+        running = false; return;
+      } else if (state === "error"){
+        setText(`Report generation failed. ${data.error || ""}`);
+        running = false; return;
+      } else {
+        setText("Waiting for the job to start…");
+      }
+    } catch (e){
+      setText("Checking report status…");
+      delay = Math.min(maxDelay, delay + 2000);
+    } finally {
+      if (running) setTimeout(poll, delay);
+    }
+  }
+
+  setText("Waiting for photographic report…");
+  poll();
+})();
+</script>
+
+<script>
+  // Disable Approve button on submit to avoid double clicks
+  document.addEventListener('submit', function (e) {
+    const form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    const approveBtn = form.querySelector('button[name="accion"][value="aprobar"]');
+    if (approveBtn) {
+      approveBtn.disabled = true;
+      approveBtn.classList.add('opacity-60', 'cursor-not-allowed');
+      approveBtn.textContent = 'Approving…';
+    }
+  }, true);
+</script>
+
+<script>
+(function () {
+  const textEl = document.getElementById('partial-status-text');
+  if (!textEl) return;
+
+  const statusUrl = "{% url 'operaciones:estado_reporte_parcial' sesion_id=s.id %}";
+  const downloadUrl = "{% url 'operaciones:descargar_reporte_parcial_proyecto' sesion_id=s.id %}";
+
+  let running = true;
+  let delay = 4000, maxDelay = 15000;
+
+  function setText(html){ textEl.innerHTML = html; }
+
+  async function poll(){
+    if (!running) return;
+    try{
+      const r = await fetch(statusUrl, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+      const state = (data.state || "none").toLowerCase();
+
+      if (state === "none"){
+        // no parcial en curso: no mostrar nada especial
+      } else if (state === "pending"){
+        setText("Queued to start…");
+      } else if (state === "processing"){
+        const t = Number.isFinite(data.total) ? data.total : "—";
+        const p = Number.isFinite(data.processed) ? data.processed : "—";
+        setText(`Generating partial report… ${p}/${t} photos`);
+        delay = Math.min(maxDelay, delay + 1000);
+      } else if (state === "ok"){
+        setText(`Partial report is ready. <a href="${downloadUrl}">Download</a>`);
+        running = false;
+        return;
+      } else if (state === "error"){
+        setText(`Partial report failed. ${data.error || ""}`);
+        running = false;
+        return;
+      }
+    }catch(e){
+      // sigue intentando
+    }finally{
+      if (running) setTimeout(poll, delay);
+    }
+  }
+  // arranca polling (si hay job en curso lo mostrará)
+  poll();
+})();
+</script>
+
+<script>
+(function () {
+  const form  = document.getElementById('review-form');
+  if (!form) return;
+  const field = document.getElementById('accion-field');
+
+  // Seteamos el valor antes de enviar
+  form.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[type="submit"][data-action]');
+    if (!btn) return;
+    field.value = btn.dataset.action; // "aprobar"
+  });
+
+  // IMPORTANTE: si tenías un script que deshabilita el botón al enviar, elimínalo,
+  // o déjalo pero NO deshabilites antes de setear el hidden.
+})();
+</script>
+
+
+
+
 {% endblock %}

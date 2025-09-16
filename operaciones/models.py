@@ -273,6 +273,57 @@ class SesionBilling(models.Model):
             self.finance_status = "review_discount"
         super().save(*args, **kwargs)
 
+# ======================= Job de Reporte Fotográfico =======================
+
+
+class ReporteFotograficoJob(models.Model):
+    ESTADOS = [
+        ("pendiente",  "Pending"),
+        ("procesando", "Processing"),
+        ("ok",         "OK"),
+        ("error",      "Error"),
+    ]
+
+    # Relación directa a la sesión/proyecto
+    sesion = models.ForeignKey(
+        SesionBilling,
+        on_delete=models.CASCADE,
+        related_name="jobs_reporte",
+        db_index=True,
+    )
+
+    # Estado y metadatos de ejecución
+    estado = models.CharField(
+        max_length=20, choices=ESTADOS, default="pendiente", db_index=True)
+    # total de fotos a procesar (opcional)
+    total = models.PositiveIntegerField(default=0)
+    procesadas = models.PositiveIntegerField(
+        default=0)   # cuántas van procesadas (opcional)
+
+    # Logs/resultado
+    log = models.TextField(blank=True)
+    resultado_key = models.CharField(
+        max_length=512, blank=True)  # key del XLSX en storage
+    error = models.TextField(blank=True)
+
+    # Timestamps
+    creado_en = models.DateTimeField(auto_now_add=True)
+    iniciado_en = models.DateTimeField(null=True, blank=True)
+    terminado_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-creado_en",)
+        indexes = [
+            models.Index(fields=["sesion", "estado"]),
+        ]
+
+    def __str__(self):
+        return f"ReporteJob #{self.id} • Sesión {self.sesion_id} • {self.estado}"
+
+    def append_log(self, line: str):
+        self.log = (self.log or "") + (line.rstrip() + "\n")
+        self.save(update_fields=["log"])
+
 
 class ItemBilling(models.Model):
     sesion = models.ForeignKey(

@@ -57,13 +57,13 @@ class SessionExpiryMiddleware:
         # 1) Timeout por inactividad
         if self.idle_timeout and (now - session["last_activity"] > self.idle_timeout):
             self._logout_and_redirect(
-                request, reason="Tu sesión fue cerrada por inactividad.")
+                request, reason="Your session was closed due to inactivity.")
             return redirect("usuarios:login")
 
         # 2) Timeout absoluto (opcional)
         if self.absolute_timeout and (now - session["login_time"] > int(self.absolute_timeout)):
             self._logout_and_redirect(
-                request, reason="Tu sesión expiró por tiempo máximo de sesión.")
+                request, reason="Your session expired due to the maximum session duration.")
             return redirect("usuarios:login")
 
         # Aún válida → refrescar marca de actividad

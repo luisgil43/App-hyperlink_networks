@@ -1,4 +1,9 @@
 # operaciones/views.py
+from .models import SesionBilling
+from django.core.files.storage import default_storage
+from copy import copy as _copy
+from tempfile import NamedTemporaryFile
+from django.http import FileResponse, HttpResponseBadRequest, JsonResponse
 from django.utils.text import slugify
 from django.http import HttpResponse, JsonResponse
 import xlsxwriter
@@ -6152,9 +6157,11 @@ def admin_reset_payment_status(request, pk: int):
     return redirect("operaciones:admin_weekly_payments")
 
 
-# --- helper: existe en storage ---
+# -*- coding: utf-8 -*-
 
-def storage_file_exists(fieldfile) -> bool:
+
+def _storage_file_exists(fieldfile) -> bool:
+    """(ES) Verifica de forma segura si el archivo de un FileField existe en el storage."""
     try:
         if not fieldfile:
             return False
@@ -6166,42 +6173,84 @@ def storage_file_exists(fieldfile) -> bool:
     except Exception:
         return False
 
-# --- helper: elegir un Excel utilizable para una sesión ---
+
+def _is_openpyxl_ext(name: str) -> bool:
+    """(ES) Extensiones compatibles con openpyxl (no PDFs ni .xls)."""
+    name = (name or "").lower()
+    return name.endswith((".xlsx", ".xlsm", ".xltx", ".xltm"))
 
 
-def pick_excel_for_session(session):
-    """
-    Devuelve (FieldFile, etiqueta_hoja) o (None, None).
-    Prioriza el Excel único del proyecto; si no, busca uno de técnico.
-    Acepta solo extensiones compatibles con openpyxl (.xlsx/.xlsm/.xltx/.xltm).
-    """
-    def is_openpyxl_ext(name: str) -> bool:
-        name = (name or '').lower()
-        return name.endswith(('.xlsx', '.xlsm', '.xltx', '.xltm'))
-
-    # 1) nivel proyecto
-    f = getattr(session, "reporte_fotografico", None)
-    if storage_file_exists(f) and is_openpyxl_ext(getattr(f, "name", "")):
-        return f, str(session.proyecto_id or session.id)
-
-    # 2) nivel técnico (primer Excel válido)
-    for ts in session.tecnicos_sesion.select_related("tecnico").all():
-        tf = getattr(ts, "reporte_fotografico", None)
-        if storage_file_exists(tf) and is_openpyxl_ext(getattr(tf, "name", "")):
-            tech = getattr(ts.tecnico, "get_full_name", lambda: "")() or getattr(
-                ts.tecnico, "username", "") or str(ts.tecnico_id)
-            return tf, f"{session.proyecto_id or session.id} - {tech}"
-
-    return None, None
-
-# --- opción: localizar hoja fuente preferida ---
+def _safe_sheet_name(base: str, used: set) -> str:
+    """(ES) Genera un nombre de hoja único y <=31 caracteres."""
+    name = (base or "sheet").strip()[:31] or "sheet"
+    if name not in used:
+        used.add(name)
+        return name
+    i = 2
+    while True:
+        cand = (name[: (31 - len(f" ({i})"))] + f" ({i})")
+        if cand not in used:
+            used.add(cand)
+            return cand
+        i += 1
 
 
-def first_sheet(wb):
+def _first_sheet(wb):
+    """(ES) Devuelve la hoja preferida: 'PHOTOGRAPHIC REPORT' si existe, si no la activa."""
     return wb["PHOTOGRAPHIC REPORT"] if "PHOTOGRAPHIC REPORT" in wb.sheetnames else wb.active
 
 
-# --- MERGE DE REPORTES A UN SOLO EXCEL ---
+def _copy_ws_values_and_layout(src, dst):
+    """
+    (ES) Copia valores, merges, dimensiones (ancho/alto) sin estilos pesados.
+    Esto mantiene el layout básico y evita inflar memoria.
+    """
+    # Valores de celda
+    for row in src.iter_rows():
+        for c in row:
+            dst.cell(row=c.row, column=c.column, value=c.value)
+
+    # Combinaciones de celdas
+    for m in src.merged_cells.ranges:
+        dst.merge_cells(str(m))
+
+    # Anchos de columna
+    for k, dim in src.column_dimensions.items():
+        if dim.width is not None:
+            dst.column_dimensions[k].width = dim.width
+
+    # Altos de fila
+    for idx, rdim in src.row_dimensions.items():
+        if rdim.height is not None:
+            dst.row_dimensions[idx].height = rdim.height
+
+
+def _copy_ws_images(src, dst):
+    """
+    (ES) Copia imágenes de la hoja fuente a la destino.
+    openpyxl carga las imágenes en memoria; aquí las re-anclamos.
+    """
+    imgs = getattr(src, "_images", []) or []
+    for img in imgs:
+        try:
+            # Clonar bytes internos de la imagen
+            data = img._data() if callable(getattr(img, "_data", None)
+                                           ) else getattr(img, "_data", None)
+            if data is None:
+                # Fallback: algunos builds exponen 'ref' a bytes; si no, saltamos.
+                continue
+            new_img = XLImage(data)
+            # Mantener tamaño si está seteado
+            if getattr(img, "width", None):
+                new_img.width = img.width
+            if getattr(img, "height", None):
+                new_img.height = img.height
+            # Mantener el ancla (puede ser OneCellAnchor/TwoCellAnchor o 'A1')
+            new_img.anchor = _copy(getattr(img, "anchor", "A1"))
+            dst.add_image(new_img)
+        except Exception:
+            # Si alguna imagen falla, seguimos con el resto.
+            continue
 
 
 @login_required
@@ -6209,69 +6258,52 @@ def first_sheet(wb):
 @require_POST
 def billing_merge_excel(request):
     """
-    Une varios 'reportes fotográficos' en un solo XLSX.
-    ▶️ Cambios clave para producción:
-      - Escritura del XLSX a DISCO (in_memory=False) para reducir RAM y evitar 502.
-      - Inserción de imágenes desde archivos JPEG temporales (tmp_jpeg_from_filefield).
-      - Iteración con chunk_size para no cargar todo a memoria.
-      - Mensajes al usuario en INGLÉS.
+    (ES) Une varios reportes fotográficos en un solo XLSX replicando EXACTAMENTE
+    el formato/estilo de tus reportes parciales/finales.
+
+    Claves de robustez:
+      - Escritura a DISCO (in_memory=False) para no usar mucha RAM.
+      - Cada imagen se transforma a JPEG temporal reducido antes de insertarla.
+      - Iteración con .iterator(chunk_size=100) sobre evidencias.
+      - Solo incluye sesiones en estado 'aprobado_supervisor'.
     """
-    import json
-    from io import BytesIO
-    from tempfile import NamedTemporaryFile
-    import xlsxwriter
-    from django.http import HttpResponse, JsonResponse, FileResponse
-    from django.utils.text import slugify
 
-    try:
-        data = json.loads(request.body.decode("utf-8"))
-        ids = [int(x) for x in (data.get("ids") or [])]
-    except Exception:
-        return HttpResponseBadRequest("Invalid JSON payload.")
+    # ---------------- Helpers internos (idénticos al flujo de generación) ---------------- #
 
-    if not ids:
-        return HttpResponseBadRequest("No IDs were provided.")
+    MAX_W, MAX_H = 1600, 1600       # ~2–3MP suficiente para Excel
+    JPEG_QUALITY = 78               # balance peso/calidad
 
-    sesiones = {s.id: s for s in SesionBilling.objects.filter(id__in=ids)}
-    ordered = [sesiones[i] for i in ids if i in sesiones]
+    def tmp_jpeg_from_filefield(filefield, max_w=MAX_W, max_h=MAX_H, quality=JPEG_QUALITY):
+        """
+        (ES) Lee del storage (Wasabi) -> downscale -> recomprime JPEG -> guarda en /tmp.
+        Devuelve (tmp_path, width_px, height_px).
+        """
+        from PIL import Image as PILImage
+        ff = filefield
+        ff.open("rb")
+        try:
+            im = PILImage.open(ff)
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            im.thumbnail((max_w, max_h))  # mantiene aspecto
 
-    # 👉 Workbook a disco (streaming)
-    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
-    tmp_xlsx.close()
-    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
+            buf = BytesIO()
+            im.save(buf, format="JPEG", quality=quality,
+                    optimize=True, progressive=True)
+            buf.seek(0)
 
-    # formatos
-    fmt_title = wb.add_format({
-        "bold": True, "align": "center", "valign": "vcenter",
-        "border": 1, "bg_color": "#E8EEF7"
-    })
-    fmt_head = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11
-    })
-    fmt_box = wb.add_format({"border": 1})
-    fmt_info = wb.add_format({
-        "border": 1, "align": "center", "valign": "vcenter",
-        "text_wrap": True, "font_size": 9
-    })
+            tmp = NamedTemporaryFile(delete=False, suffix=".jpg")
+            with open(tmp.name, "wb") as out:
+                out.write(buf.read())
+            return tmp.name, im.size[0], im.size[1]
+        finally:
+            try:
+                ff.close()
+            except Exception:
+                pass
 
-    # layout
-    BLOCK_COLS, SEP_COLS = 6, 1
-    LEFT_COL = 0
-    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
-    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
-    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
-
-    # Conversión a píxeles para escalar/centrar
-    COL_W = 13
-    IMG_ROW_H = 18
-    def col_px(w): return int(w * 7 + 5)
-    def row_px(h): return int(h * 4 / 3)
-    max_w_px = BLOCK_COLS * col_px(COL_W)
-    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
-
-    # nombres de hoja seguros/únicos
-    def _safe_sheet_name(base: str, used: set):
+    def safe_sheet_name(base: str, used: set) -> str:
+        """(ES) Nombre de hoja único y <=31 chars."""
         name = (base or "sheet").strip()[:31] or "sheet"
         if name not in used:
             used.add(name)
@@ -6284,42 +6316,89 @@ def billing_merge_excel(request):
                 return cand
             i += 1
 
-    skipped, used_names = [], set()
-    total_sheets = 0
+    # ----------------------------- Parseo/validaciones ----------------------------- #
 
-    for s in ordered:
-        ev_qs = (
-            EvidenciaFotoBilling.objects
-            .filter(tecnico_sesion__sesion=s)
-            .select_related("requisito")
-            .order_by("requisito__orden", "tomada_en", "id")
-        )
-        if not ev_qs.exists():
-            skipped.append(str(s.id))
-            continue
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        ids = [int(x) for x in (data.get("ids") or [])]
+    except Exception:
+        return HttpResponseBadRequest("Payload JSON inválido.")
 
-        base = f"{slugify(s.proyecto_id or '')}-{s.id}".strip("-") or f"proj-{s.id}"
-        ws = wb.add_worksheet(_safe_sheet_name(base[:31], used_names))
+    if not ids:
+        return HttpResponseBadRequest("No se proporcionaron IDs.")
 
+    sesiones = {s.id: s for s in SesionBilling.objects.filter(id__in=ids)}
+    ordered = [sesiones[i] for i in ids if i in sesiones]
+
+    # ----------------------------- Libro de salida (a disco) ----------------------------- #
+
+    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
+
+    # Formatos (idénticos a tus reportes)
+    fmt_title = wb.add_format({"bold": True, "align": "center", "valign": "vcenter",
+                               "border": 1, "bg_color": "#E8EEF7"})
+    fmt_head = wb.add_format({"border": 1, "align": "center", "valign": "vcenter",
+                              "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11})
+    fmt_box = wb.add_format({"border": 1})
+    fmt_info = wb.add_format({"border": 1, "align": "center", "valign": "vcenter",
+                              "text_wrap": True, "font_size": 9})
+
+    # Layout (2 bloques por fila)
+    BLOCK_COLS, SEP_COLS = 6, 1
+    LEFT_COL = 0
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+
+    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
+    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_INFO
+
+    # Conversión aproximada a píxeles (alineada con set_column / set_row)
+    COL_W = 13
+    IMG_ROW_H = 18
+
+    def col_px(w): return int(w * 7 + 5)
+    def row_px(h): return int(h * 4 / 3)
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    used_names = set()
+    added = 0
+    skipped = []
+
+    # ----------------------------- Escribir una hoja (misma lógica que parcial/final) ----------------------------- #
+
+    def write_report_sheet(ws, sesion: SesionBilling):
+        """(ES) Dibuja la hoja completa de un proyecto dentro del workbook actual."""
         ws.hide_gridlines(2)
+
+        # Anchos de columna
         for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
             ws.set_column(c, c, COL_W)
         ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
         for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
             ws.set_column(c, c, COL_W)
 
+        # Título
         ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
-                       f"ID PROJECT: {s.proyecto_id}", fmt_title)
+                       f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
         cur_row = 2
+
+        # Query de evidencias (orden y select_related como usas)
+        ev_qs = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion=sesion)
+            .select_related("requisito")
+            .order_by("requisito__orden", "tomada_en", "id")
+        )
 
         idx = 0
         for ev in ev_qs.iterator(chunk_size=100):
             col = LEFT_COL if (idx % 2 == 0) else RIGHT_COL
 
-            # encabezado
-            if s.proyecto_especial and ev.requisito_id is None:
-                titulo_req = (
-                    ev.titulo_manual or "").strip() or "Title (missing)"
+            # Encabezado del bloque
+            if sesion.proyecto_especial and ev.requisito_id is None:
+                titulo_req = (ev.titulo_manual or "").strip() or "Extra"
             else:
                 titulo_req = (
                     (getattr(ev.requisito, "titulo", "") or "").strip() or "Extra")
@@ -6328,14 +6407,14 @@ def billing_merge_excel(request):
             for rr in range(cur_row, cur_row + HEAD_ROWS):
                 ws.set_row(rr, 20)
 
-            # área imagen
+            # Área de imagen
             img_top = cur_row + HEAD_ROWS
             for rr in range(img_top, img_top + ROWS_IMG):
                 ws.set_row(rr, IMG_ROW_H)
-            ws.merge_range(img_top, col, img_top + ROWS_IMG - 1,
-                           col + BLOCK_COLS - 1, "", fmt_box)
+            ws.merge_range(img_top, col, img_top + ROWS_IMG -
+                           1, col + BLOCK_COLS - 1, "", fmt_box)
 
-            # imagen: usa JPEG temporal reducido para bajar RAM y centrar
+            # Imagen (JPEG temporal reducido + centrado por píxeles)
             try:
                 tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
                 sx = max_w_px / float(w)
@@ -6352,10 +6431,9 @@ def billing_merge_excel(request):
                     "object_position": 1,
                 })
             except Exception:
-                # si una imagen falla, continuamos con el resto
-                pass
+                pass  # si una imagen falla, seguimos con el resto
 
-            # info
+            # Info inferior
             info_row = img_top + ROWS_IMG
             dt = ev.client_taken_at or ev.tomada_en
             taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
@@ -6363,18 +6441,18 @@ def billing_merge_excel(request):
             lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
             addr_txt = (ev.direccion_manual or "").strip()
 
-            if s.proyecto_especial and ev.requisito_id is None:
-                ws.merge_range(info_row, col,     info_row, col + 2,
-                               f"Taken at\n{taken_txt}", fmt_info)
-                ws.merge_range(info_row, col + 3, info_row, col + 5,
-                               f"Address\n{addr_txt}",   fmt_info)
+            if sesion.proyecto_especial and ev.requisito_id is None:
+                ws.merge_range(info_row, col,     info_row, col +
+                               2, f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 3, info_row, col +
+                               5, f"Address\n{addr_txt}",   fmt_info)
             else:
-                ws.merge_range(info_row, col,     info_row, col + 1,
-                               f"Taken at\n{taken_txt}", fmt_info)
-                ws.merge_range(info_row, col + 2, info_row, col + 3,
-                               f"Lat\n{lat_txt}",        fmt_info)
-                ws.merge_range(info_row, col + 4, info_row, col + 5,
-                               f"Lng\n{lng_txt}",        fmt_info)
+                ws.merge_range(info_row, col,     info_row, col +
+                               1, f"Taken at\n{taken_txt}", fmt_info)
+                ws.merge_range(info_row, col + 2, info_row, col +
+                               3, f"Lat\n{lat_txt}",        fmt_info)
+                ws.merge_range(info_row, col + 4, info_row, col +
+                               5, f"Lng\n{lng_txt}",        fmt_info)
             ws.set_row(info_row, 30)
 
             idx += 1
@@ -6384,21 +6462,35 @@ def billing_merge_excel(request):
         if idx % 2 == 1:
             cur_row += BLOCK_ROWS + ROW_SPACE
 
-        total_sheets += 1
+    # ----------------------------- Construcción de todas las hojas ----------------------------- #
+
+    for s in ordered:
+        # Solo sesiones con aprobación de supervisor (como pediste)
+        if s.estado != "aprobado_supervisor":
+            skipped.append(str(s.id))
+            continue
+
+        # Si no tiene evidencias, se omite
+        if not EvidenciaFotoBilling.objects.filter(tecnico_sesion__sesion=s).exists():
+            skipped.append(str(s.id))
+            continue
+
+        base = f"{slugify(s.proyecto_id or '')}-{s.id}".strip("-") or f"proj-{s.id}"
+        ws = wb.add_worksheet(safe_sheet_name(base[:31], used_names))
+        write_report_sheet(ws, s)
+        added += 1
 
     wb.close()
 
-    if total_sheets == 0:
-        return JsonResponse(
-            {"error": "None of the selected sessions has photos to merge."},
-            status=400
-        )
+    if added == 0:
+        return JsonResponse({"error": "Ninguna de las sesiones seleccionadas tiene fotos aprobadas para combinar."}, status=400)
 
-    # ▶️ Responder transmitiendo el archivo desde disco
+    # Responder transmitiendo el archivo desde disco
     f = open(tmp_xlsx.name, "rb")
     resp = FileResponse(f, as_attachment=True,
-                        filename="merged_photo_reports.xlsx")
-    # Anti-caché (opcional, como en otras descargas)
+                        filename="reportes_fotograficos_merged.xlsx")
+
+    # Anti-caché (evita descargas parciales/memorizadas)
     from django.utils.http import http_date
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp["Pragma"] = "no-cache"

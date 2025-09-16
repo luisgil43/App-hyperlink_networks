@@ -197,5 +197,14 @@ urlpatterns = [
          name="fotos_status_json"),
     path("billing/merge-excel/", views.billing_merge_excel,
          name="billing_merge_excel"),
+    path(
+        "billing/<int:sesion_id>/report/status/",
+        b.project_report_status,
+        name="project_report_status",),
+    path("billing/<int:sesion_id>/report/partial/status/",
+         b.estado_reporte_parcial, name="estado_reporte_parcial"),
+    path("billing/<int:sesion_id>/report/partial/download/",
+         b.descargar_reporte_parcial_proyecto, name="descargar_reporte_parcial_proyecto"),
+
 
 ]

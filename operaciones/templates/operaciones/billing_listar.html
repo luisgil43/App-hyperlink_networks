@@ -1,60 +1,62 @@
-{% extends "dashboard_admin/base.html" %} 
+{% extends "dashboard_admin/base.html" %}
 {% load humanize %}
 {% block title %}Billing List{% endblock %}
 
 {% block dashboard_content %}
+
 <div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
 
   <!-- Header -->
+
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Billing</h1>
 
-<!-- Toolbar (right side): Bulk actions -->
-<div class="flex items-center gap-2">
-  <!-- Actions dropdown -->
-  <div class="relative" id="bulk-actions">
-    <button type="button" id="btn-actions"
-            class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled>
-      Actions ▾
-    </button>
-    <div id="menu-actions"
-     class="hidden absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
-      <button type="button" data-action="export"
-              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
-      <button type="button" data-action="send"
-              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
-      <button type="button" data-action="both"
-              class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
-<button type="button" data-action="merge_xlsx" class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
+    <!-- Toolbar (right side): Bulk actions -->
+    <div class="flex items-center gap-2">
+      <!-- Actions dropdown -->
+      <div class="relative" id="bulk-actions">
+        <button type="button" id="btn-actions"
+                class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled>
+          Actions ▾
+        </button>
+        <div id="menu-actions"
+          class="hidden absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
+          <button type="button" data-action="export"
+                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
+          <button type="button" data-action="send"
+                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
+          <button type="button" data-action="both"
+                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
+          <button type="button" data-action="merge_xlsx" class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
+        </div>
+      </div>
+
+      <!-- Hidden export form (kept for server export endpoint) -->
+      <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
+        {% csrf_token %}
+        <input type="hidden" name="ids" id="export-ids">
+      </form>
+
+      <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+        ➕ New Billing
+      </a>
     </div>
   </div>
 
-  <!-- Hidden export form (kept for server export endpoint) -->
-  <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
-    {% csrf_token %}
-    <input type="hidden" name="ids" id="export-ids">
-  </form>
-
-  <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
-    ➕ New Billing
-  </a>
-</div>
-</div>
-
   <!-- Quick filters -->
-<form id="filters-form" method="get" class="grid sm:grid-cols-6 gap-2 mb-3">
-  <input name="date"   value="{{ f.date }}"   id="f-date"   class="border rounded px-3 py-2" placeholder="Date (YYYY-MM-DD)" autocomplete="off">
-  <input name="projid" value="{{ f.projid }}" id="f-projid" class="border rounded px-3 py-2" placeholder="Project ID" autocomplete="off">
-  <input name="week"   value="{{ f.week }}"   id="f-week"   class="border rounded px-3 py-2" placeholder="Week" autocomplete="off">
-  <input name="tech"   value="{{ f.tech }}"   id="f-tech"   class="border rounded px-3 py-2" placeholder="Technicians" autocomplete="off">
-  <input name="client" value="{{ f.client }}" id="f-client" class="border rounded px-3 py-2" placeholder="Client" autocomplete="off">
-  <div class="flex gap-2">
-    <input name="status" value="{{ f.status }}" id="f-status" class="border rounded px-3 py-2 w-full" placeholder="Status" autocomplete="off">
-    <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
-  </div>
-  <input type="hidden" name="cantidad" value="{{ cantidad }}">
-</form>
+  <form id="filters-form" method="get" class="grid sm:grid-cols-6 gap-2 mb-3">
+    <input name="date"   value="{{ f.date }}"   id="f-date"   class="border rounded px-3 py-2" placeholder="Date (YYYY-MM-DD)" autocomplete="off">
+    <input name="projid" value="{{ f.projid }}" id="f-projid" class="border rounded px-3 py-2" placeholder="Project ID" autocomplete="off">
+    <input name="week"   value="{{ f.week }}"   id="f-week"   class="border rounded px-3 py-2" placeholder="Week" autocomplete="off">
+    <input name="tech"   value="{{ f.tech }}"   id="f-tech"   class="border rounded px-3 py-2" placeholder="Technicians" autocomplete="off">
+    <input name="client" value="{{ f.client }}" id="f-client" class="border rounded px-3 py-2" placeholder="Client" autocomplete="off">
+    <div class="flex gap-2">
+      <input name="status" value="{{ f.status }}" id="f-status" class="border rounded px-3 py-2 w-full" placeholder="Status" autocomplete="off">
+      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
+    </div>
+    <input type="hidden" name="cantidad" value="{{ cantidad }}">
+  </form>
 
   <!-- Table -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
@@ -79,7 +81,7 @@
           <th class="p-2 border text-right">Company Billing</th>
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Different</th>
-<th class="p-2 border text-left">Finance Status</th>
+          <th class="p-2 border text-left">Finance Status</th>
           <th class="p-2 border text-left">Real pay week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
@@ -92,7 +94,7 @@
             data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
             data-projid="{{ s.proyecto_id|default:''|lower }}"
             data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
-           data-status="{% if s.is_direct_discount %}descuento discount direct descuento directo{% 
+            data-status="{% if s.is_direct_discount %}descuento discount direct descuento directo{% 
 elif s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% 
 elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% 
 elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% 
@@ -101,7 +103,6 @@ elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor
 elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% 
 elif s.estado == 'en_proceso' %}en proceso in progress progress{% 
 else %}asignado assigned{% endif %}"
-
             data-client="{{ s.cliente|default:''|lower }}"
             data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
           <td class="p-2 border text-center">
@@ -137,30 +138,29 @@ else %}asignado assigned{% endif %}"
           <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
 
           <!-- Project status -->
-     <td class="p-2 border" data-status-cell>
-  {% if s.is_direct_discount %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-      Direct discount
-    </span>
-  {% elif s.estado == "aprobado_pm" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
-  {% elif s.estado == "rechazado_pm" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
-  {% elif s.estado == "aprobado_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
-  {% elif s.estado == "rechazado_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
-  {% elif s.estado == "en_revision_supervisor" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
-  {% elif s.estado == "finalizado" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
-  {% elif s.estado == "en_proceso" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
-  {% else %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
-  {% endif %}
-</td>
-
+          <td class="p-2 border" data-status-cell>
+            {% if s.is_direct_discount %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                Direct discount
+              </span>
+            {% elif s.estado == "aprobado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+            {% elif s.estado == "rechazado_pm" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by PM</span>
+            {% elif s.estado == "aprobado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+            {% elif s.estado == "rechazado_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+            {% elif s.estado == "en_revision_supervisor" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+            {% elif s.estado == "finalizado" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Finished (pending review)</span>
+            {% elif s.estado == "en_proceso" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
+            {% endif %}
+          </td>
 
           <!-- Technicians -->
           <td class="p-2 border">
@@ -181,78 +181,74 @@ else %}asignado assigned{% endif %}"
           <td class="p-2 border text-right">
             {% if s.real_company_billing %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
           </td>
-<td class="p-2 border text-right">
-  {% if s.diferencia is not None and s.real_company_billing and s.subtotal_empresa %}
-    {% if s.real_company_billing < s.subtotal_empresa %}
-      {# Real < Company → rojo y negativo #}
-      <span class="font-semibold text-red-600">
-        - ${{ s.diferencia|floatformat:2 }}
-      </span>
-    {% elif s.real_company_billing > s.subtotal_empresa %}
-      {# Real > Company → verde y positivo #}
-      <span class="font-semibold text-green-600">
-        + ${{ s.diferencia|floatformat:2|cut:"-" }}
-      </span>
-    {% else %}
-      <span class="text-gray-700">$0.00</span>
-    {% endif %}
-  {% else %}
-    — 
-  {% endif %}
-</td>
 
-<!-- Finance status -->
-<td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
-  {% if s.finance_status == "sent" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to Finance</span>
-  {% elif s.finance_status == "in_review" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
-  {% elif s.finance_status == "rejected" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
-  {% elif s.finance_status == "pending" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
-  {% elif s.finance_status == "paid" %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
-  {% else %}
-    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
-  {% endif %}
+          <td class="p-2 border text-right">
+            {% if s.diferencia is not None and s.real_company_billing and s.subtotal_empresa %}
+              {% if s.real_company_billing < s.subtotal_empresa %}
+                <span class="font-semibold text-red-600">
+                  - ${{ s.diferencia|floatformat:2 }}
+                </span>
+              {% elif s.real_company_billing > s.subtotal_empresa %}
+                <span class="font-semibold text-green-600">
+                  + ${{ s.diferencia|floatformat:2|cut:"-" }}
+                </span>
+              {% else %}
+                <span class="text-gray-700">$0.00</span>
+              {% endif %}
+            {% else %}
+              — 
+            {% endif %}
+          </td>
 
-  {% if s.finance_note %}
-    <div class="mt-1 text-xs text-gray-500">
-      <div class="whitespace-pre-line break-normal hyphens-auto">
-        Note: {{ s.finance_note }}
-      </div>
-    </div>
-  {% endif %}
-</td>        
-         {# --- Real pay week (con candado para roles sin permiso) --- #}
-<td class="p-2 border" data-col="semana-real">
-  <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+          <!-- Finance status -->
+          <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
+            {% if s.finance_status == "sent" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Sent to Finance</span>
+            {% elif s.finance_status == "in_review" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">In review</span>
+            {% elif s.finance_status == "rejected" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800" title="{{ s.finance_note|default:'' }}">Rejected</span>
+            {% elif s.finance_status == "pending" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Pending payment</span>
+            {% elif s.finance_status == "paid" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Paid</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">—</span>
+            {% endif %}
 
-  {# Si el usuario NO tiene permiso (p.ej., Supervisor) -> mostrar candado #}
-  {% if not can_edit_real_week %}
-    <button type="button"
-            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
-            title="Only PM/Finance/Admin can edit the real pay week.">
-      🔒
-    </button>
-  {% else %}
-    {# PM / Finanzas / Admin -> pueden editar #}
-    <input type="text"
-           id="sr-input-{{ s.id }}"
-           class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
-           value="{{ s.semana_pago_real|default:'' }}"
-           placeholder="YYYY-W##" />
-    <button type="button"
-            class="sr-edit text-xs text-blue-600 underline"
-            data-id="{{ s.id }}"
-            data-url="{% url 'operaciones:billing_update_semana' s.id %}">
-     ✏️
-    </button>
-  {% endif %}
-</td>
+            {% if s.finance_note %}
+              <div class="mt-1 text-xs text-gray-500">
+                <div class="whitespace-pre-line break-normal hyphens-auto">
+                  Note: {{ s.finance_note }}
+                </div>
+              </div>
+            {% endif %}
+          </td>
 
-          {# ======== FIN CAMBIO EN TD ======== #}
+          {# --- Real pay week (con candado para roles sin permiso) --- #}
+          <td class="p-2 border" data-col="semana-real">
+            <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+
+            {% if not can_edit_real_week %}
+              <button type="button"
+                      class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
+                      title="Only PM/Finance/Admin can edit the real pay week.">
+                🔒
+              </button>
+            {% else %}
+              <input type="text"
+                    id="sr-input-{{ s.id }}"
+                    class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
+                    value="{{ s.semana_pago_real|default:'' }}"
+                    placeholder="YYYY-W##" />
+              <button type="button"
+                      class="sr-edit text-xs text-blue-600 underline"
+                      data-id="{{ s.id }}"
+                      data-url="{% url 'operaciones:billing_update_semana' s.id %}">
+                ✏️
+              </button>
+            {% endif %}
+          </td>
 
           <!-- Actions -->
           <td class="p-2 border text-center">
@@ -278,18 +274,18 @@ else %}asignado assigned{% endif %}"
                 <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
               </div>
             {% endif %}
-{% if s.finance_status == "rejected" %}
-  <form method="post"
-        action="{% url 'operaciones:billing_mark_in_review' s.id %}"
-        class="inline form-inreview">
-    {% csrf_token %}
-    <button class="text-amber-700 hover:underline"
-            title="Mark as 'In review' while you correct this billing">
-      Mark as in review
-    </button>
-  </form>
-{% endif %}
 
+            {% if s.finance_status == "rejected" %}
+              <form method="post"
+                    action="{% url 'operaciones:billing_mark_in_review' s.id %}"
+                    class="inline form-inreview">
+                {% csrf_token %}
+                <button class="text-amber-700 hover:underline"
+                        title="Mark as 'In review' while you correct this billing">
+                  Mark as in review
+                </button>
+              </form>
+            {% endif %}
           </td>
         </tr>
 
@@ -323,25 +319,27 @@ else %}asignado assigned{% endif %}"
                     <td class="p-2">{{ it.tipo_trabajo }}</td>
                     <td class="p-2">{{ it.descripcion }}</td>
                     <td class="p-2">{{ it.unidad_medida }}</td>
-                       {# ====== Quantity editable ====== #}
-    <td class="p-2 text-right align-middle"
-        data-col="qty"
-        data-update-url="{% url 'operaciones:billing_item_update_qty' it.id %}">
-      <span class="qty-view" id="qty-view-{{ it.id }}">{{ it.cantidad|floatformat:2 }}</span>
 
-      {% if can_edit_items %}
-        <input type="number" step="0.01" min="0"
-               id="qty-input-{{ it.id }}"
-               class="qty-input hidden border rounded px-2 py-1 text-sm w-24 text-right"
-               value="{{ it.cantidad|floatformat:2 }}" />
-        <button type="button"
-                class="qty-edit text-xs text-blue-600 underline align-middle"
-                data-id="{{ it.id }}">
-          ✏️
-        </button>
-      {% endif %}
-    </td>
-    {# ====== /Quantity editable ====== #}
+                    {# ====== Quantity editable ====== #}
+                    <td class="p-2 text-right align-middle"
+                        data-col="qty"
+                        data-update-url="{% url 'operaciones:billing_item_update_qty' it.id %}">
+                      <span class="qty-view" id="qty-view-{{ it.id }}">{{ it.cantidad|floatformat:2 }}</span>
+
+                      {% if can_edit_items %}
+                        <input type="number" step="0.01" min="0"
+                              id="qty-input-{{ it.id }}"
+                              class="qty-input hidden border rounded px-2 py-1 text-sm w-24 text-right"
+                              value="{{ it.cantidad|floatformat:2 }}" />
+                        <button type="button"
+                                class="qty-edit text-xs text-blue-600 underline align-middle"
+                                data-id="{{ it.id }}">
+                          ✏️
+                        </button>
+                      {% endif %}
+                    </td>
+                    {# ====== /Quantity editable ====== #}
+
                     <td class="p-2">
                       <div class="space-y-1">
                         {% for bd in it.desglose_tecnico.all %}
@@ -413,7 +411,7 @@ else %}asignado assigned{% endif %}"
                       <td class="p-2 text-center">
                         {% if s.reporte_fotografico %}
                           <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
-                             href="{{ s.reporte_fotografico.url }}" target="_blank" rel="noopener">
+                            href="{{ s.reporte_fotografico.url }}" target="_blank" rel="noopener">
                             ⬇️ Download
                           </a>
                         {% else %}
@@ -447,39 +445,40 @@ else %}asignado assigned{% endif %}"
     </table>
   </div>
 
-<!-- Show per page -->
-<div id="pager">
-  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-    <form method="get" class="flex items-center gap-2">
-      <!-- conserva filtros -->
-      <input type="hidden" name="date"   value="{{ f.date }}">
-      <input type="hidden" name="projid" value="{{ f.projid }}">
-      <input type="hidden" name="week"   value="{{ f.week }}">
-      <input type="hidden" name="tech"   value="{{ f.tech }}">
-      <input type="hidden" name="client" value="{{ f.client }}">
-      <input type="hidden" name="status" value="{{ f.status }}">
-      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-        <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
-        <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
-        <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
-        <option value="todos"{% if cantidad == 'todos' %}selected{% endif %}>All</option>
-      </select>
-    </form>
+  <!-- Show per page -->
+  <div id="pager">
+    <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+      <form method="get" class="flex items-center gap-2">
+        <!-- conserva filtros -->
+        <input type="hidden" name="date"   value="{{ f.date }}">
+        <input type="hidden" name="projid" value="{{ f.projid }}">
+        <input type="hidden" name="week"   value="{{ f.week }}">
+        <input type="hidden" name="tech"   value="{{ f.tech }}">
+        <input type="hidden" name="client" value="{{ f.client }}">
+        <input type="hidden" name="status" value="{{ f.status }}">
+        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+        <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
+          <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="todos"{% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        </select>
+      </form>
+    </div>
+
+    <div class="mt-2 flex justify-center gap-2 text-sm">
+      {% if pagina.has_previous and cantidad != 'todos' %}
+        <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+        <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+      {% endif %}
+      {% if pagina.has_next and cantidad != 'todos' %}
+        <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+        <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="mt-2 flex justify-center gap-2 text-sm">
-    {% if pagina.has_previous and cantidad != 'todos' %}
-      <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-      <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
-    {% endif %}
-    {% if pagina.has_next and cantidad != 'todos' %}
-      <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-      <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
-    {% endif %}
-  </div>
 </div>
-
 
 <!-- Row expand JS -->
 <script>
@@ -525,21 +524,21 @@ document.addEventListener('click', function(e){
   const v   = el => norm(el?.value || '');
 
   function statusHaystackFor(tr){
-  const td  = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
-  const txt = norm(td?.textContent || '');
-  let extras = '';
+    const td  = tr.querySelector('td[data-status-cell]') || tr.querySelectorAll('td')[6];
+    const txt = norm(td?.textContent || '');
+    let extras = '';
 
-  if (txt.includes('approved'))          extras += ' aprobado approved';
-  if (txt.includes('rejected'))          extras += ' rechazado rejected';
-  if (txt.includes('supervisor review')) extras += ' en revision revision review';
-  if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
-  if (txt.includes('in progress'))       extras += ' en proceso progress';
-  if (txt.includes('assigned'))          extras += ' asignado assigned';
-  if (txt.includes('discount'))          extras += ' descuento discount direct descuento directo'; // ← NUEVO
+    if (txt.includes('approved'))          extras += ' aprobado approved';
+    if (txt.includes('rejected'))          extras += ' rechazado rejected';
+    if (txt.includes('supervisor review')) extras += ' en revision revision review';
+    if (txt.includes('finished'))          extras += ' finalizado pendiente revision review';
+    if (txt.includes('in progress'))       extras += ' en proceso progress';
+    if (txt.includes('assigned'))          extras += ' asignado assigned';
+    if (txt.includes('discount'))          extras += ' descuento discount direct descuento directo'; // ← NUEVO
 
-  const code = tr.dataset.status || '';
-  return norm(txt + ' ' + extras + ' ' + code);
-}
+    const code = tr.dataset.status || '';
+    return norm(txt + ' ' + extras + ' ' + code);
+  }
 
   function applyFilters(){
     const f = {
@@ -593,14 +592,14 @@ document.addEventListener('click', function(e){
     chkAll.checked = nSel === chks.length;
     chkAll.indeterminate = nSel > 0 && nSel < chks.length;
   }
-function syncExportState(){
-  const ids = selectedIds();
-  const enabled = ids.length > 0;
-  if (exportBtn){
-    exportBtn.disabled = !enabled;
+  function syncExportState(){
+    const ids = selectedIds();
+    const enabled = ids.length > 0;
+    if (exportBtn){
+      exportBtn.disabled = !enabled;
+    }
+    if (exportIdsInput) exportIdsInput.value = ids.join(",");
   }
-  if (exportIdsInput) exportIdsInput.value = ids.join(",");
-}
 
   chkAll.addEventListener('change', ()=>{
     rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
@@ -674,7 +673,6 @@ function syncExportState(){
   </div>
 </div>
 
-
 <!-- Info / Warning modal -->
 <div id="modal-info" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-info></div>
@@ -692,7 +690,6 @@ function syncExportState(){
     </div>
   </div>
 </div>
-
 
 <!-- In-review justification modal -->
 <div id="modal-inreview" class="fixed inset-0 hidden z-50">
@@ -723,15 +720,25 @@ function syncExportState(){
   </div>
 </div>
 
+<!-- ✅ Busy (spinner) modal for long-running actions like MERGE -->
+<div id="modal-busy" class="fixed inset-0 hidden z-[60]">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative max-w-sm mx-auto bg-white rounded-2xl shadow p-6 mt-40 text-center">
+    <div class="mx-auto w-12 h-12 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin"></div>
+    <h3 id="busy-title" class="mt-4 text-base font-semibold text-gray-800">Processing…</h3>
+    <p id="busy-sub" class="mt-1 text-sm text-gray-600">Please wait<span id="busy-dots" aria-hidden="true">…</span></p>
+  </div>
+</div>
 
+<!-- JS for Info modal -->
 <script>
 (function(){
   const infoModal = document.getElementById('modal-info');
   const infoMsg   = document.getElementById('info-message');
-  const infoTitle = infoModal.querySelector('h3'); // ⬅️ tomar el <h3>
+  const infoTitle = infoModal.querySelector('h3');
 
   function openInfo(msg, title){
-    if (title) infoTitle.textContent = title; // ⬅️ título opcional
+    if (title) infoTitle.textContent = title;
     infoMsg.textContent = msg || '';
     infoModal.classList.remove('hidden');
   }
@@ -741,110 +748,14 @@ function syncExportState(){
   infoModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-info')) closeInfo(); });
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !infoModal.classList.contains('hidden')) closeInfo(); });
 
-  // 👇 exponer globalmente
+  // Expose globally
   window.openInfo = openInfo;
 
-  // sigue igual:
   window.showInvalidStatusModal = function(){
     openInfo('Only billings with status "Approved by supervisor" or "Direct discount" can be sent to Finance. Deselect items that do not meet these conditions.');
   };
 })();
 </script>
-
-<script>
-(function(){
-  // === CSRF helper (si ya lo tienes, omite esto) ===
-  function getCookie(name){
-    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-    return m ? decodeURIComponent(m[2]) : null;
-  }
-  const csrftoken = getCookie('csrftoken');
-
-  // === Toast simple (opcional) ===
-  function toast(msg, type='info'){
-    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
-    const el = document.createElement('div');
-    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(()=> el.remove(), 2200);
-  }
-
-  // === Modal refs ===
-  const inModal   = document.getElementById('modal-inreview');
-  const inForm    = document.getElementById('inreview-form');
-  const inReason  = document.getElementById('inreview-reason');
-  const inCancel  = document.getElementById('inreview-cancel');
-
-  let inReviewPostUrl = null; // acción del form original
-
-  function openInReviewModal(actionUrl){
-    inReviewPostUrl = actionUrl;
-    inReason.value = '';
-    inModal.classList.remove('hidden');
-    inReason.focus();
-  }
-  function closeInReviewModal(){
-    inModal.classList.add('hidden');
-    inReviewPostUrl = null;
-  }
-
-  // Cerrar modal: overlay / botón / ESC
-  inCancel?.addEventListener('click', closeInReviewModal);
-  inModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-inreview')) closeInReviewModal(); });
-  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !inModal.classList.contains('hidden')) closeInReviewModal(); });
-
-  // 1) Intercepta el submit del form original para abrir modal
-  document.addEventListener('submit', function(e){
-    const f = e.target.closest('.form-inreview');
-    if(!f) return;
-    e.preventDefault(); // no postees aún
-    openInReviewModal(f.getAttribute('action'));
-  });
-
-  // 2) Al confirmar en el modal, POST con la nota
-  inForm?.addEventListener('submit', async function(e){
-    e.preventDefault();
-    if(!inReviewPostUrl) return;
-
-    const reason = (inReason.value || '').trim();
-    // Si quieres hacerlo obligatorio, descomenta:
-    // if(!reason){ inReason.focus(); return; }
-
-    try{
-      const form = new FormData();
-      // Usamos 'reason' como en el modal de rechazo (coherencia),
-      // si tu view espera otro nombre (p.ej. 'note'), duplícalo:
-      form.append('reason', reason);
-      form.append('note', reason);
-
-      const resp = await fetch(inReviewPostUrl, {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
-        body: form
-      });
-
-      // Soporte para responses JSON o redirect
-      let payload = null;
-      try { payload = await resp.json(); } catch(_){}
-
-      if(!resp.ok){
-        const msg = (payload && (payload.error || payload.message)) || `HTTP ${resp.status}`;
-        throw new Error(msg);
-      }
-
-      // OK: cerramos y refrescamos
-      closeInReviewModal();
-      // Si tu view ya hace messages.success, con reload basta:
-      window.location.reload();
-
-    }catch(err){
-      toast(err.message || 'Failed to send to Finance', 'error');
-    }
-  });
-})();
-</script>
-
 
 
 <script>
@@ -853,18 +764,23 @@ function syncExportState(){
   const form  = document.getElementById('delete-form');
   const lbl   = document.getElementById('delete-label');
 
-  // Abrir modal desde el botón "Delete"
+  // Abrir modal (en fase de captura para evitar que otros handlers lo bloqueen)
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.btn-open-delete');
     if (!btn) return;
-    form.action = btn.getAttribute('data-delete-url');
-    lbl.textContent = btn.getAttribute('data-label') || '';
-    modal.classList.remove('hidden');
-  });
+    e.preventDefault();
+    e.stopPropagation(); // evita que otros listeners en document anulen este click
 
-  // Cerrar modal (overlay o botón Cancel)
-  document.addEventListener('click', function(e){
-    if (e.target.hasAttribute('data-close-modal')){
+    // Usa dataset para leer los atributos del botón
+    form.setAttribute('action', btn.dataset.deleteUrl);
+    lbl.textContent = btn.dataset.label || '';
+
+    modal.classList.remove('hidden');
+  }, { capture: true });
+
+  // Cerrar modal (overlay)
+  modal.addEventListener('click', function(e){
+    if (e.target.hasAttribute('data-close-modal')) {
       modal.classList.add('hidden');
     }
   });
@@ -879,21 +795,109 @@ function syncExportState(){
   // Evitar doble submit
   form.addEventListener('submit', function(){
     const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Deleting...'; }
+    if (submitBtn){
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Deleting...';
+    }
   });
 })();
 </script>
 
 
-<!-- 1) MENU -> abre modal (con validación de estatus) -->
+<!-- JS for Finance modal -->
 <script>
 (function(){
-  // === Listener del menú (abre modal) ===
+  // CSRF helper
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  // Toast (optional)
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2200);
+  }
+
+  // Modal refs
+  const inModal   = document.getElementById('modal-inreview');
+  const inForm    = document.getElementById('inreview-form');
+  const inReason  = document.getElementById('inreview-reason');
+  const inCancel  = document.getElementById('inreview-cancel');
+
+  let inReviewPostUrl = null;
+
+  function openInReviewModal(actionUrl){
+    inReviewPostUrl = actionUrl;
+    inReason.value = '';
+    inModal.classList.remove('hidden');
+    inReason.focus();
+  }
+  function closeInReviewModal(){
+    inModal.classList.add('hidden');
+    inReviewPostUrl = null;
+  }
+
+  inCancel?.addEventListener('click', closeInReviewModal);
+  inModal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-inreview')) closeInReviewModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !inModal.classList.contains('hidden')) closeInReviewModal(); });
+
+  // Intercept submit of original form
+  document.addEventListener('submit', function(e){
+    const f = e.target.closest('.form-inreview');
+    if(!f) return;
+    e.preventDefault();
+    openInReviewModal(f.getAttribute('action'));
+  });
+
+  // Confirm from modal
+  inForm?.addEventListener('submit', async function(e){
+    e.preventDefault();
+    if(!inReviewPostUrl) return;
+
+    const reason = (inReason.value || '').trim();
+
+    try{
+      const form = new FormData();
+      form.append('reason', reason);
+      form.append('note', reason);
+
+      const resp = await fetch(inReviewPostUrl, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+        body: form
+      });
+
+      let payload = null;
+      try { payload = await resp.json(); } catch(_){}
+
+      if(!resp.ok){
+        const msg = (payload && (payload.error || payload.message)) || `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      closeInReviewModal();
+      window.location.reload();
+
+    }catch(err){
+      toast(err.message || 'Failed to send to Finance', 'error');
+    }
+  });
+})();
+</script>
+
+<!-- Ensure Finance modal open/close + validation -->
+<script>
+(function(){
   const menu         = document.getElementById('menu-actions');
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
 
-  /*⬇️⬇️⬇️  AÑADIR ESTA FUNCIÓN AQUÍ  ⬇️⬇️⬇️ */
   function openFinanceModal(ids, mode){
     const modal  = document.getElementById('modal-finance');
     const title  = document.getElementById('finance-title');
@@ -912,10 +916,8 @@ function syncExportState(){
     modal.classList.remove('hidden');
     document.getElementById('finance-note').focus();
   }
-  /* ⬆️⬆️⬆️  FIN DE LA FUNCIÓN AÑADIDA  ⬆️⬆️⬆️ */
 
   menu.addEventListener('click', (e)=>{
-    // Evita que dispare el otro listener del mismo menú (el del prompt)
     e.stopImmediatePropagation();
 
     const btn = e.target.closest('button[data-action]');
@@ -926,40 +928,37 @@ function syncExportState(){
     if(!ids.length) return;
 
     const action = btn.getAttribute('data-action');
-if(action === 'merge_xlsx'){
-  if (window.mergeExcelReports) window.mergeExcelReports(ids);
-  return;
-}
+
+    if(action === 'merge_xlsx'){
+      if (window.mergeExcelReports) window.mergeExcelReports(ids);
+      return;
+    }
 
     if(action === 'export'){
-      // Export no necesita validación de estatus
       exportIdsInp.value = ids.join(',');
       exportForm.submit();
       return;
     }
 
-    // ✅ Validar estatus antes de abrir el modal (solo para send/both)
-// ✅ Solo “Approved by supervisor” o “Direct discount”
-function rowCanSendToFinance(tr){
-  const txt  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
-  const code = (tr?.dataset?.status || '').toLowerCase();
-  const isApprovedSupervisor = /approved by supervisor/.test(txt);
-  const isDirectDiscount     = /direct discount/.test(txt) || code.includes('discount');
-  return isApprovedSupervisor || isDirectDiscount;
-}
+    // Validate status for send/both
+    function rowCanSendToFinance(tr){
+      const txt  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
+      const code = (tr?.dataset?.status || '').toLowerCase();
+      const isApprovedSupervisor = /approved by supervisor/.test(txt);
+      const isDirectDiscount     = /direct discount/.test(txt) || code.includes('discount');
+      return isApprovedSupervisor || isDirectDiscount;
+    }
 
-const invalid = ids.filter(id => {
-  const tr = document.querySelector(`.row-chk[value="${id}"]`)?.closest('tr');
-  return !rowCanSendToFinance(tr);
-});
-
+    const invalid = ids.filter(id => {
+      const tr = document.querySelector(`.row-chk[value="${id}"]`)?.closest('tr');
+      return !rowCanSendToFinance(tr);
+    });
 
     if(invalid.length){
       window.showInvalidStatusModal();
       return;
     }
 
-    // Abre el modal de nota para enviar
     if(action === 'send'){
       openFinanceModal(ids, 'send');
     }else if(action === 'both'){
@@ -968,7 +967,6 @@ const invalid = ids.filter(id => {
   });
 })();
 </script>
-
 
 <script>
 (function(){
@@ -986,7 +984,6 @@ const invalid = ids.filter(id => {
     noteEl.value = '';
   }
 
-  /* 👇👇 AÑADIR ESTO 👇👇 */
   document.getElementById('finance-cancel')?.addEventListener('click', (e)=> {
     e.preventDefault();
     closeFinanceModal();
@@ -997,9 +994,7 @@ const invalid = ids.filter(id => {
   document.addEventListener('keydown', (e)=> {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal();
   });
-  /* ☝️☝️ FIN AÑADIDO ☝️☝️ */
 
-  // handler de submit (como lo tienes)
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const ids  = idsEl.value ? idsEl.value.split(',') : [];
@@ -1022,6 +1017,7 @@ const invalid = ids.filter(id => {
 })();
 </script>
 
+<!-- (Second) Filters helper (kept as in your working version) -->
 <script>
 (function(){
   const table = document.getElementById('billing-table');
@@ -1113,12 +1109,14 @@ const invalid = ids.filter(id => {
   function syncExportState(){
     const ids = selectedIds();
     const enabled = ids.length > 0;
-    exportBtn.disabled = !enabled;
-    exportBtn.className = enabled
-      ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
-      : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
-    exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
-    exportIdsInput.value = ids.join(",");
+    if(exportBtn){
+      exportBtn.disabled = !enabled;
+      exportBtn.className = enabled
+        ? "bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow hover:bg-blue-700"
+        : "bg-gray-200 text-gray-500 px-4 py-2 rounded-full text-sm shadow cursor-not-allowed";
+      exportBtn.textContent = enabled ? `Export selected (${ids.length})` : "Export selected";
+    }
+    if (exportIdsInput) exportIdsInput.value = ids.join(",");
   }
   chkAll.addEventListener('change', ()=>{
     rowCheckboxes(visibleMainRows()).forEach(c => { c.checked = chkAll.checked; });
@@ -1135,12 +1133,11 @@ const invalid = ids.filter(id => {
 })();
 </script>
 
+<!-- Inline edit "real week" -->
 <script>
 (function(){
-  // Mantengo la bandera por compatibilidad aunque ya no bloquea el "toEdit" globalmente
   const CAN_EDIT_REAL_WEEK = {{ can_edit_real_week|yesno:"true,false" }};
 
-  // Toast simple
   function toast(msg, type='error'){
     const bg = type === 'success' ? 'bg-green-600' : (type === 'info' ? 'bg-blue-600' : 'bg-red-600');
     const el = document.createElement('div');
@@ -1150,7 +1147,6 @@ const invalid = ids.filter(id => {
     setTimeout(()=> el.remove(), 2500);
   }
 
-  // CSRF
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
@@ -1158,7 +1154,6 @@ const invalid = ids.filter(id => {
   const csrftoken = getCookie('csrftoken');
 
   function toEdit(id){
-    // Ya no bloqueamos por rol aquí: si aparece el lápiz es editable.
     const view = document.getElementById(`sr-view-${id}`);
     const input = document.getElementById(`sr-input-${id}`);
     if (!input) return;
@@ -1197,7 +1192,6 @@ const invalid = ids.filter(id => {
     return data.semana;
   }
 
-  // Click en✏️
   document.addEventListener("click", function(e){
     const btn = e.target.closest(".sr-edit");
     if (btn) { toEdit(btn.dataset.id); return; }
@@ -1208,7 +1202,6 @@ const invalid = ids.filter(id => {
     }
   });
 
-  // Enter / Escape al editar
   document.addEventListener("keydown", async function(e){
     const input = e.target.closest(".sr-input");
     if(!input || input.classList.contains("hidden")) return;
@@ -1239,34 +1232,30 @@ const invalid = ids.filter(id => {
 })();
 </script>
 
+<!-- Send to Finance (legacy prompt fallback) -->
 <script>
 (function(){
-  // CSRF
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
   }
   const csrftoken = getCookie('csrftoken');
 
-  // Elements
   const actionsBtn   = document.getElementById('btn-actions');
   const menu         = document.getElementById('menu-actions');
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
   const chkAll       = document.getElementById('chk-all');
 
-  // Selected IDs
   function selectedIds(){
     return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
   }
 
-  // Enable/disable dropdown trigger
   function setActionsEnabled(){
     const any = selectedIds().length > 0;
     actionsBtn.disabled = !any;
   }
 
-  // Open/close menu
   actionsBtn?.addEventListener('click', () => {
     if(actionsBtn.disabled) return;
     menu.classList.toggle('hidden');
@@ -1277,14 +1266,12 @@ const invalid = ids.filter(id => {
     }
   });
 
-  // React to selections
   chkAll?.addEventListener('change', setActionsEnabled);
   document.addEventListener('change', (e)=>{
     if(e.target.classList.contains('row-chk')) setActionsEnabled();
   });
   setActionsEnabled();
 
-  // Call: send to Finance
   async function sendToFinance(ids, note){
     const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
       method: "POST",
@@ -1303,11 +1290,8 @@ const invalid = ids.filter(id => {
     return resp.json();
   }
 
-  // 👇 Hago accesible la función al modal (scope global)
   window.sendToFinance = sendToFinance;
 
-  // Handle clicks in menu (queda tal cual, pero NO se ejecutará
-  // cuando el otro listener haga stopImmediatePropagation)
   menu.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-action]');
     if(!btn) return;
@@ -1327,8 +1311,8 @@ const invalid = ids.filter(id => {
         location.reload();
       }else if(action === 'both'){
         const note = prompt("Note for Finance (optional):", "");
-        await sendToFinance(ids, note);     // 1) send
-        exportIdsInp.value = ids.join(','); // 2) export
+        await sendToFinance(ids, note);
+        exportIdsInp.value = ids.join(',');
         exportForm.submit();
       }
     }catch(err){
@@ -1338,9 +1322,9 @@ const invalid = ids.filter(id => {
 })();
 </script>
 
+<!-- Inline qty edit -->
 <script>
 (function(){
-  // ==== helpers ====
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
@@ -1356,7 +1340,6 @@ const invalid = ids.filter(id => {
     setTimeout(()=> el.remove(), 1800);
   }
 
-  // === al hacer click en ✏️, cambia a modo edición ===
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.qty-edit');
     if(!btn) return;
@@ -1371,7 +1354,6 @@ const invalid = ids.filter(id => {
     input.select();
   });
 
-  // === Guardar con Enter / cancelar con Esc ===
   document.addEventListener('keydown', async function(e){
     const input = e.target.closest('.qty-input');
     if(!input || input.classList.contains('hidden')) return;
@@ -1381,7 +1363,6 @@ const invalid = ids.filter(id => {
     const url = td?.getAttribute('data-update-url');
 
     if(e.key === 'Escape'){
-      // cancelar
       input.classList.add('hidden');
       document.getElementById(`qty-view-${id}`)?.classList.remove('hidden');
       return;
@@ -1390,7 +1371,6 @@ const invalid = ids.filter(id => {
     if(e.key !== 'Enter') return;
     e.preventDefault();
 
-    // validación simple
     let value = input.value.trim();
     if(value === ''){
       toast('Quantity is required', 'error');
@@ -1417,13 +1397,11 @@ const invalid = ids.filter(id => {
         throw new Error(msg);
       }
 
-      // Éxito: actualiza la vista
       const view = document.getElementById(`qty-view-${id}`);
       view.textContent = Number(data.cantidad ?? n).toFixed(2);
       input.classList.add('hidden');
       view.classList.remove('hidden');
 
-      // Si el backend envía subtotales de item, actualízalos
       if(typeof data.subtotal_tecnico !== 'undefined'){
         const celTec = document.getElementById(`it-subt-tec-${id}`);
         if(celTec) celTec.textContent = Number(data.subtotal_tecnico).toFixed(2);
@@ -1433,16 +1411,14 @@ const invalid = ids.filter(id => {
         if(celEmp) celEmp.textContent = Number(data.subtotal_empresa).toFixed(2);
       }
 
-      // Si envía totales de la sesión, los puedes refrescar en la fila principal:
-      // (estos IDs son opcionales: añádelos si quieres actualizar sin recargar)
       if(data.parent){
         const sid = String(data.parent.id || td.closest('tr[data-parent-session]')?.dataset.parentSession || '');
         const mainRow = document.querySelector(`tr[data-row="main"] input.row-chk[value="${sid}"]`)?.closest('tr');
         if(mainRow){
-          const tdTec  = mainRow.querySelector('td:nth-child(13)'); // "Technical Billing" col
-          const tdEmp  = mainRow.querySelector('td:nth-child(14)'); // "Company Billing" col
-          const tdReal = mainRow.querySelector('td:nth-child(15)'); // "Real Company Billing"
-          const tdDiff = mainRow.querySelector('td:nth-child(16)'); // "Different"
+          const tdTec  = mainRow.querySelector('td:nth-child(13)');
+          const tdEmp  = mainRow.querySelector('td:nth-child(14)');
+          const tdReal = mainRow.querySelector('td:nth-child(15)');
+          const tdDiff = mainRow.querySelector('td:nth-child(16)');
 
           if(tdTec && typeof data.parent.subtotal_tecnico !== 'undefined')
             tdTec.textContent = '$' + Number(data.parent.subtotal_tecnico).toFixed(2);
@@ -1451,7 +1427,6 @@ const invalid = ids.filter(id => {
           if(tdReal && typeof data.parent.real_company_billing !== 'undefined')
             tdReal.textContent = data.parent.real_company_billing === null ? '—' : ('$' + Number(data.parent.real_company_billing).toFixed(2));
           if(tdDiff && typeof data.parent.diferencia_text !== 'undefined'){
-            // Puedes devolver ya formateado 'diferencia_text' desde la vista para evitar lógica de color aquí
             tdDiff.innerHTML = data.parent.diferencia_text;
           }
         }
@@ -1461,14 +1436,12 @@ const invalid = ids.filter(id => {
 
     }catch(err){
       toast(err.message || 'Error saving', 'error');
-      // fallback: recarga si algo salió raro
-      // location.reload();
     }
   });
 })();
 </script>
 
-
+<!-- AJAX filters + pagination -->
 <script>
 (function(){
   const form = document.getElementById('filters-form');
@@ -1477,7 +1450,6 @@ const invalid = ids.filter(id => {
   const table = document.getElementById('billing-table');
   let t = null;
 
-  // Evita submit con Enter dentro del form de filtros
   form.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') e.preventDefault();
   });
@@ -1487,12 +1459,10 @@ const invalid = ids.filter(id => {
     const html = await resp.text();
     const doc  = new DOMParser().parseFromString(html, 'text/html');
 
-    // Reemplaza <tbody>
     const newTbody = doc.querySelector('#billing-table tbody');
     const curTbody = table.querySelector('tbody');
     if (newTbody && curTbody) curTbody.replaceWith(newTbody);
 
-    // Reemplaza paginación
     const newPager = doc.getElementById('pager');
     const curPager = document.getElementById('pager');
     if (newPager && curPager) curPager.replaceWith(newPager);
@@ -1506,22 +1476,17 @@ const invalid = ids.filter(id => {
     return url;
   }
 
-  // Debounce al escribir
   form.addEventListener('input', function(){
     clearTimeout(t);
     t = setTimeout(async ()=>{
       const url = buildUrlFromForm();
-      // Actualiza la URL sin recargar (para que quede shareable)
       history.replaceState(null, '', url.toString());
       await fetchAndReplace(url.toString());
     }, 350);
   });
 
-  // Botón Clear: limpia filtros y refresca AJAX
   document.getElementById('btn-clear')?.addEventListener('click', async ()=>{
-    // reset inputs visibles
     form.querySelectorAll('input[type="text"]').forEach(i => i.value = '');
-    // conserva "cantidad"
     const cant = form.querySelector('input[name="cantidad"]')?.value || '';
     const url = new URL(location.href);
     url.search = cant ? ('cantidad=' + encodeURIComponent(cant)) : '';
@@ -1529,7 +1494,6 @@ const invalid = ids.filter(id => {
     await fetchAndReplace(url.toString());
   });
 
-  // (Opcional) Interceptar clicks de paginación para que también sean AJAX
   document.addEventListener('click', async (e)=>{
     const a = e.target.closest('#pager a[href]');
     if(!a) return;
@@ -1541,21 +1505,58 @@ const invalid = ids.filter(id => {
 })();
 </script>
 
+<!-- ✅ Busy modal helpers (spinner with animated dots) -->
 <script>
 (function(){
-  // === CSRF ===
+  const modal = document.getElementById('modal-busy');
+  const titleEl = document.getElementById('busy-title');
+  const subEl   = document.getElementById('busy-sub');
+  const dotsEl  = document.getElementById('busy-dots');
+  let timer = null;
+  let step  = 0;
+
+  function startDots(){
+    stopDots();
+    timer = setInterval(()=>{
+      step = (step + 1) % 4;
+      dotsEl.textContent = '.'.repeat(step);
+      if(step === 0) dotsEl.textContent = '…'; // small pause look
+    }, 500);
+  }
+  function stopDots(){
+    if(timer) clearInterval(timer);
+    timer = null;
+  }
+
+  function showBusy(title, subtitle){
+    if(title)   titleEl.textContent = title;
+    if(subtitle) subEl.firstChild && (subEl.firstChild.textContent = subtitle);
+    modal.classList.remove('hidden');
+    startDots();
+  }
+  function hideBusy(){
+    stopDots();
+    modal.classList.add('hidden');
+  }
+
+  window.showBusy = showBusy;
+  window.hideBusy = hideBusy;
+})();
+</script>
+
+<!-- ✅ MERGE with spinner (no % bar) -->
+<script>
+(function(){
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
   }
   const csrftoken = getCookie('csrftoken');
 
-  // IDs seleccionados
   function selectedIds(){
     return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
   }
 
-  // Descarga binaria helper
   function downloadBlob(blob, filename){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1567,79 +1568,75 @@ const invalid = ids.filter(id => {
     setTimeout(()=> URL.revokeObjectURL(url), 10_000);
   }
 
-  // === MERGE ===
   async function mergeExcelReports(ids){
-    const resp = await fetch("{% url 'operaciones:billing_merge_excel' %}", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: JSON.stringify({ ids })
-    });
+    // ⬇️ Mostrar spinner (sin barra de %)
+    window.showBusy('Merging Excel reports', 'This may take a moment');
 
-    if(!resp.ok){
-      let msg = "Error al unir excels";
-      try { const d = await resp.json(); if(d && d.error) msg = d.error; } catch(_){}
-      window.openInfo(msg + ` (HTTP ${resp.status})`, 'Merge Excel reports');
-      return;
-    }
+    try{
+      const resp = await fetch("{% url 'operaciones:billing_merge_excel' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrftoken,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({ ids })
+      });
 
-    // Descargar
-    const blob = await resp.blob();
-    const ts = new Date();
-    const pad = n => String(n).padStart(2,'0');
-    const fname = `reportes_fotograficos_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xlsx`;
-    downloadBlob(blob, fname);
-
-    // Aviso de omitidos (si aplica)
-    const skipped = resp.headers.get('X-Skipped-Ids');
-    if(skipped){
-      window.openInfo("Se omitieron proyectos sin Excel disponible: " + skipped, 'Merge Excel reports');
-    }
-
-    // --- 🧹 limpiar UI tras éxito ---
-    // 1) cerrar menú
-    document.getElementById('menu-actions')?.classList.add('hidden');
-
-    // 2) destildar checkboxes seleccionados (y notificar a otros listeners)
-    ids.forEach(id => {
-      const chk = document.querySelector(`.row-chk[value="${id}"]`);
-      if (chk){
-        chk.checked = false;
-        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      if(!resp.ok){
+        let msg = "Error al unir excels";
+        try { const d = await resp.json(); if(d && d.error) msg = d.error; } catch(_){}
+        window.openInfo(msg + ` (HTTP ${resp.status})`, 'Merge Excel reports');
+        return;
       }
-    });
 
-    // 3) limpiar checkbox maestro
-    const header = document.getElementById('chk-all');
-    if (header){
-      header.checked = false;
-      header.indeterminate = false;
+      const blob = await resp.blob();
+      const ts = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      const fname = `reportes_fotograficos_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xlsx`;
+      downloadBlob(blob, fname);
+
+      const skipped = resp.headers.get('X-Skipped-Ids');
+      if(skipped){
+        window.openInfo("Se omitieron proyectos sin Excel disponible: " + skipped, 'Merge Excel reports');
+      }
+
+      // Clean UI after success
+      document.getElementById('menu-actions')?.classList.add('hidden');
+
+      ids.forEach(id => {
+        const chk = document.querySelector(`.row-chk[value="${id}"]`);
+        if (chk){
+          chk.checked = false;
+          chk.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+
+      const header = document.getElementById('chk-all');
+      if (header){
+        header.checked = false;
+        header.indeterminate = false;
+      }
+
+      const btnActions = document.getElementById('btn-actions');
+      if (btnActions) btnActions.disabled = true;
+
+      const exportIds = document.getElementById('export-ids');
+      if (exportIds) exportIds.value = '';
+
+    } finally {
+      // ⬆️ Ocultar spinner pase lo que pase
+      window.hideBusy();
     }
-
-    // 4) deshabilitar botón "Actions"
-    const btnActions = document.getElementById('btn-actions');
-    if (btnActions) btnActions.disabled = true;
-
-    // 5) limpiar hidden de export (por si se usa en otra acción)
-    const exportIds = document.getElementById('export-ids');
-    if (exportIds) exportIds.value = '';
   }
 
-  // 👇 Exponer para que otros listeners puedan llamarla
   window.mergeExcelReports = mergeExcelReports;
 
-  // === Integración con el menú Actions ===
   const menu = document.getElementById('menu-actions');
-
-  // Este listener ya existe para abrir el modal de Finance. Lo extendemos para 'merge_xlsx'.
   menu.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-action]');
     if(!btn) return;
 
-    // Evita que otro listener del mismo menú también procese el click
     e.stopImmediatePropagation();
 
     const action = btn.getAttribute('data-action');
@@ -1648,13 +1645,10 @@ const invalid = ids.filter(id => {
 
     if(action === 'merge_xlsx'){
       await mergeExcelReports(ids);
-      return; // no hagas nada más en este listener
+      return;
     }
-
-    // Deja que el resto de acciones (export/send/both) sigan su flujo en otros scripts
   });
 })();
 </script>
-
 
 {% endblock %}
