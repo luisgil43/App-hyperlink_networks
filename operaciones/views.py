@@ -1,7 +1,8 @@
 # operaciones/views.py
-from django.http import (
-    FileResponse, HttpResponseBadRequest, JsonResponse
-)
+import xml.etree.ElementTree as ET
+import shutil
+from django.core.files.storage import default_storage as storage
+from django.http import FileResponse, JsonResponse, HttpResponseBadRequest
 import zipfile
 from .models import SesionBilling
 from django.core.files.storage import default_storage
@@ -5895,311 +5896,687 @@ def admin_reset_payment_status(request, pk: int):
     return redirect("operaciones:admin_weekly_payments")
 
 
-# -*- coding: utf-8 -*-
+# -------------------------------------------------------------------
+# LOGGIN
+# -------------------------------------------------------------------
+
+logger = logging.getLogger("merge_xlsx")
+
+# ===== Namespaces =====
+_NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_NS_REL_PKG = "http://schemas.openxmlformats.org/package/2006/relationships"        # *.rels
+_NS_REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"  # r:id en XML
+_NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_NS_APP = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+_NS_VT = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+_XML_NS = "http://www.w3.org/XML/1998/namespace"
+
+# ¡IMPORTANTE! 'r' = namespace DOC (para r:id en XPaths)
+NS = {"m": _NS_MAIN, "r": _NS_REL_DOC}
+CT = {"ct": _NS_CT}
+
+# ===== XML helpers =====
 
 
-def _storage_file_exists(fieldfile) -> bool:
-    """(ES) Verifica de forma segura si el archivo de un FileField existe en el storage."""
-    try:
-        if not fieldfile:
-            return False
-        name = getattr(fieldfile, "name", None)
-        if not name:
-            return False
-        storage = getattr(fieldfile, "storage", default_storage)
-        return storage.exists(name)
-    except Exception:
-        return False
+def _read_xml(zf: zipfile.ZipFile, path: str) -> ET.Element:
+    return ET.fromstring(zf.read(path))
 
 
-def _is_openpyxl_ext(name: str) -> bool:
-    """(ES) Extensiones compatibles con openpyxl (no PDFs ni .xls)."""
-    name = (name or "").lower()
-    return name.endswith((".xlsx", ".xlsm", ".xltx", ".xltm"))
+def _write_xml(zf: zipfile.ZipFile, path: str, root: ET.Element):
+    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    zf.writestr(path, data)
 
 
-def _safe_sheet_name(base: str, used: set) -> str:
-    """(ES) Genera un nombre de hoja único y <=31 caracteres."""
-    name = (base or "sheet").strip()[:31] or "sheet"
-    if name not in used:
-        used.add(name)
-        return name
-    i = 2
-    while True:
-        cand = (name[: (31 - len(f" ({i})"))] + f" ({i})")
-        if cand not in used:
-            used.add(cand)
-            return cand
-        i += 1
+def _fetch_to_temp(django_filefield) -> str:
+    tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp.close()
+    with django_filefield.open("rb") as fsrc, open(tmp.name, "wb") as fdst:
+        shutil.copyfileobj(fsrc, fdst, length=1024*1024)
+    return tmp.name
 
 
-def _first_sheet(wb):
-    """(ES) Devuelve la hoja preferida: 'PHOTOGRAPHIC REPORT' si existe, si no la activa."""
-    return wb["PHOTOGRAPHIC REPORT"] if "PHOTOGRAPHIC REPORT" in wb.sheetnames else wb.active
+def _max_index_from_paths(paths, prefix, suffix):
+    mx = 0
+    for p in paths:
+        if p.startswith(prefix) and p.endswith(suffix):
+            m = re.search(r"(\d+)", p[len(prefix):-len(suffix)])
+            if m:
+                mx = max(mx, int(m.group(1)))
+    return mx
 
 
-def _copy_ws_values_and_layout(src, dst):
-    """
-    (ES) Copia valores, merges, dimensiones (ancho/alto) sin estilos pesados.
-    Esto mantiene el layout básico y evita inflar memoria.
-    """
-    # Valores de celda
-    for row in src.iter_rows():
-        for c in row:
-            dst.cell(row=c.row, column=c.column, value=c.value)
+def _next_rid(wb_rels_root: ET.Element) -> str:
+    ids = [
+        int(e.attrib["Id"][3:])
+        for e in wb_rels_root.findall(f".//{{{_NS_REL_PKG}}}Relationship")
+        if e.attrib.get("Id", "").startswith("rId") and e.attrib["Id"][3:].isdigit()
+    ]
+    return f"rId{(max(ids)+1) if ids else 1}"
 
-    # Combinaciones de celdas
-    for m in src.merged_cells.ranges:
-        dst.merge_cells(str(m))
-
-    # Anchos de columna
-    for k, dim in src.column_dimensions.items():
-        if dim.width is not None:
-            dst.column_dimensions[k].width = dim.width
-
-    # Altos de fila
-    for idx, rdim in src.row_dimensions.items():
-        if rdim.height is not None:
-            dst.row_dimensions[idx].height = rdim.height
+# ===== Content_Types helpers =====
 
 
-def _copy_ws_images(src, dst):
-    """
-    (ES) Copia imágenes de la hoja fuente a la destino.
-    openpyxl carga las imágenes en memoria; aquí las re-anclamos.
-    """
-    imgs = getattr(src, "_images", []) or []
-    for img in imgs:
-        try:
-            # Clonar bytes internos de la imagen
-            data = img._data() if callable(getattr(img, "_data", None)
-                                           ) else getattr(img, "_data", None)
-            if data is None:
-                # Fallback: algunos builds exponen 'ref' a bytes; si no, saltamos.
-                continue
-            new_img = XLImage(data)
-            # Mantener tamaño si está seteado
-            if getattr(img, "width", None):
-                new_img.width = img.width
-            if getattr(img, "height", None):
-                new_img.height = img.height
-            # Mantener el ancla (puede ser OneCellAnchor/TwoCellAnchor o 'A1')
-            new_img.anchor = _copy(getattr(img, "anchor", "A1"))
-            dst.add_image(new_img)
-        except Exception:
-            # Si alguna imagen falla, seguimos con el resto.
+def _read_ct(zf: zipfile.ZipFile): return ET.fromstring(
+    zf.read("[Content_Types].xml"))
+
+
+def _write_ct(zf: zipfile.ZipFile, root: ET.Element):
+    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    zf.writestr("[Content_Types].xml", data)
+
+
+def _ensure_default(ct_root: ET.Element, ext: str, ctype: str):
+    if ct_root.find(f".//ct:Default[@Extension='{ext}']", CT) is None:
+        el = ET.SubElement(ct_root, "{%s}Default" % _NS_CT)
+        el.set("Extension", ext)
+        el.set("ContentType", ctype)
+
+
+def _ensure_override(ct_root: ET.Element, partname: str, ctype: str):
+    if ct_root.find(f".//ct:Override[@PartName='/{partname}']", CT) is None:
+        el = ET.SubElement(ct_root, "{%s}Override" % _NS_CT)
+        el.set("PartName", "/" + partname)
+        el.set("ContentType", ctype)
+
+# ===== .rels target normalizer =====
+
+
+def _rels_target_to_zip_path(target: str) -> str:
+    p = (target or "").replace("\\", "/")
+    while p.startswith("../"):
+        p = p[3:]
+    if p.startswith("/"):
+        p = p[1:]
+    if not p.startswith("xl/"):
+        p = "xl/" + p
+    return p
+
+# ===== sharedStrings → inlineStr =====
+
+
+def _get_shared_strings(src_zip: zipfile.ZipFile):
+    p = "xl/sharedStrings.xml"
+    if p not in src_zip.namelist():
+        return None, []
+    root = _read_xml(src_zip, p)
+    out = []
+    for si in root.findall("{%s}si" % _NS_MAIN):
+        out.append("".join((t.text or "")
+                   for t in si.findall(".//{%s}t" % _NS_MAIN)))
+    return root, out
+
+
+def _inline_shared_strings(sheet_root: ET.Element, sst_list):
+    if not sst_list:
+        return
+    for c in sheet_root.findall(".//m:c", NS):
+        if c.get("t") != "s":
             continue
+        v_el = c.find("m:v", NS)
+        if v_el is None or v_el.text is None:
+            c.set("t", "inlineStr")
+            for ch in list(c):
+                if ch.tag.endswith("v") or ch.tag.endswith("is"):
+                    c.remove(ch)
+            ET.SubElement(c, "{%s}is" % _NS_MAIN)
+            continue
+        try:
+            idx = int(v_el.text)
+        except:
+            idx = -1
+        text = sst_list[idx] if 0 <= idx < len(sst_list) else ""
+        for ch in list(c):
+            if ch.tag.endswith("v") or ch.tag.endswith("is"):
+                c.remove(ch)
+        c.set("t", "inlineStr")
+        is_el = ET.SubElement(c, "{%s}is" % _NS_MAIN)
+        t_el = ET.SubElement(is_el, "{%s}t" % _NS_MAIN)
+        if text and (text.startswith(" ") or text.endswith(" ")):
+            t_el.set("{%s}space" % _XML_NS, "preserve")
+        t_el.text = text
+        # NO tocamos el atributo 's' (estilo)
+
+# ===== SOLO quitamos <extLst> (mantenemos estilos) =====
 
 
-# --- IMPORTS (agrega si no están ya) ---
+def _strip_extlst_only(sheet_root: ET.Element):
+    for ch in list(sheet_root):
+        if ch.tag.endswith("extLst"):
+            sheet_root.remove(ch)
 
-# Modelos que ya usas:
-# from .models import SesionBilling, EvidenciaFotoBilling
-# (y tus decoradores)
-# from usuarios.decoradores import rol_requerido
-# from django.contrib.auth.decorators import login_required
-# from django.views.decorators.http import require_POST  # <- ya no lo usaremos
+# ===== nombres de hoja seguros =====
+
+
+def _safe_sheet_name(name: str) -> str:
+    n = re.sub(r'[\\/:*?\[\]]', ' ', (name or '').strip())
+    if n.startswith("'"):
+        n = n[1:]
+    if n.endswith("'"):
+        n = n[:-1]
+    n = re.sub(r'\s+', ' ', n)[:31]
+    return n or 'Sheet'
+
+# ===== app.xml =====
+
+
+def _read_app_xml(zf: zipfile.ZipFile):
+    p = "docProps/app.xml"
+    return _read_xml(zf, p) if p in zf.namelist() else None
+
+
+def _rewrite_app_xml(app_root: ET.Element, sheet_titles: list[str]):
+    if app_root is None:
+        return None
+    app_root.set("xmlns", _NS_APP)
+    app_root.set("xmlns:vt", _NS_VT)
+    for tag in ("HeadingPairs", "TitlesOfParts"):
+        n = app_root.find(f"{{{_NS_APP}}}{tag}")
+        if n is not None:
+            app_root.remove(n)
+    hp = ET.SubElement(app_root, f"{{{_NS_APP}}}HeadingPairs")
+    v = ET.SubElement(hp, f"{{{_NS_VT}}}vector", size="2", baseType="variant")
+    var1 = ET.SubElement(v, f"{{{_NS_VT}}}variant")
+    ET.SubElement(var1, f"{{{_NS_VT}}}lpstr").text = "Worksheets"
+    var2 = ET.SubElement(v, f"{{{_NS_VT}}}variant")
+    ET.SubElement(var2, f"{{{_NS_VT}}}i4").text = str(len(sheet_titles))
+    top = ET.SubElement(app_root, f"{{{_NS_APP}}}TitlesOfParts")
+    v2 = ET.SubElement(top, f"{{{_NS_VT}}}vector", size=str(
+        len(sheet_titles)), baseType="lpstr")
+    for nm in sheet_titles:
+        ET.SubElement(v2, f"{{{_NS_VT}}}lpstr").text = nm
+    return app_root
+
+# ===== limpieza si falta .rels =====
+
+
+def _strip_relationship_bound_elements(sheet_root: ET.Element):
+    for xp in [".//m:drawing", ".//m:legacyDrawing", ".//m:legacyDrawingHF",
+               ".//m:hyperlinks", ".//m:tableParts", ".//m:controls"]:
+        for el in sheet_root.findall(xp, NS):
+            try:
+                sheet_root.remove(el)
+            except:
+                pass
+    for el in sheet_root.findall(".//*[@r:id]", NS):
+        try:
+            el.attrib.pop("{%s}id" % _NS_REL_DOC, None)
+        except:
+            pass
+
+# ===================================================================
+# MERGE (con FIX de r:id y conservando estilos)
+# ===================================================================
+
+
+def merge_xlsx_files_preserving_images(src_paths, out_path, sheet_names=None):
+    if not src_paths:
+        raise ValueError("No hay archivos de entrada")
+    if len(src_paths) == 1:
+        shutil.copyfile(src_paths[0], out_path)
+        return
+
+    with zipfile.ZipFile(src_paths[0], "r") as base:
+        existing = set(base.namelist())
+        wb_xml_path = "xl/workbook.xml"
+        wb_rels_path = "xl/_rels/workbook.xml.rels"
+        wb_root = _read_xml(base, wb_xml_path)
+        wb_rels_root = _read_xml(base, wb_rels_path)
+        ct_root = _read_ct(base)
+        app_root = _read_app_xml(base)
+
+        # mínimos
+        _ensure_default(
+            ct_root, "rels", "application/vnd.openxmlformats-package.relationships+xml")
+        _ensure_default(ct_root, "xml", "application/xml")
+        _ensure_default(ct_root, "png", "image/png")
+        _ensure_default(ct_root, "jpg", "image/jpeg")
+        _ensure_default(ct_root, "jpeg", "image/jpeg")
+        _ensure_default(
+            ct_root, "vml", "application/vnd.openxmlformats-officedocument.vmlDrawing")
+        _ensure_default(
+            ct_root, "bin", "application/vnd.openxmlformats-officedocument.spreadsheetml.printerSettings")
+
+        with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+            skip = {wb_xml_path, wb_rels_path,
+                    "[Content_Types].xml", "xl/calcChain.xml", "docProps/app.xml"}
+            for name in existing:
+                if name not in skip:
+                    dst.writestr(name, base.read(name))
+
+            used_names = set()
+            sheets_node = wb_root.find("m:sheets", NS) or ET.SubElement(
+                wb_root, "{%s}sheets" % _NS_MAIN)
+            base_sheets = sheets_node.findall("m:sheet", NS)
+            for s in base_sheets:
+                nm = (s.get("name") or "").strip()
+                if nm:
+                    used_names.add(nm.lower())
+
+            def unique_name(raw: str) -> str:
+                base_nm = _safe_sheet_name(raw)
+                name = base_nm or "Sheet"
+                k = 2
+                while name.lower() in used_names:
+                    cut = 31 - (len(str(k))+3)
+                    cut = 1 if cut < 1 else cut
+                    name = f"{(base_nm or 'Sheet')[:cut]} ({k})"
+                    k += 1
+                used_names.add(name.lower())
+                return name
+
+            if sheet_names and len(sheet_names) >= 1 and base_sheets:
+                base_sheets[0].set("name", unique_name(sheet_names[0]))
+
+            def _idx(pref, suf): return _max_index_from_paths(
+                existing, pref, suf) + 1
+            next_sheet_idx = _idx("xl/worksheets/sheet", ".xml")
+            next_drawing_idx = _idx("xl/drawings/drawing", ".xml")
+            next_vml_idx = _idx("xl/drawings/vmlDrawing", ".vml")
+            next_comments_idx = _idx("xl/comments", ".xml")
+            next_table_idx = _idx("xl/tables/table", ".xml")
+            next_ps_idx = _idx("xl/printerSettings/printerSettings", ".bin")
+
+            img_nums = [int(m.group(1)) for p in existing for m in [
+                re.search(r"xl/media/image(\d+)\.(?:png|jpe?g)$", p)] if m]
+            chart_nums = [int(m.group(1)) for p in existing for m in [
+                re.search(r"xl/charts/chart(\d+)\.xml$", p)] if m]
+            next_image_idx = (max(img_nums)+1) if img_nums else 1
+            next_chart_idx = (max(chart_nums)+1) if chart_nums else 1
+            next_cstyle_idx = 1
+            next_ccolor_idx = 1
+
+            sheet_ids = []
+            for s in wb_root.findall("m:sheets/m:sheet", NS):
+                try:
+                    sheet_ids.append(int(s.get("sheetId", "0")))
+                except:
+                    pass
+            next_sheet_id = (max(sheet_ids)+1) if sheet_ids else 1
+
+            def _add_sheet_from_src(src_path, i):
+                nonlocal next_sheet_idx, next_sheet_id, next_drawing_idx, next_vml_idx
+                nonlocal next_comments_idx, next_table_idx, next_ps_idx
+                nonlocal next_image_idx, next_chart_idx, next_cstyle_idx, next_ccolor_idx
+
+                with zipfile.ZipFile(src_path, "r") as src:
+                    src_names = set(src.namelist())
+                    if "xl/workbook.xml" not in src_names or "xl/_rels/workbook.xml.rels" not in src_names:
+                        return
+
+                    swb = _read_xml(src, "xl/workbook.xml")
+                    swb_rels = _read_xml(
+                        src, "xl/_rels/workbook.xml.rels")  # PACKAGE
+
+                    src_sheets = swb.findall("m:sheets/m:sheet", NS)
+                    if not src_sheets:
+                        return
+
+                    first_sheet = src_sheets[0]
+                    src_rid = first_sheet.get("{%s}id" % _NS_REL_DOC) or first_sheet.get(
+                        "r:id") or first_sheet.get("id")
+                    src_sheet_path = None
+                    if src_rid:
+                        rel = swb_rels.find(
+                            f".//{{{_NS_REL_PKG}}}Relationship[@Id='{src_rid}']")
+                        if rel is not None:
+                            t = rel.get("Target") or ""
+                            p1 = "xl/"+t
+                            src_sheet_path = p1 if p1 in src_names else (_rels_target_to_zip_path(
+                                t) if _rels_target_to_zip_path(t) in src_names else None)
+                    if not src_sheet_path:
+                        cands = []
+                        for p in src_names:
+                            if p.startswith("xl/worksheets/sheet") and p.endswith(".xml"):
+                                m = re.search(r"sheet(\d+)\.xml$", p)
+                                idx = int(m.group(1)) if m else 9999
+                                cands.append((idx, p))
+                        if not cands:
+                            return
+                        cands.sort()
+                        src_sheet_path = cands[0][1]
+
+                    sheet_root = _read_xml(src, src_sheet_path)
+                    _, sst_list = _get_shared_strings(src)
+                    _inline_shared_strings(sheet_root, sst_list)
+                    _strip_extlst_only(sheet_root)   # <<< mantenemos estilos
+
+                    dst_sheet_name = f"worksheets/sheet{next_sheet_idx}.xml"
+                    dst_sheet_path = "xl/" + dst_sheet_name
+                    dst_sheet_rels_path = f"xl/worksheets/_rels/sheet{next_sheet_idx}.xml.rels"
+
+                    rels_map = {}
+                    drel_root = None
+
+                    used_rids = {
+                        el.get("{%s}id" % _NS_REL_DOC)
+                        for el in sheet_root.findall(".//*[@r:id]", NS)
+                        if el.get("{%s}id" % _NS_REL_DOC)
+                    }
+
+                    src_sheet_rels_path = f"xl/worksheets/_rels/{os.path.basename(src_sheet_path)}.rels"
+                    if src_sheet_rels_path in src_names:
+                        srel_root = _read_xml(src, src_sheet_rels_path)
+
+                        drel_root = ET.Element("Relationships")
+                        drel_root.set("xmlns", _NS_REL_PKG)
+
+                        def _add_rel(_type, _target, _mode=None):
+                            rel = ET.SubElement(drel_root, "Relationship")
+                            rel.set("Id", f"rId{len(list(drel_root)) + 1}")
+                            rel.set("Type", _type)
+                            rel.set("Target", _target)
+                            if _mode:
+                                rel.set("TargetMode", _mode)
+                            return rel.get("Id")
+
+                        for r in srel_root.findall("{%s}Relationship" % _NS_REL_PKG):
+                            rId = r.get("Id")
+                            rTyp = (r.get("Type") or "")
+                            rTgt = (r.get("Target") or "")
+                            rMode = r.get("TargetMode")
+
+                            if used_rids and rId not in used_rids:
+                                continue
+
+                            if rTyp.endswith("/drawing"):
+                                src_draw_path = _rels_target_to_zip_path(rTgt)
+                                if src_draw_path in src_names:
+                                    new_draw_name = f"drawing{next_drawing_idx}.xml"
+                                    dst_draw_path = "xl/drawings/" + new_draw_name
+                                    draw_xml = _read_xml(src, src_draw_path)
+
+                                    src_draw_rels = f"xl/drawings/_rels/{os.path.basename(src_draw_path)}.rels"
+                                    if src_draw_rels in src_names:
+                                        drels_xml = _read_xml(
+                                            src, src_draw_rels)
+                                        for ir in drels_xml.findall("{%s}Relationship" % _NS_REL_PKG):
+                                            ityp = (ir.get("Type") or "")
+                                            itgt = (ir.get("Target") or "")
+                                            if ityp.endswith("/image"):
+                                                src_img = _rels_target_to_zip_path(
+                                                    itgt)
+                                                if src_img in src_names:
+                                                    ext = os.path.splitext(
+                                                        src_img)[1].lower()
+                                                    new_img = f"image{next_image_idx}{ext}"
+                                                    dst.writestr(
+                                                        "xl/media/"+new_img, src.read(src_img))
+                                                    if ext == ".png":
+                                                        _ensure_default(
+                                                            ct_root, "png", "image/png")
+                                                    elif ext in (".jpg", ".jpeg"):
+                                                        _ensure_default(
+                                                            ct_root, ext[1:], "image/jpeg")
+                                                    ir.set(
+                                                        "Target", "../media/"+new_img)
+                                                    next_image_idx += 1
+                                            elif ityp.endswith("/chart"):
+                                                src_chart = _rels_target_to_zip_path(
+                                                    itgt)
+                                                if src_chart in src_names:
+                                                    new_chart = f"chart{next_chart_idx}.xml"
+                                                    dst.writestr(
+                                                        "xl/charts/"+new_chart, src.read(src_chart))
+                                                    _ensure_override(ct_root, "xl/charts/"+new_chart,
+                                                                     "application/vnd.openxmlformats-officedocument.drawingml.chart+xml")
+                                                    src_chart_rels = f"xl/charts/_rels/{os.path.basename(src_chart)}.rels"
+                                                    if src_chart_rels in src_names:
+                                                        crels_xml = _read_xml(
+                                                            src, src_chart_rels)
+                                                        for cr in crels_xml.findall("{%s}Relationship" % _NS_REL_PKG):
+                                                            ctyp = (
+                                                                cr.get("Type") or "")
+                                                            ctgt = (
+                                                                cr.get("Target") or "")
+                                                            if ctyp.endswith("/image"):
+                                                                cimg = _rels_target_to_zip_path(
+                                                                    ctgt)
+                                                                if cimg in src_names:
+                                                                    ext = os.path.splitext(
+                                                                        cimg)[1].lower()
+                                                                    new_img = f"image{next_image_idx}{ext}"
+                                                                    dst.writestr(
+                                                                        "xl/media/"+new_img, src.read(cimg))
+                                                                    if ext == ".png":
+                                                                        _ensure_default(
+                                                                            ct_root, "png", "image/png")
+                                                                    elif ext in (".jpg", ".jpeg"):
+                                                                        _ensure_default(
+                                                                            ct_root, ext[1:], "image/jpeg")
+                                                                    cr.set(
+                                                                        "Target", "../media/"+new_img)
+                                                                    next_image_idx += 1
+                                                            elif ctyp.endswith("/chartStyle"):
+                                                                s = _rels_target_to_zip_path(
+                                                                    ctgt)
+                                                                if s in src_names:
+                                                                    new = f"style{next_cstyle_idx}.xml"
+                                                                    dst.writestr(
+                                                                        "xl/charts/"+new, src.read(s))
+                                                                    _ensure_override(
+                                                                        ct_root, "xl/charts/"+new, "application/vnd.ms-office.chartstyle+xml")
+                                                                    cr.set(
+                                                                        "Target", new)
+                                                                    next_cstyle_idx += 1
+                                                            elif ctyp.endswith("/chartColorStyle"):
+                                                                s = _rels_target_to_zip_path(
+                                                                    ctgt)
+                                                                if s in src_names:
+                                                                    new = f"colors{next_ccolor_idx}.xml"
+                                                                    dst.writestr(
+                                                                        "xl/charts/"+new, src.read(s))
+                                                                    _ensure_override(
+                                                                        ct_root, "xl/charts/"+new, "application/vnd.ms-office.chartcolorstyle+xml")
+                                                                    cr.set(
+                                                                        "Target", new)
+                                                                    next_ccolor_idx += 1
+                                                        _write_xml(
+                                                            dst, f"xl/charts/_rels/{new_chart}.rels", crels_xml)
+                                                    next_chart_idx += 1
+                                        _write_xml(
+                                            dst, f"xl/drawings/_rels/{new_draw_name}.rels", drels_xml)
+
+                                    _write_xml(dst, dst_draw_path, draw_xml)
+                                    new_rel_id = _add_rel(
+                                        rTyp, "../drawings/" + new_draw_name)
+                                    _ensure_override(ct_root, "xl/drawings/" + new_draw_name,
+                                                     "application/vnd.openxmlformats-officedocument.drawing+xml")
+                                    # remapeo r:id del drawing
+                                    rels_map[rId] = new_rel_id
+                                    next_drawing_idx += 1
+                                continue
+
+                            if rTyp.endswith("/hyperlink"):
+                                new_rel_id = _add_rel(rTyp, rTgt, _mode=rMode)
+                                rels_map[rId] = new_rel_id
+                                continue
+
+                            if rTyp.endswith("/table"):
+                                s = _rels_target_to_zip_path(rTgt)
+                                if s in src_names:
+                                    new = f"table{next_table_idx}.xml"
+                                    dst.writestr("xl/tables/"+new, src.read(s))
+                                    _ensure_override(
+                                        ct_root, "xl/tables/"+new, "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml")
+                                    new_rel_id = _add_rel(
+                                        rTyp, "../tables/"+new)
+                                    rels_map[rId] = new_rel_id
+                                    next_table_idx += 1
+                                continue
+
+                            if rTyp.endswith("/comments"):
+                                s = _rels_target_to_zip_path(rTgt)
+                                if s in src_names:
+                                    new = f"comments{next_comments_idx}.xml"
+                                    dst.writestr("xl/"+new, src.read(s))
+                                    _ensure_override(
+                                        ct_root, "xl/"+new, "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml")
+                                    new_rel_id = _add_rel(rTyp, "../"+new)
+                                    rels_map[rId] = new_rel_id
+                                    next_comments_idx += 1
+                                continue
+
+                            if rTyp.endswith("/vmlDrawing"):
+                                s = _rels_target_to_zip_path(rTgt)
+                                if s in src_names:
+                                    new = f"vmlDrawing{next_vml_idx}.vml"
+                                    dst.writestr("xl/drawings/" +
+                                                 new, src.read(s))
+                                    new_rel_id = _add_rel(
+                                        rTyp, "../drawings/"+new)
+                                    rels_map[rId] = new_rel_id
+                                    next_vml_idx += 1
+                                continue
+
+                            if rTyp.endswith("/printerSettings"):
+                                s = _rels_target_to_zip_path(rTgt)
+                                if s in src_names:
+                                    new = f"printerSettings{next_ps_idx}.bin"
+                                    dst.writestr(
+                                        "xl/printerSettings/"+new, src.read(s))
+                                    _ensure_override(ct_root, "xl/printerSettings/"+new,
+                                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.printerSettings")
+                                    new_rel_id = _add_rel(
+                                        rTyp, "../printerSettings/"+new)
+                                    rels_map[rId] = new_rel_id
+                                    next_ps_idx += 1
+                                continue
+
+                            new_rel_id = _add_rel(rTyp, rTgt, _mode=rMode)
+                            rels_map[rId] = new_rel_id
+
+                        if list(drel_root):
+                            _write_xml(dst, dst_sheet_rels_path, drel_root)
+                    else:
+                        if used_rids:
+                            _strip_relationship_bound_elements(sheet_root)
+
+                    for el in sheet_root.findall(".//*[@r:id]", NS):
+                        rid = el.get("{%s}id" % _NS_REL_DOC)
+                        if rid in rels_map:
+                            el.set("{%s}id" % _NS_REL_DOC, rels_map[rid])
+
+                    _write_xml(dst, dst_sheet_path, sheet_root)
+                    _ensure_override(ct_root, dst_sheet_name,
+                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")
+
+                    new_rid = _next_rid(wb_rels_root)
+                    sheet_el = ET.SubElement(
+                        sheets_node, "{%s}sheet" % _NS_MAIN)
+                    raw_name = (sheet_names[i] if (
+                        sheet_names and i < len(sheet_names)) else f"Report {i+1}")
+                    nm = _safe_sheet_name(raw_name)
+                    name = nm or "Sheet"
+                    k = 2
+                    while name.lower() in used_names:
+                        cut = 31 - (len(str(k))+3)
+                        cut = 1 if cut < 1 else cut
+                        name = f"{(nm or 'Sheet')[:cut]} ({k})"
+                        k += 1
+                    used_names.add(name.lower())
+                    sheet_el.set("name", name)
+                    sheet_el.set("sheetId", str(next_sheet_id))
+                    sheet_el.set("{%s}id" % _NS_REL_DOC, new_rid)  # DOC NS
+
+                    wb_rel = ET.SubElement(
+                        wb_rels_root, "{%s}Relationship" % _NS_REL_PKG)
+                    wb_rel.set("Id", new_rid)
+                    wb_rel.set(
+                        "Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet")
+                    wb_rel.set("Target", dst_sheet_name)
+
+                    next_sheet_idx += 1
+                    next_sheet_id += 1
+
+            for i, src_path in enumerate(src_paths[1:], start=1):
+                _add_sheet_from_src(src_path, i)
+
+            titles = [(s.get("name") or "Sheet")
+                      for s in wb_root.findall("m:sheets/m:sheet", NS)]
+            if app_root is not None:
+                app_fixed = _rewrite_app_xml(app_root, titles)
+                if app_fixed is not None:
+                    _write_xml(dst, "docProps/app.xml", app_fixed)
+
+            _write_xml(dst, wb_xml_path, wb_root)
+            _write_xml(dst, wb_rels_path, wb_rels_root)
+            _write_ct(dst, ct_root)
+
+            return titles
+
+# ===== VISTA: merge y descarga =====
 
 
 @login_required
-@rol_requerido('supervisor', 'pm', 'admin', 'facturacion')
+@rol_requerido("supervisor", "pm", "admin", "facturacion")
 def billing_merge_excel(request):
-    ALLOWED_STATES = {"aprobado_supervisor"}  # agrega más si quieres
-    MAX_W, MAX_H, JPEG_QUALITY = 1600, 1600, 78
-
-    def tmp_jpeg_from_filefield(filefield, max_w=MAX_W, max_h=MAX_H, quality=JPEG_QUALITY):
-        from PIL import Image as PILImage
-        filefield.open("rb")
-        try:
-            im = PILImage.open(filefield)
-            if im.mode not in ("RGB", "L"):
-                im = im.convert("RGB")
-            im.thumbnail((max_w, max_h))
-            buf = BytesIO()
-            im.save(buf, format="JPEG", quality=quality,
-                    optimize=True, progressive=True)
-            buf.seek(0)
-            tmp = NamedTemporaryFile(delete=False, suffix=".jpg")
-            with open(tmp.name, "wb") as out:
-                out.write(buf.read())
-            return tmp.name, im.size[0], im.size[1]
-        finally:
-            try:
-                filefield.close()
-            except Exception:
-                pass
-
-    def safe_sheet_name(base, used):
-        name = (base or "sheet").strip()[:31] or "sheet"
-        if name not in used:
-            used.add(name)
-            return name
-        i = 2
-        while True:
-            cand = (name[:(31-len(f" ({i})"))] + f" ({i})")
-            if cand not in used:
-                used.add(cand)
-                return cand
-            i += 1
-
-    # ---- IDs por POST JSON o GET ?ids= ----
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     ids = []
     if request.method == "POST" and request.body:
         try:
             payload = json.loads(request.body.decode("utf-8"))
-            ids = [int(x) for x in (payload.get("ids") or [])]
+            ids = [int(x)
+                   for x in (payload.get("ids") or []) if str(x).isdigit()]
         except Exception:
-            pass
+            logger.exception("MERGE RUN %s | invalid JSON", run_id)
     if not ids:
         qs = (request.GET.get("ids") or "").strip()
         if qs:
             ids = [int(x) for x in qs.split(",") if x.isdigit()]
     if not ids:
         return HttpResponseBadRequest("Debes indicar ids, ej: ?ids=53,59 o POST JSON {'ids':[...]}")
+    logger.info("MERGE RUN %s | ids=%s", run_id, ids)
 
     sesiones = {s.id: s for s in SesionBilling.objects.filter(id__in=ids)}
     ordered = [sesiones[i] for i in ids if i in sesiones]
 
-    # ---- Archivo de salida ----
-    tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
-    tmp_xlsx.close()
+    src_paths, sheet_names, skipped = [], [], []
+    for s in ordered:
+        rf = getattr(s, "reporte_fotografico", None)
+        if not rf:
+            skipped.append(str(s.id))
+            continue
+        try:
+            rf.open("rb")
+            rf.close()
+        except Exception:
+            skipped.append(str(s.id))
+            continue
+        try:
+            tmp = _fetch_to_temp(rf)
+            src_paths.append(tmp)
+            sheet_names.append(
+                (f"{(s.proyecto_id or '').strip()}-{s.id}")[:31] or f"proj-{s.id}")
+        except Exception:
+            skipped.append(str(s.id))
 
-    BLOCK_COLS, SEP_COLS = 6, 1
-    LEFT_COL = 0
-    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
-    HEAD_ROWS, ROWS_IMG, ROW_INFO, ROW_SPACE = 1, 12, 1, 1
-    COL_W, IMG_ROW_H = 13, 18
+    if not src_paths:
+        return JsonResponse({"error": "Ninguno de los proyectos seleccionados tiene un reporte XLSX disponible."}, status=400)
 
-    def col_px(w): return int(w * 7 + 5)
-    def row_px(h): return int(h * 4 / 3)
-    max_w_px = BLOCK_COLS * col_px(COL_W)
-    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+    out_tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    out_tmp.close()
+    final_titles = merge_xlsx_files_preserving_images(
+        src_paths, out_tmp.name, sheet_names=sheet_names)
 
-    used_names, added, skipped = set(), 0, []
-
-    with xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False}) as wb:
-        fmt_title = wb.add_format(
-            {"bold": True, "align": "center", "valign": "vcenter", "border": 1, "bg_color": "#E8EEF7"})
-        fmt_head = wb.add_format({"border": 1, "align": "center", "valign": "vcenter",
-                                 "bold": True, "text_wrap": True, "bg_color": "#F5F7FB", "font_size": 11})
-        fmt_box = wb.add_format({"border": 1})
-        fmt_info = wb.add_format(
-            {"border": 1, "align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 9})
-
-        def write_sheet(ws, sesion):
-            ws.hide_gridlines(2)
-            for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
-                ws.set_column(c, c, COL_W)
-            ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
-            for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
-                ws.set_column(c, c, COL_W)
-
-            ws.merge_range(0, 0, 0, RIGHT_COL + BLOCK_COLS - 1,
-                           f"ID PROJECT: {sesion.proyecto_id}", fmt_title)
-            cur_row = 2
-
-            ev_qs = (EvidenciaFotoBilling.objects
-                     .filter(tecnico_sesion__sesion=sesion)
-                     .select_related("requisito")
-                     .order_by("requisito__orden", "tomada_en", "id"))
-
-            idx = 0
-            for ev in ev_qs.iterator(chunk_size=100):
-                col = LEFT_COL if (idx % 2 == 0) else RIGHT_COL
-
-                if sesion.proyecto_especial and ev.requisito_id is None:
-                    titulo_req = (ev.titulo_manual or "").strip() or "Extra"
-                else:
-                    titulo_req = (
-                        (getattr(ev.requisito, "titulo", "") or "").strip() or "Extra")
-                ws.merge_range(cur_row, col, cur_row + HEAD_ROWS - 1,
-                               col + BLOCK_COLS - 1, titulo_req, fmt_head)
-                for rr in range(cur_row, cur_row + HEAD_ROWS):
-                    ws.set_row(rr, 20)
-
-                img_top = cur_row + HEAD_ROWS
-                for rr in range(img_top, img_top + ROWS_IMG):
-                    ws.set_row(rr, IMG_ROW_H)
-                ws.merge_range(img_top, col, img_top + ROWS_IMG -
-                               1, col + BLOCK_COLS - 1, "", fmt_box)
-
-                try:
-                    tmp_img_path, w, h = tmp_jpeg_from_filefield(ev.imagen)
-                    sx = max_w_px / float(w)
-                    sy = max_h_px / float(h)
-                    scale = min(sx, sy, 1.0)
-                    x_off = max((max_w_px - int(w * scale)) // 2, 0)
-                    y_off = max((max_h_px - int(h * scale)) // 2, 0)
-                    ws.insert_image(img_top, col, tmp_img_path, {
-                        "x_scale": scale, "y_scale": scale,
-                        "x_offset": x_off, "y_offset": y_off,
-                        "object_position": 1,
-                    })
-                except Exception:
-                    pass
-
-                info_row = img_top + ROWS_IMG
-                dt = ev.client_taken_at or ev.tomada_en
-                taken_txt = dt.strftime("%Y-%m-%d %H:%M") if dt else ""
-                lat_txt = f"{float(ev.lat):.6f}" if ev.lat is not None else ""
-                lng_txt = f"{float(ev.lng):.6f}" if ev.lng is not None else ""
-                addr_txt = (ev.direccion_manual or "").strip()
-
-                if sesion.proyecto_especial and ev.requisito_id is None:
-                    ws.merge_range(info_row, col,   info_row,
-                                   col+2, f"Taken at\n{taken_txt}", fmt_info)
-                    ws.merge_range(info_row, col+3, info_row,
-                                   col+5, f"Address\n{addr_txt}",  fmt_info)
-                else:
-                    ws.merge_range(info_row, col,   info_row,
-                                   col+1, f"Taken at\n{taken_txt}", fmt_info)
-                    ws.merge_range(info_row, col+2, info_row,
-                                   col+3, f"Lat\n{lat_txt}",       fmt_info)
-                    ws.merge_range(info_row, col+4, info_row,
-                                   col+5, f"Lng\n{lng_txt}",       fmt_info)
-                ws.set_row(info_row, 30)
-
-                idx += 1
-                if idx % 2 == 0:
-                    cur_row += HEAD_ROWS + ROWS_IMG + ROW_INFO + ROW_SPACE
-            if idx % 2 == 1:
-                cur_row += HEAD_ROWS + ROWS_IMG + ROW_INFO + ROW_SPACE
-
-        for s in ordered:
-            if s.estado not in ALLOWED_STATES:
-                skipped.append(str(s.id))
-                continue
-            if not EvidenciaFotoBilling.objects.filter(tecnico_sesion__sesion=s).exists():
-                skipped.append(str(s.id))
-                continue
-
-            base = f"{slugify(s.proyecto_id or '')}-{s.id}".strip("-") or f"proj-{s.id}"
-            ws = wb.add_worksheet(safe_sheet_name(base[:31], used_names))
-            write_sheet(ws, s)
-            added += 1
-
-    if added == 0:
-        return JsonResponse({"error": "Ninguna de las sesiones indicadas tiene fotos elegibles para combinar."}, status=400)
-
-    if not zipfile.is_zipfile(tmp_xlsx.name):
-        size = os.path.getsize(tmp_xlsx.name)
-        with open(tmp_xlsx.name, "rb") as _f:
-            head = _f.read(200)
-        return JsonResponse({"error": "Archivo XLSX corrupto al generar merge.",
-                             "size": size, "head_sample": head[:120].decode(errors="ignore")}, status=500)
-
-    f = open(tmp_xlsx.name, "rb")
+    f = open(out_tmp.name, "rb")
     resp = FileResponse(
         f,
         as_attachment=True,
         filename="reportes_fotograficos_merged.xlsx",
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    resp["Content-Length"] = os.path.getsize(tmp_xlsx.name)
+    resp["Content-Length"] = os.path.getsize(out_tmp.name)
     from django.utils.http import http_date
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp["Pragma"] = "no-cache"
     resp["Expires"] = http_date(0)
+
+    resp["X-Debug-Run"] = run_id
+    try:
+        resp["X-Merged-Count"] = str(len(final_titles))
+        resp["X-Merged-Sheets"] = ",".join(final_titles)
+    except Exception:
+        pass
     if skipped:
         resp["X-Skipped-Ids"] = ",".join(skipped)
     return resp

@@ -199,6 +199,24 @@ LOGIN_URL = reverse_lazy('usuarios:login_unificado')
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/usuarios/login/'
 
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        # Coincide con getLogger("merge_xlsx")
+        "merge_xlsx": {
+            "handlers": ["console"],
+            "level": "DEBUG",   # En prod podrías bajarlo a INFO
+            "propagate": False,
+        },
+    },
+}
+
+
 # ==============================
 # STORAGE (Wasabi S3)
 # ==============================

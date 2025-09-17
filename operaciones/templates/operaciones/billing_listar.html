@@ -1578,96 +1578,48 @@ document.addEventListener('click', function(e){
 <!-- ✅ MERGE with spinner (no % bar) -->
 <script>
 (function(){
-  function getCookie(name){
-    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-    return m ? decodeURIComponent(m[2]) : null;
-  }
-  const csrftoken = getCookie('csrftoken');
-
   function selectedIds(){
     return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
   }
 
-  function downloadBlob(blob, filename){
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename || 'merged.xlsx';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=> URL.revokeObjectURL(url), 10_000);
-  }
-
   async function mergeExcelReports(ids){
-    // ⬇️ Mostrar spinner (sin barra de %)
+    if(!ids || !ids.length) return;
+
+    // Cierra el menú y muestra spinner (opcional)
+    document.getElementById('menu-actions')?.classList.add('hidden');
     window.showBusy('Merging Excel reports', 'This may take a moment');
 
-    try{
-      const resp = await fetch("{% url 'operaciones:billing_merge_excel' %}", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrftoken,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-        body: JSON.stringify({ ids })
-      });
+    // Arma la URL con ?ids=1,2,3 (tu view ya soporta GET con ids)
+    const url = "{% url 'operaciones:billing_merge_excel' %}" + "?ids=" + encodeURIComponent(ids.join(','));
 
-      if(!resp.ok){
-        let msg = "Error al unir excels";
-        try { const d = await resp.json(); if(d && d.error) msg = d.error; } catch(_){}
-        window.openInfo(msg + ` (HTTP ${resp.status})`, 'Merge Excel reports');
-        return;
+    // Abre en otra pestaña para que el navegador gestione la descarga con cookies
+    window.open(url, '_blank');
+
+    // Limpia selección/estado UI y oculta el spinner
+    ids.forEach(id => {
+      const chk = document.querySelector(`.row-chk[value="${id}"]`);
+      if (chk){
+        chk.checked = false;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
       }
+    });
+    const header = document.getElementById('chk-all');
+    if (header){ header.checked = false; header.indeterminate = false; }
+    const btnActions = document.getElementById('btn-actions');
+    if (btnActions) btnActions.disabled = true;
+    const exportIds = document.getElementById('export-ids');
+    if (exportIds) exportIds.value = '';
 
-      const blob = await resp.blob();
-      const ts = new Date();
-      const pad = n => String(n).padStart(2,'0');
-      const fname = `reportes_fotograficos_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xlsx`;
-      downloadBlob(blob, fname);
-
-      const skipped = resp.headers.get('X-Skipped-Ids');
-      if(skipped){
-        window.openInfo("Se omitieron proyectos sin Excel disponible: " + skipped, 'Merge Excel reports');
-      }
-
-      // Clean UI after success
-      document.getElementById('menu-actions')?.classList.add('hidden');
-
-      ids.forEach(id => {
-        const chk = document.querySelector(`.row-chk[value="${id}"]`);
-        if (chk){
-          chk.checked = false;
-          chk.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      });
-
-      const header = document.getElementById('chk-all');
-      if (header){
-        header.checked = false;
-        header.indeterminate = false;
-      }
-
-      const btnActions = document.getElementById('btn-actions');
-      if (btnActions) btnActions.disabled = true;
-
-      const exportIds = document.getElementById('export-ids');
-      if (exportIds) exportIds.value = '';
-
-    } finally {
-      // ⬆️ Ocultar spinner pase lo que pase
-      window.hideBusy();
-    }
+    window.hideBusy();
   }
 
   window.mergeExcelReports = mergeExcelReports;
 
+  // Hook del menú (sin cambios)
   const menu = document.getElementById('menu-actions');
   menu.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-action]');
     if(!btn) return;
-
     e.stopImmediatePropagation();
 
     const action = btn.getAttribute('data-action');
@@ -1681,5 +1633,4 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
-
 {% endblock %}
