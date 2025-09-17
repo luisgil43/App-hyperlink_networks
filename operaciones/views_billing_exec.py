@@ -1,4 +1,6 @@
 
+from django.http import HttpResponseRedirect
+import time
 from django.views.decorators.cache import never_cache
 import tempfile
 import hashlib
@@ -1530,6 +1532,21 @@ def generar_reporte_parcial_asignacion(request, asig_id):
     return redirect('operaciones:generar_reporte_parcial_proyecto', sesion_id=a.sesion_id)
 
 
+def _open_file_with_retries(ff, attempts=3, delay=1.0):
+    """
+    Intenta abrir el FieldFile del storage con pequeños reintentos.
+    Devuelve un file-like abierto o levanta la última excepción.
+    """
+    last = None
+    for _ in range(attempts):
+        try:
+            return ff.open("rb")
+        except Exception as e:
+            last = e
+            time.sleep(delay)
+    raise last
+
+
 @login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
@@ -1540,17 +1557,30 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
     if not s.reporte_fotografico or not storage_file_exists(s.reporte_fotografico):
         messages.warning(
-            request, "The photo report is not available. You can regenerate it now."
-        )
+            request, "The photo report is not available. You can regenerate it now.")
         return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
-    f = s.reporte_fotografico.open("rb")
-    filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
-    resp = FileResponse(f, as_attachment=True, filename=filename)
-    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp["Pragma"] = "no-cache"
-    resp["Expires"] = http_date(0)
-    return resp
+    # 1) intentamos abrir con reintentos
+    try:
+        _open_file_with_retries(s.reporte_fotografico, attempts=3, delay=0.8)
+        f = s.reporte_fotografico  # ya está abierto en modo rb
+        filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
+        resp = FileResponse(f, as_attachment=True, filename=filename)
+        resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp["Pragma"] = "no-cache"
+        resp["Expires"] = http_date(0)
+        return resp
+    except Exception:
+        # 2) Fallback opcional: URL presignada corta (no carga el web worker)
+        try:
+            # django-storages S3: .url(expire=...)
+            url = s.reporte_fotografico.storage.url(
+                s.reporte_fotografico.name, expire=600)
+            return HttpResponseRedirect(url)
+        except Exception:
+            messages.error(
+                request, "Could not open the report right now. Please try again.")
+            return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
 
 @login_required
