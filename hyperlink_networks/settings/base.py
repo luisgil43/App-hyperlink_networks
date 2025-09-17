@@ -27,6 +27,8 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '172.20.10.2',
+    '0.0.0.0',
+
 ]
 
 # Confiar en tu dominio para CSRF (producción)
@@ -35,8 +37,8 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # Cookies seguras en prod
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 
 # ==============================
@@ -95,6 +97,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'usuarios.middleware.SessionExpiryMiddleware',
@@ -151,6 +154,11 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
     )
 }
+
+# Opciones para SQLite (más tolerancia a bloqueos)
+if 'sqlite' in DATABASES['default']['ENGINE']:
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS'].setdefault('timeout', 30)  # segundos
 
 # ==============================
 # PASSWORD VALIDATION
@@ -273,5 +281,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Sesión
 IDLE_TIMEOUT_SECONDS = 15 * 60          # 15 minutos de inactividad
 SESSION_ABSOLUTE_TIMEOUT = None         # Ej: 8*60*60 para 8h si lo necesitas
-SESSION_SAVE_EVERY_REQUEST = True
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+MESSAGE_STORAGE = 'django.contrib.messages.storage.cookie.CookieStorage'
+SESSION_COOKIE_HTTPONLY = True
+if DEBUG:
+    CSRF_COOKIE_HTTPONLY = False
+else:
+    CSRF_COOKIE_HTTPONLY = True

@@ -1,3 +1,9 @@
+# ajusta si tu decorador está en otro módulo
+from operaciones.models import (
+    SesionBilling, ItemBilling, ItemBillingTecnico,
+    SesionBillingTecnico, EvidenciaFotoBilling,
+)
+from django.shortcuts import redirect
 from django.urls import reverse
 import datetime as dt
 from operaciones.models import SesionBilling, ItemBillingTecnico
@@ -698,56 +704,78 @@ def _can_edit_real_week(user) -> bool:
 @rol_requerido("facturacion", "admin")
 def invoices_list(request):
     """
-    Finance invoices list with the same columns and layout conventions
-    you have in Operations (Billing List).
+    Finanzas:
+      - 'open': todo lo que realmente está en Finanzas (incluye descuentos directos
+                SOLO si fueron ENVIADOS -> finance_sent_at no nulo).
+      - 'paid': solo pagados.
+      - 'all' : todo lo de Finanzas (enviado, en revisión, pendiente, rechazado, pagado,
+                y descuentos directos ENVIADOS). Excluye 'none', vacío y nulos.
     """
     scope = request.GET.get("scope", "open")  # open | all | paid
 
     qs = (
-        SesionBilling.objects.all()
-        .select_related()
+        SesionBilling.objects
         .prefetch_related(
-            "tecnicos_sesion__tecnico",
-            "tecnicos_sesion__evidencias",
-            "items",
-            "items__desglose_tecnico__tecnico",
+            # anidados de forma explícita
+            Prefetch(
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related(
+                            "tecnico"),
+                    )
+                ),
+            ),
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related("tecnico").prefetch_related(
+                    Prefetch(
+                        "evidencias",
+                        queryset=EvidenciaFotoBilling.objects.only(
+                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
+                        ).order_by("-id"),
+                    )
+                ),
+            ),
         )
         .order_by("-creado_en")
     )
 
-    # 👇 Consideramos "open" también los flujos de descuento directo
-    FINANCE_OPEN = (
-        "review_discount",     # primer estado para descuentos directos
-        "discount_applied",    # descuento confirmado, aún no cobrado
-        "sent",                # flujo normal (aprobado por supervisor)
-        "in_review",
-        "pending",
-        "rejected",
-    )
+    # Estados “abiertos” (en Finanzas) sin contar 'review_discount' no enviado
+    FINANCE_OPEN_BASE = ["discount_applied",
+                         "sent", "in_review", "pending", "rejected"]
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
-    elif scope == "all":
-        # Todo lo que compete a Finanzas (open + paid), excluyendo los que aún no se han enviado
-        qs = qs.exclude(
-            Q(finance_status='none') |
-            Q(finance_status='') |
-            Q(finance_status__isnull=True)
-        )
-    else:  # "open"
-        qs = qs.filter(finance_status__in=FINANCE_OPEN)
 
+    elif scope == "all":
+        # Todo lo que compete a Finanzas:
+        #   - Excluye 'none', vacíos y nulos
+        #   - Excluye 'review_discount' NO ENVIADOS (finance_sent_at IS NULL)
+        qs = qs.exclude(
+            Q(finance_status__in=["none", ""]) |
+            Q(finance_status__isnull=True) |
+            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
+        )
+
+    else:  # "open"
+        # Abiertos: base + 'review_discount' SOLO si fue ENVIADO
+        qs = qs.filter(
+            Q(finance_status__in=FINANCE_OPEN_BASE) |
+            (Q(finance_status="review_discount")
+             & Q(finance_sent_at__isnull=False))
+        ).exclude(finance_status="paid")
+
+    # Paginación
     cantidad = request.GET.get("cantidad", "10")
     try:
-        per_page = 1000000 if cantidad == "todos" else int(cantidad)
+        per_page = 1_000_000 if cantidad == "todos" else int(cantidad)
     except Exception:
         per_page = 10
         cantidad = "10"
 
-    from django.core.paginator import Paginator
-    paginator = Paginator(qs, per_page)
-    page_number = request.GET.get("page")
-    pagina = paginator.get_page(page_number)
+    pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
     ctx = {
         "pagina": pagina,
@@ -882,26 +910,56 @@ def invoice_reject(request, pk: int):
 def invoice_remove(request, pk: int):
     """
     Saca la sesión de la cola de Finanzas (NO borra el billing).
+
+    Reglas:
+    - Si es descuento directo -> vuelve a 'review_discount' (se mantiene visible en Billing).
+    - Si NO es descuento directo -> vuelve a 'none'.
+    - Si está 'paid' -> no permitir remover.
     """
-    # 🔒 Bloqueamos por id y actualizamos sin invocar save()
-    updated = (
+    # Trae solo lo necesario y evita invocar save() (usaremos .update)
+    s = (
         SesionBilling.objects
+        .only("id", "is_direct_discount", "finance_status")
         .filter(pk=pk)
-        .update(
-            finance_status="none",
-            finance_note="",
-            finance_sent_at=None,
-            finance_updated_at=timezone.now(),
-        )
+        .first()
     )
 
-    if request.headers.get("x-requested-with") == "XMLHttpRequest":
-        # Si no existía, devolvemos error
-        if not updated:
+    # Not found
+    if not s:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
             return JsonResponse({"ok": False, "error": "Not found"}, status=404)
-        return JsonResponse({"ok": True, "id": pk, "finance_status": "none"})
+        messages.error(request, "Billing not found.")
+        return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
 
-    messages.success(request, f"Billing #{pk} removed from Finance queue.")
+    # No se puede remover si ya está pagado
+    if s.finance_status == "paid":
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"ok": False, "error": "Already paid"}, status=409)
+        messages.error(
+            request, "This billing is already paid and cannot be removed from Finance.")
+        return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
+
+    # Estado de retorno según sea descuento directo o no
+    new_status = "review_discount" if s.is_direct_discount else "none"
+
+    # Actualización atómica y sin disparar save()
+    SesionBilling.objects.filter(pk=s.pk).update(
+        finance_status=new_status,
+        finance_note="",
+        finance_sent_at=None,
+        finance_updated_at=timezone.now(),
+    )
+
+    # Respuesta
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"ok": True, "id": s.pk, "finance_status": new_status})
+
+    if new_status == "review_discount":
+        messages.success(
+            request, f"Direct discount #{s.pk} returned to Operations.")
+    else:
+        messages.success(
+            request, f"Billing #{s.pk} removed from Finance queue.")
     return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
 
 

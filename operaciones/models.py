@@ -310,6 +310,7 @@ class ReporteFotograficoJob(models.Model):
     creado_en = models.DateTimeField(auto_now_add=True)
     iniciado_en = models.DateTimeField(null=True, blank=True)
     terminado_en = models.DateTimeField(null=True, blank=True)
+    cancel_requested = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering = ("-creado_en",)

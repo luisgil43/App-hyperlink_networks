@@ -1,0 +1,11 @@
+{
+  "name": "Hyperlink Networks",
+  "short_name": "Hyperlink",
+  "icons": [
+    {"src": "/static/images/favicon-32.png", "sizes": "32x32", "type": "image/png"}
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0ea5e9"
+}

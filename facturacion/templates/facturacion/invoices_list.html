@@ -427,6 +427,44 @@
   </div>
 </div>
 
+
+<!-- ===== Rejection modal (bonito) ===== -->
+<div id="modal-reject" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-reject></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Reject invoice</h3>
+    <form id="reject-form" class="space-y-4">
+      {% csrf_token %}
+      <p class="text-sm text-gray-600">Enter a rejection reason (this will be visible in Operations).</p>
+      <textarea id="reject-reason" class="w-full border rounded-lg px-3 py-2 h-28" placeholder="Write the reason…"></textarea>
+      <input type="hidden" id="reject-id" value="">
+      <div class="flex justify-end gap-2">
+        <button type="button" id="reject-cancel" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Reject</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<div id="modal-paid" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-paid></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Mark as paid</h3>
+    <p id="paid-message" class="text-sm text-gray-700 mb-4">
+      <!-- Se rellena por JS con el mensaje del servidor -->
+    </p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="paid-cancel"
+              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+      <button type="button" id="paid-confirm"
+              class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
+        Yes, mark as paid
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Row expand JS -->
 <script>
 document.addEventListener('click', function(e){
@@ -448,6 +486,59 @@ document.addEventListener('click', function(e){
 });
 </script>
 
+<!-- CSRF + robust POST helper -->
+<script>
+(function(){
+  function getCsrf(){
+    const m = document.querySelector('meta[name="csrf-token"]');
+    if (m && m.content) return m.content;
+    const mt = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return mt ? decodeURIComponent(mt[1]) : '';
+  }
+  const csrftoken = getCsrf();
+
+  async function postAjax(url, body, asJson=true){
+    const init = {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' }
+    };
+    if (asJson){
+      init.headers['Content-Type'] = 'application/json';
+      init.headers['Accept'] = 'application/json';
+      init.body = JSON.stringify(body || {});
+    } else {
+      init.headers['Accept'] = 'application/json';
+      init.body = body instanceof FormData ? body : new FormData();
+    }
+    const resp = await fetch(url, init);
+
+    // login redirect -> trata como sesión expirada
+    if (resp.redirected || (resp.url && /\/usuarios\/login\/?/i.test(resp.url))){
+      throw new Error('Your session expired. Please sign in again.');
+    }
+
+    const ct = (resp.headers.get('content-type') || '').toLowerCase();
+    if (ct.includes('application/json')){
+      const data = await resp.json().catch(()=> ({}));
+      if (!resp.ok || (data && data.ok === false)){
+        const msg = (data && (data.error || data.detail || data.message)) || `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+      return data || { ok:true };
+    }
+    const text = await resp.text();
+    if (/csrf/i.test(text)) throw new Error('Invalid or expired CSRF. Refresh this page.');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return { ok:true, html:text };
+  }
+
+  window.__csrf__ = csrftoken;
+  window.__postAjax__ = postAjax;
+})();
+</script>
+
+<!-- Remove (uses robust POST helper) -->
 <script>
 (function(){
   function getCookie(name){
@@ -457,60 +548,45 @@ document.addEventListener('click', function(e){
   const csrftoken = getCookie('csrftoken');
 
   function toast(msg, type='info'){
-    const bg = type === 'success' ? 'bg-green-600' :
-               type === 'error'   ? 'bg-red-600'   : 'bg-blue-600';
+    const bg = type==='success'?'bg-green-600':(type==='error'?'bg-red-600':'bg-blue-600');
     const el = document.createElement('div');
     el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
-    el.textContent = msg;
-    document.body.appendChild(el);
+    el.textContent = msg; document.body.appendChild(el);
     setTimeout(()=> el.remove(), 2000);
   }
 
-  // Remove -> POST AJAX y sacar fila del DOM al éxito
-document.addEventListener("click", async (e)=>{
-  const btn = e.target.closest(".btn-remove");
-  if(!btn) return;
+  document.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('.btn-remove');
+    if(!btn) return;
+    const url = btn.dataset.url;
+    const id  = btn.dataset.id;
 
-  const url = btn.dataset.url;              // <— usa data-url directo
-  const id  = btn.dataset.id;
+    try{
+      const data = await window.__postAjax__(url, {}, false);
+      if (!data || data.ok !== true) throw new Error((data && data.error) || 'Unknown error');
 
-  try{
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest"
+      const tr = document.querySelector(`tr[data-row="main"][data-id="${id}"]`);
+      if (tr){
+        const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
+        tr.remove();
+        if (detailId) document.getElementById(detailId)?.remove();
       }
-    });
-    const payload = await resp.json().catch(()=> ({}));
-    if(!resp.ok || !payload.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
-
-    // Quita la fila del DOM
-    const tr = document.querySelector(`tr[data-row="main"][data-id="${id}"]`);
-    if (tr){
-      const detailId = tr.querySelector('.btn-toggle-detalle')?.getAttribute('data-target');
-      tr.remove();
-      if (detailId) document.getElementById(detailId)?.remove();
+      toast('Removed. It returns to Operations.', 'success');
+    }catch(err){
+      toast(err.message || 'Remove failed', 'error');
     }
-    toast("Removed. It returns to Operations.", "success");
-  }catch(err){
-    toast(err.message || "Remove failed", "error");
-  }
-});
-
+  });
 })();
 </script>
 
-<!-- Filters -->
+<!-- Filters + "Discount verified" -->
 <script>
 (function () {
-  /* ===================== Filtros ===================== */
+  /* ===================== Filters ===================== */
   const table = document.getElementById("billing-table");
   if (!table) return;
 
-  const allRows = Array.from(
-    table.querySelectorAll('tbody tr[data-row="main"]')
-  );
+  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
   const inputs = {
     date:   document.getElementById("f-date"),
     projid: document.getElementById("f-projid"),
@@ -575,46 +651,24 @@ document.addEventListener("click", async (e)=>{
   });
   applyFilters();
 
-  /* ===================== Utils para acciones ===================== */
-  function getCookie(name) {
-    const m = document.cookie.match(new RegExp("(^|; )" + name + "=([^;]*)"));
-    return m ? decodeURIComponent(m[2]) : null;
-  }
-  const csrftoken = getCookie("csrftoken");
+  /* ===================== Discount verified (robusto) ===================== */
   const toastSafe = window.toast || ((msg) => console.log(msg));
-
-  /* ===================== Discount verified ===================== */
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".btn-discount-verified");
     if (!btn) return;
 
     const id = btn.dataset.id;
-    // Usa data-url si lo pusiste en el botón; si no, arma la URL con base al path de 'invoices'
-    const base = "{% url 'facturacion:invoices' %}"; // /facturacion/invoices/
-    const url =
-      btn.dataset.url ||
-      base.replace("/invoices/", `/invoices/${id}/discount-verified/`);
+    const base = "{% url 'facturacion:invoices' %}";
+    const url = btn.dataset.url || base.replace("/invoices/", `/invoices/${id}/discount-verified/`);
 
     try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "X-CSRFToken": csrftoken,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      });
+      const data = await window.__postAjax__(url, {}, false);
 
-      let payload = null;
-      try { payload = await resp.json(); } catch (_) {}
-
-      if (!resp.ok) {
-        const msg =
-          (payload && (payload.error || payload.message)) ||
-          `HTTP ${resp.status}`;
+      if (!data || data.ok !== true){
+        const msg = (data && (data.error || data.message)) || "Unknown error";
         throw new Error(msg);
       }
 
-      // Actualiza la UI sin recargar toda la página
       const row = btn.closest("tr");
       const cell = row?.querySelector('[data-finance-status]');
       if (cell) {
@@ -623,8 +677,6 @@ document.addEventListener("click", async (e)=>{
       }
       btn.remove();
       toastSafe("Discount applied.", "success");
-      // Si prefieres refrescar toda la página:
-      // window.location.reload();
     } catch (err) {
       toastSafe(err.message || "Operation failed", "error");
     }
@@ -632,48 +684,10 @@ document.addEventListener("click", async (e)=>{
 })();
 </script>
 
-<!-- ===== Rejection modal (bonito) ===== -->
-<div id="modal-reject" class="fixed inset-0 hidden z-50">
-  <div class="absolute inset-0 bg-black/40" data-close-reject></div>
-  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
-    <h3 class="text-lg font-semibold mb-2">Reject invoice</h3>
-    <form id="reject-form" class="space-y-4">
-      {% csrf_token %}
-      <p class="text-sm text-gray-600">Enter a rejection reason (this will be visible in Operations).</p>
-      <textarea id="reject-reason" class="w-full border rounded-lg px-3 py-2 h-28" placeholder="Write the reason…"></textarea>
-      <input type="hidden" id="reject-id" value="">
-      <div class="flex justify-end gap-2">
-        <button type="button" id="reject-cancel" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
-        <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Reject</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-
-<div id="modal-paid" class="fixed inset-0 hidden z-50">
-  <div class="absolute inset-0 bg-black/40" data-close-paid></div>
-  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
-    <h3 class="text-lg font-semibold mb-2">Mark as paid</h3>
-    <p id="paid-message" class="text-sm text-gray-700 mb-4">
-      <!-- Se rellena por JS con el mensaje del servidor -->
-    </p>
-    <div class="flex justify-end gap-2">
-      <button type="button" id="paid-cancel"
-              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
-      <button type="button" id="paid-confirm"
-              class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
-        Yes, mark as paid
-      </button>
-    </div>
-  </div>
-</div>
-
-
 <!-- Inline edit + finance actions -->
 <script>
 (function(){
-  /* ===================== CSRF + utilidades ===================== */
+  /* ===================== CSRF + utils ===================== */
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
@@ -689,48 +703,35 @@ document.addEventListener("click", async (e)=>{
     setTimeout(()=> el.remove(), 2200);
   }
 
+  // usa el helper global para heredar manejo de sesión/CSRF
   async function ajaxForm(url, data){
     const form = new FormData();
     Object.entries(data || {}).forEach(([k,v])=> form.append(k, v));
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest"
-      },
-      body: form
-    });
-    let payload = null;
-    try { payload = await resp.json(); } catch(_){}
-    if(!resp.ok){
-      const msg = (payload && (payload.error || payload.message)) || `HTTP ${resp.status}`;
-      throw new Error(msg);
-    }
-    return payload || { ok: true };
+    return window.__postAjax__(url, form, false);
   }
 
   /* ===================== Inline edit: Real Company Billing ===================== */
-function enterEditReal(id){
-  document.getElementById(`real-view-${id}`).classList.add("hidden");
-  const input = document.getElementById(`real-input-${id}`);
-  input.classList.remove("hidden");
+  function enterEditReal(id){
+    document.getElementById(`real-view-${id}`).classList.add("hidden");
+    const input = document.getElementById(`real-input-${id}`);
+    input.classList.remove("hidden");
 
-  const cur = (input.value || '').trim().replace('$','').replace(/,/g,'');
-  if (cur === '0' || cur === '0.00') input.value = '';
+    const cur = (input.value || '').trim().replace('$','').replace(/,/g,'');
+    if (cur === '0' || cur === '0.00') input.value = '';
 
-  input.setAttribute('placeholder', '—');
-  input.focus(); input.select?.();
-}
+    input.setAttribute('placeholder', '—');
+    input.focus(); input.select?.();
+  }
 
-function exitEditReal(id, val){
-  const view  = document.getElementById(`real-view-${id}`);
-  const input = document.getElementById(`real-input-${id}`);
-  const raw   = (val ?? '').toString().trim();
-  const isEmpty = (raw === '' || raw === '-' || raw === '—');
-  view.textContent = isEmpty ? '—' : `$${Number(raw).toFixed(2)}`;
-  view.classList.remove("hidden");
-  input.classList.add("hidden");
-}
+  function exitEditReal(id, val){
+    const view  = document.getElementById(`real-view-${id}`);
+    const input = document.getElementById(`real-input-${id}`);
+    const raw   = (val ?? '').toString().trim();
+    const isEmpty = (raw === '' || raw === '-' || raw === '—');
+    view.textContent = isEmpty ? '—' : `$${Number(raw).toFixed(2)}`;
+    view.classList.remove("hidden");
+    input.classList.add("hidden");
+  }
 
   /* ===================== Inline edit: Real Pay Week ===================== */
   function enterEditWeek(id){
@@ -777,36 +778,31 @@ function exitEditReal(id, val){
     }
   });
 
-// iOS: guardar también al salir del campo (blur) o al cambiar (change)
-async function saveRealFromInput(input){
-  if (!input || input.classList.contains('hidden')) return;
-  // evita doble POST si Enter y blur se disparan seguidos
-  if (input.dataset.saving === '1') return;
-  input.dataset.saving = '1';
+  // iOS: blur/change
+  async function saveRealFromInput(input){
+    if (!input || input.classList.contains('hidden')) return;
+    if (input.dataset.saving === '1') return;
+    input.dataset.saving = '1';
 
-  const id  = input.id.replace('real-input-','');
-  try{
-    const url = `{% url 'facturacion:invoices' %}`.replace('/invoices/', `/invoices/${id}/update-real/`);
-    await ajaxForm(url, { real: input.value });
-    window.location.reload();
-  }catch(err){
-    input.dataset.saving = '';          // permite reintentar
-    toast(err.message || 'Save failed', 'error');
-    input.focus();
+    const id  = input.id.replace('real-input-','');
+    try{
+      const url = `{% url 'facturacion:invoices' %}`.replace('/invoices/', `/invoices/${id}/update-real/`);
+      await ajaxForm(url, { real: input.value });
+      window.location.reload();
+    }catch(err){
+      input.dataset.saving = '';
+      toast(err.message || 'Save failed', 'error');
+      input.focus();
+    }
   }
-}
-
-// captura en fase de captura para que no se pierda aunque el input se oculte
-document.addEventListener('focusout', (e)=>{
-  const input = e.target.closest('.real-input');
-  if (input) saveRealFromInput(input);
-}, true);
-
-// algunos teclados disparan change y no blur; lo cubrimos también
-document.addEventListener('change', (e)=>{
-  const input = e.target.closest('.real-input');
-  if (input) saveRealFromInput(input);
-});
+  document.addEventListener('focusout', (e)=>{
+    const input = e.target.closest('.real-input');
+    if (input) saveRealFromInput(input);
+  }, true);
+  document.addEventListener('change', (e)=>{
+    const input = e.target.closest('.real-input');
+    if (input) saveRealFromInput(input);
+  });
 
   // WEEK
   document.addEventListener("keydown", async (e)=>{
@@ -828,7 +824,7 @@ document.addEventListener('change', (e)=>{
     }
   });
 
-  /* ===================== Modal de RECHAZO ===================== */
+  /* ===================== Reject modal ===================== */
   const rejectModal   = document.getElementById('modal-reject');
   const rejectForm    = document.getElementById('reject-form');
   const rejectReason  = document.getElementById('reject-reason');
@@ -843,14 +839,12 @@ document.addEventListener('change', (e)=>{
   }
   function closeReject(){ if(rejectModal) rejectModal.classList.add('hidden'); }
 
-  // Abrir modal rechazo
   document.addEventListener("click", (e)=>{
     const btn = e.target.closest(".btn-reject");
     if(!btn) return;
     openReject(btn.dataset.id);
   });
 
-  // Cerrar modal rechazo
   const rejectCancelBtn = document.getElementById('reject-cancel');
   if (rejectCancelBtn) rejectCancelBtn.addEventListener('click', closeReject);
   if (rejectModal){
@@ -858,7 +852,6 @@ document.addEventListener('change', (e)=>{
   }
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && rejectModal && !rejectModal.classList.contains('hidden')) closeReject(); });
 
-  // Enviar rechazo
   if (rejectForm){
     rejectForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
@@ -876,7 +869,7 @@ document.addEventListener('change', (e)=>{
     });
   }
 
-  /* ===================== Modal 'MARK AS PAID' ===================== */
+  /* ===================== Mark as paid modal ===================== */
   const paidModal     = document.getElementById('modal-paid');
   const paidMsg       = document.getElementById('paid-message');
   const paidBtnOk     = document.getElementById('paid-confirm');
@@ -904,22 +897,14 @@ document.addEventListener('change', (e)=>{
   if (paidBtnCancel) paidBtnCancel.addEventListener('click', closePaidModal);
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && paidModal && !paidModal.classList.contains('hidden')) closePaidModal(); });
 
-  // Confirmar "Mark as paid" (forzado)
+  // Confirm forced "Mark as paid" (uses robust helper)
   if (paidBtnOk){
     paidBtnOk.addEventListener('click', async ()=>{
       if(!paidCurrentId || !paidPostUrl) return;
       try{
         const form = new FormData();
         form.append("force", "1");
-        const resp = await fetch(paidPostUrl, {
-          method: "POST",
-          headers: { "X-CSRFToken": csrftoken, "X-Requested-With": "XMLHttpRequest" },
-          body: form
-        });
-        if(!resp.ok){
-          const t = await resp.text();
-          throw new Error(t || ("HTTP " + resp.status));
-        }
+        await window.__postAjax__(paidPostUrl, form, false);
         closePaidModal();
         window.location.reload();
       }catch(err){
@@ -928,7 +913,7 @@ document.addEventListener('change', (e)=>{
     });
   }
 
-  /* ===================== Acción: Mark as paid (sin confirm feo) ===================== */
+  /* ===================== Mark as paid (first attempt) ===================== */
   document.addEventListener("click", async (e)=>{
     const btn = e.target.closest(".btn-paid");
     if(!btn) return;
@@ -939,8 +924,14 @@ document.addEventListener('change', (e)=>{
     try{
       const resp = await fetch(url, {
         method: "POST",
+        credentials: "same-origin",
         headers: { "X-CSRFToken": csrftoken, "X-Requested-With": "XMLHttpRequest" }
       });
+
+      // sesión expirada -> login redirect
+      if (resp.redirected || (resp.url && /\/usuarios\/login\/?/i.test(resp.url))){
+        throw new Error("Your session expired. Please sign in again.");
+      }
 
       if (resp.status === 409){
         const payload = await resp.json().catch(()=> ({}));

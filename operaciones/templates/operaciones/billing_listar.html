@@ -1235,12 +1235,17 @@ document.addEventListener('click', function(e){
 <!-- Send to Finance (legacy prompt fallback) -->
 <script>
 (function(){
+  // --- CSRF helpers (meta first, then cookie) ---
+  function getMetaCsrf(){
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
   }
-  const csrftoken = getCookie('csrftoken');
+  const csrftoken = getMetaCsrf() || getCookie('csrftoken') || '';
 
+  // --- UI elements ---
   const actionsBtn   = document.getElementById('btn-actions');
   const menu         = document.getElementById('menu-actions');
   const exportForm   = document.getElementById('export-form');
@@ -1253,45 +1258,71 @@ document.addEventListener('click', function(e){
 
   function setActionsEnabled(){
     const any = selectedIds().length > 0;
-    actionsBtn.disabled = !any;
+    if (actionsBtn) actionsBtn.disabled = !any;
   }
 
+  // Toggle dropdown
   actionsBtn?.addEventListener('click', () => {
     if(actionsBtn.disabled) return;
     menu.classList.toggle('hidden');
   });
+  // Close dropdown when clicking outside
   document.addEventListener('click', (e)=>{
     if(!menu.contains(e.target) && !actionsBtn.contains(e.target)){
       menu.classList.add('hidden');
     }
   });
 
+  // Enable/disable by selection
   chkAll?.addEventListener('change', setActionsEnabled);
   document.addEventListener('change', (e)=>{
     if(e.target.classList.contains('row-chk')) setActionsEnabled();
   });
   setActionsEnabled();
 
+  // ---------- Robust sender (JSON-only, handles session/CSRF) ----------
   async function sendToFinance(ids, note){
     const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
       method: "POST",
+      credentials: "same-origin",        // ensure session cookies go with the request
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         "X-CSRFToken": csrftoken,
         "X-Requested-With": "XMLHttpRequest",
       },
-      body: JSON.stringify({ ids: ids, note: note || "" })
+      body: JSON.stringify({ ids: ids || [], note: note || "" })
     });
-    if(!resp.ok){
-      let msg = 'HTTP ' + resp.status;
-      try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch(_){}
-      throw new Error('Could not send to Finance: ' + msg);
+
+    // If redirected to login, treat as expired session
+    if (resp.redirected || (resp.url && /\/login\//i.test(resp.url))) {
+      throw new Error("Your session has expired. Please sign in again.");
     }
-    return resp.json();
+
+    // Must be JSON; HTML likely means login/CSRF page
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+    if (!ct.includes("application/json")) {
+      const html = await resp.text();
+      if (/csrf/i.test(html)) {
+        throw new Error("Invalid or expired CSRF token. Please refresh the page.");
+      }
+      throw new Error(`Invalid server response (not JSON). HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if (!resp.ok || !data || data.ok !== true) {
+      const msg = (data && (data.error || data.detail || data.message)) || `HTTP ${resp.status}`;
+      throw new Error("Could not send to Finance: " + msg);
+    }
+    return data;
   }
 
+  // Expose for the modern modal flow (your other script calls window.sendToFinance)
   window.sendToFinance = sendToFinance;
 
+  // ---------- Fallback flow using prompt (kept intact) ----------
+  // NOTE: another handler (modern modal) may call stopImmediatePropagation().
+  // This fallback is harmless and only runs when that handler isn't used.
   menu.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-action]');
     if(!btn) return;
