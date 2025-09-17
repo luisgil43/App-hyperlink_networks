@@ -1,4 +1,5 @@
 
+from django.views.decorators.cache import never_cache
 import tempfile
 import hashlib
 import os
@@ -1199,6 +1200,7 @@ def cancelar_reporte_proyecto(request, sesion_id: int):
 
 @login_required
 @require_GET
+@never_cache
 def project_report_status(request, sesion_id: int):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     approved = s.estado in ("aprobado_supervisor", "aprobado_pm")
@@ -1211,9 +1213,8 @@ def project_report_status(request, sesion_id: int):
         .first()
     )
 
-    # --- Antes de la aprobación ---
+    # Antes de aprobación
     if not approved:
-        # Si hay un job FINAL corriendo, muestra progreso (pendiente/procesando)
         if job and job.estado in ("pendiente", "procesando"):
             state_map = {"pendiente": "pending", "procesando": "processing"}
             return JsonResponse({
@@ -1224,10 +1225,9 @@ def project_report_status(request, sesion_id: int):
                 "cancel_requested": bool(getattr(job, "cancel_requested", False)),
                 "approved": False,
             })
-        # Si no hay job o ya terminó en ok/error pero no está aprobado, oculta todo
         return JsonResponse({"state": "none", "approved": False})
 
-    # --- Ya aprobado por servidor ---
+    # Ya aprobado
     if not job:
         return JsonResponse({"state": "none", "approved": True})
 
@@ -1407,36 +1407,28 @@ def _xlsx_path_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None, progres
 @rol_requerido('supervisor', 'admin', 'pm')
 def generar_reporte_parcial_proyecto(request, sesion_id):
     """
-    Enqueue a background job to build the PARTIAL XLSX.
-    Siempre crea un NUEVO job. Si hubiera jobs parciales previos en curso,
-    se marcan para cancelación.
+    Encola un NUEVO job PARCIAL y marca cancelación de parciales previos.
+    Responde de inmediato (jamás bloquea el request).
     """
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-
-    from operaciones.models import ReporteFotograficoJob
     from usuarios.schedulers import enqueue_reporte_parcial
 
-    # 1) Cancelar cualquier parcial previo en curso para esta sesión (si existen)
-    #    Requiere el campo booleano `cancel_requested` en ReporteFotograficoJob.
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # Cancela cualquier parcial previo en curso
     (ReporteFotograficoJob.objects
-        .filter(
-            sesion=s,
-            estado__in=("pendiente", "procesando"),
-            log__icontains="[partial]"
-        )
+        .filter(sesion=s, estado__in=("pendiente", "procesando"), log__icontains="[partial]")
         .update(cancel_requested=True))
 
-    # 2) Crear SIEMPRE un nuevo job parcial
+    # Crea nuevo job parcial
     job = ReporteFotograficoJob.objects.create(
-        sesion=s,
-        log="[partial] queued\n",
-        # opcional: inicializa contadores
-        total=0,
-        procesadas=0,
+        sesion=s, log="[partial] queued\n", total=0, procesadas=0
     )
 
-    # 3) Encolar para ejecución inmediata
-    enqueue_reporte_parcial(job.id)
+    # Arranca SOLO cuando el insert haya sido confirmado
+    def _start():
+        enqueue_reporte_parcial(job.id)
+
+    transaction.on_commit(_start)
 
     messages.info(
         request,
@@ -1447,18 +1439,16 @@ def generar_reporte_parcial_proyecto(request, sesion_id):
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
+@never_cache
 def estado_reporte_parcial(request, sesion_id):
     """
     Estado del ÚLTIMO job PARCIAL (los que tienen log con '[partial]').
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
+    job = (ReporteFotograficoJob.objects
+           .filter(sesion=s, log__icontains="[partial]")
+           .order_by("-creado_en").first())
 
-    job = (
-        ReporteFotograficoJob.objects
-        .filter(sesion=s, log__icontains="[partial]")   # 👈 SOLO parciales
-        .order_by("-creado_en")
-        .first()
-    )
     if not job:
         return JsonResponse({"state": "none"})
 
@@ -1468,8 +1458,8 @@ def estado_reporte_parcial(request, sesion_id):
 
     return JsonResponse({
         "state": state_map.get(job.estado, job.estado),
-        "processed": job.procesadas,
-        "total": job.total,
+        "processed": job.procesadas or 0,
+        "total": job.total or 0,
         "log_tail": log_tail,
         "error": job.error or "",
         "cancel_requested": bool(getattr(job, "cancel_requested", False)),
@@ -1543,7 +1533,6 @@ def generar_reporte_parcial_asignacion(request, asig_id):
 @login_required
 def descargar_reporte_fotos_proyecto(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
-    # Permisos: supervisor/pm/admin o técnicos asignados al proyecto
     allowed = (getattr(request.user, "rol", "") in ("supervisor", "pm", "admin")) \
         or s.tecnicos_sesion.filter(tecnico=request.user).exists()
     if not allowed:
@@ -1551,20 +1540,13 @@ def descargar_reporte_fotos_proyecto(request, sesion_id):
 
     if not s.reporte_fotografico or not storage_file_exists(s.reporte_fotografico):
         messages.warning(
-            request,
-            "The photo report is not available. You can regenerate it now."
+            request, "The photo report is not available. You can regenerate it now."
         )
-        return redirect(
-            "operaciones:regenerar_reporte_fotografico_proyecto",
-            sesion_id=s.id
-        )
+        return redirect("operaciones:regenerar_reporte_fotografico_proyecto", sesion_id=s.id)
 
-    # Abrimos y transmitimos nosotros: no usamos URL presignada
     f = s.reporte_fotografico.open("rb")
     filename = f'PHOTOGRAPHIC REPORT {s.proyecto_id}.xlsx'
     resp = FileResponse(f, as_attachment=True, filename=filename)
-
-    # Evitar caché del navegador/CDN intermedio
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp["Pragma"] = "no-cache"
     resp["Expires"] = http_date(0)
@@ -1579,8 +1561,7 @@ def descargar_reporte_parcial_proyecto(request, sesion_id):
 
     job = (ReporteFotograficoJob.objects
            .filter(sesion=s, estado="ok", log__icontains="[partial]")
-           .order_by("-creado_en")
-           .first())
+           .order_by("-creado_en").first())
 
     if not job or not job.resultado_key:
         messages.warning(
@@ -1588,22 +1569,20 @@ def descargar_reporte_parcial_proyecto(request, sesion_id):
         return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
     key_or_path = job.resultado_key
-
-    # 1) Primero intenta como archivo local (nuevo flujo)
     if os.path.exists(key_or_path):
         f = open(key_or_path, "rb")
-    # 2) Compat: si existiera en storage (flujo viejo), úsalo
-    elif storage.exists(key_or_path):
-        f = storage.open(key_or_path, "rb")
     else:
-        messages.warning(
-            request, "Partial report not found. Please generate it again.")
-        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+        from django.core.files.storage import default_storage as storage
+        if storage.exists(key_or_path):
+            f = storage.open(key_or_path, "rb")
+        else:
+            messages.warning(
+                request, "Partial report not found. Please generate it again.")
+            return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
     proj_slug = slugify(
         s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
     filename = f"PHOTOGRAPHIC REPORT (partial) {proj_slug}-{s.id}.xlsx"
-
     resp = FileResponse(f, as_attachment=True, filename=filename)
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp["Pragma"] = "no-cache"
@@ -1913,32 +1892,38 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
 @require_POST
 def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     """
-    Encola la regeneración del REPORTE FINAL.
+    Encola la regeneración del REPORTE FINAL (nunca bloquea).
+    Si ya hay uno en curso, solo informa y redirige.
     """
     from usuarios.schedulers import enqueue_reporte_fotografico
 
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    last_job = (
-        ReporteFotograficoJob.objects
-        .filter(sesion=s)
-        .exclude(log__icontains="[partial]")   # solo FINAL
-        .order_by("-creado_en")
-        .first()
-    )
+    last_job = (ReporteFotograficoJob.objects
+                .filter(sesion=s)
+                .exclude(log__icontains="[partial]")
+                .order_by("-creado_en").first())
     if last_job and last_job.estado in ("pendiente", "procesando"):
         messages.info(
-            request, "Photographic report is already being generated in background. It will replace the current file when it’s ready.")
+            request,
+            "Photographic report is already being generated in background. It will replace the current file when it’s ready."
+        )
         return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
     job = ReporteFotograficoJob.objects.create(
         sesion=s, log="[regen] queued\n")
-    enqueue_reporte_fotografico(job.id)
+
+    # Arranca el job solo después del commit de la creación
+    def _start():
+        enqueue_reporte_fotografico(job.id)
+
+    transaction.on_commit(_start)
 
     messages.info(
-        request, "Regenerating photographic report in background. It will replace the current file when it’s ready.")
+        request,
+        "Regenerating photographic report in background. It will replace the current file when it’s ready."
+    )
     return redirect("operaciones:revisar_sesion", sesion_id=s.id)
-
 
 # ============================
 # CONFIGURAR REQUISITOS (¡la que faltaba!)
