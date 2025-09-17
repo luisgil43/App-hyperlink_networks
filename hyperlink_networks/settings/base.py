@@ -91,16 +91,18 @@ AUTHENTICATION_BACKENDS = [
 # ==============================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # <-- aquí (2°)
+    'whitenoise.middleware.WhiteNoiseMiddleware',
 
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'usuarios.middleware.SessionExpiryMiddleware',
+
+    # 👇 Axes debe ser el ÚLTIMO
+    'axes.middleware.AxesMiddleware',
 ]
 
 
@@ -119,7 +121,7 @@ AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
 AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # simple y robusto
 AXES_LOCKOUT_CALLABLE = None           # (dejamos default)
 AXES_LOCKOUT_TEMPLATE = 'usuarios/login_bloqueado.html'
-
+AXES_IPWARE_META_PRECEDENCE_ORDER = ['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR']
 # ==============================
 # URLS & WSGI
 # ==============================
