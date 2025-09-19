@@ -1,15 +1,16 @@
-<!DOCTYPE html>
+
 {% load static %}
-
-
-
 {% load humanize %}
+
+
+<!DOCTYPE html>
 <html lang="en">
+
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<meta name="csrf-token" content="{{ csrf_token }}">
+    <meta id="meta-csrf" name="csrf-token" content="">
 
 
 <!-- iOS / Apple Touch Icons -->
@@ -126,7 +127,7 @@
          <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
           <li><a href="#" class="hover:text-emerald-400">Assign Services</a></li>
-<li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a>
+<li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
 <li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
         </ul>
       </li>
@@ -180,7 +181,7 @@
               <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Delivery</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
-              <li><a href="#" class="hover:text-emerald-400"Material Receiving</a></li>   
+              <li><a href="#" class="hover:text-emerald-400">Material Receiving</a></li>   
       	<li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
 	<li><a href="#" class="hover:text-emerald-400">Assigned PPE</a></li>
           </ul>
@@ -285,12 +286,33 @@
 <script src="https://unpkg.com/lucide@latest"></script>
 <script> lucide.createIcons(); </script>
 
+
+<!-- Semilla CSRF: fuerza que Django genere token/cookie -->
+<!-- Semilla CSRF: fuerza que Django genere token/cookie -->
+<form class="hidden">{% csrf_token %}</form>
+
 <script>
-  // CSRF y utilidades compartidas
-  window.getCsrfToken = function() {
-    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  // helper robusto (cookie → input → meta)
+  window.getCsrfToken = function () {
+    // Intenta primero por cookie
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]);
+
+    // Luego por input (inyectado por {% csrf_token %})
+    const i = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+    return i || '';
   };
+
+  // Al cargar, pobla el <meta>
+  (function(){
+    const meta = document.getElementById('meta-csrf');
+    if (meta) {
+      meta.setAttribute('content', window.getCsrfToken() || '');
+    }
+  })();
 </script>
+
 
 </body>
 </html>
+

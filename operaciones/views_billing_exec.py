@@ -1,4 +1,11 @@
 
+from django.views.decorators.csrf import csrf_protect
+from django.contrib.auth.views import redirect_to_login
+from django.http import JsonResponse, HttpResponseNotAllowed
+from .models import SesionBilling
+from django.shortcuts import get_object_or_404
+import logging
+import re
 from django.http import HttpResponseRedirect
 import time
 from django.views.decorators.cache import never_cache
@@ -2364,61 +2371,121 @@ def eliminar_evidencia(request, pk, evidencia_id):
     return redirect(next_url)
 
 
-@login_required
-@rol_requerido('admin', 'pm', 'facturacion')
-@require_POST
-def update_semana_pago_real(request, sesion_id):
-    from django.utils import timezone
-    import re
+log = logging.getLogger(__name__)
 
+
+def _has_ops_role(u):
+    return (
+        getattr(u, "es_pm", False) or
+        getattr(u, "es_facturacion", False) or
+        getattr(u, "es_admin_general", False) or
+        u.is_superuser
+    )
+
+
+# views.py
+
+# asume tu modelo
+
+
+@csrf_protect
+def update_semana_pago_real(request, sesion_id):
+    """
+    Inline update for 'Real pay week' (YYYY-W##).
+    Returns JSON always, with user-facing messages in English.
+    """
+    # --- Method check ---
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    # --- Detect AJAX/XHR ---
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    # --- Auth check (avoid 302 for AJAX) ---
+    if not request.user.is_authenticated:
+        if is_ajax:
+            return JsonResponse(
+                {"ok": False, "error": "Your session has expired. Please sign in again."},
+                status=401,
+            )
+        return redirect_to_login(request.get_full_path())
+
+    # --- Role check (admin | pm | facturacion). Ajusta a tu helper real ---
+    allowed = False
+    for attr in ("tiene_rol", "has_role"):
+        fn = getattr(request.user, attr, None)
+        if callable(fn) and fn("admin", "pm", "facturacion"):
+            allowed = True
+            break
+    if request.user.is_superuser:
+        allowed = True
+    if not allowed:
+        return JsonResponse(
+            {"ok": False, "error": "You do not have permission to edit the real pay week."},
+            status=403,
+        )
+
+    # --- Load session ---
     s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # --- Business lock: PAID only admin/superuser can change ---
+    if getattr(s, "finance_status", None) == "paid" and not request.user.is_superuser:
+        return JsonResponse(
+            {"ok": False, "error": "Locked (PAID). Only admins can edit."},
+            status=403,
+        )
+
+    # --- Read value ---
     raw = (request.POST.get("semana") or "").strip()
 
-    # 1) Vacío => limpiar y mostrar "—" en la vista
+    # 1) Empty => clear
     if raw == "":
         s.semana_pago_real = ""
         s.save(update_fields=["semana_pago_real"])
         return JsonResponse({"ok": True, "semana": ""})
 
-    # 2) Normalizador de formatos
+    # 2) Normalization
     v = raw.lower().replace(" ", "")
     now = timezone.now()
     cur_year = now.isocalendar().year
 
-    # patrones
-    m = None
-    # yyyy-w## o yyyy-w#  (e.g. 2025-w3, 2025-W34)
-    if re.fullmatch(r"\d{4}-w?\d{1,2}", v):
+    # Parse
+    if re.fullmatch(r"\d{4}-w?\d{1,2}", v):            # 2025-w3, 2025-W34
         y, w = re.split(r"-w?", v)
         year = int(y)
         week = int(w)
-    # w## o ##  (e.g. w34, 34) => usa año actual
-    elif re.fullmatch(r"w?\d{1,2}", v):
+    elif re.fullmatch(r"w?\d{1,2}", v):                # w34, 34 -> current year
         year = cur_year
         week = int(v.lstrip("w"))
-    # ##/yyyy  (e.g. 34/2025)
-    elif re.fullmatch(r"\d{1,2}/\d{4}", v):
+    elif re.fullmatch(r"\d{1,2}/\d{4}", v):            # 34/2025
         w, y = v.split("/")
         year = int(y)
         week = int(w)
-    # yyyy/##  (e.g. 2025/34)
-    elif re.fullmatch(r"\d{4}/\d{1,2}", v):
+    elif re.fullmatch(r"\d{4}/\d{1,2}", v):            # 2025/34
         y, w = v.split("/")
         year = int(y)
         week = int(w)
-    # ya en formato correcto yyyy-W##
-    elif re.fullmatch(r"\d{4}-W\d{2}", raw):
+    elif re.fullmatch(r"\d{4}-W\d{2}", raw):           # already correct
         s.semana_pago_real = raw
         s.save(update_fields=["semana_pago_real"])
         return JsonResponse({"ok": True, "semana": s.semana_pago_real})
     else:
-        return JsonResponse({"ok": False, "error": "Use formats like 2025-W34, W34, 34, 34/2025."}, status=400)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Invalid format. Use: 2025-W34, W34, 34, 34/2025, or 2025/34.",
+            },
+            status=400,
+        )
 
-    # 3) Validación de rango
+    # 3) Range check
     if not (1 <= week <= 53):
-        return JsonResponse({"ok": False, "error": "Week must be between 1 and 53."}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "Week must be between 1 and 53."},
+            status=400,
+        )
 
-    # 4) Formateo final YYYY-W##
+    # 4) Save normalized YYYY-W##
     value_norm = f"{year}-W{week:02d}"
     s.semana_pago_real = value_norm
     s.save(update_fields=["semana_pago_real"])

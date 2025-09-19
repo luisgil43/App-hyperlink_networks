@@ -1746,122 +1746,6 @@ def editar_billing(request, sesion_id: int):
 
 
 @login_required
-@require_POST
-def billing_update_item_qty(request, item_id: int):
-    """
-    Actualiza la cantidad de un ItemBilling y recalcula subtotales
-    SIN cambiar el estado de la SesionBilling.
-    Solo Admin general o superuser.
-    """
-    item = get_object_or_404(
-        ItemBilling.objects.select_related("sesion"), pk=item_id)
-    user = request.user
-
-    is_admin = user.is_superuser or getattr(user, "es_admin_general", False)
-    if not is_admin:
-        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
-
-    # (Opcional) Bloquear si ya está pagado salvo superuser
-    if item.sesion.finance_status == "paid" and not user.is_superuser:
-        return JsonResponse({"ok": False, "error": "paid-locked"}, status=403)
-
-    qty_raw = (request.POST.get("cantidad") or "").strip()
-    try:
-        qty = Decimal(qty_raw)
-    except (InvalidOperation, TypeError):
-        return JsonResponse({"ok": False, "error": "invalid-quantity"}, status=400)
-
-    if qty < 0:
-        return JsonResponse({"ok": False, "error": "negative-quantity"}, status=400)
-
-    old_estado = item.sesion.estado  # ← preservamos
-    sesion = item.sesion
-
-    with transaction.atomic():
-        # 1) Actualizar ítem
-        item.cantidad = qty
-        item.subtotal_empresa = (item.precio_empresa or Decimal("0")) * qty
-
-        # Recalcular desglose técnico del ítem
-        total_tech = Decimal("0")
-        for d in ItemBillingTecnico.objects.filter(item=item).select_related("item"):
-            d.subtotal = (d.tarifa_efectiva or Decimal("0")) * qty
-            d.save(update_fields=["subtotal"])
-            total_tech += d.subtotal
-
-        item.subtotal_tecnico = total_tech
-        item.save(update_fields=["cantidad",
-                  "subtotal_empresa", "subtotal_tecnico"])
-
-        # 2) Recalcular totales de la sesión
-        aggr = sesion.items.aggregate(
-            total_tecnico=Sum("subtotal_tecnico"),
-            total_empresa=Sum("subtotal_empresa"),
-        )
-        sesion.subtotal_tecnico = aggr["total_tecnico"] or Decimal("0")
-        sesion.subtotal_empresa = aggr["total_empresa"] or Decimal("0")
-        # ¡NO cambiamos el estado!
-        sesion.save(update_fields=["subtotal_tecnico", "subtotal_empresa"])
-
-        # Por seguridad, si algo externo tocó el estado, lo forzamos al anterior
-        if sesion.estado != old_estado:
-            SesionBilling.objects.filter(
-                pk=sesion.pk).update(estado=old_estado)
-
-    return JsonResponse({
-        "ok": True,
-        "cantidad": f"{item.cantidad:.2f}",
-        "itemSubtotalEmpresa": f"{item.subtotal_empresa:.2f}",
-        "itemSubtotalTecnico": f"{item.subtotal_tecnico:.2f}",
-        "sesionSubtotalEmpresa": f"{sesion.subtotal_empresa:.2f}",
-        "sesionSubtotalTecnico": f"{sesion.subtotal_tecnico:.2f}",
-    })
-
-
-def _actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, nuevos_ids: list[int]) -> None:
-    """
-    - NO elimina en masa.
-    - Mantiene asignaciones que ya tengan evidencias.
-    - Elimina sólo asignaciones sin evidencias y que ya no estén en la lista.
-    - Actualiza/crea porcentajes según repartir_100 de los ids solicitados.
-      Si tuvimos que conservar un técnico “viejo” por tener fotos, ese conserva su % original.
-    """
-    existentes = {
-        ts.tecnico_id: ts for ts in sesion.tecnicos_sesion.select_related("tecnico")}
-    nuevos_ids = [int(x) for x in nuevos_ids]
-
-    # 1) Crear/actualizar los solicitados
-    partes_nuevas = repartir_100(len(nuevos_ids)) if nuevos_ids else []
-    for tid, pct in zip(nuevos_ids, partes_nuevas):
-        if tid in existentes:
-            ts = existentes[tid]
-            if ts.porcentaje != pct:
-                ts.porcentaje = pct
-                ts.save(update_fields=["porcentaje"])
-        else:
-            SesionBillingTecnico.objects.create(
-                sesion=sesion, tecnico_id=tid, porcentaje=pct
-            )
-
-    # 2) Eliminar sólo los que NO están en la lista y NO tienen fotos
-    for tid, ts in list(existentes.items()):
-        if tid in nuevos_ids:
-            continue
-        tiene_fotos = EvidenciaFotoBilling.objects.filter(
-            tecnico_sesion=ts).exists()
-        if tiene_fotos:
-            # Lo conservamos y avisamos (para que el usuario sepa por qué “no se fue”)
-            messages.warning(
-                # tolerante en tareas
-                None if hasattr(messages, "_queued_messages") else sesion,
-                f"No se eliminó a {getattr(ts.tecnico, 'get_full_name', lambda: ts.tecnico.username)()} "
-                "porque ya tiene fotos registradas en esta sesión."
-            )
-            continue
-        ts.delete()
-
-
-@login_required
 @transaction.atomic
 def eliminar_billing(request, sesion_id: int):
     get_object_or_404(SesionBilling, pk=sesion_id).delete()
@@ -5134,6 +5018,207 @@ def produccion_admin(request):
         "f_client": f_client,
         "filters_qs": filters_qs,
     })
+
+
+@login_required
+@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
+def Exportar_produccion_admin(request):
+    """
+    Exporta a Excel las columnas:
+    Project ID | Real pay week | Status | Technician | Client | City | Project | Office | Technical Billing
+    Respeta los filtros GET: f_project, f_week, f_tech, f_client.
+    No aplica paginación: exporta todo lo filtrado.
+    """
+    from operaciones.models import SesionBilling  # ajusta si tu modelo está en otro módulo
+
+    # -------- Helpers locales (idénticos al criterio de la vista) --------
+    def _iso_week_str(dt):
+        y, w, _ = dt.isocalendar()
+        return f"{y}-W{int(w):02d}"
+
+    def parse_week_query(q: str):
+        """
+        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
+        Retorna (exact_iso, week_token)
+        """
+        if not q:
+            return (None, None)
+        s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
+        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
+        if m:
+            year, ww = int(m.group(1)), int(m.group(2))
+            return (f"{year}-W{ww:02d}", None)
+        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
+        if m:
+            ww = int(m.group(1))
+            return (None, f"W{ww:02d}")
+        return (None, None)
+
+    def _normalize_week_str(s: str) -> str:
+        if not s:
+            return ""
+        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = re.sub(r"\s+", "", s)
+        return s.upper()
+
+    # -------- Filtros GET --------
+    f_project = (request.GET.get("f_project") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_client = (request.GET.get("f_client") or "").strip()
+
+    exact_week, week_token = parse_week_query(f_week_input)
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    current_week = _iso_week_str(timezone.now())
+
+    # -------- Query base (incluye descuentos directos) --------
+    qs = (
+        SesionBilling.objects
+        .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
+        .prefetch_related("tecnicos_sesion__tecnico", "items__desglose_tecnico")
+        .order_by("-creado_en")
+        .distinct()
+    )
+
+    # Semana REAL
+    if exact_week:
+        token = exact_week.split("-", 1)[-1].upper()  # 'W##'
+        qs = qs.filter(
+            Q(semana_pago_real__iexact=exact_week) |
+            Q(semana_pago_real__icontains=token)
+        )
+    elif week_token:
+        qs = qs.filter(semana_pago_real__icontains=week_token)
+
+    # Project
+    if f_project:
+        qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
+        qs = qs.filter(
+            Q(proyecto_id_str__icontains=f_project) |
+            Q(proyecto__icontains=f_project)
+        )
+
+    # Client
+    if f_client:
+        qs = qs.filter(cliente__icontains=f_client)
+
+    # -------- Construcción de filas (una por técnico) --------
+    filas = []
+    for s in qs:
+        for asig in s.tecnicos_sesion.all():
+            tecnico = asig.tecnico
+
+            # Filtrar por técnico
+            if f_tech:
+                target = f_tech.lower()
+                full_name = ((tecnico.first_name or "") + " " +
+                             (tecnico.last_name or "")).strip().lower()
+                username = (tecnico.username or "").lower()
+                if target not in full_name and target not in username:
+                    continue
+
+            total_tecnico = Decimal('0')
+            for it in s.items.all():
+                bd = next((d for d in it.desglose_tecnico.all()
+                           if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)), None)
+                if not bd:
+                    continue
+                rate = bd.tarifa_efectiva if isinstance(
+                    bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
+                qty = it.cantidad if isinstance(
+                    it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
+                total_tecnico += (rate * qty)
+
+            filas.append({
+                "project_id": s.proyecto_id,
+                "week": s.semana_pago_real or "—",
+                "status": s.estado,
+                "tecnico": tecnico,
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": s.semana_pago_real or "—",
+                "total_tecnico": total_tecnico,
+            })
+
+    # Filtro defensivo por semana en memoria
+    if exact_week or week_token:
+        token = (week_token or exact_week.split("-", 1)[-1]).upper()
+        exact_norm = _normalize_week_str(exact_week) if exact_week else None
+
+        def _match_row_real(r):
+            rw = _normalize_week_str(r["real_week"])
+            if exact_norm:
+                return (rw == exact_norm) or (token in rw)
+            return token in rw
+
+        filas = [r for r in filas if _match_row_real(r)]
+
+    # Orden igual que en la vista
+    def bucket_key(row):
+        rw = row["real_week"]
+        if rw == "—":
+            return (2, "ZZZ")
+        if rw == current_week:
+            return (0, "000")
+        if rw > current_week:
+            return (0, rw)
+        return (1, rw)
+    filas.sort(key=bucket_key)
+
+    # -------- Generar Excel --------
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Production"
+
+    headers = [
+        "Project ID", "Real pay week", "Status", "Technician",
+        "Client", "City", "Project", "Office", "Technical Billing"
+    ]
+    ws.append(headers)
+
+    for r in filas:
+        tech = r["tecnico"]
+        try:
+            tech_name = tech.get_full_name() or tech.username
+        except Exception:
+            tech_name = getattr(tech, "username", "") or ""
+
+        ws.append([
+            r.get("project_id", ""),
+            r.get("week", "") or r.get("real_week", ""),
+            r.get("status", ""),
+            tech_name,
+            r.get("client", ""),
+            r.get("city", ""),
+            r.get("project", ""),
+            r.get("office", ""),
+            float(r.get("total_tecnico") or 0.0),
+        ])
+
+    # Auto ancho + formato numérico en la última columna
+    for col in ws.columns:
+        max_len = 0
+        letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                max_len = max(max_len, len(str(cell.value or "")))
+            except Exception:
+                pass
+        ws.column_dimensions[letter].width = min(max(10, max_len + 2), 50)
+
+    last_col = len(headers)
+    for col_cells in ws.iter_cols(min_col=last_col, max_col=last_col, min_row=2, values_only=False):
+        for c in col_cells:
+            c.number_format = '#,##0.00'
+
+    resp = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    resp["Content-Disposition"] = 'attachment; filename=\"production_export.xlsx\"'
+    wb.save(resp)
+    return resp
 
 
 @login_required

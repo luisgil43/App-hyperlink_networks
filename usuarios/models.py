@@ -55,47 +55,75 @@ class CustomUser(AbstractUser):
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}"
 
-    def tiene_rol(self, nombre_rol):
-        return self.roles.filter(nombre=nombre_rol).exists()
+    def tiene_rol(self, *roles):
+        """
+        Devuelve True si el usuario tiene AL MENOS uno de los roles indicados.
+        Acepta 1 o N strings, o un iterable (lista/tupla/conjunto) con roles.
+
+        Ejemplos:
+            user.tiene_rol("admin")
+            user.tiene_rol("admin", "pm", "facturacion")
+            user.tiene_rol(["admin", "pm"])
+        El superuser siempre devuelve True.
+        """
+        if self.is_superuser:
+            return True
+
+        # Aceptar iterable como único argumento (["admin","pm"])
+        if len(roles) == 1 and isinstance(roles[0], (list, tuple, set)):
+            roles = tuple(roles[0])
+
+        roles_busqueda = {str(r).strip().lower() for r in roles if r}
+        if not roles_busqueda:
+            return False
+
+        roles_usuario = {r.nombre.strip().lower() for r in self.roles.all()}
+        # Intersección no vacía => tiene algún rol solicitado
+        return not roles_usuario.isdisjoint(roles_busqueda)
 
     @property
-    def es_usuario(self): return self.tiene_rol('usuario') or self.is_superuser
+    def es_usuario(self):
+        return self.tiene_rol('usuario') or self.is_superuser
 
     @property
-    def es_supervisor(self): return self.tiene_rol(
-        'supervisor') or self.is_superuser
+    def es_supervisor(self):
+        return self.tiene_rol('supervisor') or self.is_superuser
 
     @property
-    def es_pm(self): return self.tiene_rol('pm') or self.is_superuser
-    @property
-    def es_rrhh(self): return self.tiene_rol('rrhh') or self.is_superuser
+    def es_pm(self):
+        return self.tiene_rol('pm') or self.is_superuser
 
     @property
-    def es_prevencion(self): return self.tiene_rol(
-        'prevencion') or self.is_superuser
+    def es_rrhh(self):
+        return self.tiene_rol('rrhh') or self.is_superuser
 
     @property
-    def es_logistica(self): return self.tiene_rol(
-        'logistica') or self.is_superuser
+    def es_prevencion(self):
+        return self.tiene_rol('prevencion') or self.is_superuser
 
     @property
-    def es_bodeguero(self): return self.tiene_rol(
-        'bodeguero') or self.is_superuser
+    def es_logistica(self):
+        return self.tiene_rol('logistica') or self.is_superuser
 
     @property
-    def es_flota(self): return self.tiene_rol('flota') or self.is_superuser
+    def es_bodeguero(self):
+        return self.tiene_rol('bodeguero') or self.is_superuser
 
     @property
-    def es_subcontrato(self): return self.tiene_rol(
-        'subcontrato') or self.is_superuser
+    def es_flota(self):
+        return self.tiene_rol('flota') or self.is_superuser
 
     @property
-    def es_facturacion(self): return self.tiene_rol(
-        'facturacion') or self.is_superuser
+    def es_subcontrato(self):
+        return self.tiene_rol('subcontrato') or self.is_superuser
 
     @property
-    def es_admin_general(self): return self.tiene_rol(
-        'admin') or self.is_superuser
+    def es_facturacion(self):
+        return self.tiene_rol('facturacion') or self.is_superuser
+
+    @property
+    def es_admin_general(self):
+        return self.tiene_rol('admin') or self.is_superuser
 
     @property
     def rol(self):

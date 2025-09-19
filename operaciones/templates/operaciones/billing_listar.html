@@ -82,7 +82,7 @@
           <th class="p-2 border text-right">Real Company Billing</th>
           <th class="p-2 border text-right">Different</th>
           <th class="p-2 border text-left">Finance Status</th>
-          <th class="p-2 border text-left">Real pay week</th>
+          <th class="p-2 border text-left">Real pay week/Direct discount week</th>
           <th class="p-2 border text-center">Actions</th>
         </tr>
       </thead>
@@ -1133,6 +1133,7 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
+
 <!-- Inline edit "real week" -->
 <script>
 (function(){
@@ -1147,14 +1148,18 @@ document.addEventListener('click', function(e){
     setTimeout(()=> el.remove(), 2500);
   }
 
+  // --- CSRF helpers: meta first (works with HttpOnly cookies), fallback to cookie ---
+  function getMetaCsrf(){
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
   }
-  const csrftoken = getCookie('csrftoken');
+  const csrftoken = getMetaCsrf() || getCookie('csrftoken') || '';
 
   function toEdit(id){
-    const view = document.getElementById(`sr-view-${id}`);
+    const view  = document.getElementById(`sr-view-${id}`);
     const input = document.getElementById(`sr-input-${id}`);
     if (!input) return;
     view.classList.add("hidden");
@@ -1163,7 +1168,7 @@ document.addEventListener('click', function(e){
   }
 
   function toView(id, text){
-    const view = document.getElementById(`sr-view-${id}`);
+    const view  = document.getElementById(`sr-view-${id}`);
     const input = document.getElementById(`sr-input-${id}`);
     if (view){ view.textContent = text || "—"; view.classList.remove("hidden"); }
     if (input){ input.classList.add("hidden"); }
@@ -1172,24 +1177,49 @@ document.addEventListener('click', function(e){
   async function save(id, url, value){
     const form = new FormData();
     form.append("semana", value);
-    const resp = await fetch(url, { method: "POST", headers: {"X-CSRFToken": csrftoken}, body: form });
+
+    const resp = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json"
+      },
+      body: form
+    });
+
+    // Si el middleware expira en AJAX: 401 JSON
+    if (resp.status === 401){
+      throw new Error("Your session has expired. Please sign in again.");
+    }
+
+    // Si el servidor devolvió HTML (por ejemplo, página de login o error de CSRF)
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+    if (!ct.includes("application/json")){
+      const txt = await resp.text().catch(()=> "");
+      if (/csrf/i.test(txt)) {
+        throw new Error("Invalid or expired CSRF token. Please refresh the page.");
+      }
+      if (/login/i.test(txt)) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+      throw new Error(`Invalid server response (HTTP ${resp.status}).`);
+    }
 
     let data = null;
-    try { data = await resp.json(); } catch(e) {}
+    try { data = await resp.json(); } catch(_) {}
 
     if (resp.status === 403){
-      toast("Locked (PAID). Only admins can edit.", "error");
-      throw new Error("forbidden");
+      throw new Error((data && (data.error || data.message)) || "Locked (PAID) or no permission.");
     }
     if (!resp.ok){
-      toast((data && data.error) ? data.error : `Save failed (HTTP ${resp.status})`, "error");
-      throw new Error("save-failed");
+      throw new Error((data && (data.error || data.message)) || `Save failed (HTTP ${resp.status}).`);
     }
-    if (!data || !data.ok){
-      toast((data && data.error) ? data.error : "Save failed", "error");
-      throw new Error("save-failed");
+    if (!data || data.ok !== true){
+      throw new Error((data && (data.error || data.message)) || "Save failed.");
     }
-    return data.semana;
+    return data.semana ?? "";
   }
 
   document.addEventListener("click", function(e){
@@ -1197,16 +1227,14 @@ document.addEventListener('click', function(e){
     if (btn) { toEdit(btn.dataset.id); return; }
 
     const lock = e.target.closest(".sr-edit-locked");
-    if (lock){
-      toast("Locked (PAID). Only admins can edit.", "error");
-    }
+    if (lock){ toast("Locked (PAID). Only admins can edit.", "error"); }
   });
 
   document.addEventListener("keydown", async function(e){
     const input = e.target.closest(".sr-input");
     if(!input || input.classList.contains("hidden")) return;
 
-    const id = input.id.replace("sr-input-","");
+    const id  = input.id.replace("sr-input-","");
     const btn = document.querySelector(`.sr-edit[data-id="${id}"]`);
     const url = btn ? btn.dataset.url : null;
 
@@ -1216,21 +1244,28 @@ document.addEventListener('click', function(e){
     }
     if(e.key === "Enter"){
       e.preventDefault();
+      if (!url){
+        toast("Configuration error: missing update URL.", "error");
+        return;
+      }
+
       try{
         const saved = await save(id, url, input.value.trim());
         toast("Saved.", "success");
         toView(id, saved);
       }catch(err){
-        if (err.message === "forbidden"){
-          toView(id, input.value);
-        } else {
-          input.focus();
+        toast(err.message || "Save failed", "error");
+        if (/sign in again/i.test(err.message || "")) {
+          // Si quieres, redirige al login:
+          // window.location.href = "{{ LOGIN_URL|default:'/usuarios/login/' }}";
         }
+        input.focus();
       }
     }
   });
 })();
 </script>
+
 
 <!-- Send to Finance (legacy prompt fallback) -->
 <script>
@@ -1632,5 +1667,38 @@ document.addEventListener('click', function(e){
     }
   });
 })();
+</script>
+
+<script>
+  // Si aún no lo tienes en base.html, deja este helper
+  window.getCsrfToken = window.getCsrfToken || function () {
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    const i = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+    return i || '';
+  };
+
+  async function saveRealWeek(billingId, weekValue) {
+    const resp = await fetch(`/operaciones/billing/${billingId}/update-semana/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken(),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ week: weekValue })
+    });
+
+    if (!resp.ok) {
+      // si 403 → token inválido/expirado
+      const txt = await resp.text().catch(() => '');
+      console.error('Update week failed', resp.status, txt);
+      alert('Invalid or expired CSRF token. Please refresh the page.');
+      return;
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    // TODO: refrescar la celda/row si lo necesitas
+  }
 </script>
 {% endblock %}

@@ -206,7 +206,10 @@ urlpatterns = [
     path("billing/<int:sesion_id>/report/partial/download/",
          b.descargar_reporte_parcial_proyecto, name="descargar_reporte_parcial_proyecto"),
     path("operaciones/billing/<int:sesion_id>/report/cancel/",
-         b.cancelar_reporte_proyecto, name="cancelar_reporte_proyecto")
+         b.cancelar_reporte_proyecto, name="cancelar_reporte_proyecto"),
+    path("produccion/admin/exportar/", views.Exportar_produccion_admin,
+         name="Exportar_produccion_admin"),
+
 
 
 ]

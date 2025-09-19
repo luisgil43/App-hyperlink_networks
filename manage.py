@@ -1,26 +1,37 @@
+#!/usr/bin/env python
 import os
 import sys
+from pathlib import Path
 
-# Solo cargar dotenv si estamos en desarrollo
-if os.environ.get("DJANGO_DEVELOPMENT") == "true":
+
+def main():
+    # 1) Cargar variables de entorno: primero .env.local, luego .env (fallback)
     try:
-        import dotenv
-        dotenv.load_dotenv()
-    except ImportError:
-        print("⚠️ 'python-dotenv' no está instalado, ignorando .env")
+        from dotenv import load_dotenv
+        BASE_DIR = Path(__file__).resolve().parent
+        # Si .env.local no existe, load_dotenv devuelve False; luego probamos .env
+        if not load_dotenv(BASE_DIR / ".env.local"):
+            load_dotenv(BASE_DIR / ".env")
+    except Exception:
+        # Si no está instalado python-dotenv, seguimos sin romper
+        pass
 
-if __name__ == '__main__':
-    # Ajustamos para que por defecto use el settings de Hyperlink
+    # 2) Elegir settings: usa lo que venga del entorno, si no, dev por defecto
     os.environ.setdefault(
-        'DJANGO_SETTINGS_MODULE',
-        os.getenv('DJANGO_SETTINGS_MODULE', 'hyperlink_networks.settings.dev')
+        "DJANGO_SETTINGS_MODULE",
+        os.getenv("DJANGO_SETTINGS_MODULE", "hyperlink_networks.settings.dev"),
     )
-    try:
-        from django.core.management import execute_from_command_line
-    except ImportError as exc:
-        raise ImportError(
-            "Couldn't import Django. Are you sure it's installed and "
-            "available on your PYTHONPATH environment variable? Did you "
-            "forget to activate a virtual environment?"
-        ) from exc
+
+    # (opcional) Si defines DJANGO_DEVELOPMENT=true en .env.local, fuerza dev:
+    if os.getenv("DJANGO_DEVELOPMENT", "").lower() == "true":
+        os.environ["DJANGO_SETTINGS_MODULE"] = "hyperlink_networks.settings.dev"
+
+    # ✅ PIL tolerante a imágenes truncadas (tu línea)
+    import hyperlink_networks.pil_config  # noqa: F401
+
+    from django.core.management import execute_from_command_line
     execute_from_command_line(sys.argv)
+
+
+if __name__ == "__main__":
+    main()

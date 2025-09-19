@@ -288,7 +288,6 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 MESSAGE_STORAGE = 'django.contrib.messages.storage.cookie.CookieStorage'
-SESSION_COOKIE_HTTPONLY = True
 if DEBUG:
     CSRF_COOKIE_HTTPONLY = False
 else:

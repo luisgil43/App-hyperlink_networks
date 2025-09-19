@@ -11,6 +11,9 @@ staticfiles/
 # Entorno virtual
 venv/
 env/
+.venv/
+.venv*/
+.venv312/
 
 # Archivos de entorno (no subir nunca)
 .env
