@@ -991,19 +991,35 @@ def invoice_discount_verified(request, pk):
 
 
 def _to_excel_dt(value):
-    """Excel no admite tz-aware datetimes."""
-    if value is None:
+    """Excel no admite tz-aware datetimes: devuelve naive o vacío."""
+    if not value:
         return ""
-    return timezone.make_naive(value) if timezone.is_aware(value) else value
+    try:
+        return timezone.make_naive(value) if timezone.is_aware(value) else value
+    except Exception:
+        return value
 
 
 @rol_requerido('facturacion', 'admin', 'pm')
 def invoices_export(request):
-    scope = request.GET.get("scope", "open")
+    """
+    Exporta a Excel lo que se muestra en la vista de Invoices, a nivel:
+      - columnas "de afuera": Date, Project ID, Project address, Week proyectada,
+        Status, Technicians, Client, City, Project, Office, Technical Billing,
+        Company Billing, Real Company Billing, Difference, Finance status, Finance note,
+        Pay week / Discount week.
+      - + "adentro" por cada ítem y desglose técnico:
+        Job Code, Work Type, Description, UOM, Quantity, Technical Rate, Company Rate,
+        Subtotal Technical, Subtotal Company.
 
+    Resultado: UNA FILA por (sesión, ítem, desglose_tecnico).
+    Si un ítem no tiene desglose_tecnico, se escribe una sola fila con los totales del ítem.
+    """
+    scope = request.GET.get("scope", "open")  # open | paid | all
+
+    # Query base con prefetch económico
     qs = (
         SesionBilling.objects
-        .select_related()
         .prefetch_related(
             "items",
             Prefetch(
@@ -1014,34 +1030,21 @@ def invoices_export(request):
         )
     )
 
-    # Solo los que corresponden al export: descuentos directos, aprobados supervisor/PM, o pagados.
+    # Solo lo exportable (como en la vista)
     qs = qs.filter(
         Q(is_direct_discount=True) |
         Q(estado__in=["aprobado_supervisor", "aprobado_pm"]) |
         Q(finance_status__in=["paid"])
     )
 
-    # Respeta el scope
+    # Filtro por scope
     if scope == "open":
         qs = qs.exclude(finance_status="paid")
     elif scope == "paid":
         qs = qs.filter(finance_status="paid")
-    # scope == "all": sin filtro adicional
+    # scope == "all" => sin filtro adicional
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Invoices"
-
-    headers = [
-        "ID", "Date", "Project ID", "Project address", "Projected week",
-        "Status",
-        "Technicians", "Client", "City", "Project", "Office",
-        "Technical Billing", "Company Billing", "Real Company Billing",
-        "Difference", "Finance status", "Finance note",
-        "Pay week / Discount week",
-    ]
-    ws.append(headers)
-
+    # Mapeos de etiquetas
     status_map = {
         "aprobado_pm": "Approved by PM",
         "rechazado_pm": "Rejected by PM",
@@ -1063,55 +1066,120 @@ def invoices_export(request):
         "paid": "Paid",
     }
 
-    def _to_excel_dt(value):
-        """Excel no acepta tz-aware; devolver naive o vacío."""
-        if not value:
-            return ""
-        try:
-            return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) else value
-        except Exception:
-            return value
-
-    def techs_string(s):
+    def techs_string(sesion):
+        """Lista resumida de técnicos (afuera)."""
         parts = []
-        for st in s.tecnicos_sesion.all():
+        for st in sesion.tecnicos_sesion.all():
             tech = st.tecnico
             name = (tech.get_full_name() or tech.username) if tech else "—"
             parts.append(f"{name} ({st.porcentaje:.2f}%)")
         return ", ".join(parts)
 
-    for s in qs:
-        status_label = "Direct discount" if s.is_direct_discount else status_map.get(
-            s.estado, "Assigned")
-        finance_label = finance_map.get(s.finance_status, "—")
-        diff = s.diferencia if s.diferencia is not None else Decimal("0.00")
+    # Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Invoices"
 
-        # Fusionar semanas
+    # Encabezados EXACTOS + detalle
+    headers = [
+        "Date", "Project ID", "Project address", "Projected week",  # afuera
+        "Status", "Technicians", "Client", "City", "Project", "Office",
+        "Technical Billing", "Company Billing", "Real Company Billing",
+        "Difference", "Finance status", "Finance note",
+        "Pay week / Discount week",
+        # Detalle (adentro):
+        "Job Code", "Work Type", "Description", "UOM", "Quantity",
+        "Technical Rate", "Company Rate", "Subtotal Technical", "Subtotal Company",
+    ]
+    ws.append(headers)
+
+    for s in qs:
+        # Etiquetas
+        status_label = "Direct discount" if getattr(
+            s, "is_direct_discount", False) else status_map.get(s.estado, "Assigned")
+        finance_label = finance_map.get(s.finance_status, "—")
+
+        # Weeks unificadas
         real_week = s.semana_pago_real or ""
         disc_week = getattr(s, "discount_week", "") or getattr(
             s, "semana_descuento", "") or ""
-        if real_week and disc_week:
-            week_cell = f"{real_week} / {disc_week}"
-        else:
-            week_cell = real_week or disc_week  # el que exista
+        pay_or_disc = f"{real_week} / {disc_week}" if (
+            real_week and disc_week) else (real_week or disc_week)
 
-        ws.append([
-            s.id,
+        # Columnas de cabecera (afuera) por sesión
+        head_common = [
             _to_excel_dt(s.creado_en),
             s.proyecto_id,
             s.direccion_proyecto,
-            s.semana_pago_proyectada,
+            s.semana_pago_proyectada or "",
             status_label,
             techs_string(s),
-            s.cliente, s.ciudad, s.proyecto, s.oficina,
+            s.cliente or "",
+            s.ciudad or "",
+            s.proyecto or "",
+            s.oficina or "",
             float(s.subtotal_tecnico or 0),
             float(s.subtotal_empresa or 0),
             float(s.real_company_billing or 0),
-            float(diff or 0),
+            float((s.diferencia or 0)),
             finance_label,
             (s.finance_note or ""),
-            week_cell,
-        ])
+            pay_or_disc,
+        ]
+
+        # Detalle por ítem
+        items = getattr(s, "items", None).all() if hasattr(s, "items") else []
+        if not items:
+            # Si no hay items, igual escribimos una línea sin detalle
+            ws.append(head_common + ["", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0])
+            continue
+
+        for it in items:
+            qty = Decimal(str(it.cantidad or 0))
+            company_rate = Decimal(str(it.precio_empresa or 0))
+            subtotal_company = Decimal(str(
+                it.subtotal_empresa)) if it.subtotal_empresa is not None else (company_rate * qty)
+
+            # Si hay desglose técnico: una fila por técnico
+            desglose = list(getattr(it, "desglose_tecnico", []).all()) if hasattr(
+                it, "desglose_tecnico") else []
+            if desglose:
+                for bd in desglose:
+                    # Tarifa efectiva técnica (ya viene con % aplicado)
+                    rate_tec = Decimal(
+                        str(getattr(bd, "tarifa_efectiva", 0) or 0))
+                    subtotal_tec = rate_tec * qty
+
+                    row = head_common + [
+                        it.codigo_trabajo or "",
+                        it.tipo_trabajo or "",
+                        it.descripcion or "",
+                        it.unidad_medida or "",
+                        float(qty),
+                        float(rate_tec),
+                        float(company_rate),
+                        float(subtotal_tec),
+                        float(subtotal_company),
+                    ]
+                    ws.append(row)
+            else:
+                # Sin desglose: una sola fila con los totales del ítem
+                # Technical Rate no es único (se reparte), dejamos 0 y usamos subtotal_tecnico del ítem
+                subtotal_tec_item = Decimal(str(it.subtotal_tecnico or 0))
+                row = head_common + [
+                    it.codigo_trabajo or "",
+                    it.tipo_trabajo or "",
+                    it.descripcion or "",
+                    it.unidad_medida or "",
+                    float(qty),
+                    # Technical Rate (sin desglose)
+                    float(Decimal("0.00")),
+                    float(company_rate),
+                    # Subtotal Technical (total del ítem)
+                    float(subtotal_tec_item),
+                    float(subtotal_company),
+                ]
+                ws.append(row)
 
     now_str = timezone.now().strftime("%Y%m%d_%H%M%S")
     resp = HttpResponse(
