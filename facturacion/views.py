@@ -729,7 +729,9 @@ def invoices_list(request):
             ),
             Prefetch(
                 "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related("tecnico").prefetch_related(
+                queryset=SesionBillingTecnico.objects
+                .select_related("tecnico")
+                .prefetch_related(
                     Prefetch(
                         "evidencias",
                         queryset=EvidenciaFotoBilling.objects.only(
@@ -767,6 +769,61 @@ def invoices_list(request):
              & Q(finance_sent_at__isnull=False))
         ).exclude(finance_status="paid")
 
+    # -------- Filtros por GET (livianos, no rompen si vienen vacíos) --------
+    date_s = (request.GET.get("date") or "").strip()
+    projid_s = (request.GET.get("projid") or "").strip()
+    week_s = (request.GET.get("week") or "").strip()
+    tech_s = (request.GET.get("tech") or "").strip()
+    client_s = (request.GET.get("client") or "").strip()
+    status_s = (request.GET.get("status") or "").strip().lower()
+
+    # Date (YYYY-MM-DD). Si viene mal formado, se ignora.
+    if date_s:
+        try:
+            d = datetime.strptime(date_s, "%Y-%m-%d").date()
+            qs = qs.filter(creado_en__date=d)
+        except ValueError:
+            pass
+
+    if projid_s:
+        qs = qs.filter(proyecto_id__icontains=projid_s)
+
+    if week_s:
+        qs = qs.filter(semana_pago_proyectada__icontains=week_s)
+
+    if tech_s:
+        qs = qs.filter(
+            Q(tecnicos_sesion__tecnico__first_name__icontains=tech_s) |
+            Q(tecnicos_sesion__tecnico__last_name__icontains=tech_s) |
+            Q(tecnicos_sesion__tecnico__username__icontains=tech_s)
+        )
+
+    if client_s:
+        qs = qs.filter(cliente__icontains=client_s)
+
+    # Status (palabras clave simples)
+    if status_s:
+        if "direct" in status_s or "descuento" in status_s:
+            qs = qs.filter(is_direct_discount=True)
+        elif ("supervisor" in status_s) and ("aprob" in status_s or "approved" in status_s):
+            qs = qs.filter(estado="aprobado_supervisor")
+        elif ("pm" in status_s) and ("aprob" in status_s or "approved" in status_s):
+            qs = qs.filter(estado="aprobado_pm")
+        elif "rechaz" in status_s or "rejected" in status_s:
+            qs = qs.filter(estado__startswith="rechazado")
+        elif "review" in status_s or "revisi" in status_s:
+            qs = qs.filter(estado="en_revision_supervisor")
+        elif "finished" in status_s or "finaliz" in status_s:
+            qs = qs.filter(estado="finalizado")
+        elif "progress" in status_s or "proceso" in status_s:
+            qs = qs.filter(estado="en_proceso")
+        elif "assigned" in status_s or "asignado" in status_s:
+            qs = qs.filter(estado="asignado")
+
+    # Evitar duplicados por joins con tecnicos_sesion/items
+    qs = qs.distinct()
+    # ------------------------------------------------------------------------
+
     # Paginación
     cantidad = request.GET.get("cantidad", "10")
     try:
@@ -782,6 +839,14 @@ def invoices_list(request):
         "cantidad": cantidad,
         "scope": scope,
         "can_edit_real_week": _can_edit_real_week(request.user),
+
+        # ⬇️ NUEVO: para rellenar los inputs y reconstruir enlaces
+        "date_s": date_s,
+        "projid_s": projid_s,
+        "week_s": week_s,
+        "tech_s": tech_s,
+        "client_s": client_s,
+        "status_s": status_s,
     }
     return render(request, "facturacion/invoices_list.html", ctx)
 
@@ -991,7 +1056,6 @@ def invoice_discount_verified(request, pk):
 
 
 def _to_excel_dt(value):
-    """Excel no admite tz-aware datetimes: devuelve naive o vacío."""
     if not value:
         return ""
     try:
@@ -1002,22 +1066,8 @@ def _to_excel_dt(value):
 
 @rol_requerido('facturacion', 'admin', 'pm')
 def invoices_export(request):
-    """
-    Exporta a Excel lo que se muestra en la vista de Invoices, a nivel:
-      - columnas "de afuera": Date, Project ID, Project address, Week proyectada,
-        Status, Technicians, Client, City, Project, Office, Technical Billing,
-        Company Billing, Real Company Billing, Difference, Finance status, Finance note,
-        Pay week / Discount week.
-      - + "adentro" por cada ítem y desglose técnico:
-        Job Code, Work Type, Description, UOM, Quantity, Technical Rate, Company Rate,
-        Subtotal Technical, Subtotal Company.
-
-    Resultado: UNA FILA por (sesión, ítem, desglose_tecnico).
-    Si un ítem no tiene desglose_tecnico, se escribe una sola fila con los totales del ítem.
-    """
     scope = request.GET.get("scope", "open")  # open | paid | all
 
-    # Query base con prefetch económico
     qs = (
         SesionBilling.objects
         .prefetch_related(
@@ -1028,23 +1078,17 @@ def invoices_export(request):
             ),
             "tecnicos_sesion__tecnico",
         )
-    )
-
-    # Solo lo exportable (como en la vista)
-    qs = qs.filter(
+    ).filter(
         Q(is_direct_discount=True) |
         Q(estado__in=["aprobado_supervisor", "aprobado_pm"]) |
         Q(finance_status__in=["paid"])
     )
 
-    # Filtro por scope
     if scope == "open":
         qs = qs.exclude(finance_status="paid")
     elif scope == "paid":
         qs = qs.filter(finance_status="paid")
-    # scope == "all" => sin filtro adicional
 
-    # Mapeos de etiquetas
     status_map = {
         "aprobado_pm": "Approved by PM",
         "rechazado_pm": "Rejected by PM",
@@ -1067,7 +1111,6 @@ def invoices_export(request):
     }
 
     def techs_string(sesion):
-        """Lista resumida de técnicos (afuera)."""
         parts = []
         for st in sesion.tecnicos_sesion.all():
             tech = st.tecnico
@@ -1075,38 +1118,33 @@ def invoices_export(request):
             parts.append(f"{name} ({st.porcentaje:.2f}%)")
         return ", ".join(parts)
 
-    # Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Invoices"
 
-    # Encabezados EXACTOS + detalle
     headers = [
-        "Date", "Project ID", "Project address", "Projected week",  # afuera
+        "Date", "Project ID", "Project address", "Projected week",
         "Status", "Technicians", "Client", "City", "Project", "Office",
         "Technical Billing", "Company Billing", "Real Company Billing",
         "Difference", "Finance status", "Finance note",
         "Pay week / Discount week",
-        # Detalle (adentro):
+        # Detalle (por técnico):
         "Job Code", "Work Type", "Description", "UOM", "Quantity",
         "Technical Rate", "Company Rate", "Subtotal Technical", "Subtotal Company",
     ]
     ws.append(headers)
 
     for s in qs:
-        # Etiquetas
         status_label = "Direct discount" if getattr(
             s, "is_direct_discount", False) else status_map.get(s.estado, "Assigned")
         finance_label = finance_map.get(s.finance_status, "—")
 
-        # Weeks unificadas
         real_week = s.semana_pago_real or ""
         disc_week = getattr(s, "discount_week", "") or getattr(
             s, "semana_descuento", "") or ""
         pay_or_disc = f"{real_week} / {disc_week}" if (
             real_week and disc_week) else (real_week or disc_week)
 
-        # Columnas de cabecera (afuera) por sesión
         head_common = [
             _to_excel_dt(s.creado_en),
             s.proyecto_id,
@@ -1127,57 +1165,61 @@ def invoices_export(request):
             pay_or_disc,
         ]
 
-        # Detalle por ítem
         items = getattr(s, "items", None).all() if hasattr(s, "items") else []
         if not items:
-            # Si no hay items, igual escribimos una línea sin detalle
             ws.append(head_common + ["", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0])
             continue
 
         for it in items:
-            qty = Decimal(str(it.cantidad or 0))
-            company_rate = Decimal(str(it.precio_empresa or 0))
-            subtotal_company = Decimal(str(
-                it.subtotal_empresa)) if it.subtotal_empresa is not None else (company_rate * qty)
-
-            # Si hay desglose técnico: una fila por técnico
+            qty_total = Decimal(str(it.cantidad or 0))
+            comp_rate = Decimal(str(it.precio_empresa or 0))
             desglose = list(getattr(it, "desglose_tecnico", []).all()) if hasattr(
                 it, "desglose_tecnico") else []
+
             if desglose:
                 for bd in desglose:
-                    # Tarifa efectiva técnica (ya viene con % aplicado)
-                    rate_tec = Decimal(
-                        str(getattr(bd, "tarifa_efectiva", 0) or 0))
-                    subtotal_tec = rate_tec * qty
+                    # % del técnico (0–100)
+                    pct = Decimal(str(bd.porcentaje or 0)) / Decimal('100')
+
+                    # 👉 Quantity PRORRATEADA
+                    qty_tec = (qty_total * pct)
+
+                    # 👉 Technical rate = tarifa_base (sin %)
+                    base_rate = Decimal(
+                        str(getattr(bd, "tarifa_base", 0) or 0))
+
+                    # Subtotales prorrateados
+                    sub_tec = base_rate * qty_tec
+                    sub_comp = comp_rate * qty_tec
 
                     row = head_common + [
                         it.codigo_trabajo or "",
                         it.tipo_trabajo or "",
                         it.descripcion or "",
                         it.unidad_medida or "",
-                        float(qty),
-                        float(rate_tec),
-                        float(company_rate),
-                        float(subtotal_tec),
-                        float(subtotal_company),
+                        float(qty_tec),             # cantidad por técnico
+                        float(base_rate),           # rate sin %
+                        float(comp_rate),           # company rate
+                        float(sub_tec),
+                        float(sub_comp),
                     ]
                     ws.append(row)
             else:
-                # Sin desglose: una sola fila con los totales del ítem
-                # Technical Rate no es único (se reparte), dejamos 0 y usamos subtotal_tecnico del ítem
-                subtotal_tec_item = Decimal(str(it.subtotal_tecnico or 0))
+                # Sin desglose: una sola fila con totales del ítem
+                sub_tec_item = Decimal(str(it.subtotal_tecnico or 0))
+                sub_comp_item = Decimal(
+                    str(it.subtotal_empresa or (comp_rate * qty_total)))
                 row = head_common + [
                     it.codigo_trabajo or "",
                     it.tipo_trabajo or "",
                     it.descripcion or "",
                     it.unidad_medida or "",
-                    float(qty),
-                    # Technical Rate (sin desglose)
+                    float(qty_total),
+                    # sin desglose: no hay rate por técnico
                     float(Decimal("0.00")),
-                    float(company_rate),
-                    # Subtotal Technical (total del ítem)
-                    float(subtotal_tec_item),
-                    float(subtotal_company),
+                    float(comp_rate),
+                    float(sub_tec_item),
+                    float(sub_comp_item),
                 ]
                 ws.append(row)
 

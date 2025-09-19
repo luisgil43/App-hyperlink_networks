@@ -1,4 +1,5 @@
 # operaciones/views.py
+from datetime import date as _date
 import xml.etree.ElementTree as ET
 import shutil
 from django.core.files.storage import default_storage as storage
@@ -1510,7 +1511,89 @@ def listar_billing(request):
         )
     )
 
-    # Paginación (igual que lo tienes)
+    # ---------- Filtros de servidor ----------
+    f = {
+        "date":   (request.GET.get("date") or "").strip(),
+        "projid": (request.GET.get("projid") or "").strip(),
+        "week":   (request.GET.get("week") or "").strip(),
+        "tech":   (request.GET.get("tech") or "").strip(),
+        "client": (request.GET.get("client") or "").strip(),
+        "status": (request.GET.get("status") or "").strip(),
+    }
+
+    qs_filtered = qs
+
+    # Date: YYYY-MM-DD
+    if f["date"]:
+        try:
+            d = _date.fromisoformat(f["date"])
+            qs_filtered = qs_filtered.filter(creado_en__date=d)
+        except ValueError:
+            pass
+
+    # Project ID
+    if f["projid"]:
+        qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
+
+    # Week: proyectada o real
+    if f["week"]:
+        qs_filtered = qs_filtered.filter(
+            Q(semana_pago_proyectada__icontains=f["week"]) |
+            Q(semana_pago_real__icontains=f["week"])
+        )
+
+    # Technicians: nombre, apellido o username
+    if f["tech"]:
+        qs_filtered = qs_filtered.filter(
+            Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"]) |
+            Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"]) |
+            Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
+        )
+
+    # Client
+    if f["client"]:
+        qs_filtered = qs_filtered.filter(cliente__icontains=f["client"])
+
+    # Status (palabras clave → estado/banderas)
+    if f["status"]:
+        s = f["status"].lower().strip()
+
+        if any(k in s for k in ("direct", "descuento", "discount")):
+            qs_filtered = qs_filtered.filter(is_direct_discount=True)
+        else:
+            mapping = [
+                (("aprobado supervisor", "approved by supervisor"),
+                 Q(estado="aprobado_supervisor")),
+                (("rechazado supervisor", "rejected by supervisor"),
+                 Q(estado="rechazado_supervisor")),
+                (("en revision", "supervisor review", "in supervisor review"),
+                 Q(estado="en_revision_supervisor")),
+                (("finalizado", "finished"), Q(estado="finalizado")),
+                (("en proceso", "in progress"), Q(estado="en_proceso")),
+                (("asignado", "assigned"), Q(estado="asignado")),
+                (("aprobado pm", "approved by pm"), Q(estado="aprobado_pm")),
+                (("rechazado pm", "rejected by pm"), Q(estado="rechazado_pm")),
+            ]
+            applied = False
+            for keys, cond in mapping:
+                if any(k in s for k in keys):
+                    qs_filtered = qs_filtered.filter(cond)
+                    applied = True
+                    break
+
+            if not applied:
+                if "aprobado" in s or "approved" in s:
+                    qs_filtered = qs_filtered.filter(
+                        estado__in=["aprobado_supervisor", "aprobado_pm"])
+                elif "rechazado" in s or "rejected" in s:
+                    qs_filtered = qs_filtered.filter(
+                        estado__in=["rechazado_supervisor", "rechazado_pm"])
+
+    # Evita duplicados por joins con tecnicos_sesion
+    qs = qs_filtered.distinct()
+    # ---------- /Filtros de servidor ----------
+
+    # Paginación
     cantidad = request.GET.get("cantidad", "10")
     if cantidad == "todos":
         pagina = Paginator(qs, qs.count() or 1).get_page(1)
@@ -1528,17 +1611,11 @@ def listar_billing(request):
         or request.user.is_superuser
     )
     can_edit_items = bool(
-        getattr(request.user, "es_admin_general", False) or request.user.is_superuser)
+        getattr(request.user, "es_admin_general",
+                False) or request.user.is_superuser
+    )
 
-    f = {
-        "date":   (request.GET.get("date") or "").strip(),
-        "projid": (request.GET.get("projid") or "").strip(),
-        "week":   (request.GET.get("week") or "").strip(),
-        "tech":   (request.GET.get("tech") or "").strip(),
-        "client": (request.GET.get("client") or "").strip(),
-        "status": (request.GET.get("status") or "").strip(),
-    }
-
+    # Mantener QS en paginación
     from urllib.parse import urlencode
     keep_params = {**f}
     if cantidad and cantidad != "":

@@ -29,18 +29,25 @@
     </form>
   </div>
 
-  <!-- Quick filters -->
-  <div class="grid sm:grid-cols-6 gap-2 mb-3">
-    <input id="f-date"    class="border rounded px-3 py-2 quick-filter" placeholder="Date">
-    <input id="f-projid"  class="border rounded px-3 py-2 quick-filter" placeholder="Project ID">
-    <input id="f-week"    class="border rounded px-3 py-2 quick-filter" placeholder="Week">
-    <input id="f-tech"    class="border rounded px-3 py-2 quick-filter" placeholder="Technicians">
-    <input id="f-client"  class="border rounded px-3 py-2 quick-filter" placeholder="Client">
-    <div class="flex gap-2">
-      <input id="f-status" class="border rounded px-3 py-2 w-full quick-filter" placeholder="Status">
-      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
-    </div>
+
+<!-- Quick filters -->
+<form id="filters-form" method="get" class="grid sm:grid-cols-6 gap-2 mb-3">
+  <!-- preserva scope y cantidad -->
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <input type="hidden" name="cantidad" value="{{ cantidad }}">
+
+  <input id="f-date"   name="date"   value="{{ date_s }}"   class="border rounded px-3 py-2 quick-filter" placeholder="Date">
+  <input id="f-projid" name="projid" value="{{ projid_s }}" class="border rounded px-3 py-2 quick-filter" placeholder="Project ID">
+  <input id="f-week"   name="week"   value="{{ week_s }}"   class="border rounded px-3 py-2 quick-filter" placeholder="Week">
+  <input id="f-tech"   name="tech"   value="{{ tech_s }}"   class="border rounded px-3 py-2 quick-filter" placeholder="Technicians">
+  <input id="f-client" name="client" value="{{ client_s }}" class="border rounded px-3 py-2 quick-filter" placeholder="Client">
+
+  <div class="flex gap-2">
+    <input id="f-status" name="status" value="{{ status_s }}" class="border rounded px-3 py-2 w-full quick-filter" placeholder="Status">
+    <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
   </div>
+</form>
+
 
   <!-- Table -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
@@ -422,7 +429,7 @@
     {% endif %}
     {% if pagina.has_next and cantidad != 'todos' %}
       <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-      <a href="?page={{ pagina.paginator_num_pages }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
     {% endif %}
   </div>
 </div>
@@ -953,6 +960,100 @@ document.addEventListener('click', function(e){
     }
   });
 
+})();
+</script>
+
+<script>
+(function () {
+  const form = document.getElementById('filters-form');
+  if (!form) return;
+
+  const inputs = form.querySelectorAll('.quick-filter');
+  let timer = null;
+  const STORAGE_KEY = 'invoices_filters_focus';
+
+  function saveFocus(el) {
+    try {
+      if (!el) return sessionStorage.removeItem(STORAGE_KEY);
+      const data = {
+        id: el.id || null,
+        caret: (typeof el.selectionStart === 'number')
+          ? el.selectionStart
+          : (el.value || '').length,
+        ts: Date.now()
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (_) {}
+  }
+
+  function submitWithFocus() {
+    // guarda qué input está activo y dónde está el cursor
+    const el = document.activeElement && document.activeElement.closest('.quick-filter');
+    saveFocus(el);
+    form.submit();
+  }
+
+  function submitDebounced() {
+    clearTimeout(timer);
+    timer = setTimeout(submitWithFocus, 250);
+  }
+
+  // Restaurar foco + caret tras recargar
+  window.addEventListener('DOMContentLoaded', () => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const { id, caret } = JSON.parse(raw) || {};
+      const el = id && document.getElementById(id);
+      if (el) {
+        el.focus({ preventScroll: true });
+        const pos = Math.min(Math.max(0, caret | 0), (el.value || '').length);
+        // pequeño delay para que el input exista y sea focusable
+        setTimeout(() => {
+          try { el.setSelectionRange(pos, pos); } catch (_) {}
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }, 0);
+      }
+    } catch (_) {}
+  });
+
+  // Trackear foco/caret mientras el usuario escribe o hace clic
+  document.addEventListener('focusin', (e) => {
+    const el = e.target.closest('.quick-filter');
+    if (el) saveFocus(el);
+  });
+  document.addEventListener('keyup', (e) => {
+    const el = e.target.closest('.quick-filter');
+    if (el) saveFocus(el);
+  });
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('.quick-filter');
+    if (el) saveFocus(el);
+  });
+
+  // Eventos de los inputs: autosubmit con debounce
+  inputs.forEach(i => {
+    i.addEventListener('input',  submitDebounced);
+    i.addEventListener('change', submitDebounced);
+    i.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitWithFocus();
+      }
+    });
+  });
+
+  // Botón Clear: limpia, guarda foco actual y envía
+  document.getElementById('btn-clear')?.addEventListener('click', () => {
+    inputs.forEach(i => i.value = '');
+    submitWithFocus();
+  });
+
+  // Por si el form se envía de otra manera, garantizamos guardar foco
+  form.addEventListener('submit', () => {
+    const el = document.activeElement && document.activeElement.closest('.quick-filter');
+    saveFocus(el);
+  });
 })();
 </script>
 {% endblock %}
