@@ -57,15 +57,16 @@ from .models import (
 from usuarios.decoradores import rol_requerido
 
 from io import BytesIO
-from PIL import Image, ExifTags
+from PIL import Image, ExifTags, ImageFile
 from pillow_heif import register_heif_opener
 
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 register_heif_opener()  # habilita abrir .heic/.heif en Pillow
-
-
 # ============================
 # UTIL
 # ============================
+
 
 def storage_file_exists(filefield) -> bool:
     if not filefield or not getattr(filefield, "name", ""):
@@ -1466,9 +1467,6 @@ def estado_reporte_parcial(request, sesion_id):
         "error": job.error or "",
         "cancel_requested": bool(getattr(job, "cancel_requested", False)),
     })
-
-
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ReportCancelled(Exception):
