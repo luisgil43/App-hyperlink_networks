@@ -200,23 +200,6 @@ LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/usuarios/login/'
 
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {"class": "logging.StreamHandler"},
-    },
-    "loggers": {
-        # Coincide con getLogger("merge_xlsx")
-        "merge_xlsx": {
-            "handlers": ["console"],
-            "level": "DEBUG",   # En prod podrías bajarlo a INFO
-            "propagate": False,
-        },
-    },
-}
-
-
 # ==============================
 # STORAGE (Wasabi S3)
 # ==============================
@@ -310,3 +293,52 @@ if DEBUG:
     CSRF_COOKIE_HTTPONLY = False
 else:
     CSRF_COOKIE_HTTPONLY = True
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{levelname}] {asctime} {name} :: {message}",
+            "style": "{",
+        },
+        "simple": {"format": "[{levelname}] {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        # Eventos de django-axes (intentos fallidos, bloqueos, etc.)
+        "axes": {
+            "handlers": ["console"],
+            "level": "INFO",   # DEBUG si quieres más ruido
+            "propagate": False,
+        },
+        # Autenticación Django (login/logout, permisos)
+        "django.security": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.auth": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Tu app de usuarios (para auditar el login unificado)
+        "usuarios": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
