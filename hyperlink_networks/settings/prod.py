@@ -20,6 +20,7 @@ DATABASES = {
     )
 }
 
+
 # Archivos estáticos
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -39,6 +40,21 @@ MIDDLEWARE = [
     'axes.middleware.AxesMiddleware',                # ← y este si lo usas
 ]
 
+# Confía en tu origen HTTPS para CSRF (Render)
+CSRF_TRUSTED_ORIGINS = [
+    'https://app-hyperlink-networks.onrender.com',
+]
+
+# Render usa X-Forwarded-Proto para indicar HTTPS
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Cookies seguras + samesite
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# MUY IMPORTANTE si lees la cookie desde JS:
+# (default ya es False; deja esto explícito por si en base.py cambia)
+CSRF_COOKIE_HTTPONLY = False
 
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',  # ← primero
