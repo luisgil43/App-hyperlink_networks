@@ -8,286 +8,295 @@
 {% block content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-        <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 My Expense Reports</h2>
-   <a href="{% url 'operaciones:exportar_mis_rendiciones' %}" 
-   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
-    📥 Export to Excel
-</a>
-    </div>
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 My Expense Reports</h2>
+    <a href="{% url 'operaciones:exportar_mis_rendiciones' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      📥 Export to Excel
+    </a>
+  </div>
 
-   <!-- Balance cards -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <!-- Balance cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
     <div class="bg-green-50 p-4 rounded-lg shadow">
-        <h3 class="text-gray-600 text-sm font-medium">Available Balance</h3>
-        <p class="text-2xl font-bold text-green-700">
-            {{ saldo_disponible|formato_usd }}
-        </p>
+      <h3 class="text-gray-600 text-sm font-medium">Available Balance</h3>
+      <p class="text-2xl font-bold text-green-700">{{ saldo_disponible|formato_usd }}</p>
     </div>
     <div class="bg-yellow-50 p-4 rounded-lg shadow">
-        <h3 class="text-gray-600 text-sm font-medium">Pending Approval Balance</h3>
-        <p class="text-2xl font-bold text-yellow-700">
-            {{ saldo_pendiente|formato_usd }}
-        </p>
+      <h3 class="text-gray-600 text-sm font-medium">Pending Approval Balance</h3>
+      <p class="text-2xl font-bold text-yellow-700">{{ saldo_pendiente|formato_usd }}</p>
     </div>
     <div class="bg-orange-50 p-4 rounded-lg shadow">
-        <h3 class="text-gray-600 text-sm font-medium">Reported Balance</h3>
-        <p class="text-2xl font-bold text-orange-700">
-            {{ saldo_rendido|formato_usd }}
-        </p>
+      <h3 class="text-gray-600 text-sm font-medium">Reported Balance</h3>
+      <p class="text-2xl font-bold text-orange-700">{{ saldo_rendido|formato_usd }}</p>
     </div>
-</div>
+  </div>
 
-<h3 class="text-lg font-semibold mb-2">➕ Register New Expense Report</h3>
+  <h3 class="text-lg font-semibold mb-2">➕ Register New Expense Report</h3>
 
-<!-- New expense report form -->
-<div class="mb-6">
-{% if form.errors %}
-<div class="bg-red-100 text-red-700 p-3 rounded mb-3">
-  <ul>
-    {% for field, errors in form.errors.items %}
-      {% if field != '__all__' %}
-        <li><strong>{{ form|field_label:field }}:</strong> {{ errors|join:", " }}</li>
-      {% endif %}
-    {% endfor %}
-    {% for error in form.non_field_errors %}
-      <li><strong>General:</strong> {{ error }}</li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
-
-<form method="post" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    {% csrf_token %}
-    <div class="col-span-1">
-        <label class="block text-sm font-medium text-gray-700">Project:</label>
-        {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
+  <!-- New expense report form -->
+  <div class="mb-6">
+    {% if form.errors %}
+    <div class="bg-red-100 text-red-700 p-3 rounded mb-3">
+      <ul>
+        {% for field, errors in form.errors.items %}
+          {% if field != '__all__' %}
+            <li><strong>{{ form|field_label:field }}:</strong> {{ errors|join:", " }}</li>
+          {% endif %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+          <li><strong>General:</strong> {{ error }}</li>
+        {% endfor %}
+      </ul>
     </div>
-    <div class="col-span-1">
-        <label class="block text-sm font-medium text-gray-700">Type:</label>
-        {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
-    <div class="col-span-1">
-        <label class="block text-sm font-medium text-gray-700">Amount (USD):</label>
-        {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-    <div class="col-span-1">
-        <label class="block text-sm font-medium text-gray-700">Remarks:</label>
-        {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
-    <div>
-        <label class="block text-sm font-medium text-gray-700">Receipt:</label>
-        <div class="flex gap-2">
-            <!-- Camera button -->
-            <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-                📷 Take Photo
-                <input type="file" id="comprobante_foto" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
-            </label>
-
-            <!-- File button -->
-            <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-                📄 Upload File
-                <input type="file" id="comprobante_archivo" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
-            </label>
-        </div>
-        <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block">No file selected</span>
-        <img id="preview_comprobante" class="mt-2 max-h-40 rounded shadow hidden">
-    </div>
-
-    <div class="col-span-1 sm:col-span-2">
-        <button type="submit" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow">
-            Save Expense Report
-        </button>
-    </div>
-</form>
-</div>
-
-<!-- Responsive table -->
-<div class="rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1200px]" style="white-space: nowrap;">
-    <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
-      <tr>
-        <th class="p-2 border">Name</th>
-        <th class="p-2 border">Date</th>
-        <th class="p-2 border">Project</th>
-        <th class="p-2 border">Type</th>
-        <th class="p-2 border text-right">Expenses (USD)</th>
-        <th class="p-2 border text-right">Credits (USD)</th>
-        <th class="p-2 border">Remarks</th>
-        <th class="p-2 border">Receipt</th>
-        <th class="p-2 border">Status</th>
-        <th class="p-2 border">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="text-center">
-      {% for mov in pagina %}
-      <tr class="border-t">
-        <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
-        <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
-        <td class="p-2 border">{{ mov.proyecto }}</td>
-        <td class="p-2 border">{{ mov.tipo }}</td>
-        <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
-        <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
-        <td class="p-2 border">{{ mov.observaciones }}</td>
-        <td class="p-2 border">
-          {% if mov.comprobante %}
-            <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-          {% else %} — {% endif %}
-        </td>
-        <!-- Status translation -->
-        <td class="p-2 text-sm">
-            <div class="flex flex-col gap-1 text-left leading-tight">
-                {% if mov.status == 'pendiente_supervisor' %}
-                    <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                        ⏳ Pending Supervisor Approval
-                    </span>
-                {% elif mov.status == 'aprobado_supervisor' %}
-                    <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                        ✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                        ⏳ Pending PM Approval
-                    </span>
-                {% elif mov.status == 'rechazado_supervisor' %}
-                    <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                        ❌ Rejected by Supervisor
-                    </span>
-                {% elif mov.status == 'aprobado_pm' %}
-                    <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                        ✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                        ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br>
-                        ⏳ Pending Finance Approval
-                    </span>
-                {% elif mov.status == 'rechazado_pm' %}
-                    <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                        ❌ Rejected by PM
-                    </span>
-                {% elif mov.status == 'aprobado_finanzas' %}
-                    <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                        ✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                        ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br>
-                        ✅ Finance: {{ mov.aprobado_por_finanzas.get_full_name }}
-                    </span>
-                {% elif mov.status == 'rechazado_finanzas' %}
-                    <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                        ❌ Rejected by Finance
-                    </span>
-                {% elif mov.status == 'pendiente_abono_usuario' %}
-                    <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                        ⏳ Pending User Approval
-                    </span>
-                {% elif mov.status == 'aprobado_abono_usuario' %}
-                    <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                        ✅ Credit Approved by User
-                    </span>
-                {% elif mov.status == 'rechazado_abono_usuario' %}
-                    <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                        ❌ Credit Rejected by User
-                    </span>
-                {% else %}
-                    {{ mov.get_status_display }}
-                {% endif %}
-
-                {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
-                    <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo">
-                        <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
-                    </div>
-                {% endif %}
-            </div>
-        </td>
-
-    <!-- Actions -->
-<td class="p-2 border text-center">
-    {% if mov.tipo and mov.tipo.categoria == 'abono' %}
-        {% if mov.status == 'pendiente_abono_usuario' %}
-            <a href="{% url 'operaciones:aprobar_abono' mov.id %}" 
-               class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
-                ✅ Approve
-            </a>
-            <button onclick="abrirModalRechazo({{ mov.id }})" 
-                    class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                ❌ Reject
-            </button>
-        {% endif %}
-    {% else %}
-        {% if mov.status == 'pendiente_supervisor' or mov.status == 'rechazado_supervisor' or mov.status == 'rechazado_pm' or mov.status == 'rechazado_finanzas' %}
-            <a href="{% url 'operaciones:editar_rendicion' mov.id %}" 
-               class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">
-                ✏️ Edit
-            </a>
-            <a href="{% url 'operaciones:eliminar_rendicion' mov.id %}" 
-               class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                🗑️ Delete
-            </a>
-        {% endif %}
     {% endif %}
-</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="10" class="p-4 text-center text-gray-500">You have no expense reports registered.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
 
-<!-- Modal -->
-<div id="modalRechazo" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
-  <div class="bg-white p-6 rounded-lg shadow-lg w-96">
-    <h2 class="text-lg font-bold mb-4">Reject Credit</h2>
-    <form id="formRechazo" method="post">
-      {% csrf_token %}
-      <textarea name="motivo" rows="3" class="w-full border rounded-lg p-2" placeholder="Enter the rejection reason"></textarea>
-      <div class="mt-4 flex justify-end gap-2">
-        <button type="button" onclick="cerrarModalRechazo()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
-        <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded">Reject</button>
-      </div>
+<form method="post" enctype="multipart/form-data"
+      class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="formRendicion">
+  {% csrf_token %}
+
+  <!-- Fila 1 -->
+  <div>
+    <label class="block text-sm font-medium text-gray-700">Project:</label>
+    {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700">Type:</label>
+    {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+
+  <!-- Fila 2 -->
+  <div>
+    <label class="block text-sm font-medium text-gray-700">Amount (USD):</label>
+    {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+
+  <!-- Fila 3: Remarks a lo ancho -->
+   <div>
+    <label class="block text-sm font-medium text-gray-700">Remarks:</label>
+    {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+
+  <!-- Odometer km (se muestra/oculta con JS cuando es Fuel) -->
+  <div id="bloque-fuel-km" class="">
+    <label class="block text-sm font-medium text-gray-700">Odometer (km):</label>
+    {{ form.kilometraje|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+
+
+  <!-- Fila 4: Receipt (debajo de Remarks, ancho completo) -->
+  <div class="sm:col-span-2">
+    <label class="block text-sm font-medium text-gray-700">Receipt:</label>
+    <div class="flex gap-2">
+      <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+        📷 Take Photo
+        <input type="file" id="comprobante_foto" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
+      </label>
+      <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+        📄 Upload File
+        <input type="file" id="comprobante_archivo" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
+      </label>
+      <span class="hidden">{{ form.comprobante }}</span>
+    </div>
+    <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block">
+      {% if wasabi_key %}File already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
+    </span>
+    <img id="preview_comprobante" alt="Receipt preview" class="mt-2 max-h-40 rounded shadow hidden" />
+  </div>
+
+  <!-- Fila 5: Odometer photo (debajo de Receipt, ancho completo) -->
+  <div id="bloque-fuel-foto" class="sm:col-span-2">
+    <label class="block text-sm font-medium text-gray-700">Odometer photo (dashboard):</label>
+    <label for="id_foto_tablero"
+           class="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full shadow cursor-pointer w-fit">
+      📷 Take Photo
+    </label>
+    {{ form.foto_tablero|attr:"id:id_foto_tablero"|attr:"accept:image/*"|attr:"capture:environment"|add_class:"hidden" }}
+    <span id="nombre_foto_tablero" class="text-sm text-gray-600 italic mt-1 block">
+      {% if wasabi_key_foto_tablero %}Photo already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
+    </span>
+    <img id="preview_tablero" alt="Odometer preview" class="mt-2 max-h-40 rounded shadow hidden" />
+  </div>
+
+  <!-- Hidden keys -->
+  <input type="hidden" name="wasabi_key" id="wasabi_key" value="{{ wasabi_key|default_if_none:'' }}">
+  <input type="hidden" name="wasabi_key_foto_tablero" id="wasabi_key_foto_tablero" value="{{ wasabi_key_foto_tablero|default_if_none:'' }}">
+
+  <!-- Botón -->
+  <div class="sm:col-span-2">
+    <button type="submit" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow">
+      Save Expense Report
+    </button>
+  </div>
+</form>
+  </div>
+
+  <!-- Tabla -->
+  <div class="rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1200px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+        <tr>
+          <th class="p-2 border">Name</th>
+          <th class="p-2 border">Date</th>
+          <th class="p-2 border">Project</th>
+          <th class="p-2 border">Type</th>
+          <th class="p-2 border text-right">Expenses (USD)</th>
+          <th class="p-2 border text-right">Credits (USD)</th>
+          <th class="p-2 border">Remarks</th>
+          <th class="p-2 border">Receipt</th>
+          <th class="p-2 border">Odometer (km)</th> <!-- 👈 NUEVO -->
+          <th class="p-2 border">Status</th>
+          <th class="p-2 border">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="text-center">
+        {% for mov in pagina %}
+        <tr class="border-t">
+          <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
+          <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
+          <td class="p-2 border">{{ mov.proyecto }}</td>
+          <td class="p-2 border">{{ mov.tipo }}</td>
+          <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
+          <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
+          <td class="p-2 border">{{ mov.observaciones }}</td>
+          <td class="p-2 border">
+            {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
+              <div class="flex flex-col items-center gap-1">
+                {% if mov.comprobante %}
+                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
+                {% endif %}
+                {% if mov.foto_tablero %}
+                  <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
+                {% endif %}
+                {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
+              </div>
+            {% else %}
+              {% if mov.comprobante %}
+                <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
+              {% else %} — {% endif %}
+            {% endif %}
+          </td>
+          <td class="p-2 border text-right">
+            {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
+          </td>
+          <!-- Status translation (igual a tu código) -->
+          <td class="p-2 text-sm">
+            <div class="flex flex-col gap-1 text-left leading-tight">
+              {% if mov.status == 'pendiente_supervisor' %}
+                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending Supervisor Approval</span>
+              {% elif mov.status == 'aprobado_supervisor' %}
+                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ⏳ Pending PM Approval</span>
+              {% elif mov.status == 'rechazado_supervisor' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Supervisor</span>
+              {% elif mov.status == 'aprobado_pm' %}
+                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ⏳ Pending Finance Approval</span>
+              {% elif mov.status == 'rechazado_pm' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by PM</span>
+              {% elif mov.status == 'aprobado_finanzas' %}
+                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ✅ Finance: {{ mov.aprobado_por_finanzas.get_full_name }}</span>
+              {% elif mov.status == 'rechazado_finanzas' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Finance</span>
+              {% elif mov.status == 'pendiente_abono_usuario' %}
+                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending User Approval</span>
+              {% elif mov.status == 'aprobado_abono_usuario' %}
+                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Credit Approved by User</span>
+              {% elif mov.status == 'rechazado_abono_usuario' %}
+                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Credit Rejected by User</span>
+              {% else %}
+                {{ mov.get_status_display }}
+              {% endif %}
+              {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
+                <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo">
+                  <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
+                </div>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Actions -->
+          <td class="p-2 border text-center">
+            {% if mov.tipo and mov.tipo.categoria == 'abono' %}
+              {% if mov.status == 'pendiente_abono_usuario' %}
+                <a href="{% url 'operaciones:aprobar_abono' mov.id %}"
+                   class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">✅ Approve</a>
+                <button onclick="abrirModalRechazo({{ mov.id }})"
+                        class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">❌ Reject</button>
+              {% endif %}
+            {% else %}
+              {% if mov.status == 'pendiente_supervisor' or mov.status == 'rechazado_supervisor' or mov.status == 'rechazado_pm' or mov.status == 'rechazado_finanzas' %}
+                <a href="{% url 'operaciones:editar_rendicion' mov.id %}"
+                   class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">✏️ Edit</a>
+                <a href="{% url 'operaciones:eliminar_rendicion' mov.id %}"
+                   class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">🗑️ Delete</a>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="11" class="p-4 text-center text-gray-500">You have no expense reports registered.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Modal rechazo (como tenías) -->
+  <div id="modalRechazo" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-96">
+      <h2 class="text-lg font-bold mb-4">Reject Credit</h2>
+      <form id="formRechazo" method="post">
+        {% csrf_token %}
+        <textarea name="motivo" rows="3" class="w-full border rounded-lg p-2" placeholder="Enter the rejection reason"></textarea>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button" onclick="cerrarModalRechazo()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
+          <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded">Reject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Pagination (igual a tu código) -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form method="get" class="flex items-center gap-2">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
+        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+      </select>
     </form>
+  </div>
+
+  <div class="mt-2 flex justify-center text-sm">
+    {% if cantidad == 'todos' %}
+      <span>Page 1 of 1</span>
+    {% else %}
+      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+    {% endif %}
+  </div>
+
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous %}
+      <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next %}
+      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+    {% endif %}
   </div>
 </div>
 
+<!-- Scripts -->
 <script>
 function abrirModalRechazo(id) {
-    document.getElementById('formRechazo').action = `/operaciones/rechazar_abono/${id}/`;
-    document.getElementById('modalRechazo').classList.remove('hidden');
+  document.getElementById('formRechazo').action = `/operaciones/rechazar_abono/${id}/`;
+  document.getElementById('modalRechazo').classList.remove('hidden');
 }
 function cerrarModalRechazo() {
-    document.getElementById('modalRechazo').classList.add('hidden');
+  document.getElementById('modalRechazo').classList.add('hidden');
 }
 </script>
-
-<!-- Pagination -->
-<div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-    <form method="get" class="flex items-center gap-2">
-        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-        <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-            <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
-            <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-            <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-            <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-        </select>
-    </form>
-</div>
-
-<div class="mt-2 flex justify-center text-sm">
-    {% if cantidad == 'todos' %}
-        <span>Page 1 of 1</span>
-    {% else %}
-        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-    {% endif %}
-</div>
-
-<div class="mt-2 flex justify-center gap-2 text-sm">
-    {% if pagina.has_previous %}
-        <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-        <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
-    {% endif %}
-    {% if pagina.has_next %}
-        <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-        <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
-    {% endif %}
-</div>
-</div>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -296,62 +305,92 @@ document.addEventListener("DOMContentLoaded", function () {
   const nombreComprobante = document.getElementById("nombre_comprobante");
   const previewComprobante = document.getElementById("preview_comprobante");
 
-  function showPreview(input) {
-    const file = input.files[0];
-    if (!file) return;
+  const odoInput   = document.getElementById("id_foto_tablero");
+  const odoName    = document.getElementById("nombre_foto_tablero");
+  const odoPreview = document.getElementById("preview_tablero");
 
+  function hideImg(img) {
+    if (!img) return;
+    img.src = "";
+    img.classList.add("hidden");
+    img.style.display = "none";
+  }
+  function showImg(img, dataUrl) {
+    if (!img) return;
+    img.src = dataUrl;
+    img.classList.remove("hidden");
+    img.style.display = "block";
+  }
+
+  function showReceiptPreview(file) {
+    if (!file) { hideImg(previewComprobante); return; }
     nombreComprobante.textContent = `Selected file: ${file.name}`;
-    const reader = new FileReader();
-
-    if (file.type.startsWith("image/")) {
-      reader.onload = function (e) {
-        previewComprobante.src = e.target.result;
-        previewComprobante.classList.remove("hidden");
-        previewComprobante.style.display = "block";
-      };
+    if (file.type && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => showImg(previewComprobante, e.target.result);
       reader.readAsDataURL(file);
-    } else if (file.type === "application/pdf") {
-      previewComprobante.classList.add("hidden");
-      previewComprobante.style.display = "none";
-      nombreComprobante.textContent += " (PDF)";
     } else {
-      previewComprobante.classList.add("hidden");
-      previewComprobante.style.display = "none";
-      nombreComprobante.textContent += " (Preview not available)";
+      hideImg(previewComprobante); // pdf u otro
+      nombreComprobante.textContent += file.type === "application/pdf" ? " (PDF)" : " (Preview not available)";
     }
   }
 
-  inputFoto.addEventListener("change", function () { showPreview(this); });
-  inputArchivo.addEventListener("change", function () { showPreview(this); });
-});
-</script>
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  // Selecciona todos los campos con required
-  document.querySelectorAll("form [required]").forEach(function (input) {
-    input.oninvalid = function (e) {
-      e.target.setCustomValidity(""); // limpia por si acaso
-      if (!e.target.validity.valid) {
-        if (e.target.tagName === "SELECT") {
-          e.target.setCustomValidity("Please select an option");
-        } else if (e.target.type === "file") {
-          e.target.setCustomValidity("Please upload a file");
-        } else if (e.target.type === "number" || e.target.type === "text") {
-          e.target.setCustomValidity("This field is required");
-        } else {
-          e.target.setCustomValidity("Please fill out this field");
-        }
-      }
-    };
-    // Limpiar cuando el usuario escriba/seleccione
-    input.oninput = function (e) {
-      e.target.setCustomValidity("");
-    };
-  });
+  function showOdoPreview(file) {
+    if (!file) { hideImg(odoPreview); return; }
+    odoName.textContent = `Selected file: ${file.name}`;
+    if (file.type && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => showImg(odoPreview, e.target.result);
+      reader.readAsDataURL(file);
+    } else {
+      hideImg(odoPreview);
+    }
+  }
+
+  // Eventos de cambio
+  if (inputFoto)    inputFoto.addEventListener("change", () => showReceiptPreview(inputFoto.files[0]));
+  if (inputArchivo) inputArchivo.addEventListener("change", () => showReceiptPreview(inputArchivo.files[0]));
+  if (odoInput)     odoInput.addEventListener("change", () => showOdoPreview(odoInput.files[0]));
+
+  // Al cargar la página (GET después del redirect), asegurar que NO queden rotos
+  const hadWasabiComp = "{{ wasabi_key|default_if_none:'' }}" !== "";
+  const hadWasabiOdo  = "{{ wasabi_key_foto_tablero|default_if_none:'' }}" !== "";
+  if (!hadWasabiComp) hideImg(previewComprobante);
+  if (!hadWasabiOdo)  hideImg(odoPreview);
 });
 </script>
 
-<input type="hidden" name="wasabi_key" value="">
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const selectTipo = document.getElementById("id_tipo");
+  const fuelKm     = document.getElementById("bloque-fuel-km");
+  const fuelFoto   = document.getElementById("bloque-fuel-foto");
+
+  function esFuel() {
+    const opt = selectTipo?.selectedOptions?.[0];
+    const txt = (opt ? opt.textContent : "").trim().toLowerCase();
+    return txt === "fuel";
+  }
+
+  function toggleFuel() {
+    const show = esFuel();
+    if (fuelKm)   fuelKm.classList.toggle("hidden", !show);
+    if (fuelFoto) fuelFoto.classList.toggle("hidden", !show);
+
+    // required dinámico
+    const km   = document.getElementById("id_kilometraje");
+    const foto = document.getElementById("id_foto_tablero");
+    if (km)   km.required = show;
+    if (foto) foto.required = show;
+  }
+
+  if (selectTipo) {
+    selectTipo.addEventListener("change", toggleFuel);
+    toggleFuel(); // estado inicial
+  }
+});
+</script>
 
 <script>
 (function(){
@@ -361,14 +400,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
   async function presign(filename, contentType, sizeBytes){
     const resp = await fetch("{% url 'operaciones:presign_rendicion' %}", {
-      method: "POST",
-      headers: {"Content-Type": "application/json", "X-CSRFToken": getCsrf()},
-      body: JSON.stringify({ filename, contentType, sizeBytes }),
-    });
-    if(!resp.ok){
-      const t = await resp.text(); throw new Error("Presign failed: " + t);
-    }
-    return resp.json(); // { post:{url, fields{}}, key }
+  method: "POST",
+  headers: {"Content-Type": "application/json", "X-CSRFToken": getCsrf() },
+  body: JSON.stringify({ filename, contentType, sizeBytes }),
+});
+
+    if(!resp.ok){ throw new Error(await resp.text()); }
+    return resp.json();
   }
 
   async function directUpload(file){
@@ -377,41 +415,109 @@ document.addEventListener("DOMContentLoaded", function () {
     Object.entries(post.fields).forEach(([k, v]) => fd.append(k, v));
     fd.append("key", post.fields.key || key);
     fd.append("file", file, file.name);
-
     const up = await fetch(post.url, { method: "POST", body: fd });
-    if (up.status !== 201) {
-      const t = await up.text(); throw new Error("Upload error: " + t);
-    }
+    if (up.status !== 201) { throw new Error(await up.text()); }
     return key;
   }
 
-  document.addEventListener("submit", async (e)=>{
-    const form = e.target.closest("form");
-    if(!form) return;
-    const fileInput = form.querySelector('input[type="file"][name="comprobante"]');
-    const keyInput  = form.querySelector('input[name="wasabi_key"]');
-    if(!DIRECT_ENABLED || !fileInput || !fileInput.files || !fileInput.files.length) return;
+  document.getElementById("formRendicion").addEventListener("submit", async (e)=>{
+    if (!DIRECT_ENABLED) return;
 
-    const file = fileInput.files[0];
-    if (file.size > MAX_MB*1024*1024){
+    const form = e.currentTarget;
+    const keyInputComp = document.getElementById('wasabi_key');
+    const keyInputOdo  = document.getElementById('wasabi_key_foto_tablero');
+
+    const alreadyComp = !!keyInputComp.value;
+    const alreadyOdo  = !!keyInputOdo.value;
+
+    const fCompFoto = document.getElementById('comprobante_foto')?.files?.[0] || null;
+    const fCompArch = document.getElementById('comprobante_archivo')?.files?.[0] || null;
+    const fComprobante = fCompFoto || fCompArch || null;
+    const fOdom = document.getElementById('id_foto_tablero')?.files?.[0] || null;
+
+    if ((alreadyComp || !fComprobante) && (alreadyOdo || !fOdom)) return;
+
+    const tooBig = (f) => f && f.size > MAX_MB*1024*1024;
+    if (tooBig(fComprobante) || tooBig(fOdom)){
       e.preventDefault();
       alert(`File too large. Max ${MAX_MB}MB.`);
       return;
     }
 
-    e.preventDefault(); // interceptamos
+    e.preventDefault();
     try{
-      const key = await directUpload(file);
-      // Limpiamos el file input para que Django NO suba bytes
-      fileInput.value = "";
-      keyInput.value = key;
-      form.submit(); // ahora sí: sólo metadatos + wasabi_key
+      const [keyComp, keyOdo] = await Promise.all([
+        (alreadyComp || !fComprobante) ? Promise.resolve("") : directUpload(fComprobante),
+        (alreadyOdo  || !fOdom)        ? Promise.resolve("") : directUpload(fOdom),
+      ]);
+
+      if (keyComp) keyInputComp.value = keyComp;
+      if (keyOdo)  keyInputOdo.value  = keyOdo;
+
+      // Limpiar inputs y previews antes de enviar  // NEW:
+      const nf = document.getElementById('nombre_comprobante');
+      const nt = document.getElementById('nombre_foto_tablero');
+      const pc = document.getElementById('preview_comprobante');
+      const pt = document.getElementById('preview_tablero');
+
+      if (keyComp) {
+        if (nf) nf.textContent = "File uploaded. It will be saved when the form is valid.";
+        const a = document.getElementById('comprobante_archivo');
+        const f = document.getElementById('comprobante_foto');
+        if (a) a.value = "";
+        if (f) f.value = "";
+        if (pc) { pc.src = ""; pc.classList.add("hidden"); pc.style.display = "none"; }  // NEW
+      }
+      if (keyOdo) {
+        if (nt) nt.textContent = "Photo uploaded. It will be saved when the form is valid.";
+        const o = document.getElementById('id_foto_tablero');
+        if (o) o.value = "";
+        if (pt) { pt.src = ""; pt.classList.add("hidden"); pt.style.display = "none"; }  // NEW
+      }
+
+      form.submit();
     }catch(err){
       console.error(err);
-      alert("There was a problem uploading the receipt. Please try again.");
+      alert("There was a problem uploading the files. Please try again.");
     }
   });
 })();
 </script>
-{% endblock %}
 
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const odoInput   = document.getElementById("id_foto_tablero");
+  const odoName    = document.getElementById("nombre_foto_tablero");
+  const odoPreview = document.getElementById("preview_tablero");
+
+  if (!odoInput) return;
+
+  odoInput.addEventListener("change", function () {
+    const file = odoInput.files && odoInput.files[0];
+    if (!file) {
+      odoName.textContent = "No file selected";
+      odoPreview.src = "";
+      odoPreview.classList.add("hidden");
+      return;
+    }
+
+    odoName.textContent = `Selected file: ${file.name}`;
+
+    if (file.type && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        odoPreview.src = e.target.result;
+        odoPreview.classList.remove("hidden");
+        odoPreview.style.display = "block";
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // si por alguna razón no es imagen (no debería), ocultamos preview
+      odoPreview.src = "";
+      odoPreview.classList.add("hidden");
+    }
+  });
+});
+</script>
+
+{% endblock %}

@@ -9,7 +9,8 @@
 <div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
   <!-- Título -->
   <h2 class="text-2xl font-bold text-gray-800 mb-6">✏️ Edit Transaction</h2>
-  <form method="post" enctype="multipart/form-data">
+
+  <form method="post" enctype="multipart/form-data" id="formEditarMov">
     {% csrf_token %}
 
     <!-- Errores generales -->
@@ -93,21 +94,68 @@
     {% endif %}
 
     <!-- Comprobante -->
-    <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700">Receipt</label>
-      {{ form.comprobante|add_class:"w-full border rounded-xl px-3 py-2" }}
-      {% if form.comprobante.errors %}
-        <p class="text-red-600 text-sm mt-1">{{ form.comprobante.errors.0 }}</p>
-      {% endif %}
-      {% if movimiento.comprobante %}
-        <p class="text-xs mt-1">
-          Current file: 
+<!-- Receipt -->
+<div class="mb-4">
+  <label class="block text-sm font-medium text-gray-700">Receipt</label>
+  {{ form.comprobante|add_class:"w-full border rounded-xl px-3 py-2" }}
+  {% if form.comprobante.errors %}
+    <p class="text-red-600 text-sm mt-1">{{ form.comprobante.errors.0 }}</p>
+  {% endif %}
+
+  {% if movimiento.comprobante %}
+    {% with url=movimiento.comprobante.url name=movimiento.comprobante.name %}
+      {% if url|lower|slice:"-4:" == ".pdf" or name|lower|slice:"-4:" == ".pdf" %}
+        <p class="text-xs mt-2">
+          Current file:
           <a href="{{ movimiento.comprobante.url }}" target="_blank" class="text-blue-600 underline">
-            View Receipt
+            View current receipt (PDF)
           </a>
         </p>
+      {% else %}
+        <div class="mt-2">
+          <img src="{{ movimiento.comprobante.url }}" alt="Current receipt"
+               class="max-h-40 rounded border shadow">
+        </div>
       {% endif %}
-    </div>
+    {% endwith %}
+  {% endif %}
+</div>
+
+
+    {# ---------- BLOQUE ESPECÍFICO PARA FUEL ---------- #}
+    {% if movimiento.tipo and movimiento.tipo.nombre|lower == "fuel" %}
+      <!-- Kilometraje -->
+      {% if form.fields.kilometraje %}
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700">Odometer (km)</label>
+        {{ form.kilometraje|add_class:"w-full border rounded-xl px-3 py-2" }}
+        {% if form.kilometraje.errors %}
+          <p class="text-red-600 text-sm mt-1">{{ form.kilometraje.errors.0 }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Foto del tablero -->
+      {% if form.fields.foto_tablero %}
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700">Odometer photo (dashboard)</label>
+        {{ form.foto_tablero|attr:"accept:image/*"|add_class:"w-full border rounded-xl px-3 py-2" }}
+        {% if form.foto_tablero.errors %}
+          <p class="text-red-600 text-sm mt-1">{{ form.foto_tablero.errors.0 }}</p>
+        {% endif %}
+
+        {% if movimiento.foto_tablero %}
+          <div class="mt-2">
+            <img src="{{ movimiento.foto_tablero.url }}" alt="Current odometer" class="max-h-40 rounded border shadow" id="odoCurrent">
+          </div>
+        {% endif %}
+
+        <!-- Preview de nueva selección -->
+        <img id="odoPreview" class="mt-2 max-h-40 rounded border shadow hidden" alt="Odometer preview">
+      </div>
+      {% endif %}
+    {% endif %}
+    {# ---------- FIN BLOQUE FUEL ---------- #}
 
     <!-- Cargos (opcional) -->
     {% if form.fields.cargos %}
@@ -138,4 +186,30 @@
     </div>
   </form>
 </div>
+
+{% if movimiento.tipo and movimiento.tipo.nombre|lower == "fuel" and form.fields.foto_tablero %}
+<script>
+  // Preview inmediato para la nueva foto del odómetro
+  (function () {
+    const inp = document.getElementById("id_foto_tablero");
+    const prev = document.getElementById("odoPreview");
+    if (!inp || !prev) return;
+
+    function hide(el){ el.classList.add("hidden"); el.src=""; }
+    function show(el, src){ el.src = src; el.classList.remove("hidden"); }
+
+    inp.addEventListener("change", function () {
+      const f = inp.files && inp.files[0];
+      if (!f) { hide(prev); return; }
+      if (f.type && f.type.startsWith("image/")) {
+        const r = new FileReader();
+        r.onload = e => show(prev, e.target.result);
+        r.readAsDataURL(f);
+      } else {
+        hide(prev);
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

@@ -162,7 +162,8 @@ urlpatterns = [
         name="admin_reset_payment_status",
     ),
 
-    path("rendiciones/presign/", views.presign_rendicion, name="presign_rendicion"),
+    path("operaciones/rendiciones/presign/", views.presign_rendicion,
+         name="presign_rendicion"),
 
     path("produccion/admin/pagos/unpay/<int:pk>/",
          v.admin_unpay, name="admin_unpay"),

@@ -45,7 +45,7 @@
     <!-- Observaciones -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700">Notes</label>
-      {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2"|attr:"placeholder:Write a brief note..." }}
       {% if form.observaciones.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.observaciones.errors.0 }}</p>
       {% endif %}
@@ -54,16 +54,36 @@
     <!-- Número de Transferencia -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700">Transfer Number</label>
-      {{ form.numero_transferencia|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {{ form.numero_transferencia|add_class:"w-full border rounded-xl px-3 py-2"|attr:"placeholder:e.g., 123456789" }}
       {% if form.numero_transferencia.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.numero_transferencia.errors.0 }}</p>
       {% endif %}
     </div>
 
-    <!-- Comprobante -->
+    <!-- Comprobante (custom button "Choise File") -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700">Receipt (Photo/PDF)</label>
-      {{ form.comprobante|add_class:"w-full border rounded-xl px-3 py-2" }}
+
+      {% with file_id=form.comprobante.id_for_label|default:"id_comprobante" %}
+        <div class="flex items-center gap-3">
+          {# Solo ocultamos el input nativo y usamos el id que ya trae #}
+          {{ form.comprobante|add_class:"sr-only" }}
+
+<label for="{{ file_id }}"
+       class="bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-white px-4 py-2 rounded-xl cursor-pointer select-none transition">
+  Choise File
+</label>
+
+          <span class="text-sm text-gray-600" id="{{ file_id }}__filename">
+            {% if form.instance and form.instance.comprobante %}
+              {{ form.instance.comprobante.name|default_if_none:"No file selected" }}
+            {% else %}
+              No file selected
+            {% endif %}
+          </span>
+        </div>
+      {% endwith %}
+
       {% if form.comprobante.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.comprobante.errors.0 }}</p>
       {% endif %}
@@ -72,7 +92,7 @@
     <!-- Abonos -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700">Deposit Amount</label>
-      {{ form.abonos|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {{ form.abonos|add_class:"w-full border rounded-xl px-3 py-2"|attr:"placeholder:e.g., 1,234.56" }}
       {% if form.abonos.errors %}
         <p class="text-red-600 text-sm mt-1">{{ form.abonos.errors.0 }}</p>
       {% endif %}
@@ -89,4 +109,18 @@
     </div>
   </form>
 </div>
+
+<script>
+(function(){
+  // Tomamos el id real que trae el field (id_for_label)
+  var inputId = "{{ form.comprobante.id_for_label|default:'id_comprobante' }}";
+  var input = document.getElementById(inputId);
+  var span = document.getElementById(inputId + "__filename");
+  if (input && span) {
+    input.addEventListener('change', function(){
+      span.textContent = (this.files && this.files[0]) ? this.files[0].name : 'No file selected';
+    });
+  }
+})();
+</script>
 {% endblock %}

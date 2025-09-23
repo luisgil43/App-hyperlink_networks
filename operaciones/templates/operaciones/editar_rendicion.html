@@ -5,91 +5,183 @@
 
 {% block content %}
 <div class="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
-  <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">✏️ Edit Expense Report</h2>
+  <!-- título más discreto -->
+  <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2"✏️ Edit Expense Report</h2>
 
-  <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="formEditar">
     {% csrf_token %}
 
+    <!-- Project / Type -->
     <div>
-      <label class="block text-sm font-medium text-gray-700">Project:</label>
-      {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
+      <label class="block text-sm font-medium text-gray-700">Project</label>
+      {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700">Type</label>
+      {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
     </div>
 
+    <!-- Amount / Odometer (km) -->
     <div>
-      <label class="block text-sm font-medium text-gray-700">Type:</label>
-      {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
+      <label class="block text-sm font-medium text-gray-700">Expense Amount (USD)</label>
+      {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
+    </div>
+    <div id="bloque-fuel-km" class="hidden">
+      <label class="block text-sm font-medium text-gray-700">Odometer (km)</label>
+      {{ form.kilometraje|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
     </div>
 
-    <div>
-      <label class="block text-sm font-medium text-gray-700">Expense Amount:</label>
-      {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
-    </div>
-
+    <!-- Remarks -->
     <div class="sm:col-span-2">
-      <label class="block text-sm font-medium text-gray-700">Remarks:</label>
-      {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
+      <label class="block text-sm font-medium text-gray-700">Remarks</label>
+      {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
     </div>
 
+    <!-- Receipt -->
     <div class="sm:col-span-2">
-      <label class="block text-sm font-medium text-gray-700">Receipt:</label>
-      {% if form.instance.comprobante %}
-        <p class="mb-2 text-sm text-gray-600">
-          Current file: 
-          <a href="{{ form.instance.comprobante.url }}" target="_blank" class="text-blue-600 underline">View receipt</a>
-        </p>
-      {% endif %}
+      <label class="block text-sm font-medium text-gray-700">Receipt</label>
 
-      <!-- Preview container -->
-      <div id="preview" class="mb-2"></div>
+      {# Preview existente (img o link). NO tocar .url si no hay archivo #}
+      {% with rc=form.instance.comprobante %}
+        <div id="existing_receipt" class="mb-2"
+             data-url="{% if rc %}{{ rc.url }}{% endif %}"></div>
+      {% endwith %}
+
+      <!-- Preview de archivo seleccionado -->
+      <div id="preview_comprobante" class="mb-2"></div>
 
       <div class="flex gap-2">
-        <!-- Camera button -->
-        <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+        <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer text-sm">
           📷 Take Photo
-          <input id="comprobante_foto" type="file" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
+          <input id="comprobante_foto" type="file" name="comprobante" accept="image/*,application/pdf" capture="environment" class="hidden" />
         </label>
 
-        <!-- File button -->
-        <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+        <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer text-sm">
           📄 Upload File
-          <input id="comprobante_archivo" type="file" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
+          <input id="comprobante_archivo" type="file" name="comprobante" accept="application/pdf,image/*" class="hidden" />
         </label>
       </div>
       <p class="text-xs text-gray-500 mt-1">Upload a new file only if you want to replace the current one.</p>
     </div>
 
-    <div class="sm:col-span-2 flex justify-between gap-2 mt-4">
-      <a href="{% url 'operaciones:mis_rendiciones' %}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full">Cancel</a>
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full">Save Changes</button>
+    <!-- Odometer photo (Fuel) -->
+    <div id="bloque-fuel-foto" class="sm:col-span-2 hidden">
+      <label class="block text-sm font-medium text-gray-700">Odometer photo (dashboard)</label>
+
+      {# Preview existente. NO tocar .url si no hay archivo #}
+      {% with od=form.instance.foto_tablero %}
+        <div id="existing_odo" class="mb-2"
+             data-url="{% if od %}{{ od.url }}{% endif %}"></div>
+      {% endwith %}
+
+      <!-- Preview de archivo seleccionado -->
+      <div id="preview_tablero" class="mb-2"></div>
+
+      <label for="id_foto_tablero"
+             class="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full shadow cursor-pointer w-fit text-sm">
+        📷 Take Photo
+      </label>
+      <!-- input file “manual” para no renderizar el ClearableFileInput -->
+      <input type="file" id="id_foto_tablero" name="foto_tablero" accept="image/*" capture="environment" class="hidden" />
+
+      <p class="text-xs text-gray-500 mt-1">Upload a new photo only if you want to replace the current one.</p>
+    </div>
+
+    <!-- Botones -->
+    <div class="sm:col-span-2 flex justify-between gap-2 mt-2">
+      <a href="{% url 'operaciones:mis_rendiciones' %}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full text-sm">Cancel</a>
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm">Save Changes</button>
     </div>
   </form>
 </div>
 
 <script>
-  function previewFile(input) {
-    const preview = document.getElementById('preview');
-    preview.innerHTML = ""; // Limpia preview previo
-    const file = input.files[0];
-    if (!file) return;
+  // --- utilidades preview ---
+  function isImageUrl(u){ return /\.(png|jpg|jpeg|gif|webp)$/i.test(u||""); }
+  function isPdfUrl(u){ return /\.pdf$/i.test(u||""); }
 
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = e => {
-        const img = document.createElement("img");
-        img.src = e.target.result;
-        img.className = "max-h-48 rounded shadow";
-        preview.appendChild(img);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      const p = document.createElement("p");
-      p.textContent = "Selected file: " + file.name;
-      p.className = "text-sm text-gray-700";
-      preview.appendChild(p);
+  function putExistingPreview(containerId, url, linkLabel){
+    const box = document.getElementById(containerId);
+    box.innerHTML = "";
+    if(!url) return;
+    if (isImageUrl(url)){
+      const img = document.createElement("img");
+      img.src = url;
+      img.className = "max-h-40 rounded shadow border";
+      box.appendChild(img);
+    } else if (isPdfUrl(url)) {
+      const a = document.createElement("a");
+      a.href = url; a.target = "_blank";
+      a.className = "text-blue-600 underline text-sm";
+      a.textContent = linkLabel;
+      box.appendChild(a);
     }
   }
 
-  document.getElementById('comprobante_foto').addEventListener('change', function() { previewFile(this); });
-  document.getElementById('comprobante_archivo').addEventListener('change', function() { previewFile(this); });
+  function putSelectedPreview(containerId, file){
+    const box = document.getElementById(containerId);
+    box.innerHTML = "";
+    if(!file) return;
+
+    if (file.type && file.type.startsWith("image/")){
+      const img = document.createElement("img");
+      img.className = "max-h-40 rounded shadow border";
+      const reader = new FileReader();
+      reader.onload = e => img.src = e.target.result;
+      reader.readAsDataURL(file);
+      box.appendChild(img);
+    } else {
+      const p = document.createElement("p");
+      p.className = "text-sm text-gray-700";
+      p.textContent = "Selected file: " + file.name + (file.type === "application/pdf" ? " (PDF)" : "");
+      box.appendChild(p);
+    }
+  }
+
+  // --- mostrar/ocultar Fuel + required dinámico (sin romper edición) ---
+  document.addEventListener("DOMContentLoaded", function () {
+    const selectTipo = document.getElementById("id_tipo");
+    const fuelKm  = document.getElementById("bloque-fuel-km");
+    const fuelFot = document.getElementById("bloque-fuel-foto");
+
+    // URLs existentes (si hay archivos ya guardados)
+    const existingReceiptUrl = (document.getElementById("existing_receipt")?.dataset?.url || "").trim();
+    const existingOdoUrl     = (document.getElementById("existing_odo")?.dataset?.url || "").trim();
+
+    function esFuel(){
+      const t = (selectTipo?.selectedOptions?.[0]?.textContent || "").trim().toLowerCase();
+      return t === "fuel";
+    }
+
+    function toggleFuel(){
+      const show = esFuel();
+      fuelKm.classList.toggle("hidden", !show);
+      fuelFot.classList.toggle("hidden", !show);
+
+      const km = document.getElementById("id_kilometraje");
+      const ft = document.getElementById("id_foto_tablero");
+
+      if (km) km.required = show;
+
+      // 👉 Solo exigimos nueva foto si es Fuel Y NO existe una ya guardada
+      if (ft) ft.required = (show && !existingOdoUrl);
+    }
+
+    selectTipo?.addEventListener("change", toggleFuel);
+    toggleFuel();
+
+    // previews de existentes
+    putExistingPreview("existing_receipt", existingReceiptUrl, "View receipt");
+    putExistingPreview("existing_odo",     existingOdoUrl,     "View odometer");
+
+    // previews de archivos nuevos
+    const inFoto  = document.getElementById("id_foto_tablero");
+    const inRec1  = document.getElementById("comprobante_foto");
+    const inRec2  = document.getElementById("comprobante_archivo");
+
+    inFoto?.addEventListener("change", () => putSelectedPreview("preview_tablero", inFoto.files[0]));
+    inRec1?.addEventListener("change", () => putSelectedPreview("preview_comprobante", inRec1.files[0]));
+    inRec2?.addEventListener("change", () => putSelectedPreview("preview_comprobante", inRec2.files[0]));
+  });
 </script>
 {% endblock %}

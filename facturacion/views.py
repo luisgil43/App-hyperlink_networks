@@ -111,7 +111,12 @@ def listar_cartola(request):
     tipo = params.get('tipo', '').strip()
     estado = params.get('estado', '').strip()
 
-    movimientos = CartolaMovimiento.objects.all().order_by('-fecha')
+    # ✅ micro-optimización: evitar N+1
+    movimientos = (
+        CartolaMovimiento.objects.all()
+        .select_related('usuario', 'proyecto', 'tipo')
+        .order_by('-fecha')
+    )
 
     # Usuario (username, nombre, apellido)
     if du:
@@ -195,12 +200,10 @@ def registrar_abono(request):
         form = CartolaAbonoForm(request.POST, request.FILES)
         if form.is_valid():
             movimiento = form.save(commit=False)
-            from .models import TipoGasto
             tipo_abono = TipoGasto.objects.filter(categoria='abono').first()
             movimiento.tipo = tipo_abono
             movimiento.cargos = 0
 
-            # Solo asignamos el archivo, Django lo subirá a Wasabi
             if 'comprobante' in request.FILES:
                 movimiento.comprobante = request.FILES['comprobante']
 
@@ -374,6 +377,7 @@ def rechazar_movimiento(request, pk):
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
+    # Mantener tu lógica de formularios exactamente igual
     FormClass = CartolaAbonoForm if (
         movimiento.tipo and movimiento.tipo.categoria == "abono") else MovimientoUsuarioForm
     estado_restaurado = 'pendiente_abono_usuario' if FormClass == CartolaAbonoForm else 'pendiente_supervisor'
@@ -382,13 +386,22 @@ def editar_movimiento(request, pk):
         form = FormClass(request.POST, request.FILES, instance=movimiento)
         if form.is_valid():
             movimiento = form.save(commit=False)
+
+            # Reemplazo explícito del comprobante si viene un archivo nuevo
             if 'comprobante' in request.FILES:
-                # Replace in Wasabi
                 movimiento.comprobante = request.FILES['comprobante']
+
+            # Reemplazo explícito de la foto del tablero (solo si viene)
+            if 'foto_tablero' in request.FILES:
+                movimiento.foto_tablero = request.FILES['foto_tablero']
+
+            # Si NO es fuel, no forzamos nada más (no tocamos otros campos)
+            # Si es fuel y en el formulario viene kilometraje, ya quedó en movimiento por form.save(commit=False)
 
             if form.changed_data:
                 movimiento.status = estado_restaurado
                 movimiento.motivo_rechazo = ""
+
             movimiento.save()
             messages.success(request, "Expense updated successfully.")
             return redirect('facturacion:listar_cartola')
@@ -557,9 +570,10 @@ def exportar_cartola(request):
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
+    # 👇 Se agrega "Odometer (km)" después de "Transfer Number"
     columns = [
         "User", "Date", "Project", "Category", "Type", "Remarks",
-        "Transfer Number", "Debits", "Credits", "Status"
+        "Transfer Number", "Odometer (km)", "Debits", "Credits", "Status"
     ]
     for col_num, column_title in enumerate(columns):
         ws.write(0, col_num, column_title, header_style)
@@ -579,9 +593,14 @@ def exportar_cartola(request):
         ws.write(row_num, 4, str(mov.tipo))
         ws.write(row_num, 5, mov.observaciones or "")
         ws.write(row_num, 6, mov.numero_transferencia or "")
-        ws.write(row_num, 7, float(mov.cargos or 0))
-        ws.write(row_num, 8, float(mov.abonos or 0))
-        ws.write(row_num, 9, mov.get_status_display())
+
+        # 👇 Nuevo campo: kilometraje (si no hay, deja vacío)
+        ws.write(row_num, 7, int(mov.kilometraje) if mov.kilometraje else "")
+
+        # Ojo: se corren los índices por la nueva columna
+        ws.write(row_num, 8, float(mov.cargos or 0))
+        ws.write(row_num, 9, float(mov.abonos or 0))
+        ws.write(row_num, 10, mov.get_status_display())
 
     wb.save(response)
     return response

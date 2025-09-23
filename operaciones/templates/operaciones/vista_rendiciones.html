@@ -7,249 +7,410 @@
 {% block dashboard_content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-    <!-- Encabezado -->
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+  <style>
+    .campo-filtro{
+      border:2px solid #1f2937;padding:.25rem .75rem;border-radius:.75rem;
+      font-size:.875rem;height:2.25rem;background:#fff;transition:border-color .2s
+    }
+    .campo-filtro:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.3);outline:none}
+    .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
+    @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
+    .tabla-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%}
+    .tabla-responsive table{white-space:nowrap;min-width:1100px}
+  </style>
+
+  <!-- Encabezado -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Expense Reports</h2>
     {% if user.es_pm %}
-    <a href="{% url 'operaciones:exportar_rendiciones' %}" 
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      <a id="exportLink" href="{% url 'operaciones:exportar_rendiciones' %}?{{ request.GET.urlencode }}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
         📥 Export to Excel
-    </a>
+      </a>
     {% endif %}
-</div>
+  </div>
 
-{% if form.errors %}
-<div class="bg-red-100 text-red-700 p-3 rounded mb-3">
-  <ul>
-    {% for field, errors in form.errors.items %}
-      {% if field != '__all__' %}
-        <li><strong>{{ form|field_label:field }}:</strong> {{ errors|join:", " }}</li>
-      {% endif %}
-    {% endfor %}
-    {% for error in form.non_field_errors %}
-      <li><strong>General:</strong> {{ error }}</li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
+  <!-- Filtros (auto) -->
+  <form id="form-filtros" method="get" class="filtros-compactos mb-6">
+    <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+      <input type="text" name="du"        value="{{ filtros.du }}"        placeholder="Filter by User"        class="campo-filtro filtro">
+      <input type="text" name="fecha"     value="{{ filtros.fecha }}"     placeholder="DD-MM-YYYY (ej. 20)"   class="campo-filtro filtro">
+      <input type="text" name="proyecto"  value="{{ filtros.proyecto }}"  placeholder="Filter by Project"     class="campo-filtro filtro">
+      <input type="text" name="tipo"      value="{{ filtros.tipo }}"      placeholder="Filter by Type"        class="campo-filtro filtro">
 
+      <select name="estado" class="campo-filtro filtro">
+  <option value="">All statuses</option>
+  {% for codigo, nombre in estado_choices %}
+    <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>{{ nombre }}</option>
+  {% endfor %}
+</select>
 
+      <!-- Clear (sin recargar) -->
+      <button type="button" id="btnClear"
+              class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">
+        ❌ Clear
+      </button>
+
+      <input type="hidden" name="cantidad" value="{{ cantidad }}">
+    </div>
+  </form>
+
+  <div id="zonaTabla">
     <!-- Tabla responsive -->
-    <div class="rounded-xl border border-gray-200 overflow-x-auto">
-        <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1000px]" style="white-space: nowrap;">
-            <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
-                <tr>
-                    <th class="p-2 border">Name</th>
-                    <th class="p-2 border">Date</th>
-                    <th class="p-2 border">Project</th>
-			<th class="p-2 border">Type</th>
-                    <th class="p-2 border text-right">Expenses (USD)</th>
-        <th class="p-2 border text-right">Credits (USD)</th>
-                    <th class="p-2 border">Receipt</th>
-                    <th class="p-2 border">Status</th>
-                    <th class="p-2 border">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="text-center">
-                {% for mov in pagina %}
-                <tr class="border-t">
-                    <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
-                    <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
-                    <td class="p-2 border">{{ mov.proyecto }}</td>
-        <td class="p-2 border">{{ mov.tipo }}</td>
-                    <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
-        <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
-                    <td class="p-2 border">
-                        {% if mov.comprobante %}
-                            <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-                        {% else %} — {% endif %}
-                    </td>
+    <div class="rounded-xl border border-gray-200 tabla-responsive">
+      <table class="table-auto border border-gray-300 rounded-xl text-sm w-full">
+        <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+          <tr>
+            <th class="p-2 border">Name</th>
+            <th class="p-2 border">Date</th>
+            <th class="p-2 border">Project</th>
+            <th class="p-2 border">Type</th>
+            <th class="p-2 border text-right">Expenses (USD)</th>
+            <th class="p-2 border text-right">Credits (USD)</th>
+            <th class="p-2 border">Receipt(s)</th>
+            <th class="p-2 border">Odometer (km)</th>  <!-- 👈 NUEVA COLUMNA -->
+            <th class="p-2 border">Status</th>
+            <th class="p-2 border">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="text-center">
+          {% for mov in pagina %}
+          <tr class="border-t">
+            <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
+            <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
+            <td class="p-2 border">{{ mov.proyecto }}</td>
+            <td class="p-2 border">{{ mov.tipo }}</td>
+            <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
+            <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
 
-                    <!-- Estado con flujo completo -->
-                    <td class="p-2 text-sm">
-                        <div class="flex flex-col gap-1 text-left leading-tight">
-                            {% if mov.status == 'pendiente_supervisor' %}
-                                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                                    ⏳ Pending Supervisor Approval
-                                </span>
-                            {% elif mov.status == 'aprobado_supervisor' %}
-                                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                                    ✅ Approved by: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                                    ⏳ Pending PM Approval
-                                </span>
-                            {% elif mov.status == 'rechazado_supervisor' %}
-                                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                                    ❌ Rejected by Supervisor
-                                </span>
-                            {% elif mov.status == 'aprobado_pm' %}
-                                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                                    ✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                                    ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br>
-                                    ⏳ Pending Finance Approval
-                                </span>
-                            {% elif mov.status == 'rechazado_pm' %}
-                                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                                    ❌ Rejected by PM
-                                </span>
-                            {% elif mov.status == 'aprobado_finanzas' %}
-                                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                                    ✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br>
-                                    ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br>
-                                    ✅ Approved by Finance
-                                </span>
-                            {% elif mov.status == 'rechazado_finanzas' %}
-                                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                                    ❌ Rejected by Finance
-                                </span>
-                            {% elif mov.status == 'pendiente_abono_usuario' %}
-                                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                                    ⏳ Pending User Confirmation
-                                </span>
-                            {% elif mov.status == 'aprobado_abono_usuario' %}
-                                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                                    ✅ Confirmed by User
-                                </span>
-                            {% elif mov.status == 'rechazado_abono_usuario' %}
-                                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                                    ❌ Rejected by User
-                                </span>
-                            {% else %}
-                                {{ mov.get_status_display }}
-                            {% endif %}
-
-                            {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
-                                <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo"
-                                     style="word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; max-width: 100%;">
-                                    <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
-                                </div>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- Acciones -->
-<td class="p-2 border text-center">
-    {% if not mov.tipo or mov.tipo.categoria != 'abono' %}
-        {# Supervisor: solo si pendiente_supervisor #}
-        {% if user.es_supervisor and mov.status == "pendiente_supervisor" %}
-            <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline">
-                {% csrf_token %}
-                <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
-                    ✅ Approve
-                </button>
-            </form>
-            <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                ❌ Reject
-            </button>
-        {% endif %}
-
-        {# PM: solo si ya pasó por el supervisor y aún no fue aprobado por PM #}
-        {% if user.es_pm and mov.status == "aprobado_supervisor" %}
-            <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline">
-                {% csrf_token %}
-                <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
-                    ✅ Approve
-                </button>
-            </form>
-            <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                ❌ Reject
-            </button>
-        {% endif %}
-
-        {# Finanzas: solo si ya pasó por el PM #}
-        {% if user.es_facturacion and mov.status == "aprobado_pm" %}
-            <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline">
-                {% csrf_token %}
-                <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
-                    ✅ Approve
-                </button>
-            </form>
-            <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                ❌ Reject
-            </button>
-        {% endif %}
-    {% else %}
-        {# Usuario: solo puede aprobar/rechazar abonos pendientes de él #}
-        {% if mov.status == 'pendiente_abono_usuario' and mov.usuario == user %}
-            <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline">
-                {% csrf_token %}
-                <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
-                    ✅ Approve
-                </button>
-            </form>
-            <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
-                ❌ Reject
-            </button>
-        {% endif %}
-    {% endif %}
-</td>
-
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="p-4 text-center text-gray-500">No expense reports available.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Modal Rechazo -->
-    <div id="modalRechazo" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
-        <div class="bg-white p-6 rounded-lg shadow-lg w-96">
-            <h2 class="text-lg font-bold mb-4">Reject Expense Report</h2>
-            <form id="formRechazo" method="post">
-                {% csrf_token %}
-               <textarea name="motivo_rechazo" rows="3" class="w-full border rounded-lg p-2" placeholder="Enter the reason for rejection"></textarea>
-
-                <div class="mt-4 flex justify-end gap-2">
-                    <button type="button" onclick="cerrarModalRechazo()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
-                    <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded">Reject</button>
+            <!-- Receipt(s): apilado en Fuel, simple en otros -->
+            <td class="p-2 border">
+              {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
+                <div class="flex flex-col items-center gap-1">
+                  {% if mov.comprobante %}
+                    <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
+                  {% endif %}
+                  {% if mov.foto_tablero %}
+                    <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
+                  {% endif %}
+                  {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
                 </div>
-            </form>
-        </div>
-    </div>
+              {% else %}
+                {% if mov.comprobante %}
+                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
+                {% else %} — {% endif %}
+              {% endif %}
+            </td>
 
-    <script>
-    function abrirModalRechazo(id) {
-        document.getElementById('formRechazo').action = `/operaciones/rendiciones/rechazar/${id}/`;
-        document.getElementById('modalRechazo').classList.remove('hidden');
-    }
-    function cerrarModalRechazo() {
-        document.getElementById('modalRechazo').classList.add('hidden');
-    }
-    </script>
+            <!-- Kilometraje -->
+            <td class="p-2 border text-right">
+              {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
+            </td>
+
+            <!-- Estado -->
+            <td class="p-2 text-sm">
+              <div class="flex flex-col gap-1 text-left leading-tight">
+                {% if mov.status == 'pendiente_supervisor' %}
+                  <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending Supervisor Approval</span>
+                {% elif mov.status == 'aprobado_supervisor' %}
+                  <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Approved by: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ⏳ Pending PM Approval</span>
+                {% elif mov.status == 'rechazado_supervisor' %}
+                  <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Supervisor</span>
+                {% elif mov.status == 'aprobado_pm' %}
+                  <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ⏳ Pending Finance Approval</span>
+                {% elif mov.status == 'rechazado_pm' %}
+                  <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by PM</span>
+                {% elif mov.status == 'aprobado_finanzas' %}
+                  <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ✅ Approved by Finance</span>
+                {% elif mov.status == 'rechazado_finanzas' %}
+                  <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Finance</span>
+                {% elif mov.status == 'pendiente_abono_usuario' %}
+                  <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending User Confirmation</span>
+                {% elif mov.status == 'aprobado_abono_usuario' %}
+                  <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Confirmed by User</span>
+                {% elif mov.status == 'rechazado_abono_usuario' %}
+                  <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by User</span>
+                {% else %}
+                  {{ mov.get_status_display }}
+                {% endif %}
+
+                {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
+                  <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo"
+                       style="word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; max-width: 100%;">
+                    <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
+                  </div>
+                {% endif %}
+              </div>
+            </td>
+
+            <!-- Acciones (misma UI, pero las aprobaciones irán por AJAX) -->
+            <td class="p-2 border text-center">
+              {% if not mov.tipo or mov.tipo.categoria != 'abono' %}
+                {% if user.es_supervisor and mov.status == "pendiente_supervisor" %}
+                  <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
+                    {% csrf_token %}
+                    <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
+                      ✅ Approve
+                    </button>
+                  </form>
+                  <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
+                    ❌ Reject
+                  </button>
+                {% endif %}
+                {% if user.es_pm and mov.status == "aprobado_supervisor" %}
+                  <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
+                    {% csrf_token %}
+                    <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
+                      ✅ Approve
+                    </button>
+                  </form>
+                  <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
+                    ❌ Reject
+                  </button>
+                {% endif %}
+                {% if user.es_facturacion and mov.status == "aprobado_pm" %}
+                  <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
+                    {% csrf_token %}
+                    <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
+                      ✅ Approve
+                    </button>
+                  </form>
+                  <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
+                    ❌ Reject
+                  </button>
+                {% endif %}
+              {% else %}
+                {% if mov.status == 'pendiente_abono_usuario' and mov.usuario == user %}
+                  <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
+                    {% csrf_token %}
+                    <button type="submit" class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">
+                      ✅ Approve
+                    </button>
+                  </form>
+                  <button onclick="abrirModalRechazo({{ mov.id }})" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">
+                    ❌ Reject
+                  </button>
+                {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="10" class="p-4 text-center text-gray-500">No expense reports available.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
     <!-- Paginación -->
     <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-        <form method="get" class="flex items-center gap-2">
-            <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-            <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-                <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
-                <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-                <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-                <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-            </select>
-        </form>
+      <form id="formCantidad" class="flex items-center gap-2">
+        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+        <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+          <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        </select>
+      </form>
     </div>
 
     <div class="mt-2 flex justify-center text-sm">
-        {% if cantidad == 'todos' %}
-            <span>Page 1 of 1</span>
-        {% else %}
-            <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-        {% endif %}
+      {% if cantidad == 'todos' %}
+        <span>Page 1 of 1</span>
+      {% else %}
+        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% endif %}
     </div>
 
     <div class="mt-2 flex justify-center gap-2 text-sm">
-        {% if pagina.has_previous %}
-            <a href="?page=1&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-            <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
-        {% endif %}
-        {% if pagina.has_next %}
-            <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-            <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
-        {% endif %}
+      {% if pagina.has_previous %}
+        <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page=1">« First</a>
+        <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.previous_page_number }}">‹ Previous</a>
+      {% endif %}
+      {% if pagina.has_next %}
+        <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.next_page_number }}">Next ›</a>
+        <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.paginator.num_pages }}">Last »</a>
+      {% endif %}
     </div>
+  </div>
+
+  <!-- Modal Rechazo (sin cambios visuales) -->
+  <div id="modalRechazo" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-96">
+      <h2 class="text-lg font-bold mb-4">Reject Expense Report</h2>
+      <form id="formRechazo" method="post">
+        {% csrf_token %}
+        <textarea name="motivo_rechazo" rows="3" class="w-full border rounded-lg p-2" placeholder="Enter the reason for rejection"></textarea>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button" onclick="cerrarModalRechazo()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
+          <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded">Reject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const zona        = document.getElementById('zonaTabla');
+    const filtrosForm = document.getElementById('form-filtros');
+    const exportLink  = document.getElementById('exportLink');
+    const btnClear    = document.getElementById('btnClear');
+    let debounceTimer = null, controller = null;
+
+    function paramsFromFilters(resetPage){
+      const p = new URLSearchParams(new FormData(filtrosForm));
+      if (resetPage) p.set('page','1');
+      return p;
+    }
+
+    function limpiarFiltros(){
+      filtrosForm.querySelectorAll('input.campo-filtro').forEach(i => i.value = '');
+      const sel = filtrosForm.querySelector('select[name="estado"]');
+      if (sel) sel.value = '';
+    }
+
+    async function cargarTablaCon(qs, push=true){
+      const url = `${location.pathname}?${qs}`;
+      if (push) history.replaceState(null, '', url);
+      if (exportLink) exportLink.href = `{% url 'operaciones:exportar_rendiciones' %}?` + qs;
+
+      if (controller) controller.abort();
+      controller = new AbortController();
+
+      const resp = await fetch(url, { signal: controller.signal });
+      const html = await resp.text();
+      const doc  = new DOMParser().parseFromString(html, 'text/html');
+      const nuevaZona = doc.getElementById('zonaTabla');
+      if (!nuevaZona) return;
+      zona.innerHTML = nuevaZona.innerHTML;
+
+      // Re-enganchar handlers tras refrescar zona
+      engancharPaginacion();
+      engancharCantidad();
+      engancharAprobar();       // 👈 para aprobar sin recargar
+      engancharRechazo();       // 👈 para rechazar sin recargar
+    }
+
+    function refiltrar(resetPage=true){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(()=>{
+        const p = paramsFromFilters(resetPage);
+        cargarTablaCon(p.toString(), true);
+      }, 300);
+    }
+
+    // Filtros automáticos
+    filtrosForm.querySelectorAll('.filtro').forEach(el=>{
+      const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+      el.addEventListener(evt, ()=>refiltrar(true));
+      el.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
+      });
+    });
+
+    // Clear sin recargar
+    if (btnClear){
+      btnClear.addEventListener('click', ()=>{
+        const cantidad = filtrosForm.querySelector('input[name="cantidad"]')?.value || '';
+        limpiarFiltros();
+        const p = paramsFromFilters(true);
+        if (cantidad) p.set('cantidad', cantidad);
+        cargarTablaCon(p.toString(), true);
+      });
+    }
+
+    function engancharPaginacion(){
+      zona.querySelectorAll('a.pg-link').forEach(a=>{
+        a.addEventListener('click', ev=>{
+          ev.preventDefault();
+          const href = new URL(a.getAttribute('href'), location.href);
+          const p = paramsFromFilters(false);
+          p.set('page', href.searchParams.get('page') || '1');
+          cargarTablaCon(p.toString(), true);
+        });
+      });
+    }
+
+    function engancharCantidad(){
+      const sel = zona.querySelector('#cantidad');
+      if(!sel) return;
+      sel.addEventListener('change', ()=>{
+        const p = paramsFromFilters(true);
+        p.set('cantidad', sel.value);
+        cargarTablaCon(p.toString(), true);
+      });
+    }
+
+    // --- Aprobación por AJAX (no recarga, mantiene filtros)
+    function engancharAprobar(){
+      zona.querySelectorAll('form.js-approve-form').forEach(form=>{
+        form.addEventListener('submit', async (e)=>{
+          e.preventDefault();
+          const fd = new FormData(form);
+          try{
+            await fetch(form.action, { method:'POST', body: fd });
+            const p = paramsFromFilters(false);
+            await cargarTablaCon(p.toString(), false);
+          }catch(err){
+            console.error(err);
+            alert('There was a problem approving this expense.');
+          }
+        });
+      });
+    }
+
+    // --- Rechazo por AJAX (usa el modal existente)
+    function engancharRechazo(){
+      const modal = document.getElementById('modalRechazo');
+      const formR = document.getElementById('formRechazo');
+      if (!formR) return;
+
+      formR.onsubmit = async (e)=>{
+        e.preventDefault();
+        try{
+          const fd = new FormData(formR);
+          await fetch(formR.action, { method:'POST', body: fd });
+          cerrarModalRechazo();
+          const p = paramsFromFilters(false);
+          await cargarTablaCon(p.toString(), false);
+        }catch(err){
+          console.error(err);
+          alert('There was a problem rejecting this expense.');
+        }
+      };
+
+      // Re-definir global por si se perdió al re-renderizar
+      window.abrirModalRechazo = function(id){
+        formR.action = `/operaciones/rendiciones/rechazar/${id}/`;
+        modal.classList.remove('hidden');
+      };
+      window.cerrarModalRechazo = function(){
+        modal.classList.add('hidden');
+      };
+    }
+
+    // Inicial
+    engancharPaginacion();
+    engancharCantidad();
+    engancharAprobar();
+    engancharRechazo();
+  })();
+  </script>
+
+  <script>
+    // Fallback globales (por si se invocan fuera del ciclo anterior)
+    function abrirModalRechazo(id) {
+      const modal = document.getElementById('modalRechazo');
+      const form  = document.getElementById('formRechazo');
+      form.action = `/operaciones/rendiciones/rechazar/${id}/`;
+      modal.classList.remove('hidden');
+    }
+    function cerrarModalRechazo() {
+      document.getElementById('modalRechazo').classList.add('hidden');
+    }
+  </script>
 
 </div>
 {% endblock %}

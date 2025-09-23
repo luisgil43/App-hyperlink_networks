@@ -36,8 +36,7 @@
     <input type="text" name="categoria" value="{{ filtros.categoria }}" placeholder="Filter by Category"                 class="campo-filtro filtro">
     <input type="text" name="tipo"      value="{{ filtros.tipo }}"      placeholder="Filter by Type"                     class="campo-filtro filtro">
 
-
-<div class="flex gap-2 w-full sm:w-auto">
+    <div class="flex gap-2 w-full sm:w-auto">
       <a href="{% url 'facturacion:listar_cartola' %}" class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">❌ Clear</a>
     </div>
 
@@ -47,8 +46,6 @@
         <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>{{ nombre }}</option>
       {% endfor %}
     </select>
-
-    
 
     <input type="hidden" name="cantidad" value="{{ cantidad }}">
   </div>
@@ -66,9 +63,10 @@
           <th class="p-2 border">Type</th>
           <th class="p-2 border">Remarks</th>
           <th class="p-2 border">Transfer Number</th>
-          <th class="p-2 border">Receipt</th>
+          <th class="p-2 border">Receipt(s)</th>            <!-- 👈 renombrado -->
+          <th class="p-2 border">Odometer (km)</th>         <!-- 👈 NUEVA COLUMNA -->
           <th class="p-2 border text-right">Expenses (USD)</th>
-        <th class="p-2 border text-right">Credits (USD)</th>
+          <th class="p-2 border text-right">Credits (USD)</th>
           <th class="p-2 border">Status</th>
           <th class="p-2 border">Actions</th>
         </tr>
@@ -83,9 +81,33 @@
           <td class="p-2 border">{{ mov.tipo }}</td>
           <td class="p-2 border">{{ mov.observaciones }}</td>
           <td class="p-2 border">{{ mov.numero_transferencia|default:"—" }}</td>
-          <td class="p-2 border">{% if mov.comprobante %}<a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>{% else %}—{% endif %}</td>
+
+          <!-- Receipt(s): apilado en Fuel, simple en otros -->
+          <td class="p-2 border">
+            {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
+              <div class="flex flex-col items-center gap-1">
+                {% if mov.comprobante %}
+                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
+                {% endif %}
+                {% if mov.foto_tablero %}
+                  <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
+                {% endif %}
+                {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
+              </div>
+            {% else %}
+              {% if mov.comprobante %}
+                <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
+              {% else %} — {% endif %}
+            {% endif %}
+          </td>
+
+          <!-- Kilometraje -->
+          <td class="p-2 border text-right">
+            {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
+          </td>
+
           <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
-        <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
+          <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
 
           <td class="p-2 text-sm">
             <div class="flex flex-col gap-1 text-left leading-tight">
@@ -119,63 +141,54 @@
             </div>
           </td>
 
-<td class="p-2 border">
-  {# --- EDIT / DELETE (igual a tu lógica) --- #}
-  {% if user.is_superuser %}
-    <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-       class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-    <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-       class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+          <td class="p-2 border">
+            {% if user.is_superuser %}
+              <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                 class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+              <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                 class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
 
-    {# Superuser puede aprobar en etapas relevantes (sin paréntesis) #}
-    {% if mov.tipo.categoria != "abono" %}
-      {% if mov.status == 'pendiente_supervisor' or mov.status == 'aprobado_supervisor' or mov.status == 'aprobado_pm' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
-    {% endif %}
+              {% if mov.tipo.categoria != "abono" %}
+                {% if mov.status == 'pendiente_supervisor' or mov.status == 'aprobado_supervisor' or mov.status == 'aprobado_pm' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
+              {% endif %}
 
-  {% else %}
-    {% if mov.tipo.categoria == "abono" %}
-      {# Abonos: tu regla original #}
-      {% if user.es_facturacion and mov.status == 'pendiente_abono_usuario' %}
-        <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-           class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-        <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
-      {% endif %}
-    {% else %}
-      {# Gastos: botones solo para el rol/etapa correspondiente #}
+            {% else %}
+              {% if mov.tipo.categoria == "abono" %}
+                {% if user.es_facturacion and mov.status == 'pendiente_abono_usuario' %}
+                  <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                     class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+                  <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+                {% endif %}
+              {% else %}
+                {% if user.es_supervisor and mov.status == 'pendiente_supervisor' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
 
-      {# 1) Supervisor → pendiente_supervisor #}
-      {% if user.es_supervisor and mov.status == 'pendiente_supervisor' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
+                {% if user.es_pm and mov.status == 'aprobado_supervisor' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
 
-      {# 2) PM → aprobado_supervisor #}
-      {% if user.es_pm and mov.status == 'aprobado_supervisor' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
-
-      {# 3) Facturación/Finanzas → aprobado_pm #}
-      {% if user.es_facturacion and mov.status == 'aprobado_pm' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
-
-    {% endif %}
-  {% endif %}
-</td>
+                {% if user.es_facturacion and mov.status == 'aprobado_pm' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          </td>
         </tr>
         {% empty %}
         <tr><td colspan="15" class="p-4 text-center">No transactions registered.</td></tr>
