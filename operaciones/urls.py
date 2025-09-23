@@ -211,6 +211,15 @@ urlpatterns = [
     path("produccion/admin/exportar/", views.Exportar_produccion_admin,
          name="Exportar_produccion_admin"),
 
+    path("operaciones/rendiciones/multipart/create/",
+         views.multipart_create, name="multipart_create"),
+    path("operaciones/rendiciones/multipart/sign/",
+         views.multipart_sign_part, name="multipart_sign_part"),
+    path("operaciones/rendiciones/multipart/complete/",
+         views.multipart_complete, name="multipart_complete"),
+    path("operaciones/rendiciones/multipart/abort/",
+         views.multipart_abort, name="multipart_abort"),
+
 
 
 ]

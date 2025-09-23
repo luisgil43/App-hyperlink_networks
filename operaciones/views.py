@@ -126,8 +126,7 @@ from botocore.exceptions import ClientError
 
 WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 # --- Direct upload (receipts/rendiciones) ---
-RECEIPT_ALLOWED_MIME = {"application/pdf",
-                        "image/jpeg", "image/jpg", "image/png", "image/webp"}
+
 
 RECEIPT_MAX_MB = int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25))
 RECEIPTS_SAFE_PREFIX = getattr(
@@ -202,12 +201,7 @@ def presign_rendicion(request, pk=None):
 
 def verificar_archivo_wasabi(ruta):
     """Verifica si un archivo existe en el bucket Wasabi."""
-    s3 = boto3.client(
-        's3',
-        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-    )
+    s3 = _s3_client()  # ← usa el cliente único
     try:
         s3.head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=ruta)
         return True
@@ -342,6 +336,176 @@ def mis_rendiciones(request):
         'wasabi_key': '',
         'wasabi_key_foto_tablero': '',
     })
+
+
+# Cerca de donde defines MULTIPART_EXPIRES_SECONDS
+MULTIPART_EXPIRES_SECONDS = 900  # 15 min
+
+RECEIPT_ALLOWED_MIME = set(getattr(
+    settings,
+    "RECEIPT_ALLOWED_MIME",
+    {
+        "application/pdf",
+        "image/jpeg", "image/jpg",
+        "image/png",
+        "image/webp",
+        "image/heic", "image/heif",
+    }
+))
+
+# (Opcional) compatibilidad si en otro punto quedó el nombre viejo
+ALLOWED_MIME = RECEIPT_ALLOWED_MIME
+
+
+def _s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(s3={"addressing_style": "path"})
+    )
+
+
+@login_required
+@rol_requerido('usuario', 'facturacion', 'pm', 'admin')
+@require_POST
+def multipart_create(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    filename = (data.get("filename") or "").strip()
+    ctype = (data.get("contentType") or "").strip()
+
+    # ✅ Validación correcta + indentación correcta
+    if not filename or (ctype and ctype not in RECEIPT_ALLOWED_MIME):
+        return HttpResponseBadRequest("Invalid file type.")
+
+    key = _build_receipt_key(request.user.id, filename)
+    s3 = _s3_client()
+    try:
+        resp = s3.create_multipart_upload(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=key,
+            ACL="private",
+            ContentType=ctype or "application/octet-stream",
+        )
+    except ClientError as e:
+        return HttpResponseBadRequest(str(e))
+
+    return JsonResponse({
+        "uploadId": resp["UploadId"],
+        "key": key,
+        "bucket": settings.AWS_STORAGE_BUCKET_NAME
+    })
+# --- 2) Firmar una parte ---
+
+
+@login_required
+@rol_requerido('usuario', 'facturacion', 'pm', 'admin')
+@require_POST
+def multipart_sign_part(request):
+    """
+    Body: { "key": "...", "uploadId": "...", "partNumber": 1 }
+    Resp: { "url": "https://...presigned...", "partNumber": 1, "expiresIn": 900 }
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    key = (data.get("key") or "").strip()
+    upload_id = (data.get("uploadId") or "").strip()
+    part_number = int(data.get("partNumber") or 0)
+    if not key or not upload_id or part_number <= 0:
+        return HttpResponseBadRequest("Missing params.")
+
+    s3 = _s3_client()
+    try:
+        url = s3.generate_presigned_url(
+            ClientMethod="upload_part",
+            Params={
+                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                "Key": key,
+                "UploadId": upload_id,
+                "PartNumber": part_number,
+            },
+            ExpiresIn=MULTIPART_EXPIRES_SECONDS,
+        )
+    except ClientError as e:
+        return HttpResponseBadRequest(str(e))
+
+    return JsonResponse({"url": url, "partNumber": part_number, "expiresIn": MULTIPART_EXPIRES_SECONDS})
+
+# --- 3) Completar upload ---
+
+
+@login_required
+@rol_requerido('usuario', 'facturacion', 'pm', 'admin')
+@require_POST
+def multipart_complete(request):
+    """
+    Body: { "key": "...", "uploadId": "...", "parts": [{"ETag":"...", "PartNumber":1}, ...] }
+    Resp: { "ok": true }
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    key = (data.get("key") or "").strip()
+    upload_id = (data.get("uploadId") or "").strip()
+    parts = data.get("parts") or []
+    if not key or not upload_id or not parts:
+        return HttpResponseBadRequest("Missing params.")
+
+    s3 = _s3_client()
+    try:
+        s3.complete_multipart_upload(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=key,
+            MultipartUpload={"Parts": sorted(
+                parts, key=lambda p: p["PartNumber"])},
+            UploadId=upload_id,
+        )
+    except ClientError as e:
+        return HttpResponseBadRequest(str(e))
+
+    return JsonResponse({"ok": True})
+
+# --- 4) Abortar upload (por si algo falla) ---
+
+
+@login_required
+@rol_requerido('usuario', 'facturacion', 'pm', 'admin')
+@require_POST
+def multipart_abort(request):
+    """
+    Body: { "key": "...", "uploadId": "..." }
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    key = (data.get("key") or "").strip()
+    upload_id = (data.get("uploadId") or "").strip()
+    if not key or not upload_id:
+        return HttpResponseBadRequest("Missing params.")
+
+    s3 = _s3_client()
+    try:
+        s3.abort_multipart_upload(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=key,
+            UploadId=upload_id,
+        )
+    except ClientError:
+        pass  # idempotente
+
+    return JsonResponse({"ok": True})
 
 
 @login_required
@@ -1085,17 +1249,6 @@ def money(x):  # redondeo
     return Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def repartir_100(n):
-    if n <= 0:
-        return []
-    base = (Decimal("100.00")/Decimal(n)).quantize(Decimal("0.01"))
-    partes = [base]*n
-    diff = Decimal("100.00") - sum(partes)
-    if diff and partes:
-        partes[-1] = (partes[-1]+diff).quantize(Decimal("0.01"))
-    return partes
-
-
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm')
 def bulk_delete_precios(request):
@@ -1419,12 +1572,6 @@ def _norm(txt: str) -> str:
         return ""
     t = txt.strip().lower()
     return "".join(ch for ch in t if ch.isalnum())
-
-
-def _norm(s: str) -> str:
-    """normaliza: minúsculas + solo letras/dígitos, sin espacios."""
-    s = (s or "").lower()
-    return "".join(c for c in s if c.isalnum())
 
 
 @require_POST
@@ -2114,32 +2261,6 @@ def billing_send_to_finance(request):
 
 @login_required
 @require_POST
-def billing_reopen_asignado(request, pk):
-    obj = get_object_or_404(SesionBilling, pk=pk)
-
-    if obj.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"):
-        with transaction.atomic():
-            obj.estado = "asignado"
-            obj.save(update_fields=["estado"])
-            obj.tecnicos_sesion.all().update(
-                estado="asignado",
-                aceptado_en=None,
-                finalizado_en=None,
-                supervisor_revisado_en=None,
-                supervisor_comentario="",
-                pm_revisado_en=None,
-                pm_comentario="",
-                reintento_habilitado=True,
-            )
-        messages.success(
-            request, f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated.")
-    else:
-        messages.info(request, "This record is not in an approved state.")
-    return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/operaciones/billing/listar/"))
-
-
-@login_required
-@require_POST
 def billing_update_item_qty(request, item_id: int):
     """
     Actualiza la cantidad de un ItemBilling y recalcula subtotales
@@ -2252,39 +2373,6 @@ def _actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, nuevos_ids: li
             )
             continue
         ts.delete()
-
-
-@login_required
-@transaction.atomic
-def eliminar_billing(request, sesion_id: int):
-    get_object_or_404(SesionBilling, pk=sesion_id).delete()
-    messages.success(request, "Billing deleted.")
-    return redirect("operaciones:listar_billing")
-
-
-@login_required
-@transaction.atomic
-def reasignar_tecnicos(request, sesion_id: int):
-    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
-    if request.method != "POST":
-        return HttpResponseBadRequest("POST requerido")
-
-    ids = list(map(int, request.POST.getlist("tech_ids[]")))
-    if not ids:
-        return HttpResponseBadRequest("Seleccione al menos un técnico.")
-
-    sesion.tecnicos_sesion.all().delete()
-    partes = repartir_100(len(ids))
-
-    for tid, pct in zip(ids, partes):
-        SesionBillingTecnico.objects.create(
-            sesion=sesion, tecnico_id=tid, porcentaje=pct
-        )
-
-    _recalcular_items_sesion(sesion)
-    messages.success(
-        request, "Technicians reassigned and totals recalculated.")
-    return redirect("operaciones:editar_billing", sesion_id=sesion.id)
 
 
 @transaction.atomic

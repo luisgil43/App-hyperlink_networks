@@ -393,131 +393,225 @@ document.addEventListener("DOMContentLoaded", function () {
 </script>
 
 <script>
-(function(){
-  const DIRECT_ENABLED = {{ direct_uploads_receipts_enabled|yesno:"true,false" }};
-  const MAX_MB = {{ receipt_max_mb|default:25 }};
-  const getCsrf = () => (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || "";
+// ======== Multipart Upload (S3-compatible) + compresión opcional ========
 
-  async function presign(filename, contentType, sizeBytes){
-    const resp = await fetch("{% url 'operaciones:presign_rendicion' %}", {
-  method: "POST",
-  headers: {"Content-Type": "application/json", "X-CSRFToken": getCsrf() },
-  body: JSON.stringify({ filename, contentType, sizeBytes }),
-});
+const ENDPOINTS = {
+  create: "{% url 'operaciones:multipart_create' %}",
+  sign: "{% url 'operaciones:multipart_sign_part' %}",
+  complete: "{% url 'operaciones:multipart_complete' %}",
+  abort: "{% url 'operaciones:multipart_abort' %}",
+};
 
-    if(!resp.ok){ throw new Error(await resp.text()); }
-    return resp.json();
-  }
+const MAX_MB = {{ receipt_max_mb|default:25 }};
+const CSRF = (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || "";
 
-  async function directUpload(file){
-    const { post, key } = await presign(file.name, file.type || "application/octet-stream", file.size);
-    const fd = new FormData();
-    Object.entries(post.fields).forEach(([k, v]) => fd.append(k, v));
-    fd.append("key", post.fields.key || key);
-    fd.append("file", file, file.name);
-    const up = await fetch(post.url, { method: "POST", body: fd });
-    if (up.status !== 201) { throw new Error(await up.text()); }
-    return key;
-  }
+function api(url, payload) {
+  return fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
+    body: JSON.stringify(payload)
+  }).then(async r => {
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  });
+}
 
-  document.getElementById("formRendicion").addEventListener("submit", async (e)=>{
-    if (!DIRECT_ENABLED) return;
+// (Opcional) compresión cliente con fallback si no hay createImageBitmap
+async function compressImageIfNeeded(file, maxDim=1600, quality=0.8) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return file;
 
-    const form = e.currentTarget;
-    const keyInputComp = document.getElementById('wasabi_key');
-    const keyInputOdo  = document.getElementById('wasabi_key_foto_tablero');
+  const toCanvasBlob = (img) => new Promise(resolve => {
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(resolve, "image/jpeg", quality);
+  });
 
-    const alreadyComp = !!keyInputComp.value;
-    const alreadyOdo  = !!keyInputOdo.value;
-
-    const fCompFoto = document.getElementById('comprobante_foto')?.files?.[0] || null;
-    const fCompArch = document.getElementById('comprobante_archivo')?.files?.[0] || null;
-    const fComprobante = fCompFoto || fCompArch || null;
-    const fOdom = document.getElementById('id_foto_tablero')?.files?.[0] || null;
-
-    if ((alreadyComp || !fComprobante) && (alreadyOdo || !fOdom)) return;
-
-    const tooBig = (f) => f && f.size > MAX_MB*1024*1024;
-    if (tooBig(fComprobante) || tooBig(fOdom)){
-      e.preventDefault();
-      alert(`File too large. Max ${MAX_MB}MB.`);
-      return;
+  // try createImageBitmap, fallback to Image()
+  try {
+    if (window.createImageBitmap) {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", quality));
+      const name = file.name.replace(/\.(heic|heif|png)$/i, ".jpg");
+      return new File([blob], name, {type: "image/jpeg"});
     }
+  } catch (_) { /* fallback abajo */ }
 
+  // Fallback con <img>
+  const dataURL = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = dataURL;
+  });
+  const blob = await toCanvasBlob(img);
+  const name = file.name.replace(/\.(heic|heif|png)$/i, ".jpg");
+  return new File([blob], name, {type: "image/jpeg"});
+}
+
+// Subida multipart (divide en partes y sube en paralelo)
+async function multipartUpload(file, onProgress) {
+  // 1) create
+  const create = await api(ENDPOINTS.create, {
+    filename: file.name,
+    contentType: file.type || "application/octet-stream"
+  });
+  const { uploadId, key } = create;
+
+  // config de multipart
+  const CHUNK_SIZE = 6 * 1024 * 1024; // 6 MB
+  const CONCURRENCY = 4;              // 4 partes a la vez
+  const totalParts = Math.ceil(file.size / CHUNK_SIZE);
+
+  let nextPart = 1;
+  let uploadedParts = 0; // para progreso aproximado
+  let aborted = false;
+  const parts = [];
+
+  async function uploadPart(partNumber) {
+    const start = (partNumber - 1) * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const blob = file.slice(start, end);
+
+    // 2) firmar parte
+    const { url } = await api(ENDPOINTS.sign, { key, uploadId, partNumber });
+
+    // 3) PUT de la parte al presigned URL
+   const resp = await fetch(url, {
+  method: "PUT",
+  body: blob
+});
+    if (!resp.ok) throw new Error(`Part ${partNumber} failed: ` + resp.status);
+
+    const etag = resp.headers.get("ETag") || resp.headers.get("etag") || "";
+    parts.push({ ETag: etag.replace(/^W\//, ""), PartNumber: partNumber });
+
+    uploadedParts++;
+    if (onProgress) onProgress(Math.round(uploadedParts * 100 / totalParts));
+  }
+
+  // Pool de concurrencia
+  const workers = Array.from({length: Math.min(CONCURRENCY, totalParts)}).map(async () => {
+    while (!aborted) {
+      const p = nextPart++;
+      if (p > totalParts) break;
+      try {
+        await uploadPart(p);
+      } catch (e) {
+        aborted = true;
+        await api(ENDPOINTS.abort, { key, uploadId }).catch(() => {});
+        throw e;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  // 4) complete
+  await api(ENDPOINTS.complete, {
+    key,
+    uploadId,
+    parts: parts.sort((a,b) => a.PartNumber - b.PartNumber)
+  });
+
+  return key;
+}
+
+// Hook del form
+document.getElementById("formRendicion").addEventListener("submit", async (e) => {
+  const form = e.currentTarget;
+  const keyInputComp = document.getElementById('wasabi_key');
+  const keyInputOdo  = document.getElementById('wasabi_key_foto_tablero');
+
+  const fCompFoto = document.getElementById('comprobante_foto')?.files?.[0] || null;
+  const fCompArch = document.getElementById('comprobante_archivo')?.files?.[0] || null;
+  const fComprobante = fCompFoto || fCompArch || null;
+  const fOdom = document.getElementById('id_foto_tablero')?.files?.[0] || null;
+
+  const alreadyComp = !!keyInputComp.value;
+  const alreadyOdo  = !!keyInputOdo.value;
+
+  if ((alreadyComp || !fComprobante) && (alreadyOdo || !fOdom)) return;
+
+  const tooBig = (f) => f && f.size > MAX_MB * 1024 * 1024;
+  if (tooBig(fComprobante) || tooBig(fOdom)) {
     e.preventDefault();
-    try{
-      const [keyComp, keyOdo] = await Promise.all([
-        (alreadyComp || !fComprobante) ? Promise.resolve("") : directUpload(fComprobante),
-        (alreadyOdo  || !fOdom)        ? Promise.resolve("") : directUpload(fOdom),
-      ]);
+    alert(`File too large. Max ${MAX_MB}MB.`);
+    return;
+  }
 
-      if (keyComp) keyInputComp.value = keyComp;
-      if (keyOdo)  keyInputOdo.value  = keyOdo;
+  e.preventDefault();
 
-      // Limpiar inputs y previews antes de enviar  // NEW:
-      const nf = document.getElementById('nombre_comprobante');
-      const nt = document.getElementById('nombre_foto_tablero');
-      const pc = document.getElementById('preview_comprobante');
-      const pt = document.getElementById('preview_tablero');
+  // indicador simple (opcional)
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const prevLabel = submitBtn ? submitBtn.textContent : "";
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Uploading..."; }
 
-      if (keyComp) {
-        if (nf) nf.textContent = "File uploaded. It will be saved when the form is valid.";
-        const a = document.getElementById('comprobante_archivo');
-        const f = document.getElementById('comprobante_foto');
-        if (a) a.value = "";
-        if (f) f.value = "";
-        if (pc) { pc.src = ""; pc.classList.add("hidden"); pc.style.display = "none"; }  // NEW
-      }
-      if (keyOdo) {
-        if (nt) nt.textContent = "Photo uploaded. It will be saved when the form is valid.";
-        const o = document.getElementById('id_foto_tablero');
-        if (o) o.value = "";
-        if (pt) { pt.src = ""; pt.classList.add("hidden"); pt.style.display = "none"; }  // NEW
-      }
+  try {
+    // Compresión opcional
+    const compPromise = alreadyComp || !fComprobante ? Promise.resolve(null)
+      : compressImageIfNeeded(fComprobante);
+    const odoPromise = alreadyOdo || !fOdom ? Promise.resolve(null)
+      : compressImageIfNeeded(fOdom);
 
-      form.submit();
-    }catch(err){
-      console.error(err);
-      alert("There was a problem uploading the files. Please try again.");
+    const [compFile, odoFile] = await Promise.all([compPromise, odoPromise]);
+
+    // Subir en paralelo ambos (cada uno multipart)
+    const upComp = alreadyComp || !compFile ? Promise.resolve("") :
+      multipartUpload(compFile, p => { /* console.log('receipt', p) */ });
+
+    const upOdo  = alreadyOdo || !odoFile ? Promise.resolve("") :
+      multipartUpload(odoFile, p => { /* console.log('odometer', p) */ });
+
+    const [keyComp, keyOdo] = await Promise.all([upComp, upOdo]);
+
+    if (keyComp) keyInputComp.value = keyComp;
+    if (keyOdo)  keyInputOdo.value  = keyOdo;
+
+    // limpiar inputs/preview para que Django no re-suban
+    const nf = document.getElementById('nombre_comprobante');
+    const nt = document.getElementById('nombre_foto_tablero');
+    const pc = document.getElementById('preview_comprobante');
+    const pt = document.getElementById('preview_tablero');
+
+    if (keyComp) {
+      if (nf) nf.textContent = "File uploaded. It will be saved when the form is valid.";
+      const a = document.getElementById('comprobante_archivo');
+      const f = document.getElementById('comprobante_foto');
+      if (a) a.value = "";
+      if (f) f.value = "";
+      if (pc) { pc.src = ""; pc.classList.add("hidden"); pc.style.display = "none"; }
     }
-  });
-})();
-</script>
-
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  const odoInput   = document.getElementById("id_foto_tablero");
-  const odoName    = document.getElementById("nombre_foto_tablero");
-  const odoPreview = document.getElementById("preview_tablero");
-
-  if (!odoInput) return;
-
-  odoInput.addEventListener("change", function () {
-    const file = odoInput.files && odoInput.files[0];
-    if (!file) {
-      odoName.textContent = "No file selected";
-      odoPreview.src = "";
-      odoPreview.classList.add("hidden");
-      return;
+    if (keyOdo) {
+      if (nt) nt.textContent = "Photo uploaded. It will be saved when the form is valid.";
+      const o = document.getElementById('id_foto_tablero');
+      if (o) o.value = "";
+      if (pt) { pt.src = ""; pt.classList.add("hidden"); pt.style.display = "none"; }
     }
 
-    odoName.textContent = `Selected file: ${file.name}`;
-
-    if (file.type && file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        odoPreview.src = e.target.result;
-        odoPreview.classList.remove("hidden");
-        odoPreview.style.display = "block";
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // si por alguna razón no es imagen (no debería), ocultamos preview
-      odoPreview.src = "";
-      odoPreview.classList.add("hidden");
-    }
-  });
+    form.submit();
+  } catch (err) {
+    console.error(err);
+    alert("Upload error. Please check your connection and try again.");
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevLabel; }
+  }
 });
 </script>
+
 
 {% endblock %}
