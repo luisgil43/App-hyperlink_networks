@@ -1,5 +1,6 @@
 {% extends "dashboard_admin/base.html" %}
 {% load humanize %}
+{% load l10n %}
 {% block title %}Supervisor Review — Project{% endblock %}
 
 {% block dashboard_content %}
@@ -160,43 +161,56 @@
 </div>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-auto mt-2">
-        {% for ev in evs %}
-          <figure class="border rounded p-2 relative">
-            {# 🔒 Botón X solo si el proyecto NO está aprobado por supervisor/PM #}
-            {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
-              <button type="button"
-                      class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
-                      title="Delete photo"
-                      data-action="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}"
-                      data-next="{{ request.get_full_path }}">
-                ✕
-              </button>
-            {% else %}
-              {# Si está aprobado, muestra un candado/deshabilitado opcionalmente #}
-              <span class="absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">
-                🔒
+ <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-auto mt-2">
+  {% for ev in evs %}
+    <figure class="border rounded p-2 relative">
+      {# 🔒 Botón X solo si el proyecto NO está aprobado por supervisor/PM #}
+      {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+        <button type="button"
+                class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
+                title="Delete photo"
+                data-action="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}"
+                data-next="{{ request.get_full_path }}">
+          ✕
+        </button>
+      {% else %}
+        {# Si está aprobado, muestra un candado/deshabilitado opcionalmente #}
+        <span class="absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">
+          🔒
+        </span>
+      {% endif %}
+
+      
+      <div class="relative rounded overflow-hidden bg-black/5">
+        {% if ev.lat and ev.lng %}
+          <div class="absolute top-2 left-2 z-10">
+          {# badge sobre la foto #}
+<a target="_blank"
+   href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}"
+   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-600/90 text-white text-[11px] shadow">
+  📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
+</a>
+
+            {% if ev.gps_accuracy_m %}
+              <span class="ml-1 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px]">
+                ± {{ ev.gps_accuracy_m|floatformat:0 }} m
               </span>
             {% endif %}
+          </div>
+        {% endif %}
 
-            <div class="relative rounded overflow-hidden">
-              {% if ev.lat and ev.lng %}
-                <div class="absolute top-2 left-2 z-10">
-                  <a target="_blank"
-                     href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}"
-                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-600/90 text-white text-[11px] shadow">
-                    📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
-                  </a>
-                  {% if ev.gps_accuracy_m %}
-                    <span class="ml-1 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px]">
-                      ± {{ ev.gps_accuracy_m|floatformat:0 }} m
-                    </span>
-                  {% endif %}
-                </div>
-              {% endif %}
+        <a href="{{ ev.imagen.url }}" target="_blank" rel="noopener" class="block group">
+          <div class="w-full max-h-96 grid place-items-center p-2">
+            <img src="{{ ev.imagen.url }}"
+                 alt="Photo"
+                 loading="lazy"
+                 class="max-w-full max-h-96 w-auto h-auto object-contain rounded
+                        transition-transform group-hover:scale-[1.01] cursor-zoom-in" />
+          </div>
+        </a>
+      </div>
+   
 
-              <img src="{{ ev.imagen.url }}" class="w-full h-40 object-cover rounded" alt="Photo">
-            </div>
 
            <figcaption class="text-xs mt-1">
   {# Título #}
@@ -220,8 +234,11 @@
         <span class="text-gray-400">📍 Sin dirección</span>
       {% endif %}
       {% if ev.lat and ev.lng %}
-        <a class="ml-1 text-blue-600 hover:underline" target="_blank"
-           href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
+        {# link "Open map" del pie #}
+<a class="ml-1 text-blue-600 hover:underline" target="_blank"
+   href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}">
+  Open map
+</a>
         {% if ev.gps_accuracy_m %}
           <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
         {% endif %}
