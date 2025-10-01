@@ -1968,75 +1968,119 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 # operaciones/views_billing_exec.py
 
 
+# ...
+
+
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def configurar_requisitos(request, sesion_id):
     """
-    Configure a SINGLE requirements list per PROJECT and replicate it
-    to ALL assigned technicians (overwrites their lists).
-    Expected form arrays (parallel):
-      - name[]        (str, required)
-      - order[]       (int, optional)
-      - mandatory[]   ("0" / "1", optional)
-      - delete_id[]   (UI-only; not used in backend)
-    Additionally, accepts:
-      - proyecto_especial (checkbox) -> marks the session as a special project.
+    Configura la lista compartida de requisitos a nivel de proyecto
+    y la sincroniza con TODAS las asignaciones SIN borrar estados previos.
+    Reglas:
+      - Si envías id[] => UPDATE del requisito (conserva estado/fotos).
+      - Si id[] viene vacío => CREATE (quedará Pending).
+      - Solo se elimina lo que aparezca en delete_id[].
+      - order[] y mandatory[] se actualizan en los existentes.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # Para pintar el formulario con una "lista canónica"
     asignaciones = list(
-        s.tecnicos_sesion
-         .select_related("tecnico")
+        s.tecnicos_sesion.select_related("tecnico")
          .prefetch_related("requisitos")
          .all()
     )
-
-    # Preload canonical list from the first technician, if any
     canonical = []
     if asignaciones and asignaciones[0].requisitos.exists():
         canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
 
     if request.method == "POST":
+        # --- Lee POST
+        names = request.POST.getlist("name[]")
+        orders = request.POST.getlist("order[]")
+        mand = request.POST.getlist("mandatory[]")  # "0"/"1"
+        ids = request.POST.getlist("id[]")         # id existente o ""
+        to_del = set(request.POST.getlist("delete_id[]"))
+        s.proyecto_especial = bool(request.POST.get("proyecto_especial"))
+
+        # Normaliza filas válidas manteniendo la posición
+        normalized = []  # [(id_or_none, orden, name, mandatory_bool)]
+        for i, raw_name in enumerate(names):
+            name = (raw_name or "").strip()
+            if not name:
+                continue
+            try:
+                orden = int(orders[i]) if i < len(orders) else i
+            except Exception:
+                orden = i
+            mandatory = (mand[i] == "1") if i < len(mand) else True
+            req_id = (ids[i].strip() or None) if i < len(ids) else None
+            normalized.append((req_id, orden, name, mandatory))
+
         try:
             with transaction.atomic():
-                # ✅ NEW: update special-project flag from checkbox
-                s.proyecto_especial = bool(
-                    request.POST.get("proyecto_especial"))
                 s.save(update_fields=["proyecto_especial"])
 
-                # 1) Read the shared list from the form
-                names = request.POST.getlist("name[]")
-                orders = request.POST.getlist("order[]")
-                mand = request.POST.getlist("mandatory[]")  # "0"/"1"
-
-                # Build a normalized list (skip empty rows)
-                normalized = []
-                for i, nm in enumerate(names):
-                    name = (nm or "").strip()
-                    if not name:
-                        continue
-                    try:
-                        order = int(orders[i]) if i < len(orders) else i
-                    except Exception:
-                        order = i
-                    mandatory = (mand[i] == "1") if i < len(mand) else True
-                    normalized.append((order, name, mandatory))
-
-                # 2) Replicate to ALL assignments: delete and create
+                # Índices por asignación
                 for a in asignaciones:
-                    RequisitoFotoBilling.objects.filter(
-                        tecnico_sesion=a).delete()
-                    to_create = [
-                        RequisitoFotoBilling(
-                            tecnico_sesion=a,
-                            titulo=name,
-                            descripcion="",
-                            obligatorio=mandatory,
-                            orden=order,
-                        )
-                        for (order, name, mandatory) in normalized
-                    ]
-                    if to_create:
-                        RequisitoFotoBilling.objects.bulk_create(to_create)
+                    existentes = {
+                        str(r.id): r
+                        # type: ignore[attr-defined]
+                        for r in a.requisitos.all()
+                    }
+                    existentes_por_slug = {
+                        slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
+                    }
+
+                    # 1) Elimina solo los que marcaste para borrar
+                    if to_del:
+                        del_objs = [existentes[x]
+                                    for x in to_del if x in existentes]
+                        if del_objs:
+                            # OJO: esto sí rompe vínculos de esas filas a fotos, porque lo pediste explícitamente
+                            RequisitoFotoBilling.objects.filter(
+                                id__in=[d.id for d in del_objs]).delete()
+
+                    # 2) Upsert de la lista enviada
+                    for req_id, orden, name, mandatory in normalized:
+                        if req_id and req_id in existentes:
+                            # UPDATE (conserva estado/fotos)
+                            r = existentes[req_id]
+                            if (r.titulo != name or
+                                r.orden != orden or
+                                r.obligatorio != mandatory or
+                                    r.tecnico_sesion_id != a.id):
+                                r.titulo = name
+                                r.orden = orden
+                                r.obligatorio = mandatory
+                                r.tecnico_sesion = a
+                                r.save(update_fields=[
+                                       "titulo", "orden", "obligatorio", "tecnico_sesion"])
+                        else:
+                            # ¿Existe otro con el mismo “slug” (renombrado)?
+                            key = slugify(name)
+                            r = existentes_por_slug.get(key)
+                            if r and str(r.id) not in to_del:
+                                # UPDATE por "match de título" (rename)
+                                if (r.titulo != name or r.orden != orden or r.obligatorio != mandatory):
+                                    r.titulo = name
+                                    r.orden = orden
+                                    r.obligatorio = mandatory
+                                    r.save(update_fields=[
+                                           "titulo", "orden", "obligatorio"])
+                            else:
+                                # CREATE (nuevo requisito -> quedará Pending)
+                                RequisitoFotoBilling.objects.create(
+                                    tecnico_sesion=a,
+                                    titulo=name,
+                                    descripcion="",
+                                    obligatorio=mandatory,
+                                    orden=orden,
+                                )
+                    # 3) (Opcional) Si quieres forzar que SOLO existan los enviados (además de delete_id[]),
+                    #    puedes eliminar aquí los “huérfanos” no presentes en normalized; por ahora NO,
+                    #    para no perder estados de algo que no tocaste.
 
             messages.success(
                 request, "Photo requirements saved (project-wide).")
@@ -2045,21 +2089,14 @@ def configurar_requisitos(request, sesion_id):
         except Exception as e:
             messages.error(request, f"Could not save requirements: {e}")
 
-        # On error, re-render with posted data
-        canonical = []
-
+        # Si hubo error, re-render con lo posteado
         class _Row:
             def __init__(self, orden, titulo, obligatorio):
                 self.orden = orden
                 self.titulo = titulo
                 self.obligatorio = obligatorio
 
-        # If normalized exists (may not if parsing failed before), reflect it
-        try:
-            for (order, name, mandatory) in normalized:
-                canonical.append(_Row(order, name, mandatory))
-        except Exception:
-            pass
+        canonical = [_Row(o, n, m) for _, o, n, m in normalized]
 
     return render(
         request,
@@ -2067,7 +2104,6 @@ def configurar_requisitos(request, sesion_id):
         {
             "sesion": s,
             "requirements": canonical,
-            # ✅ NEW: expose flag for checkbox rendering in the template
             "is_special": bool(s.proyecto_especial),
         },
     )
@@ -2141,8 +2177,10 @@ def download_requirements_template(request, sesion_id, ext):
 @require_POST
 def importar_requisitos(request, sesion_id):
     """
-    Import project-shared requirements from .csv or .xlsx and replicate
-    to ALL assigned technicians (overwrites their lists).
+    Importa requisitos (CSV/XLSX) y los sincroniza con TODAS las asignaciones:
+      - Crea los nuevos.
+      - Actualiza order/mandatory/nombre de los que hagan match por slug del nombre.
+      - NO borra nada (para no romper estados), a menos que luego el usuario los quite en la pantalla y guarde.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     f = request.FILES.get("file")
@@ -2152,7 +2190,7 @@ def importar_requisitos(request, sesion_id):
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
     ext = (f.name.rsplit(".", 1)[-1] or "").lower()
-    normalized = []
+    normalized = []  # [(order, name, mandatory)]
 
     try:
         if ext == "csv":
@@ -2211,7 +2249,6 @@ def importar_requisitos(request, sesion_id):
                             and r[i_name] is not None else "").strip()
                     if not name:
                         continue
-                    # order
                     if i_order is not None and i_order < len(r) and r[i_order] not in (None, ""):
                         try:
                             order = int(r[i_order])
@@ -2219,7 +2256,6 @@ def importar_requisitos(request, sesion_id):
                             order = len(normalized)
                     else:
                         order = len(normalized)
-                    # mandatory
                     if i_mand is not None and i_mand < len(r) and r[i_mand] not in (None, ""):
                         mval = str(r[i_mand]).strip().lower()
                         mandatory = mval in ("1", "true", "yes", "y")
@@ -2247,7 +2283,7 @@ def importar_requisitos(request, sesion_id):
         messages.warning(request, "No valid rows found in the file.")
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-    # Replicate to all assignees
+    # --- Sincroniza por slug de nombre
     try:
         with transaction.atomic():
             asignaciones = list(
@@ -2255,22 +2291,41 @@ def importar_requisitos(request, sesion_id):
                     "tecnico").prefetch_related("requisitos").all()
             )
             for a in asignaciones:
-                RequisitoFotoBilling.objects.filter(tecnico_sesion=a).delete()
-                objs = [
-                    RequisitoFotoBilling(
-                        tecnico_sesion=a,
-                        titulo=name,
-                        descripcion="",
-                        obligatorio=mandatory,
-                        orden=order,
-                    )
-                    for (order, name, mandatory) in normalized
-                ]
-                if objs:
-                    RequisitoFotoBilling.objects.bulk_create(objs)
+                existentes_por_slug = {
+                    slugify((r.titulo or "").strip()): r
+                    for r in a.requisitos.all()
+                }
+                for order, name, mandatory in normalized:
+                    key = slugify(name)
+                    r = existentes_por_slug.get(key)
+                    if r:
+                        # UPDATE de orden/mandatory/nombre (conserva estado/fotos)
+                        changed = False
+                        if r.titulo != name:
+                            r.titulo = name
+                            changed = True
+                        if r.orden != order:
+                            r.orden = order
+                            changed = True
+                        if r.obligatorio != mandatory:
+                            r.obligatorio = mandatory
+                            changed = True
+                        if changed:
+                            r.save(update_fields=[
+                                   "titulo", "orden", "obligatorio"])
+                    else:
+                        # CREATE (nuevo => Pending)
+                        RequisitoFotoBilling.objects.create(
+                            tecnico_sesion=a,
+                            titulo=name,
+                            descripcion="",
+                            obligatorio=mandatory,
+                            orden=order,
+                        )
 
         messages.success(
-            request, f"Imported {len(normalized)} requirements and applied them to all assignees."
+            request,
+            f"Imported {len(normalized)} requirements and synced them with all assignees (without deleting existing ones)."
         )
         return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
 
