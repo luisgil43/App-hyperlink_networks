@@ -1,0 +1,199 @@
+{# operaciones/templates/operaciones/plans_list.html #}
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block title %}Project Plans{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-6xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+      🗂️ Project Plans — Billing #{{ sesion.id }}
+    </h1>
+
+    <div class="flex items-center gap-2">
+      <button type="button"
+              onclick="history.back()"
+              class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm shadow">
+        ← Back
+      </button>
+    </div>
+  </div>
+
+  {# Upload box (solo si can_import) #}
+  {% if can_import %}
+  <div class="border rounded-2xl p-4 sm:p-5 mb-6">
+    <div class="font-semibold text-lg mb-2">Import</div>
+
+    <form method="post" enctype="multipart/form-data"
+          class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+      {% csrf_token %}
+
+      <!-- Hidden native input -->
+      <input id="plans-input" type="file" name="plans" accept=".pdf,.dwg,.xlsx,.xls" multiple class="sr-only">
+
+      <!-- Choose files button (light gray) -->
+      <label for="plans-input"
+             class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-300
+                    bg-gray-100 text-gray-800 hover:bg-gray-200 hover:border-gray-400
+                    focus:outline-none focus:ring-2 focus:ring-gray-300 cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-gray-600" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M21 12.79V7a5 5 0 10-10 0v10a3 3 0 106 0V9"/>
+        </svg>
+        <span class="font-medium">Choose files</span>
+      </label>
+
+      <!-- Selected files text -->
+      <span id="plans-chosen" class="text-sm text-gray-600">No files selected</span>
+
+      <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm">
+        Import
+      </button>
+
+      <div class="text-xs text-gray-500">
+        Allowed: PDF, DWG, XLSX, XLS. You can select two (or more) at once.
+      </div>
+    </form>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const input  = document.getElementById('plans-input');
+      const chosen = document.getElementById('plans-chosen');
+      if (!input) return;
+      input.addEventListener('change', () => {
+        if (!input.files || input.files.length === 0) {
+          chosen.textContent = 'No files selected';
+        } else if (input.files.length === 1) {
+          chosen.textContent = `1 file selected: ${input.files[0].name}`;
+        } else {
+          const first = input.files[0].name;
+          chosen.textContent = `${input.files.length} files selected (first: ${first})`;
+        }
+      });
+    });
+  </script>
+  {% endif %}
+
+  <!-- List -->
+  <div class="border rounded-2xl">
+    <div class="px-4 py-3 bg-gray-50 rounded-t-2xl font-semibold">Plans</div>
+    <div class="divide-y">
+      {% if plans %}
+        {% for p in plans %}
+          <div class="px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 font-semibold">{{ p.plan_number }}</span>
+              <div>
+                <div class="font-medium">Plan {{ p.plan_number }}</div>
+                <div class="text-xs text-gray-500">
+                  {{ p.original_name|default:p.file.name }} • Uploaded {{ p.uploaded_at|naturaltime }}
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <a href="{% url 'operaciones:view_plan' p.id %}"
+                 class="px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm shadow">
+                View
+              </a>
+
+              {% if can_delete_plans %}
+              <button type="button"
+                      class="px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 text-sm"
+                      data-action="{% url 'operaciones:delete_plan' p.id %}"
+                      data-name="Plan {{ p.plan_number }}"
+                      data-file="{{ p.original_name|default:p.file.name }}"
+                      onclick="openDeleteModal(this)">
+                Delete
+              </button>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="px-4 py-6 text-gray-500 text-sm">No plans yet. {% if can_import %}Use “Import” to upload the first one.{% else %}Ask your supervisor to upload the plans.{% endif %}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if can_delete_plans %}
+{# ===== Nice centered modal (solo si hay Delete) ===== #}
+<div id="confirm-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center">
+  <!-- Backdrop -->
+  <div class="absolute inset-0 bg-black/40" onclick="closeDeleteModal()"></div>
+
+  <!-- Panel -->
+  <div role="dialog" aria-modal="true" aria-labelledby="confirm-title"
+       class="relative w-[92%] max-w-md bg-white rounded-2xl shadow-2xl p-6">
+    <div class="flex items-start gap-3">
+      <div class="shrink-0 rounded-full bg-red-100 text-red-600 w-10 h-10 flex items-center justify-center">
+        <!-- trash icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m-1-2a1 1 0 00-1-1h-2a1 1 0 00-1 1v2h4V5z"/>
+        </svg>
+      </div>
+      <div class="grow">
+        <h3 id="confirm-title" class="text-lg font-semibold text-gray-900">Delete this plan?</h3>
+        <p class="mt-1 text-sm text-gray-600">
+          <span id="confirm-plan-name" class="font-medium"></span>
+          <span id="confirm-file" class="text-gray-500"></span>
+        </p>
+      </div>
+    </div>
+
+    <form id="confirm-form" method="post" class="mt-5 flex items-center justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" id="confirm-cancel"
+              class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800">
+        Cancel
+      </button>
+      <button type="submit"
+              class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white shadow">
+        Delete
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+  let _lastFocused = null;
+
+  function openDeleteModal(btn) {
+    _lastFocused = document.activeElement;
+    const modal = document.getElementById('confirm-modal');
+    const form  = document.getElementById('confirm-form');
+
+    form.action = btn.dataset.action;
+    document.getElementById('confirm-plan-name').textContent = btn.dataset.name || '';
+    document.getElementById('confirm-file').textContent = btn.dataset.file ? `• ${btn.dataset.file}` : '';
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+    document.getElementById('confirm-cancel').focus();
+  }
+
+  function closeDeleteModal() {
+    const modal = document.getElementById('confirm-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.classList.remove('overflow-hidden');
+    if (_lastFocused) { _lastFocused.focus(); }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDeleteModal();
+  });
+
+  document.getElementById('confirm-cancel').addEventListener('click', closeDeleteModal);
+</script>
+{% endif %}
+{% endblock %}

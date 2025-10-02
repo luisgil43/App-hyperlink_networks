@@ -5,17 +5,22 @@
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <div class="flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      <button type="button"
-              class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
-              onclick="if (document.referrer) { history.back(); } else { window.location.href='/operaciones/billing/my/'; }">
-        ⬅️ Back
-      </button>
+  <div class="flex items-center gap-2">
+    <button type="button"
+            class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
+            onclick="if (document.referrer) { history.back(); } else { window.location.href='/operaciones/billing/my/'; }">
+      ⬅️ Back
+    </button>
 
-      <h1 class="text-2xl font-bold">📸 Upload Photos — Billing #{{ a.sesion.id }}</h1>
-    </div>
+    <h1 class="text-2xl font-bold">📸 Upload Photos — Billing #{{ a.sesion.id }}</h1>
+  </div>
 
-    {# Botón estable para habilitar/deshabilitar desde JS #}
+  <div class="flex items-center gap-2">
+    <a href="{% url 'operaciones:list_plans_readonly' a.sesion.id %}"
+       class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded">
+      View Plans
+    </a>
+
     <form id="finalizar-form" method="post" action="{% url 'operaciones:finish_assignment' a.pk %}">
       {% csrf_token %}
       <button id="btn-finalizar" type="submit"
@@ -26,6 +31,8 @@
       </button>
     </form>
   </div>
+</div>
+
 
   {# Banner dinámico de motivos para deshabilitar Finish #}
   <div id="missing-banner"

@@ -646,3 +646,41 @@ class WeeklyPayment(models.Model):
         self.status = "paid"
         self.paid_week = paid_week
         self.save(update_fields=["status", "paid_week", "updated_at"])
+
+
+def upload_to_plan(instance, filename: str) -> str:
+    """
+    Guardamos el plano en una ruta estable por proyecto y nombre único con uuid para evitar colisiones.
+    """
+    proj_id = (getattr(instance.sesion, "proyecto_id", "")
+               or "project").strip()
+    proj_slug = slugify(proj_id) or "project"
+    _, ext = os.path.splitext(filename or "")
+    ext = (ext or ".pdf").lower()
+    return f"operaciones/plans/{proj_slug}/plan_{uuid4().hex}{ext}"
+
+
+class ProjectPlan(models.Model):
+    sesion = models.ForeignKey(
+        SesionBilling, on_delete=models.CASCADE, related_name="plans", db_index=True
+    )
+    plan_number = models.PositiveIntegerField(db_index=True)  # 1, 2, 3...
+    file = models.FileField(
+        upload_to=upload_to_plan,
+        storage=wasabi_storage,
+        validators=[FileExtensionValidator(["pdf", "dwg", "xlsx", "xls"])],
+        max_length=1024,
+    )
+    original_name = models.CharField(max_length=255, blank=True, default="")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("plan_number", "id")
+        unique_together = [("sesion", "plan_number")]  # evita reemplazos
+
+    def __str__(self):
+        return f"Plan {self.plan_number} — Sesión {self.sesion_id}"
+
+    @property
+    def label(self) -> str:
+        return f"Plan {self.plan_number}"

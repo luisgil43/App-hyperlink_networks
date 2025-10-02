@@ -5,6 +5,7 @@ from . import views as v
 from . import views_billing_exec as b
 from . import views_billing_exec as views
 from . import views
+from . import views_plans
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -219,6 +220,15 @@ urlpatterns = [
          views.multipart_complete, name="multipart_complete"),
     path("operaciones/rendiciones/multipart/abort/",
          views.multipart_abort, name="multipart_abort"),
+
+
+    path("projects/<int:sesion_id>/plans/",
+         views_plans.list_plans, name="list_plans"),
+    path("plans/<int:plan_id>/view/", views_plans.view_plan, name="view_plan"),
+    path("plans/<int:plan_id>/delete/",
+         views_plans.delete_plan, name="delete_plan"),
+    path("projects/<int:sesion_id>/plans/readonly/",
+         views_plans.list_plans_readonly, name="list_plans_readonly"),
 
 
 
