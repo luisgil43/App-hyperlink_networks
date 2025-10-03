@@ -6,7 +6,7 @@ from . import views_billing_exec as b
 from . import views_billing_exec as views
 from . import views
 from . import views_plans
-
+from . import views_adjustments
 app_name = 'operaciones'  # requerido para namespaces
 
 urlpatterns = [
@@ -229,6 +229,14 @@ urlpatterns = [
          views_plans.delete_plan, name="delete_plan"),
     path("projects/<int:sesion_id>/plans/readonly/",
          views_plans.list_plans_readonly, name="list_plans_readonly"),
+
+    path("production/adjustments/new/",
+         views_adjustments.adjustment_new, name="adjustment_new"),
+
+    path("produccion/adjustments/<int:pk>/edit/",
+         views_adjustments.adjustment_edit, name="adjustment_edit"),
+    path("produccion/adjustments/delete/",
+         views_adjustments.adjustment_delete, name="adjustment_delete"),
 
 
 

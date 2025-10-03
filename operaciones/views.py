@@ -1,4 +1,11 @@
 # operaciones/views.py
+
+from operaciones.forms import PaymentApproveForm, PaymentRejectForm
+from operaciones.models import WeeklyPayment, ItemBillingTecnico, AdjustmentEntry
+from django.db.models import Q, Exists, OuterRef, Sum, F
+from operaciones.models import SesionBilling, AdjustmentEntry  # <-- IMPORTA EL MODELO
+from django.db.models import Q, Sum, F, Value, DecimalField
+from .models import AdjustmentEntry
 from datetime import date as _date
 import xml.etree.ElementTree as ET
 import shutil
@@ -3049,33 +3056,23 @@ def produccion_usuario(request):
     Incluye:
       - sesiones aprobadas (Supervisor/PM/Finanzas)
       - descuentos directos (is_direct_discount=True)
-      - cualquier sesión donde el técnico tenga líneas negativas (subtotal<0)
-    No requiere que exista TecnicoSesion: alcanza con estar en items.desglose_tecnico.
+      - cualquier sesión con líneas negativas (subtotal < 0)
+      - ajustes manuales (Fixed salary / Bonus / Advance)
     """
     tecnico = request.user
 
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-
-    qs = (
-        SesionBilling.objects
-        # el técnico debe estar en el desglose (esto cubre descuentos sin TecnicoSesion)
-        .filter(items__desglose_tecnico__tecnico=tecnico)
-        # incluir aprobadas O descuentos directos O líneas negativas
-        .filter(
-            Q(estado__in=estados_ok)
-            | Q(is_direct_discount=True)
-            | Q(items__desglose_tecnico__subtotal__lt=0)
-        )
-        .prefetch_related("items__desglose_tecnico")
-        .order_by("-creado_en")
-        .distinct()
-    )
-
-    # Semana ISO YYYY-W##
+    # ---------------- helpers ----------------
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
 
+    ADJ_LABEL = {
+        "fixed_salary": "Fixed salary",
+        "bonus": "Bonus",
+        "advance": "Advance",
+    }
+
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     current_week = _iso_week_str(timezone.now())
 
     # filtro por semana REAL: "all" o "YYYY-W##"
@@ -3086,6 +3083,20 @@ def produccion_usuario(request):
     filas = []
     total_semana_actual = Decimal("0")
 
+    # ---------------- Sesiones ----------------
+    qs = (
+        SesionBilling.objects
+        .filter(items__desglose_tecnico__tecnico=tecnico)
+        .filter(
+            Q(estado__in=estados_ok)
+            | Q(is_direct_discount=True)
+            | Q(items__desglose_tecnico__subtotal__lt=0)
+        )
+        .prefetch_related("items__desglose_tecnico")
+        .order_by("-creado_en")
+        .distinct()
+    )
+
     for s in qs:
         rw = (s.semana_pago_real or "").upper()
         if weeks_wanted is not None and rw not in weeks_wanted:
@@ -3093,6 +3104,7 @@ def produccion_usuario(request):
 
         detalle = []
         total_tecnico = Decimal("0")
+        tiene_linea_negativa = False
 
         for it in s.items.all():
             bd = next(
@@ -3106,10 +3118,12 @@ def produccion_usuario(request):
             rate = bd.tarifa_efectiva if isinstance(
                 bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
             qty = it.cantidad if isinstance(
-                it.cantidad,        Decimal) else Decimal(str(it.cantidad or 0))
+                it.cantidad,       Decimal) else Decimal(str(it.cantidad or 0))
 
-            sub_tec = rate * qty  # si qty<0 => descuenta
+            sub_tec = rate * qty
             total_tecnico += sub_tec
+            if sub_tec < 0:
+                tiene_linea_negativa = True
 
             detalle.append({
                 "codigo": it.codigo_trabajo,
@@ -3121,25 +3135,63 @@ def produccion_usuario(request):
                 "subtotal_tec": sub_tec,
             })
 
-        if detalle:
-            if rw == current_week:
-                total_semana_actual += total_tecnico  # incluye negativos
+        if not detalle:
+            continue
 
-            filas.append({
-                "sesion": s,
-                "project_id": s.proyecto_id,
-                "week": s.semana_pago_proyectada or "—",
-                "status": s.estado,
-                "client": s.cliente,
-                "city": s.ciudad,
-                "project": s.proyecto,
-                "office": s.oficina,
-                "real_week": s.semana_pago_real or "—",
-                "total_tecnico": total_tecnico,   # puede ser negativo
-                "detalle": detalle,
-            })
+        is_discount_row = bool(
+            getattr(s, "is_direct_discount", False) or tiene_linea_negativa)
 
-    # Orden: actual, futuras, pasadas, sin semana
+        if rw == current_week:
+            total_semana_actual += total_tecnico  # incluye negativos
+
+        filas.append({
+            "sesion": s,
+            "project_id": s.proyecto_id,
+            "project_label": ("Direct discount" if is_discount_row else (s.proyecto_id or "—")),
+            "week": s.semana_pago_proyectada or "—",
+            "status": s.estado,
+            "is_discount": is_discount_row,
+            "client": s.cliente or "-",
+            "city": s.ciudad or "-",
+            "project": s.proyecto or "-",
+            "office": s.oficina or "-",
+            "real_week": s.semana_pago_real or "—",
+            "total_tecnico": total_tecnico,
+            "detalle": detalle,
+            "adjustment_type": "",  # para distinguir de ajustes en la plantilla
+        })
+
+    # ---------------- Ajustes (AdjustmentEntry) ----------------
+    # Trae SIEMPRE los ajustes del técnico; filtra por semana si corresponde
+    adj_qs = AdjustmentEntry.objects.filter(technician=tecnico)
+    if weeks_wanted is not None:
+        adj_qs = adj_qs.filter(week__in=weeks_wanted)
+
+    for a in adj_qs:
+        amt = a.amount if isinstance(
+            a.amount, Decimal) else Decimal(str(a.amount or 0))
+        rw = (a.week or "—").upper()
+
+        if rw == current_week:
+            # bonus/salario positivo; adelanto también positivo en la UI
+            total_semana_actual += abs(amt)
+
+        filas.append({
+            "sesion": None,
+            "project_id": a.project_id or "ADJ",
+            "project_label": ADJ_LABEL.get(a.adjustment_type, a.adjustment_type),
+            "week": a.week or "—",
+            "status": "",
+            "is_discount": False,
+            # En la tabla del usuario mostramos '-' para estas columnas
+            "client": "-", "city": "-", "project": "-", "office": "-",
+            "real_week": rw,
+            "total_tecnico": abs(amt),     # mostrar siempre positivo en la UI
+            "detalle": [],
+            "adjustment_type": a.adjustment_type,
+        })
+
+    # ---------------- Orden ----------------
     def bucket_key(row):
         rw = row["real_week"]
         if rw == "—":
@@ -3962,26 +4014,19 @@ def ajax_detalle_codigo(request):
 
 
 @login_required
-@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def produccion_admin(request):
     """
-    Producción por técnico (vista Admin) con filtros + paginación (UX como Weekly Payments).
-    Filtros: proyecto (por Project ID parcial o nombre), REAL pay week (34 / W34 / 2025-W34),
-             técnico, cliente.
-    Solo filtra por semana REAL: 'semana_pago_real'.
-    Incluye también sesiones de DESCUENTO DIRECTO (is_direct_discount=True), aunque su estado
-    operativo no esté en aprobadas.
+    Producción por técnico (vista Admin) con filtros + paginación.
+    - Lista sesiones aprobadas (o descuentos directos) desglosadas por técnico.
+    - Incluye también los ajustes manuales (bonus, advance, fixed_salary).
+    - En esta vista, **advance cuenta POSITIVO**.
+    - La semana usada para filtrar es la REAL:
+        sesiones -> 'semana_pago_real'
+        ajustes  -> 'week'
     """
-    # --- imports locales para que la función sea autocontenida ---
     import re
-    from decimal import Decimal
-    from urllib.parse import urlencode
-    from django.db.models import Q, CharField
-    from django.db.models.functions import Cast
-    from django.core.paginator import Paginator
-    from django.utils import timezone
 
-    # --- helpers locales ---
+    # ---------------- helpers ----------------
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
@@ -3990,8 +4035,6 @@ def produccion_admin(request):
         """
         Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
         Retorna (exact_iso, week_token)
-          - exact_iso: 'YYYY-W##' cuando viene año
-          - week_token: 'W##' cuando solo viene el número
         """
         if not q:
             return (None, None)
@@ -4007,12 +4050,31 @@ def produccion_admin(request):
         return (None, None)
 
     def _normalize_week_str(s: str) -> str:
-        """Normaliza guiones y espacios; devuelve MAYÚSCULAS."""
         if not s:
             return ""
         s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
         s = re.sub(r"\s+", "", s)
         return s.upper()
+
+    def _week_sort_key(week_str: str):
+        """
+        Acepta variantes como '2025-W40', '2025W40', 'W40'.
+        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
+        """
+        if not week_str:
+            return (-1, -1)
+
+        s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
+        # 1) YYYY-W##
+        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        # 2) Solo W##
+        m = re.search(r'W(\d{1,2})', s)
+        if m:
+            # Si no hay año, usamos 0 para que queden al final
+            return (0, int(m.group(1)))
+        return (-1, -1)
 
     # ---------------- configuración ----------------
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
@@ -4026,8 +4088,7 @@ def produccion_admin(request):
 
     exact_week, week_token = parse_week_query(f_week_input)
 
-    # ---------------- Query base ----------------
-    # 🔴 Cambio clave: incluir descuentos directos aunque no estén en estados_ok
+    # ---------------- Query base: Sesiones ----------------
     qs = (
         SesionBilling.objects
         .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
@@ -4036,29 +4097,30 @@ def produccion_admin(request):
         .distinct()
     )
 
-    # ---------------- Semana REAL (único criterio de semana) ----------------
+    # Semana REAL en sesiones (semana_pago_real)
     if exact_week:
         token = exact_week.split("-", 1)[-1].upper()  # 'W##'
         qs = qs.filter(
             Q(semana_pago_real__iexact=exact_week) |
-            Q(semana_pago_real__icontains=token)   # tolera 2025W34, etc.
+            Q(semana_pago_real__icontains=token)
         )
     elif week_token:
         qs = qs.filter(semana_pago_real__icontains=week_token)
 
-    # ---------------- Otros filtros ----------------
+    # Otros filtros de sesiones
     if f_project:
         qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
         qs = qs.filter(
             Q(proyecto_id_str__icontains=f_project) |
             Q(proyecto__icontains=f_project)
         )
-
     if f_client:
         qs = qs.filter(cliente__icontains=f_client)
 
-    # ---------------- Construcción de filas (una por técnico) ----------------
+    # ---------------- Construcción de filas ----------------
     filas = []
+
+    # 1) Sesiones por técnico
     for s in qs:
         for asig in s.tecnicos_sesion.all():
             tecnico = asig.tecnico
@@ -4084,12 +4146,12 @@ def produccion_admin(request):
                 if not bd:
                     continue
 
+                # rate y qty ya vienen con signo (qty negativa para descuento)
                 rate = bd.tarifa_efectiva if isinstance(
                     bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
                 qty = it.cantidad if isinstance(
                     it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
 
-                # ⚠️ si qty < 0 (descuento), subtotal será negativo → resta
                 sub_tec = rate * qty
                 total_tecnico += sub_tec
 
@@ -4107,10 +4169,8 @@ def produccion_admin(request):
                 "sesion": s,
                 "tecnico": tecnico,
                 "project_id": s.proyecto_id,
-                # Columna principal = semana REAL
-                "week": s.semana_pago_real or "—",
+                "week": s.semana_pago_real or "—",  # columna principal = semana REAL
                 "status": s.estado,
-                # ← NUEVO para la vista
                 "is_discount": bool(getattr(s, "is_direct_discount", False)),
                 "client": s.cliente,
                 "city": s.ciudad,
@@ -4120,12 +4180,68 @@ def produccion_admin(request):
                 "proj_week": s.semana_pago_proyectada or "—",
                 "total_tecnico": total_tecnico,
                 "detalle": detalle,
+                "adjustment_type": "",
             })
 
-    # ---------------- Filtro defensivo por semana REAL en memoria ----------------
+    # 2) Ajustes manuales (si existe el modelo)
+    if AdjustmentEntry is not None:
+        adj_qs = AdjustmentEntry.objects.select_related("technician")
+
+        # Semana real para ajustes (campo week)
+        if exact_week:
+            token = exact_week.split("-", 1)[-1].upper()  # 'W##'
+            adj_qs = adj_qs.filter(Q(week__iexact=exact_week)
+                                   | Q(week__icontains=token))
+        elif week_token:
+            adj_qs = adj_qs.filter(week__icontains=week_token)
+
+        # Filtros Project / Client / Tech para ajustes (campos “ligeros”)
+        if f_project:
+            adj_qs = adj_qs.filter(
+                Q(project_id__icontains=f_project) | Q(
+                    project__icontains=f_project)
+            )
+        if f_client:
+            adj_qs = adj_qs.filter(client__icontains=f_client)
+        if f_tech:
+            target = f_tech
+            adj_qs = adj_qs.filter(
+                Q(technician__first_name__icontains=target) |
+                Q(technician__last_name__icontains=target) |
+                Q(technician__username__icontains=target)
+            )
+
+        for a in adj_qs:
+            t = a.technician
+            amt = a.amount if isinstance(
+                a.amount, Decimal) else Decimal(str(a.amount or 0))
+            # En esta vista, bonus/advance/fixed_salary SIEMPRE POSITIVOS
+            signed_amount = amt.copy_abs()
+
+            filas.append({
+                "sesion": None,
+                "tecnico": t,
+                # 👇 Ajustes: no mostrar ningún ID → solo '-'
+                "project_id": "-",
+                "week": a.week or "—",
+                "status": "",                 # sin estados de sesión para ajustes
+                "is_discount": False,
+                "client": a.client,
+                "city": a.city,
+                "project": a.project,
+                "office": a.office,
+                "real_week": a.week or "—",
+                "proj_week": a.week or "—",
+                "total_tecnico": signed_amount,
+                "detalle": [],
+                "adjustment_type": a.adjustment_type,
+                "adjustment_id": a.id,
+            })
+
+    # --------------- Filtro defensivo por semana en memoria ---------------
     if exact_week or week_token:
         token = (week_token or exact_week.split("-", 1)[-1]).upper()  # 'W##'
-        exact_norm = _normalize_week_str(exact_week) if exact_week else None
+        exact_norm = exact_week.upper() if exact_week else None
 
         def _match_row_real(r):
             rw = _normalize_week_str(r["real_week"])
@@ -4135,20 +4251,10 @@ def produccion_admin(request):
 
         filas = [r for r in filas if _match_row_real(r)]
 
-    # ---------------- Orden por semana real ----------------
-    def bucket_key(row):
-        rw = row["real_week"]
-        if rw == "—":
-            return (2, "ZZZ")
-        if rw == current_week:
-            return (0, "000")
-        if rw > current_week:
-            return (0, rw)
-        return (1, rw)
+    # --------------- Orden por semana real: más reciente primero ---------------
+    filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
 
-    filas.sort(key=bucket_key)
-
-    # ---------------- Paginación ----------------
+    # --------------- Paginación ---------------
     cantidad = request.GET.get("cantidad", "10")
     if cantidad != "todos":
         try:
@@ -4198,44 +4304,79 @@ def produccion_admin(request):
 @rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def Exportar_produccion_admin(request):
     """
-    Exporta a Excel las columnas:
-    Project ID | Real pay week | Status | Technician | Client | City | Project | Office | Technical Billing
-    Respeta los filtros GET: f_project, f_week, f_tech, f_client.
-    No aplica paginación: exporta todo lo filtrado.
+    Exporta a Excel:
+      Project ID | Real pay week | Status | Technician | Client | City | Project | Office | Technical Billing
+    Incluye sesiones aprobadas (o descuentos directos) y ajustes (bonus/advance/fixed_salary).
     """
-    from operaciones.models import SesionBilling  # ajusta si tu modelo está en otro módulo
+    import re
+    from decimal import Decimal
+    from django.db.models import Q, CharField
+    from django.db.models.functions import Cast
+    from django.utils import timezone
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    from django.http import HttpResponse
 
-    # -------- Helpers locales (idénticos al criterio de la vista) --------
+    from operaciones.models import SesionBilling
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    # ---------------- Helpers (alineados con la vista) ----------------
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
 
     def parse_week_query(q: str):
-        """
-        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
-        Retorna (exact_iso, week_token)
-        """
         if not q:
             return (None, None)
         s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
-        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
+        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)
         if m:
             year, ww = int(m.group(1)), int(m.group(2))
             return (f"{year}-W{ww:02d}", None)
-        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
+        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)
         if m:
-            ww = int(m.group(1))
-            return (None, f"W{ww:02d}")
+            return (None, f"W{int(m.group(1)):02d}")
         return (None, None)
 
     def _normalize_week_str(s: str) -> str:
         if not s:
             return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = s.replace("\u2013", "-").replace("\u2014", "-")
         s = re.sub(r"\s+", "", s)
         return s.upper()
 
-    # -------- Filtros GET --------
+    def _week_sort_key(week_str: str):
+        if not week_str:
+            return (-1, -1)
+        s = week_str.upper().replace("WEEK", "W").replace(" ", "")
+        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        m = re.search(r'W(\d{1,2})', s)
+        if m:
+            return (0, int(m.group(1)))  # sin año -> al final
+        return (-1, -1)
+
+    def _status_label(sesion_estado: str, is_discount: bool) -> str:
+        if is_discount:
+            return "Direct discount"
+        mapping = {
+            "aprobado_pm": "Approved by PM",
+            "aprobado_supervisor": "Approved by Supervisor",
+            "aprobado_finanzas": "Approved by Finance",
+            "rechazado_pm": "Rejected by PM",
+            "rechazado_supervisor": "Rejected by Supervisor",
+            "en_revision_supervisor": "In Supervisor Review",
+            "finalizado": "Finished (pending review)",
+            "en_proceso": "In Progress",
+            "asignado": "Assigned",
+        }
+        return mapping.get((sesion_estado or "").lower(), (sesion_estado or ""))
+
+    # ---------------- Filtros GET ----------------
     f_project = (request.GET.get("f_project") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
     f_tech = (request.GET.get("f_tech") or "").strip()
@@ -4243,9 +4384,9 @@ def Exportar_produccion_admin(request):
 
     exact_week, week_token = parse_week_query(f_week_input)
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    current_week = _iso_week_str(timezone.now())
+    _ = _iso_week_str(timezone.now())  # solo por simetría; no se usa directo
 
-    # -------- Query base (incluye descuentos directos) --------
+    # ---------------- Query base: SESIONES ----------------
     qs = (
         SesionBilling.objects
         .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
@@ -4256,33 +4397,29 @@ def Exportar_produccion_admin(request):
 
     # Semana REAL
     if exact_week:
-        token = exact_week.split("-", 1)[-1].upper()  # 'W##'
-        qs = qs.filter(
-            Q(semana_pago_real__iexact=exact_week) |
-            Q(semana_pago_real__icontains=token)
-        )
+        token = exact_week.split("-", 1)[-1].upper()
+        qs = qs.filter(Q(semana_pago_real__iexact=exact_week) |
+                       Q(semana_pago_real__icontains=token))
     elif week_token:
         qs = qs.filter(semana_pago_real__icontains=week_token)
 
-    # Project
+    # Project / Client
     if f_project:
         qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
-        qs = qs.filter(
-            Q(proyecto_id_str__icontains=f_project) |
-            Q(proyecto__icontains=f_project)
-        )
-
-    # Client
+        qs = qs.filter(Q(proyecto_id_str__icontains=f_project) |
+                       Q(proyecto__icontains=f_project))
     if f_client:
         qs = qs.filter(cliente__icontains=f_client)
 
-    # -------- Construcción de filas (una por técnico) --------
+    # ---------------- Construcción de filas ----------------
     filas = []
+
+    # 1) Sesiones por técnico
     for s in qs:
         for asig in s.tecnicos_sesion.all():
             tecnico = asig.tecnico
 
-            # Filtrar por técnico
+            # Filtro por técnico
             if f_tech:
                 target = f_tech.lower()
                 full_name = ((tecnico.first_name or "") + " " +
@@ -4301,22 +4438,70 @@ def Exportar_produccion_admin(request):
                     bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
                 qty = it.cantidad if isinstance(
                     it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
-                total_tecnico += (rate * qty)
+                total_tecnico += rate * qty  # qty negativa produce descuento
 
             filas.append({
-                "project_id": s.proyecto_id,
+                "project_id": s.proyecto_id or "-",
                 "week": s.semana_pago_real or "—",
-                "status": s.estado,
+                "status": _status_label(s.estado, bool(getattr(s, "is_direct_discount", False))),
                 "tecnico": tecnico,
-                "client": s.cliente,
-                "city": s.ciudad,
-                "project": s.proyecto,
-                "office": s.oficina,
+                "client": s.cliente or "-",
+                "city": s.ciudad or "-",
+                "project": s.proyecto or "-",
+                "office": s.oficina or "-",
                 "real_week": s.semana_pago_real or "—",
                 "total_tecnico": total_tecnico,
             })
 
-    # Filtro defensivo por semana en memoria
+    # 2) AJUSTES (bonus/advance/fixed_salary) -> monto positivo
+    if AdjustmentEntry is not None:
+        adj_qs = AdjustmentEntry.objects.select_related("technician").all()
+
+        if exact_week:
+            token = exact_week.split("-", 1)[-1].upper()
+            adj_qs = adj_qs.filter(
+                Q(week__iexact=exact_week) | Q(week__icontains=token))
+        elif week_token:
+            adj_qs = adj_qs.filter(week__icontains=week_token)
+
+        if f_project:
+            adj_qs = adj_qs.filter(Q(project_id__icontains=f_project) | Q(
+                project__icontains=f_project))
+        if f_client:
+            adj_qs = adj_qs.filter(client__icontains=f_client)
+        if f_tech:
+            target = f_tech
+            adj_qs = adj_qs.filter(
+                Q(technician__first_name__icontains=target) |
+                Q(technician__last_name__icontains=target) |
+                Q(technician__username__icontains=target)
+            )
+
+        for a in adj_qs:
+            amt = a.amount if isinstance(
+                a.amount, Decimal) else Decimal(str(a.amount or 0))
+            signed_amount = amt.copy_abs()  # SIEMPRE positivo en export
+
+            status_label = {
+                "bonus": "Bonus",
+                "advance": "Advance",
+                "fixed_salary": "Fixed salary",
+            }.get(a.adjustment_type, a.adjustment_type or "")
+
+            filas.append({
+                "project_id": a.project_id or "-",
+                "week": a.week or "—",
+                "status": status_label,
+                "tecnico": a.technician,
+                "client": a.client or "-",
+                "city": a.city or "-",
+                "project": a.project or "-",
+                "office": a.office or "-",
+                "real_week": a.week or "—",
+                "total_tecnico": signed_amount,
+            })
+
+    # Filtro defensivo por semana (en memoria)
     if exact_week or week_token:
         token = (week_token or exact_week.split("-", 1)[-1]).upper()
         exact_norm = _normalize_week_str(exact_week) if exact_week else None
@@ -4329,19 +4514,10 @@ def Exportar_produccion_admin(request):
 
         filas = [r for r in filas if _match_row_real(r)]
 
-    # Orden igual que en la vista
-    def bucket_key(row):
-        rw = row["real_week"]
-        if rw == "—":
-            return (2, "ZZZ")
-        if rw == current_week:
-            return (0, "000")
-        if rw > current_week:
-            return (0, rw)
-        return (1, rw)
-    filas.sort(key=bucket_key)
+    # Orden por semana real descendente
+    filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
 
-    # -------- Generar Excel --------
+    # ---------------- Generar Excel ----------------
     wb = Workbook()
     ws = wb.active
     ws.title = "Production"
@@ -4360,18 +4536,18 @@ def Exportar_produccion_admin(request):
             tech_name = getattr(tech, "username", "") or ""
 
         ws.append([
-            r.get("project_id", ""),
+            r.get("project_id", "-") or "-",
             r.get("week", "") or r.get("real_week", ""),
             r.get("status", ""),
             tech_name,
-            r.get("client", ""),
-            r.get("city", ""),
-            r.get("project", ""),
-            r.get("office", ""),
+            r.get("client", "-") or "-",
+            r.get("city", "-") or "-",
+            r.get("project", "-") or "-",
+            r.get("office", "-") or "-",
             float(r.get("total_tecnico") or 0.0),
         ])
 
-    # Auto ancho + formato numérico en la última columna
+    # Auto-ancho y formato numérico
     for col in ws.columns:
         max_len = 0
         letter = get_column_letter(col[0].column)
@@ -4388,9 +4564,8 @@ def Exportar_produccion_admin(request):
             c.number_format = '#,##0.00'
 
     resp = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    resp["Content-Disposition"] = 'attachment; filename=\"production_export.xlsx\"'
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = 'attachment; filename="production_export.xlsx"'
     wb.save(resp)
     return resp
 
@@ -4404,12 +4579,30 @@ def produccion_usuario(request):
       - sesiones aprobadas (Supervisor/PM/Finanzas)
       - descuentos directos (is_direct_discount=True)
       - sesiones con alguna línea negativa para el técnico
+      - ajustes manuales (Bonus / Advance / Fixed salary) -> TODOS SUMAN POSITIVO
     """
     from decimal import Decimal
+    from django.db.models import Q
+    from django.utils import timezone
+
     tecnico = request.user
 
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    def _iso_week_str(dt):
+        y, w, _ = dt.isocalendar()
+        return f"{y}-W{int(w):02d}"
 
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    current_week = _iso_week_str(timezone.now())
+
+    # Filtro por semana REAL: "all" o "YYYY-W##"
+    week_filter = (request.GET.get("week") or "all").strip()
+    weeks_wanted = None if week_filter.lower() == "all" else {
+        week_filter.upper()}
+
+    filas = []
+    total_semana_actual = Decimal("0")
+
+    # -------- Sesiones de producción --------
     qs = (
         SesionBilling.objects
         .filter(items__desglose_tecnico__tecnico=tecnico)
@@ -4423,21 +4616,6 @@ def produccion_usuario(request):
         .distinct()
     )
 
-    # Semana ISO YYYY-W##
-    def _iso_week_str(dt):
-        y, w, _ = dt.isocalendar()
-        return f"{y}-W{int(w):02d}"
-
-    current_week = _iso_week_str(timezone.now())
-
-    # Filtro por semana REAL: "all" o "YYYY-W##"
-    week_filter = (request.GET.get("week") or "all").strip()
-    weeks_wanted = None if week_filter.lower() == "all" else {
-        week_filter.upper()}
-
-    filas = []
-    total_semana_actual = Decimal("0")
-
     for s in qs:
         rw = (s.semana_pago_real or "").upper()
         if weeks_wanted is not None and rw not in weeks_wanted:
@@ -4448,7 +4626,6 @@ def produccion_usuario(request):
         tiene_linea_negativa = False
 
         for it in s.items.all():
-            # desglose del ítem para ESTE técnico
             bd = next(
                 (d for d in it.desglose_tecnico.all()
                  if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
@@ -4480,7 +4657,6 @@ def produccion_usuario(request):
         if not detalle:
             continue
 
-        # Marca de descuento para la UI
         is_discount_row = bool(
             getattr(s, "is_direct_discount", False) or tiene_linea_negativa)
 
@@ -4491,8 +4667,7 @@ def produccion_usuario(request):
             "sesion": s,
             "project_id": s.proyecto_id,
             "week": s.semana_pago_proyectada or "—",
-            # si es descuento mostramos "descuento" en lugar del estado real
-            "status": ("descuento" if is_discount_row else s.estado),
+            "status": s.estado,
             "is_discount": is_discount_row,
             "client": s.cliente,
             "city": s.ciudad,
@@ -4501,6 +4676,40 @@ def produccion_usuario(request):
             "real_week": s.semana_pago_real or "—",
             "total_tecnico": total_tecnico,   # puede ser negativo
             "detalle": detalle,
+            "adjustment_type": "",            # sesiones normales
+            "adjustment_label": "",
+        })
+
+    # -------- Ajustes (Bonus / Advance / Fixed salary) --------
+    adj_qs = AdjustmentEntry.objects.filter(technician=tecnico)
+    if weeks_wanted is not None:
+        adj_qs = adj_qs.filter(week__in=weeks_wanted)
+
+    for a in adj_qs:
+        amt = a.amount if isinstance(
+            a.amount, Decimal) else Decimal(str(a.amount or 0))
+        amt_pos = abs(amt)  # SIEMPRE positivo en esta vista
+        rw = (a.week or "—").upper()
+
+        if rw == current_week:
+            total_semana_actual += amt_pos
+
+        filas.append({
+            "sesion": None,
+            "project_id": a.project_id or "",      # conserva por si lo necesitas
+            "week": a.week or "—",
+            "status": "",
+            "is_discount": False,
+            # 👉 Mostrar datos tal como en admin
+            "client": a.client or "-",
+            "city": a.city or "-",
+            "project": a.project or "-",
+            "office": a.office or "-",
+            "real_week": rw,
+            "total_tecnico": amt_pos,              # positivo
+            "detalle": [],
+            "adjustment_type": a.adjustment_type,  # para badge
+            "adjustment_label": a.get_adjustment_type_display(),  # para Project ID
         })
 
     # Orden: actual, futuras, pasadas, sin semana
@@ -4548,48 +4757,85 @@ ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 @transaction.atomic
 def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -> dict:
     """
-    Sincroniza WeeklyPayment con la producción (incluye descuentos):
-    - Actualiza amount si cambió (approved_user -> pending_payment).
-    - Elimina registros sin producción (== 0) si status != 'paid'.
-    - [opcional] Crea los que faltan cuando create_missing=True (pueden ser negativos).
+    Sincroniza WeeklyPayment con la producción **y** ajustes:
+    - amount = (producción aprobada + líneas negativas) + (bonus/advance/fixed_salary)
+    - Si cambia el monto: pasa a pending_payment cuando estaba approved_user.
+    - Elimina registros sin producción/ajustes (total == 0) si no están pagados.
+    - create_missing=True crea los que faltan (solo si total != 0).
     """
-    # ✅ Incluir DESCUENTOS: OR subtotal__lt=0
-    base = (
+    # ===== 1) PRODUCCIÓN (ItemBillingTecnico) =====
+    base_items = (
         ItemBillingTecnico.objects
         .filter(item__sesion__semana_pago_real__gt="")
         .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
     )
     if week:
-        base = base.filter(item__sesion__semana_pago_real=week)
+        base_items = base_items.filter(item__sesion__semana_pago_real=week)
 
-    agg = (
-        base.values("tecnico_id", "item__sesion__semana_pago_real")
-        .annotate(total=Sum("subtotal"))
+    dec0 = Value(Decimal("0.00"), output_field=DecimalField(
+        max_digits=18, decimal_places=2))
+
+    agg_items = (
+        base_items
+        .values("tecnico_id", "item__sesion__semana_pago_real")
+        .annotate(total=Coalesce(Sum("subtotal"), dec0,
+                                 output_field=DecimalField(max_digits=18, decimal_places=2)))
     )
 
-    # 👉 No descartamos negativos. Sólo excluimos exactamente 0 para que
-    #     se elimine el WP existente o no se cree uno vacío.
-    prod_totals = {
-        (row["tecnico_id"], row["item__sesion__semana_pago_real"]): (row["total"] or Decimal("0"))
-        for row in agg
-        if (row["total"] or Decimal("0")) != 0
+    items_totals = {
+        (r["tecnico_id"], r["item__sesion__semana_pago_real"]): (r["total"] or Decimal("0.00"))
+        for r in agg_items
     }
+
+    # ===== 2) AJUSTES (AdjustmentEntry) =====
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    adj_totals = {}
+    if AdjustmentEntry is not None:
+        adj_qs = AdjustmentEntry.objects.all()
+        if week:
+            adj_qs = adj_qs.filter(week=week)
+
+        agg_adj = (
+            adj_qs
+            .values("technician_id", "week")
+            .annotate(total=Coalesce(Sum("amount"), dec0,
+                                     output_field=DecimalField(max_digits=18, decimal_places=2)))
+        )
+        adj_totals = {
+            (r["technician_id"], r["week"]): (r["total"] or Decimal("0.00"))
+            for r in agg_adj
+        }
+
+    # ===== 3) SUMA (producción + ajustes) POR (tecnico, week) =====
+    from collections import defaultdict
+    merged = defaultdict(lambda: Decimal("0.00"))
+    for k, v in items_totals.items():
+        merged[k] += v
+    for k, v in adj_totals.items():
+        merged[k] += v
+
+    # descarta exactamente 0
+    prod_totals = {k: v for k, v in merged.items() if v != 0}
 
     updated = deleted = created = 0
 
+    # ===== 4) Actualiza / elimina existentes =====
     for wp in WeeklyPayment.objects.select_for_update():
         if week and wp.week != week:
             continue
 
         key = (wp.technician_id, wp.week)
         if key not in prod_totals:
-            # no hay producción neta (== 0) → eliminar si no está pagado
             if wp.status != "paid":
                 wp.delete()
                 deleted += 1
             continue
 
-        total = prod_totals[key]
+        total = prod_totals.pop(key)
         if wp.amount != total:
             wp.amount = total
             save_fields = ["amount", "updated_at"]
@@ -4599,9 +4845,7 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
             wp.save(update_fields=save_fields)
             updated += 1
 
-        prod_totals.pop(key, None)  # ya atendido
-
-    # Crea los que faltan (incluye negativos)
+    # ===== 5) Crea faltantes =====
     if create_missing and prod_totals:
         to_create = [
             WeeklyPayment(
@@ -4618,7 +4862,6 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
 
     return {"updated": updated, "deleted": deleted, "created": created}
 
-
 # ================================ ADMIN / PM ================================ #
 
 
@@ -4631,62 +4874,18 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
 def admin_weekly_payments(request):
     """
     Pagos semanales:
-    - TOP: semana actual (no pagados). Se sincroniza creando faltantes.
-    - Bottom (Paid): historial con filtros, paginación y desglose por Project ID/Subtotal.
-    Incluye DESCUENTOS (subtotales negativos) en los desgloses por proyecto.
+    - TOP: semana actual (no pagados; crea faltantes). Muestra desglose por proyecto y
+      además líneas para Direct discount y para ajustes (Fixed salary/Bonus/Advance).
+    - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
     """
     import re
     from decimal import Decimal
+    from collections import defaultdict
     from urllib.parse import urlencode
-    from django.db.models import Q, F, Sum
+    from django.db.models import Q, F, Sum, Value, DecimalField
+    from django.db.models.functions import Coalesce
 
-    # Semana ISO actual
-    y, w, _ = timezone.localdate().isocalendar()
-    current_week = f"{y}-W{int(w):02d}"
-
-    # 🔧 Sincroniza SOLO la semana actual y CREA faltantes (pueden ser negativos)
-    _sync_weekly_totals(week=current_week, create_missing=True)
-
-    # ------------------ TOP (This week) ------------------
-    # ✅ Solo mostrar registros con amount > 0 (si es 0 o negativo NO se paga)
-    top_qs = (
-        WeeklyPayment.objects
-        .filter(week=current_week, amount__gt=0)     # ← CAMBIO CLAVE
-        .exclude(status="paid")
-        .select_related("technician")
-        .order_by("status", "technician__first_name", "technician__last_name")
-    )
-    top = list(top_qs)
-
-    # Desglose por proyecto para TOP  ✅ incluye descuentos (para referencia)
-    tech_ids_top = {wp.technician_id for wp in top}
-    details_map_top = {}
-    if tech_ids_top:
-        det = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id__in=tech_ids_top,
-                item__sesion__semana_pago_real=current_week,
-            )
-            .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-            .values(
-                "tecnico_id",
-                "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
-            )
-            .annotate(subtotal=Sum("subtotal"))
-            .order_by("project_id")
-        )
-        for r in det:
-            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
-            details_map_top.setdefault(key, []).append(
-                {"project_id": r["project_id"],
-                    "subtotal": r["subtotal"] or Decimal("0")}
-            )
-    for wp in top:
-        wp.details = details_map_top.get((wp.technician_id, wp.week), [])
-
-    # ------------------ Helpers para normalizar semana (historial) ------------------
+    # ========= Helpers locales =========
     def _norm_week_input(raw: str) -> str:
         s = (raw or "").strip().upper()
         if not s:
@@ -4696,13 +4895,101 @@ def admin_weekly_payments(request):
             yy = int(m_year.group(1))
             ww = int(m_year.group(2))
             return f"{yy}-W{ww:02d}"
+        y, w, _ = timezone.localdate().isocalendar()
         m_now = re.match(r"^W?(\d{1,2})$", s)
         if m_now:
             ww = int(m_now.group(1))
             return f"{y}-W{ww:02d}"
         return s
 
-    # ------------------ Filtros GET (historial pagado) ------------------
+    def _dec0():
+        return Value(Decimal("0.00"), output_field=DecimalField(max_digits=18, decimal_places=2))
+
+    # Etiquetas legibles para ajustes
+    ADJ_LABEL = {
+        "fixed_salary": "Fixed salary",
+        "bonus": "Bonus",
+        "advance": "Advance",
+    }
+
+    # ========= Semana actual + sync =========
+    y, w, _ = timezone.localdate().isocalendar()
+    current_week = f"{y}-W{int(w):02d}"
+
+    # Crea/ajusta weekly payments para la semana actual (incluye ajustes)
+    _sync_weekly_totals(week=current_week, create_missing=True)
+
+    # ========= TOP (This week) =========
+    top_qs = (
+        WeeklyPayment.objects
+        .filter(week=current_week, amount__gt=0)   # sólo pagables
+        .exclude(status="paid")
+        .select_related("technician")
+        .order_by("status", "technician__first_name", "technician__last_name")
+    )
+    top = list(top_qs)
+
+    # ---- Desglose (This week): producción + ajustes
+    ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    tech_ids_top = {wp.technician_id for wp in top}
+    details_map_top: dict[tuple[int, str], list] = {}
+
+    # 1) Producción por proyecto, separando si fue "descuento directo"
+    if tech_ids_top:
+        det_prod = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id__in=tech_ids_top,
+                item__sesion__semana_pago_real=current_week,
+            )
+            .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
+            .values(
+                "tecnico_id",
+                "item__sesion__semana_pago_real",
+                "item__sesion__proyecto_id",
+                is_discount=F("item__sesion__is_direct_discount"),
+            )
+            .annotate(subtotal=Coalesce(Sum("subtotal"), _dec0(),
+                                        output_field=DecimalField(max_digits=18, decimal_places=2)))
+            .order_by("item__sesion__proyecto_id")
+        )
+        for r in det_prod:
+            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            label = "Direct discount" if r["is_discount"] else (
+                r["item__sesion__proyecto_id"] or "—")
+            details_map_top.setdefault(key, []).append(
+                {"project_label": str(
+                    label), "subtotal": r["subtotal"] or Decimal("0.00")}
+            )
+
+    # 2) Ajustes de la semana actual (Fixed salary / Bonus / Advance)
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    if AdjustmentEntry is not None and tech_ids_top:
+        det_adj = (
+            AdjustmentEntry.objects
+            .filter(technician_id__in=tech_ids_top, week=current_week)
+            .values("technician_id", "week", "adjustment_type")
+            .annotate(total=Coalesce(Sum("amount"), _dec0(),
+                                     output_field=DecimalField(max_digits=18, decimal_places=2)))
+        )
+        for r in det_adj:
+            key = (r["technician_id"], r["week"])
+            label = ADJ_LABEL.get(r["adjustment_type"], r["adjustment_type"])
+            details_map_top.setdefault(key, []).append(
+                {"project_label": label,
+                    "subtotal": r["total"] or Decimal("0.00")}
+            )
+
+    # adjuntar al objeto
+    for wp in top:
+        wp.details = details_map_top.get((wp.technician_id, wp.week), [])
+
+    # ========= BOTTOM (historial Paid) =========
     f_tech = (request.GET.get("f_tech") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
     f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
@@ -4730,12 +5017,10 @@ def admin_weekly_payments(request):
     elif f_receipt == "without":
         bottom_qs = bottom_qs.filter(Q(receipt__isnull=True) | Q(receipt=""))
 
-    bottom_qs = bottom_qs.order_by(
-        "-paid_week", "-week",
-        "technician__first_name", "technician__last_name"
-    )
+    bottom_qs = bottom_qs.order_by("-paid_week", "-week",
+                                   "technician__first_name", "technician__last_name")
 
-    # ------------------ Paginación (historial pagado) ------------------
+    # ========= Paginación =========
     cantidad = (request.GET.get("cantidad") or "10").strip().lower()
     page_number = request.GET.get("page") or "1"
 
@@ -4750,14 +5035,15 @@ def admin_weekly_payments(request):
         paginator = Paginator(bottom_qs, per_page)
         pagina = paginator.get_page(page_number)
 
-    # ===== Desglose para el HISTORIAL (Paid)  ✅ incluye descuentos =====
+    # ---- Desglose (Paid): producción + ajustes
     wp_list = list(pagina) if not isinstance(pagina, list) else pagina
     tech_ids_bottom = {wp.technician_id for wp in wp_list}
     weeks_bottom = {wp.week for wp in wp_list}
 
-    details_map_bottom = {}
+    details_map_bottom: dict[tuple[int, str], list] = {}
     if tech_ids_bottom and weeks_bottom:
-        det_b = (
+        # Producción
+        det_b_prod = (
             ItemBillingTecnico.objects
             .filter(
                 tecnico_id__in=tech_ids_bottom,
@@ -4767,21 +5053,44 @@ def admin_weekly_payments(request):
             .values(
                 "tecnico_id",
                 "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
+                "item__sesion__proyecto_id",
+                is_discount=F("item__sesion__is_direct_discount"),
             )
-            .annotate(subtotal=Sum("subtotal"))
-            .order_by("item__sesion__semana_pago_real", "project_id")
+            .annotate(subtotal=Coalesce(Sum("subtotal"), _dec0(),
+                                        output_field=DecimalField(max_digits=18, decimal_places=2)))
+            .order_by("item__sesion__semana_pago_real", "item__sesion__proyecto_id")
         )
-        for r in det_b:
+        for r in det_b_prod:
             key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            label = "Direct discount" if r["is_discount"] else (
+                r["item__sesion__proyecto_id"] or "—")
             details_map_bottom.setdefault(key, []).append(
-                {"project_id": r["project_id"],
-                    "subtotal": r["subtotal"] or Decimal("0")}
+                {"project_label": str(
+                    label), "subtotal": r["subtotal"] or Decimal("0.00")}
             )
+
+        # Ajustes
+        if AdjustmentEntry is not None:
+            det_b_adj = (
+                AdjustmentEntry.objects
+                .filter(technician_id__in=tech_ids_bottom, week__in=weeks_bottom)
+                .values("technician_id", "week", "adjustment_type")
+                .annotate(total=Coalesce(Sum("amount"), _dec0(),
+                                         output_field=DecimalField(max_digits=18, decimal_places=2)))
+            )
+            for r in det_b_adj:
+                key = (r["technician_id"], r["week"])
+                label = ADJ_LABEL.get(
+                    r["adjustment_type"], r["adjustment_type"])
+                details_map_bottom.setdefault(key, []).append(
+                    {"project_label": label,
+                        "subtotal": r["total"] or Decimal("0.00")}
+                )
+
     for wp in wp_list:
         wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
 
-    # Querystring para mantener filtros en la paginación
+    # ========= Querystring para mantener filtros =========
     keep = {
         "f_tech": f_tech,
         "f_week": f_week_input,
@@ -4793,7 +5102,7 @@ def admin_weekly_payments(request):
 
     return render(request, "operaciones/pagos_admin_list.html", {
         "current_week": current_week,
-        "top": top,                     # ← ya sin montos <= 0
+        "top": top,
         "pagina": pagina,
         "cantidad": cantidad,
         "filters_qs": filters_qs,
@@ -5006,12 +5315,8 @@ def user_weekly_payments(request):
     Vista del trabajador:
     - Sincroniza sus registros (sin crear nuevos).
     - Lista sus WeeklyPayment.
-    - Adjunta 'details' por proyecto y un display_amount por semana
-      calculados desde ItemBillingTecnico (incluye descuentos).
+    - Adjunta 'details' (producción + ajustes) y 'display_amount' por semana.
     """
-    from decimal import Decimal
-    from django.db.models import Q, Exists, OuterRef, Sum, F
-
     # sincroniza SOLO este técnico, sin crear weeklies
     sync_weekly_totals_no_create(technician_id=request.user.id)
 
@@ -5019,50 +5324,59 @@ def user_weekly_payments(request):
     current_week = f"{y}-W{int(w):02d}"
 
     ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    user_id = request.user.id
 
-    # ¿Existe producción NO CERO (positiva o negativa) para (tecnico, week)?
+    # --------- Subqueries para decidir qué semanas mostrar ----------
+    # Producción (aprobada o descuentos) con total != 0
     prod_exists = (
         ItemBillingTecnico.objects
         .filter(
-            tecnico_id=request.user.id,
+            tecnico_id=user_id,
             item__sesion__semana_pago_real=OuterRef("week"),
         )
-        # Aprobadas O descuentos (subtotal<0)
         .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
         .values("tecnico_id")
         .annotate(total=Sum("subtotal"))
         .exclude(total=0)
     )
 
-    # Borra huérfanos (no paid) que no tengan producción vigente
+    # Ajustes (bonus / salary / advance) con amount > 0
+    adj_exists = (
+        AdjustmentEntry.objects
+        .filter(technician_id=user_id, week=OuterRef("week"), amount__gt=0)
+        .values("id")[:1]
+    )
+
+    # Borra weeklies huérfanos (no paid) sin producción ni ajustes vigentes
     (WeeklyPayment.objects
-        .filter(technician=request.user)
-        .annotate(has_prod=Exists(prod_exists))
-        .filter(has_prod=False)
+        .filter(technician_id=user_id)
+        .annotate(has_prod=Exists(prod_exists), has_adj=Exists(adj_exists))
+        .filter(has_prod=False, has_adj=False)
         .exclude(status="paid")
         .delete())
 
-    # Lista sólo los que sí tienen producción vigente (positiva o negativa)
+    # Lista solo los que sí tienen producción o ajustes
     mine_qs = (
         WeeklyPayment.objects
-        .filter(technician=request.user)
-        .annotate(has_prod=Exists(prod_exists))
-        .filter(has_prod=True)
+        .filter(technician_id=user_id)
+        .annotate(has_prod=Exists(prod_exists), has_adj=Exists(adj_exists))
+        .filter(Q(has_prod=True) | Q(has_adj=True))
         .select_related("technician")
         .order_by("-week")
     )
     mine = list(mine_qs)
 
-    # Desglose y total recalculado por semana (incluye descuentos)
+    # --------- Desglose y total por semana ----------
     weeks = {wp.week for wp in mine}
-    details_map: dict[str, list] = {}
-    totals_map: dict[str, Decimal] = {}
+    details_map = {}
+    totals_map = {}
 
+    # 1) Producción (por Project ID)
     if weeks:
-        det = (
+        det_prod = (
             ItemBillingTecnico.objects
             .filter(
-                tecnico_id=request.user.id,
+                tecnico_id=user_id,
                 item__sesion__semana_pago_real__in=weeks,
             )
             .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
@@ -5073,16 +5387,36 @@ def user_weekly_payments(request):
             .annotate(subtotal=Sum("subtotal"))
             .order_by("item__sesion__semana_pago_real", "project_id")
         )
-
-        for r in det:
+        for r in det_prod:
             week = r["item__sesion__semana_pago_real"]
             sub = r["subtotal"] or Decimal("0")
-            details_map.setdefault(week, []).append(
-                {"project_id": r["project_id"], "subtotal": sub}
-            )
-            totals_map[week] = (totals_map.get(week, Decimal("0")) + sub)
+            details_map.setdefault(week, []).append({
+                "project_id": r["project_id"],
+                "subtotal": sub,
+                # no es ajuste → sin label
+            })
+            totals_map[week] = totals_map.get(week, Decimal("0")) + sub
 
-    # Adjunta details y el monto a mostrar (display_amount)
+    # 2) Ajustes (siempre POSITIVOS en esta vista)
+    LABEL = {"bonus": "Bonus",
+             "fixed_salary": "Fixed salary", "advance": "Advance"}
+    det_adj = list(
+        AdjustmentEntry.objects
+        .filter(technician_id=user_id, week__in=weeks, amount__gt=0)
+        .values("week", "adjustment_type", "amount", "project_id")
+    )
+    for a in det_adj:
+        week = a["week"]
+        amt = Decimal(a["amount"] or 0)
+        amt = abs(amt)  # Advance suma positivo
+        details_map.setdefault(week, []).append({
+            "project_id": a.get("project_id") or "-",
+            "label": LABEL.get(a["adjustment_type"], a["adjustment_type"]),
+            "subtotal": amt,
+        })
+        totals_map[week] = totals_map.get(week, Decimal("0")) + amt
+
+    # Adjuntar a cada WP
     for wp in mine:
         wp.details = details_map.get(wp.week, [])
         wp.display_amount = totals_map.get(wp.week, Decimal("0"))

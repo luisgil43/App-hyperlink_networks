@@ -684,3 +684,65 @@ class ProjectPlan(models.Model):
     @property
     def label(self) -> str:
         return f"Plan {self.plan_number}"
+
+
+# operations/models_adjustments.py  (o dentro de models.py si prefieres)
+
+
+class AdjustmentEntry(models.Model):
+    TYPES = [
+        ("bonus", "Bonus"),
+        ("advance", "Advance"),
+        ("fixed_salary", "Fixed salary"),
+    ]
+
+    # A quién se aplica
+    technician = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="adjustments"
+    )
+
+    # Para ubicarlo en la vista y en pagos
+    # ISO: YYYY-Www (ej: 2025-W34)
+    week = models.CharField(max_length=10, db_index=True)
+
+    # Datos descriptivos “ligeros” del proyecto (solo para visualizar en la tabla)
+    client = models.CharField(max_length=120, blank=True, default="")
+    city = models.CharField(max_length=120, blank=True, default="")
+    project = models.CharField(max_length=120, blank=True, default="")
+    office = models.CharField(max_length=120, blank=True, default="")
+    project_id = models.CharField(
+        max_length=64, blank=True, default="")  # opcional
+
+    # Ajuste
+    adjustment_type = models.CharField(max_length=20, choices=TYPES)
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    note = models.CharField(max_length=255, blank=True, default="")
+
+    # Metadatos
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="adjustments_created"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("-week", "-id")
+        indexes = [
+            models.Index(fields=["technician", "week"]),
+            models.Index(fields=["adjustment_type"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_adjustment_type_display()} • {self.technician} • {self.week}"
+
+    @property
+    def signed_amount(self):
+        """
+        Convención:
+          - bonus: +amount
+          - fixed_salary: +amount
+          - advance: -amount
+        """
+        if self.adjustment_type == "advance":
+            return -abs(self.amount or 0)
+        return abs(self.amount or 0)

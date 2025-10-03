@@ -12,7 +12,7 @@
       <h1 class="text-2xl font-bold">✅ Production Verification</h1>
     </div>
 
-    <!-- Derecha: Current week + botón (mobile friendly) -->
+    <!-- Derecha: Current week + botones -->
     <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
       <span class="text-sm text-gray-600 text-center sm:text-left">
         Current week: <b>{{ current_week }}</b>
@@ -22,15 +22,20 @@
         <span class="sm:hidden">💳 Totals</span>
         <span class="hidden sm:inline">💳 Show totals to pay</span>
       </a>
-<!-- ... dentro del header, al lado del botón de totals ... -->
-<a href="{% url 'operaciones:Exportar_produccion_admin' %}?{{ filters_qs }}"
-   class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
-  ⬇ Export
-</a>
+
+      <a href="{% url 'operaciones:adjustment_new' %}"
+         class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+        ➕ New Adjustment
+      </a>
+
+      <a href="{% url 'operaciones:Exportar_produccion_admin' %}?{{ filters_qs }}"
+         class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+        ⬇ Export
+      </a>
     </div>
   </div>
 
-  <!-- Filtros sutiles (auto) -->
+  <!-- Filtros -->
   <form id="filters" class="mb-3" onsubmit="return false;">
     <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
       <div>
@@ -64,10 +69,10 @@
     </div>
   </form>
 
-  <!-- 👇 wrapper para actualización parcial (tabla + paginación) -->
+  <!-- Tabla -->
   <div id="prod-wrap">
     <div class="rounded-xl border border-gray-200 overflow-x-auto">
-      <table class="table-auto text-sm w-full min-w-[1400px]" style="white-space: nowrap;">
+      <table class="table-auto text-sm w-full min-w-[1500px]" style="white-space: nowrap;">
         <thead class="bg-gray-100">
           <tr>
             <th class="p-2 border w-10"></th>
@@ -79,11 +84,11 @@
             <th class="p-2 border text-left">City</th>
             <th class="p-2 border text-left">Project</th>
             <th class="p-2 border text-left">Office</th>
-            <th class="p-2 border text-right">Technical Billing</th>
+            <th class="p-2 border text-right">Salary/Technical Billing</th>
+            <th class="p-2 border text-center w-32">Actions</th>
           </tr>
         </thead>
 
-        <!-- BODY con soporte para "All" -->
         <tbody>
           {% if cantidad == 'todos' %}
             {% for r in pagina.object_list %}
@@ -99,11 +104,17 @@
                   </button>
                 </td>
 
-                <td class="p-2 border">{{ r.project_id }}</td>
+                <td class="p-2 border">{{ r.project_id|default:"-" }}</td>
                 <td class="p-2 border">{{ r.week }}</td>
                 <td class="p-2 border">
                   {% if r.is_discount %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">Direct discount</span>
+                  {% elif r.adjustment_type == "bonus" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">Bonus</span>
+                  {% elif r.adjustment_type == "advance" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">Advance</span>
+                  {% elif r.adjustment_type == "fixed_salary" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">Fixed salary</span>
                   {% elif r.status == "aprobado_pm" %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
                   {% elif r.status == "aprobado_supervisor" %}
@@ -126,17 +137,35 @@
                 </td>
 
                 <td class="p-2 border">{{ r.tecnico.get_full_name|default:r.tecnico.username }}</td>
-                <td class="p-2 border">{{ r.client }}</td>
-                <td class="p-2 border">{{ r.city }}</td>
-                <td class="p-2 border">{{ r.project }}</td>
-                <td class="p-2 border">{{ r.office }}</td>
+                <td class="p-2 border">{{ r.client|default:"-" }}</td>
+                <td class="p-2 border">{{ r.city|default:"-" }}</td>
+                <td class="p-2 border">{{ r.project|default:"-" }}</td>
+                <td class="p-2 border">{{ r.office|default:"-" }}</td>
                 <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
+
+                <!-- Actions -->
+                <td class="p-2 border text-center">
+                  {% if r.adjustment_type %}
+                    <div class="inline-flex gap-2">
+                      <a href="{% url 'operaciones:adjustment_edit' r.adjustment_id %}"
+                         class="px-2 py-1 rounded bg-white border hover:bg-gray-50"
+                         title="Edit adjustment">✏️</a>
+
+                      <button type="button"
+                              class="px-2 py-1 rounded bg-white border hover:bg-red-50 text-red-600 btn-del-adj"
+                              data-adjid="{{ r.adjustment_id }}"
+                              title="Delete adjustment">🗑</button>
+                    </div>
+                  {% else %}
+                    <span class="text-gray-400">-</span>
+                  {% endif %}
+                </td>
               </tr>
 
               <!-- Detalle -->
               <tr id="det-{{ forloop.counter }}" class="hidden">
                 <td class="border"></td>
-                <td class="p-3 border bg-gray-50" colspan="10">
+                <td class="p-3 border bg-gray-50" colspan="11">
                   <div class="overflow-x-auto rounded border">
                     <table class="min-w-[900px] w-full text-xs">
                       <thead class="bg-gray-100">
@@ -152,17 +181,17 @@
                       </thead>
                       <tbody>
                         {% for d in r.detalle %}
-                        <tr class="border-t">
-                          <td class="p-2">{{ d.codigo }}</td>
-                          <td class="p-2">{{ d.tipo }}</td>
-                          <td class="p-2">{{ d.desc }}</td>
-                          <td class="p-2">{{ d.uom }}</td>
-                          <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
-                          <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
-                          <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
-                        </tr>
+                          <tr class="border-t">
+                            <td class="p-2">{{ d.codigo }}</td>
+                            <td class="p-2">{{ d.tipo }}</td>
+                            <td class="p-2">{{ d.desc }}</td>
+                            <td class="p-2">{{ d.uom }}</td>
+                            <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
+                            <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
+                            <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
+                          </tr>
                         {% empty %}
-                        <tr><td colspan="7" class="p-2 text-center text-gray-500">No items for this technician.</td></tr>
+                          <tr><td colspan="7" class="p-2 text-center text-gray-500">No items for this technician.</td></tr>
                         {% endfor %}
                       </tbody>
                     </table>
@@ -173,7 +202,7 @@
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="11" class="p-4 text-center text-gray-500">No production to show.</td></tr>
+              <tr><td colspan="12" class="p-4 text-center text-gray-500">No production to show.</td></tr>
             {% endfor %}
 
           {% else %}
@@ -190,11 +219,17 @@
                   </button>
                 </td>
 
-                <td class="p-2 border">{{ r.project_id }}</td>
+                <td class="p-2 border">{{ r.project_id|default:"-" }}</td>
                 <td class="p-2 border">{{ r.week }}</td>
                 <td class="p-2 border">
                   {% if r.is_discount %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">Direct discount</span>
+                  {% elif r.adjustment_type == "bonus" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">Bonus</span>
+                  {% elif r.adjustment_type == "advance" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">Advance</span>
+                  {% elif r.adjustment_type == "fixed_salary" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">Fixed salary</span>
                   {% elif r.status == "aprobado_pm" %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
                   {% elif r.status == "aprobado_supervisor" %}
@@ -217,17 +252,35 @@
                 </td>
 
                 <td class="p-2 border">{{ r.tecnico.get_full_name|default:r.tecnico.username }}</td>
-                <td class="p-2 border">{{ r.client }}</td>
-                <td class="p-2 border">{{ r.city }}</td>
-                <td class="p-2 border">{{ r.project }}</td>
-                <td class="p-2 border">{{ r.office }}</td>
+                <td class="p-2 border">{{ r.client|default:"-" }}</td>
+                <td class="p-2 border">{{ r.city|default:"-" }}</td>
+                <td class="p-2 border">{{ r.project|default:"-" }}</td>
+                <td class="p-2 border">{{ r.office|default:"-" }}</td>
                 <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
+
+                <!-- Actions -->
+                <td class="p-2 border text-center">
+                  {% if r.adjustment_type %}
+                    <div class="inline-flex gap-2">
+                      <a href="{% url 'operaciones:adjustment_edit' r.adjustment_id %}"
+                         class="px-2 py-1 rounded bg-white border hover:bg-gray-50"
+                         title="Edit adjustment">✏️</a>
+
+                      <button type="button"
+                              class="px-2 py-1 rounded bg-white border hover:bg-red-50 text-red-600 btn-del-adj"
+                              data-adjid="{{ r.adjustment_id }}"
+                              title="Delete adjustment">🗑</button>
+                    </div>
+                  {% else %}
+                    <span class="text-gray-400">-</span>
+                  {% endif %}
+                </td>
               </tr>
 
               <!-- Detalle -->
               <tr id="det-{{ forloop.counter }}" class="hidden">
                 <td class="border"></td>
-                <td class="p-3 border bg-gray-50" colspan="10">
+                <td class="p-3 border bg-gray-50" colspan="11">
                   <div class="overflow-x-auto rounded border">
                     <table class="min-w-[900px] w-full text-xs">
                       <thead class="bg-gray-100">
@@ -243,17 +296,17 @@
                       </thead>
                       <tbody>
                         {% for d in r.detalle %}
-                        <tr class="border-t">
-                          <td class="p-2">{{ d.codigo }}</td>
-                          <td class="p-2">{{ d.tipo }}</td>
-                          <td class="p-2">{{ d.desc }}</td>
-                          <td class="p-2">{{ d.uom }}</td>
-                          <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
-                          <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
-                          <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
-                        </tr>
+                          <tr class="border-t">
+                            <td class="p-2">{{ d.codigo }}</td>
+                            <td class="p-2">{{ d.tipo }}</td>
+                            <td class="p-2">{{ d.desc }}</td>
+                            <td class="p-2">{{ d.uom }}</td>
+                            <td class="p-2 text-right">{{ d.qty|floatformat:2 }}</td>
+                            <td class="p-2 text-right">{{ d.rate_tec|floatformat:2 }}</td>
+                            <td class="p-2 text-right">{{ d.subtotal_tec|floatformat:2 }}</td>
+                          </tr>
                         {% empty %}
-                        <tr><td colspan="7" class="p-2 text-center text-gray-500">No items for this technician.</td></tr>
+                          <tr><td colspan="7" class="p-2 text-center text-gray-500">No items for this technician.</td></tr>
                         {% endfor %}
                       </tbody>
                     </table>
@@ -264,14 +317,12 @@
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="11" class="p-4 text-center text-gray-500">No production to show.</td></tr>
+              <tr><td colspan="12" class="p-4 text-center text-gray-500">No production to show.</td></tr>
             {% endfor %}
           {% endif %}
         </tbody>
       </table>
     </div>
-
-    {# ========= Paginación / Selector ========== #}
 
     {% if cantidad != 'todos' and pagina.paginator.num_pages > 1 %}
       <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
@@ -301,12 +352,11 @@
           <a data-pagelink href="?{{ filters_qs }}&page={{ pagina.next_page_number }}"
              class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
           <a data-pagelink
-   href="?{{ filters_qs }}&page={{ pagina.next_page_number }}"
-   class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+             href="?{{ filters_qs }}&page={{ pagina.next_page_number }}"
+             class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
         {% endif %}
       </div>
     {% else %}
-      {# MODO 'All' o cuando solo hay 1 página: solo mostramos el selector #}
       <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
         <form method="get" class="flex items-center gap-2" onsubmit="return false;">
           <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -319,6 +369,18 @@
         </form>
       </div>
     {% endif %}
+  </div>
+</div>
+
+<!-- Modal eliminar -->
+<div id="modal-del" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-5">
+    <h3 class="text-lg font-semibold mb-2">Delete adjustment</h3>
+    <p class="text-sm text-gray-600 mb-4">This action cannot be undone. Are you sure?</p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="btn-cancel-del" class="px-3 py-2 rounded border bg-white hover:bg-gray-50">Cancel</button>
+      <button type="button" id="btn-confirm-del" class="px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white">Delete</button>
+    </div>
   </div>
 </div>
 
@@ -343,7 +405,7 @@ document.addEventListener('click', function(e){
 });
 </script>
 
-<!-- Filtros + paginación (AJAX) -->
+<!-- Filtros + paginación (AJAX) y Delete -->
 <script>
   function paramsFromFilters() {
     const params = new URLSearchParams(new FormData(document.getElementById('filters')));
@@ -355,7 +417,6 @@ document.addEventListener('click', function(e){
   async function refreshProd(urlOrParams) {
     let url;
     if (typeof urlOrParams === 'string') {
-      // si el string no trae page, lo dejamos en 1
       if (!/[?&]page=\d+/.test(urlOrParams)) {
         const sep = urlOrParams.includes('?') ? '&' : '?';
         urlOrParams = urlOrParams + sep + 'page=1';
@@ -363,7 +424,6 @@ document.addEventListener('click', function(e){
       url = urlOrParams.startsWith('?') ? (location.pathname + urlOrParams) : urlOrParams;
     } else {
       const p = (urlOrParams instanceof URLSearchParams) ? urlOrParams : paramsFromFilters();
-      // siempre que regeneramos desde filtros, partimos en 1
       p.set('page', '1');
       url = location.pathname + '?' + p.toString();
     }
@@ -378,25 +438,61 @@ document.addEventListener('click', function(e){
   let t = null;
   function schedule(){ clearTimeout(t); t = setTimeout(()=>refreshProd(paramsFromFilters()), 450); }
 
-  // cualquier input de filtros → page=1
   document.querySelectorAll('#filters input[type="text"]').forEach(el=>{
     el.addEventListener('input',  schedule);
     el.addEventListener('change', schedule);
   });
 
-  // “cantidad” también resetea a 1
   document.addEventListener('change', (e)=>{
     if (e.target && e.target.id === 'cantidad') {
       const p = paramsFromFilters(); p.set('page','1'); refreshProd(p);
     }
   });
 
-  // links de paginación
   document.addEventListener('click', (e)=>{
     const a = e.target.closest('a[data-pagelink]');
     if (!a) return;
     e.preventDefault();
     refreshProd(a.getAttribute('href'));
+  });
+
+  // --- Delete modal + POST ---
+  function getCSRF(){
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+  let toDelete = null;
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-del-adj');
+    if(!btn) return;
+    toDelete = btn.getAttribute('data-adjid');
+    document.getElementById('modal-del').classList.remove('hidden');
+    document.getElementById('modal-del').classList.add('flex');
+  });
+  document.getElementById('btn-cancel-del').addEventListener('click', ()=>{
+    toDelete = null;
+    document.getElementById('modal-del').classList.add('hidden');
+    document.getElementById('modal-del').classList.remove('flex');
+  });
+  document.getElementById('btn-confirm-del').addEventListener('click', async ()=>{
+    if(!toDelete) return;
+    try{
+      const resp = await fetch("{% url 'operaciones:adjustment_delete' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRF(),
+          "X-Requested-With": "fetch"
+        },
+        body: JSON.stringify({ id: toDelete })
+      });
+      // cerrar modal y refrescar
+      document.getElementById('btn-cancel-del').click();
+      await refreshProd(location.search || '?{{ filters_qs }}');
+    } catch(err){
+      console.error(err);
+      document.getElementById('btn-cancel-del').click();
+    }
   });
 </script>
 {% endblock %}

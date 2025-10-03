@@ -7,7 +7,6 @@
 <div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <div class="flex items-center justify-between mb-4">
-    <!-- 🔙 Botón Back -->
     <div class="flex items-center gap-2">
       <a href="{% url 'operaciones:produccion_usuario' %}" 
          class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-full shadow text-sm">
@@ -15,8 +14,6 @@
       </a>
       <h1 class="text-2xl font-bold">💵 Approve my payment</h1>
     </div>
-
-    <!-- Semana actual -->
     <div class="text-sm text-gray-600">Current week: <b>{{ current_week }}</b></div>
   </div>
 
@@ -35,7 +32,6 @@
       </thead>
       <tbody>
         {% for r in mine %}
-        <!-- Fila principal -->
         <tr class="border-b align-top">
           <td class="p-2 text-center">
             <button type="button"
@@ -48,13 +44,13 @@
           </td>
 
           <td class="p-2">{{ r.week }}</td>
-        <td class="p-2 text-right">
-  {% if r.display_amount < 0 %}
-    <span class="text-red-600">-${{ r.display_amount|floatformat:2|cut:"-" }}</span>
-  {% else %}
-    ${{ r.display_amount|floatformat:2 }}
-  {% endif %}
-</td>
+          <td class="p-2 text-right">
+            {% if r.display_amount < 0 %}
+              <span class="text-red-600">-${{ r.display_amount|floatformat:2|cut:"-" }}</span>
+            {% else %}
+              ${{ r.display_amount|floatformat:2 }}
+            {% endif %}
+          </td>
 
           <td class="p-2">
             {% if r.status == "pending_user" %}
@@ -93,7 +89,6 @@
                 Reject
               </button>
             {% else %}
-              <!-- Botones desactivados visualmente -->
               <div class="flex items-center gap-2">
                 <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Approve</button>
                 <button class="px-3 py-1 rounded bg-gray-200 text-gray-400 cursor-not-allowed" disabled>Reject</button>
@@ -102,7 +97,7 @@
           </td>
         </tr>
 
-        <!-- Fila de detalle: Project ID + Subtotal -->
+        <!-- Detalle -->
         <tr id="det-user-{{ r.id }}" class="hidden">
           <td class="p-0"></td>
           <td colspan="6" class="bg-gray-50 p-3">
@@ -117,15 +112,15 @@
                 <tbody>
                   {% for d in r.details %}
                   <tr class="border-t">
-                    <td class="p-2">{{ d.project_id }}</td>
+                    <!-- si es ajuste, mostramos su label; si no, el id -->
+                    <td class="p-2">{{ d.label|default:d.project_id }}</td>
                     <td class="p-2 text-right">
-  {% if d.subtotal < 0 %}
-    <span class="text-red-600">-${{ d.subtotal|floatformat:2|cut:"-" }}</span>
-  {% else %}
-    ${{ d.subtotal|floatformat:2 }}
-  {% endif %}
-</td>
-
+                      {% if d.subtotal < 0 %}
+                        <span class="text-red-600">-${{ d.subtotal|floatformat:2|cut:"-" }}</span>
+                      {% else %}
+                        ${{ d.subtotal|floatformat:2 }}
+                      {% endif %}
+                    </td>
                   </tr>
                   {% empty %}
                   <tr><td colspan="2" class="p-2 text-center text-gray-500">No breakdown.</td></tr>
@@ -160,7 +155,6 @@
 </div>
 
 <script>
-  // Toggle de filas (chevron)
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.btn-toggle');
     if(!btn) return;
@@ -173,7 +167,6 @@
     btn.setAttribute('aria-expanded', (!open).toString());
   });
 
-  // Controls for reject modal
   function openReject(id) {
     const fm = document.getElementById('reject-form');
     fm.action = "{% url 'operaciones:user_reject_payment' 0 %}".replace('/0/', '/' + id + '/');
