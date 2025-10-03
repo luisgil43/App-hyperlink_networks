@@ -1,4 +1,5 @@
 # operations/views_adjustments.py
+from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -25,12 +26,10 @@ User = get_user_model()
 @login_required
 def adjustment_new(request):
     """
-    Form para crear AdjustmentEntry:
-      - Project es un select de facturacion.Proyecto
-      - NO se muestran client/city/office/project_id/note
-      - Se copian datos 'ligeros' desde Proyecto
+    Crear AdjustmentEntry:
+      - Project es un <select> de facturacion.Proyecto
+      - Se copian datos “ligeros” desde Proyecto a los campos del ajuste
     """
-    # semana ISO actual
     y, w, _ = timezone.now().isocalendar()
     current_week = f"{y}-W{int(w):02d}"
 
@@ -38,14 +37,18 @@ def adjustment_new(request):
         tech_id = request.POST.get("technician")
         adj_type = request.POST.get("adjustment_type")
         week = (request.POST.get("week") or current_week).strip()
-        amount_raw = request.POST.get("amount") or "0"
-        proyecto_id = request.POST.get("project_select")  # <- del <select>
+        amount_raw = (request.POST.get("amount") or "0").replace(",", "")
+        proyecto_id = request.POST.get("project_select") or ""
 
-        # objetos
+        # puede levantar DoesNotExist si no existe
         technician = User.objects.get(pk=tech_id)
-        proyecto = Proyecto.objects.filter(pk=proyecto_id).first()
+        proyecto = Proyecto.objects.filter(
+            pk=proyecto_id).first() if proyecto_id else None
 
-        amount = Decimal(str(amount_raw))
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError):
+            amount = Decimal("0")
 
         # mapear datos ligeros desde Proyecto
         project_name = proyecto.nombre if proyecto else ""
@@ -57,7 +60,7 @@ def adjustment_new(request):
             week=week,
             adjustment_type=adj_type,
             amount=amount,
-            # Ligeros en tabla (solo visuales)
+            # ligeros (solo visuales)
             project=project_name,
             client=client_name,
             project_id=project_code,
@@ -75,54 +78,72 @@ def adjustment_new(request):
         "techs": techs,
         "projects": projects,
         "current_week": current_week,
+        "editing": False,
+        "selected_project_id": None,
     })
 
 
 @login_required
 def adjustment_edit(request, pk):
     """
-    Edita un AdjustmentEntry y precarga el formulario con sus datos.
+    Editar AdjustmentEntry:
+      - Muestra el mismo <select> de proyectos que en "new"
+      - Al guardar, vuelve a mapear datos ligeros desde Proyecto
     """
     adj = get_object_or_404(AdjustmentEntry, pk=pk)
 
     if request.method == "POST":
-        # Campos básicos
+        # básicos
         tech_id = request.POST.get("technician") or adj.technician_id
         adj.technician_id = int(tech_id)
         adj.adjustment_type = request.POST.get(
             "adjustment_type") or adj.adjustment_type
-        adj.week = request.POST.get("week") or adj.week
+        adj.week = (request.POST.get("week") or adj.week).strip()
 
         amount_raw = (request.POST.get("amount") or "").replace(",", "")
         try:
             adj.amount = Decimal(
                 amount_raw) if amount_raw != "" else adj.amount
         except (InvalidOperation, TypeError):
-            adj.amount = adj.amount  # deja el anterior si viene mal
+            pass  # deja el valor anterior
 
-        # Campos “ligeros” (si los usas todavía, si no, estos quedan vacíos)
-        adj.client = request.POST.get("client", adj.client or "")
-        adj.city = request.POST.get("city", adj.city or "")
-        adj.project = request.POST.get("project", adj.project or "")
-        adj.office = request.POST.get("office", adj.office or "")
-        adj.project_id = request.POST.get("project_id", adj.project_id or "")
-        adj.note = request.POST.get("note", adj.note or "")
+        # proyecto (viene del <select>)
+        proyecto_id = request.POST.get("project_select") or ""
+        proyecto = Proyecto.objects.filter(
+            pk=proyecto_id).first() if proyecto_id else None
+
+        # Remapear datos ligeros (igual que en "new")
+        adj.project = proyecto.nombre if proyecto else ""
+        adj.client = (proyecto.mandante or "") if proyecto else ""
+        adj.project_id = str(proyecto.pk) if proyecto else ""
+        # si quieres limpiar city/office como en "new":
+        adj.city = ""
+        adj.office = ""
 
         adj.save()
         return redirect("operaciones:produccion_admin")
 
-    # GET → precargar opciones
-    User = get_user_model()
-    techs = User.objects.order_by("first_name", "last_name", "username")
+    # GET → precargar opciones y selección actual
+    techs = User.objects.filter(is_active=True).order_by(
+        "first_name", "last_name", "username")
+    projects = Proyecto.objects.all().order_by("nombre")
+
+    # intentar preseleccionar por el project_id “ligero” guardado
+    try:
+        selected_project_id = int(adj.project_id) if adj.project_id else None
+    except ValueError:
+        selected_project_id = None
 
     return render(
         request,
         "operaciones/adjustment_new.html",
         {
-            "current_week": adj.week,  # para mostrar la semana actual del ajuste
+            "current_week": adj.week,
             "techs": techs,
-            "editing": True,  # bandera para el template
-            "adj": adj,       # objeto a precargar
+            "projects": projects,
+            "editing": True,
+            "adj": adj,
+            "selected_project_id": selected_project_id,
         },
     )
 

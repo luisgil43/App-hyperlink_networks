@@ -4575,15 +4575,19 @@ def Exportar_produccion_admin(request):
 def produccion_usuario(request):
     """
     Producción del técnico logueado.
-    Incluye:
-      - sesiones aprobadas (Supervisor/PM/Finanzas)
-      - descuentos directos (is_direct_discount=True)
-      - sesiones con alguna línea negativa para el técnico
-      - ajustes manuales (Bonus / Advance / Fixed salary) -> TODOS SUMAN POSITIVO
+    - sesiones aprobadas (Supervisor/PM/Finanzas)
+    - descuentos directos (is_direct_discount=True)
+    - sesiones con línea negativa del técnico
+    - ajustes (Bonus/Advance/Fixed salary) SIEMPRE positivos
+    - orden: semana actual, luego pasadas (W40,W39,...) descendente, luego futuras y sin semana
+    - paginación: ?cantidad=5|10|20|todos y ?page=N
     """
+    import re
     from decimal import Decimal
     from django.db.models import Q
     from django.utils import timezone
+    from django.core.paginator import Paginator
+    from urllib.parse import urlencode
 
     tecnico = request.user
 
@@ -4591,10 +4595,21 @@ def produccion_usuario(request):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
 
+    def _parse_iso_week(s: str):
+        """Devuelve (year, week) o None (si no es válido)."""
+        if not s:
+            return None
+        s = s.strip().upper().replace(" ", "")
+        m = re.fullmatch(r"(\d{4})-?W(\d{1,2})", s)
+        if not m:
+            return None
+        return (int(m.group(1)), int(m.group(2)))
+
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     current_week = _iso_week_str(timezone.now())
+    current_tuple = _parse_iso_week(current_week)
 
-    # Filtro por semana REAL: "all" o "YYYY-W##"
+    # filtro por semana REAL: "all" o "YYYY-W##"
     week_filter = (request.GET.get("week") or "all").strip()
     weeks_wanted = None if week_filter.lower() == "all" else {
         week_filter.upper()}
@@ -4674,9 +4689,9 @@ def produccion_usuario(request):
             "project": s.proyecto,
             "office": s.oficina,
             "real_week": s.semana_pago_real or "—",
-            "total_tecnico": total_tecnico,   # puede ser negativo
+            "total_tecnico": total_tecnico,
             "detalle": detalle,
-            "adjustment_type": "",            # sesiones normales
+            "adjustment_type": "",
             "adjustment_label": "",
         })
 
@@ -4688,7 +4703,7 @@ def produccion_usuario(request):
     for a in adj_qs:
         amt = a.amount if isinstance(
             a.amount, Decimal) else Decimal(str(a.amount or 0))
-        amt_pos = abs(amt)  # SIEMPRE positivo en esta vista
+        amt_pos = abs(amt)  # SIEMPRE positivo
         rw = (a.week or "—").upper()
 
         if rw == current_week:
@@ -4696,40 +4711,70 @@ def produccion_usuario(request):
 
         filas.append({
             "sesion": None,
-            "project_id": a.project_id or "",      # conserva por si lo necesitas
+            "project_id": a.project_id or "",
             "week": a.week or "—",
             "status": "",
             "is_discount": False,
-            # 👉 Mostrar datos tal como en admin
             "client": a.client or "-",
             "city": a.city or "-",
             "project": a.project or "-",
             "office": a.office or "-",
             "real_week": rw,
-            "total_tecnico": amt_pos,              # positivo
+            "total_tecnico": amt_pos,
             "detalle": [],
-            "adjustment_type": a.adjustment_type,  # para badge
-            "adjustment_label": a.get_adjustment_type_display(),  # para Project ID
+            "adjustment_type": a.adjustment_type,
+            "adjustment_label": a.get_adjustment_type_display(),
         })
 
-    # Orden: actual, futuras, pasadas, sin semana
-    def bucket_key(row):
-        rw = row["real_week"]
-        if rw == "—":
-            return (2, "ZZZ")
-        if rw == current_week:
-            return (0, "000")
-        if rw > current_week:
-            return (0, rw)
-        return (1, rw)
+    # -------- Orden requerido --------
+    def sort_key(row):
+        t = _parse_iso_week(row["real_week"])
+        if t is None:
+            return (3, 9999, 99)          # sin semana
+        if t == current_tuple:
+            return (0, 0, 0)              # actual arriba
+        if t < current_tuple:
+            return (1, -t[0], -t[1])      # pasadas: descendente (W40,W39,...)
+        return (2, t[0], t[1])            # futuras
 
-    filas.sort(key=bucket_key)
+    filas.sort(key=sort_key)
+
+    # -------- Paginación (igual Admin) --------
+    cantidad = (request.GET.get("cantidad") or "10").strip().lower()
+    if cantidad != "todos":
+        try:
+            per_page = max(5, min(int(cantidad), 100))
+        except ValueError:
+            per_page = 10
+            cantidad = "10"
+        paginator = Paginator(filas, per_page)
+        page_number = request.GET.get("page") or 1
+        pagina = paginator.get_page(page_number)
+    else:
+        class _OnePage:
+            number = 1
+            has_previous = False
+            has_next = False
+
+            @property
+            def paginator(self):
+                class P:
+                    num_pages = 1
+                return P()
+            object_list = filas
+        pagina = _OnePage()
+
+    # mantener filtros en los links
+    keep = {"week": week_filter, "cantidad": cantidad}
+    filters_qs = urlencode({k: v for k, v in keep.items() if v})
 
     return render(request, "operaciones/produccion_usuario.html", {
-        "filas": filas,
+        "pagina": pagina,
+        "cantidad": cantidad,
         "current_week": current_week,
         "total_semana_actual": total_semana_actual,
         "week_filter": week_filter,
+        "filters_qs": filters_qs,
     })
 
 
