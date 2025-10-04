@@ -52,36 +52,48 @@
     ⬅️ Back
   </a>
 
+  {# Botón condicional: Partial report #}
+  {% if s.estado == 'en_proceso' or s.estado == 'en_revision_supervisor' or s.estado == 'rechazado_supervisor' %}
+    <form method="post" action="{% url 'operaciones:generar_reporte_parcial_proyecto' s.id %}" class="inline">
+      {% csrf_token %}
+      <button id="btn-partial-report"
+              type="submit"
+              class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white">
+        📸 Partial report
+      </button>
+    </form>
+  {% endif %}
 
-{# Botón condicional: Partial report #}
-{% if s.estado == 'en_proceso' or s.estado == 'en_revision_supervisor' or s.estado == 'rechazado_supervisor' %}
-  <form method="post" action="{% url 'operaciones:generar_reporte_parcial_proyecto' s.id %}" class="inline">
-    {% csrf_token %}
-    <button id="btn-partial-report"
-            type="submit"
-            class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white">
-      📸 Partial report
+  {% if s.estado == 'aprobado_supervisor' or s.estado == 'aprobado_pm' %}
+    <form method="post" action="{% url 'operaciones:regenerar_reporte_fotografico_proyecto' s.id %}" class="inline">
+      {% csrf_token %}
+      <button type="submit"
+              class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white">
+        📸 Regenerate report (replace final)
+      </button>
+    </form>
+  {% endif %}
+
+  {% if project_report_exists and not job_running %}
+    <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
+       href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}">
+      Download current report
+    </a>
+  {% endif %}
+
+  {# ------------- NUEVO BOTÓN: DESCARGAR TODAS LAS FOTOS (ZIP) ------------- #}
+  {% if not job_running %}
+    <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
+       class="inline-flex items-center px-4 py-2 rounded shadow bg-emerald-600 hover:bg-emerald-700 text-white">
+      📦 Descargar todas las fotos (ZIP)
+    </a>
+  {% else %}
+    <button disabled
+            class="inline-flex items-center px-4 py-2 rounded shadow bg-gray-300 text-gray-600 cursor-not-allowed">
+      📦 Generando reporte… (ZIP deshabilitado)
     </button>
-  </form>
-{% endif %}
-
-{% if s.estado == 'aprobado_supervisor' or s.estado == 'aprobado_pm' %}
-  <form method="post" action="{% url 'operaciones:regenerar_reporte_fotografico_proyecto' s.id %}" class="inline">
-    {% csrf_token %}
-    <button type="submit"
-            class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white">
-      📸 Regenerate report (replace final)
-    </button>
-  </form>
-{% endif %}
- 
-{% if project_report_exists and not job_running %}
-  <a class="inline-flex items-center px-4 py-2 rounded shadow bg-indigo-600 hover:bg-indigo-700 text-white"
-     href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}">
-    Download current report
-  </a>
-{% endif %}
-
+  {% endif %}
+  {# ------------------------------------------------------------------------ #}
 
 </div>
 
@@ -103,7 +115,6 @@
   </form>
 {% endif %}
 
-
 <!-- Report status panel -->
 <div id="report-status"
      class="report-status"
@@ -119,7 +130,6 @@
 
 </div>
 
-
 <!-- Partial report status panel -->
 <div id="partial-report-status"
      class="report-status mt-3"
@@ -127,7 +137,6 @@
   <strong>Partial report:</strong>
   <span id="partial-status-text">Click “Partial report” to generate it in background.</span>
 </div>
-
 
   <!-- Technicians (solo nombres y %; SIN estado por técnico) -->
   <div class="mb-6">
@@ -164,7 +173,6 @@
  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-auto mt-2">
   {% for ev in evs %}
     <figure class="border rounded p-2 relative">
-      {# 🔒 Botón X solo si el proyecto NO está aprobado por supervisor/PM #}
       {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
         <button type="button"
                 class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
@@ -174,23 +182,19 @@
           ✕
         </button>
       {% else %}
-        {# Si está aprobado, muestra un candado/deshabilitado opcionalmente #}
         <span class="absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">
           🔒
         </span>
       {% endif %}
 
-      
       <div class="relative rounded overflow-hidden bg-black/5">
         {% if ev.lat and ev.lng %}
           <div class="absolute top-2 left-2 z-10">
-          {# badge sobre la foto #}
 <a target="_blank"
    href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}"
    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-600/90 text-white text-[11px] shadow">
   📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
 </a>
-
             {% if ev.gps_accuracy_m %}
               <span class="ml-1 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px]">
                 ± {{ ev.gps_accuracy_m|floatformat:0 }} m
@@ -209,69 +213,62 @@
           </div>
         </a>
       </div>
-   
 
+      <figcaption class="text-xs mt-1">
+        <div class="font-medium">
+          {% if s.proyecto_especial and not ev.requisito_id %}
+            {{ ev.titulo_manual|default:"Extra" }}
+          {% else %}
+            {{ ev.requisito.titulo|default:"Extra" }}
+          {% endif %}
+        </div>
 
-           <figcaption class="text-xs mt-1">
-  {# Título #}
-  <div class="font-medium">
-    {% if s.proyecto_especial and not ev.requisito_id %}
-      {{ ev.titulo_manual|default:"Extra" }}
-    {% else %}
-      {{ ev.requisito.titulo|default:"Extra" }}
-    {% endif %}
-  </div>
+        <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
 
-  {# Fecha #}
-  <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
+        <div class="text-gray-600">
+          {% if s.proyecto_especial and not ev.requisito_id %}
+            {% if ev.direccion_manual %}
+              📍 {{ ev.direccion_manual }}
+            {% else %}
+              <span class="text-gray-400">📍 Sin dirección</span>
+            {% endif %}
+            {% if ev.lat and ev.lng %}
+              <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+                 href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}">
+                Open map
+              </a>
+              {% if ev.gps_accuracy_m %}
+                <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+              {% endif %}
+            {% endif %}
+          {% else %}
+            {% if ev.lat and ev.lng %}
+              📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
+              <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+                 href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
+              {% if ev.gps_accuracy_m %}
+                <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+              {% endif %}
+            {% else %}
+              <span class="text-gray-400">📍 No GPS</span>
+            {% endif %}
+          {% endif %}
+        </div>
 
-  {# Dirección o coordenadas #}
-  <div class="text-gray-600">
-    {% if s.proyecto_especial and not ev.requisito_id %}
-      {% if ev.direccion_manual %}
-        📍 {{ ev.direccion_manual }}
-      {% else %}
-        <span class="text-gray-400">📍 Sin dirección</span>
-      {% endif %}
-      {% if ev.lat and ev.lng %}
-        {# link "Open map" del pie #}
-<a class="ml-1 text-blue-600 hover:underline" target="_blank"
-   href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}">
-  Open map
-</a>
-        {% if ev.gps_accuracy_m %}
-          <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+        {% if ev.nota %}
+          <div class="text-gray-600">{{ ev.nota }}</div>
         {% endif %}
-      {% endif %}
-    {% else %}
-      {% if ev.lat and ev.lng %}
-        📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
-        <a class="ml-1 text-blue-600 hover:underline" target="_blank"
-           href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
-        {% if ev.gps_accuracy_m %}
-          <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
-        {% endif %}
-      {% else %}
-        <span class="text-gray-400">📍 No GPS</span>
-      {% endif %}
-    {% endif %}
-  </div>
-
-  {% if ev.nota %}
-    <div class="text-gray-600">{{ ev.nota }}</div>
-  {% endif %}
-</figcaption>
-          </figure>
-        {% empty %}
-          <div class="text-gray-500 text-sm">This technician does not have any photos yet.</div>
-        {% endfor %}
-      </div>
+      </figcaption>
+    </figure>
+  {% empty %}
+    <div class="text-gray-500 text-sm">This technician does not have any photos yet.</div>
+  {% endfor %}
+ </div>
     </section>
   {% empty %}
     <div class="text-gray-500">There is no evidence in this session.</div>
   {% endfor %}
 
-  <!-- Nota flujo -->
   <p class="mt-4 text-xs text-gray-500">
    Remember: the photo report is <b>unique per project</b> and is generated/updated when the supervisor approves.  
   It then moves on to PM approval.
@@ -300,7 +297,7 @@
   </div>
 </div>
 
-{# -------- Modal Eliminar Foto (bonito) -------- #}
+{# -------- Modal Eliminar Foto -------- #}
 <div id="modal-delete" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
   <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
@@ -326,17 +323,14 @@
 </div>
 
 <script>
-/* ========= Utilidades ========= */
 function getCookie(name){
   const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
   return m ? decodeURIComponent(m.pop()) : '';
 }
 
-/* ========= Modal Rechazo ========= */
 function openRejectModal(){ document.getElementById('reject-modal').classList.remove('hidden'); }
 function closeRejectModal(){ document.getElementById('reject-modal').classList.add('hidden'); }
 
-/* ========= Modal Eliminar foto ========= */
 (function(){
   const modal = document.getElementById('modal-delete');
   const form  = document.getElementById('delete-form');
@@ -362,7 +356,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   });
 })();
 
-/* ========= Form de revisión (setea acción y evita doble click) ========= */
 (function(){
   const form  = document.getElementById('review-form');
   if (!form) return;
@@ -371,7 +364,7 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   form.addEventListener('click', function (e) {
     const btn = e.target.closest('button[type="submit"][data-action]');
     if (!btn) return;
-    field.value = btn.dataset.action; // "aprobar" o lo que corresponda
+    field.value = btn.dataset.action;
   });
 
   form.addEventListener('submit', function () {
@@ -384,8 +377,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   });
 })();
 
-/* ========= Polling: REPORTE FINAL (actualiza UI al aprobar) ========= */
-
 (function () {
   const statusUrl   = "{% url 'operaciones:project_report_status' sesion_id=s.id %}";
   const downloadUrl = "{% url 'operaciones:descargar_reporte_fotos_proyecto' sesion_id=s.id %}";
@@ -397,7 +388,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   const cancelBt = document.getElementById('cancel-job');
   const partialBtn = document.getElementById('btn-partial-report');
 
-  // Evitar recarga infinita tras aprobar
   const REFRESH_KEY = "rf_ref_{{ s.id }}";
   const alreadyRefreshed = sessionStorage.getItem(REFRESH_KEY) === '1';
   window.addEventListener('load', () => {
@@ -412,10 +402,8 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
     }
     if (formEl) formEl.remove?.();
     if (cancelBt) cancelBt.remove?.();
-    // 👈 NO tocar el botón parcial aquí
   }
 
-  // Cancelar job
   if (cancelBt){
     cancelBt.addEventListener('click', async ()=>{
       if (!confirm('Cancel the running report job?')) return;
@@ -491,7 +479,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   poll();
 })();
 
-/* ========= Polling: REPORTE PARCIAL ========= */
 (function () {
   const textEl = document.getElementById('partial-status-text');
   const partialBtn = document.getElementById('btn-partial-report');
@@ -511,7 +498,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
     partialBtn.classList.toggle('cursor-not-allowed', isRunning);
     partialBtn.title = isRunning ? 'Partial report is generating…' : '';
   }
-  // estado inicial: habilitado
   setPartialRunning(false);
 
   async function poll(){
@@ -524,7 +510,6 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
 
       if (state === "none"){
         setPartialRunning(false);
-        // sin parcial en curso
       } else if (state === "pending"){
         setText("Queued to start…");
         setPartialRunning(true);
@@ -544,7 +529,7 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
         running = false; return;
       }
     }catch(e){
-      // sigue intentando suave
+      // sigue intentando
     }finally{
       if (running) setTimeout(poll, delay);
     }

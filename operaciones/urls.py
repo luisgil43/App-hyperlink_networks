@@ -7,6 +7,8 @@ from . import views_billing_exec as views
 from . import views
 from . import views_plans
 from . import views_adjustments
+from . import views_fotos_zip
+
 app_name = 'operaciones'  # requerido para namespaces
 
 urlpatterns = [
@@ -237,6 +239,8 @@ urlpatterns = [
          views_adjustments.adjustment_edit, name="adjustment_edit"),
     path("produccion/adjustments/delete/",
          views_adjustments.adjustment_delete, name="adjustment_delete"),
+    path("billing/<int:sesion_id>/fotos/descargar-todas/",
+         views_fotos_zip.descargar_fotos_zip, name="descargar_fotos_zip",),
 
 
 
