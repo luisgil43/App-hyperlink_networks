@@ -82,17 +82,17 @@
   {% endif %}
 
   {# ------------- NUEVO BOTÓN: DESCARGAR TODAS LAS FOTOS (ZIP) ------------- #}
-  {% if not job_running %}
-    <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
-       class="inline-flex items-center px-4 py-2 rounded shadow bg-emerald-600 hover:bg-emerald-700 text-white">
-      📦 Descargar todas las fotos (ZIP)
-    </a>
-  {% else %}
-    <button disabled
-            class="inline-flex items-center px-4 py-2 rounded shadow bg-gray-300 text-gray-600 cursor-not-allowed">
-      📦 Generando reporte… (ZIP deshabilitado)
-    </button>
-  {% endif %}
+{% if not job_running %}
+  <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
+     class="inline-flex items-center px-4 py-2 rounded shadow bg-emerald-600 hover:bg-emerald-700 text-white">
+    📦 Download all photos (ZIP)
+  </a>
+{% else %}
+  <button disabled
+          class="inline-flex items-center px-4 py-2 rounded shadow bg-gray-300 text-gray-600 cursor-not-allowed">
+    📦 Generating report… (ZIP disabled)
+  </button>
+{% endif %}
   {# ------------------------------------------------------------------------ #}
 
 </div>
