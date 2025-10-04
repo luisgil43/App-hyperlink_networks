@@ -1,5 +1,7 @@
 # operaciones/views.py
 
+from django.db.models.functions import Coalesce, Upper, Length, Substr
+from django.db.models import Q, F, Sum, Exists, OuterRef, Value, DecimalField
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
 from operaciones.models import WeeklyPayment, ItemBillingTecnico, AdjustmentEntry
 from django.db.models import Q, Exists, OuterRef, Sum, F
@@ -5359,17 +5361,57 @@ def user_weekly_payments(request):
     """
     Vista del trabajador:
     - Sincroniza sus registros (sin crear nuevos).
+    - Crea (si faltan) y actualiza WeeklyPayment por cada semana donde tenga
+      producción o ajustes (igual que hace admin con create_missing=True).
     - Lista sus WeeklyPayment.
     - Adjunta 'details' (producción + ajustes) y 'display_amount' por semana.
     """
-    # sincroniza SOLO este técnico, sin crear weeklies
-    sync_weekly_totals_no_create(technician_id=request.user.id)
+    from django.db.models.functions import Upper  # (no imprescindible)
 
+    user_id = request.user.id
+
+    # =========================================
+    # ⛔ Saltar sincronización si venimos de aprobar
+    # =========================================
+    if request.GET.get("skip_sync") != "1":
+        # 0) Sincroniza SOLO este técnico, sin crear weeklies (tu lógica original)
+        sync_weekly_totals_no_create(technician_id=user_id)
+
+        # 0.1) Detectar TODAS las semanas relevantes de este técnico
+        #      (producción real y ajustes), y crear las faltantes como hace admin.
+        weeks_prod = set(
+            ItemBillingTecnico.objects
+            .filter(tecnico_id=user_id, item__sesion__semana_pago_real__gt="")
+            .values_list("item__sesion__semana_pago_real", flat=True)
+            .distinct()
+        )
+
+        weeks_adj_raw = set(
+            AdjustmentEntry.objects
+            .filter(technician_id=user_id)
+            .exclude(amount=0)
+            .values_list("week", flat=True)
+            .distinct()
+        )
+
+        # Nota: algunos ajustes pueden venir como 'W40' y otros como '2025-W40'.
+        # No normalizamos aquí para no tocar datos; pedimos sync por cada string tal cual.
+        weeks_to_sync = set(filter(None, weeks_prod.union(weeks_adj_raw)))
+
+        # 0.2) Crear/actualizar WeeklyPayment por cada semana detectada
+        #      (replica la idea del admin con create_missing=True)
+        for wk in weeks_to_sync:
+            try:
+                _sync_weekly_totals(week=str(wk), create_missing=True)
+            except Exception:
+                # no abortar por una semana malformada
+                pass
+
+    # 1) Semana actual (solo para mostrar arriba)
     y, w, _ = timezone.localdate().isocalendar()
     current_week = f"{y}-W{int(w):02d}"
 
     ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    user_id = request.user.id
 
     # --------- Subqueries para decidir qué semanas mostrar ----------
     # Producción (aprobada o descuentos) con total != 0
@@ -5385,10 +5427,11 @@ def user_weekly_payments(request):
         .exclude(total=0)
     )
 
-    # Ajustes (bonus / salary / advance) con amount > 0
+    # Ajustes presentes (monto ≠ 0) en la misma semana exacta
     adj_exists = (
         AdjustmentEntry.objects
-        .filter(technician_id=user_id, week=OuterRef("week"), amount__gt=0)
+        .filter(technician_id=user_id, week=OuterRef("week"))
+        .exclude(amount=0)
         .values("id")[:1]
     )
 
@@ -5438,22 +5481,27 @@ def user_weekly_payments(request):
             details_map.setdefault(week, []).append({
                 "project_id": r["project_id"],
                 "subtotal": sub,
-                # no es ajuste → sin label
             })
             totals_map[week] = totals_map.get(week, Decimal("0")) + sub
 
-    # 2) Ajustes (siempre POSITIVOS en esta vista)
+    # 2) Ajustes (bonos / salario / advance) — considerar montos ≠ 0
     LABEL = {"bonus": "Bonus",
              "fixed_salary": "Fixed salary", "advance": "Advance"}
-    det_adj = list(
-        AdjustmentEntry.objects
-        .filter(technician_id=user_id, week__in=weeks, amount__gt=0)
-        .values("week", "adjustment_type", "amount", "project_id")
-    )
+    if weeks:
+        det_adj = list(
+            AdjustmentEntry.objects
+            .filter(technician_id=user_id, week__in=weeks)
+            .exclude(amount=0)
+            .values("week", "adjustment_type", "amount", "project_id")
+        )
+    else:
+        det_adj = []
+
     for a in det_adj:
         week = a["week"]
         amt = Decimal(a["amount"] or 0)
-        amt = abs(amt)  # Advance suma positivo
+        # Mostrar ajustes en positivo en esta vista
+        amt = abs(amt)
         details_map.setdefault(week, []).append({
             "project_id": a.get("project_id") or "-",
             "label": LABEL.get(a["adjustment_type"], a["adjustment_type"]),
@@ -5489,7 +5537,8 @@ def user_approve_payment(request, pk: int):
     wp.save(update_fields=["status", "reject_reason", "updated_at"])
 
     messages.success(request, "Amount approved. Waiting for payment.")
-    return redirect("operaciones:user_weekly_payments")
+    # 👇 evitamos que la siguiente vista vuelva a sincronizar y deshaga el cambio
+    return redirect(f"{reverse('operaciones:user_weekly_payments')}?skip_sync=1")
 
 
 @login_required
@@ -5512,7 +5561,8 @@ def user_reject_payment(request, pk: int):
     wp.save(update_fields=["status", "reject_reason", "updated_at"])
 
     messages.success(request, "Amount rejected. Your reason is visible now.")
-    return redirect("operaciones:user_weekly_payments")
+    # ⬇️ Evita que la vista de lista vuelva a sincronizar y revierta el estado
+    return redirect(f"{reverse('operaciones:user_weekly_payments')}?skip_sync=1")
 
 
 def admin_reset_payment_status(request, pk: int):

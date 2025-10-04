@@ -50,32 +50,46 @@
       <td class="p-2">{{ r.week }}</td>
       <td class="p-2 text-right">${{ r.amount|floatformat:2 }}</td>
       <td class="p-2">
-        {% if r.status == "pending_user" %}
-          <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending worker approval</span>
-        {% elif r.status == "approved_user" or r.status == "pending_payment" %}
-          <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Pending payment</span>
-        {% elif r.status == "rejected_user" %}
-          <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full" title="{{ r.reject_reason|default:'—' }}">Rejected by worker</span>
-        {% endif %}
-      </td>
+  {% if r.status == "pending_user" %}
+    <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pending worker approval</span>
+  {% elif r.status == "approved_user" or r.status == "pending_payment" %}
+    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Pending payment</span>
+  {% elif r.status == "rejected_user" %}
+    <div class="flex flex-col gap-1">
+      <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full">Rejected by worker</span>
+      {% if r.reject_reason %}
+        <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 max-w-lg">
+          <b>Reason:</b> {{ r.reject_reason }}
+        </div>
+      {% endif %}
+      <div class="text-xs text-gray-500">You can reset it to “Pending worker approval”.</div>
+    </div>
+  {% endif %}
+</td>
       <td class="p-2">
         {% if r.receipt %}
           <a class="text-blue-600 underline" href="{{ r.receipt.url }}" target="_blank" rel="noopener">View</a>
         {% else %}—{% endif %}
       </td>
       <td class="p-2">
-        {% if r.status == "pending_payment" or r.status == "approved_user" %}
-          <button type="button"
-                  class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
-                  onclick="openPayModal({{ r.id }}, '{{ r.week }}', '{{ r.technician.get_full_name|default:r.technician.username }}')">
-            Mark as Paid
-          </button>
-        {% elif r.status == "rejected_user" %}
-          <span class="text-gray-500">—</span>
-        {% else %}
-          <span class="text-gray-400">—</span>
-        {% endif %}
-      </td>
+  {% if r.status == "pending_payment" or r.status == "approved_user" %}
+    <button type="button"
+            class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+            onclick="openPayModal({{ r.id }}, '{{ r.week }}', '{{ r.technician.get_full_name|default:r.technician.username }}')">
+      Mark as Paid
+    </button>
+  {% elif r.status == "rejected_user" %}
+    <form method="post" action="{% url 'operaciones:admin_reset_payment_status' r.id %}" class="inline">
+      {% csrf_token %}
+      <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded">
+        Reset to pending
+      </button>
+    </form>
+  {% else %}
+    <span class="text-gray-400">—</span>
+  {% endif %}
+</td>
+
     </tr>
 
     <!-- fila de detalle: Project ID + Subtotal -->
