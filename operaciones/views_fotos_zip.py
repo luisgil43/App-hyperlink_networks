@@ -3,7 +3,6 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
 from django.http import FileResponse, Http404
 from django.utils.text import slugify
-from django.core.files.storage import default_storage
 from datetime import datetime
 from urllib.parse import urlparse
 from tempfile import SpooledTemporaryFile
@@ -61,20 +60,22 @@ def _guess_ext(name_or_url: str, default=".jpg") -> str:
     return ext if ext else default
 
 
-def _read_from_storage_or_url(storage_name: str, url: str) -> bytes | None:
+def _read_from_storage_or_url(storage_obj, storage_name: str, url: str) -> bytes | None:
     """
-    Lee bytes desde storage.open; si falla o no hay 'name', hace fallback a GET por URL pública.
+    Lee bytes desde el storage del campo (ev.imagen.storage).
+    Si falla, intenta por URL pública (firmada).
     """
-    # 1) Storage
-    if storage_name:
+    # 1) Storage del field (S3/Wasabi asociado al FileField)
+    if storage_obj and storage_name:
         try:
-            with default_storage.open(storage_name, "rb") as fh:
-                return fh.read()
+            if storage_obj.exists(storage_name):
+                with storage_obj.open(storage_name, "rb") as fh:
+                    return fh.read()
         except Exception as e:
             logger.warning(
                 "ZIP fotos: fallo open storage '%s': %s", storage_name, e)
 
-    # 2) URL pública
+    # 2) Fallback: URL pública
     if url and (url.startswith("http://") or url.startswith("https://")):
         try:
             import requests
@@ -88,8 +89,8 @@ def _read_from_storage_or_url(storage_name: str, url: str) -> bytes | None:
 
     return None
 
-# ---------- Vista principal ----------
 
+# ---------- Vista principal ----------
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
@@ -97,11 +98,12 @@ def descargar_fotos_zip(request, sesion_id: int):
     """
     Genera un .zip con TODAS las fotos de la sesión en UNA SOLA CARPETA:
       <PROJECT_ID> /
-        <timestamp> - <TÍTULO EXACTO REQUERIMIENTO|Extra> - <ev.id>.<ext>
+        <TÍTULO EXACTO REQUERIMIENTO|Extra>.<ext>
 
     - No crea subcarpetas por técnico ni por requerimiento.
     - El título del requerimiento se conserva tal cual fue guardado (acentos/mayúsculas).
     - Solo se sanitizan '/' y '\\' para no romper rutas.
+    - Lee los bytes desde el storage del propio campo (Wasabi), con fallback a URL.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
@@ -127,44 +129,41 @@ def descargar_fotos_zip(request, sesion_id: int):
 
     with zipfile.ZipFile(spooled, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for a in asignaciones:
-            evs = getattr(a, "evidencias", None)
-            if not evs:
+            evs_rel = getattr(a, "evidencias", None)
+            if not evs_rel:
                 continue
 
-            for ev in evs.all():
+            for ev in evs_rel.all():
                 imagen_field = getattr(ev, "imagen", None)
                 if not imagen_field:
                     continue
 
+                # ✅ storage y key EXACTOS donde se guardó
+                field_storage = getattr(imagen_field, "storage", None)
                 storage_name = getattr(imagen_field, "name", "") or ""
                 public_url = getattr(imagen_field, "url", "") or ""
 
-                # Título EXACTO del requerimiento (o Extra)
+                # ✅ Título EXACTO del requerimiento, o "Extra"
                 if getattr(s, "proyecto_especial", False) and not getattr(ev, "requisito_id", None):
                     req_title_raw = getattr(ev, "titulo_manual", "") or "Extra"
                 else:
                     req = getattr(ev, "requisito", None)
                     req_title_raw = getattr(req, "titulo", "") or "Extra"
 
-                # Timestamp legible
-                ts = getattr(ev, "client_taken_at", None) or getattr(
-                    ev, "tomada_en", None)
-                ts_txt = ts.strftime("%Y%m%d_%H%M%S") if isinstance(
-                    ts, datetime) else "no_ts"
-
-                # Bytes de la imagen (storage o URL)
-                data = _read_from_storage_or_url(storage_name, public_url)
+                # ✅ Lee bytes (Wasabi) con fallback a URL
+                data = _read_from_storage_or_url(
+                    field_storage, storage_name, public_url)
                 if data is None:
                     total_fallidas += 1
                     continue
 
-                # Extensión
+                # Extensión por key/URL
                 ext = _guess_ext(storage_name or public_url, default=".jpg")
 
-                # Nombre FINAL (dentro del ZIP): solo la carpeta <PROJECT_ID>/ + archivo
+                # ✅ Nombre final: plano en <PROJECT_ID>/ + "<Requisito>.ext"
                 file_title = _safe_component_preserve(
-                    req_title_raw, max_len=100)
-                arcname = f"{root_name}/{ts_txt} - {file_title} - {ev.id}{ext}"
+                    req_title_raw, max_len=120)
+                arcname = f"{root_name}/{file_title}{ext}"
 
                 try:
                     zf.writestr(arcname, data)
