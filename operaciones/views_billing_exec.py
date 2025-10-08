@@ -816,36 +816,54 @@ def fotos_status_json(request, asig_id: int):
 @rol_requerido('usuario')
 def finish_assignment(request, pk):
     """
-    Flujo de Finalización (en equipo):
-    - Verifica que ESTA asignación esté en 'en_proceso'.
-    - Verifica que TODOS los requisitos obligatorios (por título compartido)
-      tengan al menos una foto en la sesión (subida por cualquier asignado).
-    - Verifica que TODOS los asignados hayan aceptado (Start).
-    - Si todo está OK: cambia TODAS las asignaciones de la sesión a
-      'en_revision_supervisor' (sellando finalizado_en) y actualiza la sesión
-      a 'en_revision_supervisor' en una sola transacción.
+    Finalización en equipo:
+    - Requiere que esta asignación esté en 'en_proceso'.
+    - Calcula los requisitos obligatorios vigentes como la INTERSECCIÓN de títulos
+      (normalizados) entre TODAS las asignaciones de la sesión.
+    - Verifica que esos títulos tengan al menos una foto (de cualquiera del equipo).
+    - Verifica que todos hayan aceptado (Start).
+    - Si todo OK: pasa TODAS las asignaciones y la sesión a 'en_revision_supervisor'.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
-
-    # Debe estar en progreso para poder finalizar
     if a.estado != "en_proceso":
         messages.error(request, "This assignment is not in progress.")
         return redirect("operaciones:mis_assignments")
 
-    # Utilidad local para normalizar títulos (sin helpers externos)
     def _norm_title(s: str) -> str:
         return (s or "").strip().lower()
 
     s = a.sesion
 
-    # 1) Cobertura global de requisitos obligatorios por TÍTULO compartido
-    required_titles = (
-        RequisitoFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, obligatorio=True)
-        .values_list("titulo", flat=True)
+    # --- Recolectar títulos obligatorios por asignación (normalizados)
+    asignaciones = list(
+        s.tecnicos_sesion.select_related(
+            "tecnico").prefetch_related("requisitos").all()
     )
-    required_key_set = {_norm_title(t) for t in required_titles if t}
 
+    per_asg_required_sets = []
+    sample_titles = set()  # para nombres bonitos
+    for asg in asignaciones:
+        # Solo títulos OBLIGATORIOS de esta asignación
+        titles = [
+            r.titulo for r in asg.requisitos.all()
+            if getattr(r, "obligatorio", True)
+        ]
+        sample_titles.update([t for t in titles if t])
+        keyset = {_norm_title(t) for t in titles if t}
+        per_asg_required_sets.append(keyset)
+
+    # Si no hay requisitos cargados en ninguna asignación, no se bloquea por fotos
+    if not per_asg_required_sets or all(len(sset) == 0 for sset in per_asg_required_sets):
+        required_key_set = set()
+    else:
+        # INTERSECCIÓN entre todas las asignaciones: lo común es lo realmente "vigente"
+        required_key_set = set.intersection(
+            *per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
+
+    # Map para mostrar nombres con mayúsculas originales
+    sample_map = {_norm_title(t): t for t in sample_titles if t}
+
+    # --- Títulos ya cubiertos (algún miembro subió foto para ese requisito)
     taken_titles = (
         EvidenciaFotoBilling.objects
         .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
@@ -853,25 +871,17 @@ def finish_assignment(request, pk):
     )
     covered_key_set = {_norm_title(t) for t in taken_titles if t}
 
+    # Lo faltante es la intersección menos lo cubierto
     missing_keys = required_key_set - covered_key_set
     if missing_keys:
-        # Armamos nombres "bonitos" a partir de cualquier muestra en la sesión
-        sample_titles = list(
-            RequisitoFotoBilling.objects
-            .filter(tecnico_sesion__sesion=s, titulo__isnull=False)
-            .values_list("titulo", flat=True)
-        )
-        sample_map = {_norm_title(t): t for t in sample_titles if t}
         pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
         messages.error(request, "Missing required photos: " +
                        ", ".join(pretty_missing))
         return redirect("operaciones:upload_evidencias", pk=a.pk)
 
-    # 2) Validar que TODOS los asignados hayan aceptado (Start)
+    # --- Validar que todos hayan dado Start
     pendientes_aceptar = []
-    asignaciones = list(s.tecnicos_sesion.select_related("tecnico").all())
     for asg in asignaciones:
-        # Se considera aceptado si tiene timestamp o si su estado ya no es 'asignado'
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
             name = getattr(asg.tecnico, "get_full_name",
@@ -879,20 +889,15 @@ def finish_assignment(request, pk):
             pendientes_aceptar.append(name)
 
     if pendientes_aceptar:
-        messages.error(
-            request,
-            "Pending acceptance (Start): " + ", ".join(pendientes_aceptar)
-        )
+        messages.error(request, "Pending acceptance (Start): " +
+                       ", ".join(pendientes_aceptar))
         return redirect("operaciones:upload_evidencias", pk=a.pk)
 
-    # 3) Todo OK → marcar TODAS las asignaciones y la sesión en revisión de supervisor
+    # --- Transición a revisión de supervisor
     now = timezone.now()
     with transaction.atomic():
-        # Poner a todos en 'en_revision_supervisor' y sellar finalizado_en
         s.tecnicos_sesion.update(
             estado="en_revision_supervisor", finalizado_en=now)
-
-        # La sesión completa pasa a revisión del supervisor
         s.estado = "en_revision_supervisor"
         s.save(update_fields=["estado"])
 
@@ -1980,7 +1985,7 @@ def configurar_requisitos(request, sesion_id):
     Reglas:
       - Si envías id[] => UPDATE del requisito (conserva estado/fotos).
       - Si id[] viene vacío => CREATE (quedará Pending).
-      - delete_id[] borra por TÍTULO en toda la sesión (no solo por ID local).
+      - Solo se elimina lo que aparezca en delete_id[].
       - order[] y mandatory[] se actualizan en los existentes.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
@@ -1995,20 +2000,12 @@ def configurar_requisitos(request, sesion_id):
     if asignaciones and asignaciones[0].requisitos.exists():
         canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
 
-    # ---- util local
-    def _norm_title(txt: str) -> str:
-        return (txt or "").strip().lower()
-
-    # Si quieres que tras el POST queden SOLO los títulos enviados en normalized,
-    # activa esto a True (hará una purga por título al final del upsert):
-    FORCE_ONLY_POSTED = False
-
     if request.method == "POST":
         # --- Lee POST
         names = request.POST.getlist("name[]")
         orders = request.POST.getlist("order[]")
-        mand = request.POST.getlist("mandatory[]")   # "0"/"1"
-        ids = request.POST.getlist("id[]")           # id existente o ""
+        mand = request.POST.getlist("mandatory[]")  # "0"/"1"
+        ids = request.POST.getlist("id[]")          # id existente o ""
         to_del = set(request.POST.getlist("delete_id[]"))
         s.proyecto_especial = bool(request.POST.get("proyecto_especial"))
 
@@ -2028,69 +2025,62 @@ def configurar_requisitos(request, sesion_id):
 
         try:
             with transaction.atomic():
-                # Guardar flag de proyecto especial
                 s.save(update_fields=["proyecto_especial"])
 
-                # ==========================
-                # 1) Borrado por TÍTULO (sesión completa)
-                #    - Construimos el set de títulos a borrar desde los IDs marcados
-                # ==========================
-                if to_del:
-                    session_reqs = list(
-                        RequisitoFotoBilling.objects
-                        .filter(tecnico_sesion__sesion=s)
-                        .only("id", "titulo")
-                    )
-                    id_to_title = {str(r.id): (r.titulo or "")
-                                   for r in session_reqs}
-                    titles_to_delete_keys = {
-                        _norm_title(id_to_title[i])
-                        for i in to_del
-                        if i in id_to_title and id_to_title[i]
-                    }
-
-                    if titles_to_delete_keys:
-                        ids_delete_all = [
-                            r.id for r in session_reqs
-                            if _norm_title(r.titulo) in titles_to_delete_keys
-                        ]
-                        if ids_delete_all:
-                            # Borramos TODOS los requisitos de la sesión con ese título
-                            RequisitoFotoBilling.objects.filter(
-                                id__in=ids_delete_all).delete()
-
-                # ==========================
-                # 2) Upsert por asignación (después del borrado global por título)
-                # ==========================
+                # Índices por asignación
                 for a in asignaciones:
-                    # Releer requisitos actuales de la asignación tras el borrado
-                    existentes_qs = a.requisitos.all()
-                    existentes = {str(r.id): r for r in existentes_qs}
+                    existentes = {
+                        str(r.id): r  # type: ignore[attr-defined]
+                        for r in a.requisitos.all()
+                    }
                     existentes_por_slug = {
-                        slugify((r.titulo or "").strip()): r for r in existentes_qs
+                        slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
                     }
 
+                    # 1) Elimina solo los que marcaste para borrar
+                    if to_del:
+                        del_objs = [existentes[x]
+                                    for x in to_del if x in existentes]
+                        if del_objs:
+                            # OJO: esto sí rompe vínculos de esas filas a fotos, porque lo pediste explícitamente
+                            RequisitoFotoBilling.objects.filter(
+                                id__in=[d.id for d in del_objs]
+                            ).delete()
+
+                    # 2) Upsert de la lista enviada
                     for req_id, orden, name, mandatory in normalized:
                         if req_id and req_id in existentes:
                             # UPDATE (conserva estado/fotos)
                             r = existentes[req_id]
-                            if (r.titulo != name or
-                                r.orden != orden or
-                                r.obligatorio != mandatory or
-                                    r.tecnico_sesion_id != a.id):
+                            if (
+                                r.titulo != name
+                                or r.orden != orden
+                                or r.obligatorio != mandatory
+                                or r.tecnico_sesion_id != a.id
+                            ):
                                 r.titulo = name
                                 r.orden = orden
                                 r.obligatorio = mandatory
                                 r.tecnico_sesion = a
-                                r.save(update_fields=[
-                                       "titulo", "orden", "obligatorio", "tecnico_sesion"])
+                                r.save(
+                                    update_fields=[
+                                        "titulo",
+                                        "orden",
+                                        "obligatorio",
+                                        "tecnico_sesion",
+                                    ]
+                                )
                         else:
-                            # ¿Existe otro con el mismo "slug" (renombrado)?
+                            # ¿Existe otro con el mismo “slug” (renombrado)?
                             key = slugify(name)
                             r = existentes_por_slug.get(key)
-                            # Si existe y NO fue borrado por título, hacemos rename/update
-                            if r:
-                                if (r.titulo != name or r.orden != orden or r.obligatorio != mandatory):
+                            if r and str(r.id) not in to_del:
+                                # UPDATE por "match de título" (rename)
+                                if (
+                                    r.titulo != name
+                                    or r.orden != orden
+                                    or r.obligatorio != mandatory
+                                ):
                                     r.titulo = name
                                     r.orden = orden
                                     r.obligatorio = mandatory
@@ -2106,22 +2096,9 @@ def configurar_requisitos(request, sesion_id):
                                     orden=orden,
                                 )
 
-                # ==========================
-                # 3) (Opcional) Dejar SOLO lo enviado en el POST
-                # ==========================
-                if FORCE_ONLY_POSTED:
-                    keep_keys = {_norm_title(name)
-                                 for _, _, name, _ in normalized if name}
-                    if keep_keys:
-                        to_purge_ids = [
-                            r.id for r in RequisitoFotoBilling.objects
-                            .filter(tecnico_sesion__sesion=s)
-                            .only("id", "titulo")
-                            if _norm_title(r.titulo) not in keep_keys
-                        ]
-                        if to_purge_ids:
-                            RequisitoFotoBilling.objects.filter(
-                                id__in=to_purge_ids).delete()
+                    # 3) (Opcional) Si quieres forzar que SOLO existan los enviados (además de delete_id[]),
+                    #    puedes eliminar aquí los “huérfanos” no presentes en normalized; por ahora NO,
+                    #    para no perder estados de algo que no tocaste.
 
             messages.success(
                 request, "Photo requirements saved (project-wide).")
