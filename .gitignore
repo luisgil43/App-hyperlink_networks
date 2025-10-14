@@ -1,27 +1,34 @@
-# Python
+# ── Python / Django ──────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*.pyo
+*.so
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.coverage
+htmlcov/
+
+# Bases SQLite (incluye WAL/SHM/journal)
+*.sqlite
 *.sqlite3
+*.sqlite3-*
+*.sqlite-journal
+db.sqlite3
+db.sqlite3-*
+db.sqlite3-wal
+db.sqlite3-shm
 
-# Django static/media
-/staticfiles/
-media/
-staticfiles/
-
-# Entorno virtual
-venv/
-env/
-.venv/
-.venv*/
-.venv312/
-
-# Archivos de entorno (no subir nunca)
+# Archivos de entorno (NO subir nunca)
 .env
 .env.*
 !.env.example
 .envrc
 
-# Certificados / claves / CAF (no subir nunca)
+# Certificados / claves (NO subir nunca)
 *.pfx
 *.p12
 *.pem
@@ -29,14 +36,40 @@ env/
 *.cer
 *.crt
 *.der
-*.caf
-*.xml  # si generas XML firmados para SII, mantenlos fuera del repo
+# ⚠️ OJO: ignorar *.xml global puede ocultarte XML legítimos
+# Si es por SII, mejor ignora una carpeta específica:
+# /sii_xml/*.xml
 
-# Logs y temporales
+# Logs / temporales
 *.log
 *.tmp
+*.bak
+*.swp
+*.swo
 *.DS_Store
 
-# Editor/IDE
+# ── Django static/media (artefactos locales) ─────────────────────
+# collectstatic (salida)
+staticfiles/
+# uploads locales
+media/
+# si quieres mantener el directorio vacío en repo:
+# !media/.gitkeep
+
+# ── Entorno virtual ─────────────────────────────────────────────
+.venv/
+.venv*/
+venv/
+env/
+.venv312/
+
+# ── Editor/IDE ──────────────────────────────────────────────────
 .vscode/
 .idea/
+
+# ── Node / build front (si usas Tailwind/Vite/React) ────────────
+node_modules/
+dist/
+build/
+.parcel-cache/
+.pnp.*
