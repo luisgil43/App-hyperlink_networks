@@ -1,0 +1,40 @@
+{% extends "dashboard/base.html" %} {% load humanize %} {% block title %}My Weekly Payments{% endblock %} {% block content %}
+â† Back
+ðŸ’µ Approve my payment
+Current week: {{ current_week }}
+{% for r in mine %} {% empty %} {% endfor %}
+
+Pay week
+Total
+Status
+Paid week
+Receipt
+Actions
+
+{{ r.week }}
+{% if r.display_amount < 0 %} -${{ r.display_amount|floatformat:2|cut:"-" }} {% else %} ${{ r.display_amount|floatformat:2 }} {% endif %}
+{% if r.status == "pending_user" %} Pending my approval {% elif r.status == "pending_payment" or r.status == "approved_user" %} Waiting for payment {% elif r.status == "rejected_user" %}
+I rejected {% if r.reject_reason %}
+Reason: {{ r.reject_reason }}
+{% endif %}
+Waiting for admin to reset to â€œPending my approvalâ€.
+{% elif r.status == "paid" %} Paid {% endif %}
+{{ r.paid_week|default:"â€”" }}
+{% if r.receipt %} View {% else %}â€”{% endif %}
+{% if r.status == "pending_user" %}
+{% csrf_token %} Approve
+Reject {% else %}
+Approve Reject
+{% endif %}
+
+{% for d in r.details %} {% empty %} {% endfor %}
+Project ID
+Subtotal
+{{ d.label|default:d.project_id }}
+{% if d.subtotal < 0 %} -${{ d.subtotal|floatformat:2|cut:"-" }} {% else %} ${{ d.subtotal|floatformat:2 }} {% endif %}
+No breakdown.
+No records.
+Reject amount
+{% csrf_token %} Reason
+Cancel Reject
+{% endblock %}

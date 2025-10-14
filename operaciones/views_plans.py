@@ -26,7 +26,7 @@ def _is_pdf(plan: ProjectPlan) -> bool:
 
 
 @login_required
-@rol_requerido("supervisor", "admin", "pm")
+@rol_requerido("supervisor", "admin", "pm", "usuario")
 @require_http_methods(["GET", "POST"])
 def list_plans(request, sesion_id: int):
     """
@@ -85,7 +85,7 @@ def list_plans(request, sesion_id: int):
 
 
 @login_required
-@rol_requerido("supervisor", "admin", "pm")
+@rol_requerido("supervisor", "admin", "pm", "usuario")
 def view_plan(request, plan_id: int):
     """
     Devuelve el archivo. Si es PDF lo renderiza inline (visualizable); otros tipos los descarga.
@@ -134,7 +134,7 @@ def delete_plan(request, plan_id: int):
 
 
 @login_required
-@rol_requerido("tecnico", "supervisor", "admin", "pm")  # incluye técnicos
+@rol_requerido("supervisor", "admin", "pm", "usuario")  # incluye técnicos
 @require_http_methods(["GET"])
 def list_plans_readonly(request, sesion_id: int):
     """
@@ -150,5 +150,38 @@ def list_plans_readonly(request, sesion_id: int):
             "plans": plans,
             "can_import": False,
             "can_delete_plans": False,
+        },
+    )
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm", "usuario")  # incluye técnicos
+def download_plan(request, plan_id: int):
+    """
+    Fuerza descarga del archivo.
+    """
+    plan = get_object_or_404(ProjectPlan, pk=plan_id)
+
+    mt, _ = mimetypes.guess_type(plan.file.name)
+    mt = mt or "application/octet-stream"
+
+    resp = FileResponse(plan.file.open("rb"), content_type=mt)
+    filename = plan.original_name or plan.file.name
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm", "usuario")  # incluye técnico
+@require_http_methods(["GET"])
+def list_plans_readonly(request, sesion_id: int):
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+    plans = sesion.plans.all().order_by("plan_number", "id")
+    return render(
+        request,
+        "operaciones/plans_list_tech.html",  # ← IMPORTANTE
+        {
+            "sesion": sesion,
+            "plans": plans,
         },
     )

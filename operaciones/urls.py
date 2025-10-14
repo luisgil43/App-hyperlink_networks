@@ -242,6 +242,10 @@ urlpatterns = [
     path("billing/<int:sesion_id>/fotos/descargar-todas/",
          views_fotos_zip.descargar_fotos_zip, name="descargar_fotos_zip",),
 
+     path("plans/<int:plan_id>/view/", views_plans.view_plan, name="view_plan"),
+    path("plans/<int:plan_id>/download/", views_plans.download_plan, name="download_plan"),
+    path("sesiones/<int:sesion_id>/plans/readonly/", views_plans.list_plans_readonly, name="list_plans_readonly"),
+
 
 
 ]
