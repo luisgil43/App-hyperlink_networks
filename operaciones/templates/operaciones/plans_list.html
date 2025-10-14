@@ -2,7 +2,7 @@
 {% extends "dashboard_admin/base.html" %}
 {% load humanize %}
 
-{% block title %}Project Plans{% endblock %}
+{% block title %}Project Maps{% endblock %}
 
 {% block dashboard_content %}
 <div class="max-w-6xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
@@ -10,7 +10,7 @@
   <!-- Header -->
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
-      🗂️ Project Plans — Billing #{{ sesion.id }}
+      🗂️ Project Maps — Billing #{{ sesion.id }}
     </h1>
 
     <div class="flex items-center gap-2">
@@ -81,7 +81,7 @@
 
   <!-- List -->
   <div class="border rounded-2xl">
-    <div class="px-4 py-3 bg-gray-50 rounded-t-2xl font-semibold">Plans</div>
+    <div class="px-4 py-3 bg-gray-50 rounded-t-2xl font-semibold">Maps</div>
     <div class="divide-y">
       {% if plans %}
         {% for p in plans %}
@@ -89,7 +89,7 @@
             <div class="flex items-center gap-3">
               <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 font-semibold">{{ p.plan_number }}</span>
               <div>
-                <div class="font-medium">Plan {{ p.plan_number }}</div>
+                <div class="font-medium">Map {{ p.plan_number }}</div>
                 <div class="text-xs text-gray-500">
                   {{ p.original_name|default:p.file.name }} • Uploaded {{ p.uploaded_at|naturaltime }}
                 </div>
@@ -116,7 +116,7 @@
           </div>
         {% endfor %}
       {% else %}
-        <div class="px-4 py-6 text-gray-500 text-sm">No plans yet. {% if can_import %}Use “Import” to upload the first one.{% else %}Ask your supervisor to upload the plans.{% endif %}</div>
+        <div class="px-4 py-6 text-gray-500 text-sm">No maps yet. {% if can_import %}Use “Import” to upload the first one.{% else %}Ask your supervisor to upload the maps.{% endif %}</div>
       {% endif %}
     </div>
   </div>
@@ -141,7 +141,7 @@
         </svg>
       </div>
       <div class="grow">
-        <h3 id="confirm-title" class="text-lg font-semibold text-gray-900">Delete this plan?</h3>
+        <h3 id="confirm-title" class="text-lg font-semibold text-gray-900">Delete this map?</h3>
         <p class="mt-1 text-sm text-gray-600">
           <span id="confirm-plan-name" class="font-medium"></span>
           <span id="confirm-file" class="text-gray-500"></span>
