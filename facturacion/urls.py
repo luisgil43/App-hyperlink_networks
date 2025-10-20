@@ -1,6 +1,6 @@
 from django.urls import path
-from . import views
 
+from . import views
 
 app_name = 'facturacion'
 
@@ -42,5 +42,6 @@ urlpatterns = [
     path("invoices/export/", views.invoices_export, name="invoices_export"),
     path("invoices/<int:pk>/discount-verified/",
          views.invoice_discount_verified, name="invoice_discount_verified"),
+     path('cartola/aprobar-abono-como-usuario/<int:pk>/', views.aprobar_abono_como_usuario, name='aprobar_abono_como_usuario'),
 
 ]

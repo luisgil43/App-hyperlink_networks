@@ -1293,3 +1293,22 @@ def invoices_export(request):
     resp["Content-Disposition"] = f'attachment; filename="invoices_{now_str}.xlsx"'
     wb.save(resp)
     return resp
+
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
+
+from .models import CartolaMovimiento
+
+
+@login_required
+@rol_requerido('admin')
+def aprobar_abono_como_usuario(request, pk):
+    mov = get_object_or_404(CartolaMovimiento, pk=pk)
+    if mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
+        mov.status = "aprobado_abono_usuario"
+        mov.save()
+        messages.success(request, "Deposit approved as user.")
+    next_url = request.GET.get('next') or request.META.get('HTTP_REFERER') or reverse('facturacion:listar_cartola')
+    return redirect(next_url)
