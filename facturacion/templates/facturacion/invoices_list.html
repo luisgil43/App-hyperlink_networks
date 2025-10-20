@@ -1056,4 +1056,49 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
+
+<script>
+/* Mantener el scroll horizontal del listado de Invoices */
+(function () {
+  const KEY = 'invoicesScrollX:' + location.pathname;
+
+  // El contenedor con overflow-x es el padre del #billing-table
+  function getScrollBox() {
+    const tbl = document.getElementById('billing-table');
+    return tbl ? tbl.closest('.overflow-x-auto') : null;
+  }
+
+  function saveX(x) {
+    try { sessionStorage.setItem(KEY, String(x)); } catch (_) {}
+  }
+  function readX() {
+    try { return Number(sessionStorage.getItem(KEY) || 0); } catch (_) { return 0; }
+  }
+
+  function restore() {
+    const box = getScrollBox();
+    if (!box) return;
+    const x = readX();
+    // Asegura que se aplique tras el layout
+    requestAnimationFrame(() => { box.scrollLeft = x; });
+
+    // Ir guardando mientras el usuario desplaza
+    let t = null;
+    box.addEventListener('scroll', () => {
+      if (t) return;
+      t = setTimeout(() => { t = null; saveX(box.scrollLeft); }, 120);
+    }, { passive: true });
+  }
+
+  function saveBeforeLeave() {
+    const box = getScrollBox();
+    if (!box) return;
+    saveX(box.scrollLeft);
+  }
+
+  // Guarda al salir/recargar y restaura al cargar
+  window.addEventListener('beforeunload', saveBeforeLeave);
+  document.addEventListener('DOMContentLoaded', restore);
+})();
+</script>
 {% endblock %}

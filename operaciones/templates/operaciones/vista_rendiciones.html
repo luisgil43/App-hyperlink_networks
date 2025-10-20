@@ -252,153 +252,193 @@
   </div>
 
   <script>
-  (function(){
-    const zona        = document.getElementById('zonaTabla');
-    const filtrosForm = document.getElementById('form-filtros');
-    const exportLink  = document.getElementById('exportLink');
-    const btnClear    = document.getElementById('btnClear');
-    let debounceTimer = null, controller = null;
+(function(){
+  const zona        = document.getElementById('zonaTabla');
+  const filtrosForm = document.getElementById('form-filtros');
+  const exportLink  = document.getElementById('exportLink');
+  const btnClear    = document.getElementById('btnClear');
+  let debounceTimer = null, controller = null;
 
-    function paramsFromFilters(resetPage){
-      const p = new URLSearchParams(new FormData(filtrosForm));
-      if (resetPage) p.set('page','1');
-      return p;
-    }
+  /* ===== Conserva el scroll horizontal ===== */
+  const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
 
-    function limpiarFiltros(){
-      filtrosForm.querySelectorAll('input.campo-filtro').forEach(i => i.value = '');
-      const sel = filtrosForm.querySelector('select[name="estado"]');
-      if (sel) sel.value = '';
-    }
+  function getScrollBox(){
+    // contenedor con overflow-x
+    return zona.querySelector('.tabla-responsive');
+  }
+  function readSavedX(){
+    return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
+  }
+  function saveX(x){
+    sessionStorage.setItem(SCROLL_KEY, String(x));
+  }
+  function hookScrollSaver(){
+    const box = getScrollBox();
+    if(!box) return;
+    let t=null;
+    box.addEventListener('scroll', ()=>{
+      if(t) return;
+      t=setTimeout(()=>{ t=null; saveX(box.scrollLeft); }, 120);
+    }, {passive:true});
+  }
+  function restoreX(x){
+    const box = getScrollBox();
+    if(!box) return;
+    requestAnimationFrame(()=>{ box.scrollLeft = x; });
+  }
+  /* ======================================== */
 
-    async function cargarTablaCon(qs, push=true){
-      const url = `${location.pathname}?${qs}`;
-      if (push) history.replaceState(null, '', url);
-      if (exportLink) exportLink.href = `{% url 'operaciones:exportar_rendiciones' %}?` + qs;
+  function paramsFromFilters(resetPage){
+    const p = new URLSearchParams(new FormData(filtrosForm));
+    if (resetPage) p.set('page','1');
+    return p;
+  }
 
-      if (controller) controller.abort();
-      controller = new AbortController();
+  function limpiarFiltros(){
+    filtrosForm.querySelectorAll('input.campo-filtro').forEach(i => i.value = '');
+    const sel = filtrosForm.querySelector('select[name="estado"]');
+    if (sel) sel.value = '';
+  }
 
-      const resp = await fetch(url, { signal: controller.signal });
-      const html = await resp.text();
-      const doc  = new DOMParser().parseFromString(html, 'text/html');
-      const nuevaZona = doc.getElementById('zonaTabla');
-      if (!nuevaZona) return;
-      zona.innerHTML = nuevaZona.innerHTML;
+  async function cargarTablaCon(qs, push=true){
+    // Guardar scroll actual antes de refrescar la zona
+    const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
+    saveX(prevX);
 
-      // Re-enganchar handlers tras refrescar zona
-      engancharPaginacion();
-      engancharCantidad();
-      engancharAprobar();       // 👈 para aprobar sin recargar
-      engancharRechazo();       // 👈 para rechazar sin recargar
-    }
+    const url = `${location.pathname}?${qs}`;
+    if (push) history.replaceState(null, '', url);
+    if (exportLink) exportLink.href = `{% url 'operaciones:exportar_rendiciones' %}?` + qs;
 
-    function refiltrar(resetPage=true){
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(()=>{
-        const p = paramsFromFilters(resetPage);
-        cargarTablaCon(p.toString(), true);
-      }, 300);
-    }
+    if (controller) controller.abort();
+    controller = new AbortController();
 
-    // Filtros automáticos
-    filtrosForm.querySelectorAll('.filtro').forEach(el=>{
-      const evt = el.tagName === 'SELECT' ? 'change' : 'input';
-      el.addEventListener(evt, ()=>refiltrar(true));
-      el.addEventListener('keydown', e=>{
-        if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
-      });
-    });
+    const resp = await fetch(url, { signal: controller.signal });
+    const html = await resp.text();
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const nuevaZona = doc.getElementById('zonaTabla');
+    if (!nuevaZona) return;
 
-    // Clear sin recargar
-    if (btnClear){
-      btnClear.addEventListener('click', ()=>{
-        const cantidad = filtrosForm.querySelector('input[name="cantidad"]')?.value || '';
-        limpiarFiltros();
-        const p = paramsFromFilters(true);
-        if (cantidad) p.set('cantidad', cantidad);
-        cargarTablaCon(p.toString(), true);
-      });
-    }
+    zona.innerHTML = nuevaZona.innerHTML;
 
-    function engancharPaginacion(){
-      zona.querySelectorAll('a.pg-link').forEach(a=>{
-        a.addEventListener('click', ev=>{
-          ev.preventDefault();
-          const href = new URL(a.getAttribute('href'), location.href);
-          const p = paramsFromFilters(false);
-          p.set('page', href.searchParams.get('page') || '1');
-          cargarTablaCon(p.toString(), true);
-        });
-      });
-    }
-
-    function engancharCantidad(){
-      const sel = zona.querySelector('#cantidad');
-      if(!sel) return;
-      sel.addEventListener('change', ()=>{
-        const p = paramsFromFilters(true);
-        p.set('cantidad', sel.value);
-        cargarTablaCon(p.toString(), true);
-      });
-    }
-
-    // --- Aprobación por AJAX (no recarga, mantiene filtros)
-    function engancharAprobar(){
-      zona.querySelectorAll('form.js-approve-form').forEach(form=>{
-        form.addEventListener('submit', async (e)=>{
-          e.preventDefault();
-          const fd = new FormData(form);
-          try{
-            await fetch(form.action, { method:'POST', body: fd });
-            const p = paramsFromFilters(false);
-            await cargarTablaCon(p.toString(), false);
-          }catch(err){
-            console.error(err);
-            alert('There was a problem approving this expense.');
-          }
-        });
-      });
-    }
-
-    // --- Rechazo por AJAX (usa el modal existente)
-    function engancharRechazo(){
-      const modal = document.getElementById('modalRechazo');
-      const formR = document.getElementById('formRechazo');
-      if (!formR) return;
-
-      formR.onsubmit = async (e)=>{
-        e.preventDefault();
-        try{
-          const fd = new FormData(formR);
-          await fetch(formR.action, { method:'POST', body: fd });
-          cerrarModalRechazo();
-          const p = paramsFromFilters(false);
-          await cargarTablaCon(p.toString(), false);
-        }catch(err){
-          console.error(err);
-          alert('There was a problem rejecting this expense.');
-        }
-      };
-
-      // Re-definir global por si se perdió al re-renderizar
-      window.abrirModalRechazo = function(id){
-        formR.action = `/operaciones/rendiciones/rechazar/${id}/`;
-        modal.classList.remove('hidden');
-      };
-      window.cerrarModalRechazo = function(){
-        modal.classList.add('hidden');
-      };
-    }
-
-    // Inicial
+    // Re-enganchar handlers tras refrescar zona
     engancharPaginacion();
     engancharCantidad();
     engancharAprobar();
     engancharRechazo();
-  })();
-  </script>
 
+    // Restaurar scroll después del re-render
+    restoreX(prevX);
+    hookScrollSaver();
+  }
+
+  function refiltrar(resetPage=true){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(()=>{
+      const p = paramsFromFilters(resetPage);
+      cargarTablaCon(p.toString(), true);
+    }, 300);
+  }
+
+  // Filtros automáticos
+  filtrosForm.querySelectorAll('.filtro').forEach(el=>{
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>refiltrar(true));
+    el.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
+    });
+  });
+
+  // Clear sin recargar
+  if (btnClear){
+    btnClear.addEventListener('click', ()=>{
+      const cantidad = filtrosForm.querySelector('input[name="cantidad"]')?.value || '';
+      limpiarFiltros();
+      const p = paramsFromFilters(true);
+      if (cantidad) p.set('cantidad', cantidad);
+      cargarTablaCon(p.toString(), true);
+    });
+  }
+
+  function engancharPaginacion(){
+    zona.querySelectorAll('a.pg-link').forEach(a=>{
+      a.addEventListener('click', ev=>{
+        ev.preventDefault();
+        const href = new URL(a.getAttribute('href'), location.href);
+        const p = paramsFromFilters(false);
+        p.set('page', href.searchParams.get('page') || '1');
+        cargarTablaCon(p.toString(), true);
+      });
+    });
+  }
+
+  function engancharCantidad(){
+    const sel = zona.querySelector('#cantidad');
+    if(!sel) return;
+    sel.addEventListener('change', ()=>{
+      const p = paramsFromFilters(true);
+      p.set('cantidad', sel.value);
+      cargarTablaCon(p.toString(), true);
+    });
+  }
+
+  // Aprobación por AJAX
+  function engancharAprobar(){
+    zona.querySelectorAll('form.js-approve-form').forEach(form=>{
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const fd = new FormData(form);
+        try{
+          await fetch(form.action, { method:'POST', body: fd });
+          const p = paramsFromFilters(false);
+          await cargarTablaCon(p.toString(), false);
+        }catch(err){
+          console.error(err);
+          alert('There was a problem approving this expense.');
+        }
+      });
+    });
+  }
+
+  // Rechazo por AJAX (usa el modal existente)
+  function engancharRechazo(){
+    const modal = document.getElementById('modalRechazo');
+    const formR = document.getElementById('formRechazo');
+    if (!formR) return;
+
+    formR.onsubmit = async (e)=>{
+      e.preventDefault();
+      try{
+        const fd = new FormData(formR);
+        await fetch(formR.action, { method:'POST', body: fd });
+        cerrarModalRechazo();
+        const p = paramsFromFilters(false);
+        await cargarTablaCon(p.toString(), false);
+      }catch(err){
+        console.error(err);
+        alert('There was a problem rejecting this expense.');
+      }
+    };
+
+    window.abrirModalRechazo = function(id){
+      formR.action = `/operaciones/rendiciones/rechazar/${id}/`;
+      modal.classList.remove('hidden');
+    };
+    window.cerrarModalRechazo = function(){
+      modal.classList.add('hidden');
+    };
+  }
+
+  // Inicial
+  engancharPaginacion();
+  engancharCantidad();
+  engancharAprobar();
+  engancharRechazo();
+
+  // Restaurar scroll cuando cargas o vuelves a la página
+  restoreX(readSavedX());
+  hookScrollSaver();
+})();
+</script>
   <script>
     // Fallback globales (por si se invocan fuera del ciclo anterior)
     function abrirModalRechazo(id) {

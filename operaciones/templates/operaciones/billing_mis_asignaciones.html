@@ -206,4 +206,47 @@
   });
 })();
 </script>
+<script>
+/* Mantener el scroll horizontal en "My Assignments" */
+(function () {
+  const KEY = 'myassignScrollX:' + location.pathname;
+
+  // El contenedor con overflow-x del listado
+  function getScrollBox() {
+    // es el .overflow-x-auto que envuelve la tabla dentro del wrapper principal
+    return document.querySelector('.max-w-7xl .overflow-x-auto') || document.querySelector('.overflow-x-auto');
+  }
+
+  function saveX(x) {
+    try { sessionStorage.setItem(KEY, String(x)); } catch (_) {}
+  }
+  function readX() {
+    try { return Number(sessionStorage.getItem(KEY) || 0); } catch (_) { return 0; }
+  }
+
+  function restore() {
+    const box = getScrollBox();
+    if (!box) return;
+    const x = readX();
+    // aplicar después del layout
+    requestAnimationFrame(() => { box.scrollLeft = x; });
+
+    // ir guardando mientras el usuario se desplaza
+    let t = null;
+    box.addEventListener('scroll', () => {
+      if (t) return;
+      t = setTimeout(() => { t = null; saveX(box.scrollLeft); }, 120);
+    }, { passive: true });
+  }
+
+  function saveBeforeLeave() {
+    const box = getScrollBox();
+    if (box) saveX(box.scrollLeft);
+  }
+
+  // Restaurar al cargar y guardar al salir/recargar
+  document.addEventListener('DOMContentLoaded', restore);
+  window.addEventListener('beforeunload', saveBeforeLeave);
+})();
+</script>
 {% endblock %}

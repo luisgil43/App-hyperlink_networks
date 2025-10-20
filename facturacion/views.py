@@ -1,80 +1,52 @@
 # ajusta si tu decorador está en otro módulo
-from operaciones.models import (
-    SesionBilling, ItemBilling, ItemBillingTecnico,
-    SesionBillingTecnico, EvidenciaFotoBilling,
-)
-from django.shortcuts import redirect
-from django.urls import reverse
-import datetime as dt
-from operaciones.models import SesionBilling, ItemBillingTecnico
-from django.db.models import Prefetch
-from openpyxl import Workbook
 import datetime
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
-from django.contrib.auth.decorators import login_required, user_passes_test
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse, HttpResponseForbidden
-from django.http import (
-    HttpResponseBadRequest,
-    JsonResponse,
-    HttpResponseNotAllowed,)
-from django.utils import timezone
-from django.shortcuts import render, redirect, get_object_or_404
-from operaciones.models import SesionBilling
-from django.db import transaction
-from django.db.models import Sum, Case, When, Q, Value, DecimalField, F, ExpressionWrapper
-from django.db.models.functions import Coalesce
-from django.db.models import Sum, F, Q, Case, When, Value, DecimalField
-from django.db.models import Sum, F
-from django.utils.timezone import is_aware
-import xlwt
-from io import BytesIO
-from django.utils.module_loading import import_string
-from django.conf import settings
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
-from django.db.models import Q
-from operaciones.forms import MovimientoUsuarioForm
-from django.db.models import Sum, Q
-from django.contrib.auth import get_user_model
-from facturacion.models import CartolaMovimiento
-from django.shortcuts import render
-from django.db.models import Sum, F, Value
-from .forms import CartolaMovimientoCompletoForm
-from .forms import ProyectoForm
-from .models import Proyecto
-from django.template.loader import render_to_string
-from .forms import TipoGastoForm
-from .models import TipoGasto
-from .forms import CartolaAbonoForm
-from .forms import CartolaGastoForm
-from .models import CartolaMovimiento
-from django.shortcuts import get_object_or_404
-from django.views.decorators.csrf import csrf_exempt
-from dateutil import parser
-from decimal import Decimal, InvalidOperation
-from django.http import JsonResponse
-from openpyxl.styles import Font, Alignment, PatternFill
-from django.http import HttpResponse
-from openpyxl.utils import get_column_letter
-import openpyxl
-import traceback
-from usuarios.decoradores import rol_requerido
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect, render
-from datetime import datetime
-from decimal import Decimal
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
-from django.contrib import messages
+import datetime as dt
 import re
+import traceback
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from io import BytesIO
+
+import openpyxl
 import pdfplumber
-
+import xlwt
+from dateutil import parser
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
+from django.db import transaction
+from django.db.models import (Case, DecimalField, ExpressionWrapper, F,
+                              Prefetch, Q, Subquery, Sum, Value, When)
+from django.db.models.functions import Coalesce
+from django.http import (HttpResponse, HttpResponseBadRequest,
+                         HttpResponseForbidden, HttpResponseNotAllowed,
+                         JsonResponse)
+from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.module_loading import import_string
+from django.utils.timezone import is_aware
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
+from facturacion.models import CartolaMovimiento
+from operaciones.forms import MovimientoUsuarioForm
+from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
+                                ItemBillingTecnico, SesionBilling,
+                                SesionBillingTecnico)
+from usuarios.decoradores import rol_requerido
 
-from django.db.models import Subquery
-
+from .forms import (CartolaAbonoForm, CartolaGastoForm,
+                    CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm)
+from .models import CartolaMovimiento, Proyecto, TipoGasto
 
 User = get_user_model()
 
@@ -83,6 +55,7 @@ User = get_user_model()
 @rol_requerido('facturacion', 'admin')
 def listar_cartola(request):
     from datetime import datetime, time, timedelta
+
     from django.contrib import messages
     from django.core.paginator import Paginator
     from django.db import models
@@ -541,28 +514,82 @@ def listar_saldos_usuarios(request):
     })
 
 
+from datetime import datetime, time, timedelta
+
+from django.db import models
+from django.db.models import Q
+from django.http import HttpResponse
+from django.utils import timezone
+from django.utils.timezone import is_aware
+
+
+def _parse_date_any(s: str):
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    return None
+
 @login_required
 @rol_requerido('facturacion', 'admin')
 def exportar_cartola(request):
-    movimientos = CartolaMovimiento.objects.all()
+    params = request.GET
 
-    if usuario := request.GET.get("du"):
-        movimientos = movimientos.filter(usuario__username__icontains=usuario)
-    if fecha := request.GET.get("fecha"):
-        movimientos = movimientos.filter(fecha=fecha)
-    if proyecto := request.GET.get("proyecto"):
+    du = (params.get('du') or '').strip()
+    fecha_str = (params.get('fecha') or '').strip()
+    proyecto = (params.get('proyecto') or '').strip()
+    categoria = (params.get('categoria') or '').strip()
+    tipo = (params.get('tipo') or '').strip()
+    estado = (params.get('estado') or '').strip()
+    rut = (params.get('rut_factura') or '').strip()  # opcional
+
+    movimientos = (
+        CartolaMovimiento.objects.all()
+        .select_related('usuario', 'proyecto', 'tipo')
+        .order_by('-fecha')
+    )
+
+    # Usuario: igual que en listar_cartola (du => username/nombre/apellido)
+    if du:
+        movimientos = movimientos.filter(
+            Q(usuario__username__icontains=du) |
+            Q(usuario__first_name__icontains=du) |
+            Q(usuario__last_name__icontains=du)
+        )
+
+    # Fecha: igual que en listar_cartola (día suelto o fecha completa; DateTime→rango)
+    if fecha_str:
+        if fecha_str.isdigit() and 1 <= int(fecha_str) <= 31:
+            dia = int(fecha_str)
+            movimientos = movimientos.filter(fecha__day=dia)
+        else:
+            f = _parse_date_any(fecha_str)
+            if f:
+                campo_fecha = CartolaMovimiento._meta.get_field('fecha')
+                if isinstance(campo_fecha, models.DateTimeField):
+                    tz = timezone.get_current_timezone()
+                    start = timezone.make_aware(datetime.combine(f, time.min), tz)
+                    end = start + timedelta(days=1)
+                    movimientos = movimientos.filter(fecha__gte=start, fecha__lt=end)
+                else:
+                    movimientos = movimientos.filter(fecha=f)
+
+    if proyecto:
         movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
-    if categoria := request.GET.get("categoria"):
+    if categoria:
         movimientos = movimientos.filter(tipo__categoria__icontains=categoria)
-    if tipo := request.GET.get("tipo"):
+    if tipo:
         movimientos = movimientos.filter(tipo__nombre__icontains=tipo)
-    if rut := request.GET.get("rut_factura"):
+    if rut:
         movimientos = movimientos.filter(rut_factura__icontains=rut)
-    if estado := request.GET.get("estado"):
+    if estado:
         movimientos = movimientos.filter(status=estado)
 
-    response = HttpResponse(content_type='application/ms-excel')
-    response['Content-Disposition'] = 'attachment; filename="transactions_ledger.xls"'
+    # ----- Excel -----
+    response = HttpResponse(content_type='application/vnd.ms-excel')
+    now_str = timezone.localtime().strftime("%Y%m%d_%H%M%S")
+    response['Content-Disposition'] = f'attachment; filename="transactions_ledger_{now_str}.xls"'
 
     wb = xlwt.Workbook(encoding='utf-8')
     ws = wb.add_sheet('Transactions')
@@ -570,47 +597,64 @@ def exportar_cartola(request):
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
-    # 👇 Se agrega "Odometer (km)" después de "Transfer Number"
     columns = [
         "User", "Date", "Project", "Category", "Type", "Remarks",
         "Transfer Number", "Odometer (km)", "Debits", "Credits", "Status"
     ]
-    for col_num, column_title in enumerate(columns):
-        ws.write(0, col_num, column_title, header_style)
+    for col_num, title in enumerate(columns):
+        ws.write(0, col_num, title, header_style)
+
+    if not movimientos.exists():
+        ws.write(1, 0, "Sin resultados para los filtros aplicados.")
+        wb.save(response)
+        return response
 
     for row_num, mov in enumerate(movimientos, start=1):
+        # User
         ws.write(row_num, 0, str(mov.usuario))
 
-        fecha_excel = mov.fecha
+        # Date → date naive para xlwt
+        fecha_excel = getattr(mov, 'fecha', None)
         if isinstance(fecha_excel, datetime):
             if is_aware(fecha_excel):
                 fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
             fecha_excel = fecha_excel.date()
         ws.write(row_num, 1, fecha_excel, date_style)
 
-        ws.write(row_num, 2, str(mov.proyecto))
-        ws.write(row_num, 3, mov.tipo.categoria.title())
-        ws.write(row_num, 4, str(mov.tipo))
+        # Project
+        ws.write(row_num, 2, str(getattr(mov, 'proyecto', '') or ''))
+
+        # Category / Type (protegido contra None)
+        cat = (getattr(getattr(mov, 'tipo', None), 'categoria', '') or '')
+        tipo_txt = str(getattr(mov, 'tipo', '') or '')
+        ws.write(row_num, 3, str(cat).title())
+        ws.write(row_num, 4, tipo_txt)
+
+        # Remarks / Transfer
         ws.write(row_num, 5, mov.observaciones or "")
         ws.write(row_num, 6, mov.numero_transferencia or "")
 
-        # 👇 Nuevo campo: kilometraje (si no hay, deja vacío)
-        ws.write(row_num, 7, int(mov.kilometraje) if mov.kilometraje else "")
+        # Odometer
+        try:
+            ws.write(row_num, 7, float(mov.kilometraje) if mov.kilometraje is not None else "")
+        except Exception:
+            ws.write(row_num, 7, "")
 
-        # Ojo: se corren los índices por la nueva columna
+        # Debits / Credits
         ws.write(row_num, 8, float(mov.cargos or 0))
         ws.write(row_num, 9, float(mov.abonos or 0))
+
+        # Status (display)
         ws.write(row_num, 10, mov.get_status_display())
 
     wb.save(response)
     return response
 
-
 @login_required
 @rol_requerido('facturacion', 'admin')
 def exportar_saldos(request):
-    from django.db.models import Sum, Case, When, Q, Value, DecimalField, F
     import xlwt
+    from django.db.models import Case, DecimalField, F, Q, Sum, Value, When
     from django.http import HttpResponse
 
     USER_PENDING = ['pendiente_usuario',

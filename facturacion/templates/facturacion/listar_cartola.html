@@ -251,6 +251,34 @@
   const exportLink  = document.getElementById('exportLink');
   let debounceTimer = null, controller = null;
 
+  /* ======== Mantener scroll horizontal ======== */
+  const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
+
+  function getScrollBox(){           // contenedor con overflow-x
+    return zona.querySelector('.tabla-responsive');
+  }
+  function readSavedX(){
+    return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
+  }
+  function saveX(x){
+    sessionStorage.setItem(SCROLL_KEY, String(x));
+  }
+  function hookScrollSaver(){
+    const box = getScrollBox();
+    if(!box) return;
+    let t=null;
+    box.addEventListener('scroll', ()=>{
+      if(t) return;
+      t=setTimeout(()=>{ t=null; saveX(box.scrollLeft); }, 120);
+    }, {passive:true});
+  }
+  function restoreX(x){
+    const box = getScrollBox();
+    if(!box) return;
+    requestAnimationFrame(()=>{ box.scrollLeft = x; });
+  }
+  /* =========================================== */
+
   function paramsFromFilters(resetPage){
     const p = new URLSearchParams(new FormData(filtrosForm));
     if (resetPage) p.set('page','1');
@@ -258,6 +286,10 @@
   }
 
   async function cargarTablaCon(qs, push=true){
+    // 👇 guardar scroll actual antes de refrescar
+    const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
+    saveX(prevX);
+
     const url = `${location.pathname}?${qs}`;
     if (push) history.replaceState(null, '', url);
     exportLink.href = `{% url 'facturacion:exportar_cartola' %}?` + qs;
@@ -270,11 +302,17 @@
     const doc  = new DOMParser().parseFromString(html, 'text/html');
     const nuevaZona = doc.getElementById('zonaTabla');
     if (!nuevaZona) return;
+
     zona.innerHTML = nuevaZona.innerHTML;
 
+    // Re-enganchar handlers
     engancharPaginacion();
     engancharAprobar();
     engancharCantidad();
+
+    // 👇 restaurar scroll y volver a escuchar
+    restoreX(prevX);
+    hookScrollSaver();
   }
 
   function refiltrar(resetPage=true){
@@ -353,9 +391,14 @@
     await cargarTablaCon(p.toString(), false);
   });
 
+  // Inicial
   engancharPaginacion();
   engancharAprobar();
   engancharCantidad();
+
+  // 👇 aplicar estado de scroll al cargar y seguir guardándolo
+  restoreX(readSavedX());
+  hookScrollSaver();
 })();
 </script>
 
