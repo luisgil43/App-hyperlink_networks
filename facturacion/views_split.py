@@ -135,11 +135,23 @@ def duplicate_commit(request, session_id: int):
         "moved_items_count": result.moved_items_count
     })
 
+
 from django.db import transaction
 from django.views.decorators.http import require_POST
 
 # ...
 from operaciones.services.billing_split import revert_split_child  # NUEVO
+
+
+# ---------- NUEVO helper JSON-safe (p/ Decimals en result) ----------
+def _jsonable(x):
+    if isinstance(x, Decimal):
+        return float(x)
+    if isinstance(x, dict):
+        return {k: _jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple, set)):
+        return [_jsonable(v) for v in x]
+    return x
 
 
 @login_required
@@ -150,17 +162,32 @@ def delete_split_child(request, session_id: int):
     Elimina una sesión hija de split y revierte cantidades al padre.
     Requiere que la sesión sea is_split_child=True y tenga split_from != None.
     """
+    # Validación explícita: que exista y sea hija
+    child = get_object_or_404(SesionBilling, pk=session_id)
+    if not getattr(child, "is_split_child", False) or not getattr(child, "split_from_id", None):
+        return JsonResponse(
+            {"ok": False, "error": "This invoice is not a split child or has no parent."},
+            status=400
+        )
+
     try:
         with transaction.atomic():
-            result = revert_split_child(child_session_id=session_id)
+            result = revert_split_child(child_session_id=child.id)
     except ValueError as e:
+        # Errores de negocio -> 400 con el mensaje claro para el modal
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
-    except Exception:
-        return JsonResponse({"ok": False, "error": "Unexpected error."}, status=500)
+    except Exception as e:
+        # Devolver el mensaje real en 400 para diagnóstico desde UI
+        return JsonResponse({"ok": False, "error": str(e) or "Unexpected error."}, status=400)
+
+    # Normalizar a JSON por si el servicio retorna Decimals
+    payload = _jsonable(result if isinstance(result, dict) else {
+        "parent_id": getattr(result, "parent_id", None),
+        "restored_items": getattr(result, "restored_items", []),
+        "deleted_child_id": getattr(result, "deleted_child_id", child.id),
+    })
 
     return JsonResponse({
         "ok": True,
-        "parent_id": result["parent_id"],
-        "restored_items": result["restored_items"],
-        "deleted_child_id": result["deleted_child_id"],
+        **payload
     })
