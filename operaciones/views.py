@@ -1,137 +1,95 @@
 # operaciones/views.py
 
-from django.db.models.functions import Coalesce, Upper, Length, Substr
-from django.db.models import Q, F, Sum, Exists, OuterRef, Value, DecimalField
-from operaciones.forms import PaymentApproveForm, PaymentRejectForm
-from operaciones.models import WeeklyPayment, ItemBillingTecnico, AdjustmentEntry
-from django.db.models import Q, Exists, OuterRef, Sum, F
-from operaciones.models import SesionBilling, AdjustmentEntry  # <-- IMPORTA EL MODELO
-from django.db.models import Q, Sum, F, Value, DecimalField
-from .models import AdjustmentEntry
-from datetime import date as _date
-import xml.etree.ElementTree as ET
-import shutil
-from django.core.files.storage import default_storage as storage
-from django.http import FileResponse, JsonResponse, HttpResponseBadRequest
-import zipfile
-from .models import SesionBilling
-from django.core.files.storage import default_storage
-from copy import copy as _copy
-from tempfile import NamedTemporaryFile
-from django.http import FileResponse, HttpResponseBadRequest, JsonResponse
-from django.utils.text import slugify
-from django.http import HttpResponse, JsonResponse
-import xlsxwriter
-from io import BytesIO
-from openpyxl.drawing.image import Image as XLImage
-from openpyxl import load_workbook, Workbook
-from openpyxl.drawing.image import Image as XLImage  # para copiar imágenes
-from openpyxl import Workbook, load_workbook
-from django.db.models import Case, When, IntegerField
-from django.http import JsonResponse, FileResponse, HttpResponseNotAllowed
-from django.db.models import Q, Prefetch
-from urllib.parse import urlencode
-from django.db.models import Q, F, Sum
-from django.db.models import Sum, Q, F
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
-from django.db.models import Count
-from .models import SesionBilling  # <-- AJUSTA este import al modelo correcto
-from django.http import HttpResponseRedirect
-from django.utils.http import urlencode
-from .services.weekly import (
-    sync_weekly_totals_no_create,   # no crea; actualiza y borra huérfanos
-    materialize_week_for_payments,  # crea/actualiza solo la semana indicada
-)
-from django.db.models import Exists, OuterRef, Sum
-from .services.weekly import sync_weekly_totals_no_create  # versión que NO crea
-from django.views.decorators.cache import never_cache
-from facturacion.models import CartolaMovimiento
+import calendar
+import csv
+import io
 import json
-from botocore.client import Config
-from .forms import PaymentApproveForm, PaymentRejectForm, PaymentMarkPaidForm
-from uuid import uuid4
+import locale
+import logging
 import os
-from .models import WeeklyPayment
-from datetime import timedelta
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from django.views.decorators.http import require_POST
-from django.utils import timezone
-from .models import SesionBilling  # ajusta a tu ruta real
-from openpyxl import Workbook
 import re
-from django.db.models import Prefetch
-from .models import SesionBillingTecnico, EvidenciaFotoBilling, ItemBilling, ItemBillingTecnico
-from .models import PrecioActividadTecnico  # tu modelo
-from .models import (
-    SesionBilling, SesionBillingTecnico,
-    ItemBilling, ItemBillingTecnico,
-    PrecioActividadTecnico,
-)
-from django.http import JsonResponse, HttpResponseBadRequest
-from decimal import Decimal, ROUND_HALF_UP
-from .forms import ImportarPreciosForm, PrecioActividadTecnicoForm  # <-- TUS FORMS
-from .models import PrecioActividadTecnico           # <-- TU MODELO DE PRECIOS
-from usuarios.models import CustomUser  # ajusta si tu user model es otro
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import get_user_model
-from django.db.models import Q
-from decimal import Decimal, InvalidOperation
-from django.db import transaction
-from .forms import PrecioActividadTecnicoForm  # lo definimos abajo
+import shutil
+import xml.etree.ElementTree as ET
+import zipfile
+from copy import copy as _copy
 from datetime import date
-from .forms import ImportarPreciosForm
-from .models import PrecioActividadTecnico
-from django.utils.timezone import is_aware
+from datetime import date as _date
+from datetime import datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from io import BytesIO
+from tempfile import NamedTemporaryFile
+from urllib.parse import urlencode
+from uuid import uuid4
 
 import boto3
-from django.db.models import Sum
-from .forms import MovimientoUsuarioForm  # crearemos este form
-from django.shortcuts import redirect
-from facturacion.models import CartolaMovimiento
-from django.db.models import Sum, Q
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-from django.utils.html import escape
-from django.utils.encoding import force_str
-from django.core.paginator import Paginator
-import calendar
-from decimal import Decimal
+import pandas as pd
 import requests
+import xlsxwriter
+import xlwt
+from botocore.client import Config
+from botocore.exceptions import ClientError
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import default_storage
+from django.core.files.storage import default_storage as storage
+from django.core.paginator import Paginator
+from django.db import models, transaction
+from django.db.models import (Case, Count, DecimalField, Exists, F, FloatField,
+                              IntegerField, OuterRef, Prefetch, Q, Sum, Value,
+                              When)
+from django.db.models.functions import Coalesce, Length, Substr, Upper
+from django.http import (FileResponse, HttpResponse, HttpResponseBadRequest,
+                         HttpResponseForbidden, HttpResponseNotAllowed,
+                         HttpResponseRedirect, HttpResponseServerError,
+                         JsonResponse)
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.utils.encoding import force_str
+from django.utils.html import escape
+from django.utils.http import urlencode
+from django.utils.text import slugify
+from django.utils.timezone import is_aware, now
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from openpyxl import Workbook, load_workbook
+from openpyxl.drawing.image import Image as XLImage  # para copiar imágenes
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image
-import io
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from django.db.models.functions import Coalesce
-from django.db.models import Sum, F, Count, Value, FloatField
-from django.db.models import Case, When, Value, IntegerField
-from django.utils.timezone import now
-from django.http import HttpResponseServerError
-import logging
-import xlwt
-from django.http import HttpResponse
-import csv
-from usuarios.models import CustomUser
-from django.urls import reverse
-from usuarios.utils import crear_notificacion  # asegúrate de tener esta función
-from datetime import datetime
-import locale
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
-import pandas as pd
-from django.db import models
-from django.contrib import messages
-from django.shortcuts import render, redirect
+from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
+                                Table, TableStyle)
 
-
-from django.contrib.auth.decorators import login_required
+from facturacion.models import CartolaMovimiento
+from operaciones.forms import PaymentApproveForm, PaymentRejectForm
+from operaciones.models import (AdjustmentEntry,  # <-- IMPORTA EL MODELO
+                                ItemBillingTecnico, SesionBilling,
+                                WeeklyPayment)
 from usuarios.decoradores import rol_requerido
-from botocore.exceptions import ClientError
+from usuarios.models import CustomUser  # ajusta si tu user model es otro
+from usuarios.utils import \
+    crear_notificacion  # asegúrate de tener esta función
+
+from .forms import MovimientoUsuarioForm  # crearemos este form
+from .forms import PrecioActividadTecnicoForm  # lo definimos abajo
+from .forms import (ImportarPreciosForm, PaymentApproveForm,  # <-- TUS FORMS
+                    PaymentMarkPaidForm, PaymentRejectForm)
+from .models import PrecioActividadTecnico  # <-- TU MODELO DE PRECIOS
+from .models import SesionBilling  # ajusta a tu ruta real
+from .models import (AdjustmentEntry, EvidenciaFotoBilling, ItemBilling,
+                     ItemBillingTecnico, SesionBillingTecnico, WeeklyPayment)
+from .services.weekly import \
+    materialize_week_for_payments  # crea/actualiza solo la semana indicada
+from .services.weekly import \
+    sync_weekly_totals_no_create  # versión que NO crea
 
 WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 # --- Direct upload (receipts/rendiciones) ---
@@ -2387,8 +2345,8 @@ def _actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, nuevos_ids: li
 @transaction.atomic
 def _guardar_billing(request, sesion: SesionBilling | None = None):
     # ======================== Helpers locales ========================= #
-    import re
     import json
+    import re
 
     WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 
@@ -2832,9 +2790,10 @@ def produccion_admin(request):
     import re
     from decimal import Decimal
     from urllib.parse import urlencode
-    from django.db.models import Q, CharField
-    from django.db.models.functions import Cast
+
     from django.core.paginator import Paginator
+    from django.db.models import CharField, Q
+    from django.db.models.functions import Cast
     from django.utils import timezone
 
     # --- helpers locales ---
@@ -3701,7 +3660,7 @@ def user_weekly_payments(request):
     - Lista sus WeeklyPayment.
     - Adjunta 'details' = [(project_id, subtotal), ...] por cada (week).
     """
-    from django.db.models import Sum, F
+    from django.db.models import F, Sum
 
     # sincroniza SOLO este técnico, sin crear weeklies
     sync_weekly_totals_no_create(technician_id=request.user.id)
@@ -4027,6 +3986,13 @@ def produccion_admin(request):
         ajustes  -> 'week'
     """
     import re
+    from decimal import Decimal
+    from urllib.parse import urlencode
+
+    from django.core.paginator import Paginator
+    from django.db.models import CharField, Q
+    from django.db.models.functions import Cast
+    from django.utils import timezone
 
     # ---------------- helpers ----------------
     def _iso_week_str(dt):
@@ -4199,9 +4165,11 @@ def produccion_admin(request):
 
         # Filtros Project / Client / Tech para ajustes (campos “ligeros”)
         if f_project:
+            # ⬅️ Cambio: castear project_id a texto para icontains
+            adj_qs = adj_qs.annotate(project_id_str=Cast('project_id', CharField()))
             adj_qs = adj_qs.filter(
-                Q(project_id__icontains=f_project) | Q(
-                    project__icontains=f_project)
+                Q(project_id_str__icontains=f_project) |
+                Q(project__icontains=f_project)
             )
         if f_client:
             adj_qs = adj_qs.filter(client__icontains=f_client)
@@ -4301,7 +4269,6 @@ def produccion_admin(request):
         "filters_qs": filters_qs,
     })
 
-
 @login_required
 @rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def Exportar_produccion_admin(request):
@@ -4312,12 +4279,13 @@ def Exportar_produccion_admin(request):
     """
     import re
     from decimal import Decimal
-    from django.db.models import Q, CharField
+
+    from django.db.models import CharField, Q
     from django.db.models.functions import Cast
+    from django.http import HttpResponse
     from django.utils import timezone
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
-    from django.http import HttpResponse
 
     from operaciones.models import SesionBilling
     try:
@@ -4586,10 +4554,11 @@ def produccion_usuario(request):
     """
     import re
     from decimal import Decimal
+    from urllib.parse import urlencode
+
+    from django.core.paginator import Paginator
     from django.db.models import Q
     from django.utils import timezone
-    from django.core.paginator import Paginator
-    from urllib.parse import urlencode
 
     tecnico = request.user
 
@@ -4926,10 +4895,11 @@ def admin_weekly_payments(request):
     - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
     """
     import re
-    from decimal import Decimal
     from collections import defaultdict
+    from decimal import Decimal
     from urllib.parse import urlencode
-    from django.db.models import Q, F, Sum, Value, DecimalField
+
+    from django.db.models import DecimalField, F, Q, Sum, Value
     from django.db.models.functions import Coalesce
 
     # ========= Helpers locales =========

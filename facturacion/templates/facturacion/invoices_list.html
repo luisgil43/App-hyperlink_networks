@@ -10,6 +10,8 @@
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💼 Invoices</h1>
 
+    <!-- Botón por fila (ejemplo dentro de una celda de acciones) -->
+
     <!-- Scope filter (Finance view specific) -->
     <form method="get" class="flex items-center gap-2">
       <input type="hidden" name="cantidad" value="{{ cantidad }}">
@@ -18,8 +20,24 @@
         <option value="paid" {% if scope == "paid" %}selected{% endif %}>Paid</option>
         <option value="all"  {% if scope == "all" %}selected{% endif %}>All</option>
       </select>
+
+<button
+  id="btn-duplicate-top"
+  type="button"
+  class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+  disabled
+  title="Duplicate / Split selected invoice"
+>
+  Duplicate
+</button>
+
+
+
  <!-- Export XLSX (con los filtros actuales) -->
-    <a
+    
+ 
+ 
+ <a
       href="{% url 'facturacion:invoices_export' %}?scope={{ scope }}&cantidad={{ cantidad }}"
       class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
       title="Export all fields to Excel"
@@ -53,27 +71,30 @@
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
     <table id="billing-table" class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
-        <tr>
-          <th class="p-2 border w-10"></th> <!-- caret -->
-          <th class="p-2 border text-left">Date</th>
-          <th class="p-2 border text-left">Project ID</th>
-          <th class="p-2 border text-left">Project address</th>
-          <th class="p-2 border text-left">Week</th>
-          <th class="p-2 border text-left">Status</th>
-          <th class="p-2 border text-left">Technicians</th>
-          <th class="p-2 border text-left">Client</th>
-          <th class="p-2 border text-left">City</th>
-          <th class="p-2 border text-left">Project</th>
-          <th class="p-2 border text-left">Office</th>
-          <th class="p-2 border text-right">Technical Billing</th>
-          <th class="p-2 border text-right">Company Billing</th>
-          <th class="p-2 border text-right">Real Company Billing</th>
-          <th class="p-2 border text-right">Difference</th>
-          <th class="p-2 border text-left">Finance status</th>
-          <th class="p-2 border text-left">Pay week / Discount week</th>
-          <th class="p-2 border text-center">Actions</th>
-        </tr>
-      </thead>
+  <tr>
+    <th class="p-2 border w-8">
+      <!-- (opcional) un “select none/all” si algún día quieres multi; por ahora vacío -->
+    </th>
+    <th class="p-2 border w-10"></th> <!-- caret -->
+    <th class="p-2 border text-left">Date</th>
+    <th class="p-2 border text-left">Project ID</th>
+    <th class="p-2 border text-left">Project address</th>
+    <th class="p-2 border text-left">Week</th>
+    <th class="p-2 border text-left">Status</th>
+    <th class="p-2 border text-left">Technicians</th>
+    <th class="p-2 border text-left">Client</th>
+    <th class="p-2 border text-left">City</th>
+    <th class="p-2 border text-left">Project</th>
+    <th class="p-2 border text-left">Office</th>
+    <th class="p-2 border text-right">Technical Billing</th>
+    <th class="p-2 border text-right">Company Billing</th>
+    <th class="p-2 border text-right">Real Company Billing</th>
+    <th class="p-2 border text-right">Difference</th>
+    <th class="p-2 border text-left">Finance status</th>
+    <th class="p-2 border text-left">Pay week / Discount week</th>
+    <th class="p-2 border text-center">Actions</th>
+  </tr>
+</thead>
 
       <tbody class="text-left">
         {% for s in pagina.object_list %}
@@ -87,6 +108,28 @@
             data-status="{% if s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% elif s.estado == 'en_proceso' %}en proceso in progress progress{% else %}asignado assigned{% endif %}"
             data-client="{{ s.cliente|default:''|lower }}"
             data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+
+<!-- checkbox de selección única (sin checkbox si es Direct Discount) -->
+<td class="p-2 border text-center align-top">
+  {% if not s.is_direct_discount %}
+    <input
+      type="checkbox"
+      class="dup-select w-4 h-4"
+      value="{{ s.id }}"
+      aria-label="Select invoice {{ s.id }}"
+    />
+  {% else %}
+    <!-- Sin checkbox. Muestra un lock/etiqueta para que el usuario entienda por qué no puede seleccionarlo -->
+    <span
+      class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs"
+      title="Direct discount invoices cannot be duplicated."
+    >
+      🔒 Direct discount
+    </span>
+  {% endif %}
+</td>
+
+
 
           <!-- caret -->
           <td class="p-2 border text-center">
@@ -253,7 +296,17 @@
         data-url="{% url 'facturacion:invoice_remove' s.id %}">
   Remove
 </button>
-
+{% if s.is_split_child %}
+  <button
+    type="button"
+    class="btn-split-delete text-red-700 hover:underline"
+    data-id="{{ s.id }}"
+    data-paid="{% if s.finance_status and s.finance_status|lower == 'paid' %}1{% else %}0{% endif %}"
+    title="Delete split and restore to parent"
+  >
+    Delete split
+  </button>
+{% endif %}
 
     <!-- Discount verified (solo Direct Discount en revisión) -->
   {% if s.is_direct_discount and s.finance_status == 'review_discount' %}
@@ -284,8 +337,8 @@
         <!-- Detail row -->
         <tr id="detalle-{{ s.id }}" class="hidden">
           <td class="border"></td>  <!-- caret -->
-          <!-- 17 columnas visibles arriba -> colspan = 16 -->
-          <td class="p-3 border bg-gray-50" colspan="16">
+          <!-- 17 columnas visibles arriba -> colspan = 17 -->
+          <td class="p-3 border bg-gray-50" colspan="17">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -468,6 +521,32 @@
               class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
         Yes, mark as paid
       </button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-split-delete" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-sd></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold mb-2">Delete split</h3>
+    <p id="sd-msg" class="text-sm text-gray-700 mb-3">
+      This will delete the child invoice and restore its quantities back into the original (parent) billing.
+    </p>
+
+    <div id="sd-paid-warning" class="hidden rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2 text-sm text-yellow-900 mb-3">
+      This invoice is <strong>Paid</strong>. Deleting it will keep parent statuses as-is. Do you still want to proceed?
+    </div>
+
+    <div class="text-sm text-gray-600 mb-3">
+      Type <span class="font-mono px-1.5 py-0.5 bg-gray-100 rounded border">DELETE</span> to confirm:
+    </div>
+    <input id="sd-confirm" type="text" class="w-full border rounded px-3 py-2 mb-4" placeholder="DELETE">
+
+    <div id="sd-error" class="hidden rounded bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 mb-3"></div>
+
+    <div class="flex justify-end gap-2">
+      <button type="button" id="sd-cancel" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+      <button type="button" id="sd-ok" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700" disabled>Delete</button>
     </div>
   </div>
 </div>
@@ -1099,6 +1178,362 @@ document.addEventListener('click', function(e){
   // Guarda al salir/recargar y restaura al cargar
   window.addEventListener('beforeunload', saveBeforeLeave);
   document.addEventListener('DOMContentLoaded', restore);
+})();
+</script>
+<!-- ===================== Duplicate / Split Modal (template) ===================== -->
+<template id="duplicate-split-modal">
+  <div class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/50" data-modal-close></div>
+
+    <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h3 class="text-lg font-semibold text-gray-800">Duplicate / Split Billing Session</h3>
+        <p class="text-sm text-gray-600">
+          Move item quantities into a new invoice. Statuses and metadata are kept as-is. Evidence remains with the original session.
+        </p>
+        <div id="dup-paid-warning" class="mt-3 hidden rounded-md bg-yellow-50 border border-yellow-200 px-4 py-2 text-sm text-yellow-900">
+          You are duplicating a <strong>Paid</strong> billing. Proceed only if you intend to create a pending remainder for client invoicing.
+        </div>
+      </div>
+
+      <div class="px-6 py-4 max-h-[65vh] overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500">
+              <th class="py-2">Code</th>
+              <th class="py-2">Description</th>
+              <th class="py-2">UOM</th>
+              <th class="py-2 text-right">Original Qty</th>
+              <th class="py-2 text-right">Move Qty</th>
+            </tr>
+          </thead>
+          <tbody id="dup-items-tbody">
+            <!-- rows rendered by JS -->
+          </tbody>
+        </table>
+
+        <div id="dup-error" class="mt-3 hidden rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"></div>
+      </div>
+
+      <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3">
+        <button class="px-4 py-2 rounded-md border text-gray-700 hover:bg-gray-50" data-modal-close>Cancel</button>
+        <button class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700" id="dup-submit">Review &amp; Create</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(function () {
+  // ===== Helpers =====
+  function getCsrfToken() {
+  // 1) meta[name=csrf-token]
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta && meta.content) return meta.content;
+
+  // 2) input[name=csrfmiddlewaretoken] en algún form
+  const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+  if (input && input.value) return input.value;
+
+  // 3) variable global que ya definiste en otro bloque
+  if (window.__csrf__) return window.__csrf__;
+
+  // 4) cookie csrftoken (fallback final)
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+  function showToast(msg) {
+    if (window?.showToast) return window.showToast(msg);
+    // fallback mínimo
+    console.log(msg);
+  }
+
+  function buildRow(it) {
+    // it = {id, codigo_trabajo, descripcion, unidad_medida, cantidad}
+    const tr = document.createElement("tr");
+    tr.className = "border-t border-gray-100";
+    tr.innerHTML = `
+      <td class="py-2 font-medium text-gray-800">${it.codigo_trabajo || ""}</td>
+      <td class="py-2 text-gray-700">${it.descripcion || ""}</td>
+      <td class="py-2 text-gray-700">${it.unidad_medida || ""}</td>
+      <td class="py-2 text-right tabular-nums text-gray-700" data-original="${it.cantidad}">${it.cantidad}</td>
+      <td class="py-2 text-right">
+        <input
+          class="move-input w-28 text-right border rounded-md px-2 py-1 focus:outline-none focus:ring"
+          type="number"
+          step="any"
+          min="0"
+          max="${it.cantidad}"
+          value=""
+          data-item-id="${it.id}"
+          aria-label="Move quantity for ${it.codigo_trabajo || it.id}"
+        />
+      </td>
+    `;
+    return tr;
+  }
+
+  function openDuplicateModal(sessionId) {
+    fetch(`/facturacion/invoices/${sessionId}/duplicate/preview/`, {
+  headers: { "X-Requested-With": "XMLHttpRequest" }
+})
+    .then(resp => resp.json())
+    .then(data => {
+      if (!data?.ok) throw new Error(data?.error || "Failed to load items.");
+
+      const tpl = document.getElementById("duplicate-split-modal");
+      const modal = tpl.content.firstElementChild.cloneNode(true);
+
+      // Paid warning
+      if (data.is_paid) {
+        modal.querySelector("#dup-paid-warning").classList.remove("hidden");
+      }
+
+      // Render items
+      const tbody = modal.querySelector("#dup-items-tbody");
+      tbody.innerHTML = "";
+      if (!data.items || !data.items.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="5" class="py-6 text-center text-gray-500">No items in this billing session.</td>`;
+        tbody.appendChild(tr);
+      } else {
+        data.items.forEach(it => tbody.appendChild(buildRow(it)));
+      }
+
+      // Bind close
+      function close() { modal.remove(); }
+      modal.querySelectorAll("[data-modal-close]").forEach(el => el.addEventListener("click", close));
+
+      // Submit
+      const errorBox = modal.querySelector("#dup-error");
+      const submitBtn = modal.querySelector("#dup-submit");
+      submitBtn.addEventListener("click", async () => {
+        errorBox.classList.add("hidden");
+        errorBox.textContent = "";
+
+        const inputs = modal.querySelectorAll("input.move-input");
+        const moves = {};
+        let hasAny = false;
+        let clientError = null;
+
+        inputs.forEach(inp => {
+          const id = inp.getAttribute("data-item-id");
+          const max = parseFloat(String(inp.getAttribute("max") || "0").replace(',', '.'));
+          const valStr = (inp.value || "").trim().replace(',', '.');
+          if (valStr === "") return;
+
+          const val = parseFloat(valStr);
+          if (isNaN(val)) {
+  clientError = `Quantity must be a valid number (item ${id}).`;
+    return;
+  }
+  if (val <= 0) {
+   clientError = `Quantity must be greater than 0 (item ${id}).`;
+   return;
+ }
+          if (val >= max) {
+   clientError = `Quantity must be less than the original (${max}) for item ${id}.`;
+    return;
+  }
+          if (val > 0) hasAny = true;
+          moves[id] = valStr; // backend normaliza a Decimal
+        });
+
+        if (clientError) {
+          errorBox.textContent = clientError;
+          errorBox.classList.remove("hidden");
+          return;
+        }
+        if (!hasAny) {
+          errorBox.textContent = "No items selected to move. Enter at least one quantity > 0.";
+          errorBox.classList.remove("hidden");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Creating...";
+
+        try {
+          const resp = await fetch(`/facturacion/invoices/${sessionId}/duplicate/commit/`, {
+   method: "POST",
+   headers: {
+     "Content-Type": "application/json",
+     "X-CSRFToken": getCsrfToken(),
+    "X-Requested-With": "XMLHttpRequest"
+   },
+   body: JSON.stringify({ moves }),
+ });
+
+ const ct = (resp.headers.get("content-type") || "").toLowerCase();
+ let payload = null;
+ if (ct.includes("application/json")) {
+   payload = await resp.json().catch(() => ({}));
+ } else {
+   // a veces Django devuelve HTML en 500/403: muéstralo como texto
+   payload = { ok: false, error: await resp.text().catch(() => "") };
+ }
+ if (!resp.ok || payload?.ok === false) {
+   const msg = payload?.error || payload?.warning || `HTTP ${resp.status}`;
+  throw new Error(msg);
+ }
+
+          close();
+          showToast("Split created successfully. Reloading…");
+          window.location.reload();
+
+        } catch (err) {
+          errorBox.textContent = err.message || "Failed to create split.";
+          errorBox.classList.remove("hidden");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Review & Create";
+        }
+      });
+
+      document.body.appendChild(modal);
+    })
+    .catch(err => {
+      alert(err?.message || "Failed to open Duplicate/Split dialog.");
+    });
+  }
+  
+  window.openDuplicateModal = openDuplicateModal;
+  function bindDuplicateButtons() {
+    document.querySelectorAll("[data-duplicate-session]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-duplicate-session");
+        openDuplicateModal(id);
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", bindDuplicateButtons);
+})();
+</script>
+
+<script>
+(function () {
+  const topBtn = document.getElementById('btn-duplicate-top');
+
+  function getChecks() {
+    return Array.from(document.querySelectorAll('input.dup-select[type="checkbox"]'));
+  }
+
+  function updateTopButton() {
+    const checks = getChecks();
+    const selected = checks.filter(c => c.checked);
+    if (selected.length === 1) {
+      topBtn.disabled = false;
+      topBtn.dataset.selectedId = selected[0].value;
+      topBtn.title = `Duplicate / Split invoice #${selected[0].value}`;
+    } else {
+      topBtn.disabled = true;
+      delete topBtn.dataset.selectedId;
+      topBtn.title = "Duplicate / Split selected invoice";
+    }
+  }
+
+  // Selección única: al marcar uno, desmarca los demás
+  document.addEventListener('change', (e) => {
+    const chk = e.target.closest('input.dup-select[type="checkbox"]');
+    if (!chk) return;
+
+    if (chk.checked) {
+      getChecks().forEach(other => {
+        if (other !== chk) other.checked = false;
+      });
+    }
+    updateTopButton();
+  });
+
+  // Click en el botón superior => abre modal del seleccionado
+  topBtn?.addEventListener('click', () => {
+    const id = topBtn.dataset.selectedId;
+    if (!id) return;
+    // Usa la función que ya definiste en tu template
+    if (typeof openDuplicateModal === 'function') {
+      openDuplicateModal(id);
+    } else {
+      alert('Duplicate dialog not available on this page.');
+    }
+  });
+
+  // Inicial
+  document.addEventListener('DOMContentLoaded', updateTopButton);
+})();
+</script>
+
+<script>
+(function(){
+  const modal  = document.getElementById('modal-split-delete');
+  const btnOk  = document.getElementById('sd-ok');
+  const btnCancel = document.getElementById('sd-cancel');
+  const input  = document.getElementById('sd-confirm');
+  const paidWarn = document.getElementById('sd-paid-warning');
+  const errBox = document.getElementById('sd-error');
+  const msgBox = document.getElementById('sd-msg');
+
+  let currentId = null;
+
+  function toast(msg, type='info'){
+    const bg = type==='success'?'bg-green-600':(type==='error'?'bg-red-600':'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg; document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2000);
+  }
+
+  function openModal(id, isPaid){
+    currentId = id;
+    errBox.classList.add('hidden'); errBox.textContent = '';
+    input.value = '';
+    btnOk.disabled = true;
+    msgBox.textContent = `This will delete split #${id} and restore its quantities to the parent. This cannot be undone.`;
+    if (String(isPaid) === '1') paidWarn.classList.remove('hidden'); else paidWarn.classList.add('hidden');
+    modal.classList.remove('hidden');
+    input.focus();
+  }
+  function closeModal(){
+    modal.classList.add('hidden');
+    currentId = null;
+  }
+
+  // Habilitar OK solo cuando el usuario escribe DELETE exacto
+  input?.addEventListener('input', () => {
+    btnOk.disabled = (input.value.trim() !== 'DELETE');
+  });
+
+  btnCancel?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e)=>{ if(e.target.hasAttribute('data-close-sd')) closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && !modal.classList.contains('hidden')) closeModal(); });
+
+  // Abrir modal desde el botón de acción
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-split-delete');
+    if(!btn) return;
+    openModal(btn.dataset.id, btn.dataset.paid === '1' ? '1' : '0');
+  });
+
+  // Confirmar borrado
+  btnOk?.addEventListener('click', async ()=>{
+    if(!currentId) return;
+    btnOk.disabled = true;
+
+    try{
+      const url = `{% url 'facturacion:invoices_split_delete' 999999 %}`.replace('999999', currentId);
+      const data = await window.__postAjax__(url, {}, false);
+      if (!data || data.ok !== true) throw new Error((data && data.error) || 'Unknown error');
+
+      closeModal();
+      toast('Split deleted and restored to parent.', 'success');
+      window.location.reload();
+
+    }catch(err){
+      errBox.textContent = err.message || 'Operation failed';
+      errBox.classList.remove('hidden');
+      btnOk.disabled = false;
+    }
+  });
 })();
 </script>
 {% endblock %}

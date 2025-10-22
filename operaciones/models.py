@@ -1,6 +1,6 @@
 import os
-from uuid import uuid4
 from decimal import Decimal
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.validators import FileExtensionValidator
@@ -10,7 +10,7 @@ from django.utils.module_loading import import_string
 from django.utils.text import slugify
 
 from usuarios.models import CustomUser  # si no lo usas, puedes quitarlo
-from utils.paths import upload_to       # si no lo usas, puedes quitarlo
+from utils.paths import upload_to  # si no lo usas, puedes quitarlo
 
 
 class PrecioActividadTecnico(models.Model):
@@ -109,6 +109,17 @@ class SesionBilling(models.Model):
         on_delete=models.SET_NULL,
         help_text="If set, this discount corrects the referenced session."
     )
+    
+    # ----- Split / Duplicate (facturación parcial) -----
+    is_split_child = models.BooleanField(default=False, db_index=True)
+    split_from = models.ForeignKey(
+        "self",
+        null=True, blank=True,
+        related_name="split_children",
+        on_delete=models.SET_NULL,
+        help_text="If set, this billing session was created by splitting from the referenced session."
+    )
+    split_comment = models.CharField(max_length=255, blank=True, default="")
 
     # ----- Identificación del proyecto -----
     proyecto_id = models.CharField(max_length=64)
@@ -193,6 +204,7 @@ class SesionBilling(models.Model):
             models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
             models.Index(fields=["estado"]),
             models.Index(fields=["is_direct_discount"]),
+            models.Index(fields=["is_split_child"]),
         ]
 
     # ---------------------- Helpers / business rules ---------------------- #
