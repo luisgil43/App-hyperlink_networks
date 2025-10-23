@@ -109,6 +109,7 @@
               <tr class="border-t">
                 <td class="p-2">{{ d.project_label }}</td>
                 <td class="p-2 text-right">${{ d.subtotal|floatformat:2 }}</td>
+                
               </tr>
               {% empty %}
               <tr>
@@ -235,7 +236,7 @@
             <tbody>
               {% for d in r.details %}
               <tr class="border-t">
-                <td class="p-2">{{ d.project_id }}</td>
+                <td class="p-2">{{ d.project_label }}</td>
                 <td class="p-2 text-right">${{ d.subtotal|floatformat:2 }}</td>
               </tr>
               {% empty %}
