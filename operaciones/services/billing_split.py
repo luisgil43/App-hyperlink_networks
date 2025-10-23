@@ -251,6 +251,7 @@ from decimal import Decimal
 from typing import Dict, List
 
 from django.db import transaction
+from django.db.models import F
 
 from operaciones.models import ItemBilling, SesionBilling
 
@@ -260,45 +261,67 @@ def revert_split_child(child_session_id: int) -> Dict:
     """
     Reabsorbe cantidades del hijo al padre y elimina la sesión hija.
     Reglas:
-      - child.is_split_child debe ser True y child.split_from no nulo.
+      - child.is_split_child debe ser True y child.split_from_id no nulo.
       - Suma cada item del hijo a su homólogo del padre (por codigo_trabajo).
       - Si no existe el código en el padre, se crea el ItemBilling.
-      - Luego borra todos los items del hijo y la sesión hija.
+      - Luego borra la sesión hija (items en cascade si aplica).
       - No toca estados ni notas del padre.
     """
-    child = (SesionBilling.objects
-             .select_for_update()
-             .select_related("split_from")
-             .prefetch_related("items")
-             .get(pk=child_session_id))
+    # Bloquea SOLO la fila de la sesión hija (sin select_related → sin outer join)
+    child = (
+        SesionBilling.objects
+        .select_for_update(of=("self",))
+        .only("id", "is_split_child", "split_from_id")
+        .get(pk=child_session_id)
+    )
 
     if not getattr(child, "is_split_child", False) or not child.split_from_id:
         raise ValueError("This session is not a split child.")
 
-    parent = (SesionBilling.objects
-              .select_for_update()
-              .prefetch_related("items")
-              .get(pk=child.split_from_id))
+    # Bloquea SOLO la fila del padre
+    parent = (
+        SesionBilling.objects
+        .select_for_update(of=("self",))
+        .only("id")
+        .get(pk=child.split_from_id)
+    )
 
-    # Index de items padre por codigo_trabajo (usa el campo correcto en tu modelo)
-    parent_items_by_code: Dict[str, ItemBilling] = {
-        ib.codigo_trabajo: ib for ib in parent.items.all()
-    }
+    # Bloquea items del padre e hijo (sin joins)
+    parent_items_qs = (
+        ItemBilling.objects
+        .select_for_update()
+        .filter(sesion_id=parent.id)
+        .only("id", "sesion_id", "codigo_trabajo",
+              "cantidad", "subtotal_tecnico", "subtotal_empresa")
+    )
+    child_items = list(
+        ItemBilling.objects
+        .select_for_update()
+        .filter(sesion_id=child.id)
+        .only("id", "sesion_id", "codigo_trabajo", "tipo_trabajo", "descripcion",
+              "unidad_medida", "cantidad", "precio_empresa",
+              "subtotal_tecnico", "subtotal_empresa")
+    )
+
+    # Index del padre por código
+    parent_by_code: Dict[str, ItemBilling] = {ib.codigo_trabajo: ib for ib in parent_items_qs}
 
     restored: List[Dict] = []
-    for cit in child.items.all():
+    for cit in child_items:
         code = cit.codigo_trabajo
-        qty  = Decimal(cit.cantidad)
+        qty = Decimal(cit.cantidad or 0)
 
-        if code in parent_items_by_code:
-            pit = parent_items_by_code[code]
-            pit.cantidad = (pit.cantidad or Decimal("0")) + qty
-            pit.subtotal_tecnico = (pit.subtotal_tecnico or Decimal("0")) + (cit.subtotal_tecnico or Decimal("0"))
-            pit.subtotal_empresa = (pit.subtotal_empresa or Decimal("0")) + (cit.subtotal_empresa or Decimal("0"))
-            pit.save(update_fields=["cantidad", "subtotal_tecnico", "subtotal_empresa"])
+        if code in parent_by_code:
+            pit = parent_by_code[code]
+            # Sumar cantidades y subtotales con F() para evitar condiciones de carrera
+            ItemBilling.objects.filter(pk=pit.id).update(
+                cantidad=F("cantidad") + qty,
+                subtotal_tecnico=F("subtotal_tecnico") + (cit.subtotal_tecnico or Decimal("0")),
+                subtotal_empresa=F("subtotal_empresa") + (cit.subtotal_empresa or Decimal("0")),
+            )
         else:
-            # Crear item nuevo en el padre clonando atributos relevantes
-            ItemBilling.objects.create(
+            # Crear un ítem nuevo en el padre clonando atributos relevantes
+            nuevo = ItemBilling.objects.create(
                 sesion=parent,
                 codigo_trabajo=cit.codigo_trabajo,
                 tipo_trabajo=cit.tipo_trabajo,
@@ -309,15 +332,16 @@ def revert_split_child(child_session_id: int) -> Dict:
                 subtotal_tecnico=cit.subtotal_tecnico,
                 subtotal_empresa=cit.subtotal_empresa,
             )
+            parent_by_code[code] = nuevo  # por si aparece otro con el mismo código
 
         restored.append({"code": code, "qty": str(qty)})
 
-    # Borrar hijo (items en cascade si FK on_delete=CASCADE)
-    deleted_id = child.id
+    deleted_child_id = child.id
+    # Eliminar la sesión hija; si la FK de items es CASCADE se borran automáticamente
     child.delete()
 
-    # (Opcional) Si llevas contadores/flags en el padre, ajusta aquí.
-    # parent.updated_at = timezone.now()
-    # parent.save(update_fields=["updated_at"])
-
-    return {"parent_id": parent.id, "deleted_child_id": deleted_id, "restored_items": restored}
+    return {
+        "parent_id": parent.id,
+        "deleted_child_id": deleted_child_id,
+        "restored_items": restored,
+    }
