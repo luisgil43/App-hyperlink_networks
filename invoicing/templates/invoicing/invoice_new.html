@@ -1,0 +1,90 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="max-w-8xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800">New Invoice</h2>
+      <p class="text-slate-600 text-sm">Loaded with your selected template and branding.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'invoicing:invoices_list' %}" class="px-3 py-2 rounded-lg border text-sm">Back</a>
+      <button id="btn-save" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-full text-sm shadow">
+        💾 Save
+      </button>
+    </div>
+  </div>
+
+  <div class="rounded-xl overflow-hidden ring-1 ring-slate-200">
+    <iframe id="invoice-frame" src="{{ preview_url }}" class="w-full h-[820px] bg-slate-50" loading="lazy"></iframe>
+  </div>
+</div>
+
+<script>
+function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:""; }
+
+document.getElementById('btn-save').addEventListener('click', async ()=>{
+  const fdoc = document.getElementById('invoice-frame').contentWindow.document;
+
+  // -- tomar datos del iframe (los mismos ids/clases del template)
+  const number  = fdoc.querySelector('#inv-number')?.value?.trim() || '';
+  const issue   = fdoc.querySelector('#inv-date')?.value || '';
+  const due     = fdoc.querySelector('#inv-due')?.value || '';
+  const notes   = fdoc.querySelector('#notes-area')?.value || '';
+  const terms   = fdoc.querySelector('#terms-area')?.value || '';
+  const taxPct  = parseFloat(fdoc.querySelector('#tax-percent')?.value || '0') || 0;
+  const currency= fdoc.getElementById('invoice-root')?.dataset?.currency || '$';
+  const profileId = {{ profile.id|default:'null' }};
+  const templateKey =
+  fdoc.querySelector('meta[name="template-key"]')?.content ||
+  fdoc.getElementById('invoice-root')?.dataset?.templateKey ||
+  "{{ profile.template_key|default:'classic' }}";
+
+  // customer id desde el span <strong data-customer-id="...">
+  const custId = fdoc.querySelector('#billto-addr strong')?.dataset?.customerId;
+  if (!custId) { alert('Select a customer first.'); return; }
+  if (!number) { alert('Invoice number is required.'); return; }
+
+  // filas
+  const rows = Array.from(fdoc.querySelectorAll('#items-body tr.row'));
+  const items = rows.map(tr=>{
+    const g = s=> tr.querySelector(s);
+    const qty  = parseFloat(g('.i-qty')?.value || '0') || 0;
+    const rate = parseFloat(g('.i-rate')?.value || '0') || 0;
+    const amt  = +(qty*rate).toFixed(2);
+    return {
+      daily:       g('.i-daily')?.value?.trim() || '',
+      job_code:    g('.i-job')?.value?.trim() || '',
+      description: g('.i-desc')?.value?.trim() || '',
+      qty, uom:    g('.i-unit')?.value?.trim() || '',
+      rate, amount: amt
+    };
+  }).filter(x=> x.job_code || x.description || x.amount);
+
+  const payload = {
+    number, issue_date: issue, due_date: due,
+    customer_id: Number(custId),
+    currency_symbol: currency,
+    tax_percent: taxPct,
+    items, notes, terms,
+    profile_id: profileId, template_key: templateKey
+  };
+
+  try{
+    const r = await fetch("{% url 'invoicing:api_invoice_create' %}", {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "X-CSRFToken": getCSRF() },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+    if(!data.ok) throw new Error(data.error || 'Error');
+
+    // listo: volver al listado
+    window.location.href = "{% url 'invoicing:invoices_list' %}";
+  }catch(e){
+    alert('Could not save invoice.');
+    console.error(e);
+  }
+});
+</script>
+{% endblock %}

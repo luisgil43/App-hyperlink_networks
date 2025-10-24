@@ -1,35 +1,30 @@
-from django.contrib import admin
-from django.urls import path, include
-from django.contrib.auth.views import (
-    LogoutView, PasswordResetView, PasswordResetDoneView,
-    PasswordResetConfirmView, PasswordResetCompleteView
-)
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse
-from django.views.generic.base import RedirectView
-from django.shortcuts import redirect
-from dashboard import views as dashboard_views
-from django.templatetags.static import static as static_url
+from django.contrib import admin
+from django.contrib.auth.views import (LogoutView, PasswordResetCompleteView,
+                                       PasswordResetConfirmView,
+                                       PasswordResetDoneView,
+                                       PasswordResetView)
 from django.contrib.staticfiles.storage import staticfiles_storage
+from django.http import HttpResponse
+from django.shortcuts import redirect
+from django.urls import include, path
+from django.views.generic.base import RedirectView
+
+from dashboard import views as dashboard_views
 
 
 def health_check(request):
     return HttpResponse("OK", status=200)
 
-
 urlpatterns = [
     # Health check
     path('healthz', health_check),
 
-
     path('logout/', LogoutView.as_view(next_page='/usuarios/login/'), name='logout'),
 
-
     # Panel de administración personalizado
-    path('dashboard_admin/', include(('dashboard_admin.urls',
-         'dashboard_admin'), namespace='dashboard_admin')),
-
+    path('dashboard_admin/', include(('dashboard_admin.urls','dashboard_admin'), namespace='dashboard_admin')),
 
     # Dashboard técnico
     path('dashboard/', include(('dashboard.urls', 'dashboard'), namespace='dashboard')),
@@ -39,69 +34,38 @@ urlpatterns = [
 
     # Recuperación de contraseña
     path('password_reset/', PasswordResetView.as_view(), name='password_reset'),
-    path('password_reset/done/', PasswordResetDoneView.as_view(),
-         name='password_reset_done'),
-    path('reset/<uidb64>/<token>/', PasswordResetConfirmView.as_view(),
-         name='password_reset_confirm'),
-    path('reset/done/', PasswordResetCompleteView.as_view(),
-         name='password_reset_complete'),
+    path('password_reset/done/', PasswordResetDoneView.as_view(), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    path('reset/done/', PasswordResetCompleteView.as_view(), name='password_reset_complete'),
 
     # Liquidaciones
-    path('liquidaciones/', include(('liquidaciones.urls',
-         'liquidaciones'), namespace='liquidaciones')),
+    path('liquidaciones/', include(('liquidaciones.urls','liquidaciones'), namespace='liquidaciones')),
 
-    # Redirección raíz a dashboard (usuarios normales)
+    # Redirección raíz a dashboard
     path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
 
     # Django Select2
     path("select2/", include("django_select2.urls")),
+
     # Contratos de trabajos
     path('rrhh/', include('rrhh.urls', namespace='rrhh')),
     path('admin/', admin.site.urls),
-    path('dashboard_admin/login/',
-         RedirectView.as_view(url='/usuarios/login/', permanent=False)),
+    path('dashboard_admin/login/', RedirectView.as_view(url='/usuarios/login/', permanent=False)),
     path('logistica/', include('logistica.urls', namespace='logistica')),
     path('operaciones/', include('operaciones.urls')),
     path('facturacion/', include('facturacion.urls')),
-    # Apple touch icons “legacy” en la raíz:
-    path(
-        "apple-touch-icon.png",
-        RedirectView.as_view(
-            url=staticfiles_storage.url("icons/apple-touch-icon.png"),
-            permanent=True,
-        ),
-        name="apple_touch_icon",
-    ),
-    path(
-        "apple-touch-icon-120x120.png",
-        RedirectView.as_view(
-            url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"),
-            permanent=True,
-        ),
-        name="apple_touch_icon_120",
-    ),
-    # Algunos agentes piden el "-precomposed" aunque ya no se use:
-    path(
-        "apple-touch-icon-120x120-precomposed.png",
-        RedirectView.as_view(
-            url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"),
-            permanent=True,
-        ),
-        name="apple_touch_icon_120_pre",
-    ),
-    # Favicon clásico en la raíz:
-    path(
-        "favicon.ico",
-        RedirectView.as_view(
-            url=staticfiles_storage.url("icons/favicon.ico"),
-            permanent=True,
-        ),
-        name="favicon_root",
-    ),
+
+    # Invoicing (¡este es el include que fallaba!)
+    path('invoicing/', include(('invoicing.urls', 'invoicing'), namespace='invoicing')),
+
+    # Iconos/legacy en raíz
+    path("apple-touch-icon.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon.png"), permanent=True), name="apple_touch_icon"),
+    path("apple-touch-icon-120x120.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"), permanent=True), name="apple_touch_icon_120"),
+    path("apple-touch-icon-120x120-precomposed.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"), permanent=True), name="apple_touch_icon_120_pre"),
+    path("favicon.ico", RedirectView.as_view(url=staticfiles_storage.url("icons/favicon.ico"), permanent=True), name="favicon_root"),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 if settings.DEBUG and getattr(settings, 'DEFAULT_FILE_STORAGE', '') == 'django.core.files.storage.FileSystemStorage':
-    urlpatterns += static(settings.MEDIA_URL,
-                          document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

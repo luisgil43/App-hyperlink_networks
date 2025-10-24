@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice {{ invoice.number|default:"" }}</title>
+<meta name="template-key" content="t1">
+<style>
+  :root{
+    --primary:  {{ profile.primary_color|default:'#0ea5e9' }};
+    --secondary:{{ profile.secondary_color|default:'#0f172a' }};
+    --accent:   {{ profile.accent_color|default:'#22c55e' }};
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#ffffff;
+    --chip:#ecfeff; --radius:16px; --pad:22px; --max:1200px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f8fafc;color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto}
+
+  input,button,textarea,select{font:inherit}
+  .sheet{max-width:var(--max);margin:28px auto;background:var(--bg);border-radius:var(--radius);box-shadow:0 2px 14px rgba(2,6,23,.06);overflow:hidden}
+  .topbar{height:8px;background:linear-gradient(90deg,var(--primary),var(--accent))}
+  .wrap{padding:var(--pad)}
+  .header{display:flex;gap:18px;align-items:center;justify-content:space-between}
+  .brand{display:flex;gap:14px;align-items:center;margin-left:0px}
+  .logo{width:200px;height:200px;border-radius:12px;background:#fff;border:1px solid var(--line);padding:10px;object-fit:contain}
+  .meta{text-align:right}
+  .meta .title{letter-spacing:.08em;color:var(--secondary);font-weight:800;font-size:clamp(40px,5.2vw,64px);line-height:1;overflow-wrap:anywhere;word-break:break-word}
+  .meta .row{font-size:12px;color:#64748b}
+  .meta input[type="date"], .meta input[type="text"]{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px}
+
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .card{border:1px solid var(--line);border-radius:12px;padding:14px;position:relative}
+  .card h4{margin:0 0 8px 0;font-size:11px;color:var(--muted);letter-spacing:.08em}
+  .addr{font-size:13px}
+
+  .btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 10px;cursor:pointer}
+  .btn-primary{background:var(--secondary);color:#fff;border-color:var(--secondary)}
+  .btn-link{border:none;background:transparent;color:var(--secondary);cursor:pointer}
+
+  .table{margin-top:18px}
+  table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+  thead th{background:#f1f5f9;color:#334155;font-weight:600;border-bottom:1px solid var(--line);padding:10px}
+  thead th, tbody td{ text-align:center; vertical-align:middle; }
+  .num, thead th.num{ text-align:right; }
+  thead th:nth-child(3), tbody td:nth-child(3){ text-align:left; }
+  tbody td{border-bottom:1px solid var(--line);padding:8px}
+  .row-actions{white-space:nowrap}
+
+  /* sincronizar anchos de columnas (TH y TD) en pantalla */
+  thead th:nth-child(1), tbody td:nth-child(1){width:140px}
+  thead th:nth-child(2), tbody td:nth-child(2){width:210px}
+  thead th:nth-child(4), tbody td:nth-child(4){width:90px}
+  thead th:nth-child(5), tbody td:nth-child(5){width:95px}
+  thead th:nth-child(6), tbody td:nth-child(6){width:110px}
+  thead th:nth-child(7), tbody td:nth-child(7){width:120px}
+  thead th:nth-child(8), tbody td:nth-child(8){width:40px}
+
+  .line-input{width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .line-input[readonly]{background:#f8fafc;color:#64748b}
+
+  .totals{margin-top:18px;display:flex;gap:18px;align-items:flex-start;justify-content:space-between}
+  .totalbox{margin-left:auto;border:1px solid var(--line);border-radius:12px;padding:14px;min-width:320px}
+  .totalbox .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;color:#334155;align-items:center}
+  .totalbox .row input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:90px;text-align:right}
+  .totalbox .grand{border-top:1px dashed var(--line);margin-top:6px;padding-top:10px;font-weight:800;font-size:16px;color:var(--secondary)}
+
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .notes h5{margin:0 0 6px 0;font-size:12px;color:var(--muted);letter-spacing:.08em}
+  .notes textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:80px;resize:vertical}
+  .muted{color:var(--muted)}
+
+  /* ===== Modal selector cliente ===== */
+  .modal{position:fixed !important; inset:0; display:none !important; align-items:center; justify-content:center; background:rgba(0,0,0,.45); z-index:9999; padding:16px}
+  .modal.show{display:flex !important}
+  .modal-card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(2,6,23,.2); width:min(720px,92vw); max-height:80vh; overflow:auto; padding:16px}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .modal-head h3{margin:0;font-size:16px}
+  .searchbar{display:flex;gap:8px}
+  .searchbar input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px}
+  .list{border:1px solid var(--line);border-radius:12px;max-height:360px;overflow:auto}
+  .item{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+  .item:hover{background:#f8fafc}
+  .small{font-size:12px;color:#64748b}
+  body.modal-open{overflow:hidden}
+
+  /* Typeahead */
+  .jobcell{ position:relative }
+  .sugmenu{
+    position:absolute; left:0; right:0; top:calc(100% + 4px);
+    background:#fff; border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 8px 24px rgba(2,6,23,.12); max-height:240px; overflow:auto; z-index:1000;
+  }
+  .sugmenu[hidden]{ display:none }
+  .sugitem{ padding:8px 10px; font-size:13px; cursor:pointer }
+  .sugitem:hover,.sugitem.active{ background:#f8fafc }
+
+  /* PDF-only tweaks */
+  .kv{ display:flex; align-items:center; gap:2px; flex-wrap:nowrap }
+  .kv .k{color:#64748b}
+
+  /* === Ampliar el ancho útil en pantalla === */
+  :root{ --max: 1400px; }
+  .sheet{ max-width: var(--max); width: 100%; }
+
+  /* Cabecera en pantalla como grid, para evitar desbordes */
+  .header{ display:grid !important; grid-template-columns:minmax(280px,1fr) minmax(420px,520px); gap:18px; align-items:start }
+  .brand{ min-width:280px }
+  .meta{ justify-self:end; text-align:right }
+
+  .kv{ display:flex; justify-content:flex-end; align-items:baseline; gap:2px; flex-wrap:nowrap }
+  .kv span{ white-space:nowrap }
+  .meta .row{ display:flex; align-items:center; gap:8px; justify-content:flex-end; flex-wrap:nowrap }
+  .meta .row strong{ white-space:nowrap }
+  .meta .row input{ min-width:160px }
+
+  .addr{ overflow-wrap:anywhere; word-break:break-word }
+  td, th{ word-break:break-word; overflow-wrap:anywhere }
+
+{% if pdf_mode %}
+  /* ================== PDF ================== */
+  @page { size: A4; margin: 6mm 6mm; }
+  body{ background:#fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .only-screen{ display:none !important; }
+
+  .sheet{ width:100%; max-width:none; margin:0; border-radius:0; box-shadow:none }
+  .wrap{ padding:6mm 8mm }
+
+  :root{ --meta-col: 100mm; }
+  .header{
+    display:grid !important;
+    grid-template-columns: 1fr var(--meta-col);
+    gap: 8mm;
+    align-items:start;
+  }
+  .header .brand{ margin-left:-8mm; }
+  .brand .logo{ width:42mm; height:42mm; padding:3mm; object-fit:contain }
+  .meta{
+  justify-self:start;      /* se queda como está */
+  text-align:left;
+  max-width: var(--meta-col);
+}
+
+/* INVOICE alineado como .kv (a la derecha, sin desbordes) */
+.meta .title{
+  display:flex;                 /* igual que .kv */
+  justify-content:flex-end;     /* empuja el texto al borde derecho del bloque */
+  align-items:flex-end;
+  width:100%;                   /* ocupa todo el ancho de la columna meta */
+  font-weight:800;
+  letter-spacing:.08em;
+  font-size:48px;
+  line-height:1;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+  .kv{ display:flex; justify-content:flex-end; align-items:baseline; gap:2px; flex-wrap:nowrap }
+  .kv .k, .kv span{ white-space:nowrap }
+
+  .addr{ overflow-wrap:anywhere; word-break:break-word; hyphens:auto }
+
+  .cards{
+    grid-template-columns: 1fr 1fr;
+    gap: 6mm;
+    margin-left: -8mm;
+    margin-right: -8mm;
+  }
+
+  /* TABLA a todo el ancho */
+.table{ margin-left:-8mm; margin-right:-8mm; }
+.table thead th:first-child, .table tbody td:first-child{ padding-left:1mm; }
+.table thead th:last-child,  .table tbody td:last-child { padding-right:8mm; }
+
+/* Títulos centrados */
+.table thead th{ text-align:center; white-space:nowrap; word-break:normal; overflow-wrap:normal; }
+.table thead th.num{ text-align:center; }              /* antes se alineaba a la derecha */
+.table thead th:nth-child(3){ text-align:center; }     /* “Description” centrado solo en el header */
+
+/* Celdas del cuerpo */
+.table tbody td{ text-align:center; }
+.table tbody td.num{ text-align:right; }               /* valores numéricos a la derecha */
+.table tbody td:nth-child(3){ text-align:left; }       /* descripción a la izquierda */
+
+/* === ANCHOS EXACTOS (sumados ≈ 198mm útiles) para eliminar el “hueco” entre Description y Qty === */
+thead th:nth-child(1), tbody td:nth-child(1){ width:24mm; } /* Daily Number */
+thead th:nth-child(2), tbody td:nth-child(2){ width:26mm; } /* Job Code */
+thead th:nth-child(3), tbody td:nth-child(3){ width:66mm; } /* Description (nuevo) */
+thead th:nth-child(4), tbody td:nth-child(4){ width:16mm; } /* Qty */
+thead th:nth-child(5), tbody td:nth-child(5){ width:18mm; } /* Unit */
+thead th:nth-child(6), tbody td:nth-child(6){ width:22mm; } /* Rate */
+thead th:nth-child(7), tbody td:nth-child(7){ width:26mm; } /* Amount */
+tbody td, thead th{ overflow-wrap:anywhere }
+
+
+/* Notas: igual que antes */
+.notes{ margin-left:-8mm; margin-right:-8mm; padding:0 8mm; }
+
+/* Totales: alineado al borde derecho como la tabla */
+.totals{
+  margin-left:-8mm;
+  margin-right:-8mm;
+  /* igual que la tabla: aire solo a la izquierda, cero a la derecha */
+  padding-left:8mm;
+  padding-right:0;
+  display:flex;
+  align-items:flex-start;
+  justify-content:flex-end;
+}
+.totals .totalbox{
+  margin-left:auto;   /* empuja el box hacia la derecha */
+  margin-right:0;     /* pegado al borde del contenido */
+  padding-right:8mm;  /* mismo “aire” interno que la última columna de la tabla */
+}
+
+.totalbox .row{ flex-wrap:nowrap }
+{% else %}
+  .only-pdf{ display:none !important; }
+{% endif %}
+</style>
+
+
+
+{% if not pdf_mode %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <style>.flatpickr-calendar{z-index:10000}</style>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+{% endif %}
+</head>
+<body>
+<div class="sheet" id="invoice-root"
+data-template-key="t1"
+     data-currency="{{ invoice.currency_symbol|default:'$' }}"
+     data-prefix="{{ profile.invoice_prefix|default:'' }}">
+  <div class="topbar"></div>
+  <div class="wrap">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        {% if profile.logo and profile.logo.url %}
+          <img class="logo" src="{{ profile.logo.url }}" alt="Logo">
+        {% elif branding and branding.logo_url %}
+          <img class="logo" src="{{ branding.logo_url }}" alt="Logo">
+        {% else %}
+          <div class="logo"></div>
+        {% endif %}
+      </div>
+
+      <div class="meta">
+        <div class="title">INVOICE</div>
+
+        {% if pdf_mode %}
+          <div class="kv"><span class="k"><strong>No.</strong></span><span>{{ invoice.number }}</span></div>
+          <div class="kv"><span class="k"><strong>Date:</strong></span><span>{{ invoice.issue_date }}</span></div>
+          {% if invoice.due_date %}
+          <div class="kv"><span class="k"><strong>Due:</strong></span><span>{{ invoice.due_date }}</span></div>
+          {% endif %}
+        {% else %}
+          <div class="row"><strong>No.</strong>
+            <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" />
+          </div>
+          <div class="row"><strong>Date:</strong>
+            <input id="inv-date" type="text" value="{{ invoice.issue_date|default:'' }}">
+          </div>
+          <div class="row"><strong>Due:</strong>
+            <input id="inv-due" type="text" value="{{ invoice.due_date|default:'' }}">
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- From / Bill To -->
+    <div class="cards" id="cards">
+      <div class="card">
+        <h4>FROM</h4>
+        <div class="addr" id="from-addr">
+          <strong>{{ profile.company_name }}</strong><br>
+          {{ profile.company_address }}<br>
+          {{ profile.company_city }}<br>
+          {% if profile.company_email %}{{ profile.company_email }}{% endif %}{% if profile.company_phone %} · {{ profile.company_phone }}{% endif %}
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h4>BILL TO</h4>
+          <button type="button" id="btn-pick-customer" class="btn only-screen">＋ Select</button>
+        </div>
+        <div class="addr" id="billto-addr">
+          {% if customer %}
+            {% if pdf_mode %}
+              <strong>{{ customer.name }}</strong><br>
+              {{ customer.street_1 }}<br>
+              {{ customer.city }}{% if customer.state %}, {{ customer.state }}{% endif %} {{ customer.zip_code }}<br>
+              {% if customer.email %}{{ customer.email }}{% endif %}{% if customer.phone %} · {{ customer.phone }}{% endif %}
+            {% else %}
+              <strong data-customer-id="{{ customer.id }}">{{ customer.name }}</strong><br>
+              {{ customer.street_1 }}<br>
+              {{ customer.city }}{% if customer.state %}, {{ customer.state }}{% endif %} {{ customer.zip_code }}<br>
+              {% if customer.email %}{{ customer.email }}{% endif %}{% if customer.phone %} · {{ customer.phone }}{% endif %}
+            {% endif %}
+          {% else %}
+            <span class="muted">Select a customer…</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th>Daily Number</th>
+            <th>Job Code</th>
+            <th>Description</th>
+            <th class="num">Qty</th>
+            <th>Unit</th>
+            <th class="num">Rate</th>
+            <th class="num">Amount</th>
+            <th class="row-actions only-screen"></th>
+          </tr>
+        </thead>
+        <tbody id="items-body">
+          {% if pdf_mode %}
+            {% for it in items %}
+              <tr class="row">
+                <td>{{ it.daily }}</td>
+                <td>{{ it.job_code }}</td>
+                <td>{{ it.description }}</td>
+                <td class="num">{{ it.qty }}</td>
+                <td>{{ it.uom }}</td>
+                <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.rate }}</td>
+                <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.amount }}</td>
+                <td class="row-actions only-screen"></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <!-- JS adds 5 default rows on load -->
+          {% endif %}
+        </tbody>
+      </table>
+      <div class="only-screen" style="margin-top:10px">
+        <button type="button" id="btn-add-line" class="btn">＋ Add line</button>
+      </div>
+    </div>
+
+    <!-- Totals -->
+    <div class="totals">
+      <div class="totalbox">
+        {% if pdf_mode %}
+          <div class="row"><span>Subtotal</span><span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</span></div>
+          <div class="row">
+            <span>Tax ({{ invoice.tax_percent }}%)</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax_amount }}</span>
+            </div>
+          </div>
+          <div class="row grand"><span>Total</span><span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</span></div>
+        {% else %}
+          <div class="row"><span>Subtotal</span><span id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</span></div>
+          <div class="row">
+            <span>Tax (%)</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="tax-percent" type="number" value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
+              <span id="tax-amount">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+            </div>
+          </div>
+          <div class="row grand"><span>Total</span><span id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</span></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Notes + Terms -->
+    <div class="notes">
+      <div>
+        <h5>Notes</h5>
+        {% if pdf_mode %}
+          <div>{{ invoice.notes|default_if_none:""|linebreaksbr }}</div>
+        {% else %}
+          <textarea id="notes-area" placeholder="Thank you for your business.">{{ invoice.notes|default_if_none:"" }}</textarea>
+        {% endif %}
+      </div>
+      <div>
+        <h5>Terms</h5>
+        {% if pdf_mode %}
+          <div>{{ invoice.terms|default_if_none:""|linebreaksbr }}</div>
+        {% else %}
+          <textarea id="terms-area" placeholder="Please remit payment within 30 days.">{{ invoice.terms|default_if_none:"" }}</textarea>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Customer Picker Modal (screen only) -->
+<div class="modal only-screen" id="modal-customers" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Select customer</h3>
+      <button class="btn-link" data-close>✕</button>
+    </div>
+    <div class="searchbar">
+      <input id="cust-q" type="search" placeholder="Search by name, email, phone or mnemonic…">
+      <button class="btn" id="cust-search">Search</button>
+    </div>
+    <div class="list" id="cust-list" style="margin-top:10px"></div>
+  </div>
+</div>
+
+{% if not pdf_mode %}
+<script>
+(function(){
+  const $  = (s,ctx=document)=>ctx.querySelector(s);
+  const $$ = (s,ctx=document)=>Array.from(ctx.querySelectorAll(s));
+  const root = $('#invoice-root');
+  const CURRENCY = root.dataset.currency || '$';
+
+  const SUG_CACHE_BY_CODE = Object.create(null);
+  const SUG_LABEL_MAP     = Object.create(null);
+
+  const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
+  const todayISO = ()=> (new Date()).toISOString().slice(0,10);
+  if(!inputDate.value) inputDate.value = todayISO();
+  if(!inputDue.value){ const d = new Date(inputDate.value); d.setDate(d.getDate()+30); inputDue.value = d.toISOString().slice(0,10); }
+
+  if (window.flatpickr) {
+    const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
+    flatpickr("#inv-date", opts);
+    flatpickr("#inv-due",  opts);
+  }
+
+  const modal = $('#modal-customers');
+  const btnPick = $('#btn-pick-customer');
+  const btnClose = modal.querySelector('[data-close]');
+  const qInput = $('#cust-q'), btnSearch = $('#cust-search'), list = $('#cust-list');
+
+  let selectedCustomer = null;
+  function openModal(){ modal.classList.add('show'); document.body.classList.add('modal-open'); qInput.value=''; list.innerHTML=''; qInput.focus(); doSearch(); }
+  function closeModal(){ modal.classList.remove('show'); document.body.classList.remove('modal-open'); }
+  btnPick && btnPick.addEventListener('click', openModal);
+  btnClose && btnClose.addEventListener('click', closeModal);
+  modal && modal.addEventListener('click', (e)=>{ if(e.target===modal) closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && modal.classList.contains('show')) closeModal(); });
+  btnSearch && btnSearch.addEventListener('click', ()=> doSearch());
+  qInput && qInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); doSearch(); }});
+
+  async function doSearch(){
+    if(!list) return;
+    list.innerHTML = '<div class="item small">Searching…</div>';
+    try{
+      const u = new URL("{% url 'invoicing:api_customers' %}", window.location.origin);
+      if(qInput.value) u.searchParams.set('q', qInput.value);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      list.innerHTML = '';
+      if(!data.results?.length){ list.innerHTML='<div class="item small">No customers.</div>'; return; }
+      data.results.forEach(c=>{
+        const div = document.createElement('div');
+        div.className='item';
+        div.innerHTML = `<div><strong>${c.name}</strong> <span class="small">${c.mnemonic?('· '+c.mnemonic):''}</span></div>
+                         <div class="small">${c.street_1||''} ${c.city||''} ${c.state||''} ${c.zip_code||''}</div>`;
+        div.addEventListener('click', ()=> chooseCustomer(c));
+        list.appendChild(div);
+      });
+    }catch{ list.innerHTML = '<div class="item small">Network error</div>'; }
+  }
+
+  async function fetchNextNumber(customerId){
+    try{
+      const u = new URL("{% url 'invoicing:api_invoice_next_number' %}", window.location.origin);
+      u.searchParams.set('customer_id', String(customerId));
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      if (data && data.ok && data.number) return data.number;
+    }catch(e){}
+    return null;
+  }
+
+  function chooseCustomer(c){
+    selectedCustomer = c;
+    const el = $('#billto-addr');
+    el.innerHTML = `<strong data-customer-id="${c.id}">${c.name}</strong><br>
+                    ${(c.street_1||'')}<br>
+                    ${(c.city||'')}${c.state?(', '+c.state):''} ${(c.zip_code||'')}<br>
+                    ${(c.email||'')}${c.phone?(' · '+c.phone):''}`;
+
+    (async ()=>{
+      const next = await fetchNextNumber(c.id);
+      if (next) { invNo.value = next; }
+      else if (c.mnemonic) { invNo.value = `${c.mnemonic}-000001`; }
+    })();
+
+    Object.keys(SUG_CACHE_BY_CODE).forEach(k=> delete SUG_CACHE_BY_CODE[k]);
+    Object.keys(SUG_LABEL_MAP).forEach(k=> delete SUG_LABEL_MAP[k]);
+    $$('.i-job').forEach(inp => inp.value='');
+    closeModal();
+  }
+
+  const tbody = $('#items-body');
+  const btnAdd = $('#btn-add-line');
+  const TAX_IN = $('#tax-percent');
+  const EL_SUB = $('#subtotal-val');
+  const EL_TAX = $('#tax-amount');
+  const EL_TOT = $('#total-val');
+
+  function fmt(n){ return CURRENCY + (Number(n||0).toFixed(2)); }
+
+  function calc(){
+    let subtotal = 0;
+    $$('.row', tbody).forEach(tr=>{
+      const qty  = parseFloat($('.i-qty', tr).value.replace(',', '.')) || 0;
+      const rate = parseFloat($('.i-rate', tr).value.replace(',', '.')) || 0;
+      const amt  = Math.max(0, qty) * Math.max(0, rate);
+      $('.i-amount', tr).value = amt.toFixed(2);
+      $('.i-amount-show', tr).textContent = fmt(amt);
+      subtotal += amt;
+    });
+    if (EL_SUB) EL_SUB.textContent = fmt(subtotal);
+    const taxP = Math.max(0, parseFloat(TAX_IN.value)||0) / 100;
+    const taxAmount = subtotal * taxP;
+    if (EL_TAX) EL_TAX.textContent = fmt(taxAmount);
+    if (EL_TOT) EL_TOT.textContent = taxP > 0 ? fmt(subtotal + taxAmount) : fmt(subtotal);
+  }
+
+  function openMenu(menu){ menu.hidden = false; menu.dataset.index = '' }
+  function closeMenu(menu){ menu.hidden = true; menu.dataset.index = '' }
+  function setActive(items, idx){
+    items.forEach(i=>i.classList.remove('active'));
+    if(items[idx]){ items[idx].classList.add('active'); items[idx].parentElement.dataset.index = String(idx); }
+  }
+  function moveActive(items, delta){
+    let idx = parseInt(items[0]?.parentElement.dataset.index || '0', 10);
+    idx = Math.min(Math.max(idx + delta, 0), items.length - 1);
+    setActive(items, idx);
+  }
+  function applyItem(tr, data){
+    tr.querySelector('.i-job').value  = data.job_code || '';
+    tr.querySelector('.i-desc').value = data.description || '';
+    tr.querySelector('.i-unit').value = data.uom || '';
+    tr.querySelector('.i-rate').value = (parseFloat(data.rate)||0).toFixed(2);
+    closeMenu(tr.querySelector('.sugmenu'));
+    calc();
+  }
+
+  let ROW_UID = 0;
+  function mkRow(){
+    const uid = ++ROW_UID;
+    const dlId = `jobcodes-list-${uid}`;
+    const tr = document.createElement('tr'); tr.className='row';
+    tr.innerHTML = `
+      <td><input class="line-input i-daily" placeholder="D-0001"></td>
+      <td class="jobcell">
+        <input class="line-input i-job" placeholder="Type job code…" list="${dlId}" autocomplete="off">
+        <datalist id="${dlId}"></datalist>
+        <div class="sugmenu" hidden></div>
+      </td>
+      <td><input class="line-input i-desc" placeholder="Description" readonly></td>
+      <td class="num"><input class="line-input i-qty" type="number" min="0" step="0.01" style="text-align:right" value="0"></td>
+      <td><input class="line-input i-unit" placeholder="UOM" readonly></td>
+      <td class="num"><input class="line-input i-rate" placeholder="0.00" readonly style="text-align:right"></td>
+      <td class="num"><span class="i-amount-show">${fmt(0)}</span><input class="i-amount" type="hidden" value="0"></td>
+      <td class="row-actions"><button type="button" class="btn" data-del>✕</button></td>
+    `;
+
+    const jobInput = tr.querySelector('.i-job');
+    const menu = tr.querySelector('.sugmenu');
+
+    tr.addEventListener('input', (e)=>{
+      const t = e.target;
+      if(t.classList.contains('i-qty')){
+        if(parseFloat(t.value) < 0) t.value = 0;
+        calc();
+      }
+      if(t.classList.contains('i-job')){
+        const q = (t.value || '').trim();
+        suggestJobCodes(q, tr, dlId);
+      }
+    });
+
+    jobInput.addEventListener('keydown', (e)=>{
+      const items = Array.from(menu.querySelectorAll('.sugitem'));
+      const has = !menu.hidden && items.length;
+      if(e.key === 'ArrowDown'){
+        e.preventDefault();
+        if(menu.hidden && items.length){ openMenu(menu); setActive(items, 0); }
+        else if(has){ moveActive(items, +1); }
+      }else if(e.key === 'ArrowUp' && has){
+        e.preventDefault(); moveActive(items, -1);
+      }else if(e.key === 'Enter' && has){
+        e.preventDefault();
+        const act = items.find(i=>i.classList.contains('active')) || items[0];
+        if(act){ act.dispatchEvent(new Event('mousedown')); }
+      }else if(e.key === 'Escape' && !menu.hidden){
+        closeMenu(menu);
+      }
+    });
+
+    jobInput.addEventListener('blur', ()=> setTimeout(()=> closeMenu(menu), 120));
+
+    tr.querySelector('.i-job').addEventListener('change', (e)=>{
+      let raw = e.target.value.trim();
+      let picked = SUG_LABEL_MAP[raw];
+      if (picked) e.target.value = picked.job_code;
+
+      const code = e.target.value.trim();
+      if(!code) return;
+
+      const list = SUG_CACHE_BY_CODE[code] || [];
+      const custCity = (selectedCustomer && selectedCustomer.city) ? (selectedCustomer.city || '').toLowerCase() : '';
+      let data = picked || list.find(x => (x.city||'').toLowerCase() === custCity) || list[0];
+      if(data) applyItem(tr, data);
+    });
+
+    tr.querySelector('[data-del]').addEventListener('click', ()=>{ tr.remove(); calc(); });
+    return tr;
+  }
+
+  async function suggestJobCodes(q, tr, dlId){
+    const clientName = $('#billto-addr strong')?.textContent?.trim() || '';
+    const dl = document.getElementById(dlId);
+    const menu = tr.querySelector('.sugmenu');
+
+    if(!clientName){ dl.innerHTML=''; closeMenu(menu); return; }
+    if(!q){ dl.innerHTML=''; closeMenu(menu); return; }
+
+    try{
+      const u = new URL("{% url 'invoicing:api_itemcodes' %}", window.location.origin);
+      u.searchParams.set('q', q);
+      u.searchParams.set('client', clientName);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+
+      dl.innerHTML = '';
+      menu.innerHTML = '';
+
+      (data.results||[]).forEach(it=>{
+        SUG_CACHE_BY_CODE[it.job_code] ??= [];
+        if (!SUG_CACHE_BY_CODE[it.job_code].some(x => (x.city||'')===(it.city||''))) {
+          SUG_CACHE_BY_CODE[it.job_code].push(it);
+        }
+        const label = `${it.job_code} ${it.city || ''} - ${it.description||''}`.trim();
+        SUG_LABEL_MAP[label] = it;
+
+        const opt = document.createElement('option');
+        opt.value = label; opt.textContent = label;
+        dl.appendChild(opt);
+
+        const row = document.createElement('div');
+        row.className = 'sugitem';
+        row.textContent = label;
+        row.addEventListener('mousedown', (e)=>{ e.preventDefault(); applyItem(tr, it); });
+        menu.appendChild(row);
+      });
+
+      if(menu.children.length){ openMenu(menu); setActive(Array.from(menu.children), 0); }
+      else{ closeMenu(menu); }
+    }catch(e){
+      dl.innerHTML = '';
+      closeMenu(menu);
+    }
+  }
+
+  btnAdd && btnAdd.addEventListener('click', ()=>{ tbody.appendChild(mkRow()); });
+  for(let i=0;i<5;i++) tbody.appendChild(mkRow());
+
+  TAX_IN && TAX_IN.addEventListener('input', calc);
+  calc();
+})();
+</script>
+{% endif %}
+</body>
+</html>

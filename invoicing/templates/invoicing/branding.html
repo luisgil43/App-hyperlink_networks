@@ -1,0 +1,384 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-6" id="branding-root">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h2 class="text-2xl font-semibold tracking-tight">Branding & Logos</h2>
+      <p class="text-slate-600 text-sm">Upload up to {{ max_logos }} logos. Mark one as primary for your PDFs and emails.</p>
+    </div>
+  </div>
+
+  <!-- ========== DROPZONE LOGOS ========== -->
+  <div id="dropzone" class="border-2 border-dashed rounded-xl p-6 text-center mb-6 cursor-pointer hover:bg-slate-50">
+    <div class="text-slate-600">Drag and drop your files here or <span class="text-slate-900 font-medium">click to choose</span></div>
+    <div class="text-xs text-slate-500 mt-1">PNG, JPG/JPEG, WEBP, or SVG. Max {{ max_logos }} logos.</div>
+    <input id="file-input" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" multiple class="hidden">
+  </div>
+
+  <!-- ========== LOGOS LIST ========== -->
+  <div id="logos-grid" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    {% for l in logos %}
+      <div class="border rounded-xl p-2 flex flex-col items-center gap-2" data-logo data-id="{{ l.id }}">
+        <img src="{{ l.url }}" alt="{{ l.filename }}" class="h-16 object-contain mt-2" loading="lazy">
+        <div class="text-xs truncate w-full text-center">{{ l.filename }}</div>
+        <div class="flex gap-2">
+          <button class="px-2 py-1 rounded border text-xs" data-primary {% if l.is_primary %}disabled{% endif %}>
+            {% if l.is_primary %}Primary{% else %}Make primary{% endif %}
+          </button>
+          <button class="px-2 py-1 rounded bg-rose-600 text-white text-xs" data-delete>Delete</button>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- ========== PROFILE FORM (create/edit) ========== -->
+  <h3 class="mt-8 mb-3 font-semibold">Create / Edit profile</h3>
+  <form id="profile-form" class="grid grid-cols-1 md:grid-cols-2 gap-4" data-mode="new">
+    <input type="hidden" name="id" id="pf-id">
+
+    <!-- Visual -->
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Profile name</label>
+      <input name="name" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., Hyperlink" required>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Theme</label>
+      <select name="theme" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Primary color</label>
+      <input type="color" name="primary_color" class="mt-1 h-10 w-20 border rounded" value="#0ea5e9">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Secondary color</label>
+      <input type="color" name="secondary_color" class="mt-1 h-10 w-20 border rounded" value="#0f172a">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Accent color</label>
+      <input type="color" name="accent_color" class="mt-1 h-10 w-20 border rounded" value="#22c55e">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Invoice prefix</label>
+      <input name="invoice_prefix" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., ITG-">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Logo (from your library)</label>
+      <select name="logo_id" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+        <option value="">— None —</option>
+        {% for l in logos %}
+          <option value="{{ l.id }}">{{ l.filename }}</option>
+        {% endfor %}
+      </select>
+      <div class="text-xs text-slate-500 mt-1">* Upload logos above. Here you only choose which one to use in the profile.</div>
+    </div>
+
+    <!-- Company (NUEVO: solo texto visible en inglés) -->
+    <div class="md:col-span-2 mt-2">
+      <h4 class="font-semibold mb-2">Your company details</h4>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Company name</label>
+          <input name="company_name" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., Hyperlink Networks LLC">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Email</label>
+          <input type="email" name="company_email" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="billing@company.com">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Phone</label>
+          <input name="company_phone" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="+1 305 555 1234">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700">City</label>
+          <input name="company_city" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="Miami, FL">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-slate-700">Address</label>
+          <input name="company_address" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="123 Main St, Suite 200">
+        </div>
+      </div>
+    </div>
+
+    <div class="md:col-span-2 flex gap-2 justify-end mt-2">
+      <button type="button" id="pf-cancel" class="px-3 py-2 rounded-lg border">Cancel</button>
+      <button type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white">Save branding</button>
+    </div>
+  </form>
+
+  <!-- ========== SAVED PROFILES ========== -->
+  <h3 class="mt-10 mb-3 font-semibold">Saved brandings</h3>
+  <div id="profiles-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    {% for p in profiles %}
+      <div class="border rounded-xl p-3 flex flex-col gap-2" data-profile data-id="{{ p.id }}">
+        <div class="h-14 flex items-center justify-center">
+          {% if p.logo.url %}
+            <img src="{{ p.logo.url }}" alt="{{ p.name }}" class="max-h-12 object-contain">
+          {% else %}
+            <div class="text-xs text-slate-500">No logo</div>
+          {% endif %}
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="font-medium">{{ p.name }}</div>
+          {% if p.is_default %}
+            <span class="badge-default text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Default</span>
+          {% endif %}
+        </div>
+
+        <!-- Línea de colores y prefix -->
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-5 h-3 rounded" style="background: {{ p.primary_color }}"></span>
+          <span class="inline-block w-5 h-3 rounded" style="background: {{ p.secondary_color }}"></span>
+          <span class="inline-block w-5 h-3 rounded" style="background: {{ p.accent_color }}"></span>
+          <span class="text-xs text-slate-500 ml-auto">{{ p.invoice_prefix }}</span>
+        </div>
+
+        <!-- NUEVO: resumen empresa -->
+        <div class="text-xs text-slate-600">
+          {% if p.company_name %}<div class="truncate">{{ p.company_name }}</div>{% endif %}
+          {% if p.company_city %}<div class="truncate">{{ p.company_city }}</div>{% endif %}
+          {% if p.company_email %}<div class="truncate">{{ p.company_email }}</div>{% endif %}
+          {% if p.company_phone %}<div class="truncate">{{ p.company_phone }}</div>{% endif %}
+        </div>
+
+        <div class="flex gap-2 mt-1">
+          <button class="px-2 py-1 rounded border text-xs" data-edit>Edit</button>
+          <button class="px-2 py-1 rounded border text-xs" data-default {% if p.is_default %}disabled{% endif %}>Make default</button>
+          <button class="px-2 py-1 rounded bg-rose-600 text-white text-xs" data-delete>Delete</button>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Toast mínimo -->
+<div id="flash" class="hidden fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg text-white z-50"></div>
+
+<script>
+function getCSRF(){ const m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ""; }
+function flash(msg, type="success", ms=2200){
+  const el = document.getElementById("flash");
+  el.className = `fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg z-50 ${type==="success"?"bg-emerald-600":"bg-rose-600"} text-white`;
+  el.textContent = msg; el.classList.remove("hidden");
+  clearTimeout(window._flashTimer); window._flashTimer = setTimeout(()=> el.classList.add("hidden"), ms);
+}
+
+/* -------- LOGOS -------- */
+const dz        = document.getElementById("dropzone");
+const inputFile = document.getElementById("file-input");
+const grid      = document.getElementById("logos-grid");
+const maxLogos  = {{ max_logos|default:5 }};
+function logosCount(){ return grid.querySelectorAll("[data-logo]").length; }
+function toggleDZ(){ dz.classList.toggle("opacity-50", logosCount() >= maxLogos); }
+
+dz.addEventListener("click", ()=> {
+  if (logosCount() >= maxLogos) return; inputFile.click();
+});
+dz.addEventListener("dragover", e=>{ e.preventDefault(); if (logosCount() < maxLogos) dz.classList.add("bg-slate-50"); });
+dz.addEventListener("dragleave", ()=> dz.classList.remove("bg-slate-50"));
+dz.addEventListener("drop", e=>{
+  e.preventDefault(); dz.classList.remove("bg-slate-50");
+  if (logosCount() >= maxLogos) return; handleFiles(e.dataTransfer.files);
+});
+inputFile.addEventListener("change", ()=> handleFiles(inputFile.files));
+
+function handleFiles(fileList){
+  const arr = Array.from(fileList || []);
+  for (const f of arr){ if (logosCount() >= maxLogos) break; uploadFile(f); }
+}
+async function uploadFile(file){
+  const fd = new FormData(); fd.append("file", file);
+  try{
+    const r = await fetch("{% url 'invoicing:branding_upload' %}", {
+      method: "POST", headers: { "X-CSRFToken": getCSRF(), "X-Requested-With": "fetch" }, body: fd
+    });
+    const data = await r.json();
+    if (!data.ok) { alert(data.error || "Upload error."); return; }
+    addLogoCard(data.logo);
+  }catch(err){ console.error(err); alert("Network error."); }finally{ toggleDZ(); }
+}
+function addLogoCard(logo){
+  const div = document.createElement("div");
+  div.className = "border rounded-xl p-2 flex flex-col items-center gap-2";
+  div.setAttribute("data-logo", ""); div.setAttribute("data-id", logo.id);
+  div.innerHTML = `
+    <img src="${logo.url}" alt="${logo.filename||''}" class="h-16 object-contain mt-2" loading="lazy">
+    <div class="text-xs truncate w-full text-center">${logo.filename||''}</div>
+    <div class="flex gap-2">
+      <button class="px-2 py-1 rounded border text-xs" data-primary ${logo.is_primary ? "disabled" : ""}>${logo.is_primary ? "Primary" : "Make primary"}</button>
+      <button class="px-2 py-1 rounded bg-rose-600 text-white text-xs" data-delete>Delete</button>
+    </div>`;
+  grid.prepend(div);
+}
+grid.addEventListener("click", async (e)=>{
+  const host = e.target.closest("[data-logo]"); if (!host) return;
+  const id = host.getAttribute("data-id");
+  if (e.target.matches("[data-delete]")){
+    if (!confirm("Delete this logo?")) return;
+    try{
+      const r = await fetch("{% url 'invoicing:branding_delete' %}", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "X-Requested-With": "fetch", "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ id })
+      });
+      const data = await r.json(); if (!data.ok) throw new Error(data.error||"");
+      host.remove(); toggleDZ();
+    }catch(err){ console.error(err); alert("Could not delete."); }
+  }
+  if (e.target.matches("[data-primary]")){
+    try{
+      const r = await fetch("{% url 'invoicing:branding_set_primary' %}", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "X-Requested-With": "fetch", "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ id })
+      });
+      const data = await r.json(); if (!data.ok) throw new Error();
+      grid.querySelectorAll("[data-logo] [data-primary]").forEach(b=>{ b.disabled = false; b.textContent = "Make primary"; });
+      e.target.disabled = true; e.target.textContent = "Primary";
+    }catch(err){ console.error(err); alert("Could not set primary."); }
+  }
+});
+toggleDZ();
+
+/* -------- PROFILE: Create/Update -------- */
+const pf = document.getElementById("profile-form");
+const pfCancel = document.getElementById("pf-cancel");
+const pfId = document.getElementById("pf-id");
+pfCancel?.addEventListener("click", ()=>{ pf.reset(); pf.dataset.mode="new"; pfId.value=""; });
+
+pf.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const fd = new FormData(pf);
+  try{
+    const r = await fetch("{% url 'invoicing:branding_profile_save' %}", {
+      method: "POST",
+      headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch" },
+      body: fd
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || "Could not save profile.");
+    upsertProfileCard(data.profile);
+    flash("Branding saved");
+    pf.reset(); pf.dataset.mode="new"; pfId.value="";
+  }catch(err){ console.error(err); flash(err.message || "Network error.", "error"); }
+});
+
+/* -------- PROFILE: Grid actions -------- */
+const pgrid = document.getElementById("profiles-grid");
+
+pgrid.addEventListener("click", async (e)=>{
+  const host = e.target.closest("[data-profile]");
+  if (!host) return;
+  const id = host.getAttribute("data-id");
+
+  if (e.target.matches("[data-edit]")){
+    try{
+      const r = await fetch("{% url 'invoicing:branding_profile_detail' %}?id="+encodeURIComponent(id), { headers:{ "X-Requested-With":"fetch" }});
+      const data = await r.json(); if(!data.ok) throw new Error();
+      const p = data.profile;
+      pf.dataset.mode = "edit";
+      pfId.value = p.id;
+      pf.name.value = p.name;
+      pf.theme.value = p.theme;
+      pf.primary_color.value = p.primary_color;
+      pf.secondary_color.value = p.secondary_color;
+      pf.accent_color.value = p.accent_color;
+      pf.invoice_prefix.value = p.invoice_prefix || "";
+      if (p.logo && p.logo.id) pf.logo_id.value = p.logo.id; else pf.logo_id.value = "";
+
+      // NUEVO: rellenar datos empresa
+      pf.company_name.value = p.company_name || "";
+      pf.company_address.value = p.company_address || "";
+      pf.company_city.value = p.company_city || "";
+      pf.company_email.value = p.company_email || "";
+      pf.company_phone.value = p.company_phone || "";
+
+      window.scrollTo({ top: pf.getBoundingClientRect().top + window.scrollY - 80, behavior: "smooth" });
+    }catch{ flash("Could not load profile.", "error"); }
+  }
+
+  if (e.target.matches("[data-default]")){
+    try{
+      const r = await fetch("{% url 'invoicing:branding_profile_set_default' %}", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch", "Content-Type":"application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ id })
+      });
+      const data = await r.json(); if(!data.ok) throw new Error();
+      pgrid.querySelectorAll("[data-profile]").forEach(card=>{
+        card.querySelector("[data-default]")?.removeAttribute("disabled");
+        card.querySelector(".badge-default")?.remove();
+      });
+      host.querySelector("[data-default]")?.setAttribute("disabled", "disabled");
+      addDefaultBadge(host);
+      flash("Default branding set");
+    }catch{ flash("Could not set default.", "error"); }
+  }
+
+  if (e.target.matches("[data-delete]")){
+    if (!confirm("Delete this profile?")) return;
+    try{
+      const r = await fetch("{% url 'invoicing:branding_profile_delete' %}", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch", "Content-Type":"application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ id })
+      });
+      const data = await r.json(); if(!data.ok) throw new Error();
+      host.remove();
+      flash("Branding deleted");
+    }catch{ flash("Could not delete.", "error"); }
+  }
+});
+
+function addDefaultBadge(card){
+  const span = document.createElement("span");
+  span.className = "badge-default text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full";
+  span.textContent = "Default";
+  const header = card.querySelector(".font-medium")?.parentElement;
+  header && header.appendChild(span);
+}
+
+function upsertProfileCard(p){
+  const sel = `[data-profile][data-id="${p.id}"]`;
+  const exist = pgrid.querySelector(sel);
+  const html = `
+    <div class="h-14 flex items-center justify-center">
+      ${p.logo && p.logo.url ? `<img src="${p.logo.url}" alt="${p.name}" class="max-h-12 object-contain">` : `<div class="text-xs text-slate-500">No logo</div>`}
+    </div>
+    <div class="flex items-center justify-between">
+      <div class="font-medium">${p.name}</div>
+      ${p.is_default ? `<span class="badge-default text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Default</span>`: ``}
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-5 h-3 rounded" style="background: ${p.primary_color}"></span>
+      <span class="inline-block w-5 h-3 rounded" style="background: ${p.secondary_color}"></span>
+      <span class="inline-block w-5 h-3 rounded" style="background: ${p.accent_color}"></span>
+      <span class="text-xs text-slate-500 ml-auto">${p.invoice_prefix || ""}</span>
+    </div>
+    <div class="text-xs text-slate-600">
+      ${p.company_name ? `<div class="truncate">${p.company_name}</div>` : ``}
+      ${p.company_city ? `<div class="truncate">${p.company_city}</div>` : ``}
+      ${p.company_email ? `<div class="truncate">${p.company_email}</div>` : ``}
+      ${p.company_phone ? `<div class="truncate">${p.company_phone}</div>` : ``}
+    </div>
+    <div class="flex gap-2 mt-1">
+      <button class="px-2 py-1 rounded border text-xs" data-edit>Edit</button>
+      <button class="px-2 py-1 rounded border text-xs" data-default ${p.is_default?"disabled":""}>Make default</button>
+      <button class="px-2 py-1 rounded bg-rose-600 text-white text-xs" data-delete>Delete</button>
+    </div>
+  `;
+  if (exist){ exist.innerHTML = html; }
+  else{
+    const card = document.createElement("div");
+    card.className = "border rounded-xl p-3 flex flex-col gap-2";
+    card.setAttribute("data-profile", "");
+    card.setAttribute("data-id", p.id);
+    card.innerHTML = html;
+    pgrid.prepend(card);
+  }
+}
+</script>
+{% endblock %}

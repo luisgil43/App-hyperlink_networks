@@ -1,0 +1,219 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice {{ invoice.number }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --primary:   {{ profile.primary_color|default:'#0ea5e9' }};
+    --secondary: {{ profile.secondary_color|default:'#0f172a' }};
+    --accent:    {{ profile.accent_color|default:'#22c55e' }};
+    --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --paper:#f8fafc; --bg:#ffffff;
+    --radius:16px; --shadow:0 10px 28px rgba(2,6,23,.08);
+    --max:1080px; --pad:28px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif}
+  .sheet{max-width:var(--max);margin:36px auto;background:var(--bg);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .layout{display:grid;grid-template-columns:300px 1fr;min-height:200px}
+  /* Sidebar */
+  .side{background:var(--secondary);color:#fff;position:relative}
+  .side:before{content:"";position:absolute;inset:0 0 auto 0;height:6px;background:linear-gradient(90deg,var(--accent),var(--primary))}
+  .side-wrap{padding:26px}
+  .logo{height:58px;max-width:220px;object-fit:contain;display:block;margin:10px 0 6px 0;filter:drop-shadow(0 2px 8px rgba(0,0,0,.25))}
+  .co-name{font-weight:800;letter-spacing:.3px}
+  .co-line{opacity:.9}
+  .co-muted{opacity:.8}
+  .stamp{margin-top:18px;display:inline-block;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(4px);font-weight:700;font-size:12px}
+  /* Main */
+  .main{padding:var(--pad)}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+  .hgroup{display:flex;flex-direction:column;gap:4px}
+  h1{margin:0;font-size:30px;letter-spacing:.6px;color:var(--secondary)}
+  .kv{display:grid;grid-auto-flow:column;gap:16px;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+  .section{margin-top:22px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fff}
+  .card h3{margin:0 0 8px 0;font-size:12px;letter-spacing:.3px;color:var(--secondary);text-transform:uppercase}
+  .addr div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Items */
+  .items{margin-top:14px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  thead th{background:linear-gradient(90deg,var(--primary),var(--accent));color:#fff;text-align:left;font-size:12px;padding:12px}
+  thead th.num{text-align:right}
+  tbody td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}
+  td.num{text-align:right;white-space:nowrap}
+  td.small{font-size:12px;color:var(--muted)}
+  td.desc{color:var(--ink)}
+  .empty{padding:16px;text-align:center;color:var(--muted)}
+  /* Summary */
+  .summary{display:grid;grid-template-columns:1fr 360px;gap:18px;margin-top:18px}
+  .notes{border:1px dashed var(--line);border-radius:14px;padding:12px;background:#fff}
+  .totals{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+  .row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:10px 14px;border-top:1px solid var(--line);align-items:center}
+  .row:first-child{border-top:none}
+  .label{color:var(--muted)}
+  .row.total{background:linear-gradient(180deg, rgba(14,165,233,.08), rgba(34,197,94,.08));font-weight:800}
+  .footer{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px}
+  .accent{color:var(--primary)}
+  @media (max-width:980px){
+    .layout{grid-template-columns:1fr}
+    .side{order:2}
+    .main{order:1}
+    .cards{grid-template-columns:1fr}
+    .summary{grid-template-columns:1fr}
+  }
+  @media print{
+    body{background:#fff}
+    .sheet{box-shadow:none;margin:0;max-width:100%}
+    .side:before{display:none}
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="layout">
+      <!-- Sidebar (empresa) -->
+      <aside class="side">
+        <div class="side-wrap">
+          {% if profile.logo and profile.logo.url %}
+            <img class="logo" src="{{ profile.logo.url }}" alt="{{ profile.company_name|default:'Company' }}">
+          {% endif %}
+          <div class="co-name">{{ profile.company_name|default:"Your Company" }}</div>
+          {% if profile.company_address %}<div class="co-line">{{ profile.company_address }}</div>{% endif %}
+          {% if profile.company_city %}<div class="co-line">{{ profile.company_city }}</div>{% endif %}
+          {% if profile.company_email %}<div class="co-muted">{{ profile.company_email }}</div>{% endif %}
+          {% if profile.company_phone %}<div class="co-muted">{{ profile.company_phone }}</div>{% endif %}
+          <div class="stamp" style="margin-top:20px;">Professional Invoice</div>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="main">
+        <!-- Encabezado -->
+        <div class="header">
+          <div class="hgroup">
+            <h1>INVOICE</h1>
+            <div class="kv">
+              <div><strong>No:</strong> {{ invoice.number|default:"—" }}</div>
+              <div><strong>Date:</strong> {{ invoice.date|date:"M d, Y"|default:"—" }}</div>
+              <div><strong>Due:</strong> {{ invoice.due_date|date:"M d, Y"|default:"—" }}</div>
+            </div>
+          </div>
+          <div class="pill">Branding: {{ profile.name|default:"Default" }}</div>
+        </div>
+
+        <!-- From / Bill To -->
+        <div class="section cards">
+          <div class="card">
+            <h3>From</h3>
+            <div class="addr">
+              <div><strong>{{ profile.company_name|default:"Your Company" }}</strong></div>
+              {% if profile.company_address %}<div>{{ profile.company_address }}</div>{% endif %}
+              {% if profile.company_city %}<div>{{ profile.company_city }}</div>{% endif %}
+              {% if profile.company_email %}<div class="co-muted" style="color:var(--muted)">{{ profile.company_email }}</div>{% endif %}
+              {% if profile.company_phone %}<div class="co-muted" style="color:var(--muted)">{{ profile.company_phone }}</div>{% endif %}
+            </div>
+          </div>
+          <div class="card">
+            <h3>Bill To</h3>
+            <div class="addr">
+              <div><strong>{{ invoice.customer_name|default:"Customer" }}</strong></div>
+              {% if invoice.customer_address %}<div>{{ invoice.customer_address }}</div>{% endif %}
+              {% if invoice.customer_city or invoice.customer_state or invoice.customer_zip %}
+                <div>
+                  {{ invoice.customer_city }}{% if invoice.customer_state %}, {{ invoice.customer_state }}{% endif %}
+                  {% if invoice.customer_zip %} {{ invoice.customer_zip }}{% endif %}
+                </div>
+              {% endif %}
+              {% if invoice.customer_email %}<div class="co-muted" style="color:var(--muted)">{{ invoice.customer_email }}</div>{% endif %}
+              {% if invoice.customer_phone %}<div class="co-muted" style="color:var(--muted)">{{ invoice.customer_phone }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Items -->
+        <div class="section items">
+          <table aria-label="Invoice items">
+            <thead>
+              <tr>
+                <th>Daily Number</th>
+                <th>Job Code</th>
+                <th>Description</th>
+                <th class="num">Qty</th>
+                <th>Unit</th>
+                <th class="num">Rate</th>
+                <th class="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in invoice.items %}
+                <tr>
+                  <td class="small">{{ it.daily_number }}</td>
+                  <td class="small">{{ it.job_code }}</td>
+                  <td class="desc">{{ it.description }}</td>
+                  <td class="num">{{ it.qty }}</td>
+                  <td class="small">{{ it.unit }}</td>
+                  <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.rate|floatformat:2 }}</td>
+                  <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.amount|floatformat:2 }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="7" class="empty">No items added.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Summary -->
+        <div class="summary">
+          <div class="notes">
+            <strong>Notes</strong>
+            <div style="margin-top:6px;color:var(--muted);">
+              {{ invoice.notes|default:"Thank you for your business." }}
+            </div>
+            {% if invoice.terms %}
+              <div style="margin-top:10px;">
+                <strong>Terms</strong>
+                <div style="color:var(--muted)">{{ invoice.terms }}</div>
+              </div>
+            {% endif %}
+          </div>
+          <div class="totals">
+            <div class="row">
+              <div class="label">Subtotal</div>
+              <div><strong>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal|default_if_none:0|floatformat:2 }}</strong></div>
+            </div>
+            {% if invoice.discount %}
+            <div class="row">
+              <div class="label">Discount</div>
+              <div>- {{ invoice.currency_symbol|default:"$" }}{{ invoice.discount|floatformat:2 }}</div>
+            </div>
+            {% endif %}
+            {% if invoice.tax %}
+            <div class="row">
+              <div class="label">Tax</div>
+              <div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax|floatformat:2 }}</div>
+            </div>
+            {% endif %}
+            <div class="row total">
+              <div class="label">Total</div>
+              <div style="font-size:18px">
+                {{ invoice.currency_symbol|default:"$" }}{{ invoice.total|default_if_none:invoice.subtotal|floatformat:2 }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+          <div>Questions? Contact <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
+          <div>Thank you!</div>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

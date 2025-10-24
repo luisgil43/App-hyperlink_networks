@@ -1,9 +1,10 @@
-from pathlib import Path
 import os
-from dotenv import load_dotenv
+from datetime import timedelta
+from pathlib import Path
+
 import dj_database_url
 from django.urls import reverse_lazy
-from datetime import timedelta
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -75,6 +76,7 @@ INSTALLED_APPS = [
     'logistica',
     'subcontrato',
     'facturacion',
+    'invoicing',
     'usuarios',
     'dashboard_admin.apps.DashboardAdminConfig',
 ]

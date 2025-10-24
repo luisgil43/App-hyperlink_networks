@@ -1,0 +1,273 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="max-w-8xl mx-auto bg-white p-6 rounded-2xl shadow mt-6" id="ic-root">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">📦 Item Codes</h2>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'invoicing:itemcodes_import' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">➕ Import</a>
+      <a href="{% url 'invoicing:itemcodes_new' %}" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-full text-sm shadow">✚ New</a>
+      <a href="{% url 'invoicing:itemcodes_template' %}" class="px-4 py-2 rounded-full text-sm border shadow hover:bg-slate-50">⬇️ Template</a>
+    </div>
+  </div>
+
+  <!-- Filtros (auto) -->
+  <form id="ic-filters" class="mb-4 bg-gray-50 border border-gray-200 rounded-xl p-3" onsubmit="return false;">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">City</label>
+        <input id="f-city" class="filter-input w-full border rounded-lg px-3 py-2 text-sm" name="f_city" value="{{ f_city|default:'' }}" placeholder="City">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Project</label>
+        <input id="f-project" class="filter-input w-full border rounded-lg px-3 py-2 text-sm" name="f_project" value="{{ f_project|default:'' }}" placeholder="Project">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Client</label>
+        <input id="f-client" class="filter-input w-full border rounded-lg px-3 py-2 text-sm" name="f_client" value="{{ f_client|default:'' }}" placeholder="Client">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Job Code</label>
+        <input id="f-code" class="filter-input w-full border rounded-lg px-3 py-2 text-sm" name="f_code" value="{{ f_code|default:'' }}" placeholder="Code">
+      </div>
+    </div>
+
+    <div class="mt-3 flex items-center gap-3">
+      <label class="text-sm">Show:</label>
+      <select id="f-per" name="per" class="border rounded px-2 py-1 text-sm">
+        <option value="10"  {% if per_page == '10' %}selected{% endif %}>10</option>
+        <option value="20"  {% if per_page == '20' %}selected{% endif %}>20</option>
+        <option value="50"  {% if per_page == '50' %}selected{% endif %}>50</option>
+        <option value="all" {% if per_page == 'all' %}selected{% endif %}>All</option>
+      </select>
+      <a href="{% url 'invoicing:itemcodes_list' %}" class="px-3 py-1.5 rounded border text-sm">Reset</a>
+    </div>
+  </form>
+
+  <!-- Tabla (wrap para preservar scroll X/Y) -->
+  <div id="ic-table-wrap" class="rounded-xl border border-gray-200 overflow-auto">
+    <div id="itemcodes-table">
+      <table class="table-auto text-sm w-full min-w-[1100px]" style="white-space:nowrap;">
+        <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+          <tr>
+            <th class="p-2 border">City</th>
+            <th class="p-2 border">Project</th>
+            <th class="p-2 border">Office</th>
+            <th class="p-2 border">Client</th>
+            <th class="p-2 border">Work Type</th>
+            <th class="p-2 border">Job Code</th>
+            <th class="p-2 border text-left">Description</th>
+            <th class="p-2 border">UOM</th>
+            <th class="p-2 border text-right">Rate</th>
+            <th class="p-2 border">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="text-center">
+          {% for it in items %}
+          <tr class="border-t">
+            <td class="p-2 border">{{ it.city }}</td>
+            <td class="p-2 border">{{ it.project }}</td>
+            <td class="p-2 border">{{ it.office }}</td>
+            <td class="p-2 border">{{ it.client }}</td>
+            <td class="p-2 border">{{ it.work_type }}</td>
+            <td class="p-2 border font-medium">{{ it.job_code }}</td>
+            <td class="p-2 border text-left">{{ it.description }}</td>
+            <td class="p-2 border">{{ it.uom }}</td>
+            <td class="p-2 border text-right">${{ it.rate }}</td>
+            <td class="p-2 border">
+              <a href="{% url 'invoicing:itemcodes_edit' it.id %}" class="text-blue-600 hover:underline text-sm">✏️ Edit</a>
+              <button data-del data-id="{{ it.id }}" class="ml-2 text-rose-600 hover:underline text-sm">🗑️ Delete</button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="10" class="p-4 text-gray-500">No item codes.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Paginación -->
+  <div id="itemcodes-pagination" class="mt-3 flex justify-center gap-2 text-sm">
+    {% if pagina %}
+      {% if pagina.has_previous %}
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page=1&per={{ per_page }}&f_city={{ f_city }}&f_project={{ f_project }}&f_client={{ f_client }}&f_code={{ f_code }}">« First</a>
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.previous_page_number }}&per={{ per_page }}&f_city={{ f_city }}&f_project={{ f_project }}&f_client={{ f_client }}&f_code={{ f_code }}">‹ Prev</a>
+      {% endif %}
+      <span class="px-2 py-1">Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% if pagina.has_next %}
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.next_page_number }}&per={{ per_page }}&f_city={{ f_city }}&f_project={{ f_project }}&f_client={{ f_client }}&f_code={{ f_code }}">Next ›</a>
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.paginator.num_pages }}&per={{ per_page }}&f_city={{ f_city }}&f_project={{ f_project }}&f_client={{ f_client }}&f_code={{ f_code }}">Last »</a>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="flash" class="hidden fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg text-white z-50"></div>
+
+<!-- Modal Delete bonito -->
+<div id="ic-modal-delete" class="fixed inset-0 z-[100] hidden items-center justify-center">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative bg-white w-full max-w-md mx-4 rounded-2xl shadow-2xl ring-1 ring-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h3 class="text-lg font-semibold">Delete Item Code</h3>
+      <button type="button" class="text-slate-500 hover:text-slate-700" data-close>&times;</button>
+    </div>
+    <div class="px-5 py-4 text-slate-700">
+      <p class="mb-1">Are you sure you want to delete this item code?</p>
+      <p class="text-sm text-slate-500">This action cannot be undone.</p>
+    </div>
+    <div class="px-5 py-4 border-t flex items-center justify-end gap-2">
+      <button type="button" class="px-4 py-2 rounded-xl border" data-close>Cancel</button>
+      <button id="ic-btn-confirm-del" type="button" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:""; }
+  function flash(msg, ok=true){
+    const el=document.getElementById("flash");
+    el.className=`fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg z-50 ${ok?'bg-emerald-600':'bg-rose-600'} text-white`;
+    el.textContent=msg; el.classList.remove("hidden");
+    clearTimeout(window._ft); window._ft=setTimeout(()=>el.classList.add("hidden"), 2000);
+  }
+
+  const wrap    = document.getElementById("ic-table-wrap");
+  const pager   = document.getElementById("itemcodes-pagination");
+  const inputs  = document.querySelectorAll(".filter-input");
+  const selPer  = document.getElementById("f-per");
+
+  let currentPage = (new URL(location.href)).searchParams.get("page") || "1";
+  let pendingDeleteId = null;
+
+  function caretSnapshot(){
+    const active = document.activeElement;
+    if (!active || !active.classList?.contains("filter-input")) return null;
+    return {
+      id: active.id,
+      start: active.selectionStart || 0,
+      end: active.selectionEnd || 0,
+      scrollTop: active.scrollTop || 0
+    };
+  }
+  function caretRestore(snap){
+    if (!snap) return;
+    const el = document.getElementById(snap.id);
+    if (!el) return;
+    el.focus();
+    try{ el.setSelectionRange(snap.start, snap.end); }catch(e){}
+    el.scrollTop = snap.scrollTop;
+  }
+
+  function buildQS(overrides={}){
+    const p = new URLSearchParams({
+      f_city:   document.getElementById("f-city")?.value || "",
+      f_project:document.getElementById("f-project")?.value || "",
+      f_client: document.getElementById("f-client")?.value || "",
+      f_code:   document.getElementById("f-code")?.value || "",
+      per:      selPer?.value || "10",
+      page:     currentPage || "1",
+      ...overrides
+    });
+    return p.toString();
+  }
+
+  async function fetchList(qs){
+    const url = `${location.pathname}?${qs}`;
+    const caret = caretSnapshot();
+    const prevX = wrap.scrollLeft, prevY = wrap.scrollTop;
+    const prevWinY = window.scrollY;
+
+    const html = await fetch(url, { headers:{"X-Requested-With":"fetch"} }).then(r=>r.text());
+    const doc  = new DOMParser().parseFromString(html, "text/html");
+
+    const newTable = doc.querySelector("#itemcodes-table");
+    const newPag   = doc.querySelector("#itemcodes-pagination");
+
+    if (newTable){ document.getElementById("itemcodes-table").innerHTML = newTable.innerHTML; }
+    if (newPag){   document.getElementById("itemcodes-pagination").innerHTML = newPag.innerHTML; }
+
+    // restaurar scrolls y caret
+    wrap.scrollLeft = prevX; wrap.scrollTop = prevY;
+    window.scrollTo({ top: prevWinY });
+    caretRestore(caret);
+
+    wirePagination();
+    wireDeleteButtons();
+  }
+
+  // Debounce filtros
+  let _deb=null;
+  function debounce(fn, ms=300){ clearTimeout(_deb); _deb=setTimeout(fn, ms); }
+
+  inputs.forEach(inp=>{
+    inp.addEventListener("input", ()=> debounce(()=>{
+      currentPage = "1";
+      fetchList(buildQS());
+    }, 250));
+  });
+
+  selPer?.addEventListener("change", ()=>{
+    currentPage = "1";
+    fetchList(buildQS());
+  });
+
+  function wirePagination(){
+    document.querySelectorAll("#itemcodes-pagination a[data-pagelink]")?.forEach(a=>{
+      a.addEventListener("click", (e)=>{
+        e.preventDefault();
+        const u = new URL(a.getAttribute("href"), location.origin);
+        currentPage = u.searchParams.get("page") || "1";
+        fetchList(buildQS());
+      }, { once:true });
+    });
+  }
+  wirePagination();
+
+  // Modal delete
+  const modal = document.getElementById("ic-modal-delete");
+  function openModalDel(){ modal.classList.remove("hidden"); modal.classList.add("flex"); }
+  function closeModalDel(){ modal.classList.add("hidden"); modal.classList.remove("flex"); }
+  modal.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeModalDel));
+  modal.addEventListener("click", (e)=>{ if (e.target === modal) closeModalDel(); });
+  document.addEventListener("keydown", (e)=>{ if(e.key==="Escape" && !modal.classList.contains("hidden")) closeModalDel(); });
+
+  function wireDeleteButtons(){
+    document.querySelectorAll("[data-del]")?.forEach(btn=>{
+      btn.addEventListener("click", (e)=>{
+        e.preventDefault();
+        pendingDeleteId = btn.getAttribute("data-id");
+        openModalDel();
+      }, { once:true });
+    });
+  }
+  wireDeleteButtons();
+
+  document.getElementById("ic-btn-confirm-del")?.addEventListener("click", async ()=>{
+    if (!pendingDeleteId) return;
+    try{
+      const r = await fetch("{% url 'invoicing:itemcodes_delete' %}", {
+        method:"POST",
+        headers:{ "X-CSRFToken": getCSRF(), "Content-Type":"application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ id: pendingDeleteId })
+      });
+      const data = await r.json();
+      if(!data.ok) throw new Error();
+      closeModalDel();
+      flash("Item deleted");
+      await fetchList(buildQS()); // mantener página y filtros
+    }catch{
+      flash("Could not delete.", false);
+    }finally{
+      pendingDeleteId = null;
+    }
+  });
+
+})();
+</script>
+{% endblock %}

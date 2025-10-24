@@ -1,0 +1,435 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block dashboard_content %}
+<div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-6" id="customers-root">
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+    <div>
+      <h2 class="text-2xl font-semibold tracking-tight">Customers</h2>
+      <p class="text-slate-600 text-sm">Manage your billing customers and profiles.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btn-new" class="px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-sm">
+        New Customer
+      </button>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <input id="f-q" type="search" placeholder="Search by name, email, phone, or mnemonic"
+             class="w-full md:w-80 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+             value="{{ q|default:'' }}">
+
+
+        <select id="f-state" class="border rounded-lg px-3 py-2 text-sm">
+  <option value="">All states</option>
+  {% for code in states_list %}
+    <option value="{{ code }}" {% if state == code %}selected{% endif %}>{{ code }}</option>
+  {% endfor %}
+</select>
+
+
+      <select id="f-status" class="border rounded-lg px-3 py-2 text-sm">
+        <option value="all" {% if status == "all" %}selected{% endif %}>All statuses</option>
+        <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+        <option value="archived" {% if status == "archived" %}selected{% endif %}>Archived</option>
+      </select>
+      <button id="btn-clear" class="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm">
+        Clear
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div id="customers-table">
+    <div class="overflow-x-auto rounded-xl ring-1 ring-slate-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-700">
+  <tr>
+    <th class="text-left px-4 py-2">Customer</th>
+    <!-- NUEVO -->
+    <th class="text-left px-4 py-2">Mnemonic</th>
+    <!-- /NUEVO -->
+    <th class="text-left px-4 py-2">City</th>
+    <th class="text-left px-4 py-2">State</th>
+    <th class="text-left px-4 py-2">Email</th>
+    <th class="text-left px-4 py-2">Phone</th>
+    <th class="text-right px-4 py-2">Open Invoices</th>
+    <th class="text-right px-4 py-2">Outstanding</th>
+    <th class="text-right px-4 py-2">Actions</th>
+  </tr>
+</thead>
+        <tbody>
+  {% if page_obj.object_list %}
+    {% for c in page_obj.object_list %}
+      <tr class="border-t">
+        <td class="px-4 py-2 font-medium">{{ c.name }}</td>
+        <!-- NUEVO -->
+        <td class="px-4 py-2 font-mono uppercase">{{ c.mnemonic|default:"-" }}</td>
+        <!-- /NUEVO -->
+        <td class="px-4 py-2">{{ c.city|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.state|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.email|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.phone|default:"-" }}</td>
+        <td class="px-4 py-2 text-right">{{ c.open_invoices|default:"0" }}</td>
+        <td class="px-4 py-2 text-right">${{ c.outstanding|default:"0.00" }}</td>
+        <td class="px-4 py-2 text-right">
+          <button class="text-blue-600 hover:underline" data-edit data-id="{{ c.id }}">Edit</button>
+          <span class="text-slate-400">·</span>
+          <button class="text-rose-600 hover:underline" data-delete data-id="{{ c.id }}">Delete</button>
+        </td>
+      </tr>
+    {% endfor %}
+  {% else %}
+    <!-- OJO: aumenta el colspan porque ahora hay una columna más -->
+    <tr class="border-t">
+      <td colspan="9" class="px-4 py-10">
+        ...
+      </td>
+    </tr>
+  {% endif %}
+</tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Paginación estilo “Production Verification” -->
+  <div id="customers-pagination" class="mt-4">
+    {% if paginator.num_pages > 1 %}
+      <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-gray-700">Show:</label>
+          <select id="cantidad" class="border rounded-lg px-3 py-1">
+            <option value="10"  {% if per_page|stringformat:"s" == "10" %}selected{% endif %}>10</option>
+            <option value="20"  {% if per_page|stringformat:"s" == "20" %}selected{% endif %}>20</option>
+            <option value="50"  {% if per_page|stringformat:"s" == "50" %}selected{% endif %}>50</option>
+            <option value="100" {% if per_page|stringformat:"s" == "100" %}selected{% endif %}>100</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt-2 flex justify-center text-sm">
+        <span>Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+      </div>
+
+      <div class="mt-2 flex justify-center gap-2 text-sm">
+        {% if page_obj.has_previous %}
+          <a href="?page=1" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink>« First</a>
+          <a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink>‹ Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink>Next ›</a>
+          <a href="?page={{ paginator.num_pages }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink>Last »</a>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-gray-700">Show:</label>
+          <select id="cantidad" class="border rounded-lg px-3 py-1">
+            <option value="10"  {% if per_page|stringformat:"s" == "10" %}selected{% endif %}>10</option>
+            <option value="20"  {% if per_page|stringformat:"s" == "20" %}selected{% endif %}>20</option>
+            <option value="50"  {% if per_page|stringformat:"s" == "50" %}selected{% endif %}>50</option>
+            <option value="100" {% if per_page|stringformat:"s" == "100" %}selected{% endif %}>100</option>
+          </select>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal New/Edit -->
+<div id="modal-customer" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
+  <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="modal-title" class="text-lg font-semibold">New Customer</h3>
+      <button class="text-slate-500 hover:text-slate-700" data-close>✕</button>
+    </div>
+
+   <form id="customer-form" class="space-y-3" data-mode="new">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+    <input name="name" class="border rounded-lg px-3 py-2 text-sm" placeholder="Name" required>
+    <!-- NUEVO: nemónico -->
+    <input name="mnemonic" class="border rounded-lg px-3 py-2 text-sm uppercase" placeholder="Mnemonic (e.g., ACME)" maxlength="20">
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+    <input name="email" class="border rounded-lg px-3 py-2 text-sm" placeholder="Email">
+    <input name="phone" class="border rounded-lg px-3 py-2 text-sm" placeholder="Phone">
+  </div>
+
+  <input name="street_1" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Street Address">
+  <div class="grid grid-cols-3 gap-2">
+    <input name="city" class="border rounded-lg px-3 py-2 text-sm" placeholder="City">
+    <input name="state" class="border rounded-lg px-3 py-2 text-sm" placeholder="State">
+    <input name="zip_code" class="border rounded-lg px-3 py-2 text-sm" placeholder="ZIP">
+  </div>
+
+  <input type="hidden" name="id" id="customer-id-hidden">
+  <div class="flex items-center justify-end gap-2 pt-2">
+    <button type="button" class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
+    <button type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white">Save</button>
+  </div>
+</form>
+  </div>
+</div>
+
+<!-- Modal Delete -->
+<div id="modal-delete" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
+  <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 text-center">
+    <h3 class="text-lg font-semibold mb-2">Delete customer</h3>
+    <p class="text-sm text-slate-600 mb-4">This action cannot be undone.</p>
+    <div class="flex items-center justify-center gap-2">
+      <button type="button" class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
+      <button id="btn-confirm-delete" type="button" class="px-3 py-2 rounded-lg bg-rose-600 text-white">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==== Helpers ==== */
+function preserveCaret(el, fn) {
+  const start = el?.selectionStart ?? 0, end = el?.selectionEnd ?? 0, scrollTop = el?.scrollTop ?? 0;
+  fn && fn();
+  if (el) {
+    el.focus();
+    try { el.setSelectionRange(start, end); } catch(e) {}
+    el.scrollTop = scrollTop;
+  }
+}
+function getCSRF(){
+  const m = document.cookie.match(/csrftoken=([^;]+)/);
+  return m ? m[1] : "";
+}
+const root      = document.getElementById("customers-root");
+const inputQ    = document.getElementById("f-q");
+const selState  = document.getElementById("f-state");
+const selStatus = document.getElementById("f-status");
+const btnClear  = document.getElementById("btn-clear");
+const tblWrap   = document.getElementById("customers-table");
+const pager     = document.getElementById("customers-pagination");
+
+function getPerPageSel() {
+  return document.getElementById("f-per-page") || document.getElementById("cantidad");
+}
+let _deb = null;
+function debounce(fn, ms=300){ clearTimeout(_deb); _deb = setTimeout(fn, ms); }
+function buildQS(overrides={}) {
+  const perSel = getPerPageSel();
+  const perPageVal = perSel ? perSel.value : "10";
+  const p = new URLSearchParams({
+    q: (inputQ?.value || "").trim(),
+    state: selState?.value || "",
+    status: selStatus?.value || "active",
+    per_page: perPageVal,
+    page: "1",
+    ...overrides
+  });
+  return p.toString();
+}
+
+/* ==== Fetch list (full HTML; swap fragments) ==== */
+async function fetchList(qs, {preserveInput=true}={}) {
+  const url = `${location.pathname}?${qs}`;  // <-- FIX: template literal
+  const focusOnQ = document.activeElement === inputQ;
+
+  const html = await fetch(url, { headers: { "X-Requested-With": "fetch" }}).then(r => r.text());
+  const doc  = new DOMParser().parseFromString(html, "text/html");
+
+  const newTable = doc.querySelector("#customers-table");
+  const newPag   = doc.querySelector("#customers-pagination");
+  const prevScrollY = window.scrollY;
+
+  if (newTable && tblWrap) tblWrap.innerHTML = newTable.innerHTML;
+  if (newPag && pager)     pager.innerHTML   = newPag.innerHTML;
+
+  if (preserveInput && focusOnQ && inputQ) preserveCaret(inputQ, ()=>{});
+
+  wirePaginationLinks();
+  window.scrollTo({ top: prevScrollY });
+}
+
+/* ==== Filtros ==== */
+if (inputQ)    inputQ.addEventListener("input", () => debounce(() => fetchList(buildQS(), {preserveInput:true}), 250));
+if (selState)  selState.addEventListener("change", () => fetchList(buildQS()));
+if (selStatus) selStatus.addEventListener("change", () => fetchList(buildQS()));
+const perSelInit = getPerPageSel();
+if (perSelInit) perSelInit.addEventListener("change", () => fetchList(buildQS()));
+if (btnClear){
+  btnClear.addEventListener("click", ()=>{
+    if (inputQ) inputQ.value = "";
+    if (selState) selState.value = "";
+    if (selStatus) selStatus.value = "active";
+    const perSel = getPerPageSel();
+    if (perSel && perSel.id === "f-per-page") perSel.value = perSel.value || "10";
+    fetchList(buildQS());
+  });
+}
+
+/* ==== Paginación ==== */
+function wirePaginationLinks(){
+  if (!pager) return;
+  pager.querySelectorAll("a[data-page]")?.forEach(a=>{
+    a.addEventListener("click", (e)=>{
+      e.preventDefault();
+      const page = a.getAttribute("data-page") || "1";
+      fetchList(buildQS({ page }));
+    });
+  });
+  pager.querySelectorAll("a[data-pagelink]")?.forEach(a=>{
+    a.addEventListener("click", (e)=>{
+      e.preventDefault();
+      const url  = new URL(a.getAttribute("href"), location.origin);
+      const page = url.searchParams.get("page") || "1";
+      fetchList(buildQS({ page }));
+    });
+  });
+  const cant = document.getElementById("cantidad");
+  if (cant){
+    cant.addEventListener("change", ()=>{
+      const perSel = getPerPageSel();
+      if (perSel && perSel.id === "f-per-page") perSel.value = cant.value;
+      fetchList(buildQS());
+    }, { once: true });
+  }
+}
+wirePaginationLinks();
+
+/* ==== Modales & acciones ==== */
+const modalCustomer = document.getElementById("modal-customer");
+const modalDelete   = document.getElementById("modal-delete");
+const form         = document.getElementById("customer-form");
+const hiddenId     = document.getElementById("customer-id-hidden");
+const btnNew       = document.getElementById("btn-new");
+let toDeleteId     = null;
+
+function openModalCustomer(titleText){
+  const title = document.getElementById("modal-title");
+  if (title) title.textContent = titleText;
+  modalCustomer.classList.remove("hidden");
+  modalCustomer.classList.add("flex");
+}
+function closeAllModals(){
+  [modalCustomer, modalDelete].forEach(m=>{
+    if(!m) return;
+    m.classList.add("hidden");
+    m.classList.remove("flex");
+  });
+}
+document.querySelectorAll("[data-close]")?.forEach(b=> b.addEventListener("click", closeAllModals));
+
+if (btnNew){
+  btnNew.addEventListener("click", ()=>{
+    form.reset();
+    hiddenId.value = "";
+    form.dataset.mode = "new";
+    openModalCustomer("New Customer");
+  });
+}
+document.addEventListener("click", (e)=>{
+  const btnInline = e.target.closest("#inline-new");
+  if (btnInline){
+    form.reset();
+    hiddenId.value = "";
+    form.dataset.mode = "new";
+    openModalCustomer("New Customer");
+  }
+});
+
+/* Edit -> prefill */
+if (root){
+  root.addEventListener("click", async (e)=>{
+    const btnEdit = e.target.closest("[data-edit]");
+    const btnDel  = e.target.closest("[data-delete]");
+
+    if (btnEdit){
+      const id = btnEdit.getAttribute("data-id");
+      try{
+        const res  = await fetch("{% url 'invoicing:customers_detail' %}?id=" + encodeURIComponent(id),
+                                 { headers: { "X-Requested-With":"fetch" }});
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || "Unable to load customer.");
+
+        // Prefill
+        form.name.value      = data.customer.name || "";
+        form.mnemonic.value  = data.customer.mnemonic || "";
+        form.email.value     = data.customer.email || "";
+        form.phone.value     = data.customer.phone || "";
+        form.street_1.value  = data.customer.street_1 || "";
+        form.city.value      = data.customer.city || "";
+        form.state.value     = data.customer.state || "";
+        form.zip_code.value  = data.customer.zip_code || "";
+        hiddenId.value       = data.customer.id;
+        form.dataset.mode    = "edit";
+
+        openModalCustomer("Edit Customer");
+      }catch(err){
+        console.error(err);
+        alert("Could not load the customer.");
+      }
+    }
+
+    if (btnDel){
+      toDeleteId = btnDel.getAttribute("data-id");
+      modalDelete.classList.remove("hidden");
+      modalDelete.classList.add("flex");
+    }
+  });
+}
+
+/* Delete confirm */
+document.getElementById("btn-confirm-delete")?.addEventListener("click", async ()=>{
+  if (!toDeleteId) return;
+  try{
+    const fd = new FormData(); fd.append("id", toDeleteId);
+    const mnInput = document.querySelector('#customer-form input[name="mnemonic"]');
+        mnInput?.addEventListener('input', () => { mnInput.value = mnInput.value.toUpperCase(); });
+    const resp = await fetch("{% url 'invoicing:customers_delete' %}", {
+      method: "POST",
+      headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch" },
+      body: fd
+    });
+    const data = await resp.json();
+    if (!data.ok){ alert(data.error || "Could not delete"); return; }
+    toDeleteId = null;
+    closeAllModals();
+    await fetchList(buildQS());
+  }catch(err){
+    console.error(err);
+    alert("Network error.");
+  }
+});
+
+/* Save (create/update) */
+if (form){
+  form.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    const mode = form.dataset.mode || "new";
+    const fd   = new FormData(form);
+    const url  = (mode === "edit")
+      ? "{% url 'invoicing:customers_update' %}"
+      : "{% url 'invoicing:customers_create' %}";
+    try{
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch" },
+        body: fd
+      });
+      const data = await resp.json();
+      if (!data.ok){ alert(data.error || "Could not save."); return; }
+      closeAllModals();
+      await fetchList(buildQS());
+      form.reset();
+      hiddenId.value = "";
+      form.dataset.mode = "new";
+    }catch(err){
+      console.error(err);
+      alert("Network error.");
+    }
+  });
+}
+</script>
+{% endblock %}

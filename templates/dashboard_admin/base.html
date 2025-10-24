@@ -1,12 +1,8 @@
 
 {% load static %}
 {% load humanize %}
-
-
 <!DOCTYPE html>
 <html lang="en">
-
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -126,7 +122,6 @@
           <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
          <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Salaries & Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Assign Services</a></li>
 <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
 <li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
         </ul>
@@ -197,16 +192,31 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
-              <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Invoices</a></li>
-              <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
+            <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
               <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
+              <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Ready to Invoice</a></li>
+              
+              <li class="group">
+  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🧾 Invoicing</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+  <ul class="ml-4 submenu space-y-1 hidden">
+<li><a href="{% url 'invoicing:branding' %}" class="hover:text-emerald-400">Branding & Logos</a></li>
+                  <li><a href="{% url 'invoicing:customers_list' %}" class="hover:text-emerald-400">Customers</a></li>
+                  <li><a href="#" class="hover:text-emerald-400">Dashboard</a></li>
+                  <li><a href="{% url 'invoicing:invoices_list' %}" class="hover:text-emerald-400">Invoices</a></li>
+                  <li><a href="{% url 'invoicing:itemcodes_list' %}" class="hover:text-emerald-400">Item Codes</a></li>
+                  <li><a href="{% url 'invoicing:templates' %}" class="hover:text-emerald-400">Templates</a></li>
+  </ul>
+</li>
           </ul>
       </li>
       {% endif %}
 
       <!-- SECCIÓN: User Management -->
-      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_rrhh %}
+      {% if request.user.es_admin_general %}
       <li class="group">
           <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
               onclick="toggleMenu(this)">

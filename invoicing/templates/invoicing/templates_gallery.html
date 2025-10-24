@@ -1,0 +1,119 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+<div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-semibold tracking-tight">Templates</h2>
+      <p class="text-slate-600 text-sm">Pick a default invoice template for each branding profile. Colors come from your profile.</p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <label for="profile-picker" class="text-sm text-slate-600">Profile:</label>
+      <select id="profile-picker" class="border rounded-lg px-3 py-2 text-sm">
+        {% for p in profiles %}
+          <option value="{{ p.id }}" {% if active_profile and p.id == active_profile.id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  {% if not profiles %}
+    <div class="mt-6 p-4 rounded-lg bg-amber-50 text-amber-800 text-sm">
+      You need at least one <a href="{% url 'invoicing:branding' %}" class="underline">branding profile</a> to use templates.
+    </div>
+  {% else %}
+  <div id="cards" class="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+    {% for c in cards %}
+      <div class="border rounded-xl overflow-hidden ring-1 ring-slate-200 flex flex-col" data-key="{{ c.key }}">
+        <div class="h-[420px] w-full bg-slate-50">
+          <iframe src="{{ c.preview_url }}" class="w-full h-full" loading="lazy"></iframe>
+        </div>
+        <div class="p-3 flex items-center justify-between">
+          <div class="font-medium">{{ c.name }}</div>
+          <div class="flex items-center gap-2">
+            <button class="px-3 py-1.5 rounded-lg border text-sm" data-refresh>Refresh</button>
+
+            {# Button classes and disabled state without inline-ifs #}
+            <button
+              class="px-3 py-1.5 rounded-lg text-white text-sm {% if c.in_use %}bg-slate-300 cursor-not-allowed{% else %}bg-slate-900{% endif %}"
+              data-choose
+              {% if c.in_use %}disabled{% endif %}
+            >
+              {% if c.in_use %}In use{% else %}Use template{% endif %}
+            </button>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Toast -->
+<div id="flash" class="hidden fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg text-white z-50"></div>
+
+<script>
+function getCSRF(){ const m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ""; }
+function flash(msg, ok=true){
+  const el = document.getElementById("flash");
+  el.className = `fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg z-50 ${ok?'bg-emerald-600':'bg-rose-600'} text-white`;
+  el.textContent = msg; el.classList.remove("hidden");
+  clearTimeout(window._flashTimer); window._flashTimer = setTimeout(()=> el.classList.add("hidden"), 2000);
+}
+
+const picker = document.getElementById("profile-picker");
+picker?.addEventListener("change", ()=>{
+  const pid = picker.value;
+  document.querySelectorAll("#cards iframe").forEach((f)=>{
+    const url = new URL(f.src, window.location.origin);
+    url.searchParams.set("profile_id", pid);
+    f.src = url.toString();
+  });
+  const url = new URL(window.location.href);
+  url.searchParams.set("profile_id", pid);
+  window.location.href = url.toString();
+});
+
+document.getElementById("cards")?.addEventListener("click", async (e)=>{
+  const card = e.target.closest("[data-key]");
+  if (!card) return;
+  const key = card.getAttribute("data-key");
+
+  if (e.target.matches("[data-refresh]")){
+    const f = card.querySelector("iframe");
+    f.src = f.src; return;
+  }
+
+  if (e.target.matches("[data-choose]")){
+    if (e.target.disabled) return;
+    try{
+      const pickerEl = document.getElementById("profile-picker");
+      const profileId = pickerEl ? pickerEl.value : "";
+      const r = await fetch("{% url 'invoicing:template_set' %}", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRF(), "Content-Type":"application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ key, profile_id: profileId })
+      });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || "Could not set template.");
+
+      // Update all buttons visual state
+      document.querySelectorAll("[data-choose]").forEach(b=>{
+        b.disabled = false;
+        b.classList.remove("bg-slate-300","cursor-not-allowed");
+        b.classList.add("bg-slate-900");
+        b.textContent = "Use template";
+      });
+
+      e.target.disabled = true;
+      e.target.classList.remove("bg-slate-900");
+      e.target.classList.add("bg-slate-300","cursor-not-allowed");
+      e.target.textContent = "In use";
+
+      flash("Template applied");
+    }catch(err){ console.error(err); flash(err.message || "Network error", false); }
+  }
+});
+</script>
+{% endblock %}

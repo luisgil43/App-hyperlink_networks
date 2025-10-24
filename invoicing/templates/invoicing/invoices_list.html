@@ -1,0 +1,264 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block dashboard_content %}
+<div class="max-w-8xl mx-auto bg-white p-6 rounded-2xl shadow mt-6" id="invoices-root">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800">🧾 Invoices</h2>
+      <p class="text-slate-600 text-sm">Search and manage issued invoices.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'invoicing:invoice_new' %}"
+         class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-full text-sm shadow">
+        ✚ New Invoice
+      </a>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <form id="filters-form" class="mb-4 bg-gray-50 border border-gray-200 rounded-xl p-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Search</label>
+        <input type="search" name="q" value="{{ q }}" placeholder="Customer or invoice #"
+               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" id="f-q">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">From</label>
+        <input type="date" name="from" value="{{ f_from }}" class="w-full border rounded-lg px-3 py-2 text-sm filter-input">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">To</label>
+        <input type="date" name="to" value="{{ f_to }}" class="w-full border rounded-lg px-3 py-2 text-sm filter-input">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Status</label>
+        <select name="status" class="w-full border rounded-lg px-3 py-2 text-sm filter-input">
+          <option value="">All</option>
+          <option value="draft"  {% if f_status == "draft" %}selected{% endif %}>Draft</option>
+          <option value="issued" {% if f_status == "issued" %}selected{% endif %}>Issued</option>
+          <option value="paid"   {% if f_status == "paid" %}selected{% endif %}>Paid</option>
+          <option value="void"   {% if f_status == "void" %}selected{% endif %}>Void</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-3 flex items-center gap-3">
+      <label class="text-sm">Show:</label>
+      <select name="per" id="f-per" class="border rounded px-2 py-1 text-sm">
+        <option value="10"  {% if per_page == '10' %}selected{% endif %}>10</option>
+        <option value="20"  {% if per_page == '20' %}selected{% endif %}>20</option>
+        <option value="50"  {% if per_page == '50' %}selected{% endif %}>50</option>
+        <option value="all" {% if per_page == 'all' %}selected{% endif %}>All</option>
+      </select>
+      <a href="{% url 'invoicing:invoices_list' %}" class="px-3 py-1.5 rounded border text-sm">Reset</a>
+    </div>
+  </form>
+
+  <!-- Table -->
+  <div id="invoices-table">
+    <div id="tbl-scroll" class="rounded-xl border border-gray-200 overflow-x-auto">
+      <table class="table-auto text-sm w-full min-w-[1000px]" style="white-space:nowrap;">
+        <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+          <tr>
+            <th class="p-2 border">Customer</th>
+            <th class="p-2 border">Amount</th>
+            <th class="p-2 border">Invoice #</th>
+            <th class="p-2 border">Issue Date</th>
+            <th class="p-2 border">Receipt (PDF)</th>
+            <th class="p-2 border">Status</th>
+            <th class="p-2 border">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="text-center">
+          {% for inv in items %}
+          <tr class="border-t">
+            <td class="p-2 border text-left">{{ inv.customer.name }}</td>
+            <td class="p-2 border text-right">${{ inv.total|floatformat:2 }}</td>
+            <td class="p-2 border font-mono">{{ inv.number }}</td>
+            <td class="p-2 border">{{ inv.issue_date|date:"Y-m-d" }}</td>
+            <td class="p-2 border">
+              {% if inv.pdf %}
+                <a class="text-blue-600 hover:underline" href="{{ inv.pdf.url }}" target="_blank">Open PDF</a>
+              {% else %}
+                <span class="text-slate-400">—</span>
+              {% endif %}
+            </td>
+            <td class="p-2 border">
+              <span class="px-2 py-0.5 rounded-full text-xs
+                {% if inv.status == 'paid' %}bg-emerald-100 text-emerald-700
+                {% elif inv.status == 'issued' %}bg-sky-100 text-sky-700
+                {% elif inv.status == 'draft' %}bg-slate-100 text-slate-700
+                {% else %}bg-rose-100 text-rose-700{% endif %}">
+                {{ inv.get_status_display }}
+              </span>
+            </td>
+            <td class="p-2 border">
+              {% if inv.pdf %}
+                <a href="{{ inv.pdf.url }}" target="_blank" class="text-blue-600 hover:underline text-sm">👁 View</a>
+                <span class="text-slate-400">·</span>
+              {% endif %}
+              <button class="text-rose-600 hover:underline text-sm" data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="p-4 text-gray-500">No invoices found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pagination -->
+  <div id="invoices-pagination" class="mt-3 flex justify-center gap-2 text-sm">
+    {% if pagina %}
+      {% if pagina.has_previous %}
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page=1&per={{ per_page }}&q={{ q }}&from={{ f_from }}&to={{ f_to }}&status={{ f_status }}">« First</a>
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.previous_page_number }}&per={{ per_page }}&q={{ q }}&from={{ f_from }}&to={{ f_to }}&status={{ f_status }}">‹ Prev</a>
+      {% endif %}
+      <span class="px-2 py-1">Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% if pagina.has_next %}
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.next_page_number }}&per={{ per_page }}&q={{ q }}&from={{ f_from }}&to={{ f_to }}&status={{ f_status }}">Next ›</a>
+        <a class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" data-pagelink href="?page={{ pagina.paginator.num_pages }}&per={{ per_page }}&q={{ q }}&from={{ f_from }}&to={{ f_to }}&status={{ f_status }}">Last »</a>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<!-- Delete modal -->
+<div id="modal-delete" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
+  <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-lg font-semibold">Delete invoice</h3>
+      <button class="text-slate-500 hover:text-slate-700" data-close>✕</button>
+    </div>
+    <p class="text-sm text-slate-600 mb-4">This action cannot be undone.</p>
+    <div class="flex items-center justify-end gap-2">
+      <button class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
+      <button id="btn-confirm-delete" class="px-3 py-2 rounded-lg bg-rose-600 text-white">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="flash" class="hidden fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg text-white z-50"></div>
+
+<script>
+function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:""; }
+function flash(msg, ok=true){
+  const el=document.getElementById("flash");
+  el.className=`fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg z-50 ${ok?'bg-emerald-600':'bg-rose-600'} text-white`;
+  el.textContent=msg; el.classList.remove("hidden");
+  clearTimeout(window._ft); window._ft=setTimeout(()=>el.classList.add("hidden"), 2000);
+}
+
+// Preserve caret & scroll (both axis)
+function preserveCaret(el, fn){
+  const start = el?.selectionStart ?? 0, end = el?.selectionEnd ?? 0;
+  const scroller = document.getElementById("tbl-scroll");
+  const sx = scroller ? scroller.scrollLeft : 0;
+  const sy = window.scrollY;
+  fn && fn();
+  if (el) { try{ el.focus(); el.setSelectionRange(start, end);}catch(e){} }
+  if (scroller) scroller.scrollLeft = sx;
+  window.scrollTo({ top: sy });
+}
+
+// Build QS from current filters
+function buildQS(overrides={}){
+  const form = document.getElementById("filters-form");
+  const fd   = new FormData(form);
+  const p = new URLSearchParams();
+  for (const [k,v] of fd.entries()){
+    if (v) p.set(k, v);
+  }
+  // When filtering, go back to first page unless caller overrides
+  if (!("page" in overrides)) p.set("page","1");
+  for (const k in overrides){ p.set(k, overrides[k]); }
+  return p.toString();
+}
+
+// Fetch-list and swap fragments
+async function fetchList(qs, preserveInput=true){
+  const active = document.activeElement;
+  const url = `${location.pathname}?${qs}`;
+  const html = await fetch(url, { headers:{ "X-Requested-With":"fetch" }}).then(r=>r.text());
+  const doc  = new DOMParser().parseFromString(html, "text/html");
+  const newTable = doc.querySelector("#invoices-table");
+  const newPag   = doc.querySelector("#invoices-pagination");
+  const tblWrap  = document.querySelector("#invoices-table");
+  const pager    = document.querySelector("#invoices-pagination");
+
+  preserveCaret(active, ()=>{
+    if (newTable && tblWrap) tblWrap.innerHTML = newTable.innerHTML;
+    if (newPag && pager)     pager.innerHTML   = newPag.innerHTML;
+  });
+
+  wirePaginationLinks();
+}
+
+// Auto-filters
+document.querySelectorAll(".filter-input").forEach(inp=>{
+  let t=null;
+  inp.addEventListener("input", ()=>{
+    clearTimeout(t);
+    t=setTimeout(()=> fetchList(buildQS()), 350);
+  });
+  inp.addEventListener("change", ()=> fetchList(buildQS()));
+});
+
+// Per-page
+document.getElementById("f-per")?.addEventListener("change", ()=> fetchList(buildQS()));
+
+// Pagination links
+function wirePaginationLinks(){
+  document.querySelectorAll("#invoices-pagination a[data-pagelink]")?.forEach(a=>{
+    a.addEventListener("click", (e)=>{
+      e.preventDefault();
+      const url = new URL(a.getAttribute("href"), location.origin);
+      const page = url.searchParams.get("page") || "1";
+      fetchList(buildQS({ page }));
+    });
+  });
+}
+wirePaginationLinks();
+
+// Delete flow (modal bonito)
+let _toDelete = null;
+document.addEventListener("click", (e)=>{
+  const btn = e.target.closest("[data-delete]");
+  const close = e.target.closest("[data-close]");
+  const modal = document.getElementById("modal-delete");
+  if (btn){
+    _toDelete = btn.getAttribute("data-id");
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+  }
+  if (close){
+    modal.classList.add("hidden"); modal.classList.remove("flex");
+    _toDelete = null;
+  }
+});
+document.getElementById("btn-confirm-delete")?.addEventListener("click", async ()=>{
+  if (!_toDelete) return;
+  try{
+    const r = await fetch("{% url 'invoicing:invoice_delete' %}", {
+      method:"POST",
+      headers:{ "X-CSRFToken": getCSRF(), "Content-Type":"application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ id: _toDelete })
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error();
+    document.getElementById("modal-delete").classList.add("hidden");
+    document.getElementById("modal-delete").classList.remove("flex");
+    _toDelete = null;
+    await fetchList(buildQS());
+    flash("Invoice deleted");
+  }catch(err){
+    flash("Could not delete.", false);
+  }
+});
+</script>
+{% endblock %}

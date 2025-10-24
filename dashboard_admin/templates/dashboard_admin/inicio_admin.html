@@ -15,23 +15,23 @@
     <!-- Botones principales del panel admin -->
     <div class="flex justify-center gap-6 flex-wrap">
         <!-- Cargar liquidaciones -->
-        <a href="{% url 'liquidaciones:admin_lista' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📄 Upload Payrolls
+        <a href="{% url 'operaciones:crear_billing' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            📄 Create Billing
         </a>
 
         <!-- Cargar producciones -->
-        <a href="#" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            🏗️ Upload Productions
+        <a href="{% url 'operaciones:produccion_admin' %}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            💳  Salaries & Productions
         </a>
 
         <!-- Cargar contratos -->
-        <a href="{% url 'rrhh:contratos_trabajo' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📑 Upload Contracts
+        <a href="{% url 'invoicing:invoices_list' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            🧾 Invoices
         </a>
 
         <!-- Cargar fichas de ingreso -->
-        <a href="{% url 'rrhh:listar_fichas_ingreso_admin' %}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            🧾 Upload Onboarding Forms
+        <a href="{% url 'facturacion:listar_cartola' %}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            📑 Account Transactions
         </a>
     </div>
 </div>
