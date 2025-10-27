@@ -270,14 +270,14 @@ data-template-key="t1"
     <!-- From / Bill To -->
     <div class="cards" id="cards">
       <div class="card">
-        <h4>FROM</h4>
-        <div class="addr" id="from-addr">
-          <strong>{{ profile.company_name }}</strong><br>
-          {{ profile.company_address }}<br>
-          {{ profile.company_city }}<br>
-          {% if profile.company_email %}{{ profile.company_email }}{% endif %}{% if profile.company_phone %} · {{ profile.company_phone }}{% endif %}
-        </div>
-      </div>
+  <h4>FROM</h4>
+  <div class="addr" id="from-addr">
+    <strong>{{ profile.company_name }}</strong><br>
+    {{ profile.company_address }}<br>
+    {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}<br>
+    {% if profile.company_email %}{{ profile.company_email }}{% endif %}{% if profile.company_phone %} · {{ profile.company_phone }}{% endif %}
+  </div>
+</div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h4>BILL TO</h4>

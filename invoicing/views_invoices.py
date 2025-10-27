@@ -1,21 +1,25 @@
-# invoicing/views_invoices.py
 import json
+import mimetypes
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
+from email.message import EmailMessage as StdEmailMessage
+from email.utils import formatdate, make_msgid
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponseNotAllowed, JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.template.loader import render_to_string, select_template
+from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.shortcuts import get_object_or_404, render
+from django.template.loader import select_template
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
-from weasyprint import HTML  # pip install weasyprint
+from django.views.decorators.http import require_GET, require_POST
+from weasyprint import HTML
 
 from .models import BrandingProfile, BrandingSettings, Customer, Invoice
 from .utils_branding import get_active_branding
@@ -25,7 +29,10 @@ from .utils_branding import get_active_branding
 def invoices_list(request):
     qs = Invoice.objects.filter(owner=request.user).select_related("customer")
 
-    # --------- AUTO: pasar a OVERDUE si corresponde ----------
+    # Si quedó algún 'issued' legacy, normaliza a pending
+    Invoice.objects.filter(owner=request.user, status="issued").update(status=Invoice.STATUS_PENDING)
+
+    # Auto: pasar a OVERDUE si corresponde
     today = timezone.localdate()
     Invoice.objects.filter(
         owner=request.user,
@@ -34,11 +41,11 @@ def invoices_list(request):
         due_date__lt=today,
     ).update(status=Invoice.STATUS_OVERDUE)
 
-    # --------- Filtros ----------
+    # Filtros
     q        = (request.GET.get("q") or "").strip()
     f_from   = (request.GET.get("from") or "").strip()
     f_to     = (request.GET.get("to") or "").strip()
-    f_status = (request.GET.get("status") or "").strip()  # '', pending, overdue, paid, void
+    f_status = (request.GET.get("status") or "").strip()
     per      = (request.GET.get("per") or "10").lower()
     page     = int(request.GET.get("page") or 1)
 
@@ -56,11 +63,10 @@ def invoices_list(request):
     if d_from: qs = qs.filter(issue_date__gte=d_from)
     if d_to:   qs = qs.filter(issue_date__lte=d_to)
 
-    if f_status in {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE,
-                    Invoice.STATUS_PAID, Invoice.STATUS_VOID}:
+    if f_status in {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE, Invoice.STATUS_PAID, Invoice.STATUS_VOID}:
         qs = qs.filter(status=f_status)
 
-    # --------- Paginación ----------
+    # Paginación
     pagina = None
     items  = None
     if per == "all":
@@ -87,15 +93,11 @@ def invoices_list(request):
 @login_required
 @require_POST
 def invoice_set_status(request):
-    """
-    Cambia el status vía AJAX (combo en la tabla).
-    """
     iid = request.POST.get("id")
     st  = (request.POST.get("status") or "").strip()
     inv = get_object_or_404(Invoice, id=iid, owner=request.user)
 
-    allowed = {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE,
-               Invoice.STATUS_PAID, Invoice.STATUS_VOID}
+    allowed = {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE, Invoice.STATUS_PAID, Invoice.STATUS_VOID}
     if st not in allowed:
         return JsonResponse({"ok": False, "error": "Invalid status."}, status=400)
 
@@ -105,57 +107,215 @@ def invoice_set_status(request):
 
 
 @login_required
+@require_POST
 def invoice_delete(request):
-    """
-    Ahora no borra duro: marca como VOID (eliminada).
-    """
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["POST"])
+    """Borrado real (hard delete) manteniendo el modal actual."""
     iid = request.POST.get("id")
     inv = get_object_or_404(Invoice, id=iid, owner=request.user)
-    inv.status = Invoice.STATUS_VOID
-    inv.save(update_fields=["status"])
+    inv.delete()
     return JsonResponse({"ok": True})
 
 
 @login_required
-def invoice_new(request):
+def invoice_compose_eml(request, iid: int):
     """
-    Opens a 'compose' page that loads the selected template for the user's active branding.
-    (Solo carga el template elegido; el flujo de guardado/emitir se hará luego.)
+    Genera un .eml en modo BORRADOR (X-Unsent: 1), sin 'From' ni 'Date',
+    con cuerpo texto+HTML, logo inline (si existe) y el PDF adjunto.
+    No envía nada; el usuario elige la cuenta y el destinatario al abrirlo.
     """
-    bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
-    profile = None
-    # Puedes permitir cambiar el perfil por ?profile_id=
-    pid = request.GET.get("profile_id")
-    if pid:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=pid).first()
-    if not profile and bs.default_profile_id:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=bs.default_profile_id).first()
+    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
 
-    # Fallback: si no hay perfil, igual abre con branding por defecto
-    branding = get_active_branding(request.user, profile.id if profile else None)
-    chosen_key = (profile.template_key if profile and profile.template_key else "classic")
+    to = (request.GET.get("to") or getattr(inv.customer, "email", "") or "").strip()
+    subject = (request.GET.get("subject") or f"Invoice {inv.number}").strip()
 
-    # Iframe -> reutilizamos el preview del template para “cargar el template seleccionado”
-    preview_url = f'{reverse("invoicing:template_preview", kwargs={"key": chosen_key})}'
-    if profile:
-        preview_url += f"?profile_id={profile.id}"
+    text_body = (
+        "Hello,\n\n"
+        f"Please find the invoice {inv.number} attached.\n\n"
+        "Regards,\n"
+    )
 
-    return render(request, "invoicing/invoice_new.html", {
-        "page_title": "New Invoice",
-        "branding": branding,
-        "preview_url": preview_url,
-        "profile": profile,
-    })
+    # ----- Logo inline (opcional) -----
+    import mimetypes
+    import os
+    from email.utils import make_msgid
+    logo_bytes = None
+    logo_maintype, logo_subtype = "image", "png"
+    logo_filename = "brand-logo.png"
+    try:
+        prof = inv.branding_profile
+        if prof:
+            for field in ("logo", "primary_logo", "square_logo", "image"):
+                if hasattr(prof, field):
+                    f = getattr(prof, field)
+                    if f:
+                        f.open("rb")
+                        try:
+                            logo_bytes = f.read()
+                            logo_filename = os.path.basename(getattr(f, "name", logo_filename)) or logo_filename
+                            guessed = mimetypes.guess_type(logo_filename)[0] or "image/png"
+                            logo_maintype, logo_subtype = guessed.split("/", 1)
+                        finally:
+                            f.close()
+                        break
+    except Exception:
+        logo_bytes = None
+
+    logo_cid = make_msgid(domain="hyperlink.local")
+    logo_cid_ref = logo_cid[1:-1]
+    if logo_bytes:
+        html_body = f"""
+        <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;color:#111">
+          <p>Hello,</p>
+          <p>Please find the invoice <b>{inv.number}</b> attached.</p>
+          <p style="margin:16px 0">
+            <img src="cid:{logo_cid_ref}" alt="Brand logo" style="max-width:240px;height:auto;border:0;display:block"/>
+          </p>
+          <p>Regards,</p>
+        </div>
+        """
+    else:
+        html_body = f"""
+        <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;color:#111">
+          <p>Hello,</p>
+          <p>Please find the invoice <b>{inv.number}</b> attached.</p>
+          <p>Regards,</p>
+        </div>
+        """
+
+    # ----- PDF adjunto -----
+    pdf_bytes = b""
+    if inv.pdf:
+        inv.pdf.open("rb")
+        try:
+            pdf_bytes = inv.pdf.read()
+        finally:
+            inv.pdf.close()
+    else:
+        # Fallback: render rápido si no hay PDF guardado
+        tpl, _ = _resolve_invoice_template(inv.template_key or "invoice_t1")
+        if tpl:
+            from decimal import Decimal
+
+            from weasyprint import HTML
+            ctx = {
+                "invoice": {
+                    "number": inv.number,
+                    "issue_date": inv.issue_date,
+                    "due_date": inv.due_date,
+                    "subtotal": Decimal("0.00"),
+                    "tax_percent": Decimal("0"),
+                    "tax_amount": Decimal("0.00"),
+                    "total": inv.total,
+                    "currency_symbol": "$",
+                    "notes": "",
+                    "terms": "",
+                    "status": inv.status,
+                },
+                "customer": inv.customer,
+                "profile": inv.branding_profile,
+                "items": [],
+                "branding": None,
+                "pdf_mode": True,
+                "request": request,
+            }
+            pdf_bytes = HTML(
+                string=tpl.render(ctx, request),
+                base_url=request.build_absolute_uri("/"),
+            ).write_pdf()
+
+    # ----- Construcción del .eml como BORRADOR -----
+    msg = StdEmailMessage()
+    msg["X-Unsent"] = "1"          # <- clave: lo abre como draft
+    # No ponemos From ni Date
+    if to:
+        msg["To"] = to            # opcional: puedes dejarlo vacío para escribirlo al abrir
+    msg["Subject"] = subject
+
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    if logo_bytes:
+        # adjuntamos el logo al 'text/html' como related
+        html_part = None
+        for part in msg.iter_parts():
+            if part.get_content_type() == "text/html":
+                html_part = part
+                break
+        if html_part is not None:
+            html_part.add_related(
+                logo_bytes,
+                maintype=logo_maintype,
+                subtype=logo_subtype,
+                cid=logo_cid,
+                filename=logo_filename,
+            )
+
+    if pdf_bytes:
+        msg.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=f"Invoice-{inv.number}.pdf",
+        )
+
+    eml_bytes = msg.as_bytes()
+    from django.http import HttpResponse
+    resp = HttpResponse(eml_bytes, content_type="message/rfc822")
+    resp["Content-Disposition"] = f'attachment; filename="Invoice-{inv.number}.eml"'
+    return resp
+# ---------- Prefill para duplicar (no emite) ----------
+@login_required
+@require_GET
+def invoice_prefill_api(request):
+    """
+    Devuelve JSON con datos de una factura para precargar la pantalla de 'Nueva factura'.
+    Prioridad: InvoiceLine -> JSONField Invoice.lines
+    """
+    iid = request.GET.get("id")
+    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
+
+    items = []
+
+    # 1) Si tienes un modelo de líneas real
+    try:
+        from .models import InvoiceLine  # si no existe, saltará a except
+        for ln in InvoiceLine.objects.filter(invoice=inv).order_by("id"):
+            items.append({
+                "daily": ln.daily or "",
+                "job_code": ln.job_code or "",
+                "description": ln.description or "",
+                "qty": str(getattr(ln, "qty", "") or ""),
+                "uom": ln.uom or "",
+                "rate": str(getattr(ln, "rate", "") or ""),
+            })
+    except Exception:
+        pass
+
+    # 2) Fallback: JSONField guardado en Invoice.lines
+    if not items:
+        raw = getattr(inv, "lines", None) or []
+        for it in raw:
+            items.append({
+                "daily":       (it.get("daily") or ""),
+                "job_code":    (it.get("job_code") or ""),
+                "description": (it.get("description") or ""),
+                "qty":         str(it.get("qty", "")),
+                "uom":         (it.get("uom") or ""),
+                "rate":        str(it.get("rate", "")),
+            })
+
+    data = {
+        "customer_id": inv.customer_id,
+        "customer_name": getattr(inv.customer, "name", ""),
+        "due_date": inv.due_date.isoformat() if inv.due_date else "",
+        "currency_symbol": "$",  # si luego quieres persistir esto, lo añadimos al modelo
+        "tax_percent": "0",      # idem
+        "items": items,
+    }
+    return JsonResponse({"ok": True, "prefill": data})
 
 
-
-
-
-
-# ----------------- Helpers -----------------
-
+# ---------- Helpers usados por create/duplicate ----------
 def _parse_date_iso(s: str):
     try:
         return datetime.strptime((s or "").strip(), "%Y-%m-%d").date()
@@ -164,7 +324,6 @@ def _parse_date_iso(s: str):
 
 
 def _next_number_with_prefix(owner, prefix: str, width: int = 6) -> str:
-    """Siguiente número disponible para un prefijo (p.ej. ITG-000123)."""
     prefix = prefix.strip()
     base = f"{prefix}-"
     maxn = 0
@@ -179,20 +338,15 @@ def _next_number_with_prefix(owner, prefix: str, width: int = 6) -> str:
 
 
 def _ensure_unique_number(owner, number: str, profile=None, customer=None) -> str:
-    """
-    Garantiza unicidad (owner, number). Si viene vacío/'AUTO' o ya existe:
-    - usa mnemonic del cliente o invoice_prefix del perfil como prefijo;
-    - si es <pref>-<NNNN>, incrementa correlativamente.
-    """
     candidate = (number or "").strip()
-
     if not candidate or candidate.upper() == "AUTO":
         raw_prefix = (
             getattr(customer, "mnemonic", None)
             or getattr(profile, "invoice_prefix", "")
             or "INV"
         )
-        prefix = re.sub(r"[^A-Za-z0-9]+", "", raw_prefix).upper() or "INV"
+        import re as _re
+        prefix = _re.sub(r"[^A-Za-z0-9]+", "", raw_prefix).upper() or "INV"
         return _next_number_with_prefix(owner, prefix, width=6)
 
     if Invoice.objects.filter(owner=owner, number=candidate).exists():
@@ -201,17 +355,14 @@ def _ensure_unique_number(owner, number: str, profile=None, customer=None) -> st
             pre = m.group("pre")
             width = len(m.group("num"))
             return _next_number_with_prefix(owner, pre, width=width)
-        pre = re.sub(r"[^A-Za-z0-9]+", "", candidate).upper() or "INV"
+        import re as _re
+        pre = _re.sub(r"[^A-Za-z0-9]+", "", candidate).upper() or "INV"
         return _next_number_with_prefix(owner, pre, width=6)
 
     return candidate
 
 
 def _normalize_template_key(key: str) -> str:
-    """
-    Acepta: invoice_t1..t5 | t1..t5 | 'classic' -> 'invoice_t1'.
-    Devuelve el nombre base SIN .html.
-    """
     k = (key or "").strip().lower()
     if k.startswith("invoice_t"):
         return k
@@ -224,14 +375,10 @@ def _normalize_template_key(key: str) -> str:
 
 
 def _resolve_invoice_template(template_key: str):
-    """
-    Devuelve (template, tried_list). Usa la ruta correcta para app templates:
-    'invoicing/invoice_templates/<name>.html'
-    """
     name = _normalize_template_key(template_key) + ".html"
     candidates = [
-        f"invoicing/invoice_templates/{name}",  # <-- donde dijiste que están
-        "invoicing/invoice.html",               # fallback opcional unificado
+        f"invoicing/invoice_templates/{name}",
+        "invoicing/invoice.html",
     ]
     try:
         return select_template(candidates), candidates
@@ -239,20 +386,45 @@ def _resolve_invoice_template(template_key: str):
         return None, candidates
 
 
-# ----------------- API -----------------
+# ---------- Compose (se deja tal cual, solo agregamos contexto opcional) ----------
+@login_required
+def invoice_new(request):
+    bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
+    profile = None
+    pid = request.GET.get("profile_id")
+    if pid:
+        profile = BrandingProfile.objects.filter(owner=request.user, id=pid).first()
+    if not profile and bs.default_profile_id:
+        profile = BrandingProfile.objects.filter(owner=request.user, id=bs.default_profile_id).first()
 
+    branding = get_active_branding(request.user, profile.id if profile else None)
+    chosen_key = (profile.template_key if profile and profile.template_key else "classic")
+
+    preview_url = f'{reverse("invoicing:template_preview", kwargs={"key": chosen_key})}'
+    if profile:
+        preview_url += f"?profile_id={profile.id}"
+
+    duplicate_id = (request.GET.get("duplicate_id") or "").strip()
+    prefill_api = reverse("invoicing:api_invoice_prefill") + f"?id={duplicate_id}" if duplicate_id else ""
+
+    return render(request, "invoicing/invoice_new.html", {
+        "page_title": "New Invoice",
+        "branding": branding,
+        "preview_url": preview_url,
+        "profile": profile,
+        "prefill_from_id": duplicate_id,
+        "prefill_api": prefill_api,
+    })
+
+
+# ---------- Crear (sin cambios funcionales salvo que emitimos en 'pending') ----------
 @login_required
 @require_POST
 def invoice_create_api(request):
-    """
-    Crea la Invoice, genera el PDF con WeasyPrint y lo sube a Wasabi (igual que el logo).
-    Devuelve {ok, id, number, pdf_url} o {ok: False, error: "..."}.
-    """
     data = json.loads(request.body.decode("utf-8") or "{}")
 
-    # --- Datos base ---
     cust_id = data.get("customer_id")
-    customer = get_object_or_404(Customer, id=cust_id)  # agrega filtro por owner si aplica
+    customer = get_object_or_404(Customer, id=cust_id)
 
     issue_date = _parse_date_iso(data.get("issue_date")) or timezone.now().date()
     due_date   = _parse_date_iso(data.get("due_date"))
@@ -262,14 +434,12 @@ def invoice_create_api(request):
     notes      = data.get("notes") or ""
     terms      = data.get("terms") or ""
 
-    # Branding / template
     profile = None
     pid = data.get("profile_id")
     if pid:
         profile = BrandingProfile.objects.filter(owner=request.user, id=pid).first()
     template_key = data.get("template_key") or "invoice_t1"
 
-    # --- Totales ---
     subtotal = Decimal("0.00")
     norm_items = []
     for it in items:
@@ -290,29 +460,17 @@ def invoice_create_api(request):
     tax_amount = (subtotal * (tax_pct / Decimal("100"))).quantize(Decimal("0.01"))
     total      = (subtotal + tax_amount).quantize(Decimal("0.01"))
 
-    # --- Número único ---
     requested_number = (data.get("number") or "").strip()
     final_number = _ensure_unique_number(
         request.user, requested_number, profile=profile, customer=customer
     )
 
-    # --- Resolver plantilla ---
-    tpl, tried = _resolve_invoice_template(template_key)
+    tpl, _ = _resolve_invoice_template(template_key)
     if not tpl:
-        return JsonResponse(
-            {
-                "ok": False,
-                "error": (
-                    "Invoice template not found. Put your file en: "
-                    + ", ".join(tried)
-                ),
-                "tried": tried,
-            },
-            status=400,
-        )
+        return JsonResponse({"ok": False, "error": "Invoice template not found."}, status=400)
 
-    # --- Crear + PDF (Wasabi) ---
     with transaction.atomic():
+        # 1) Crear la factura SIN 'lines'
         inv = Invoice.objects.create(
             owner=request.user,
             customer=customer,
@@ -322,9 +480,41 @@ def invoice_create_api(request):
             total=total,
             branding_profile=profile,
             template_key=_normalize_template_key(template_key),
-            status=Invoice.STATUS_ISSUED,
+            status=Invoice.STATUS_PENDING,
         )
 
+        # 2) Persistir líneas según lo que haya en tu proyecto
+        InvoiceLine = None
+        try:
+            from .models import InvoiceLine as _InvoiceLine
+            InvoiceLine = _InvoiceLine
+        except Exception:
+            InvoiceLine = None
+
+        if InvoiceLine:
+            # Guardar como registros relacionados
+            line_objs = []
+            for it in items:
+                qty  = Decimal(str(it.get("qty") or 0))
+                rate = Decimal(str(it.get("rate") or 0))
+                line_objs.append(InvoiceLine(
+                    invoice=inv,
+                    daily=(it.get("daily") or "").strip(),
+                    job_code=(it.get("job_code") or "").strip(),
+                    description=(it.get("description") or "").strip(),
+                    qty=qty,
+                    uom=(it.get("uom") or "").strip(),
+                    rate=rate,
+                ))
+            if line_objs:
+                InvoiceLine.objects.bulk_create(line_objs)
+        else:
+            # Guardar en JSONField 'lines' si existe en el modelo Invoice
+            if any(f.name == "lines" for f in Invoice._meta.get_fields()):
+                inv.lines = norm_items
+                inv.save(update_fields=["lines"])
+
+        # 3) Generar y adjuntar PDF
         ctx = {
             "invoice": {
                 "number": final_number,
@@ -343,55 +533,32 @@ def invoice_create_api(request):
             "profile": profile,
             "items": norm_items,
             "branding": None,
-            "pdf_mode": True,  # tu template debe ocultar inputs/JS con esto
+            "pdf_mode": True,
             "request": request,
         }
 
-        html = tpl.render(ctx, request)
-        pdf_bytes = HTML(
-            string=html,
-            base_url=request.build_absolute_uri("/")  # resuelve estáticos/URLs absolutas
-        ).write_pdf()
-
-        # Usa el storage del FileField (wasabi_storage), igual que el logo
+        pdf_bytes = HTML(string=tpl.render(ctx, request),
+                         base_url=request.build_absolute_uri("/")).write_pdf()
         inv.pdf.save(f"invoice-{final_number}.pdf", ContentFile(pdf_bytes), save=True)
 
     return JsonResponse({"ok": True, "id": inv.id, "number": final_number, "pdf_url": inv.pdf.url})
 
-
-# --- NEXT NUMBER API ---------------------------------------------------------
-from django.views.decorators.http import require_GET
-
-
-def _clean_prefix(raw: str, default: str = "INV") -> str:
-    import re
-    s = (raw or "").strip()
-    s = re.sub(r"[^A-Za-z0-9]+", "", s).upper()
-    return s or default
-
-@login_required
 @require_GET
+@login_required
 def invoice_next_number_api(request):
-    """
-    Devuelve el siguiente número sugerido según el prefijo del cliente/perfil.
-    GET params: ?customer_id=... | ?profile_id=...
-    Respuesta: {"ok": True, "number": "ITG-000123"}
-    """
     cust_id   = request.GET.get("customer_id")
     profile_id= request.GET.get("profile_id")
 
     customer = None
     profile  = None
     if cust_id:
-        from .models import Customer
         customer = get_object_or_404(Customer, id=cust_id)
     if profile_id:
-        from .models import BrandingProfile
         profile = BrandingProfile.objects.filter(owner=request.user, id=profile_id).first()
 
-    # prefijo por prioridad: mnemonic cliente -> invoice_prefix perfil -> "INV"
     raw_prefix = getattr(customer, "mnemonic", None) or getattr(profile, "invoice_prefix", "") or "INV"
-    prefix = _clean_prefix(raw_prefix, default="INV")
+    import re as _re
+    prefix = _re.sub(r"[^A-Za-z0-9]+", "", raw_prefix).upper() or "INV"
 
     number = _next_number_with_prefix(request.user, prefix, width=6)
     return JsonResponse({"ok": True, "number": number})

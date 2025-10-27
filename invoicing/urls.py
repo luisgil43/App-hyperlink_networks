@@ -44,11 +44,17 @@ urlpatterns = [
     path("invoices/delete/", views_invoices.invoice_delete, name="invoice_delete"),
     path("invoices/set_status/", views_invoices.invoice_set_status, name="invoice_set_status"),  
     path("invoices/new/", views_invoices.invoice_new, name="invoice_new"),
+    
 
     path("api/customers/",  views_api.api_customers, name="api_customers"),
     path("api/itemcodes/",  views_api.api_itemcodes, name="api_itemcodes"),
     path("api/invoices/create", views_invoices.invoice_create_api, name="api_invoice_create"),
     path("api/invoices/next-number", views_invoices.invoice_next_number_api, name="api_invoice_next_number"),
+
+    path("invoices/compose_eml/<int:iid>/", views_invoices.invoice_compose_eml, name="invoice_compose_eml"),
+    path("api/invoices/prefill",            views_invoices.invoice_prefill_api,  name="api_invoice_prefill"),
+
+    
 
 ]
 

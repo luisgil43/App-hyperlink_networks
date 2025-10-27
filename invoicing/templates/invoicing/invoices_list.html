@@ -97,11 +97,10 @@
               </select>
             </td>
             <td class="p-2 border">
-              {% if inv.pdf %}
-                <a href="{{ inv.pdf.url }}" target="_blank" class="text-blue-600 hover:underline text-sm">👁 View</a>
-                <span class="text-slate-400">·</span>
-              {% endif %}
-              <button class="text-rose-600 hover:underline text-sm" data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
+              <div class="flex items-center justify-center gap-2">
+                <!-- DELETE -->
+                <button class="text-rose-600 hover:underline text-sm" data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
+              </div>
             </td>
           </tr>
           {% empty %}
@@ -128,7 +127,7 @@
   </div>
 </div>
 
-<!-- Delete modal -->
+<!-- Delete modal (no se toca) -->
 <div id="modal-delete" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
   <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6">
     <div class="flex items-center justify-between mb-2">
@@ -155,7 +154,6 @@ function flash(msg, ok=true){
   clearTimeout(window._ft); window._ft=setTimeout(()=>el.classList.add("hidden"), 1800);
 }
 
-// Colorear el select según valor
 function styleStatus(sel){
   sel.classList.remove(
     "bg-emerald-100","text-emerald-700",
@@ -167,7 +165,7 @@ function styleStatus(sel){
   if (v==="paid"){ sel.classList.add("bg-emerald-100","text-emerald-700"); }
   else if (v==="pending"){ sel.classList.add("bg-sky-100","text-sky-700"); }
   else if (v==="overdue"){ sel.classList.add("bg-rose-100","text-rose-700"); }
-  else { sel.classList.add("bg-slate-100","text-slate-700"); } // void
+  else { sel.classList.add("bg-slate-100","text-slate-700"); }
 }
 
 function wireStatusSelects(ctx=document){
@@ -200,18 +198,6 @@ function wireStatusSelects(ctx=document){
   });
 }
 
-// Preserve caret & scroll (para filtros + paginación)
-function preserveCaret(el, fn){
-  const start = el?.selectionStart ?? 0, end = el?.selectionEnd ?? 0;
-  const scroller = document.getElementById("tbl-scroll");
-  const sx = scroller ? scroller.scrollLeft : 0;
-  const sy = window.scrollY;
-  fn && fn();
-  if (el) { try{ el.focus(); el.setSelectionRange(start, end);}catch(e){} }
-  if (scroller) scroller.scrollLeft = sx;
-  window.scrollTo({ top: sy });
-}
-
 function buildQS(overrides={}){
   const form = document.getElementById("filters-form");
   const fd   = new FormData(form);
@@ -232,10 +218,8 @@ async function fetchList(qs){
   const tblWrap  = document.querySelector("#invoices-table");
   const pager    = document.querySelector("#invoices-pagination");
 
-  preserveCaret(active, ()=>{
-    if (newTable && tblWrap) { tblWrap.innerHTML = newTable.innerHTML; wireStatusSelects(tblWrap); }
-    if (newPag && pager)     { pager.innerHTML   = newPag.innerHTML;  wirePaginationLinks(); }
-  });
+  if (newTable && tblWrap) { tblWrap.innerHTML = newTable.innerHTML; wireStatusSelects(tblWrap); }
+  if (newPag && pager)     { pager.innerHTML   = newPag.innerHTML;  wirePaginationLinks(); }
 }
 
 document.querySelectorAll(".filter-input").forEach(inp=>{
@@ -258,6 +242,7 @@ function wirePaginationLinks(){
 wirePaginationLinks();
 wireStatusSelects(document);
 
+// Delete flow (manteniendo modal)
 let _toDelete = null;
 document.addEventListener("click", (e)=>{
   const btn = e.target.closest("[data-delete]");
@@ -280,7 +265,7 @@ document.getElementById("btn-confirm-delete")?.addEventListener("click", async (
     document.getElementById("modal-delete").classList.remove("flex");
     _toDelete = null;
     await fetchList(buildQS());
-    flash("Invoice marked as Void");
+    flash("Invoice deleted");
   }catch(err){ flash("Could not delete.", false); }
 });
 </script>

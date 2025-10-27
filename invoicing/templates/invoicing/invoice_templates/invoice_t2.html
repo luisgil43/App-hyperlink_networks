@@ -266,7 +266,11 @@
           <div class="addr" id="from-addr">
             <div><strong>{{ profile.company_name|default:"Your Company" }}</strong></div>
             {% if profile.company_address %}<div>{{ profile.company_address }}</div>{% endif %}
-            {% if profile.company_city %}<div>{{ profile.company_city }}</div>{% endif %}
+            {% if profile.company_city or profile.company_state or profile.company_zip %}
+  <div>
+    {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}
+  </div>
+{% endif %}
             {% if profile.company_email %}<div class="muted">{{ profile.company_email }}</div>{% endif %}
             {% if profile.company_phone %}<div class="muted">{{ profile.company_phone }}</div>{% endif %}
           </div>

@@ -226,7 +226,7 @@ class Invoice(models.Model):
     total       = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
     pdf         = models.FileField(upload_to=upload_to_invoice_pdf, storage=wasabi_storage, blank=True, null=True)
-
+    lines       = models.JSONField(default=list, blank=True)
     # branding/template usados al emitir
     branding_profile = models.ForeignKey("BrandingProfile", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices")
     template_key     = models.CharField(max_length=30, blank=True, default="classic")

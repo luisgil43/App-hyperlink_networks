@@ -88,30 +88,52 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
 
 /* === Guardar === */
 document.getElementById('btn-save').addEventListener('click', async ()=>{
-  const fdoc = document.getElementById('invoice-frame').contentWindow.document;
+  const iframe = document.getElementById('invoice-frame');
+  const fdoc = iframe.contentDocument || iframe.contentWindow.document;
 
-  // -- tomar datos del iframe (los mismos ids/clases del template)
-  const number  = fdoc.querySelector('#inv-number')?.value?.trim() || '';
-  const issue   = fdoc.querySelector('#inv-date')?.value || '';
-  const due     = fdoc.querySelector('#inv-due')?.value || '';
-  const notes   = fdoc.querySelector('#notes-area')?.value || '';
-  const terms   = fdoc.querySelector('#terms-area')?.value || '';
-  const taxPct  = parseFloat(fdoc.querySelector('#tax-percent')?.value || '0') || 0;
-  const currency= fdoc.getElementById('invoice-root')?.dataset?.currency || '$';
+  // --- tomar desde iframe (si existen) ---
+  let number   = fdoc.querySelector('#inv-number')?.value?.trim() || '';
+  let issue    = fdoc.querySelector('#inv-date')?.value || '';
+  let due      = fdoc.querySelector('#inv-due')?.value || '';
+  let notes    = fdoc.querySelector('#notes-area')?.value || '';
+  let terms    = fdoc.querySelector('#terms-area')?.value || '';
+  let taxPct   = parseFloat(fdoc.querySelector('#tax-percent')?.value || '0') || 0;
+  let currency = fdoc.getElementById('invoice-root')?.dataset?.currency || '$';
   const profileId = {{ profile.id|default:'null' }};
   const templateKey =
     fdoc.querySelector('meta[name="template-key"]')?.content ||
     fdoc.getElementById('invoice-root')?.dataset?.templateKey ||
     "{{ profile.template_key|default:'classic' }}";
 
-  // customer id desde el <strong data-customer-id="...">
-  const custId = fdoc.querySelector('#billto-addr strong')?.dataset?.customerId;
+  // customer id dentro del iframe… o desde PREFILL de respaldo
+  let custId = fdoc.querySelector('#billto-addr strong')?.dataset?.customerId
+            || (window.__PREFILL__?.customer_id ? String(window.__PREFILL__.customer_id) : '');
+
+  // Respaldo de currency/tax/due desde PREFILL si no hay en iframe
+  if (!currency && window.__PREFILL__?.currency_symbol) currency = window.__PREFILL__.currency_symbol;
+  if ((!taxPct || isNaN(taxPct)) && window.__PREFILL__?.tax_percent != null) {
+    taxPct = parseFloat(window.__PREFILL__.tax_percent) || 0;
+  }
+  if (!due && window.__PREFILL__?.due_date) {
+    due = window.__PREFILL__.due_date;
+  }
+
+  // Si no hay número visible en iframe, pide uno (usando el customer del prefill si existe)
+  if (!number) {
+    try{
+      const q = custId ? `?customer_id=${custId}` : '';
+      const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
+      const j = await r.json();
+      if (j.ok && j.number) number = j.number;
+    }catch(_){}
+  }
+
   if (!custId) { alert('Select a customer first.'); return; }
   if (!number) { alert('Invoice number is required.'); return; }
 
-  // filas
+  // Buscar filas de items en el iframe
   const rows = Array.from(fdoc.querySelectorAll('#items-body tr.row'));
-  const items = rows.map(tr=>{
+  let items = rows.map(tr=>{
     const g = s=> tr.querySelector(s);
     const qty  = parseFloat(g('.i-qty')?.value || '0') || 0;
     const rate = parseFloat(g('.i-rate')?.value || '0') || 0;
@@ -125,13 +147,34 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     };
   }).filter(x=> x.job_code || x.description || x.amount);
 
+  // --- RESPALDO: si no hay items en el iframe, usa los del PREFILL ---
+  if (!items.length && window.__PREFILL__?.items?.length) {
+    items = window.__PREFILL__.items.map(it => {
+      const qty  = parseFloat(it.qty || '0')  || 0;
+      const rate = parseFloat(it.rate || '0') || 0;
+      return {
+        daily:       (it.daily || ''),
+        job_code:    (it.job_code || ''),
+        description: (it.description || ''),
+        qty, uom:    (it.uom || ''),
+        rate, amount: +(qty*rate).toFixed(2)
+      };
+    }).filter(x=> x.job_code || x.description || x.amount);
+  }
+
+  // --- payload final ---
   const payload = {
-    number, issue_date: issue, due_date: due,
+    number,
+    issue_date: issue,
+    due_date:   due,
     customer_id: Number(custId),
-    currency_symbol: currency,
-    tax_percent: taxPct,
-    items, notes, terms,
-    profile_id: profileId, template_key: templateKey
+    currency_symbol: currency || '$',
+    tax_percent: taxPct || 0,
+    items,
+    notes,
+    terms,
+    profile_id: profileId,
+    template_key: templateKey
   };
 
   try{
@@ -142,8 +185,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     });
     const data = await r.json();
     if(!data.ok) throw new Error(data.error || 'Error');
-
-    // listo: volver al listado
     window.location.href = "{% url 'invoicing:invoices_list' %}";
   }catch(e){
     alert('Could not save invoice.');
@@ -151,4 +192,103 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   }
 });
 </script>
+<script>window.__PREFILL__ = null;</script>
+{% if prefill_api %}
+<script>
+(function(){
+  const iframe = document.getElementById('invoice-frame');
+  const PREFILL_URL = "{{ prefill_api|escapejs }}";
+  if (!PREFILL_URL) return;
+
+  async function applyPrefill(){
+    const fdoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!fdoc) return;
+
+    const res = await fetch(PREFILL_URL, {credentials: 'same-origin'});
+    const {ok, prefill} = await res.json();
+    if (!ok || !prefill) return;
+    window.__PREFILL__ = prefill;
+    
+    // --- CUSTOMER ---
+    const billStrong = fdoc.querySelector('#billto-addr strong');
+    if (billStrong){
+      if (prefill.customer_name) billStrong.textContent = prefill.customer_name;
+      if (prefill.customer_id)   billStrong.dataset.customerId = String(prefill.customer_id);
+    }
+    const custHidden = fdoc.querySelector('input[name="customer_id"]');
+    if (custHidden && prefill.customer_id) custHidden.value = prefill.customer_id;
+
+    // --- DATES / TAX / CURRENCY ---
+    if (prefill.due_date){
+      const due = fdoc.getElementById('inv-due');
+      if (due){ due.value = prefill.due_date; due.dispatchEvent(new Event('input',{bubbles:true})); }
+    }
+    if (prefill.tax_percent != null){
+      const tax = fdoc.getElementById('tax-percent');
+      if (tax){ tax.value = prefill.tax_percent; tax.dispatchEvent(new Event('input',{bubbles:true})); }
+    }
+    if (prefill.currency_symbol){
+      const root = fdoc.getElementById('invoice-root');
+      if (root){ root.dataset.currency = prefill.currency_symbol; }
+    }
+
+    // --- SUGERIR NÚMERO NUEVO (no reutilizar el viejo) ---
+    try{
+      const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
+      const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
+      const j = await r.json();
+      if (j.ok && j.number){
+        const num = fdoc.getElementById('inv-number');
+        if (num){ num.value = j.number; num.dispatchEvent(new Event('input',{bubbles:true})); }
+      }
+    }catch(_){}
+
+    // --- ITEMS ---
+    const tbody = fdoc.querySelector('#items-body');
+    if (tbody){
+      // Limpia filas actuales
+      Array.from(tbody.querySelectorAll('tr.row')).forEach(tr => tr.remove());
+
+      (prefill.items || []).forEach((it) => {
+        const tr = fdoc.createElement('tr');
+        tr.className = 'row';
+        tr.innerHTML = `
+          <td><input class="i-daily border p-1 w-20" value="${(it.daily||'').replace(/"/g,'&quot;')}"></td>
+          <td><input class="i-job   border p-1 w-28" value="${(it.job_code||'').replace(/"/g,'&quot;')}"></td>
+          <td><input class="i-desc  border p-1 w-full" value="${(it.description||'').replace(/"/g,'&quot;')}"></td>
+          <td><input class="i-qty   border p-1 w-20 text-right" type="number" step="0.01" value="${it.qty ?? ''}"></td>
+          <td><input class="i-unit  border p-1 w-20" value="${(it.uom||'').replace(/"/g,'&quot;')}"></td>
+          <td><input class="i-rate  border p-1 w-24 text-right" type="number" step="0.01" value="${it.rate ?? ''}"></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // --- Recalcular si tu template expone esta función ---
+    if (typeof iframe.contentWindow.recalcTotals === 'function'){
+      try{ iframe.contentWindow.recalcTotals(); }catch(_){}
+    }else{
+      fdoc.querySelectorAll('#items-body .i-rate, #items-body .i-qty').forEach(el=>{
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+        el.dispatchEvent(new Event('change',{bubbles:true}));
+      });
+    }
+  }
+
+  // Corre DESPUÉS de que el iframe y sus scripts internos hayan pintado defaults
+  iframe.addEventListener('load', ()=>{
+    // pequeño delay para que tu script de "forceDefaultDates" termine primero
+    setTimeout(applyPrefill, 180);
+  });
+
+  // si ya estaba cargado (cache), aplica igual
+  try{
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (doc && doc.readyState !== 'loading'){
+      setTimeout(applyPrefill, 180);
+    }
+  }catch(_){}
+})();
+</script>
+{% endif %}
 {% endblock %}
