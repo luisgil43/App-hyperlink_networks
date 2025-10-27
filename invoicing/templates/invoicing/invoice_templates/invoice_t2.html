@@ -11,7 +11,7 @@
     --secondary:{{ profile.secondary_color|default:'#0f172a' }};
     --accent:   {{ profile.accent_color|default:'#22c55e' }};
     --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#ffffff; --paper:#f8fafc;
-    --pad:26px; --radius:14px; --max:900px;
+    --pad:26px; --radius:14px; --max:100%;
     /* Tamaño de logo por defecto (pantalla) */
     --logo-h: 96px;
   }
@@ -19,7 +19,15 @@
   html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif}
 
   /* Sheet */
-  .sheet{max-width:var(--max);margin:34px auto;background:var(--bg);border-radius:var(--radius);box-shadow:0 10px 24px rgba(2,6,23,.08);overflow:hidden}
+  .sheet{
+    width:100%;
+    max-width:none;          /* ocupar todo el ancho del panel */
+    margin:24px 0;           /* sin margen horizontal extra */
+    background:var(--bg);
+    border-radius:var(--radius);
+    box-shadow:0 10px 24px rgba(2,6,23,.08);
+    overflow:hidden
+  }
   .stripe{height:10px;background:linear-gradient(90deg,var(--secondary),var(--primary),var(--accent))}
   .wrap{padding:var(--pad)}
 
@@ -47,7 +55,7 @@
   .kv strong{color:var(--secondary)}
   .kv input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;min-width:140px}
 
-  /* Panels From/Bill To */
+  /* Panels From/Bill To (pantalla) */
   .section{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .panel{border:1px solid var(--line);border-radius:12px;padding:14px}
@@ -60,32 +68,42 @@
 
   /* Items */
   .items{margin-top:18px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:13px}
-  thead th{background:var(--secondary);color:white;text-align:center;padding:12px}
-  thead th.num{text-align:right}
+  table{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    table-layout:auto;       /* que se adapte a contenido (monto grande) */
+    font-size:13px
+  }
+  thead th{background:var(--secondary);color:white;text-align:center;padding:12px;white-space:nowrap}
+  thead th.num{text-align:right;white-space:nowrap}
   tbody td{border-top:1px solid var(--line);padding:10px 12px;vertical-align:middle;text-align:center}
-  td.num{text-align:right;white-space:nowrap}
+  td.num{
+    text-align:right;
+    white-space:nowrap;       /* no partir números ni $ */
+    font-variant-numeric: tabular-nums;
+  }
   td.desc{text-align:left;color:var(--ink)}
   td.small{font-size:12px;color:var(--muted)}
   .row-actions{white-space:nowrap}
   .line-input{width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
   .line-input[readonly]{background:#f8fafc;color:#64748b}
 
-  /* Anchos columnas (pantalla) */
+  /* Anchos columnas (pantalla) - damos más espacio a Amount */
   thead th:nth-child(1), tbody td:nth-child(1){ width:14%; } /* Daily */
   thead th:nth-child(2), tbody td:nth-child(2){ width:16%; } /* Job Code */
-  thead th:nth-child(3), tbody td:nth-child(3){ width:36%; } /* Description */
+  thead th:nth-child(3), tbody td:nth-child(3){ width:32%; } /* Description (↓) */
   thead th:nth-child(4), tbody td:nth-child(4){ width:9%;  } /* Qty */
   thead th:nth-child(5), tbody td:nth-child(5){ width:9%;  } /* Unit */
   thead th:nth-child(6), tbody td:nth-child(6){ width:8%;  } /* Rate */
-  thead th:nth-child(7), tbody td:nth-child(7){ width:8%;  } /* Amount */
+  thead th:nth-child(7), tbody td:nth-child(7){ width:12%; } /* Amount (↑) */
   thead th:nth-child(8), tbody td:nth-child(8){ width:0%;  } /* Actions (screen only) */
 
   .addline{margin-top:10px}
 
   /* Summary */
   .summary{display:grid;grid-template-columns:1fr 320px;gap:18px;margin-top:18px}
-  .notes{border:1px dashed var(--line);border-radius:12px;padding:12px}
+  bg-slate-50
   .notes strong{display:block;margin-bottom:6px}
   .notes textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:80px;resize:vertical}
 
@@ -135,26 +153,31 @@
 
   /* ============================ PDF ============================ */
 {% if pdf_mode %}
-  @page { size: A4; margin: 10mm 10mm; }
-  body{ background:#fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 6mm 6mm; }
 
-  /* Ocultar sombras/bordes redondeados para PDF y usar ancho completo */
+  /* Fondo blanco real en todo el documento (html + body) y variable */
+  :root{ --paper:#ffffff; }
+  html, body{
+    background:#fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Ancho completo y sin sombras en PDF */
   .sheet{ box-shadow:none; margin:0; max-width:100%; border-radius:0; }
   .wrap{ padding:6mm 8mm; }
 
-  /* Cabecera: 2 columnas como en t1 para evitar desbordes */
-  :root{ --meta-col: 100mm; }  /* ancho de la columna derecha (meta) */
+  /* Cabecera segura (2 columnas) */
+  :root{ --meta-col: 100mm; }
   .header{
     display:grid !important;
     grid-template-columns: 1fr var(--meta-col);
     gap: 8mm;
     align-items:start;
   }
-  /* Estiramos el logo hasta el borde del papel (margen negativo simétrico a .wrap) */
   .header .brand{ margin-left:-8mm; }
   .brand-logo{ height:42mm; max-width:80mm; padding:3mm; object-fit:contain; }
 
-  /* Bloque derecho (título + No/Date/Due) sin desbordar */
   .headline{
     justify-self:start;
     text-align:left;
@@ -162,36 +185,29 @@
     display:flex; flex-direction:column; gap:8px;
   }
   .headline h1{
-    font-size:48px;
-    display:flex; justify-content:flex-end; align-items:flex-end;
-    width:100%; line-height:1;
-    overflow-wrap:anywhere; word-break:break-word;
+    font-size:48px; display:flex; justify-content:flex-end; align-items:flex-end;
+    width:100%; line-height:1; overflow-wrap:anywhere; word-break:break-word;
   }
-
-  /* Pares No/Date/Due como flex (no grid) y sin saltos */
-  .kv{
-    display:flex;
-    justify-content:flex-end;
-    align-items:baseline;
-    gap:2mm;
-    flex-wrap:nowrap;
-    font-size:12px;
-    color:var(--muted);
-  }
+  .kv{ display:flex; justify-content:flex-end; align-items:baseline; gap:2mm; flex-wrap:nowrap; font-size:12px; color:var(--muted); }
   .kv > div{ white-space:nowrap; }
   .kv strong{ color:var(--secondary); white-space:nowrap; }
 
-  /* Evitar cortes raros en direcciones */
-  .addr{ overflow-wrap:anywhere; word-break:break-word; hyphens:auto; }
+  /* FROM / BILL TO full-bleed */
+  .section.two{ margin-left:-8mm; margin-right:-8mm; padding-left:8mm; padding-right:8mm; }
+  .two{ grid-template-columns:1fr 1fr; gap:6mm; }
+  .panel{ break-inside:avoid; }
+  .addr, .addr div{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; hyphens:auto; }
 
-  /* Hacer que la tabla ocupe todo el ancho útil del contenido */
+  /* Tabla full-bleed */
   .items{ margin-left:-8mm; margin-right:-8mm; }
   .items thead th:first-child, .items tbody td:first-child{ padding-left:1mm; }
   .items thead th:last-child,  .items tbody td:last-child { padding-right:8mm; }
+  thead th, tbody td{ word-break:break-word; overflow-wrap:anywhere; }
+  .items thead th{ white-space:nowrap; }
+  .items td.num, .items th.num{ white-space:nowrap; word-break:normal; }
 
-  /* Summary a todo el ancho como en t1 (totales pegados a la derecha) */
+  /* Totales alineados */
   .summary{ margin-left:-8mm; margin-right:-8mm; padding-left:8mm; padding-right:0; }
-
 {% endif %}
 </style>
 {% if not pdf_mode %}
@@ -227,8 +243,8 @@
           {% else %}
             <div class="kv">
               <div><strong>No.</strong> <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" /></div>
-              <div><strong>Date:</strong> <input id="inv-date" type="text" value="{{ invoice.issue_date|default:'' }}"></div>
-              <div><strong>Due:</strong> <input id="inv-due" type="text" value="{{ invoice.due_date|default:'' }}"></div>
+              <input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}">
+              <input id="inv-due"  type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}">
             </div>
           {% endif %}
         </div>
@@ -321,13 +337,15 @@
         <div class="notes">
           <strong>Notes</strong>
           {% if pdf_mode %}
-            <div class="muted" style="margin-top:6px;">{{ invoice.notes|default_if_none:""|linebreaksbr }}</div>
-            {% if invoice.terms %}
-              <div style="margin-top:10px;">
-                <strong>Terms</strong>
-                <div class="muted">{{ invoice.terms|default_if_none:""|linebreaksbr }}</div>
+            <div class="muted" style="margin-top:6px;">
+              {{ invoice.notes|default:"Thank you for your business. Please remit payment within 30 days."|linebreaksbr }}
+            </div>
+            <div style="margin-top:10px;">
+              <strong>Terms</strong>
+              <div class="muted">
+                {{ invoice.terms|default:"Please remit payment within 30 days."|linebreaksbr }}
               </div>
-            {% endif %}
+            </div>
           {% else %}
             <textarea id="notes-area" placeholder="Thank you for your business.">{{ invoice.notes|default_if_none:"" }}</textarea>
             <div style="margin-top:10px;">
@@ -355,13 +373,17 @@
         </div>
       </div>
 
-      <!-- Footer -->
-      <div class="foot only-screen">
-        <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
-        <div class="pill">Generated with your selected branding</div>
-      </div>
-    </div>
-  </div>
+
+      <!-- Footer (pantalla) -->
+<div class="foot only-screen">
+  <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
+  <div class="pill">Generated with your selected branding</div>
+</div>
+
+<!-- Footer (PDF) -->
+<div class="foot only-pdf pdf-footer">
+  <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
+</div>
 
   <!-- Customer Picker Modal (screen only) -->
   <div class="modal only-screen" id="modal-customers" aria-hidden="true">
@@ -389,17 +411,29 @@
   const SUG_CACHE_BY_CODE = Object.create(null);
   const SUG_LABEL_MAP     = Object.create(null);
 
-  // Dates & number
-  const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
-  const todayISO = ()=> (new Date()).toISOString().slice(0,10);
-  if(inputDate && !inputDate.value) inputDate.value = todayISO();
-  if(inputDue && !inputDue.value){ const d = new Date(inputDate ? inputDate.value : todayISO()); d.setDate(d.getDate()+30); inputDue.value = d.toISOString().slice(0,10); }
 
-  if (window.flatpickr) {
-    const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
-    if (inputDate) flatpickr("#inv-date", opts);
-    if (inputDue)  flatpickr("#inv-due",  opts);
-  }
+// Dates & number
+const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
+const todayISO = ()=> (new Date()).toISOString().slice(0,10);
+
+// 1) Forzar "hoy" si está vacío o inválido (New Invoice)
+if (inputDate && (!inputDate.value || isNaN(Date.parse(inputDate.value)))) {
+  inputDate.value = todayISO();
+}
+
+// 2) Due +30 días si está vacío o inválido
+if (inputDue && (!inputDue.value || isNaN(Date.parse(inputDue.value)))) {
+  const base = (inputDate && inputDate.value) ? inputDate.value : todayISO();
+  const d = new Date(base);
+  d.setDate(d.getDate() + 30);
+  inputDue.value = d.toISOString().slice(0,10);
+}
+
+if (window.flatpickr) {
+  const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
+  if (inputDate) flatpickr("#inv-date", opts);
+  if (inputDue)  flatpickr("#inv-due",  opts);
+}
 
   // Modal customers
   const modal = $('#modal-customers');

@@ -23,6 +23,70 @@
 <script>
 function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:""; }
 
+/* === Forzar fecha HOY dentro del iframe (funciona aunque el iframe ya estuviera cargado) === */
+(function(){
+  const iframe = document.getElementById('invoice-frame');
+
+  function toYMD(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function forceDefaultDates(){
+    try{
+      const fdoc = iframe.contentDocument || iframe.contentWindow.document;
+      if(!fdoc) return false;
+
+      const inputDate = fdoc.querySelector('#inv-date');
+      const inputDue  = fdoc.querySelector('#inv-due');
+
+      if(!inputDate) return false; // aún no está renderizado
+
+      // Siempre forzar a HOY
+      const today = toYMD(new Date());
+      inputDate.value = today;
+
+      // Due = hoy + 30
+      if (inputDue){
+        const d = new Date();
+        d.setDate(d.getDate()+30);
+        inputDue.value = toYMD(d);
+      }
+
+      // Evitar autocompletado del navegador
+      inputDate.setAttribute('autocomplete','off');
+      if (inputDue) inputDue.setAttribute('autocomplete','off');
+
+      return true;
+    }catch(e){ return false; }
+  }
+
+  // Si el iframe termina de cargar después:
+  iframe.addEventListener('load', ()=> {
+    if (!forceDefaultDates()){
+      // reintento corto por si el JS interno aún está pintando
+      const t0 = Date.now();
+      const timer = setInterval(()=>{
+        if (forceDefaultDates() || Date.now() - t0 > 3000) clearInterval(timer);
+      }, 100);
+    }
+  });
+
+  // Si el iframe ya estaba listo cuando se añadió el listener:
+  try{
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    if (doc && doc.readyState !== 'loading'){
+      // aplicar ya; si aún no están los inputs, reintentar brevemente
+      if (!forceDefaultDates()){
+        const t0 = Date.now();
+        const timer = setInterval(()=>{
+          if (forceDefaultDates() || Date.now() - t0 > 3000) clearInterval(timer);
+        }, 100);
+      }
+    }
+  }catch(e){}
+})();
+
+/* === Guardar === */
 document.getElementById('btn-save').addEventListener('click', async ()=>{
   const fdoc = document.getElementById('invoice-frame').contentWindow.document;
 
@@ -36,11 +100,11 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   const currency= fdoc.getElementById('invoice-root')?.dataset?.currency || '$';
   const profileId = {{ profile.id|default:'null' }};
   const templateKey =
-  fdoc.querySelector('meta[name="template-key"]')?.content ||
-  fdoc.getElementById('invoice-root')?.dataset?.templateKey ||
-  "{{ profile.template_key|default:'classic' }}";
+    fdoc.querySelector('meta[name="template-key"]')?.content ||
+    fdoc.getElementById('invoice-root')?.dataset?.templateKey ||
+    "{{ profile.template_key|default:'classic' }}";
 
-  // customer id desde el span <strong data-customer-id="...">
+  // customer id desde el <strong data-customer-id="...">
   const custId = fdoc.querySelector('#billto-addr strong')?.dataset?.customerId;
   if (!custId) { alert('Select a customer first.'); return; }
   if (!number) { alert('Invoice number is required.'); return; }
