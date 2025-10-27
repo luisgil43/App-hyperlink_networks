@@ -23,24 +23,27 @@ from .utils_branding import get_active_branding
 
 @login_required
 def invoices_list(request):
-    """
-    Issued invoices list with auto-filters + app-wide pagination behavior.
-    """
     qs = Invoice.objects.filter(owner=request.user).select_related("customer")
 
-    # ---- Filters ----
+    # --------- AUTO: pasar a OVERDUE si corresponde ----------
+    today = timezone.localdate()
+    Invoice.objects.filter(
+        owner=request.user,
+        status=Invoice.STATUS_PENDING,
+        due_date__isnull=False,
+        due_date__lt=today,
+    ).update(status=Invoice.STATUS_OVERDUE)
+
+    # --------- Filtros ----------
     q        = (request.GET.get("q") or "").strip()
-    f_from   = (request.GET.get("from") or "").strip()   # YYYY-MM-DD
-    f_to     = (request.GET.get("to") or "").strip()     # YYYY-MM-DD
-    f_status = (request.GET.get("status") or "").strip() # draft/issued/paid/void
+    f_from   = (request.GET.get("from") or "").strip()
+    f_to     = (request.GET.get("to") or "").strip()
+    f_status = (request.GET.get("status") or "").strip()  # '', pending, overdue, paid, void
     per      = (request.GET.get("per") or "10").lower()
     page     = int(request.GET.get("page") or 1)
 
     if q:
-        qs = qs.filter(
-            Q(number__icontains=q) |
-            Q(customer__name__icontains=q)
-        )
+        qs = qs.filter(Q(number__icontains=q) | Q(customer__name__icontains=q))
 
     def _parse_date(s):
         try:
@@ -50,25 +53,22 @@ def invoices_list(request):
 
     d_from = _parse_date(f_from)
     d_to   = _parse_date(f_to)
-    if d_from:
-        qs = qs.filter(issue_date__gte=d_from)
-    if d_to:
-        qs = qs.filter(issue_date__lte=d_to)
+    if d_from: qs = qs.filter(issue_date__gte=d_from)
+    if d_to:   qs = qs.filter(issue_date__lte=d_to)
 
-    if f_status in {Invoice.STATUS_DRAFT, Invoice.STATUS_ISSUED, Invoice.STATUS_PAID, Invoice.STATUS_VOID}:
+    if f_status in {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE,
+                    Invoice.STATUS_PAID, Invoice.STATUS_VOID}:
         qs = qs.filter(status=f_status)
 
-    # ---- Pagination ----
+    # --------- Paginación ----------
     pagina = None
     items  = None
     if per == "all":
-        items = list(qs[:2000])  # hard cap para no volar el navegador
+        items = list(qs[:2000])
         per_page = "all"
     else:
-        try:
-            per_int = int(per)
-        except Exception:
-            per_int = 10
+        try: per_int = int(per)
+        except Exception: per_int = 10
         paginator = Paginator(qs, per_int)
         pagina    = paginator.get_page(page)
         items     = pagina.object_list
@@ -77,7 +77,7 @@ def invoices_list(request):
     ctx = {
         "page_title": "Invoices",
         "items": items,
-        "pagina": pagina,           # si hay paginator
+        "pagina": pagina,
         "per_page": per_page,
         "q": q, "f_from": f_from, "f_to": f_to, "f_status": f_status,
     }
@@ -85,12 +85,36 @@ def invoices_list(request):
 
 
 @login_required
+@require_POST
+def invoice_set_status(request):
+    """
+    Cambia el status vía AJAX (combo en la tabla).
+    """
+    iid = request.POST.get("id")
+    st  = (request.POST.get("status") or "").strip()
+    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
+
+    allowed = {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE,
+               Invoice.STATUS_PAID, Invoice.STATUS_VOID}
+    if st not in allowed:
+        return JsonResponse({"ok": False, "error": "Invalid status."}, status=400)
+
+    inv.status = st
+    inv.save(update_fields=["status"])
+    return JsonResponse({"ok": True})
+
+
+@login_required
 def invoice_delete(request):
+    """
+    Ahora no borra duro: marca como VOID (eliminada).
+    """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
     iid = request.POST.get("id")
     inv = get_object_or_404(Invoice, id=iid, owner=request.user)
-    inv.delete()
+    inv.status = Invoice.STATUS_VOID
+    inv.save(update_fields=["status"])
     return JsonResponse({"ok": True})
 
 
@@ -294,6 +318,7 @@ def invoice_create_api(request):
             customer=customer,
             number=final_number,
             issue_date=issue_date,
+            due_date=due_date,
             total=total,
             branding_profile=profile,
             template_key=_normalize_template_key(template_key),

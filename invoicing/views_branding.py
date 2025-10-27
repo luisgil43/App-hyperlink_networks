@@ -32,10 +32,11 @@ def _serialize_profile(p, default_profile_id=None):
         "invoice_prefix": p.invoice_prefix,
         "logo": {"id": p.logo_id, "url": (p.logo.url if p.logo else "")},
         "is_default": (p.id == default_profile_id),
-        # ---- NUEVO: datos empresa ----
         "company_name": p.company_name,
         "company_address": p.company_address,
         "company_city": p.company_city,
+        "company_state": p.company_state,   # <-- NUEVO
+        "company_zip": p.company_zip,       # <-- NUEVO
         "company_email": p.company_email,
         "company_phone": p.company_phone,
     }
@@ -146,6 +147,8 @@ def profile_save(request):
     company_name    = (request.POST.get("company_name") or "").strip()
     company_address = (request.POST.get("company_address") or "").strip()
     company_city    = (request.POST.get("company_city") or "").strip()
+    company_state   = (request.POST.get("company_state") or "").strip()
+    company_zip     = (request.POST.get("company_zip") or "").strip()
     company_email   = (request.POST.get("company_email") or "").strip()
     company_phone   = (request.POST.get("company_phone") or "").strip()
 
@@ -167,6 +170,8 @@ def profile_save(request):
         p.company_name = company_name
         p.company_address = company_address
         p.company_city = company_city
+        p.company_state = company_state   # <-- NUEVO
+        p.company_zip   = company_zip
         p.company_email = company_email
         p.company_phone = company_phone
         try:
@@ -182,6 +187,8 @@ def profile_save(request):
                 company_name=company_name,
                 company_address=company_address,
                 company_city=company_city,
+                company_state=company_state,   # <-- NUEVO
+                company_zip=company_zip,
                 company_email=company_email,
                 company_phone=company_phone,
             )

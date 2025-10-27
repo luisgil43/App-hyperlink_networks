@@ -38,10 +38,10 @@
         <label class="block text-xs text-gray-600 mb-1">Status</label>
         <select name="status" class="w-full border rounded-lg px-3 py-2 text-sm filter-input">
           <option value="">All</option>
-          <option value="draft"  {% if f_status == "draft" %}selected{% endif %}>Draft</option>
-          <option value="issued" {% if f_status == "issued" %}selected{% endif %}>Issued</option>
-          <option value="paid"   {% if f_status == "paid" %}selected{% endif %}>Paid</option>
-          <option value="void"   {% if f_status == "void" %}selected{% endif %}>Void</option>
+          <option value="pending" {% if f_status == "pending" %}selected{% endif %}>Issued (Pending)</option>
+          <option value="overdue" {% if f_status == "overdue" %}selected{% endif %}>Overdue — Collect</option>
+          <option value="paid"    {% if f_status == "paid" %}selected{% endif %}>Paid</option>
+          <option value="void"    {% if f_status == "void" %}selected{% endif %}>Void</option>
         </select>
       </div>
     </div>
@@ -88,13 +88,13 @@
               {% endif %}
             </td>
             <td class="p-2 border">
-              <span class="px-2 py-0.5 rounded-full text-xs
-                {% if inv.status == 'paid' %}bg-emerald-100 text-emerald-700
-                {% elif inv.status == 'issued' %}bg-sky-100 text-sky-700
-                {% elif inv.status == 'draft' %}bg-slate-100 text-slate-700
-                {% else %}bg-rose-100 text-rose-700{% endif %}">
-                {{ inv.get_status_display }}
-              </span>
+              <select data-status data-id="{{ inv.id }}"
+                      class="text-xs px-2 py-1 rounded-full border focus:outline-none">
+                <option value="pending" {% if inv.status == 'pending' %}selected{% endif %}>Issued (Pending)</option>
+                <option value="overdue" {% if inv.status == 'overdue' %}selected{% endif %}>Overdue — Collect</option>
+                <option value="paid"    {% if inv.status == 'paid' %}selected{% endif %}>Paid</option>
+                <option value="void"    {% if inv.status == 'void' %}selected{% endif %}>Void</option>
+              </select>
             </td>
             <td class="p-2 border">
               {% if inv.pdf %}
@@ -135,10 +135,10 @@
       <h3 class="text-lg font-semibold">Delete invoice</h3>
       <button class="text-slate-500 hover:text-slate-700" data-close>✕</button>
     </div>
-    <p class="text-sm text-slate-600 mb-4">This action cannot be undone.</p>
+    <p class="text-sm text-slate-600 mb-4">This will mark the invoice as <b>Void</b>.</p>
     <div class="flex items-center justify-end gap-2">
       <button class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
-      <button id="btn-confirm-delete" class="px-3 py-2 rounded-lg bg-rose-600 text-white">Delete</button>
+      <button id="btn-confirm-delete" class="px-3 py-2 rounded-lg bg-rose-600 text-white">Confirm</button>
     </div>
   </div>
 </div>
@@ -152,10 +152,55 @@ function flash(msg, ok=true){
   const el=document.getElementById("flash");
   el.className=`fixed bottom-6 right-6 rounded-xl px-3 py-2 shadow-lg z-50 ${ok?'bg-emerald-600':'bg-rose-600'} text-white`;
   el.textContent=msg; el.classList.remove("hidden");
-  clearTimeout(window._ft); window._ft=setTimeout(()=>el.classList.add("hidden"), 2000);
+  clearTimeout(window._ft); window._ft=setTimeout(()=>el.classList.add("hidden"), 1800);
 }
 
-// Preserve caret & scroll (both axis)
+// Colorear el select según valor
+function styleStatus(sel){
+  sel.classList.remove(
+    "bg-emerald-100","text-emerald-700",
+    "bg-sky-100","text-sky-700",
+    "bg-rose-100","text-rose-700",
+    "bg-slate-100","text-slate-700"
+  );
+  const v = sel.value;
+  if (v==="paid"){ sel.classList.add("bg-emerald-100","text-emerald-700"); }
+  else if (v==="pending"){ sel.classList.add("bg-sky-100","text-sky-700"); }
+  else if (v==="overdue"){ sel.classList.add("bg-rose-100","text-rose-700"); }
+  else { sel.classList.add("bg-slate-100","text-slate-700"); } // void
+}
+
+function wireStatusSelects(ctx=document){
+  ctx.querySelectorAll('select[data-status]')?.forEach(sel=>{
+    styleStatus(sel);
+    sel.addEventListener('change', async ()=>{
+      const id = sel.getAttribute('data-id');
+      const st = sel.value;
+      const prev = sel.getAttribute('data-prev') || "";
+      sel.disabled = true;
+      try{
+        const r = await fetch("{% url 'invoicing:invoice_set_status' %}", {
+          method:"POST",
+          headers:{ "X-CSRFToken": getCSRF(), "Content-Type":"application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ id, status: st })
+        });
+        const data = await r.json();
+        if(!data.ok) throw new Error(data.error||"");
+        sel.setAttribute('data-prev', st);
+        styleStatus(sel);
+        flash("Status updated");
+      }catch(err){
+        if (prev) sel.value = prev;
+        styleStatus(sel);
+        flash("Could not update status.", false);
+      }finally{
+        sel.disabled = false;
+      }
+    });
+  });
+}
+
+// Preserve caret & scroll (para filtros + paginación)
 function preserveCaret(el, fn){
   const start = el?.selectionStart ?? 0, end = el?.selectionEnd ?? 0;
   const scroller = document.getElementById("tbl-scroll");
@@ -167,22 +212,17 @@ function preserveCaret(el, fn){
   window.scrollTo({ top: sy });
 }
 
-// Build QS from current filters
 function buildQS(overrides={}){
   const form = document.getElementById("filters-form");
   const fd   = new FormData(form);
   const p = new URLSearchParams();
-  for (const [k,v] of fd.entries()){
-    if (v) p.set(k, v);
-  }
-  // When filtering, go back to first page unless caller overrides
+  for (const [k,v] of fd.entries()){ if (v) p.set(k,v); }
   if (!("page" in overrides)) p.set("page","1");
   for (const k in overrides){ p.set(k, overrides[k]); }
   return p.toString();
 }
 
-// Fetch-list and swap fragments
-async function fetchList(qs, preserveInput=true){
+async function fetchList(qs){
   const active = document.activeElement;
   const url = `${location.pathname}?${qs}`;
   const html = await fetch(url, { headers:{ "X-Requested-With":"fetch" }}).then(r=>r.text());
@@ -193,27 +233,18 @@ async function fetchList(qs, preserveInput=true){
   const pager    = document.querySelector("#invoices-pagination");
 
   preserveCaret(active, ()=>{
-    if (newTable && tblWrap) tblWrap.innerHTML = newTable.innerHTML;
-    if (newPag && pager)     pager.innerHTML   = newPag.innerHTML;
+    if (newTable && tblWrap) { tblWrap.innerHTML = newTable.innerHTML; wireStatusSelects(tblWrap); }
+    if (newPag && pager)     { pager.innerHTML   = newPag.innerHTML;  wirePaginationLinks(); }
   });
-
-  wirePaginationLinks();
 }
 
-// Auto-filters
 document.querySelectorAll(".filter-input").forEach(inp=>{
   let t=null;
-  inp.addEventListener("input", ()=>{
-    clearTimeout(t);
-    t=setTimeout(()=> fetchList(buildQS()), 350);
-  });
+  inp.addEventListener("input", ()=>{ clearTimeout(t); t=setTimeout(()=>fetchList(buildQS()), 350); });
   inp.addEventListener("change", ()=> fetchList(buildQS()));
 });
-
-// Per-page
 document.getElementById("f-per")?.addEventListener("change", ()=> fetchList(buildQS()));
 
-// Pagination links
 function wirePaginationLinks(){
   document.querySelectorAll("#invoices-pagination a[data-pagelink]")?.forEach(a=>{
     a.addEventListener("click", (e)=>{
@@ -225,21 +256,15 @@ function wirePaginationLinks(){
   });
 }
 wirePaginationLinks();
+wireStatusSelects(document);
 
-// Delete flow (modal bonito)
 let _toDelete = null;
 document.addEventListener("click", (e)=>{
   const btn = e.target.closest("[data-delete]");
   const close = e.target.closest("[data-close]");
   const modal = document.getElementById("modal-delete");
-  if (btn){
-    _toDelete = btn.getAttribute("data-id");
-    modal.classList.remove("hidden"); modal.classList.add("flex");
-  }
-  if (close){
-    modal.classList.add("hidden"); modal.classList.remove("flex");
-    _toDelete = null;
-  }
+  if (btn){ _toDelete = btn.getAttribute("data-id"); modal.classList.remove("hidden"); modal.classList.add("flex"); }
+  if (close){ modal.classList.add("hidden"); modal.classList.remove("flex"); _toDelete = null; }
 });
 document.getElementById("btn-confirm-delete")?.addEventListener("click", async ()=>{
   if (!_toDelete) return;
@@ -255,10 +280,8 @@ document.getElementById("btn-confirm-delete")?.addEventListener("click", async (
     document.getElementById("modal-delete").classList.remove("flex");
     _toDelete = null;
     await fetchList(buildQS());
-    flash("Invoice deleted");
-  }catch(err){
-    flash("Could not delete.", false);
-  }
+    flash("Invoice marked as Void");
+  }catch(err){ flash("Could not delete.", false); }
 });
 </script>
 {% endblock %}

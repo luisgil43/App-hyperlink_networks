@@ -104,6 +104,8 @@ class BrandingProfile(models.Model):
     company_name    = models.CharField(max_length=120, blank=True, default="")
     company_address = models.CharField(max_length=200, blank=True, default="")
     company_city    = models.CharField(max_length=100, blank=True, default="")
+    company_state = models.CharField(max_length=64, blank=True, default="")
+    company_zip   = models.CharField(max_length=20, blank=True, default="")
     company_email   = models.EmailField(blank=True, default="")
     company_phone   = models.CharField(max_length=40, blank=True, default="")
 
@@ -203,15 +205,17 @@ def upload_to_invoice_pdf(instance, filename: str) -> str:
     return f"finanzas/facturacion/invoices/{customer_dir}/{invoice_num}.pdf"
 
 class Invoice(models.Model):
-    STATUS_DRAFT   = "draft"
-    STATUS_ISSUED  = "issued"
-    STATUS_PAID    = "paid"
-    STATUS_VOID    = "void"
+    
+    STATUS_PENDING = "pending"   # Emitida pendiente
+    STATUS_OVERDUE = "overdue"   # Vencida (se debe cobrar)
+    STATUS_PAID    = "paid"      # Pagada
+    STATUS_VOID    = "void"      # Eliminada/Anulada
+
     STATUS_CHOICES = [
-        (STATUS_DRAFT, "Draft"),
-        (STATUS_ISSUED, "Issued"),
-        (STATUS_PAID, "Paid"),
-        (STATUS_VOID, "Void"),
+        (STATUS_PENDING, "Issued (Pending)"),
+        (STATUS_OVERDUE, "Overdue — Collect"),
+        (STATUS_PAID,    "Paid"),
+        (STATUS_VOID,    "Void"),
     ]
 
     owner    = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="invoices")
@@ -226,8 +230,8 @@ class Invoice(models.Model):
     # branding/template usados al emitir
     branding_profile = models.ForeignKey("BrandingProfile", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices")
     template_key     = models.CharField(max_length=30, blank=True, default="classic")
-
-    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_ISSUED)
+    due_date   = models.DateField(null=True, blank=True)
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_CHOICES)
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)
 

@@ -42,6 +42,7 @@ urlpatterns = [
 
     path("invoices/", views_invoices.invoices_list, name="invoices_list"),
     path("invoices/delete/", views_invoices.invoice_delete, name="invoice_delete"),
+    path("invoices/set_status/", views_invoices.invoice_set_status, name="invoice_set_status"),  
     path("invoices/new/", views_invoices.invoice_new, name="invoice_new"),
 
     path("api/customers/",  views_api.api_customers, name="api_customers"),

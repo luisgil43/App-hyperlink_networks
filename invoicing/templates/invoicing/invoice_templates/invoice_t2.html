@@ -53,6 +53,7 @@
   }
   .kv{display:grid;grid-auto-flow:column;gap:18px;font-size:12px;color:var(--muted);align-items:center}
   .kv strong{color:var(--secondary)}
+  .kv .kv-field{ display:flex; align-items:center; gap:8px; }
   .kv input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;min-width:140px}
 
   /* Panels From/Bill To (pantalla) */
@@ -103,7 +104,6 @@
 
   /* Summary */
   .summary{display:grid;grid-template-columns:1fr 320px;gap:18px;margin-top:18px}
-  bg-slate-50
   .notes strong{display:block;margin-bottom:6px}
   .notes textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:80px;resize:vertical}
 
@@ -242,10 +242,19 @@
             </div>
           {% else %}
             <div class="kv">
-              <div><strong>No.</strong> <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" /></div>
-              <input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}">
-              <input id="inv-due"  type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}">
-            </div>
+  <div class="kv-field">
+    <strong>No.</strong>
+    <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" />
+  </div>
+  <div class="kv-field">
+    <strong>Date:</strong>
+    <input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}">
+  </div>
+  <div class="kv-field">
+    <strong>Due:</strong>
+    <input id="inv-due"  type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}">
+  </div>
+</div>
           {% endif %}
         </div>
       </div>
