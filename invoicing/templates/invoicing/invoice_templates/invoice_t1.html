@@ -93,6 +93,38 @@
   .sugitem{ padding:8px 10px; font-size:13px; cursor:pointer }
   .sugitem:hover,.sugitem.active{ background:#f8fafc }
 
+  /* === panel de job codes (traído del template 2) === */
+  .jobcodes-panel{
+    position:absolute;
+    width:min(560px, calc(100vw - 80px));
+    max-height:560px;
+    background:#fff;
+    border:1px solid #e2e8f0;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(15,23,42,.12);
+    display:none;
+    z-index:9998;
+    overflow:hidden;
+  }
+  .jobcodes-panel.show{display:block;}
+  .jobcodes-head{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    gap:12px;padding:12px 14px 6px 14px;border-bottom:1px solid #e2e8f0;
+  }
+  .jobcodes-head h4{margin:0;font-size:14px;font-weight:600;color:#0f172a}
+  .jobcodes-filter{
+    width:100%;border:1px solid #e2e8f0;border-radius:999px;padding:6px 10px;
+    font-size:13px;margin-top:8px;outline:none;
+  }
+  .jobcodes-body{max-height:460px;overflow:auto;}
+  .jobcodes-row{
+    display:grid;grid-template-columns:120px 140px 1fr 78px;
+    gap:6px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;cursor:pointer;
+  }
+  .jobcodes-row:hover{background:#f8fafc;}
+  .jobcodes-row strong{font-size:13px;color:#0f172a}
+  .jobcodes-rate{text-align:right;font-variant-numeric:tabular-nums;}
+
   /* PDF-only tweaks */
   .kv{ display:flex; align-items:center; gap:2px; flex-wrap:nowrap }
   .kv .k{color:#64748b}
@@ -134,17 +166,16 @@
   .header .brand{ margin-left:-8mm; }
   .brand .logo{ width:42mm; height:42mm; padding:3mm; object-fit:contain }
   .meta{
-  justify-self:start;      /* se queda como está */
+  justify-self:start;
   text-align:left;
   max-width: var(--meta-col);
 }
 
-/* INVOICE alineado como .kv (a la derecha, sin desbordes) */
 .meta .title{
-  display:flex;                 /* igual que .kv */
-  justify-content:flex-end;     /* empuja el texto al borde derecho del bloque */
+  display:flex;
+  justify-content:flex-end;
   align-items:flex-end;
-  width:100%;                   /* ocupa todo el ancho de la columna meta */
+  width:100%;
   font-weight:800;
   letter-spacing:.08em;
   font-size:48px;
@@ -165,59 +196,49 @@
     margin-right: -8mm;
   }
 
-  /* TABLA a todo el ancho */
-.table{ margin-left:-8mm; margin-right:-8mm; }
-.table thead th:first-child, .table tbody td:first-child{ padding-left:1mm; }
-.table thead th:last-child,  .table tbody td:last-child { padding-right:8mm; }
+  .table{ margin-left:-8mm; margin-right:-8mm; }
+  .table thead th:first-child, .table tbody td:first-child{ padding-left:1mm; }
+  .table thead th:last-child,  .table tbody td:last-child { padding-right:8mm; }
 
-/* Títulos centrados */
-.table thead th{ text-align:center; white-space:nowrap; word-break:normal; overflow-wrap:normal; }
-.table thead th.num{ text-align:center; }              /* antes se alineaba a la derecha */
-.table thead th:nth-child(3){ text-align:center; }     /* “Description” centrado solo en el header */
+  .table thead th{ text-align:center; white-space:nowrap; word-break:normal; overflow-wrap:normal; }
+  .table thead th.num{ text-align:center; }
+  .table thead th:nth-child(3){ text-align:center; }
 
-/* Celdas del cuerpo */
-.table tbody td{ text-align:center; }
-.table tbody td.num{ text-align:right; }               /* valores numéricos a la derecha */
-.table tbody td:nth-child(3){ text-align:left; }       /* descripción a la izquierda */
+  .table tbody td{ text-align:center; }
+  .table tbody td.num{ text-align:right; }
+  .table tbody td:nth-child(3){ text-align:left; }
 
-/* === ANCHOS EXACTOS (sumados ≈ 198mm útiles) para eliminar el “hueco” entre Description y Qty === */
-thead th:nth-child(1), tbody td:nth-child(1){ width:24mm; } /* Daily Number */
-thead th:nth-child(2), tbody td:nth-child(2){ width:26mm; } /* Job Code */
-thead th:nth-child(3), tbody td:nth-child(3){ width:66mm; } /* Description (nuevo) */
-thead th:nth-child(4), tbody td:nth-child(4){ width:16mm; } /* Qty */
-thead th:nth-child(5), tbody td:nth-child(5){ width:18mm; } /* Unit */
-thead th:nth-child(6), tbody td:nth-child(6){ width:22mm; } /* Rate */
-thead th:nth-child(7), tbody td:nth-child(7){ width:26mm; } /* Amount */
-tbody td, thead th{ overflow-wrap:anywhere }
+  thead th:nth-child(1), tbody td:nth-child(1){ width:24mm; }
+  thead th:nth-child(2), tbody td:nth-child(2){ width:26mm; }
+  thead th:nth-child(3), tbody td:nth-child(3){ width:66mm; }
+  thead th:nth-child(4), tbody td:nth-child(4){ width:16mm; }
+  thead th:nth-child(5), tbody td:nth-child(5){ width:18mm; }
+  thead th:nth-child(6), tbody td:nth-child(6){ width:22mm; }
+  thead th:nth-child(7), tbody td:nth-child(7){ width:26mm; }
+  tbody td, thead th{ overflow-wrap:anywhere }
 
+  .notes{ margin-left:-8mm; margin-right:-8mm; padding:0 8mm; }
 
-/* Notas: igual que antes */
-.notes{ margin-left:-8mm; margin-right:-8mm; padding:0 8mm; }
+  .totals{
+    margin-left:-8mm;
+    margin-right:-8mm;
+    padding-left:8mm;
+    padding-right:0;
+    display:flex;
+    align-items:flex-start;
+    justify-content:flex-end;
+  }
+  .totals .totalbox{
+    margin-left:auto;
+    margin-right:0;
+    padding-right:8mm;
+  }
 
-/* Totales: alineado al borde derecho como la tabla */
-.totals{
-  margin-left:-8mm;
-  margin-right:-8mm;
-  /* igual que la tabla: aire solo a la izquierda, cero a la derecha */
-  padding-left:8mm;
-  padding-right:0;
-  display:flex;
-  align-items:flex-start;
-  justify-content:flex-end;
-}
-.totals .totalbox{
-  margin-left:auto;   /* empuja el box hacia la derecha */
-  margin-right:0;     /* pegado al borde del contenido */
-  padding-right:8mm;  /* mismo “aire” interno que la última columna de la tabla */
-}
-
-.totalbox .row{ flex-wrap:nowrap }
+  .totalbox .row{ flex-wrap:nowrap }
 {% else %}
   .only-pdf{ display:none !important; }
 {% endif %}
 </style>
-
-
 
 {% if not pdf_mode %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -270,14 +291,14 @@ data-template-key="t1"
     <!-- From / Bill To -->
     <div class="cards" id="cards">
       <div class="card">
-  <h4>FROM</h4>
-  <div class="addr" id="from-addr">
-    <strong>{{ profile.company_name }}</strong><br>
-    {{ profile.company_address }}<br>
-    {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}<br>
-    {% if profile.company_email %}{{ profile.company_email }}{% endif %}{% if profile.company_phone %} · {{ profile.company_phone }}{% endif %}
-  </div>
-</div>
+        <h4>FROM</h4>
+        <div class="addr" id="from-addr">
+          <strong>{{ profile.company_name }}</strong><br>
+          {{ profile.company_address }}<br>
+          {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}<br>
+          {% if profile.company_email %}{{ profile.company_email }}{% endif %}{% if profile.company_phone %} · {{ profile.company_phone }}{% endif %}
+        </div>
+      </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h4>BILL TO</h4>
@@ -387,6 +408,21 @@ data-template-key="t1"
         {% endif %}
       </div>
     </div>
+
+    <!-- panel job codes (solo pantalla) -->
+    <div class="jobcodes-panel only-screen" id="jobcodes-panel" aria-hidden="true">
+      <div class="jobcodes-head">
+        <div style="flex:1 1 auto;">
+          <h4>Job Codes</h4>
+          <input id="jobcodes-filter" class="jobcodes-filter" type="search" placeholder="Filter job codes…">
+        </div>
+        <button type="button" class="btn-link" id="jobcodes-close">✕</button>
+      </div>
+      <div class="jobcodes-body" id="jobcodes-body">
+        <!-- JS carga filas -->
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -415,6 +451,85 @@ data-template-key="t1"
 
   const SUG_CACHE_BY_CODE = Object.create(null);
   const SUG_LABEL_MAP     = Object.create(null);
+
+  /* === panel job codes (como en T2) === */
+  const panelJob   = $('#jobcodes-panel');
+  const panelInput = $('#jobcodes-filter');
+  const panelBody  = $('#jobcodes-body');
+  const panelClose = $('#jobcodes-close');
+  let activeJobRow = null;
+
+  function showPanelFor(inputEl){
+    if (!panelJob || !inputEl) return;
+    const sheetRect = root.getBoundingClientRect();
+    const rect = inputEl.getBoundingClientRect();
+
+    const top  = rect.top  - sheetRect.top + root.scrollTop + 4;
+    const left = rect.left - sheetRect.left + root.scrollLeft + rect.width + 8;
+
+    panelJob.style.top  = top + 'px';
+    panelJob.style.left = left + 'px';
+
+    panelJob.classList.add('show');
+    panelJob.setAttribute('aria-hidden','false');
+  }
+  function hidePanel(){
+    if (!panelJob) return;
+    panelJob.classList.remove('show');
+    panelJob.setAttribute('aria-hidden','true');
+  }
+  panelClose && panelClose.addEventListener('click', hidePanel);
+
+  async function loadJobPanelData(q){
+    if (!panelBody) return;
+    const clientName = $('#billto-addr strong')?.textContent?.trim() || '';
+    if (!clientName){
+      panelBody.innerHTML = '<div style="padding:12px" class="small">Select a customer first.</div>';
+      return;
+    }
+    panelBody.innerHTML = '<div style="padding:12px" class="small">Loading…</div>';
+    try{
+      const u = new URL("{% url 'invoicing:api_itemcodes' %}", window.location.origin);
+      if (q) u.searchParams.set('q', q);
+      u.searchParams.set('client', clientName);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      const rows = data.results || [];
+      if (!rows.length){
+        panelBody.innerHTML = '<div style="padding:12px" class="small">No job codes.</div>';
+        return;
+      }
+      panelBody.innerHTML = '';
+      rows.forEach(it=>{
+        const div = document.createElement('div');
+        div.className = 'jobcodes-row';
+        div.innerHTML = `
+          <div><strong>${it.job_code}</strong></div>
+          <div>${it.city || ''}</div>
+          <div>${it.description || ''}</div>
+          <div class="jobcodes-rate">${(parseFloat(it.rate)||0).toFixed(2)}</div>
+        `;
+        div.addEventListener('click', ()=>{
+          if (activeJobRow){
+            applyItem(activeJobRow, it);
+            const qtyInp = activeJobRow.querySelector('.i-qty');
+            if (qtyInp && (!qtyInp.value || parseFloat(qtyInp.value) === 0)){
+              qtyInp.value = '1';
+            }
+            calc();
+            hidePanel();
+          }
+        });
+        panelBody.appendChild(div);
+      });
+    }catch(e){
+      panelBody.innerHTML = '<div style="padding:12px" class="small">Network error.</div>';
+    }
+  }
+
+  panelInput && panelInput.addEventListener('input', (e)=>{
+    loadJobPanelData(e.target.value.trim());
+  });
 
   const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
   const todayISO = ()=> (new Date()).toISOString().slice(0,10);
@@ -491,6 +606,7 @@ data-template-key="t1"
     Object.keys(SUG_CACHE_BY_CODE).forEach(k=> delete SUG_CACHE_BY_CODE[k]);
     Object.keys(SUG_LABEL_MAP).forEach(k=> delete SUG_LABEL_MAP[k]);
     $$('.i-job').forEach(inp => inp.value='');
+    hidePanel();
     closeModal();
   }
 
@@ -506,15 +622,17 @@ data-template-key="t1"
   function calc(){
     let subtotal = 0;
     $$('.row', tbody).forEach(tr=>{
-      const qty  = parseFloat($('.i-qty', tr).value.replace(',', '.')) || 0;
-      const rate = parseFloat($('.i-rate', tr).value.replace(',', '.')) || 0;
+      const qty  = parseFloat($('.i-qty', tr)?.value?.replace(',', '.') || '0') || 0;
+      const rate = parseFloat($('.i-rate', tr)?.value?.replace(',', '.') || '0') || 0;
       const amt  = Math.max(0, qty) * Math.max(0, rate);
-      $('.i-amount', tr).value = amt.toFixed(2);
-      $('.i-amount-show', tr).textContent = fmt(amt);
+      const amtInput = $('.i-amount', tr);
+      const amtShow  = $('.i-amount-show', tr);
+      if (amtInput) amtInput.value = amt.toFixed(2);
+      if (amtShow)  amtShow.textContent = fmt(amt);
       subtotal += amt;
     });
     if (EL_SUB) EL_SUB.textContent = fmt(subtotal);
-    const taxP = Math.max(0, parseFloat(TAX_IN.value)||0) / 100;
+    const taxP = TAX_IN ? Math.max(0, parseFloat(TAX_IN.value)||0) / 100 : 0;
     const taxAmount = subtotal * taxP;
     if (EL_TAX) EL_TAX.textContent = fmt(taxAmount);
     if (EL_TOT) EL_TOT.textContent = taxP > 0 ? fmt(subtotal + taxAmount) : fmt(subtotal);
@@ -536,7 +654,8 @@ data-template-key="t1"
     tr.querySelector('.i-desc').value = data.description || '';
     tr.querySelector('.i-unit').value = data.uom || '';
     tr.querySelector('.i-rate').value = (parseFloat(data.rate)||0).toFixed(2);
-    closeMenu(tr.querySelector('.sugmenu'));
+    const menu = tr.querySelector('.sugmenu');
+    if (menu) closeMenu(menu);
     calc();
   }
 
@@ -571,8 +690,17 @@ data-template-key="t1"
       }
       if(t.classList.contains('i-job')){
         const q = (t.value || '').trim();
+        activeJobRow = tr;
         suggestJobCodes(q, tr, dlId);
+        showPanelFor(jobInput);
+        loadJobPanelData(q);
       }
+    });
+
+    jobInput.addEventListener('focus', ()=>{
+      activeJobRow = tr;
+      showPanelFor(jobInput);
+      loadJobPanelData('');
     });
 
     jobInput.addEventListener('keydown', (e)=>{
@@ -609,7 +737,7 @@ data-template-key="t1"
       if(data) applyItem(tr, data);
     });
 
-    tr.querySelector('[data-del]').addEventListener('click', ()=>{ tr.remove(); calc(); });
+    tr.querySelector('[data-del]').addEventListener('click', ()=>{ tr.remove(); calc(); hidePanel(); });
     return tr;
   }
 

@@ -24,7 +24,8 @@ def customers_list(request):
             models.Q(name__icontains=q)
             | models.Q(email__icontains=q)
             | models.Q(phone__icontains=q)
-            | models.Q(mnemonic__icontains=q)   # <-- NUEVO
+            | models.Q(mnemonic__icontains=q)   # <-- ya estaba
+            | models.Q(client__icontains=q)    # <-- NEW: buscar también por "client"
         )
 
     # 2) Estados disponibles SOLO de lo que existe en DB (según q/status)
@@ -58,30 +59,49 @@ def customers_list(request):
     }
     return render(request, "invoicing/customers_list.html", ctx)
 
+
 @login_required
 def customers_create(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
 
-    name = (request.POST.get("name") or "").strip()
-    if not name:
-        return JsonResponse({"ok": False, "error": "Name is required."}, status=400)
+    # --- Required fields (all except phone) ---
+    def _req(name, label):
+        val = (request.POST.get(name) or "").strip()
+        if not val:
+            raise ValueError(f"{label} is required.")
+        return val
 
-    # NUEVO: normalizamos el nemónico (opcional, mayúsculas)
-    raw_mn = (request.POST.get("mnemonic") or "").strip()
-    mnemonic = raw_mn.upper() or None
+    try:
+        name      = _req("name", "Name")
+        mnemonic  = _req("mnemonic", "Mnemonic").upper()
+        client   = _req("client", "Client")
+        email     = _req("email", "Email")
+        street_1  = _req("street_1", "Street Address")
+        city      = _req("city", "City")
+        state     = _req("state", "State").upper()
+        zip_code  = _req("zip_code", "ZIP")
+        status_in = _req("status", "Status").lower()
+        if status_in not in (Customer.STATUS_ACTIVE, Customer.STATUS_ARCHIVED):
+            return JsonResponse({"ok": False, "error": "Invalid status."}, status=400)
+    except ValueError as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    # phone es opcional
+    phone = (request.POST.get("phone") or "").strip()
 
     try:
         c = Customer.objects.create(
-            name     = name,
-            email    = (request.POST.get("email") or "").strip() or None,
-            phone    = (request.POST.get("phone") or "").strip(),
-            street_1 = (request.POST.get("street_1") or "").strip(),
-            city     = (request.POST.get("city") or "").strip(),
-            state    = (request.POST.get("state") or "").strip().upper(),
-            zip_code = (request.POST.get("zip_code") or "").strip(),
-            status   = Customer.STATUS_ACTIVE,
-            mnemonic = mnemonic,   # <-- NUEVO
+            name=name,
+            mnemonic=mnemonic,
+            client=client,          # <-- NEW
+            email=email,
+            phone=phone,
+            street_1=street_1,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            status=status_in,
         )
     except IntegrityError:
         return JsonResponse({"ok": False, "error": "Mnemonic already exists."}, status=409)
@@ -95,7 +115,8 @@ def customers_detail(request):
     c = get_object_or_404(Customer, pk=cid)
     data = {
         "id": c.id,
-        "mnemonic": c.mnemonic or "",   # <-- NUEVO
+        "mnemonic": c.mnemonic or "",
+        "client": c.client or "",   # <-- NEW (ya lo traías, lo dejamos)
         "name": c.name,
         "email": c.email or "",
         "phone": c.phone or "",
@@ -116,17 +137,31 @@ def customers_update(request):
     cid = request.POST.get("id")
     c = get_object_or_404(Customer, pk=cid)
 
-    c.name     = (request.POST.get("name") or "").strip() or c.name
-    c.email    = (request.POST.get("email") or "").strip() or None
-    c.phone    = (request.POST.get("phone") or "").strip()
-    c.street_1 = (request.POST.get("street_1") or "").strip()
-    c.city     = (request.POST.get("city") or "").strip()
-    c.state    = (request.POST.get("state") or "").strip().upper()
-    c.zip_code = (request.POST.get("zip_code") or "").strip()
+    # --- Required validations (all except phone) ---
+    def _req(name, label, default=""):
+        val = (request.POST.get(name) or default).strip()
+        if not val:
+            raise ValueError(f"{label} is required.")
+        return val
 
-    # NUEVO: nemónico (None si viene vacío)
-    raw_mn = (request.POST.get("mnemonic") or "").strip()
-    c.mnemonic = raw_mn.upper() or None
+    try:
+        c.name     = _req("name", "Name", c.name)
+        c.mnemonic = _req("mnemonic", "Mnemonic", c.mnemonic or "").upper()
+        c.client  = _req("client", "Client", c.client or "")
+        c.email    = _req("email", "Email", c.email or "")
+        c.street_1 = _req("street_1", "Street Address", c.street_1 or "")
+        c.city     = _req("city", "City", c.city or "")
+        c.state    = _req("state", "State", c.state or "").upper()
+        c.zip_code = _req("zip_code", "ZIP", c.zip_code or "")
+        status_in  = _req("status", "Status", c.status or Customer.STATUS_ACTIVE).lower()
+        if status_in not in (Customer.STATUS_ACTIVE, Customer.STATUS_ARCHIVED):
+            return JsonResponse({"ok": False, "error": "Invalid status."}, status=400)
+        c.status   = status_in
+    except ValueError as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    # phone opcional
+    c.phone = (request.POST.get("phone") or "").strip()
 
     try:
         c.save()

@@ -11,7 +11,7 @@ class Customer(models.Model):
 
     # NUEVO: nemónico/código corto del cliente
     mnemonic = models.CharField(max_length=20, blank=True, null=True, unique=True)  # NUEVO
-
+    client = models.CharField("Client", max_length=200, blank=True, default="")
     name = models.CharField(max_length=200)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=40, blank=True)
@@ -145,10 +145,12 @@ class BrandingSettings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+# ... imports previos ...
 # --- Item Codes -------------------------------------------------------------
 from decimal import Decimal
 
 from django.core.validators import MinValueValidator
+from django.db import models
 
 
 class ItemCode(models.Model):
@@ -158,18 +160,26 @@ class ItemCode(models.Model):
     office       = models.CharField(max_length=120, blank=True, default="")
     client       = models.CharField(max_length=160, blank=True, default="")
     work_type    = models.CharField(max_length=120, blank=True, default="")
-    job_code     = models.CharField(max_length=60, unique=True)  # clave natural
+    job_code     = models.CharField(max_length=60)  # unique per city
     description  = models.CharField(max_length=300, blank=True, default="")
     uom          = models.CharField("Unit of Measure", max_length=30, blank=True, default="")
-    rate         = models.DecimalField(max_digits=12, decimal_places=2,
-                                       validators=[MinValueValidator(Decimal("0"))],
-                                       default=Decimal("0"))
+    rate         = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(Decimal("0"))],
+        default=Decimal("0")
+    )
 
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["job_code"]
+        ordering = ["city", "job_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job_code", "city"],
+                name="uniq_itemcode_jobcode_city",
+            )
+        ]
 
     def __str__(self):
         return f"{self.job_code} — {self.description or 'Item'}"

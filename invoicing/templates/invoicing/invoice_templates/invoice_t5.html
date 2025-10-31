@@ -1,10 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Invoice {{ invoice.number }}</title>
+<title>Invoice {{ invoice.number|default:"" }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="template-key" content="t5">
 <style>
   :root{
     --primary:   {{ profile.primary_color|default:'#0ea5e9' }};
@@ -12,12 +12,23 @@
     --accent:    {{ profile.accent_color|default:'#22c55e' }};
     --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --paper:#f8fafc; --bg:#ffffff;
     --radius:16px; --radius-sm:12px; --shadow:0 12px 30px rgba(2,6,23,.08);
-    --max:1100px; --pad:28px; --sidebar:300px;
+    --max:1300px; --pad:24px; --sidebar:300px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif}
 
-  .sheet{max-width:var(--max);margin:36px auto;background:var(--bg);border-radius:var(--radius);box-shadow:var(--shadow);display:grid;grid-template-columns:var(--sidebar) 1fr;overflow:hidden}
+  .sheet{
+    max-width:var(--max);
+    margin:28px auto;
+    background:var(--bg);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    display:grid;
+    grid-template-columns:var(--sidebar) 1fr;
+    overflow:hidden;
+    position:relative;
+  }
+  /* ======= Sidebar ======= */
   .side{
     background: linear-gradient(180deg, var(--secondary) 0%, rgba(15,23,42,.92) 100%);
     color:#fff; padding:22px 20px; display:flex; flex-direction:column; gap:18px;
@@ -27,7 +38,6 @@
   .co-name{ font-weight:800; letter-spacing:.3px }
   .co-line, .co-muted{ font-size:12px; opacity:.9 }
   .co-muted{ opacity:.8 }
-
   .side-section{ border-top:1px solid rgba(255,255,255,.12); padding-top:14px; }
   .side h3{ margin:0 0 6px 0; font-size:12px; letter-spacing:.3px; text-transform:uppercase; opacity:.9 }
   .chip{
@@ -35,87 +45,177 @@
     padding:6px 10px; border-radius:999px; font-size:12px; font-weight:600; backdrop-filter: blur(4px);
   }
 
+  /* ======= Main ======= */
   .main{ padding:var(--pad) }
-
-  /* ---------- Header principal ---------- */
   .top{
     display:flex; justify-content:space-between; align-items:flex-start; gap:18px; margin-bottom:10px
   }
   h1{ margin:0; font-size:28px; letter-spacing:.6px }
-  .meta{ display:flex; gap:8px; flex-wrap:wrap }
-  .pill{ padding:6px 10px; border-radius:999px; border:1px solid var(--line); font-size:12px; background:#fff }
+  .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:6px }
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px;
+    border:1px solid var(--line); background:#fff; text-decoration:none; color:var(--ink); font-weight:600
+  }
+  .btn-link{border:none;background:transparent;color:var(--secondary);cursor:pointer}
+  .dot{ width:8px; height:8px; border-radius:999px; background:var(--accent) }
 
-  /* ---------- Tarjetas From/Bill To ---------- */
+  .meta{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end }
+  .pill{
+    padding:6px 10px; border-radius:999px; border:1px solid var(--line);
+    font-size:12px; background:#fff; display:inline-flex; gap:6px; align-items:center;
+  }
+  .pill input{
+    border:none; outline:none; background:transparent; font-size:12px; min-width:120px;
+  }
+
+  /* ======= Cards ======= */
   .cards{ display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:14px 0 4px }
   .card{ border:1px solid var(--line); border-radius:var(--radius-sm); padding:14px; background:#fff }
   .card h3{ margin:0 0 8px 0; font-size:12px; letter-spacing:.3px; color:var(--secondary); text-transform:uppercase }
   .addr div{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .muted{color:var(--muted)}
 
-  /* ---------- Tabla de items ---------- */
-  .items{ margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden }
-  table{ width:100%; border-collapse:separate; border-spacing:0 }
+  /* ======= Tabla ======= */
+  .items{ margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; background:#fff }
+  table{ width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed }
   thead th{
     background: linear-gradient(90deg, rgba(14,165,233,.10), rgba(34,197,94,.10));
-    text-align:left; font-size:12px; color:var(--secondary); padding:10px 12px;
-    border-bottom:1px solid var(--line)
+    text-align:center; font-size:12px; color:var(--secondary); padding:10px 12px;
+    border-bottom:1px solid var(--line); white-space:nowrap;
   }
-  th.num{text-align:right}
-  tbody td{ padding:10px 12px; border-top:1px solid var(--line); vertical-align:top }
-  td.num{text-align:right; white-space:nowrap}
-  td.small{font-size:12px; color:var(--muted)}
-  td.desc{color:var(--ink)}
-  .empty{ padding:16px; text-align:center; color:var(--muted) }
+  thead th:nth-child(1), tbody td:nth-child(1){width:130px}
+  thead th:nth-child(2), tbody td:nth-child(2){width:190px}
+  thead th:nth-child(4), tbody td:nth-child(4){width:80px}
+  thead th:nth-child(5), tbody td:nth-child(5){width:80px}
+  thead th:nth-child(6), tbody td:nth-child(6){width:100px}
+  thead th:nth-child(7), tbody td:nth-child(7){width:110px}
+  thead th:nth-child(8), tbody td:nth-child(8){width:40px}
+  tbody td{ padding:10px 12px; border-top:1px solid var(--line); vertical-align:middle; text-align:center }
+  td.num{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums}
+  td.desc{text-align:left}
+  .line-input{width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .line-input[readonly]{background:#f8fafc;color:#64748b}
+  .row-actions{white-space:nowrap}
+  .addline{padding:10px 12px;background:#fff}
 
-  /* ---------- Totales / Notas ---------- */
+  .jobcell{position:relative}
+  .sugmenu{
+    position:absolute; left:0; right:0; top:calc(100% + 4px);
+    background:#fff; border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 8px 24px rgba(2,6,23,.12); max-height:240px; overflow:auto; z-index:1000;
+  }
+  .sugmenu[hidden]{display:none}
+  .sugitem{padding:8px 10px;font-size:13px;cursor:pointer}
+  .sugitem:hover,.sugitem.active{background:#f8fafc}
+
+  /* ======= Summary ======= */
   .summary{ display:grid; grid-template-columns:1fr 360px; gap:18px; margin-top:16px }
   .notes{ border:1px dashed var(--line); border-radius:var(--radius-sm); padding:12px; background:#fff }
+  .notes textarea{width:100%;min-height:80px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;resize:vertical}
   .totals{ border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; background:#fff }
-  .row{ display:grid; grid-template-columns:1fr auto; gap:12px; padding:10px 14px; border-top:1px solid var(--line); align-items:center }
-  .row:first-child{ border-top:none }
-  .label{ color:var(--muted) }
-  .row.total{
+  /* 👇 AQUÍ estaba el problema: antes era .row */
+  .totals .row{
+    display:grid; grid-template-columns:1fr auto; gap:12px;
+    padding:10px 14px; border-top:1px solid var(--line); align-items:center
+  }
+  .totals .row:first-child{ border-top:none }
+  .totals .label{ color:var(--muted) }
+  .totals .row.total{
     background: linear-gradient(90deg, rgba(14,165,233,.08), rgba(34,197,94,.08));
     font-weight:800;
   }
+  .totals input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:90px;text-align:right}
   .total-amount{ font-size:18px }
 
-  /* ---------- Footer ---------- */
+  /* ======= Footer ======= */
   .footer{
     margin-top:18px; padding:12px 0 4px; color:var(--muted); font-size:12px;
     display:flex; justify-content:space-between; align-items:center
   }
   .accent{ color:var(--primary) }
 
-  /* ---------- Buttons de acción (opcional en web/PDF preview) ---------- */
-  .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:6px }
-  .btn{
-    display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px;
-    border:1px solid var(--line); background:#fff; text-decoration:none; color:var(--ink); font-weight:600
+  /* ======= Panel Job Codes ======= */
+  .jobcodes-panel{
+    position:absolute;
+    width:min(560px, calc(100vw - 80px));
+    max-height:560px;
+    background:#fff;
+    border:1px solid #e2e8f0;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(15,23,42,.12);
+    display:none;
+    z-index:9998;
+    overflow:hidden;
   }
-  .btn-primary{ border-color:transparent; background:var(--primary); color:#fff }
-  .dot{ width:8px; height:8px; border-radius:999px; background:var(--accent) }
+  .jobcodes-panel.show{display:block;}
+  .jobcodes-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 14px 6px 14px;border-bottom:1px solid #e2e8f0}
+  .jobcodes-head h4{margin:0;font-size:14px;font-weight:600;color:#0f172a}
+  .jobcodes-filter{width:100%;border:1px solid #e2e8f0;border-radius:999px;padding:6px 10px;font-size:13px;margin-top:8px;outline:none}
+  .jobcodes-body{max-height:460px;overflow:auto;}
+  .jobcodes-row{
+    display:grid;grid-template-columns:120px 140px 1fr 78px;
+    gap:6px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;cursor:pointer;
+  }
+  .jobcodes-row:hover{background:#f8fafc;}
+  .jobcodes-rate{text-align:right;font-variant-numeric:tabular-nums;}
 
-  /* ---------- Responsivo / Print ---------- */
+  /* ======= Modal clientes ======= */
+  .modal{position:fixed !important; inset:0; display:none !important; align-items:center; justify-content:center; background:rgba(0,0,0,.45); z-index:9999; padding:16px}
+  .modal.show{display:flex !important}
+  .modal-card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(2,6,23,.2); width:min(720px,92vw); max-height:80vh; overflow:auto; padding:16px}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .modal-head h3{margin:0;font-size:16px}
+  .searchbar{display:flex;gap:8px}
+  .searchbar input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px}
+  .list{border:1px solid var(--line);border-radius:12px;max-height:360px;overflow:auto}
+  .item{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+  .item:hover{background:#f8fafc}
+  body.modal-open{overflow:hidden}
+
+  /* ======= Responsive / print ======= */
   @media (max-width:980px){
     .sheet{ grid-template-columns:1fr }
     .side{ order:1 } .main{ order:2 }
     .cards{ grid-template-columns:1fr }
     .summary{ grid-template-columns:1fr }
   }
-  @media print{
-    body{ background:#fff }
-    .sheet{ box-shadow:none; margin:0; max-width:100%; grid-template-columns:260px 1fr }
-    .btn{ display:none !important }
-  }
+
+{% if pdf_mode %}
+  @page { size: A4; margin: 6mm 6mm; }
+  body{ background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .only-screen{ display:none !important; }
+  .sheet{ box-shadow:none; margin:0; max-width:none; grid-template-columns:260px 1fr; border-radius:0 }
+
+  /* en PDF quitamos gradientes con vars porque WeasyPrint los está botando */
+  .side{ background:#0f172a !important; }
+  .items thead th{ background:#e2e8f0 !important; color:#0f172a !important; }
+  .totals .row.total{ background:#e2e8f0 !important; }
+
+  .jobcodes-panel{ display:none !important; }
+{% else %}
+  .only-pdf{ display:none !important; }
+{% endif %}
 </style>
+
+{% if not pdf_mode %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <style>.flatpickr-calendar{z-index:10000}</style>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+{% endif %}
 </head>
 <body>
-  <div class="sheet">
-    <!-- ======= Sidebar (empresa) ======= -->
+  <div class="sheet" id="invoice-root"
+       data-template-key="t5"
+       data-currency="{{ invoice.currency_symbol|default:'$' }}"
+       data-prefix="{{ profile.invoice_prefix|default:'' }}">
+
+    <!-- ======= Sidebar ======= -->
     <aside class="side">
       <div class="brand">
         {% if profile.logo and profile.logo.url %}
           <img class="logo" src="{{ profile.logo.url }}" alt="{{ profile.company_name|default:'Company' }}">
+        {% elif branding and branding.logo_url %}
+          <img class="logo" src="{{ branding.logo_url }}" alt="{{ profile.company_name|default:'Company' }}">
         {% endif %}
         <div>
           <div class="co-name">{{ profile.company_name|default:"Your Company" }}</div>
@@ -151,45 +251,63 @@
       <div class="top">
         <div>
           <h1>INVOICE</h1>
-          <div class="actions">
+          <div class="actions only-screen">
             <span class="btn"><span class="dot"></span> {{ profile.company_city|default:"" }}</span>
             <span class="btn">Brand: {{ profile.name|default:"Default" }}</span>
-            <!-- Botones opcionales para UI web; no afectan PDF -->
-            <!-- <a class="btn btn-primary" href="#">Pay now</a> -->
           </div>
         </div>
         <div class="meta">
-          <span class="pill"><strong>No:</strong> {{ invoice.number|default:"—" }}</span>
-          <span class="pill"><strong>Date:</strong> {{ invoice.date|date:"M d, Y"|default:"—" }}</span>
-          <span class="pill"><strong>Due:</strong> {{ invoice.due_date|date:"M d, Y"|default:"—" }}</span>
+          {% if pdf_mode %}
+            <span class="pill"><strong>No:</strong> {{ invoice.number }}</span>
+            <span class="pill"><strong>Date:</strong> {{ invoice.issue_date }}</span>
+            {% if invoice.due_date %}<span class="pill"><strong>Due:</strong> {{ invoice.due_date }}</span>{% endif %}
+          {% else %}
+            <span class="pill"><strong>No.</strong><input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" /></span>
+            <span class="pill"><strong>Date:</strong><input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}"></span>
+            <span class="pill"><strong>Due:</strong><input id="inv-due" type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}"></span>
+          {% endif %}
         </div>
       </div>
 
       <!-- From / Bill To -->
-      <section class="cards">
+      <section class="cards" id="cards">
         <div class="card">
           <h3>From</h3>
-          <div class="addr">
+          <div class="addr" id="from-addr">
             <div><strong>{{ profile.company_name|default:"Your Company" }}</strong></div>
             {% if profile.company_address %}<div>{{ profile.company_address }}</div>{% endif %}
-            {% if profile.company_city %}<div>{{ profile.company_city }}</div>{% endif %}
-            {% if profile.company_email %}<div style="color:var(--muted)">{{ profile.company_email }}</div>{% endif %}
-            {% if profile.company_phone %}<div style="color:var(--muted)">{{ profile.company_phone }}</div>{% endif %}
+            {% if profile.company_city or profile.company_state or profile.company_zip %}
+              <div>{{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}</div>
+            {% endif %}
+            {% if profile.company_email %}<div class="muted">{{ profile.company_email }}</div>{% endif %}
+            {% if profile.company_phone %}<div class="muted">{{ profile.company_phone }}</div>{% endif %}
           </div>
         </div>
         <div class="card">
-          <h3>Bill To</h3>
-          <div class="addr">
-            <div><strong>{{ invoice.customer_name|default:"Customer" }}</strong></div>
-            {% if invoice.customer_address %}<div>{{ invoice.customer_address }}</div>{% endif %}
-            {% if invoice.customer_city or invoice.customer_state or invoice.customer_zip %}
-              <div>
-                {{ invoice.customer_city }}{% if invoice.customer_state %}, {{ invoice.customer_state }}{% endif %}
-                {% if invoice.customer_zip %} {{ invoice.customer_zip }}{% endif %}
-              </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+            <h3>Bill To</h3>
+            {% if not pdf_mode %}
+              <button type="button" id="btn-pick-customer" class="btn only-screen">＋ Select</button>
             {% endif %}
-            {% if invoice.customer_email %}<div style="color:var(--muted)">{{ invoice.customer_email }}</div>{% endif %}
-            {% if invoice.customer_phone %}<div style="color:var(--muted)">{{ invoice.customer_phone }}</div>{% endif %}
+          </div>
+          <div class="addr" id="billto-addr">
+            {% if customer %}
+              {% if pdf_mode %}
+                <div><strong>{{ customer.name }}</strong></div>
+                {% if customer.street_1 %}<div>{{ customer.street_1 }}</div>{% endif %}
+                <div>{{ customer.city }}{% if customer.state %}, {{ customer.state }}{% endif %} {{ customer.zip_code }}</div>
+                {% if customer.email %}<div class="muted">{{ customer.email }}</div>{% endif %}
+                {% if customer.phone %}<div class="muted">{{ customer.phone }}</div>{% endif %}
+              {% else %}
+                <div><strong data-customer-id="{{ customer.id }}">{{ customer.name }}</strong></div>
+                {% if customer.street_1 %}<div>{{ customer.street_1 }}</div>{% endif %}
+                <div>{{ customer.city }}{% if customer.state %}, {{ customer.state }}{% endif %} {{ customer.zip_code }}</div>
+                {% if customer.email %}<div class="muted">{{ customer.email }}</div>{% endif %}
+                {% if customer.phone %}<div class="muted">{{ customer.phone }}</div>{% endif %}
+              {% endif %}
+            {% else %}
+              <div class="muted">Select a customer…</div>
+            {% endif %}
           </div>
         </div>
       </section>
@@ -206,73 +324,474 @@
               <th>Unit</th>
               <th class="num">Rate</th>
               <th class="num">Amount</th>
+              <th class="only-screen"></th>
             </tr>
           </thead>
-          <tbody>
-            {% for it in invoice.items %}
-              <tr>
-                <td class="small">{{ it.daily_number }}</td>
-                <td class="small">{{ it.job_code }}</td>
-                <td class="desc">{{ it.description }}</td>
-                <td class="num">{{ it.qty }}</td>
-                <td class="small">{{ it.unit }}</td>
-                <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.rate|floatformat:2 }}</td>
-                <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.amount|floatformat:2 }}</td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="7" class="empty">No items added.</td></tr>
-            {% endfor %}
+          <tbody id="items-body">
+            {% if pdf_mode %}
+              {% for it in items %}
+                <tr>
+                  <td class="small">{{ it.daily }}</td>
+                  <td class="small">{{ it.job_code }}</td>
+                  <td class="desc">{{ it.description }}</td>
+                  <td class="num">{{ it.qty }}</td>
+                  <td class="small">{{ it.uom }}</td>
+                  <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.rate }}</td>
+                  <td class="num">{{ invoice.currency_symbol|default:"$" }}{{ it.amount }}</td>
+                  <td class="only-screen"></td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <!-- JS añade filas -->
+            {% endif %}
           </tbody>
         </table>
+        {% if not pdf_mode %}
+          <div class="addline only-screen">
+            <button type="button" id="btn-add-line" class="btn">＋ Add line</button>
+          </div>
+        {% endif %}
       </section>
 
       <!-- Summary -->
       <section class="summary">
         <div class="notes">
           <strong>Notes</strong>
-          <div style="margin-top:6px;color:var(--muted);">
-            {{ invoice.notes|default:"Thank you for your business." }}
-          </div>
-          {% if invoice.terms %}
+          {% if pdf_mode %}
+            <div style="margin-top:6px;color:var(--muted);">
+              {{ invoice.notes|default:"Thank you for your business."|linebreaksbr }}
+            </div>
             <div style="margin-top:10px;">
               <strong>Terms</strong>
-              <div style="color:var(--muted)">{{ invoice.terms }}</div>
+              <div style="color:var(--muted)">{{ invoice.terms|default:"Please remit payment within 30 days."|linebreaksbr }}</div>
+            </div>
+          {% else %}
+            <textarea id="notes-area" placeholder="Thank you for your business.">{{ invoice.notes|default_if_none:"" }}</textarea>
+            <div style="margin-top:10px;">
+              <strong>Terms</strong>
+              <textarea id="terms-area" placeholder="Please remit payment within 30 days.">{{ invoice.terms|default_if_none:"" }}</textarea>
             </div>
           {% endif %}
         </div>
 
         <div class="totals">
-          <div class="row">
-            <div class="label">Subtotal</div>
-            <div><strong>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal|default_if_none:0|floatformat:2 }}</strong></div>
-          </div>
-          {% if invoice.discount %}
-          <div class="row">
-            <div class="label">Discount</div>
-            <div>- {{ invoice.currency_symbol|default:"$" }}{{ invoice.discount|floatformat:2 }}</div>
-          </div>
-          {% endif %}
-          {% if invoice.tax %}
-          <div class="row">
-            <div class="label">Tax</div>
-            <div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax|floatformat:2 }}</div>
-          </div>
-          {% endif %}
-          <div class="row total">
-            <div class="label">Total</div>
-            <div class="total-amount">
-              {{ invoice.currency_symbol|default:"$" }}{{ invoice.total|default_if_none:invoice.subtotal|floatformat:2 }}
+          {% if pdf_mode %}
+            <div class="row"><div class="label">Subtotal</div><div><strong>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</strong></div></div>
+            <div class="row">
+              <div class="label">Tax ({{ invoice.tax_percent }}%)</div>
+              <div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax_amount }}</div>
             </div>
-          </div>
+            <div class="row total"><div class="label">Total</div><div class="total-amount">{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</div></div>
+          {% else %}
+            <div class="row"><div class="label">Subtotal</div><div><strong id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</strong></div></div>
+            <div class="row">
+              <div class="label">Tax (%)</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input id="tax-percent" type="number" value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
+                <span id="tax-amount">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+              </div>
+            </div>
+            <div class="row total"><div class="label">Total</div><div class="total-amount" id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</div></div>
+          {% endif %}
         </div>
       </section>
 
       <!-- Footer -->
-      <footer class="footer">
+      <footer class="footer only-screen">
         <div>Questions? Contact <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
         <div>Prepared with {{ profile.name|default:"Default" }} branding</div>
       </footer>
     </main>
+
+    <!-- Panel Job Codes -->
+    <div class="jobcodes-panel only-screen" id="jobcodes-panel" aria-hidden="true">
+      <div class="jobcodes-head">
+        <div style="flex:1 1 auto;">
+          <h4>Job Codes</h4>
+          <input id="jobcodes-filter" class="jobcodes-filter" type="search" placeholder="Filter job codes…">
+        </div>
+        <button type="button" class="btn-link" id="jobcodes-close">✕</button>
+      </div>
+      <div class="jobcodes-body" id="jobcodes-body"></div>
+    </div>
   </div>
+
+  <!-- Customer Picker Modal -->
+  <div class="modal only-screen" id="modal-customers" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Select customer</h3>
+        <button class="btn-link" data-close>✕</button>
+      </div>
+      <div class="searchbar">
+        <input id="cust-q" type="search" placeholder="Search by name, email, phone or mnemonic…">
+        <button class="btn" id="cust-search">Search</button>
+      </div>
+      <div class="list" id="cust-list" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+{% if not pdf_mode %}
+<script>
+(function(){
+  const $  = (s,ctx=document)=>ctx.querySelector(s);
+  const $$ = (s,ctx=document)=>Array.from(ctx.querySelectorAll(s));
+  const root = $('#invoice-root');
+  const CURRENCY = root.dataset.currency || '$';
+
+  const SUG_CACHE_BY_CODE = Object.create(null);
+  const SUG_LABEL_MAP     = Object.create(null);
+
+  const panelJob   = $('#jobcodes-panel');
+  const panelInput = $('#jobcodes-filter');
+  const panelBody  = $('#jobcodes-body');
+  const panelClose = $('#jobcodes-close');
+  let activeJobRow = null;
+
+  function showPanelFor(inputEl){
+    if (!panelJob || !inputEl) return;
+    const sheetRect = root.getBoundingClientRect();
+    const rect = inputEl.getBoundingClientRect();
+
+    const top  = rect.top  - sheetRect.top + root.scrollTop + 4;
+    const left = rect.left - sheetRect.left + root.scrollLeft + rect.width + 8;
+
+    panelJob.style.top  = top + 'px';
+    panelJob.style.left = left + 'px';
+
+    panelJob.classList.add('show');
+    panelJob.setAttribute('aria-hidden','false');
+  }
+  function hidePanel(){
+    if (!panelJob) return;
+    panelJob.classList.remove('show');
+    panelJob.setAttribute('aria-hidden','true');
+  }
+  panelClose && panelClose.addEventListener('click', hidePanel);
+
+  async function loadJobPanelData(q){
+    if (!panelBody) return;
+    const clientName = $('#billto-addr strong')?.textContent?.trim() || '';
+    if (!clientName){
+      panelBody.innerHTML = '<div style="padding:12px" class="muted">Select a customer first.</div>';
+      return;
+    }
+    panelBody.innerHTML = '<div style="padding:12px" class="muted">Loading…</div>';
+    try{
+      const u = new URL("{% url 'invoicing:api_itemcodes' %}", window.location.origin);
+      if (q) u.searchParams.set('q', q);
+      u.searchParams.set('client', clientName);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      const rows = data.results || [];
+      if (!rows.length){
+        panelBody.innerHTML = '<div style="padding:12px" class="muted">No job codes.</div>';
+        return;
+      }
+      panelBody.innerHTML = '';
+      rows.forEach(it=>{
+        const div = document.createElement('div');
+        div.className = 'jobcodes-row';
+        div.innerHTML = `
+          <div><strong>${it.job_code}</strong></div>
+          <div>${it.city || ''}</div>
+          <div>${it.description || ''}</div>
+          <div class="jobcodes-rate">${(parseFloat(it.rate)||0).toFixed(2)}</div>
+        `;
+        div.addEventListener('click', ()=>{
+          if (activeJobRow){
+            applyItem(activeJobRow, it);
+            hidePanel();
+          }
+        });
+        panelBody.appendChild(div);
+      });
+    }catch(e){
+      panelBody.innerHTML = '<div style="padding:12px" class="muted">Network error.</div>';
+    }
+  }
+  panelInput && panelInput.addEventListener('input', (e)=>{
+    loadJobPanelData(e.target.value.trim());
+  });
+
+  const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
+  const todayISO = ()=> (new Date()).toISOString().slice(0,10);
+
+  if (inputDate && (!inputDate.value || isNaN(Date.parse(inputDate.value)))) {
+    inputDate.value = todayISO();
+  }
+
+  if (inputDue && (!inputDue.value || isNaN(Date.parse(inputDue.value)))) {
+    const base = (inputDate && inputDate.value) ? inputDate.value : todayISO();
+    const d = new Date(base);
+    d.setDate(d.getDate() + 30);
+    inputDue.value = d.toISOString().slice(0,10);
+  }
+
+  if (window.flatpickr) {
+    const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
+    if (inputDate) flatpickr("#inv-date", opts);
+    if (inputDue)  flatpickr("#inv-due",  opts);
+  }
+
+  const modal = $('#modal-customers');
+  const btnPick = $('#btn-pick-customer');
+  const btnCloseModal = modal ? modal.querySelector('[data-close]') : null;
+  const qInput = $('#cust-q'), btnSearch = $('#cust-search'), list = $('#cust-list');
+
+  let selectedCustomer = null;
+  function openModal(){ if(!modal) return; modal.classList.add('show'); document.body.classList.add('modal-open'); if(qInput){ qInput.value=''; list.innerHTML=''; qInput.focus(); doSearch(); } }
+  function closeModal(){ if(!modal) return; modal.classList.remove('show'); document.body.classList.remove('modal-open'); }
+  btnPick && btnPick.addEventListener('click', openModal);
+  btnCloseModal && btnCloseModal.addEventListener('click', closeModal);
+  modal && modal.addEventListener('click', (e)=>{ if(e.target===modal) closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && modal && modal.classList.contains('show')) closeModal(); });
+
+  btnSearch && btnSearch.addEventListener('click', ()=> doSearch());
+  qInput && qInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); doSearch(); }});
+
+  async function doSearch(){
+    if(!list) return;
+    list.innerHTML = '<div class="item muted">Searching…</div>';
+    try{
+      const u = new URL("{% url 'invoicing:api_customers' %}", window.location.origin);
+      if(qInput.value) u.searchParams.set('q', qInput.value);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      list.innerHTML = '';
+      if(!data.results?.length){ list.innerHTML='<div class="item muted">No customers.</div>'; return; }
+      data.results.forEach(c=>{
+        const div = document.createElement('div');
+        div.className='item';
+        div.innerHTML = `<div><strong>${c.name}</strong> <span class="muted">${c.mnemonic?('· '+c.mnemonic):''}</span></div>
+                         <div class="muted">${c.street_1||''} ${c.city||''} ${c.state||''} ${c.zip_code||''}</div>`;
+        div.addEventListener('click', ()=> chooseCustomer(c));
+        list.appendChild(div);
+      });
+    }catch{ list.innerHTML = '<div class="item muted">Network error</div>'; }
+  }
+
+  async function fetchNextNumber(customerId){
+    try{
+      const u = new URL("{% url 'invoicing:api_invoice_next_number' %}", window.location.origin);
+      u.searchParams.set('customer_id', String(customerId));
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      if (data && data.ok && data.number) return data.number;
+    }catch(e){}
+    return null;
+  }
+
+  function chooseCustomer(c){
+    selectedCustomer = c;
+    const el = $('#billto-addr');
+    if (el){
+      el.innerHTML = `<div><strong data-customer-id="${c.id}">${c.name}</strong></div>
+                      ${(c.street_1?`<div>${c.street_1}</div>`:'')}
+                      <div>${(c.city||'')}${c.state?(', '+c.state):''} ${(c.zip_code||'')}</div>
+                      ${(c.email?`<div class="muted">${c.email}</div>`:'')}
+                      ${(c.phone?`<div class="muted">${c.phone}</div>`:'')}`;
+    }
+
+    (async ()=>{
+      const next = await fetchNextNumber(c.id);
+      if (next && invNo) { invNo.value = next; }
+      else if (c.mnemonic && invNo) { invNo.value = `${c.mnemonic}-000001`; }
+    })();
+
+    Object.keys(SUG_CACHE_BY_CODE).forEach(k=> delete SUG_CACHE_BY_CODE[k]);
+    Object.keys(SUG_LABEL_MAP).forEach(k=> delete SUG_LABEL_MAP[k]);
+    $$('.i-job').forEach(inp => inp.value='');
+
+    hidePanel();
+    closeModal();
+  }
+
+  const tbody = $('#items-body');
+  const btnAdd = $('#btn-add-line');
+  const TAX_IN = $('#tax-percent');
+  const EL_SUB = $('#subtotal-val');
+  const EL_TAX = $('#tax-amount');
+  const EL_TOT = $('#total-val');
+
+  function fmt(n){ return CURRENCY + (Number(n||0).toFixed(2)); }
+
+  function calc(){
+    let subtotal = 0;
+    $$('.row', tbody).forEach(tr=>{
+      const qty  = parseFloat($('.i-qty', tr).value.replace(',', '.')) || 0;
+      const rate = parseFloat($('.i-rate', tr).value.replace(',', '.')) || 0;
+      const amt  = Math.max(0, qty) * Math.max(0, rate);
+      $('.i-amount', tr).value = amt.toFixed(2);
+      $('.i-amount-show', tr).textContent = fmt(amt);
+      subtotal += amt;
+    });
+    if (EL_SUB) EL_SUB.textContent = fmt(subtotal);
+    const taxP = Math.max(0, parseFloat(TAX_IN?.value)||0) / 100;
+    const taxAmount = subtotal * taxP;
+    if (EL_TAX) EL_TAX.textContent = fmt(taxAmount);
+    if (EL_TOT) EL_TOT.textContent = taxP > 0 ? fmt(subtotal + taxAmount) : fmt(subtotal);
+  }
+
+  function openMenu(menu){ menu.hidden = false; menu.dataset.index = '' }
+  function closeMenu(menu){ menu.hidden = true; menu.dataset.index = '' }
+  function setActive(items, idx){
+    items.forEach(i=>i.classList.remove('active'));
+    if(items[idx]){ items[idx].classList.add('active'); items[idx].parentElement.dataset.index = String(idx); }
+  }
+  function moveActive(items, delta){
+    let idx = parseInt(items[0]?.parentElement.dataset.index || '0', 10);
+    idx = Math.min(Math.max(idx + delta, 0), items.length - 1);
+    setActive(items, idx);
+  }
+  function applyItem(tr, data){
+    tr.querySelector('.i-job').value  = data.job_code || '';
+    tr.querySelector('.i-desc').value = data.description || '';
+    tr.querySelector('.i-unit').value = data.uom || '';
+    tr.querySelector('.i-rate').value = (parseFloat(data.rate)||0).toFixed(2);
+    const qtyInp = tr.querySelector('.i-qty');
+    if (qtyInp && (!qtyInp.value || parseFloat(qtyInp.value) === 0)) {
+      qtyInp.value = '1';
+    }
+    closeMenu(tr.querySelector('.sugmenu'));
+    calc();
+  }
+
+  let ROW_UID = 0;
+  function mkRow(){
+    const uid = ++ROW_UID;
+    const dlId = `jobcodes-list-${uid}`;
+    const tr = document.createElement('tr'); tr.className='row';
+    tr.innerHTML = `
+      <td><input class="line-input i-daily" placeholder="D-0001"></td>
+      <td class="jobcell">
+        <input class="line-input i-job" placeholder="Type job code…" list="${dlId}" autocomplete="off">
+        <datalist id="${dlId}"></datalist>
+        <div class="sugmenu" hidden></div>
+      </td>
+      <td><input class="line-input i-desc" placeholder="Description" readonly></td>
+      <td class="num"><input class="line-input i-qty" type="number" min="0" step="0.01" style="text-align:right" value="0"></td>
+      <td><input class="line-input i-unit" placeholder="UOM" readonly></td>
+      <td class="num"><input class="line-input i-rate" placeholder="0.00" readonly style="text-align:right"></td>
+      <td class="num"><span class="i-amount-show">${fmt(0)}</span><input class="i-amount" type="hidden" value="0"></td>
+      <td class="only-screen"><button type="button" class="btn" data-del>✕</button></td>
+    `;
+
+    const jobInput = tr.querySelector('.i-job');
+    const menu = tr.querySelector('.sugmenu');
+
+    tr.addEventListener('input', (e)=>{
+      const t = e.target;
+      if(t.classList.contains('i-qty')){
+        if(parseFloat(t.value) < 0) t.value = 0;
+        calc();
+      }
+      if(t.classList.contains('i-job')){
+        const q = (t.value || '').trim();
+        activeJobRow = tr;
+        suggestJobCodes(q, tr, dlId);
+        showPanelFor(t);
+        loadJobPanelData(q);
+      }
+    });
+
+    jobInput.addEventListener('focus', ()=>{
+      activeJobRow = tr;
+      showPanelFor(jobInput);
+      loadJobPanelData('');
+    });
+
+    jobInput.addEventListener('keydown', (e)=>{
+      const items = Array.from(menu.querySelectorAll('.sugitem'));
+      const has = !menu.hidden && items.length;
+      if(e.key === 'ArrowDown'){
+        e.preventDefault();
+        if(menu.hidden && items.length){ openMenu(menu); setActive(items, 0); }
+        else if(has){ moveActive(items, +1); }
+      }else if(e.key === 'ArrowUp' && has){
+        e.preventDefault(); moveActive(items, -1);
+      }else if(e.key === 'Enter' && has){
+        e.preventDefault();
+        const act = items.find(i=>i.classList.contains('active')) || items[0];
+        if(act){ act.dispatchEvent(new Event('mousedown')); }
+      }else if(e.key === 'Escape' && !menu.hidden){
+        closeMenu(menu);
+      }
+    });
+
+    jobInput.addEventListener('blur', ()=> setTimeout(()=> closeMenu(menu), 120));
+
+    tr.querySelector('.i-job').addEventListener('change', (e)=>{
+      let raw = e.target.value.trim();
+      let picked = SUG_LABEL_MAP[raw];
+      if (picked) e.target.value = picked.job_code;
+
+      const code = e.target.value.trim();
+      if(!code) return;
+
+      const list = SUG_CACHE_BY_CODE[code] || [];
+      const custCity = (selectedCustomer && selectedCustomer.city) ? (selectedCustomer.city || '').toLowerCase() : '';
+      let data = picked || list.find(x => (x.city||'').toLowerCase() === custCity) || list[0];
+      if(data) applyItem(tr, data);
+    });
+
+    tr.querySelector('[data-del]').addEventListener('click', ()=>{ tr.remove(); calc(); hidePanel(); });
+
+    return tr;
+  }
+
+  async function suggestJobCodes(q, tr, dlId){
+    const clientName = $('#billto-addr strong')?.textContent?.trim() || '';
+    const dl = document.getElementById(dlId);
+    const menu = tr.querySelector('.sugmenu');
+
+    if(!clientName){ dl.innerHTML=''; closeMenu(menu); return; }
+    if(!q){ dl.innerHTML=''; closeMenu(menu); return; }
+
+    try{
+      const u = new URL("{% url 'invoicing:api_itemcodes' %}", window.location.origin);
+      u.searchParams.set('q', q);
+      u.searchParams.set('client', clientName);
+      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+
+      dl.innerHTML = '';
+      menu.innerHTML = '';
+
+      (data.results||[]).forEach(it=>{
+        SUG_CACHE_BY_CODE[it.job_code] ??= [];
+        if (!SUG_CACHE_BY_CODE[it.job_code].some(x => (x.city||'')===(it.city||''))) {
+          SUG_CACHE_BY_CODE[it.job_code].push(it);
+        }
+        const label = `${it.job_code} ${it.city || ''} - ${it.description||''}`.trim();
+        SUG_LABEL_MAP[label] = it;
+
+        const opt = document.createElement('option');
+        opt.value = label; opt.textContent = label;
+        dl.appendChild(opt);
+
+        const row = document.createElement('div');
+        row.className = 'sugitem';
+        row.textContent = label;
+        row.addEventListener('mousedown', (e)=>{ e.preventDefault(); applyItem(tr, it); });
+        menu.appendChild(row);
+      });
+
+      if(menu.children.length){ openMenu(menu); setActive(Array.from(menu.children), 0); }
+      else{ closeMenu(menu); }
+    }catch(e){
+      dl.innerHTML = '';
+      closeMenu(menu);
+    }
+  }
+
+  btnAdd && btnAdd.addEventListener('click', ()=>{ tbody.appendChild(mkRow()); });
+  for (let i=0;i<5;i++) tbody.appendChild(mkRow());
+
+  TAX_IN && TAX_IN.addEventListener('input', calc);
+  calc();
+})();
+</script>
+{% endif %}
 </body>
 </html>

@@ -5,45 +5,85 @@
 <div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
   <h1 class="text-2xl font-bold text-gray-800 mb-4">{{ page_title }}</h1>
 
-  <form method="post" class="space-y-4">
+<form method="post" class="space-y-4" novalidate>
     {% csrf_token %}
+    {% if form.non_field_errors %}
+  <div class="mb-3 p-3 rounded bg-rose-50 text-rose-700 border border-rose-200">
+    {{ form.non_field_errors }}
+  </div>
+{% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm mb-1">City</label>
-        {{ form.city|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Project</label>
-        {{ form.project|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Office</label>
-        {{ form.office|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Client</label>
-        {{ form.client|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Work Type</label>
-        {{ form.work_type|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Job Code</label>
-        {{ form.job_code|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-sm mb-1">Description</label>
-        {{ form.description|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">UOM</label>
-        {{ form.uom|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Rate</label>
-        {{ form.rate|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
-      </div>
+  <label class="block text-sm mb-1">City</label>
+  {{ form.city|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.city.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.city.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Project</label>
+  {{ form.project|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.project.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.project.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Office</label>
+  {{ form.office|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.office.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.office.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Client</label>
+  {{ form.client|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.client.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.client.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Work Type</label>
+  {{ form.work_type|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.work_type.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.work_type.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Job Code</label>
+  {{ form.job_code|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.job_code.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.job_code.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div class="md:col-span-2">
+  <label class="block text-sm mb-1">Description</label>
+  {{ form.description|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.description.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.description.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">UOM</label>
+  {{ form.uom|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.uom.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.uom.errors.0 }}</p>
+  {% endif %}
+</div>
+
+<div>
+  <label class="block text-sm mb-1">Rate</label>
+  {{ form.rate|add_class:"w-full border rounded-lg px-3 py-2 text-sm" }}
+  {% if form.rate.errors %}
+    <p class="text-rose-600 text-xs mt-1">{{ form.rate.errors.0 }}</p>
+  {% endif %}
+</div>
     </div>
 
     <div class="flex items-center justify-between mt-2">

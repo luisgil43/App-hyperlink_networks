@@ -21,13 +21,12 @@
   /* Sheet */
   .sheet{
     width:100%;
-    max-width:none;
-    margin:24px 0;
+    max-width:none;          /* ocupar todo el ancho del panel */
+    margin:24px 0;           /* sin margen horizontal extra */
     background:var(--bg);
     border-radius:var(--radius);
     box-shadow:0 10px 24px rgba(2,6,23,.08);
-    overflow:hidden;
-    position:relative;
+    overflow:hidden
   }
   .stripe{height:10px;background:linear-gradient(90deg,var(--secondary),var(--primary),var(--accent))}
   .wrap{padding:var(--pad)}
@@ -74,7 +73,7 @@
     width:100%;
     border-collapse:separate;
     border-spacing:0;
-    table-layout:auto;
+    table-layout:auto;       /* que se adapte a contenido (monto grande) */
     font-size:13px
   }
   thead th{background:var(--secondary);color:white;text-align:center;padding:12px;white-space:nowrap}
@@ -82,7 +81,7 @@
   tbody td{border-top:1px solid var(--line);padding:10px 12px;vertical-align:middle;text-align:center}
   td.num{
     text-align:right;
-    white-space:nowrap;
+    white-space:nowrap;       /* no partir números ni $ */
     font-variant-numeric: tabular-nums;
   }
   td.desc{text-align:left;color:var(--ink)}
@@ -91,15 +90,15 @@
   .line-input{width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
   .line-input[readonly]{background:#f8fafc;color:#64748b}
 
-  /* Anchos columnas */
-  thead th:nth-child(1), tbody td:nth-child(1){ width:14%; }
-  thead th:nth-child(2), tbody td:nth-child(2){ width:16%; }
-  thead th:nth-child(3), tbody td:nth-child(3){ width:32%; }
-  thead th:nth-child(4), tbody td:nth-child(4){ width:9%;  }
-  thead th:nth-child(5), tbody td:nth-child(5){ width:9%;  }
-  thead th:nth-child(6), tbody td:nth-child(6){ width:8%;  }
-  thead th:nth-child(7), tbody td:nth-child(7){ width:12%; }
-  thead th:nth-child(8), tbody td:nth-child(8){ width:0%;  }
+  /* Anchos columnas (pantalla) - damos más espacio a Amount */
+  thead th:nth-child(1), tbody td:nth-child(1){ width:14%; } /* Daily */
+  thead th:nth-child(2), tbody td:nth-child(2){ width:16%; } /* Job Code */
+  thead th:nth-child(3), tbody td:nth-child(3){ width:32%; } /* Description (↓) */
+  thead th:nth-child(4), tbody td:nth-child(4){ width:9%;  } /* Qty */
+  thead th:nth-child(5), tbody td:nth-child(5){ width:9%;  } /* Unit */
+  thead th:nth-child(6), tbody td:nth-child(6){ width:8%;  } /* Rate */
+  thead th:nth-child(7), tbody td:nth-child(7){ width:12%; } /* Amount (↑) */
+  thead th:nth-child(8), tbody td:nth-child(8){ width:0%;  } /* Actions (screen only) */
 
   .addline{margin-top:10px}
 
@@ -145,38 +144,6 @@
   .small{font-size:12px;color:#64748b}
   body.modal-open{overflow:hidden}
 
-  /* PANEL LATERAL DE JOB CODES (AGRANDADO) */
-  .jobcodes-panel{
-    position:absolute;
-    width:min(560px, calc(100vw - 80px));
-    max-height:560px;
-    background:#fff;
-    border:1px solid #e2e8f0;
-    border-radius:14px;
-    box-shadow:0 12px 30px rgba(15,23,42,.12);
-    display:none;
-    z-index:9998;
-    overflow:hidden;
-  }
-  .jobcodes-panel.show{display:block;}
-  .jobcodes-head{
-    display:flex;align-items:flex-start;justify-content:space-between;
-    gap:12px;padding:12px 14px 6px 14px;border-bottom:1px solid #e2e8f0;
-  }
-  .jobcodes-head h4{margin:0;font-size:14px;font-weight:600;color:#0f172a}
-  .jobcodes-filter{
-    width:100%;border:1px solid #e2e8f0;border-radius:999px;padding:6px 10px;
-    font-size:13px;margin-top:8px;outline:none;
-  }
-  .jobcodes-body{max-height:460px;overflow:auto;}
-  .jobcodes-row{
-    display:grid;grid-template-columns:120px 140px 1fr 78px;
-    gap:6px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;cursor:pointer;
-  }
-  .jobcodes-row:hover{background:#f8fafc;}
-  .jobcodes-row strong{font-size:13px;color:#0f172a}
-  .jobcodes-rate{text-align:right;font-variant-numeric:tabular-nums;}
-
   /* Solo pantalla / Solo PDF */
 {% if pdf_mode %}
   .only-screen{ display:none !important; }
@@ -188,15 +155,19 @@
 {% if pdf_mode %}
   @page { size: A4; margin: 6mm 6mm; }
 
+  /* Fondo blanco real en todo el documento (html + body) y variable */
   :root{ --paper:#ffffff; }
   html, body{
     background:#fff !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  /* Ancho completo y sin sombras en PDF */
   .sheet{ box-shadow:none; margin:0; max-width:100%; border-radius:0; }
   .wrap{ padding:6mm 8mm; }
 
+  /* Cabecera segura (2 columnas) */
   :root{ --meta-col: 100mm; }
   .header{
     display:grid !important;
@@ -221,11 +192,13 @@
   .kv > div{ white-space:nowrap; }
   .kv strong{ color:var(--secondary); white-space:nowrap; }
 
+  /* FROM / BILL TO full-bleed */
   .section.two{ margin-left:-8mm; margin-right:-8mm; padding-left:8mm; padding-right:8mm; }
   .two{ grid-template-columns:1fr 1fr; gap:6mm; }
   .panel{ break-inside:avoid; }
   .addr, .addr div{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; hyphens:auto; }
 
+  /* Tabla full-bleed */
   .items{ margin-left:-8mm; margin-right:-8mm; }
   .items thead th:first-child, .items tbody td:first-child{ padding-left:1mm; }
   .items thead th:last-child,  .items tbody td:last-child { padding-right:8mm; }
@@ -233,6 +206,7 @@
   .items thead th{ white-space:nowrap; }
   .items td.num, .items th.num{ white-space:nowrap; word-break:normal; }
 
+  /* Totales alineados */
   .summary{ margin-left:-8mm; margin-right:-8mm; padding-left:8mm; padding-right:0; }
 {% endif %}
 </style>
@@ -268,19 +242,19 @@
             </div>
           {% else %}
             <div class="kv">
-              <div class="kv-field">
-                <strong>No.</strong>
-                <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" />
-              </div>
-              <div class="kv-field">
-                <strong>Date:</strong>
-                <input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}">
-              </div>
-              <div class="kv-field">
-                <strong>Due:</strong>
-                <input id="inv-due"  type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}">
-              </div>
-            </div>
+  <div class="kv-field">
+    <strong>No.</strong>
+    <input id="inv-number" type="text" value="{{ invoice.number|default:'' }}" placeholder="AUTO" />
+  </div>
+  <div class="kv-field">
+    <strong>Date:</strong>
+    <input id="inv-date" type="text" autocomplete="off" value="{{ invoice.issue_date|default_if_none:'' }}">
+  </div>
+  <div class="kv-field">
+    <strong>Due:</strong>
+    <input id="inv-due"  type="text" autocomplete="off" value="{{ invoice.due_date|default_if_none:'' }}">
+  </div>
+</div>
           {% endif %}
         </div>
       </div>
@@ -293,10 +267,10 @@
             <div><strong>{{ profile.company_name|default:"Your Company" }}</strong></div>
             {% if profile.company_address %}<div>{{ profile.company_address }}</div>{% endif %}
             {% if profile.company_city or profile.company_state or profile.company_zip %}
-              <div>
-                {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}
-              </div>
-            {% endif %}
+  <div>
+    {{ profile.company_city }}{% if profile.company_state %}, {{ profile.company_state }}{% endif %} {{ profile.company_zip }}
+  </div>
+{% endif %}
             {% if profile.company_email %}<div class="muted">{{ profile.company_email }}</div>{% endif %}
             {% if profile.company_phone %}<div class="muted">{{ profile.company_phone }}</div>{% endif %}
           </div>
@@ -412,46 +386,30 @@
         </div>
       </div>
 
+
       <!-- Footer (pantalla) -->
-      <div class="foot only-screen">
-        <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
-        <div class="pill">Generated with your selected branding</div>
-      </div>
+<div class="foot only-screen">
+  <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
+  <div class="pill">Generated with your selected branding</div>
+</div>
 
-      <!-- Footer (PDF) -->
-      <div class="foot only-pdf pdf-footer">
-        <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
-      </div>
+<!-- Footer (PDF) -->
+<div class="foot only-pdf pdf-footer">
+  <div>Need help? <span class="accent">{{ profile.company_email|default:"support@example.com" }}</span></div>
+</div>
 
-      <!-- Customer Picker Modal -->
-      <div class="modal only-screen" id="modal-customers" aria-hidden="true">
-        <div class="modal-card">
-          <div class="modal-head">
-            <h3>Select customer</h3>
-            <button class="btn-link" data-close>✕</button>
-          </div>
-          <div class="searchbar">
-            <input id="cust-q" type="search" placeholder="Search by name, email, phone or mnemonic…">
-            <button class="btn" id="cust-search">Search</button>
-          </div>
-          <div class="list" id="cust-list" style="margin-top:10px"></div>
-        </div>
+  <!-- Customer Picker Modal (screen only) -->
+  <div class="modal only-screen" id="modal-customers" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Select customer</h3>
+        <button class="btn-link" data-close>✕</button>
       </div>
-
-      <!-- Panel Job Codes -->
-      <div class="jobcodes-panel only-screen" id="jobcodes-panel" aria-hidden="true">
-        <div class="jobcodes-head">
-          <div style="flex:1 1 auto;">
-            <h4>Job Codes</h4>
-            <input id="jobcodes-filter" class="jobcodes-filter" type="search" placeholder="Filter job codes…">
-          </div>
-          <button type="button" class="btn-link" id="jobcodes-close">✕</button>
-        </div>
-        <div class="jobcodes-body" id="jobcodes-body">
-          <!-- JS dibuja filas -->
-        </div>
+      <div class="searchbar">
+        <input id="cust-q" type="search" placeholder="Search by name, email, phone or mnemonic…">
+        <button class="btn" id="cust-search">Search</button>
       </div>
-
+      <div class="list" id="cust-list" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -466,52 +424,31 @@
   const SUG_CACHE_BY_CODE = Object.create(null);
   const SUG_LABEL_MAP     = Object.create(null);
 
-  const panelJob   = $('#jobcodes-panel');
-  const panelInput = $('#jobcodes-filter');
-  const panelBody  = $('#jobcodes-body');
-  const panelClose = $('#jobcodes-close');
-  let activeJobRow = null;
 
-  function showPanelFor(inputEl){
-    if (!panelJob || !inputEl) return;
-    const sheetRect = root.getBoundingClientRect();
-    const rect = inputEl.getBoundingClientRect();
+// Dates & number
+const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
+const todayISO = ()=> (new Date()).toISOString().slice(0,10);
 
-    const top  = rect.top  - sheetRect.top + root.scrollTop + 4;
-    const left = rect.left - sheetRect.left + root.scrollLeft + rect.width + 8;
+// 1) Forzar "hoy" si está vacío o inválido (New Invoice)
+if (inputDate && (!inputDate.value || isNaN(Date.parse(inputDate.value)))) {
+  inputDate.value = todayISO();
+}
 
-    panelJob.style.top  = top + 'px';
-    panelJob.style.left = left + 'px';
+// 2) Due +30 días si está vacío o inválido
+if (inputDue && (!inputDue.value || isNaN(Date.parse(inputDue.value)))) {
+  const base = (inputDate && inputDate.value) ? inputDate.value : todayISO();
+  const d = new Date(base);
+  d.setDate(d.getDate() + 30);
+  inputDue.value = d.toISOString().slice(0,10);
+}
 
-    panelJob.classList.add('show');
-    panelJob.setAttribute('aria-hidden','false');
-  }
-  function hidePanel(){
-    if (!panelJob) return;
-    panelJob.classList.remove('show');
-    panelJob.setAttribute('aria-hidden','true');
-  }
-  panelClose && panelClose.addEventListener('click', hidePanel);
+if (window.flatpickr) {
+  const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
+  if (inputDate) flatpickr("#inv-date", opts);
+  if (inputDue)  flatpickr("#inv-due",  opts);
+}
 
-  const inputDate = $('#inv-date'), inputDue = $('#inv-due'), invNo = $('#inv-number');
-  const todayISO = ()=> (new Date()).toISOString().slice(0,10);
-
-  if (inputDate && (!inputDate.value || isNaN(Date.parse(inputDate.value)))) {
-    inputDate.value = todayISO();
-  }
-  if (inputDue && (!inputDue.value || isNaN(Date.parse(inputDue.value)))) {
-    const base = (inputDate && inputDate.value) ? inputDate.value : todayISO();
-    const d = new Date(base);
-    d.setDate(d.getDate() + 30);
-    inputDue.value = d.toISOString().slice(0,10);
-  }
-
-  if (window.flatpickr) {
-    const opts = { dateFormat: "Y-m-d", allowInput: true, locale: { firstDayOfWeek: 1 } };
-    if (inputDate) flatpickr("#inv-date", opts);
-    if (inputDue)  flatpickr("#inv-due",  opts);
-  }
-
+  // Modal customers
   const modal = $('#modal-customers');
   const btnPick = $('#btn-pick-customer');
   const btnClose = modal ? modal.querySelector('[data-close]') : null;
@@ -579,10 +516,10 @@
     Object.keys(SUG_CACHE_BY_CODE).forEach(k=> delete SUG_CACHE_BY_CODE[k]);
     Object.keys(SUG_LABEL_MAP).forEach(k=> delete SUG_LABEL_MAP[k]);
     $$('.i-job').forEach(inp => inp.value='');
-    hidePanel();
     closeModal();
   }
 
+  // Items
   const tbody = $('#items-body');
   const btnAdd = $('#btn-add-line');
   const TAX_IN = $('#tax-percent');
@@ -629,57 +566,6 @@
     calc();
   }
 
-  async function loadJobPanelData(q){
-    if (!panelBody) return;
-    const clientName = $('#billto-addr strong')?.textContent?.trim() || '';
-    if (!clientName){
-      panelBody.innerHTML = '<div style="padding:12px" class="small">Select a customer first.</div>';
-      return;
-    }
-    panelBody.innerHTML = '<div style="padding:12px" class="small">Loading…</div>';
-    try{
-      const u = new URL("{% url 'invoicing:api_itemcodes' %}", window.location.origin);
-      if (q) u.searchParams.set('q', q);
-      u.searchParams.set('client', clientName);
-      const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
-      const data = await res.json();
-      const rows = data.results || [];
-      if (!rows.length){
-        panelBody.innerHTML = '<div style="padding:12px" class="small">No job codes.</div>';
-        return;
-      }
-      panelBody.innerHTML = '';
-      rows.forEach(it=>{
-        const div = document.createElement('div');
-        div.className = 'jobcodes-row';
-        div.innerHTML = `
-          <div><strong>${it.job_code}</strong></div>
-          <div>${it.city || ''}</div>
-          <div>${it.description || ''}</div>
-          <div class="jobcodes-rate">${(parseFloat(it.rate)||0).toFixed(2)}</div>
-        `;
-        div.addEventListener('click', ()=>{
-          if (activeJobRow){
-            applyItem(activeJobRow, it);
-            const qtyInp = activeJobRow.querySelector('.i-qty');
-            if (qtyInp && (!qtyInp.value || parseFloat(qtyInp.value) === 0)){
-              qtyInp.value = '1';
-            }
-            calc();
-            hidePanel();
-          }
-        });
-        panelBody.appendChild(div);
-      });
-    }catch(e){
-      panelBody.innerHTML = '<div style="padding:12px" class="small">Network error.</div>';
-    }
-  }
-
-  panelInput && panelInput.addEventListener('input', (e)=>{
-    loadJobPanelData(e.target.value.trim());
-  });
-
   let ROW_UID = 0;
   function mkRow(){
     const uid = ++ROW_UID;
@@ -711,17 +597,8 @@
       }
       if(t.classList.contains('i-job')){
         const q = (t.value || '').trim();
-        activeJobRow = tr;
         suggestJobCodes(q, tr, dlId);
-        showPanelFor(t);
-        loadJobPanelData(q);
       }
-    });
-
-    jobInput.addEventListener('focus', ()=>{
-      activeJobRow = tr;
-      showPanelFor(jobInput);
-      loadJobPanelData('');
     });
 
     jobInput.addEventListener('keydown', (e)=>{

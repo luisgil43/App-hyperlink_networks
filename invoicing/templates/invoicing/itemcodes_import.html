@@ -11,6 +11,37 @@
     <div class="mb-4 p-3 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">{{ success }}</div>
   {% endif %}
 
+  {% if report %}
+  <div class="mb-4 p-3 rounded border border-slate-200 bg-slate-50 text-slate-800">
+    <div class="font-semibold mb-1">Summary</div>
+    <ul class="list-disc ml-5 text-sm">
+      <li>Created: {{ report.created }}</li>
+      <li>Updated: {{ report.updated }}</li>
+      <li>Skipped: {{ report.skipped }}</li>
+    </ul>
+    {% if report.notes %}
+      <details class="mt-2">
+        <summary class="cursor-pointer text-sm text-amber-700">Rows updated because code already existed for that city</summary>
+        <ul class="list-disc ml-6 text-sm mt-1">
+          {% for n in report.notes %}
+            <li>Row {{ n.row }} — {{ n.message }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+    {% if report.errors %}
+      <details class="mt-2">
+        <summary class="cursor-pointer text-sm text-rose-700">Rows with errors</summary>
+        <ul class="list-disc ml-6 text-sm mt-1">
+          {% for e in report.errors %}
+            <li>Row {{ e.row }} — {{ e.message }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+  </div>
+{% endif %}
+
   <form method="post" enctype="multipart/form-data" class="space-y-4">
     {% csrf_token %}
 

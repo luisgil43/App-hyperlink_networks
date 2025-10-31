@@ -2,7 +2,7 @@
 {% load humanize %}
 
 {% block dashboard_content %}
-<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6" id="customers-root">
+<div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-6" id="customers-root">
   <!-- Header -->
   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
     <div>
@@ -22,12 +22,16 @@
       <input id="f-q" type="search" placeholder="Search by name, email, phone, or mnemonic"
              class="w-full md:w-80 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
              value="{{ q|default:'' }}">
-      <select id="f-state" class="border rounded-lg px-3 py-2 text-sm">
-        <option value="">All states</option>
-        {% for code in states_list %}
-          <option value="{{ code }}" {% if state == code %}selected{% endif %}>{{ code }}</option>
-        {% endfor %}
-      </select>
+
+
+        <select id="f-state" class="border rounded-lg px-3 py-2 text-sm">
+  <option value="">All states</option>
+  {% for code in states_list %}
+    <option value="{{ code }}" {% if state == code %}selected{% endif %}>{{ code }}</option>
+  {% endfor %}
+</select>
+
+
       <select id="f-status" class="border rounded-lg px-3 py-2 text-sm">
         <option value="all" {% if status == "all" %}selected{% endif %}>All statuses</option>
         <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
@@ -39,63 +43,60 @@
     </div>
   </div>
 
-  <!-- Tabla: un solo contenedor con overflow-x-auto -->
-  <div id="customers-table" class="max-w-full">
-    <div id="customers-scroller"
-         class="rounded-xl border border-gray-200 overflow-x-auto"
-         style="-webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; overflow-y:hidden;">
-      <table id="customers-table-el"
-             class="table-auto text-sm w-full min-w-[1750px]"
-             style="white-space: nowrap;">
-        <thead class="bg-slate-50 text-slate-700 font-semibold">
-          <tr>
-            <th class="text-left px-4 py-2 w-64">Customer</th>
-            <th class="text-left px-4 py-2 w-28">Mnemonic</th>
-            <th class="text-left px-4 py-2 w-56">Client</th>
-            <th class="text-left px-4 py-2 w-[360px]">Street</th>
-            <th class="text-left px-4 py-2 w-40">City</th>
-            <th class="text-left px-4 py-2 w-28">ZIP</th>
-            <th class="text-left px-4 py-2 w-32">State</th>
-            <th class="text-left px-4 py-2 w-64">Email</th>
-            <th class="text-left px-4 py-2 w-40">Phone</th>
-            <th class="text-right px-4 py-2 w-28">Open Invoices</th>
-            <th class="text-right px-4 py-2 w-32">Outstanding</th>
-            <th class="text-right px-4 py-2 w-28">Actions</th>
-          </tr>
-        </thead>
+  <!-- Tabla -->
+  <div id="customers-table">
+    <div class="overflow-x-auto rounded-xl ring-1 ring-slate-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-700">
+  <tr>
+    <th class="text-left px-4 py-2">Customer</th>
+    <!-- NUEVO -->
+    <th class="text-left px-4 py-2">Mnemonic</th>
+    <!-- /NUEVO -->
+    <th class="text-left px-4 py-2">City</th>
+    <th class="text-left px-4 py-2">State</th>
+    <th class="text-left px-4 py-2">Email</th>
+    <th class="text-left px-4 py-2">Phone</th>
+    <th class="text-right px-4 py-2">Open Invoices</th>
+    <th class="text-right px-4 py-2">Outstanding</th>
+    <th class="text-right px-4 py-2">Actions</th>
+  </tr>
+</thead>
         <tbody>
-          {% if page_obj.object_list %}
-            {% for c in page_obj.object_list %}
-              <tr class="border-t">
-                <td class="px-4 py-2 font-medium">{{ c.name }}</td>
-                <td class="px-4 py-2 font-mono uppercase">{{ c.mnemonic|default:"-" }}</td>
-                <td class="px-4 py-2">{{ c.client|default:"-" }}</td>
-                <td class="px-4 py-2 align-top"><div class="clamp-2">{{ c.street_1|default:"-" }}</div></td>
-                <td class="px-4 py-2">{{ c.city|default:"-" }}</td>
-                <td class="px-4 py-2">{{ c.zip_code|default:"-" }}</td>
-                <td class="px-4 py-2">{{ c.state|default:"-" }}</td>
-                <td class="px-4 py-2 max-w-[260px] overflow-hidden text-ellipsis">{{ c.email|default:"-" }}</td>
-                <td class="px-4 py-2">{{ c.phone|default:"-" }}</td>
-                <td class="px-4 py-2 text-right">{{ c.open_invoices|default:"0" }}</td>
-                <td class="px-4 py-2 text-right">${{ c.outstanding|default:"0.00" }}</td>
-                <td class="px-4 py-2 text-right">
-                  <button class="text-blue-600 hover:underline" data-edit data-id="{{ c.id }}">Edit</button>
-                  <span class="text-slate-400">·</span>
-                  <button class="text-rose-600 hover:underline" data-delete data-id="{{ c.id }}">Delete</button>
-                </td>
-              </tr>
-            {% endfor %}
-          {% else %}
-            <tr class="border-t">
-              <td colspan="12" class="px-4 py-10 text-center text-slate-500">No customers.</td>
-            </tr>
-          {% endif %}
-        </tbody>
+  {% if page_obj.object_list %}
+    {% for c in page_obj.object_list %}
+      <tr class="border-t">
+        <td class="px-4 py-2 font-medium">{{ c.name }}</td>
+        <!-- NUEVO -->
+        <td class="px-4 py-2 font-mono uppercase">{{ c.mnemonic|default:"-" }}</td>
+        <!-- /NUEVO -->
+        <td class="px-4 py-2">{{ c.city|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.state|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.email|default:"-" }}</td>
+        <td class="px-4 py-2">{{ c.phone|default:"-" }}</td>
+        <td class="px-4 py-2 text-right">{{ c.open_invoices|default:"0" }}</td>
+        <td class="px-4 py-2 text-right">${{ c.outstanding|default:"0.00" }}</td>
+        <td class="px-4 py-2 text-right">
+          <button class="text-blue-600 hover:underline" data-edit data-id="{{ c.id }}">Edit</button>
+          <span class="text-slate-400">·</span>
+          <button class="text-rose-600 hover:underline" data-delete data-id="{{ c.id }}">Delete</button>
+        </td>
+      </tr>
+    {% endfor %}
+  {% else %}
+    <!-- OJO: aumenta el colspan porque ahora hay una columna más -->
+    <tr class="border-t">
+      <td colspan="9" class="px-4 py-10">
+        ...
+      </td>
+    </tr>
+  {% endif %}
+</tbody>
       </table>
     </div>
   </div>
 
-  <!-- Paginación -->
+  <!-- Paginación estilo “Production Verification” -->
   <div id="customers-pagination" class="mt-4">
     {% if paginator.num_pages > 1 %}
       <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
@@ -140,7 +141,7 @@
   </div>
 </div>
 
-<!-- Modales -->
+<!-- Modal New/Edit -->
 <div id="modal-customer" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
   <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6">
     <div class="flex items-center justify-between mb-3">
@@ -148,36 +149,35 @@
       <button class="text-slate-500 hover:text-slate-700" data-close>✕</button>
     </div>
 
-    <form id="customer-form" class="space-y-3" data-mode="new" novalidate>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input name="name" class="border rounded-lg px-3 py-2 text-sm" placeholder="Name" required>
-        <input name="mnemonic" class="border rounded-lg px-3 py-2 text-sm uppercase" placeholder="Mnemonic (e.g., ACME)" maxlength="20" required>
-      </div>
-      <input name="client" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Client label" required>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input name="email" class="border rounded-lg px-3 py-2 text-sm" placeholder="Email" required>
-        <input name="phone" class="border rounded-lg px-3 py-2 text-sm" placeholder="Phone (optional)">
-      </div>
-      <input name="street_1" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Street Address" required>
-      <div class="grid grid-cols-3 gap-2">
-        <input name="city" class="border rounded-lg px-3 py-2 text-sm" placeholder="City" required>
-        <input name="state" class="border rounded-lg px-3 py-2 text-sm" placeholder="State" required>
-        <input name="zip_code" class="border rounded-lg px-3 py-2 text-sm" placeholder="ZIP" required>
-      </div>
-      <select name="status" class="border rounded-lg px-3 py-2 text-sm" required>
-        <option value="active">Active</option>
-        <option value="archived">Archived</option>
-      </select>
+   <form id="customer-form" class="space-y-3" data-mode="new">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+    <input name="name" class="border rounded-lg px-3 py-2 text-sm" placeholder="Name" required>
+    <!-- NUEVO: nemónico -->
+    <input name="mnemonic" class="border rounded-lg px-3 py-2 text-sm uppercase" placeholder="Mnemonic (e.g., ACME)" maxlength="20">
+  </div>
 
-      <input type="hidden" name="id" id="customer-id-hidden">
-      <div class="flex items-center justify-end gap-2 pt-2">
-        <button type="button" class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
-        <button type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white">Save</button>
-      </div>
-    </form>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+    <input name="email" class="border rounded-lg px-3 py-2 text-sm" placeholder="Email">
+    <input name="phone" class="border rounded-lg px-3 py-2 text-sm" placeholder="Phone">
+  </div>
+
+  <input name="street_1" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Street Address">
+  <div class="grid grid-cols-3 gap-2">
+    <input name="city" class="border rounded-lg px-3 py-2 text-sm" placeholder="City">
+    <input name="state" class="border rounded-lg px-3 py-2 text-sm" placeholder="State">
+    <input name="zip_code" class="border rounded-lg px-3 py-2 text-sm" placeholder="ZIP">
+  </div>
+
+  <input type="hidden" name="id" id="customer-id-hidden">
+  <div class="flex items-center justify-end gap-2 pt-2">
+    <button type="button" class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
+    <button type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white">Save</button>
+  </div>
+</form>
   </div>
 </div>
 
+<!-- Modal Delete -->
 <div id="modal-delete" class="fixed inset-0 hidden items-center justify-center bg-black/40 z-50">
   <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 text-center">
     <h3 class="text-lg font-semibold mb-2">Delete customer</h3>
@@ -189,33 +189,21 @@
   </div>
 </div>
 
-<style>
-  /* Evita que el body agregue su propia barra */
-  body:has(#customers-root){ overflow-x: hidden; }
-
-  .clamp-2{
-    display:-webkit-box;
-    -webkit-line-clamp:2;
-    -webkit-box-orient:vertical;
-    overflow:hidden;
-  }
-
-  /* (Opcional) estilo de la barra nativa */
-  #customers-scroller::-webkit-scrollbar{ height: 12px; }
-  #customers-scroller::-webkit-scrollbar-track{ background:#e2e8f0; border-radius:9999px; }
-  #customers-scroller::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:9999px; }
-  #customers-scroller::-webkit-scrollbar-thumb:hover{ background:#94a3b8; }
-</style>
-
 <script>
+/* ==== Helpers ==== */
 function preserveCaret(el, fn) {
   const start = el?.selectionStart ?? 0, end = el?.selectionEnd ?? 0, scrollTop = el?.scrollTop ?? 0;
   fn && fn();
-  if (el) { el.focus(); try { el.setSelectionRange(start, end); } catch(e) {} el.scrollTop = scrollTop; }
+  if (el) {
+    el.focus();
+    try { el.setSelectionRange(start, end); } catch(e) {}
+    el.scrollTop = scrollTop;
+  }
 }
-function getCSRF(){ const m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ""; }
-function getScroller(){ return document.getElementById('customers-scroller'); }
-
+function getCSRF(){
+  const m = document.cookie.match(/csrftoken=([^;]+)/);
+  return m ? m[1] : "";
+}
 const root      = document.getElementById("customers-root");
 const inputQ    = document.getElementById("f-q");
 const selState  = document.getElementById("f-state");
@@ -223,11 +211,10 @@ const selStatus = document.getElementById("f-status");
 const btnClear  = document.getElementById("btn-clear");
 const tblWrap   = document.getElementById("customers-table");
 const pager     = document.getElementById("customers-pagination");
-const btnNew    = document.getElementById("btn-new");
-const formEl    = document.getElementById("customer-form");
-const hiddenId  = document.getElementById("customer-id-hidden");
 
-function getPerPageSel() { return document.getElementById("f-per-page") || document.getElementById("cantidad"); }
+function getPerPageSel() {
+  return document.getElementById("f-per-page") || document.getElementById("cantidad");
+}
 let _deb = null;
 function debounce(fn, ms=300){ clearTimeout(_deb); _deb = setTimeout(fn, ms); }
 function buildQS(overrides={}) {
@@ -246,26 +233,21 @@ function buildQS(overrides={}) {
 
 /* ==== Fetch list (full HTML; swap fragments) ==== */
 async function fetchList(qs, {preserveInput=true}={}) {
-  const url = `${location.pathname}?${qs}`;
+  const url = `${location.pathname}?${qs}`;  // <-- FIX: template literal
   const focusOnQ = document.activeElement === inputQ;
-
-  const oldBox = getScroller();
-  const prevScrollX = oldBox ? oldBox.scrollLeft : 0;
-  const prevScrollY = window.scrollY;
 
   const html = await fetch(url, { headers: { "X-Requested-With": "fetch" }}).then(r => r.text());
   const doc  = new DOMParser().parseFromString(html, "text/html");
 
   const newTable = doc.querySelector("#customers-table");
   const newPag   = doc.querySelector("#customers-pagination");
+  const prevScrollY = window.scrollY;
 
   if (newTable && tblWrap) tblWrap.innerHTML = newTable.innerHTML;
   if (newPag && pager)     pager.innerHTML   = newPag.innerHTML;
 
-  const newBox = getScroller();
-  if (newBox) newBox.scrollLeft = prevScrollX;
-
   if (preserveInput && focusOnQ && inputQ) preserveCaret(inputQ, ()=>{});
+
   wirePaginationLinks();
   window.scrollTo({ top: prevScrollY });
 }
@@ -319,59 +301,40 @@ wirePaginationLinks();
 /* ==== Modales & acciones ==== */
 const modalCustomer = document.getElementById("modal-customer");
 const modalDelete   = document.getElementById("modal-delete");
-let toDeleteId      = null;
-
-/* Validaciones + uppercase mnemonic */
-(function ensureInputs() {
-  const form = document.getElementById("customer-form");
-  if (!form) return;
-
-  const mnInput = form.querySelector('input[name="mnemonic"]');
-  mnInput?.addEventListener('input', () => { mnInput.value = mnInput.value.toUpperCase(); });
-
-  const requiredMsgs = {
-    name: "Name is required.",
-    mnemonic: "Mnemonic is required.",
-    client: "Client is required.",
-    email: "Email is required.",
-    street_1: "Street Address is required.",
-    city: "City is required.",
-    state: "State is required.",
-    zip_code: "ZIP is required.",
-    status: "Status is required."
-  };
-  Object.keys(requiredMsgs).forEach((name) => {
-    const el = form.querySelector(`[name="${name}"]`);
-    if (!el) return;
-    el.setAttribute("required", "required");
-    el.addEventListener("invalid", (e) => { e.target.setCustomValidity(requiredMsgs[name]); });
-    el.addEventListener("input",  (e) => { e.target.setCustomValidity(""); });
-  });
-})();
+const form         = document.getElementById("customer-form");
+const hiddenId     = document.getElementById("customer-id-hidden");
+const btnNew       = document.getElementById("btn-new");
+let toDeleteId     = null;
 
 function openModalCustomer(titleText){
   const title = document.getElementById("modal-title");
   if (title) title.textContent = titleText;
-  modalCustomer.classList.remove("hidden"); modalCustomer.classList.add("flex");
+  modalCustomer.classList.remove("hidden");
+  modalCustomer.classList.add("flex");
 }
 function closeAllModals(){
   [modalCustomer, modalDelete].forEach(m=>{
     if(!m) return;
-    m.classList.add("hidden"); m.classList.remove("flex");
+    m.classList.add("hidden");
+    m.classList.remove("flex");
   });
 }
 document.querySelectorAll("[data-close]")?.forEach(b=> b.addEventListener("click", closeAllModals));
 
 if (btnNew){
   btnNew.addEventListener("click", ()=>{
-    formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+    form.reset();
+    hiddenId.value = "";
+    form.dataset.mode = "new";
     openModalCustomer("New Customer");
   });
 }
 document.addEventListener("click", (e)=>{
   const btnInline = e.target.closest("#inline-new");
   if (btnInline){
-    formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+    form.reset();
+    hiddenId.value = "";
+    form.dataset.mode = "new";
     openModalCustomer("New Customer");
   }
 });
@@ -390,20 +353,18 @@ if (root){
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || "Unable to load customer.");
 
-        formEl.name.value      = data.customer.name || "";
-        formEl.mnemonic.value  = data.customer.mnemonic || "";
-        formEl.client.value    = (data.customer.client || "");
-        formEl.email.value     = data.customer.email || "";
-        formEl.phone.value     = data.customer.phone || "";
-        formEl.street_1.value  = data.customer.street_1 || "";
-        formEl.city.value      = data.customer.city || "";
-        formEl.state.value     = data.customer.state || "";
-        formEl.zip_code.value  = data.customer.zip_code || "";
-        hiddenId.value         = data.customer.id;
-        formEl.dataset.mode    = "edit";
+        // Prefill
+        form.name.value      = data.customer.name || "";
+        form.mnemonic.value  = data.customer.mnemonic || "";
+        form.email.value     = data.customer.email || "";
+        form.phone.value     = data.customer.phone || "";
+        form.street_1.value  = data.customer.street_1 || "";
+        form.city.value      = data.customer.city || "";
+        form.state.value     = data.customer.state || "";
+        form.zip_code.value  = data.customer.zip_code || "";
+        hiddenId.value       = data.customer.id;
+        form.dataset.mode    = "edit";
 
-        const mnInput = formEl?.querySelector('input[name="mnemonic"]');
-        mnInput?.addEventListener('input', () => { mnInput.value = mnInput.value.toUpperCase(); });
         openModalCustomer("Edit Customer");
       }catch(err){
         console.error(err);
@@ -413,7 +374,8 @@ if (root){
 
     if (btnDel){
       toDeleteId = btnDel.getAttribute("data-id");
-      modalDelete.classList.remove("hidden"); modalDelete.classList.add("flex");
+      modalDelete.classList.remove("hidden");
+      modalDelete.classList.add("flex");
     }
   });
 }
@@ -423,6 +385,8 @@ document.getElementById("btn-confirm-delete")?.addEventListener("click", async (
   if (!toDeleteId) return;
   try{
     const fd = new FormData(); fd.append("id", toDeleteId);
+    const mnInput = document.querySelector('#customer-form input[name="mnemonic"]');
+        mnInput?.addEventListener('input', () => { mnInput.value = mnInput.value.toUpperCase(); });
     const resp = await fetch("{% url 'invoicing:customers_delete' %}", {
       method: "POST",
       headers: { "X-CSRFToken": getCSRF(), "X-Requested-With":"fetch" },
@@ -440,13 +404,11 @@ document.getElementById("btn-confirm-delete")?.addEventListener("click", async (
 });
 
 /* Save (create/update) */
-if (formEl){
-  formEl.addEventListener("submit", async (e)=>{
+if (form){
+  form.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    if (!formEl.checkValidity()) { formEl.reportValidity(); return; }
-
-    const mode = formEl.dataset.mode || "new";
-    const fd   = new FormData(formEl);
+    const mode = form.dataset.mode || "new";
+    const fd   = new FormData(form);
     const url  = (mode === "edit")
       ? "{% url 'invoicing:customers_update' %}"
       : "{% url 'invoicing:customers_create' %}";
@@ -457,22 +419,12 @@ if (formEl){
         body: fd
       });
       const data = await resp.json();
-      if (!data.ok){
-        const map = {
-          "Name": "name","Mnemonic": "mnemonic","Client": "client","Email": "email",
-          "Street Address": "street_1","City": "city","State": "state","ZIP": "zip_code","Status": "status"
-        };
-        const m = String(data.error||"").match(/^([^:]+) is required\./i);
-        if (m && map[m[1]]) {
-          const el = formEl.querySelector(`[name="${map[m[1]]}"]`); el?.focus();
-        } else if (/Mnemonic .*exists/i.test(data.error||"")) {
-          const el = formEl.querySelector('[name="mnemonic"]'); el?.focus();
-        }
-        return;
-      }
+      if (!data.ok){ alert(data.error || "Could not save."); return; }
       closeAllModals();
       await fetchList(buildQS());
-      formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+      form.reset();
+      hiddenId.value = "";
+      form.dataset.mode = "new";
     }catch(err){
       console.error(err);
       alert("Network error.");

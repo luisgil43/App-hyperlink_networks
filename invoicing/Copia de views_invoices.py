@@ -21,8 +21,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from weasyprint import HTML
 
-from .models import (BrandingProfile, BrandingSettings, Customer, Invoice,
-                     ItemCode)
+from .models import BrandingProfile, BrandingSettings, Customer, Invoice
 from .utils_branding import get_active_branding
 
 

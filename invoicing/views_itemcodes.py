@@ -114,14 +114,44 @@ def itemcodes_delete(request):
     obj.delete()
     return JsonResponse({"ok": True})
 
+import io
 # ---------------- IMPORT ----------------
+from decimal import Decimal, InvalidOperation
+
+from django.contrib.auth.decorators import login_required
+from django.http import FileResponse, HttpResponseNotAllowed, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+
+from .forms_itemcodes import ItemCodeForm, ItemCodeImportForm
+from .models import ItemCode
+
+
+# helpers existentes
+def _norm(s: str) -> str:
+    return (s or "").strip().lower().replace("_", " ").replace("-", " ")
+
+HEADER_MAPS = {
+    "city": "city",
+    "project": "project",
+    "office": "office",
+    "client": "client",
+    "work type": "work_type",
+    "worktype": "work_type",
+    "job code": "job_code",
+    "jobcode": "job_code",
+    "description": "description",
+    "uom": "uom",
+    "unit of measure": "uom",
+    "rate": "rate",
+    "rite": "rate",
+}
+
 @login_required
 def itemcodes_import(request):
     if request.method == "POST":
         form = ItemCodeImportForm(request.POST, request.FILES)
         if form.is_valid():
             f = form.cleaned_data["file"]
-            # openpyxl lectura en memoria
             from openpyxl import load_workbook
             wb = load_workbook(filename=f, data_only=True)
             ws = wb.active
@@ -133,7 +163,7 @@ def itemcodes_import(request):
                 if key:
                     header[key] = col_idx
 
-            required = ["job_code","description"]
+            required = ["job_code", "description"]
             missing = [k for k in required if k not in header]
             if missing:
                 return render(request, "invoicing/itemcodes_import.html", {
@@ -141,57 +171,82 @@ def itemcodes_import(request):
                     "error": f"Missing required headers: {', '.join(missing)}",
                 })
 
-            # iterate rows
             created = 0
             updated = 0
-            for r in ws.iter_rows(min_row=2):
-                def val(col_name):
-                    c = header.get(col_name)
-                    if not c: return ""
-                    v = r[c-1].value
-                    return "" if v is None else str(v).strip()
+            skipped = 0
+            errors  = []  # [{row, message}]
+            notes   = []  # [{row, message} para updates por existencia]
 
-                job_code = val("job_code")
+            def val_from_row(row, col_name):
+                c = header.get(col_name)
+                if not c:
+                    return ""
+                v = row[c-1].value
+                return "" if v is None else str(v).strip()
+
+            for idx, r in enumerate(ws.iter_rows(min_row=2), start=2):
+                job_code = val_from_row(r, "job_code")
+                city     = val_from_row(r, "city")
+                desc     = val_from_row(r, "description")
+
                 if not job_code:
+                    skipped += 1
+                    errors.append({"row": idx, "message": "Missing Job Code."})
+                    continue
+                if not desc:
+                    skipped += 1
+                    errors.append({"row": idx, "message": "Missing Description."})
                     continue
 
-                # convierto rate -> Decimal
-                raw_rate = val("rate")
+                # rate
+                raw_rate = val_from_row(r, "rate")
                 rate = Decimal("0")
                 if raw_rate != "":
                     try:
                         rate = Decimal(str(raw_rate).replace(",", ""))
+                        if rate < 0:
+                            raise InvalidOperation
                     except InvalidOperation:
-                        rate = Decimal("0")
+                        skipped += 1
+                        errors.append({"row": idx, "message": f"Invalid Rate '{raw_rate}'."})
+                        continue
 
                 data = {
-                    "city":        val("city"),
-                    "project":     val("project"),
-                    "office":      val("office"),
-                    "client":      val("client"),
-                    "work_type":   val("work_type"),
+                    "city":        city,
+                    "project":     val_from_row(r, "project"),
+                    "office":      val_from_row(r, "office"),
+                    "client":      val_from_row(r, "client"),
+                    "work_type":   val_from_row(r, "work_type"),
                     "job_code":    job_code,
-                    "description": val("description"),
-                    "uom":         val("uom"),
+                    "description": desc,
+                    "uom":         val_from_row(r, "uom"),
                     "rate":        rate,
                 }
 
+                # upsert por (job_code, city)
                 obj, created_flag = ItemCode.objects.update_or_create(
                     job_code=job_code,
-                    defaults=data
+                    city=city,
+                    defaults=data,
                 )
-                if created_flag: created += 1
-                else: updated += 1
+                if created_flag:
+                    created += 1
+                else:
+                    updated += 1
+                    notes.append({
+                        "row": idx,
+                        "message": f"Updated existing code '{job_code}' for city '{city or '(blank)'}'."
+                    })
 
             return render(request, "invoicing/itemcodes_import.html", {
                 "form": ItemCodeImportForm(),
-                "success": f"Import finished. Created: {created}, Updated: {updated}."
+                "success": f"Import finished. Created: {created}, Updated: {updated}, Skipped: {skipped}.",
+                "report": {"created": created, "updated": updated, "skipped": skipped, "errors": errors, "notes": notes},
             })
     else:
         form = ItemCodeImportForm()
 
     return render(request, "invoicing/itemcodes_import.html", {"form": form})
-
 # ---------------- TEMPLATE XLSX (descarga) ----------------
 @login_required
 def itemcodes_template(request):
