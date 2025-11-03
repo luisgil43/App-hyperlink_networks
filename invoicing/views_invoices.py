@@ -486,7 +486,7 @@ def invoice_create_api(request):
         return JsonResponse({"ok": False, "error": "Invoice template not found."}, status=400)
 
     with transaction.atomic():
-        # 1) Crear la factura SIN 'lines'
+        # 1) Crear la factura **guardando también notes/terms**
         inv = Invoice.objects.create(
             owner=request.user,
             customer=customer,
@@ -497,9 +497,11 @@ def invoice_create_api(request):
             branding_profile=profile,
             template_key=_normalize_template_key(template_key),
             status=Invoice.STATUS_PENDING,
+            notes=notes,          # <-- agregado
+            terms=terms,          # <-- agregado
         )
 
-        # 2) Persistir líneas según lo que haya en tu proyecto
+        # 2) Persistir líneas
         InvoiceLine = None
         try:
             from .models import InvoiceLine as _InvoiceLine
@@ -508,7 +510,6 @@ def invoice_create_api(request):
             InvoiceLine = None
 
         if InvoiceLine:
-            # Guardar como registros relacionados
             line_objs = []
             for it in items:
                 qty  = Decimal(str(it.get("qty") or 0))
@@ -525,7 +526,6 @@ def invoice_create_api(request):
             if line_objs:
                 InvoiceLine.objects.bulk_create(line_objs)
         else:
-            # Guardar en JSONField 'lines' si existe en el modelo Invoice
             if any(f.name == "lines" for f in Invoice._meta.get_fields()):
                 inv.lines = norm_items
                 inv.save(update_fields=["lines"])
@@ -541,8 +541,8 @@ def invoice_create_api(request):
                 "tax_amount": tax_amount,
                 "total": total,
                 "currency_symbol": currency,
-                "notes": notes,
-                "terms": terms,
+                "notes": notes,   # ya se usan en PDF
+                "terms": terms,   # ya se usan en PDF
                 "status": inv.status,
             },
             "customer": customer,
@@ -558,6 +558,7 @@ def invoice_create_api(request):
         inv.pdf.save(f"invoice-{final_number}.pdf", ContentFile(pdf_bytes), save=True)
 
     return JsonResponse({"ok": True, "id": inv.id, "number": final_number, "pdf_url": inv.pdf.url})
+
 
 @require_GET
 @login_required

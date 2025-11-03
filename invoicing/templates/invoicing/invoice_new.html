@@ -89,12 +89,34 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   const iframe = document.getElementById('invoice-frame');
   const fdoc = iframe.contentDocument || iframe.contentWindow.document;
 
+  // --- lectores genéricos para notas/términos ---
+  function readField(fdoc, selectors){
+    for (const sel of selectors){
+      const el = fdoc.querySelector(sel);
+      if (!el) continue;
+      if ('value' in el) return (el.value || '').trim();
+      if (el.isContentEditable) return (el.innerText || el.textContent || '').trim();
+      return (el.textContent || '').trim();
+    }
+    return '';
+  }
+  const NOTES_SELECTORS = [
+    '#notes-area','textarea[name="notes"]','#notes','.notes-area',
+    '[data-field="notes"]','[data-role="notes"]','[name="notes"]',
+    '[contenteditable][data-field="notes"]'
+  ];
+  const TERMS_SELECTORS = [
+    '#terms-area','textarea[name="terms"]','#terms','.terms-area',
+    '[data-field="terms"]','[data-role="terms"]','[name="terms"]',
+    '[contenteditable][data-field="terms"]'
+  ];
+
   // --- tomar desde iframe (si existen) ---
   let number   = fdoc.querySelector('#inv-number')?.value?.trim() || '';
   let issue    = fdoc.querySelector('#inv-date')?.value || '';
   let due      = fdoc.querySelector('#inv-due')?.value || '';
-  let notes    = fdoc.querySelector('#notes-area')?.value || '';
-  let terms    = fdoc.querySelector('#terms-area')?.value || '';
+  let notes    = readField(fdoc, NOTES_SELECTORS);
+  let terms    = readField(fdoc, TERMS_SELECTORS);
   let taxPct   = parseFloat(fdoc.querySelector('#tax-percent')?.value || '0') || 0;
   let currency = fdoc.getElementById('invoice-root')?.dataset?.currency || '$';
   const profileId = {{ profile.id|default:'null' }};
@@ -326,9 +348,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
       if (root){ root.dataset.currency = prefill.currency_symbol; }
     }
 
-    // --- NOTES & TERMS con reintentos (para plantillas que sobrescriben tarde) ---
-    fillNotesTermsWithRetries(fdoc, prefill, 120, 40);
-
     // --- SUGERIR NÚMERO NUEVO (no reutilizar el viejo) ---
     try{
       const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
@@ -451,6 +470,21 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
         try{ iframe.contentWindow.recalcTotals(); }catch(_){ parentRecalcTotals(); }
       } else {
         parentRecalcTotals();
+      }
+
+      // === Reaplicar notas/términos *después* del primer recálculo ===
+      fillNotesTermsWithRetries(fdoc, prefill, 120, 40);
+
+      // Observa cambios del DOM para re-aplicar si el template re-renderiza
+      if (!iframe.contentWindow.__notesObserver) {
+        const target = fdoc.getElementById('invoice-root') || fdoc.body;
+        const obs = new MutationObserver(() => {
+          if (window.__PREFILL__) {
+            fillNotesTermsOnce(fdoc, window.__PREFILL__);
+          }
+        });
+        obs.observe(target, { childList: true, subtree: true });
+        iframe.contentWindow.__notesObserver = obs;
       }
     }
   }

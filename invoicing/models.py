@@ -244,6 +244,8 @@ class Invoice(models.Model):
     status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_CHOICES)
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)
+    notes = models.TextField(blank=True, default="")
+    terms = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["-issue_date", "-id"]
