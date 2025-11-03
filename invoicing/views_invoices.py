@@ -306,13 +306,28 @@ def invoice_prefill_api(request):
             })
 
     data = {
-        "customer_id": inv.customer_id,
-        "customer_name": getattr(inv.customer, "name", ""),
-        "due_date": inv.due_date.isoformat() if inv.due_date else "",
-        "currency_symbol": "$",  # si luego quieres persistir esto, lo añadimos al modelo
-        "tax_percent": "0",      # idem
-        "items": items,
-    }
+    "customer_id": inv.customer_id,
+    "customer_name": getattr(inv.customer, "name", ""),
+    "customer": {  # <-- NUEVO: datos completos para pintar la tarjeta
+        "id": inv.customer_id,
+        "name": getattr(inv.customer, "name", "") or "",
+        "street_1": getattr(inv.customer, "street_1", "") or "",
+        "city": getattr(inv.customer, "city", "") or "",
+        "state": getattr(inv.customer, "state", "") or "",
+        "zip_code": getattr(inv.customer, "zip_code", "") or "",
+        "email": getattr(inv.customer, "email", "") or "",
+        "phone": getattr(inv.customer, "phone", "") or "",
+         
+    },
+    "issue_date": inv.issue_date.isoformat(),  # ya lo estábamos enviando, si no estaba agrégalo
+    "due_date": inv.due_date.isoformat() if inv.due_date else "",
+    "currency_symbol": "$",
+    "tax_percent": "0",
+
+    "notes": getattr(inv, "notes", "") or "",
+    "terms": getattr(inv, "terms", "") or "",
+    "items": items,
+}
     return JsonResponse({"ok": True, "prefill": data})
 
 

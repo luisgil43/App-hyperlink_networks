@@ -99,6 +99,8 @@
             <td class="p-2 border">
               <div class="flex items-center justify-center gap-2">
                 <!-- DELETE -->
+                               <div class="flex items-center justify-center gap-3">
+                <a href="{% url 'invoicing:invoice_new' %}?duplicate_id={{ inv.id }}" class="text-sky-700 hover:underline text-sm">⧉ Duplicate</a>
                 <button class="text-rose-600 hover:underline text-sm" data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
               </div>
             </td>

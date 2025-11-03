@@ -63,7 +63,6 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
   // Si el iframe termina de cargar después:
   iframe.addEventListener('load', ()=> {
     if (!forceDefaultDates()){
-      // reintento corto por si el JS interno aún está pintando
       const t0 = Date.now();
       const timer = setInterval(()=>{
         if (forceDefaultDates() || Date.now() - t0 > 3000) clearInterval(timer);
@@ -75,7 +74,6 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
   try{
     const doc = iframe.contentDocument || iframe.contentWindow.document;
     if (doc && doc.readyState !== 'loading'){
-      // aplicar ya; si aún no están los inputs, reintentar brevemente
       if (!forceDefaultDates()){
         const t0 = Date.now();
         const timer = setInterval(()=>{
@@ -200,6 +198,96 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   const PREFILL_URL = "{{ prefill_api|escapejs }}";
   if (!PREFILL_URL) return;
 
+  /* -------- Fallback de totales desde el padre (si el template no expone recalcTotals) -------- */
+  function parentRecalcTotals(){
+    try{
+      const fdoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!fdoc) return;
+      const rows = Array.from(fdoc.querySelectorAll('#items-body tr.row'));
+      const subtotalNum = rows.reduce((acc,tr)=>{
+        const qty  = parseFloat(tr.querySelector('.i-qty')?.value || '0') || 0;
+        const rate = parseFloat(tr.querySelector('.i-rate')?.value || '0') || 0;
+        return acc + (qty * rate);
+      }, 0);
+
+      const taxPctEl = fdoc.querySelector('#tax-percent');
+      const taxPct = parseFloat(taxPctEl?.value || '0') || 0;
+      const taxNum = +(subtotalNum * (taxPct/100)).toFixed(2);
+      const totalNum = +(subtotalNum + taxNum).toFixed(2);
+
+      const write = (sel, val)=>{
+        const el = fdoc.querySelector(sel);
+        if (!el) return false;
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value = val;
+        else el.textContent = val;
+        return true;
+      };
+      const fmt = (n)=> (isNaN(n) ? '0.00' : n.toFixed(2));
+
+      ['#subtotal-val','.subtotal-val','#subtotal','[data-field="subtotal"]','input[name="subtotal"]']
+        .some(s => write(s, fmt(subtotalNum)));
+      ['#tax-amount','.tax-amount','#tax','#tax-val','.tax-val','[data-field="tax_amount"]','input[name="tax_amount"]']
+        .some(s => write(s, fmt(taxNum)));
+      ['#total-val','.total-val','#total','[data-field="total"]','input[name="total"]']
+        .some(s => write(s, fmt(totalNum)));
+
+      iframe.contentWindow.__parentTotals = { subtotal: subtotalNum, taxAmt: taxNum, total: totalNum };
+      (fdoc).dispatchEvent(new CustomEvent('invoice:totals', { bubbles: true, detail: { subtotal: subtotalNum, taxAmt: taxNum, total: totalNum } }));
+    }catch(_){}
+  }
+
+  /* -------- Utilidades para precargar notas y términos con reintentos -------- */
+  function setInto(el, text){
+    if (!el) return false;
+    if ('value' in el) {
+      el.value = text;
+    } else if (el.isContentEditable) {
+      el.innerHTML = String(text).replace(/\n/g, '<br>');
+    } else {
+      el.textContent = text;
+    }
+    try {
+      el.dispatchEvent(new Event('input', {bubbles:true}));
+      el.dispatchEvent(new Event('change', {bubbles:true}));
+    } catch(_) {}
+    return true;
+  }
+
+  function fillNotesTermsOnce(fdoc, prefill){
+    let okNotes = true, okTerms = true;
+
+    if (typeof prefill.notes === 'string' && prefill.notes) {
+      okNotes = [
+        '#notes-area','textarea[name="notes"]','#notes','.notes-area',
+        '[data-field="notes"]','[data-role="notes"]','[name="notes"]',
+        '[contenteditable][data-field="notes"]'
+      ].some(sel => setInto(fdoc.querySelector(sel), prefill.notes));
+      try { if (!okNotes && fdoc.defaultView?.setNotes) { fdoc.defaultView.setNotes(prefill.notes); okNotes = true; } } catch(_){}
+    }
+
+    if (typeof prefill.terms === 'string' && prefill.terms) {
+      okTerms = [
+        '#terms-area','textarea[name="terms"]','#terms','.terms-area',
+        '[data-field="terms"]','[data-role="terms"]','[name="terms"]',
+        '[contenteditable][data-field="terms"]'
+      ].some(sel => setInto(fdoc.querySelector(sel), prefill.terms));
+      try { if (!okTerms && fdoc.defaultView?.setTerms) { fdoc.defaultView.setTerms(prefill.terms); okTerms = true; } } catch(_){}
+    }
+
+    return okNotes && okTerms;
+  }
+
+  function fillNotesTermsWithRetries(fdoc, prefill, ms=100, maxTries=40){
+    let tries = 0;
+    const tryFill = ()=>{
+      const done = fillNotesTermsOnce(fdoc, prefill);
+      tries++;
+      if (done || tries >= maxTries) clearInterval(timer);
+    };
+    const timer = setInterval(tryFill, ms);
+    tryFill(); // primer intento inmediato
+  }
+
   async function applyPrefill(){
     const fdoc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!fdoc) return;
@@ -208,13 +296,19 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     const {ok, prefill} = await res.json();
     if (!ok || !prefill) return;
     window.__PREFILL__ = prefill;
-    
-    // --- CUSTOMER ---
-    const billStrong = fdoc.querySelector('#billto-addr strong');
-    if (billStrong){
-      if (prefill.customer_name) billStrong.textContent = prefill.customer_name;
-      if (prefill.customer_id)   billStrong.dataset.customerId = String(prefill.customer_id);
+
+    // --- CUSTOMER (full card) ---
+    const bill = fdoc.querySelector('#billto-addr');
+    const C = (prefill.customer || {});
+    if (bill && (C.name || prefill.customer_name)) {
+      bill.innerHTML = `
+        <strong data-customer-id="${C.id || prefill.customer_id || ''}">${C.name || prefill.customer_name || ''}</strong><br>
+        ${(C.street_1 || '')}<br>
+        ${(C.city || '')}${C.state ? (', ' + C.state) : ''} ${(C.zip_code || '')}<br>
+        ${(C.email || '')}${C.phone ? (' · ' + C.phone) : ''}
+      `;
     }
+
     const custHidden = fdoc.querySelector('input[name="customer_id"]');
     if (custHidden && prefill.customer_id) custHidden.value = prefill.customer_id;
 
@@ -232,6 +326,9 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
       if (root){ root.dataset.currency = prefill.currency_symbol; }
     }
 
+    // --- NOTES & TERMS con reintentos (para plantillas que sobrescriben tarde) ---
+    fillNotesTermsWithRetries(fdoc, prefill, 120, 40);
+
     // --- SUGERIR NÚMERO NUEVO (no reutilizar el viejo) ---
     try{
       const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
@@ -248,36 +345,118 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     if (tbody){
       // Limpia filas actuales
       Array.from(tbody.querySelectorAll('tr.row')).forEach(tr => tr.remove());
+      const currency = (fdoc.getElementById('invoice-root')?.dataset?.currency || '$');
 
-      (prefill.items || []).forEach((it) => {
+      (prefill.items || []).forEach((it, idx) => {
         const tr = fdoc.createElement('tr');
         tr.className = 'row';
+
+        const q = parseFloat(it.qty || '0') || 0;
+        const r = parseFloat(it.rate || '0') || 0;
+        const amount = (q * r).toFixed(2);
+        const dlId = `jobcodes-list-pre-${idx}`;
+
         tr.innerHTML = `
-          <td><input class="i-daily border p-1 w-20" value="${(it.daily||'').replace(/"/g,'&quot;')}"></td>
-          <td><input class="i-job   border p-1 w-28" value="${(it.job_code||'').replace(/"/g,'&quot;')}"></td>
-          <td><input class="i-desc  border p-1 w-full" value="${(it.description||'').replace(/"/g,'&quot;')}"></td>
-          <td><input class="i-qty   border p-1 w-20 text-right" type="number" step="0.01" value="${it.qty ?? ''}"></td>
-          <td><input class="i-unit  border p-1 w-20" value="${(it.uom||'').replace(/"/g,'&quot;')}"></td>
-          <td><input class="i-rate  border p-1 w-24 text-right" type="number" step="0.01" value="${it.rate ?? ''}"></td>
+          <td><input class="line-input i-daily" value="${(it.daily||'').replace(/"/g,'&quot;')}"></td>
+          <td class="jobcell">
+            <input class="line-input i-job" value="${(it.job_code||'').replace(/"/g,'&quot;')}" list="${dlId}" autocomplete="off">
+            <datalist id="${dlId}"></datalist>
+            <div class="sugmenu" hidden></div>
+          </td>
+          <td><input class="line-input i-desc" value="${(it.description||'').replace(/"/g,'&quot;')}" readonly></td>
+          <td class="num"><input class="line-input i-qty" type="number" min="0" step="0.01" style="text-align:right" value="${q || ''}"></td>
+          <td><input class="line-input i-unit" value="${(it.uom||'').replace(/"/g,'&quot;')}" readonly></td>
+          <td class="num"><input class="line-input i-rate" value="${r || ''}" readonly style="text-align:right"></td>
+          <td class="num">
+            <span class="i-amount-show">${currency}${amount}</span>
+            <input class="i-amount" type="hidden" value="${amount}">
+          </td>
+          <td class="row-actions"><button type="button" class="btn" data-del>✕</button></td>
         `;
         tbody.appendChild(tr);
       });
-    }
 
-    // --- Recalcular si tu template expone esta función ---
-    if (typeof iframe.contentWindow.recalcTotals === 'function'){
-      try{ iframe.contentWindow.recalcTotals(); }catch(_){}
-    }else{
-      fdoc.querySelectorAll('#items-body .i-rate, #items-body .i-qty').forEach(el=>{
-        el.dispatchEvent(new Event('input',{bubbles:true}));
-        el.dispatchEvent(new Event('change',{bubbles:true}));
-      });
+      // --- Enlazar recalculo para filas nuevas (delegación) ---
+      const rootWin = iframe.contentWindow;
+      const itemsBody = fdoc.getElementById('items-body');
+
+      if (itemsBody && !rootWin.__rowsBound) {
+        const onRowChange = (ev) => {
+          const t = ev.target;
+          if (!t.classList) return;
+          if (!(t.classList.contains('i-qty') || t.classList.contains('i-rate'))) return;
+
+          const tr = t.closest('tr.row');
+          if (!tr) return;
+          const g = (sel) => tr.querySelector(sel);
+
+          const qty  = parseFloat(g('.i-qty')?.value || '0')  || 0;
+          const rate = parseFloat(g('.i-rate')?.value || '0') || 0;
+          const amount = +(qty * rate).toFixed(2);
+
+          const cur = (fdoc.getElementById('invoice-root')?.dataset?.currency || '$');
+
+          // Actualiza columna de monto de la fila
+          const amtHidden = g('.i-amount');
+          if (amtHidden) amtHidden.value = amount.toFixed(2);
+          const amtShow = g('.i-amount-show');
+          if (amtShow)  amtShow.textContent = `${cur}${amount.toFixed(2)}`;
+
+          // Recalcular totales generales
+          if (typeof rootWin.recalcTotals === 'function') {
+            try { rootWin.recalcTotals(); } catch (_) { parentRecalcTotals(); }
+          } else {
+            parentRecalcTotals();
+          }
+        };
+
+        itemsBody.addEventListener('input', onRowChange);
+        itemsBody.addEventListener('change', onRowChange);
+        itemsBody.addEventListener('keyup', onRowChange);
+
+        // Borrar fila y recalcular
+        itemsBody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('[data-del]');
+          if (!btn) return;
+          const tr = btn.closest('tr.row');
+          if (tr) tr.remove();
+          if (typeof rootWin.recalcTotals === 'function') {
+            try { rootWin.recalcTotals(); } catch (_) { parentRecalcTotals(); }
+          } else {
+            parentRecalcTotals();
+          }
+        });
+
+        // marca para no duplicar listeners si se reinyecta
+        rootWin.__rowsBound = true;
+      }
+
+      // Escucha cambios del impuesto
+      const taxInput = fdoc.getElementById('tax-percent');
+      if (taxInput && !iframe.contentWindow.__taxBound) {
+        ['input','change','keyup'].forEach(evt => {
+          taxInput.addEventListener(evt, () => {
+            if (typeof iframe.contentWindow.recalcTotals === 'function') {
+              try { iframe.contentWindow.recalcTotals(); } catch (_) { parentRecalcTotals(); }
+            } else {
+              parentRecalcTotals();
+            }
+          });
+        });
+        iframe.contentWindow.__taxBound = true;
+      }
+
+      // Recalcular totales después de inyectar
+      if (typeof iframe.contentWindow.recalcTotals === 'function'){
+        try{ iframe.contentWindow.recalcTotals(); }catch(_){ parentRecalcTotals(); }
+      } else {
+        parentRecalcTotals();
+      }
     }
   }
 
   // Corre DESPUÉS de que el iframe y sus scripts internos hayan pintado defaults
   iframe.addEventListener('load', ()=>{
-    // pequeño delay para que tu script de "forceDefaultDates" termine primero
     setTimeout(applyPrefill, 180);
   });
 
