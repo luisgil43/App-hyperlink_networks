@@ -4,10 +4,13 @@ from django.db import IntegrityError, models
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404, render
 
+from usuarios.decoradores import rol_requerido
+
 from .models import Customer  # <-- modelo sólo en models.py
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def customers_list(request):
     q        = (request.GET.get("q") or "").strip()
     state    = (request.GET.get("state") or "").strip().upper()
@@ -61,6 +64,7 @@ def customers_list(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def customers_create(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -110,6 +114,7 @@ def customers_create(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def customers_detail(request):
     cid = request.GET.get("id")
     c = get_object_or_404(Customer, pk=cid)
@@ -130,6 +135,7 @@ def customers_detail(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def customers_update(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -172,6 +178,7 @@ def customers_update(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def customers_delete(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])

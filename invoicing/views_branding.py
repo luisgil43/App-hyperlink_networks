@@ -6,6 +6,8 @@ from django.db import IntegrityError
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404, render
 
+from usuarios.decoradores import rol_requerido
+
 from .models import BrandingProfile, BrandingSettings, BrandLogo
 
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
@@ -43,6 +45,7 @@ def _serialize_profile(p, default_profile_id=None):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def view_Branding(request):
     settings_obj, _ = BrandingSettings.objects.get_or_create(owner=request.user)
 
@@ -62,6 +65,7 @@ def view_Branding(request):
 # ---------------------------- LOGOS ---------------------------- #
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def branding_upload(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -87,6 +91,7 @@ def branding_upload(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def branding_delete(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -112,6 +117,7 @@ def branding_delete(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def branding_set_primary(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -128,6 +134,7 @@ def branding_set_primary(request):
 # ------------------------ BRANDING PROFILES (CRUD) ------------------------ #
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def profile_save(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -205,6 +212,7 @@ def profile_save(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def profile_detail(request):
     pid = request.GET.get("id")
     p = get_object_or_404(BrandingProfile, id=pid, owner=request.user)
@@ -213,6 +221,7 @@ def profile_detail(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def profile_delete(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -233,6 +242,7 @@ def profile_delete(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def profile_set_default(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])

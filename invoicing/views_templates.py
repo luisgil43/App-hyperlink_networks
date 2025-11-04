@@ -6,6 +6,8 @@ from django.urls import reverse
 from django.views.decorators.clickjacking import (xframe_options_exempt,
                                                   xframe_options_sameorigin)
 
+from usuarios.decoradores import rol_requerido
+
 from .models import BrandingProfile, BrandingSettings
 from .utils_branding import get_active_branding
 
@@ -21,6 +23,7 @@ CATALOG_INDEX = {t["key"]: t for t in TEMPLATES_CATALOG}
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def view_Templates(request):
     """Galería para previsualizar y elegir template por perfil de branding."""
     bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
@@ -58,6 +61,7 @@ def view_Templates(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def template_set(request):
     """Asigna el template al perfil indicado."""
     if request.method != "POST":
@@ -95,16 +99,29 @@ def template_preview(request, key: str):
     pid = request.GET.get("profile_id")
     if pid:
         profile = (BrandingProfile.objects
-                   .filter(owner=request.user, id=pid)
+                   .filter(id=pid)           # << antes: filter(owner=request.user, id=pid)
                    .select_related("logo")
                    .first())
     else:
-        bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
-        if bs.default_profile_id:
+        # 1) Intentar default "global"
+        bs_global = (BrandingSettings.objects
+                     .filter(default_profile__isnull=False)
+                     .order_by('-id')
+                     .first())
+        if bs_global and bs_global.default_profile_id:
             profile = (BrandingProfile.objects
-                       .filter(owner=request.user, id=bs.default_profile_id)
+                       .filter(id=bs_global.default_profile_id)
                        .select_related("logo")
                        .first())
+
+        # 2) Fallback: default del usuario (como lo tenías)
+        if not profile:
+            bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
+            if bs.default_profile_id:
+                profile = (BrandingProfile.objects
+                           .filter(owner=request.user, id=bs.default_profile_id)
+                           .select_related("logo")
+                           .first())
 
     branding = get_active_branding(request.user, profile.id if profile else None)
 

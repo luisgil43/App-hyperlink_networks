@@ -36,10 +36,13 @@ HEADER_MAPS = {
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 
+from usuarios.decoradores import rol_requerido
+
 from .models import ItemCode
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def itemcodes_list(request):
     f_city    = (request.GET.get("f_city") or "").strip()
     f_project = (request.GET.get("f_project") or "").strip()
@@ -88,6 +91,7 @@ def itemcodes_list(request):
 
 # ---------------- CREATE/EDIT ----------------
 @login_required
+@rol_requerido("admin", "facturacion")
 def itemcodes_edit(request, pk=None):
     obj = get_object_or_404(ItemCode, pk=pk) if pk else None
     if request.method == "POST":
@@ -106,6 +110,7 @@ def itemcodes_edit(request, pk=None):
 
 # ---------------- DELETE ----------------
 @login_required
+@rol_requerido("admin", "facturacion")
 def itemcodes_delete(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -147,6 +152,7 @@ HEADER_MAPS = {
 }
 
 @login_required
+@rol_requerido("admin", "facturacion")
 def itemcodes_import(request):
     if request.method == "POST":
         form = ItemCodeImportForm(request.POST, request.FILES)
@@ -249,6 +255,7 @@ def itemcodes_import(request):
     return render(request, "invoicing/itemcodes_import.html", {"form": form})
 # ---------------- TEMPLATE XLSX (descarga) ----------------
 @login_required
+@rol_requerido("admin", "facturacion")
 def itemcodes_template(request):
     # genera un .xlsx con encabezados correctos y una fila de ejemplo
     from openpyxl import Workbook

@@ -18,25 +18,28 @@ from django.shortcuts import get_object_or_404, render
 from django.template.loader import select_template
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 from weasyprint import HTML
+
+from usuarios.decoradores import rol_requerido
 
 from .models import (BrandingProfile, BrandingSettings, Customer, Invoice,
                      ItemCode)
 from .utils_branding import get_active_branding
 
 
+@ensure_csrf_cookie
 @login_required
+@rol_requerido("admin", "facturacion")
 def invoices_list(request):
-    qs = Invoice.objects.filter(owner=request.user).select_related("customer")
+    # Listar TODAS las facturas (sin filtrar por owner)
+    qs = Invoice.objects.all().select_related("customer")
 
-    # Si quedó algún 'issued' legacy, normaliza a pending
-    Invoice.objects.filter(owner=request.user, status="issued").update(status=Invoice.STATUS_PENDING)
-
-    # Auto: pasar a OVERDUE si corresponde
+    # Normalizaciones globales
+    Invoice.objects.filter(status="issued").update(status=Invoice.STATUS_PENDING)
     today = timezone.localdate()
     Invoice.objects.filter(
-        owner=request.user,
         status=Invoice.STATUS_PENDING,
         due_date__isnull=False,
         due_date__lt=today,
@@ -74,8 +77,10 @@ def invoices_list(request):
         items = list(qs[:2000])
         per_page = "all"
     else:
-        try: per_int = int(per)
-        except Exception: per_int = 10
+        try:
+            per_int = int(per)
+        except Exception:
+            per_int = 10
         paginator = Paginator(qs, per_int)
         pagina    = paginator.get_page(page)
         items     = pagina.object_list
@@ -92,11 +97,14 @@ def invoices_list(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 @require_POST
 def invoice_set_status(request):
     iid = request.POST.get("id")
     st  = (request.POST.get("status") or "").strip()
-    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
+
+    # ➜ SIN chequeos por rol: cualquier usuario autenticado puede cambiar estado
+    inv = get_object_or_404(Invoice, id=iid)  # sin owner
 
     allowed = {Invoice.STATUS_PENDING, Invoice.STATUS_OVERDUE, Invoice.STATUS_PAID, Invoice.STATUS_VOID}
     if st not in allowed:
@@ -108,11 +116,12 @@ def invoice_set_status(request):
 
 
 @login_required
+@rol_requerido("admin", "facturacion")
 @require_POST
 def invoice_delete(request):
-    """Borrado real (hard delete) manteniendo el modal actual."""
+    # ➜ SIN chequeos por rol: cualquier usuario autenticado puede borrar
     iid = request.POST.get("id")
-    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
+    inv = get_object_or_404(Invoice, id=iid)  # sin owner
     inv.delete()
     return JsonResponse({"ok": True})
 
@@ -273,7 +282,7 @@ def invoice_prefill_api(request):
     Prioridad: InvoiceLine -> JSONField Invoice.lines
     """
     iid = request.GET.get("id")
-    inv = get_object_or_404(Invoice, id=iid, owner=request.user)
+    inv = get_object_or_404(Invoice, id=iid)  # <-- sin owner
 
     items = []
 
@@ -306,30 +315,27 @@ def invoice_prefill_api(request):
             })
 
     data = {
-    "customer_id": inv.customer_id,
-    "customer_name": getattr(inv.customer, "name", ""),
-    "customer": {  # <-- NUEVO: datos completos para pintar la tarjeta
-        "id": inv.customer_id,
-        "name": getattr(inv.customer, "name", "") or "",
-        "street_1": getattr(inv.customer, "street_1", "") or "",
-        "city": getattr(inv.customer, "city", "") or "",
-        "state": getattr(inv.customer, "state", "") or "",
-        "zip_code": getattr(inv.customer, "zip_code", "") or "",
-        "email": getattr(inv.customer, "email", "") or "",
-        "phone": getattr(inv.customer, "phone", "") or "",
-         
-    },
-    "issue_date": inv.issue_date.isoformat(),  # ya lo estábamos enviando, si no estaba agrégalo
-    "due_date": inv.due_date.isoformat() if inv.due_date else "",
-    "currency_symbol": "$",
-    "tax_percent": "0",
-
-    "notes": getattr(inv, "notes", "") or "",
-    "terms": getattr(inv, "terms", "") or "",
-    "items": items,
-}
+        "customer_id": inv.customer_id,
+        "customer_name": getattr(inv.customer, "name", ""),
+        "customer": {
+            "id": inv.customer_id,
+            "name": getattr(inv.customer, "name", "") or "",
+            "street_1": getattr(inv.customer, "street_1", "") or "",
+            "city": getattr(inv.customer, "city", "") or "",
+            "state": getattr(inv.customer, "state", "") or "",
+            "zip_code": getattr(inv.customer, "zip_code", "") or "",
+            "email": getattr(inv.customer, "email", "") or "",
+            "phone": getattr(inv.customer, "phone", "") or "",
+        },
+        "issue_date": inv.issue_date.isoformat(),
+        "due_date": inv.due_date.isoformat() if inv.due_date else "",
+        "currency_symbol": "$",
+        "tax_percent": "0",
+        "notes": getattr(inv, "notes", "") or "",
+        "terms": getattr(inv, "terms", "") or "",
+        "items": items,
+    }
     return JsonResponse({"ok": True, "prefill": data})
-
 
 # ---------- Helpers usados por create/duplicate ----------
 def _parse_date_iso(s: str):
@@ -339,41 +345,48 @@ def _parse_date_iso(s: str):
         return None
 
 
-def _next_number_with_prefix(owner, prefix: str, width: int = 6) -> str:
-    prefix = prefix.strip()
-    base = f"{prefix}-"
-    maxn = 0
-    for num in (
-        Invoice.objects.filter(owner=owner, number__startswith=base)
-        .values_list("number", flat=True)
-    ):
-        m = re.match(rf"^{re.escape(prefix)}-(\d+)$", num)
-        if m:
-            maxn = max(maxn, int(m.group(1)))
-    return f"{prefix}-{str(maxn + 1).zfill(width)}"
-
-
 def _ensure_unique_number(owner, number: str, profile=None, customer=None) -> str:
+    # Correlativo por cliente (ignora owner)
+    import re as _re
+    assert customer is not None, "customer is required for numbering"
+
+    def _sanitize_prefix(s: str) -> str:
+        return _re.sub(r"[^A-Za-z0-9]+", "", (s or "")).upper()
+
+    def _next_for_customer(prefix: str, width: int = 6) -> str:
+        base = f"{prefix}-"
+        maxn = 0
+        for num in (Invoice.objects
+                    .filter(customer=customer, number__startswith=base)
+                    .values_list("number", flat=True)):
+            m = _re.match(rf"^{_re.escape(prefix)}-(\d+)$", num or "")
+            if m:
+                try:
+                    maxn = max(maxn, int(m.group(1)))
+                except ValueError:
+                    pass
+        return f"{prefix}-{str(maxn + 1).zfill(width)}"
+
     candidate = (number or "").strip()
+
     if not candidate or candidate.upper() == "AUTO":
         raw_prefix = (
             getattr(customer, "mnemonic", None)
-            or getattr(profile, "invoice_prefix", "")
+            or (getattr(profile, "invoice_prefix", "") if profile else "")
             or "INV"
         )
-        import re as _re
-        prefix = _re.sub(r"[^A-Za-z0-9]+", "", raw_prefix).upper() or "INV"
-        return _next_number_with_prefix(owner, prefix, width=6)
+        prefix = _sanitize_prefix(raw_prefix) or "INV"
+        return _next_for_customer(prefix, width=6)
 
-    if Invoice.objects.filter(owner=owner, number=candidate).exists():
-        m = re.match(r"^(?P<pre>.+?)-(?P<num>\d+)$", candidate)
+    # Si el candidato ya existe, continuar correlativo por ese prefix para el MISMO cliente
+    if Invoice.objects.filter(number=candidate).exists():
+        m = _re.match(r"^(?P<pre>.+?)-(?P<num>\d+)$", candidate)
         if m:
-            pre = m.group("pre")
+            pre   = _sanitize_prefix(m.group("pre")) or "INV"
             width = len(m.group("num"))
-            return _next_number_with_prefix(owner, pre, width=width)
-        import re as _re
-        pre = _re.sub(r"[^A-Za-z0-9]+", "", candidate).upper() or "INV"
-        return _next_number_with_prefix(owner, pre, width=6)
+            return _next_for_customer(pre, width=width)
+        pre = _sanitize_prefix(candidate) or "INV"
+        return _next_for_customer(pre, width=6)
 
     return candidate
 
@@ -404,14 +417,30 @@ def _resolve_invoice_template(template_key: str):
 
 # ---------- Compose (se deja tal cual, solo agregamos contexto opcional) ----------
 @login_required
+@rol_requerido("admin", "facturacion")
 def invoice_new(request):
-    bs, _ = BrandingSettings.objects.get_or_create(owner=request.user)
-    profile = None
+    # Si viene explícito por query, lo respetamos (sin filtrar por owner)
     pid = request.GET.get("profile_id")
-    if pid:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=pid).first()
-    if not profile and bs.default_profile_id:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=bs.default_profile_id).first()
+    profile = BrandingProfile.objects.filter(id=pid).first() if pid else None
+
+    # Si no hay perfil explícito y el usuario es de facturación/superuser,
+    # intentamos usar un "default global": el último BrandingSettings que tenga default_profile
+    if not profile and (
+        request.user.is_superuser or
+        request.user.groups.filter(name__in=['facturacion','billing','finance']).exists()
+    ):
+        bs_global = (BrandingSettings.objects
+                     .filter(default_profile__isnull=False)
+                     .order_by('-id')
+                     .first())
+        if bs_global and bs_global.default_profile_id:
+            profile = BrandingProfile.objects.filter(id=bs_global.default_profile_id).first()
+
+    # Fallback: default del propio usuario (como lo tenías)
+    if not profile:
+        bs_user, _ = BrandingSettings.objects.get_or_create(owner=request.user)
+        if bs_user.default_profile_id:
+            profile = BrandingProfile.objects.filter(owner=request.user, id=bs_user.default_profile_id).first()
 
     branding = get_active_branding(request.user, profile.id if profile else None)
     chosen_key = (profile.template_key if profile and profile.template_key else "classic")
@@ -453,7 +482,7 @@ def invoice_create_api(request):
     profile = None
     pid = data.get("profile_id")
     if pid:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=pid).first()
+        profile = BrandingProfile.objects.filter(id=pid).first()  # << antes filtraba por owner
     template_key = data.get("template_key") or "invoice_t1"
 
     subtotal = Decimal("0.00")
@@ -563,19 +592,45 @@ def invoice_create_api(request):
 @require_GET
 @login_required
 def invoice_next_number_api(request):
-    cust_id   = request.GET.get("customer_id")
-    profile_id= request.GET.get("profile_id")
+    cust_id    = request.GET.get("customer_id")
+    profile_id = request.GET.get("profile_id")
 
-    customer = None
-    profile  = None
-    if cust_id:
-        customer = get_object_or_404(Customer, id=cust_id)
-    if profile_id:
-        profile = BrandingProfile.objects.filter(owner=request.user, id=profile_id).first()
+    customer = get_object_or_404(Customer, id=cust_id) if cust_id else None
+    profile  = BrandingProfile.objects.filter(id=profile_id).first() if profile_id else None
 
-    raw_prefix = getattr(customer, "mnemonic", None) or getattr(profile, "invoice_prefix", "") or "INV"
+    # Si no enviaron profile_id y el usuario es de facturación, intenta default "global"
+    if not profile and (
+        request.user.is_superuser or
+        request.user.groups.filter(name__in=['facturacion','billing','finance']).exists()
+    ):
+        bs = (BrandingSettings.objects
+              .filter(default_profile__isnull=False)
+              .order_by('-id')
+              .first())
+        if bs and bs.default_profile_id:
+            profile = BrandingProfile.objects.filter(id=bs.default_profile_id).first()
+
+    raw_prefix = (
+        getattr(customer, "mnemonic", None)
+        or (getattr(profile, "invoice_prefix", "") if profile else "")
+        or "INV"
+    )
+
     import re as _re
-    prefix = _re.sub(r"[^A-Za-z0-9]+", "", raw_prefix).upper() or "INV"
+    prefix = _re.sub(r"[^A-Za-z0-9]+", "", (raw_prefix or "")).upper() or "INV"
 
-    number = _next_number_with_prefix(request.user, prefix, width=6)
+    # Buscar el máximo SOLO en facturas de ese cliente
+    base = f"{prefix}-"
+    maxn = 0
+    for num in (Invoice.objects
+                .filter(customer=customer, number__startswith=base)
+                .values_list("number", flat=True)):
+        m = _re.match(rf"^{_re.escape(prefix)}-(\d+)$", num or "")
+        if m:
+            try:
+                maxn = max(maxn, int(m.group(1)))
+            except ValueError:
+                pass
+
+    number = f"{prefix}-{str(maxn + 1).zfill(6)}"
     return JsonResponse({"ok": True, "number": number})
