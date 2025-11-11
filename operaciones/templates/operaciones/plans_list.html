@@ -81,7 +81,7 @@
 
   <!-- List -->
   <div class="border rounded-2xl">
-    <div class="px-4 py-3 bg-gray-50 rounded-t-2xl font-semibold">Maps</div>
+    <div class="px-4 py-3 bg-gray-50 rounded-t-2xl font-semibold">Files</div>
     <div class="divide-y">
       {% if plans %}
         {% for p in plans %}
@@ -89,7 +89,7 @@
             <div class="flex items-center gap-3">
               <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 font-semibold">{{ p.plan_number }}</span>
               <div>
-                <div class="font-medium">Map {{ p.plan_number }}</div>
+                <div class="font-medium">File {{ p.plan_number }}</div>
                 <div class="text-xs text-gray-500">
                   {{ p.original_name|default:p.file.name }} • Uploaded {{ p.uploaded_at|naturaltime }}
                 </div>
@@ -116,7 +116,7 @@
           </div>
         {% endfor %}
       {% else %}
-        <div class="px-4 py-6 text-gray-500 text-sm">No maps yet. {% if can_import %}Use “Import” to upload the first one.{% else %}Ask your supervisor to upload the maps.{% endif %}</div>
+        <div class="px-4 py-6 text-gray-500 text-sm">No files yet. {% if can_import %}Use “Import” to upload the first one.{% else %}Ask your supervisor to upload the maps.{% endif %}</div>
       {% endif %}
     </div>
   </div>
