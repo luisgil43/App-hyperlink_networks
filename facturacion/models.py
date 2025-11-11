@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
+# facturacion/models.py
 # 👇 NUEVO: imports si no los tienes ya
 from django.db import models
 from django.utils.module_loading import import_string
@@ -12,19 +13,50 @@ from utils.paths import upload_to  # 👈 Nuevo import
 
 
 class Proyecto(models.Model):
-    codigo   = models.CharField(max_length=64, unique=True, db_index=True)  # ← ya backfilleado
-    nombre   = models.CharField(max_length=255)
-    mandante = models.CharField(max_length=255, blank=True, null=True)
-    ciudad   = models.CharField(max_length=128, blank=True, null=True)
-    estado   = models.CharField(max_length=128, blank=True, null=True)
-    oficina  = models.CharField(max_length=128, blank=True, null=True)
+    codigo   = models.CharField(max_length=64, unique=True, db_index=True)  # NOT NULL + unique
+    nombre   = models.CharField(max_length=255)                              # NOT NULL
+    mandante = models.CharField(max_length=255)                              # NOT NULL
+    ciudad   = models.CharField(max_length=128)                              # NOT NULL
+    estado   = models.CharField(max_length=128)                              # NOT NULL
+    oficina  = models.CharField(max_length=128)                              # NOT NULL
     activo   = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)  # ← sin null/blank
-    updated_at = models.DateTimeField(auto_now=True)      # ← sin null/blank
+    created_at = models.DateTimeField(auto_now_add=True)  # NOT NULL
+    updated_at = models.DateTimeField(auto_now=True)      # NOT NULL
+
+    class Meta:
+        # Evita duplicados EXACTOS en DB (mismo nombre/mandante/ciudad/estado/oficina)
+        constraints = [
+            models.UniqueConstraint(
+                fields=['nombre', 'mandante', 'ciudad', 'estado', 'oficina'],
+                name='uq_proyecto_nombre_mandante_ciudad_estado_oficina',
+            ),
+        ]
+
+    def clean(self):
+        """Bloquea duplicados case-insensitive y con espacios sobrantes."""
+        super().clean()
+        nombre   = (self.nombre or '').strip()
+        mandante = (self.mandante or '').strip()
+        ciudad   = (self.ciudad or '').strip()
+        estado   = (self.estado or '').strip()
+        oficina  = (self.oficina or '').strip()
+
+        qs = Proyecto.objects.filter(
+            nombre__iexact=nombre,
+            mandante__iexact=mandante,
+            ciudad__iexact=ciudad,
+            estado__iexact=estado,
+            oficina__iexact=oficina,
+        )
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+        if qs.exists():
+            raise ValidationError(
+                _("A project with the same Name, Client, City, State and Office already exists.")
+            )
 
     def __str__(self):
-        # Muestra nombre + client para distinguir si hay homónimos
         cli = f" — {self.mandante}" if self.mandante else ""
         return f"{self.nombre} [{self.codigo}]{cli}"
 

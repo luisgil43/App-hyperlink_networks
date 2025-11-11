@@ -50,6 +50,35 @@ from .models import CartolaMovimiento, Proyecto, TipoGasto
 
 User = get_user_model()
 
+import re
+
+from django.db import IntegrityError, transaction
+from django.db.models import IntegerField
+from django.db.models.functions import Cast, Substr
+
+from .models import Proyecto
+
+
+def suggest_next_project_code(prefix: str = "PRJ-", width: int = 6) -> str:
+    pattern = rf"^{re.escape(prefix)}\d{{{width}}}$"
+    start = len(prefix) + 1  # Substr es 1-indexado
+
+    qs = (Proyecto.objects
+          .filter(codigo__regex=pattern)
+          .annotate(num=Cast(Substr('codigo', start, width), IntegerField()))
+          .order_by('-num'))
+
+    last = qs.values_list('num', flat=True).first() or 0
+    return f"{prefix}{last + 1:0{width}d}"
+
+def _next_project_code():
+    # extrae los 6 dígitos y calcula el siguiente
+    qs = (Proyecto.objects
+          .filter(codigo__regex=r'^PRJ-\d{6}$')
+          .annotate(n=Cast(Substr('codigo', 5, 6), IntegerField()))
+          .order_by('-n'))
+    last = qs.first().n if qs.exists() else 0
+    return f"PRJ-{last + 1:06d}"
 
 @login_required
 @rol_requerido('facturacion', 'admin')
@@ -247,7 +276,8 @@ def eliminar_tipo(request, pk):
     return redirect('facturacion:crear_tipo')
 
 
-# Listar y crear
+
+
 @login_required
 @rol_requerido('facturacion', 'admin')
 def crear_proyecto(request):
@@ -258,16 +288,19 @@ def crear_proyecto(request):
             messages.success(request, "Project created successfully.")
             return redirect('facturacion:crear_proyecto')
     else:
-        form = ProyectoForm()
+        next_code = _next_project_code()
+        form = ProyectoForm(initial={'codigo': next_code, 'activo': '1'})  # preselecciona Active
+
     proyectos = Proyecto.objects.all().order_by('-id')
     return render(request, 'facturacion/crear_proyecto.html', {
         'form': form,
-        'proyectos': proyectos
+        'proyectos': proyectos,
+        'next_code': next_code if request.method != 'POST' else None,
     })
 
+
+
 # Editar
-
-
 @login_required
 @rol_requerido('admin')
 def editar_proyecto(request, pk):
