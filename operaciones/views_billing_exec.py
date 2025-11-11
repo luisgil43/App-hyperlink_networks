@@ -1,72 +1,58 @@
 
-from django.views.decorators.csrf import csrf_protect
-from django.contrib.auth.views import redirect_to_login
-from django.http import JsonResponse, HttpResponseNotAllowed
-from .models import SesionBilling
-from django.shortcuts import get_object_or_404
-import logging
-import re
-from django.http import HttpResponseRedirect
-import time
-from django.views.decorators.cache import never_cache
-import tempfile
-import hashlib
-import os
-from PIL import Image, ImageFile
-from django.core.files.storage import default_storage as storage
-from django.http import JsonResponse, FileResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from .models import ReporteFotograficoJob
-from django.views.decorators.http import require_GET
-from django.http import JsonResponse
-from django.core.files import File
-from django.utils.http import http_date
-from urllib.parse import urlencode
-from tempfile import NamedTemporaryFile
-import xlsxwriter
-from operaciones.excel_images import tmp_jpeg_from_filefield
-from django.db.models import OuterRef, Subquery, Sum, Value, DecimalField, Case, When, IntegerField
-from botocore.client import Config
-from datetime import timedelta
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
-from openpyxl import Workbook
-from django.http import HttpResponse
 import csv
-from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
-from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponseBadRequest
-import uuid
-import json
-from django.conf import settings
-import boto3
-from decimal import Decimal
+import hashlib
 import io
+import json
+import logging
+import os
+import re
+import tempfile
+import time
+import uuid
+from datetime import timedelta
+from decimal import Decimal
+from io import BytesIO
+from tempfile import NamedTemporaryFile
+from urllib.parse import urlencode
 
+import boto3
+import xlsxwriter
+from botocore.client import Config
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
+from django.core.files import File
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage as storage
 from django.db import transaction
-from django.db.models import (
-    Count, Sum, Subquery, OuterRef, DecimalField, Value
-)
+from django.db.models import (Case, Count, DecimalField, IntegerField,
+                              OuterRef, Subquery, Sum, Value, When)
 from django.db.models.functions import Coalesce
-from django.http import FileResponse, Http404, HttpResponseForbidden
-from django.shortcuts import render, redirect, get_object_or_404
+from django.http import (FileResponse, Http404, HttpResponse,
+                         HttpResponseBadRequest, HttpResponseForbidden,
+                         HttpResponseNotAllowed, HttpResponseRedirect,
+                         JsonResponse)
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.http import http_date
 from django.utils.text import slugify
-from django.views.decorators.http import require_POST
-
-from .models import (
-    SesionBilling, SesionBillingTecnico, ItemBillingTecnico,
-    RequisitoFotoBilling, EvidenciaFotoBilling
-)
-from usuarios.decoradores import rol_requerido
-
-from io import BytesIO
-from PIL import Image, ExifTags, ImageFile
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_GET, require_POST
+from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
+from openpyxl import Workbook
+from PIL import ExifTags, Image, ImageFile
 from pillow_heif import register_heif_opener
 
+from operaciones.excel_images import tmp_jpeg_from_filefield
+from usuarios.decoradores import rol_requerido
+
+from .models import (EvidenciaFotoBilling, ItemBillingTecnico,
+                     ReporteFotograficoJob, RequisitoFotoBilling,
+                     SesionBilling, SesionBillingTecnico)
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 register_heif_opener()  # habilita abrir .heic/.heif en Pillow
@@ -105,7 +91,12 @@ def mis_assignments(request):
     base_qs = (
         SesionBillingTecnico.objects
         .select_related("sesion")
-        .filter(tecnico=request.user, estado__in=visibles)
+        .filter(
+            tecnico=request.user,
+            estado__in=visibles,
+            # ⬇️ NO mostrar "Direct Discount" como asignación
+            sesion__is_direct_discount=False,
+        )
     )
 
     # Subquery: total del técnico para cada sesión
@@ -148,7 +139,6 @@ def mis_assignments(request):
         "operaciones/billing_mis_asignaciones.html",
         {"asignaciones": asignaciones}
     )
-
 
 @login_required
 @rol_requerido('usuario')
@@ -1266,8 +1256,9 @@ def _xlsx_path_from_evqs(sesion: SesionBilling, ev_qs, progress_cb=None, should_
     """
     Construye XLSX en disco (streaming) con progreso y cancelación opcional.
     """
-    import xlsxwriter
     from tempfile import NamedTemporaryFile
+
+    import xlsxwriter
 
     tmp_xlsx = NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp_xlsx.close()
@@ -1636,7 +1627,9 @@ def _bytes_excel_reporte_fotografico_qs(sesion: SesionBilling, ev_qs=None) -> by
     Mantiene in_memory=True (para este caso) y sin cambios en el orden/iteración.
     """
     import io
+
     import xlsxwriter
+
     from .models import EvidenciaFotoBilling
 
     if ev_qs is None:
@@ -1782,7 +1775,9 @@ def _bytes_excel_reporte_fotografico(sesion: SesionBilling) -> bytes:
     Mantiene el uso de memoria/flujo original.
     """
     import io
+
     import xlsxwriter
+
     from .models import EvidenciaFotoBilling
 
     evs = (
