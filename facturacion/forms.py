@@ -1,6 +1,8 @@
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
 from django import forms
-from .models import CartolaMovimiento, TipoGasto, Proyecto
+
+from .models import CartolaMovimiento, Proyecto, TipoGasto
 
 
 class CartolaAbonoForm(forms.ModelForm):
@@ -161,8 +163,22 @@ class TipoGastoForm(forms.ModelForm):
 class ProyectoForm(forms.ModelForm):
     class Meta:
         model = Proyecto
-        fields = ['nombre', 'mandante']
+        fields = ['codigo', 'nombre', 'mandante', 'ciudad', 'estado', 'oficina', 'activo']
+        labels = {
+            'codigo':   'Project ID (code)',
+            'nombre':   'Project Name',
+            'mandante': 'Client',
+            'ciudad':   'City',
+            'estado':   'State',
+            'oficina':  'Office',
+            'activo':   'Active',
+        }
         widgets = {
-            'nombre': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'Project name'}),
-            'mandante': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'Client'}),
+            'codigo':  forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'e.g., PRJ-001'}),
+            'nombre':  forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'Project name'}),
+            'mandante':forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'Client'}),
+            'ciudad':  forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'City'}),
+            'estado':  forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'State'}),
+            'oficina': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'placeholder': 'Office'}),
+            # 'activo' usa checkbox por defecto; no le aplico TextInput
         }

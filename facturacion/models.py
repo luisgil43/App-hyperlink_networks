@@ -1,19 +1,32 @@
-from django.utils.translation import gettext_lazy as _
-from django.core.exceptions import ValidationError
-from django.utils.module_loading import import_string
-from django.conf import settings
-from django.core.validators import FileExtensionValidator
-from django.db import models
 from decimal import Decimal
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
+# 👇 NUEVO: imports si no los tienes ya
+from django.db import models
+from django.utils.module_loading import import_string
+from django.utils.translation import gettext_lazy as _
+
 from utils.paths import upload_to  # 👈 Nuevo import
 
 
 class Proyecto(models.Model):
-    nombre = models.CharField(max_length=255)
+    codigo   = models.CharField(max_length=64, unique=True, db_index=True)  # ← ya backfilleado
+    nombre   = models.CharField(max_length=255)
     mandante = models.CharField(max_length=255, blank=True, null=True)
+    ciudad   = models.CharField(max_length=128, blank=True, null=True)
+    estado   = models.CharField(max_length=128, blank=True, null=True)
+    oficina  = models.CharField(max_length=128, blank=True, null=True)
+    activo   = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)  # ← sin null/blank
+    updated_at = models.DateTimeField(auto_now=True)      # ← sin null/blank
 
     def __str__(self):
-        return f"{self.nombre} ({self.mandante})"
+        # Muestra nombre + client para distinguir si hay homónimos
+        cli = f" — {self.mandante}" if self.mandante else ""
+        return f"{self.nombre} [{self.codigo}]{cli}"
 
 
 class TipoGasto(models.Model):

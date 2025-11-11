@@ -12,63 +12,108 @@
 
   <!-- Formulario de creación -->
   <form id="createForm" method="post" class="space-y-4 mb-6">
-    {% csrf_token %}
+  {% csrf_token %}
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <div>
-      <label class="block text-sm font-medium text-gray-700">Project Name</label>
+      <label class="block text-sm font-medium text-gray-700">{{ form.codigo.label }}</label>
+      {{ form.codigo|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.codigo.errors %}<p class="text-red-600 text-sm">{{ form.codigo.errors }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700">{{ form.nombre.label }}</label>
       {{ form.nombre|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.nombre.errors %}<p class="text-red-600 text-sm">{{ form.nombre.errors }}</p>{% endif %}
     </div>
+
     <div>
-      <label class="block text-sm font-medium text-gray-700">Client</label>
+      <label class="block text-sm font-medium text-gray-700">{{ form.mandante.label }}</label>
       {{ form.mandante|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.mandante.errors %}<p class="text-red-600 text-sm">{{ form.mandante.errors }}</p>{% endif %}
     </div>
-    <div class="flex justify-end gap-3 pt-4">
-      <!-- Botón cancelar -->
-      <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-xl">
-        Cancel
-      </a>
-      <!-- Botón guardar -->
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
-        Save
-      </button>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700">{{ form.ciudad.label }}</label>
+      {{ form.ciudad|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.ciudad.errors %}<p class="text-red-600 text-sm">{{ form.ciudad.errors }}</p>{% endif %}
     </div>
-  </form>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700">{{ form.estado.label }}</label>
+      {{ form.estado|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.estado.errors %}<p class="text-red-600 text-sm">{{ form.estado.errors }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700">{{ form.oficina.label }}</label>
+      {{ form.oficina|add_class:"w-full border rounded-xl px-3 py-2" }}
+      {% if form.oficina.errors %}<p class="text-red-600 text-sm">{{ form.oficina.errors }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 pt-2">
+    <label class="text-sm font-medium text-gray-700">{{ form.activo.label }}</label>
+    {{ form.activo }}
+    {% if form.activo.errors %}<p class="text-red-600 text-sm">{{ form.activo.errors }}</p>{% endif %}
+  </div>
+
+  <div class="flex justify-end gap-3 pt-4">
+    <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-xl">
+      Cancel
+    </a>
+    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
+      Save
+    </button>
+  </div>
+</form>
 
   <!-- Tabla de proyectos creados -->
   <h3 class="text-lg font-bold text-gray-700 mb-3">Created Projects</h3>
   <div class="overflow-x-auto">
     <table class="min-w-full table-auto border border-gray-300 rounded-xl text-sm">
       <thead class="bg-gray-100 text-gray-700">
-        <tr>
-          <th class="p-2 border">ID</th>
-          <th class="p-2 border">Project Name</th>
-          <th class="p-2 border">Client</th>
-          <th class="p-2 border">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="proyectosBody">
-        {% for proyecto in proyectos %}
-        <tr class="border-t">
-          <td class="p-2 border text-center">{{ proyecto.id }}</td>
-          <td class="p-2 border text-center">{{ proyecto.nombre }}</td>
-          <td class="p-2 border text-center">{{ proyecto.mandante }}</td>
-          <td class="p-2 border text-center">
-            <!-- Botón editar -->
-            <a href="{% url 'facturacion:editar_proyecto' proyecto.id %}" class="text-blue-600 hover:underline">✏️ Edit</a> |
-            <!-- Botón eliminar -->
-            <button type="button" 
-                    class="text-red-600 hover:underline delete-btn" 
-                    data-url="{% url 'facturacion:eliminar_proyecto' proyecto.id %}" 
-                    data-nombre="{{ proyecto.nombre }}">
-                🗑️ Delete
-            </button>
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="4" class="p-4 text-center text-gray-500">No projects created.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
+  <tr>
+    <th class="p-2 border">ID</th>
+    <th class="p-2 border">Code</th>
+    <th class="p-2 border">Project Name</th>
+    <th class="p-2 border">Client</th>
+    <th class="p-2 border">City</th>
+    <th class="p-2 border">State</th>
+    <th class="p-2 border">Office</th>
+    <th class="p-2 border">Active</th>
+    <th class="p-2 border">Actions</th>
+  </tr>
+</thead>
+<tbody id="proyectosBody">
+  {% for proyecto in proyectos %}
+  <tr class="border-t">
+    <td class="p-2 border text-center">{{ proyecto.id }}</td>
+    <td class="p-2 border text-center">{{ proyecto.codigo }}</td>
+    <td class="p-2 border text-center">{{ proyecto.nombre }}</td>
+    <td class="p-2 border text-center">{{ proyecto.mandante }}</td>
+    <td class="p-2 border text-center">{{ proyecto.ciudad }}</td>
+    <td class="p-2 border text-center">{{ proyecto.estado }}</td>
+    <td class="p-2 border text-center">{{ proyecto.oficina }}</td>
+    <td class="p-2 border text-center">
+      {% if proyecto.activo %}<span class="px-2 py-1 text-xs rounded bg-green-100 text-green-700">Yes</span>{% else %}
+      <span class="px-2 py-1 text-xs rounded bg-red-100 text-red-700">No</span>{% endif %}
+    </td>
+    <td class="p-2 border text-center">
+      <a href="{% url 'facturacion:editar_proyecto' proyecto.id %}" class="text-blue-600 hover:underline">✏️ Edit</a> |
+      <button type="button" class="text-red-600 hover:underline delete-btn"
+              data-url="{% url 'facturacion:eliminar_proyecto' proyecto.id %}"
+              data-nombre="{{ proyecto.nombre }}">
+        🗑️ Delete
+      </button>
+    </td>
+  </tr>
+  {% empty %}
+  <tr>
+    <td colspan="9" class="p-4 text-center text-gray-500">No projects created.</td>
+  </tr>
+  {% endfor %}
+</tbody>
     </table>
   </div>
 </div>

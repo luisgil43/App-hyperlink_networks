@@ -1306,7 +1306,7 @@ from .models import CartolaMovimiento
 @rol_requerido('admin')
 def aprobar_abono_como_usuario(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk)
-    if mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
+    if mov.tipo and mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
         mov.status = "aprobado_abono_usuario"
         mov.save()
         messages.success(request, "Deposit approved as user.")
