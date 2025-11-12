@@ -1,41 +1,36 @@
 {% extends "dashboard_admin/base.html" %}
 {% load static %}
 
-{% block title %}
-  {% if usuario %}Edit User - Admin{% else %}Create User - Admin{% endif %}
-{% endblock %}
+{% block title %}{% if usuario %}Edit User - Admin{% else %}Create User - Admin{% endif %}{% endblock %}
 
 {% block dashboard_content %}
 <div class="p-6 max-w-4xl mx-auto">
-  <!-- Título dinámico -->
   <h1 class="text-3xl font-bold mb-6">
     {% if usuario %}✏️ Edit User: {{ usuario.username }}{% else %}👤 Create New User{% endif %}
   </h1>
 
-  <!-- Formulario de creación/edición -->
   <form method="POST" class="bg-white p-8 rounded-2xl shadow space-y-6">
     {% csrf_token %}
 
-    <!-- Campos básicos -->
+    <!-- Basic (required; password optional) -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-        <input type="text" name="username" placeholder="E.g.: john123" required
+        <input type="text" name="username" required placeholder="E.g.: john123"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ usuario.username|default_if_none:'' }}">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input type="email" name="email" placeholder="E.g.: email@domain.com"
+        <input type="email" name="email" required placeholder="E.g.: email@domain.com"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ usuario.email|default_if_none:'' }}">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">
-          Password
-          {% if usuario %}<small class="text-gray-500">(Optional)</small>{% endif %}
+          Password <small class="text-gray-500">(Optional)</small>
         </label>
         <input type="password" name="password1" class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
       </div>
@@ -47,26 +42,26 @@
 
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">ID / Identification Number</label>
-        <input type="text" name="identidad" placeholder="E.g.: 12345678-9"
+        <input type="text" name="identidad" required placeholder="E.g.: 12345678-9"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ usuario.identidad|default_if_none:'' }}">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-        <input type="text" name="first_name" placeholder="E.g.: John"
+        <input type="text" name="first_name" required placeholder="E.g.: John"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ usuario.first_name|default_if_none:'' }}">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-        <input type="text" name="last_name" placeholder="E.g.: Doe"
+        <input type="text" name="last_name" required placeholder="E.g.: Doe"
                class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
                value="{{ usuario.last_name|default_if_none:'' }}">
       </div>
 
-      <!-- Roles con precarga -->
+      <!-- Roles -->
       <div class="md:col-span-2">
         <label class="block text-sm font-medium text-gray-700 mb-1">User Roles</label>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -82,29 +77,26 @@
       </div>
     </div>
 
-    <!-- Estado y permisos -->
+    <!-- Status & permissions -->
     <div class="flex flex-wrap gap-4 pt-4">
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_active"
-          class="rounded border-gray-300 text-blue-600"
-          {% if usuario and usuario.is_active %}checked{% elif not usuario %}checked{% endif %}>
+        <input type="checkbox" name="is_active" class="rounded border-gray-300 text-blue-600"
+               {% if usuario and usuario.is_active %}checked{% endif %}>
         Active
       </label>
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_staff"
-          class="rounded border-gray-300 text-blue-600"
-          {% if usuario and usuario.is_staff %}checked{% endif %}>
+        <input type="checkbox" name="is_staff" class="rounded border-gray-300 text-blue-600"
+               {% if usuario and usuario.is_staff %}checked{% endif %}>
         Staff
       </label>
       <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_superuser"
-          class="rounded border-gray-300 text-blue-600"
-          {% if usuario and usuario.is_superuser %}checked{% endif %}>
+        <input type="checkbox" name="is_superuser" class="rounded border-gray-300 text-blue-600"
+               {% if usuario and usuario.is_superuser %}checked{% endif %}>
         Superuser
       </label>
     </div>
 
-    <!-- Grupos con precarga -->
+    <!-- Groups -->
     <div>
       <label class="block text-sm font-semibold text-gray-700 mb-2">Available Groups:</label>
       <div class="flex flex-wrap gap-3">
@@ -120,13 +112,74 @@
       </div>
     </div>
 
-    <!-- Botones -->
+    <!-- Projects (NO CAMBIADO) -->
+    <div class="space-y-3">
+      <h2 class="text-lg font-semibold text-gray-800">Project Visibility</h2>
+
+      <style>
+        details.dropdown > summary{
+          display:flex;align-items:center;justify-content:space-between;
+          cursor:pointer;user-select:none;padding:.75rem 1rem;background:#f8fafc;
+          border-radius:.75rem;font-weight:600;color:#111827
+        }
+        details.dropdown .caret{display:inline-block;transition:transform .2s}
+        details.dropdown[open] .caret{transform:rotate(90deg)}
+      </style>
+
+      <details class="dropdown rounded-lg border border-gray-200">
+        <summary>
+          Assigned Projects
+          <span class="caret">▶</span>
+        </summary>
+
+        <div class="p-4 space-y-3 projects-wrapper">
+          <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
+            <input type="checkbox" class="check-all-projects rounded border-gray-300">
+            Select all projects
+          </label>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {% for p in proyectos %}
+              <label class="inline-flex items-start gap-2 text-sm text-gray-800">
+                <input type="checkbox" name="proyectos" value="{{ p.id }}"
+                       class="proj-checkbox rounded border-gray-300 text-blue-600 mt-0.5"
+                       {% if p.id in proyectos_seleccionados %}checked{% endif %}>
+                <span>
+                  <span class="font-medium">{{ p.nombre }}</span>
+                  <span class="text-gray-500"> — {{ p.mandante }} ({{ p.ciudad }}, {{ p.estado }})</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+
+      <!-- Visibility mode -->
+      <div class="flex items-center gap-6">
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="project_visibility" value="history"
+                 {% if project_visibility != 'from_now' %}checked{% endif %}>
+          Full history
+        </label>
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="project_visibility" value="from_now"
+                 {% if project_visibility == 'from_now' %}checked{% endif %}>
+          From date
+        </label>
+        <input type="text" name="project_start_date"
+               id="project_start_date_edit"
+               lang="en" placeholder="mm/dd/yyyy"
+               class="rounded border-gray-300 px-3 py-2"
+               value="{{ project_start_date|default_if_none:'' }}">
+      </div>
+    </div>
+
+    <!-- Actions -->
     <div class="pt-6 flex items-center gap-4">
       <a href="{% url 'dashboard_admin:listar_usuarios' %}"
          class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-6 rounded-lg">
         ← Back
       </a>
-
       <button type="submit"
         class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg">
         {% if usuario %}💾 Save Changes{% else %}➕ Create User{% endif %}
@@ -134,9 +187,218 @@
     </div>
   </form>
 </div>
+
+<!-- Flatpickr (English) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+
+<!-- JS: radios + select-all + datepicker -->
+<script>
+(function(){
+  const radios  = document.querySelectorAll('input[name="project_visibility"]');
+  const input   = document.getElementById('project_start_date_edit');
+  if (!input) return;
+
+  const fp = flatpickr(input, {
+    locale: "en",
+    dateFormat: "Y-m-d",
+    altInput: true,
+    altFormat: "m/d/Y",
+    allowInput: true,
+    clickOpens: true
+  });
+
+  function sync(){
+    const val = [...radios].find(r => r.checked)?.value || 'history';
+    const enable = (val === 'from_now');
+    input.disabled = !enable;
+    if (fp && fp.altInput) fp.altInput.disabled = !enable;
+    fp.set('clickOpens', enable);
+    if (!enable) fp.close();
+  }
+
+  radios.forEach(r => r.addEventListener('change', sync));
+  if (fp && fp.altInput) {
+    fp.altInput.addEventListener('focus', () => { if (fp.config.clickOpens) fp.open(); });
+    fp.altInput.addEventListener('click',  () => { if (fp.config.clickOpens) fp.open(); });
+  }
+  sync();
+
+  // --- Select-all projects (FIX) ---
+  document.querySelectorAll('.projects-wrapper').forEach(wrap=>{
+    const master = wrap.querySelector('.check-all-projects');
+    const items  = Array.from(wrap.querySelectorAll('.proj-checkbox'));
+    const first  = items[0];
+    const PROJECT_MSG = 'Please select at least one project.';
+
+    function updateValidity(){
+      if (!first) return;
+      const any = items.some(i => i.checked);
+      first.required = !any;
+      first.setCustomValidity(any ? '' : PROJECT_MSG);
+    }
+
+    function syncMasterFromItems(){
+      const all  = items.length > 0 && items.every(i => i.checked);
+      const some = items.some(i => i.checked);
+      if (master){
+        master.checked = all;
+        master.indeterminate = !all && some;
+      }
+      updateValidity();
+    }
+
+    // Usamos 'input' para reaccionar inmediato y limpiamos 'indeterminate'
+    if (master){
+      master.addEventListener('input', ()=>{
+        const shouldCheck = master.checked; // true -> marcar todo, false -> desmarcar todo
+        items.forEach(i => { i.checked = shouldCheck; });
+        master.indeterminate = false;
+        updateValidity();
+      });
+    }
+
+    // Mantener el estado del master cuando cambian los ítems
+    items.forEach(i => i.addEventListener('input', syncMasterFromItems));
+
+    // Estado inicial
+    syncMasterFromItems();
+  });
+})();
+</script>
+<script>
+(function () {
+  // Mensajes en inglés para HTML5 required/typeMismatch
+  const REQ_MSG   = 'This field is required.';
+  const EMAIL_MSG = 'Please enter a valid email address.';
+  const PW_MISM   = 'Passwords do not match.';
+
+  // Aplica a todos los controles con "required"
+  document.querySelectorAll('input[required], select[required], textarea[required]')
+    .forEach(function (el) {
+      el.addEventListener('invalid', function () {
+        el.setCustomValidity('');
+        if (el.validity.valueMissing) {
+          el.setCustomValidity(REQ_MSG);
+        } else if (el.type === 'email' && el.validity.typeMismatch) {
+          el.setCustomValidity(EMAIL_MSG);
+        }
+      });
+      el.addEventListener('input', function () {
+        el.setCustomValidity('');
+      });
+    });
+
+  // Validación de confirmación de contraseña en inglés
+  const pw1 = document.querySelector('input[name="password1"]');
+  const pw2 = document.querySelector('input[name="password2"]');
+  function checkPw() {
+    if (!pw1 || !pw2) return;
+    pw2.setCustomValidity('');
+    if (pw1.value && pw2.value && pw1.value !== pw2.value) {
+      pw2.setCustomValidity(PW_MISM);
+    }
+  }
+  if (pw1 && pw2) {
+    pw1.addEventListener('input', checkPw);
+    pw2.addEventListener('input', checkPw);
+    pw2.addEventListener('invalid', function () {
+      if (pw2.validity.valid) checkPw();
+    });
+  }
+})();
+</script>
+<script>
+(function(){
+  const form = document.querySelector('form.bg-white');
+  if (!form) return;
+
+  // ---- ROLES (obligatorio al menos uno) ----
+  const roleBoxes = Array.from(form.querySelectorAll('input[name="roles"]'));
+  const firstRole = roleBoxes[0] || null;
+  const ROLE_MSG  = 'Please select at least one role.';
+
+  function validateRoles(){
+    const any = roleBoxes.some(cb => cb.checked);
+    if (firstRole){
+      firstRole.required = !any;
+      firstRole.setCustomValidity(any ? '' : ROLE_MSG);
+    }
+    return any;
+  }
+
+  roleBoxes.forEach(cb => cb.addEventListener('change', validateRoles));
+  validateRoles();
+
+  // ---- STATUS (Active/Staff/Superuser) ----
+  const statusBoxes = [
+    form.querySelector('input[name="is_active"]'),
+    form.querySelector('input[name="is_staff"]'),
+    form.querySelector('input[name="is_superuser"]'),
+  ].filter(Boolean);
+  const STATUS_MSG  = 'Please choose at least one status (Active, Staff, or Superuser).';
+
+  function validateStatus(){
+    const any = statusBoxes.some(cb => cb && cb.checked);
+    if (statusBoxes[0]) statusBoxes[0].setCustomValidity(any ? '' : STATUS_MSG);
+    return any;
+  }
+  statusBoxes.forEach(cb => cb && cb.addEventListener('change', validateStatus));
+  validateStatus();
+
+  // ---- PROJECTS ----
+  const projectBoxes = Array.from(document.querySelectorAll('.proj-checkbox'));
+  const PROJECT_MSG  = 'Please select at least one project.';
+
+  function validateProjects(){
+    const any = projectBoxes.some(cb => cb.checked);
+    if (projectBoxes[0]) projectBoxes[0].setCustomValidity(any ? '' : PROJECT_MSG);
+    return any;
+  }
+  projectBoxes.forEach(cb => cb.addEventListener('change', validateProjects));
+  validateProjects();
+
+  // ---- PASSWORD MATCH (si existe) ----
+  const pw1 = form.querySelector('input[name="password1"]');
+  const pw2 = form.querySelector('input[name="password2"]');
+  const PW_MISM = 'Passwords do not match.';
+  function validatePw(){
+    if (!pw1 || !pw2) return true;
+    pw2.setCustomValidity('');
+    if (pw1.value && pw2.value && pw1.value !== pw2.value){
+      pw2.setCustomValidity(PW_MISM);
+      return false;
+    }
+    return true;
+  }
+  if (pw1 && pw2){
+    pw1.addEventListener('input', validatePw);
+    pw2.addEventListener('input', validatePw);
+  }
+
+  // ---- SUBMIT (unificado, en inglés) ----
+  form.addEventListener('submit', function(e){
+    form.querySelectorAll('input,select,textarea').forEach(function(el){
+      if (el === firstRole) return;
+      if (el.willValidate) el.setCustomValidity('');
+      if (el.required && el.validity.valueMissing) el.setCustomValidity('This field is required.');
+      if (el.type === 'email' && el.validity.typeMismatch) el.setCustomValidity('Please enter a valid email address.');
+    });
+
+    const okRoles  = validateRoles();
+    const okStatus = validateStatus();
+    const okProj   = validateProjects();
+    const okPw     = validatePw();
+
+    if (!form.checkValidity() || !okRoles || !okStatus || !okProj || !okPw){
+      e.preventDefault();
+      form.reportValidity();
+    }
+  });
+})();
+</script>
 {% endblock %}
 
-<!-- Mensajes flotantes -->
 {% if messages %}
   <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
     {% for message in messages %}
@@ -150,11 +412,5 @@
       </div>
     {% endfor %}
   </div>
-
-  <script>
-    setTimeout(() => {
-      const mensajes = document.getElementById('mensajes');
-      if (mensajes) mensajes.remove();
-    }, 5000);
-  </script>
+  <script>setTimeout(()=>{const m=document.getElementById('mensajes');if(m)m.remove()},5000);</script>
 {% endif %}

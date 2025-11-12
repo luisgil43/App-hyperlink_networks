@@ -1,29 +1,38 @@
-from django.urls import reverse, NoReverseMatch
-from django.shortcuts import render
-from django.shortcuts import get_object_or_404, render, redirect
-from usuarios.models import CustomUser, Rol
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.contrib.auth.views import LoginView
-from django.urls import reverse_lazy
-from rrhh.models import Feriado
-from rrhh.forms import FeriadoForm
-from dashboard.models import ProduccionTecnico
-from django.contrib.auth.forms import AuthenticationForm
-from django.utils.http import url_has_allowed_host_and_scheme
-from django.conf import settings
-from django.contrib.admin.views.decorators import staff_member_required
-from django.core.exceptions import PermissionDenied
-from usuarios.models import CustomUser as User
-from usuarios.decoradores import rol_requerido
 import re
-from usuarios.models import Notificacion
 
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.models import Group
+from django.contrib.auth.views import LoginView
+from django.core.exceptions import PermissionDenied
+from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
+from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import NoReverseMatch, reverse, reverse_lazy
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
+from dashboard.models import ProduccionTecnico
+from facturacion.models import Proyecto
+from rrhh.forms import FeriadoForm
+from rrhh.models import Feriado
+from usuarios.decoradores import rol_requerido
+from usuarios.models import CustomUser
+from usuarios.models import CustomUser as User
+from usuarios.models import Notificacion, Rol
+
+# Intentamos ubicar el modelo de asignación (si ya existe con through)
+try:
+    from usuarios.models import ProyectoAsignacion  # through recomendado
+except Exception:
+    try:
+        from facturacion.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None  # fallback si aún no creas el through
 User = get_user_model()
 
 
@@ -72,29 +81,24 @@ def grupos_view(request):
             if nombre:
                 grupo, creado = Group.objects.get_or_create(name=nombre)
                 if creado:
-                    messages.success(
-                        request, f'Grupo "{nombre}" creado exitosamente.')
+                    messages.success(request, f'Group "{nombre}" created successfully.')
                 else:
-                    messages.warning(
-                        request, f'El grupo "{nombre}" ya existe.')
+                    messages.warning(request, f'Group "{nombre}" already exists.')
             else:
-                messages.error(
-                    request, "Debes ingresar un nombre para el grupo.")
+                messages.error(request, "You must enter a group name.")
             return redirect('dashboard_admin:grupos')
 
         elif 'delete_group' in request.POST and grupo_id:
             try:
                 grupo = Group.objects.get(id=grupo_id)
                 grupo.delete()
-                messages.success(
-                    request, f'Grupo "{grupo.name}" eliminado correctamente.')
+                messages.success(request, f'Group "{grupo.name}" deleted successfully.')
             except Group.DoesNotExist:
-                messages.error(request, 'El grupo no existe.')
+                messages.error(request, 'Group does not exist.')
             return redirect('dashboard_admin:grupos')
 
     grupos = Group.objects.all().order_by('name')
     return render(request, 'dashboard_admin/grupos.html', {'grupos': grupos})
-
 
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'rrhh')
@@ -128,7 +132,6 @@ def editar_usuario_view(request, user_id):
         if password1 or password2:
             if password1 != password2:
                 messages.error(request, 'Passwords do not match.')
-                # Render again keeping the selections from POST
                 return render(request, 'dashboard_admin/editar_usuario.html', {
                     'usuario': usuario,
                     'grupos': grupos,
@@ -138,7 +141,36 @@ def editar_usuario_view(request, user_id):
                 })
             usuario.set_password(password1)
 
+        # --- Proyectos seleccionados y modo visibilidad ---
+        proy_ids = [int(pid) for pid in request.POST.getlist('proyectos')]
+        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()
+        start_date_str = (request.POST.get('project_start_date') or '').strip()
+        start_dt = None
+        if visibility_mode == 'from_now':
+            try:
+                start_dt = timezone.make_aware(timezone.datetime.fromisoformat(start_date_str)) if start_date_str else timezone.now()
+            except Exception:
+                start_dt = timezone.now()
+
         usuario.save()
+
+        # --- Guardar asignaciones de proyecto ---
+        if ProyectoAsignacion:
+            ProyectoAsignacion.objects.filter(usuario=usuario).delete()
+            include_history = (visibility_mode == 'history')
+            objetos = []
+            for pid in proy_ids:
+                objetos.append(ProyectoAsignacion(
+                    usuario=usuario,
+                    proyecto_id=pid,
+                    include_history=include_history,
+                    start_at=None if include_history else (start_dt or timezone.now()),
+                ))
+            if objetos:
+                ProyectoAsignacion.objects.bulk_create(objetos)
+        elif hasattr(usuario, 'proyectos'):
+            usuario.proyectos.set(proy_ids)
+
         messages.success(request, "User updated successfully.")
         return redirect('dashboard_admin:listar_usuarios')
 
@@ -146,12 +178,36 @@ def editar_usuario_view(request, user_id):
     roles_seleccionados = set(usuario.roles.values_list('id', flat=True))
     grupo_ids_post = set(usuario.groups.values_list('id', flat=True))
 
+    # Precarga de proyectos + modo/fecha visibilidad
+    proyectos_all = Proyecto.objects.all().order_by('nombre')
+    proyectos_seleccionados = []
+    project_visibility = 'history'
+    project_start_date = ''
+
+    if ProyectoAsignacion:
+        asignaciones = list(
+            ProyectoAsignacion.objects.filter(usuario=usuario).select_related('proyecto')
+        )
+        proyectos_seleccionados = [a.proyecto_id for a in asignaciones]
+        any_from_now = any(not a.include_history for a in asignaciones)
+        project_visibility = 'from_now' if any_from_now else 'history'
+        if any_from_now:
+            fechas = [a.start_at for a in asignaciones if a.start_at]
+            if fechas:
+                project_start_date = fechas and fechas[0].date().isoformat()
+    elif hasattr(usuario, 'proyectos'):
+        proyectos_seleccionados = list(usuario.proyectos.values_list('id', flat=True))
+
     return render(request, 'dashboard_admin/editar_usuario.html', {
         'usuario': usuario,
         'grupos': grupos,
         'roles': roles_disponibles,
         'roles_seleccionados': roles_seleccionados,
         'grupo_ids_post': grupo_ids_post,
+        'proyectos': proyectos_all,
+        'proyectos_seleccionados': proyectos_seleccionados,
+        'project_visibility': project_visibility,
+        'project_start_date': project_start_date,
     })
 
 
@@ -159,10 +215,7 @@ def editar_usuario_view(request, user_id):
 @rol_requerido('admin', 'pm', 'rrhh')
 def crear_usuario_view(request, identidad=None):
     grupos = Group.objects.all()
-    usuario = None
-
-    if identidad:
-        usuario = get_object_or_404(User, identidad=identidad)
+    usuario = get_object_or_404(User, identidad=identidad) if identidad else None
 
     if request.method == 'POST':
         username = request.POST['username']
@@ -178,7 +231,20 @@ def crear_usuario_view(request, identidad=None):
         identidad_post = request.POST.get('identidad')
         roles_ids = request.POST.getlist('roles')
 
-        # Campos jerárquicos
+        # --- Proyectos seleccionados y modo de visibilidad ---
+        proy_ids = [int(pid) for pid in request.POST.getlist('proyectos')]
+        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()  # 'history' | 'from_now'
+        start_date_str = (request.POST.get('project_start_date') or '').strip()
+        # Si es "from_now" y viene una fecha válida, úsala; si no, usa now()
+        start_dt = None
+        if visibility_mode == 'from_now':
+            try:
+                # Formato esperado 'YYYY-MM-DD' (ajusta si tu form envía datetime)
+                start_dt = timezone.make_aware(timezone.datetime.fromisoformat(start_date_str)) if start_date_str else timezone.now()
+            except Exception:
+                start_dt = timezone.now()
+
+        # Campos jerárquicos (se mantienen)
         def get_user_or_none(uid):
             return CustomUser.objects.filter(id=uid).first() if uid else None
 
@@ -186,23 +252,19 @@ def crear_usuario_view(request, identidad=None):
         pm = get_user_or_none(request.POST.get('pm'))
         rrhh_encargado = get_user_or_none(request.POST.get('rrhh_encargado'))
         prevencionista = get_user_or_none(request.POST.get('prevencionista'))
-        logistica_encargado = get_user_or_none(
-            request.POST.get('logistica_encargado'))
+        logistica_encargado = get_user_or_none(request.POST.get('logistica_encargado'))
         encargado_flota = get_user_or_none(request.POST.get('encargado_flota'))
-        encargado_subcontrato = get_user_or_none(
-            request.POST.get('encargado_subcontrato'))
-        encargado_facturacion = get_user_or_none(
-            request.POST.get('encargado_facturacion'))
+        encargado_subcontrato = get_user_or_none(request.POST.get('encargado_subcontrato'))
+        encargado_facturacion = get_user_or_none(request.POST.get('encargado_facturacion'))
 
         # Validaciones
         if password1 or password2:
             if password1 != password2:
-                messages.error(request, 'Las contraseñas no coinciden.')
+                messages.error(request, 'Passwords do not match.')
                 return redirect(request.path)
 
         if identidad_post and not re.match(r'^[A-Za-z0-9\.\-]+$', identidad_post):
-            messages.error(
-                request, 'La identidad solo puede contener letras, números, puntos o guiones.')
+            messages.error(request, 'ID may contain only letters, numbers, dots, or hyphens.')
             return redirect(request.path)
 
         if usuario:
@@ -218,7 +280,7 @@ def crear_usuario_view(request, identidad=None):
             usuario.groups.set(grupo_ids)
             usuario.roles.set(roles_ids)
 
-            # Actualizar jerarquías
+            # Jerarquías
             usuario.supervisor = supervisor
             usuario.pm = pm
             usuario.rrhh_encargado = rrhh_encargado
@@ -231,16 +293,33 @@ def crear_usuario_view(request, identidad=None):
             if password1:
                 usuario.set_password(password1)
             usuario.save()
-            messages.success(request, 'Usuario actualizado correctamente.')
+
+            # --- Asignación de proyectos (reemplaza actuales por POST) ---
+            if ProyectoAsignacion:
+                ProyectoAsignacion.objects.filter(usuario=usuario).delete()
+                objetos = []
+                include_history = (visibility_mode == 'history')
+                for pid in proy_ids:
+                    objetos.append(ProyectoAsignacion(
+                        usuario=usuario,
+                        proyecto_id=pid,
+                        include_history=include_history,
+                        start_at=None if include_history else (start_dt or timezone.now()),
+                    ))
+                if objetos:
+                    ProyectoAsignacion.objects.bulk_create(objetos)
+            elif hasattr(usuario, 'proyectos'):
+                usuario.proyectos.set(proy_ids)
+
+            messages.success(request, 'User updated successfully.')
         else:
             # Creación
             if User.objects.filter(username=username).exists():
-                messages.error(request, 'El nombre de usuario ya existe.')
+                messages.error(request, 'Username already exists.')
                 return redirect('dashboard_admin:crear_usuario')
 
-            if User.objects.filter(identidad=identidad_post).exists():
-                messages.error(
-                    request, 'El número de identidad ya está registrado.')
+            if identidad_post and User.objects.filter(identidad=identidad_post).exists():
+                messages.error(request, 'ID number is already registered.')
                 return redirect('dashboard_admin:crear_usuario')
 
             usuario = User.objects.create_user(
@@ -264,23 +343,61 @@ def crear_usuario_view(request, identidad=None):
             )
             usuario.groups.set(grupo_ids)
             usuario.roles.set(roles_ids)
-            messages.success(request, 'Usuario creado exitosamente.')
+
+            # --- Asignación de proyectos al crear ---
+            if ProyectoAsignacion:
+                include_history = (visibility_mode == 'history')
+                objetos = []
+                for pid in proy_ids:
+                    objetos.append(ProyectoAsignacion(
+                        usuario=usuario,
+                        proyecto_id=pid,
+                        include_history=include_history,
+                        start_at=None if include_history else (start_dt or timezone.now()),
+                    ))
+                if objetos:
+                    ProyectoAsignacion.objects.bulk_create(objetos)
+            elif hasattr(usuario, 'proyectos'):
+                usuario.proyectos.set(proy_ids)
+
+            messages.success(request, 'User created successfully.')
 
         return redirect('dashboard_admin:listar_usuarios')
 
-    # Si es GET
-    grupo_ids_post = request.POST.getlist(
-        'groups') if request.method == 'POST' else []
+    # --- GET: precarga de selecciones ---
+    grupo_ids_post = request.POST.getlist('groups') if request.method == 'POST' else []
     if not grupo_ids_post and usuario:
         grupo_ids_post = [str(g.id) for g in usuario.groups.all()]
 
     roles_disponibles = Rol.objects.all()
-    roles_seleccionados = usuario.roles.values_list(
-        'id', flat=True) if usuario else []
+    roles_seleccionados = usuario.roles.values_list('id', flat=True) if usuario else []
     roles_seleccionados = [str(id) for id in roles_seleccionados]
 
-    usuarios_activos = CustomUser.objects.filter(
-        is_active=True).order_by('first_name', 'last_name')
+    usuarios_activos = CustomUser.objects.filter(is_active=True).order_by('first_name', 'last_name')
+
+    # --- Proyectos para el form + preselección + modo/fecha visibilidad ---
+    proyectos_all = Proyecto.objects.all().order_by('nombre')
+    proyectos_seleccionados = []
+    project_visibility = 'history'
+    project_start_date = ''
+
+    if usuario:
+        if ProyectoAsignacion:
+            asignaciones = list(
+                ProyectoAsignacion.objects.filter(usuario=usuario)
+                .select_related('proyecto')
+            )
+            proyectos_seleccionados = [a.proyecto_id for a in asignaciones]
+            # Si TODAS son history => 'history'; si hay alguna from_now => 'from_now'
+            any_from_now = any(not a.include_history for a in asignaciones)
+            project_visibility = 'from_now' if any_from_now else 'history'
+            if any_from_now:
+                # Usa la mínima start_at como sugerencia (si existe)
+                fechas = [a.start_at for a in asignaciones if a.start_at]
+                if fechas:
+                    project_start_date = fechas and fechas[0].date().isoformat()
+        elif hasattr(usuario, 'proyectos'):
+            proyectos_seleccionados = list(usuario.proyectos.values_list('id', flat=True))
 
     contexto = {
         'grupos': grupos,
@@ -288,7 +405,11 @@ def crear_usuario_view(request, identidad=None):
         'usuario': usuario,
         'roles': roles_disponibles,
         'roles_seleccionados': roles_seleccionados,
-        'usuarios': usuarios_activos,  # para los selects
+        'usuarios': usuarios_activos,  # para los selects jerárquicos
+        'proyectos': proyectos_all,  # lista completa para el <select multiple>
+        'proyectos_seleccionados': proyectos_seleccionados,  # ids preseleccionados
+        'project_visibility': project_visibility,  # 'history' | 'from_now'
+        'project_start_date': project_start_date,  # YYYY-MM-DD si aplica
     }
     return render(request, 'dashboard_admin/crear_usuario.html', contexto)
 
@@ -296,31 +417,84 @@ def crear_usuario_view(request, identidad=None):
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'rrhh')
 def listar_usuarios(request):
+    # Delete (POST)
     if request.method == "POST" and "delete_user" in request.POST:
         user_id = request.POST.get("user_id")
         try:
             usuario = User.objects.get(id=user_id)
+            username = usuario.username
             usuario.delete()
-            messages.success(
-                request, f'Usuario "{usuario.username}" eliminado correctamente.'
-            )
+            messages.success(request, f'User "{username}" deleted successfully.')
         except User.DoesNotExist:
-            messages.error(request, "Usuario no encontrado.")
-            return redirect('dashboard_admin:listar_usuarios')
+            messages.error(request, "User not found.")
+        return redirect('dashboard_admin:listar_usuarios')
 
-    # 🔎 Filtro por rol (GET)
-    rol_filtrado = request.GET.get('rol')
+    # Filtros
+    rol_filtrado = (request.GET.get('rol') or '').strip()
+    first_q = (request.GET.get('first') or '').strip()
+    last_q  = (request.GET.get('last') or '').strip()
+    id_q    = (request.GET.get('id') or '').strip()
+
+    qs = User.objects.all().order_by('id').prefetch_related('roles', 'groups')
+
+    # Prefetch de proyectos según exista through o M2M directo
+    if ProyectoAsignacion:
+        qs = qs.prefetch_related(
+            Prefetch(
+                'proyectoasignacion_set',
+                queryset=ProyectoAsignacion.objects.select_related('proyecto'),
+            )
+        )
+    elif hasattr(User, 'proyectos'):
+        qs = qs.prefetch_related('proyectos')
+
     if rol_filtrado:
-        usuarios = User.objects.filter(roles__nombre=rol_filtrado).distinct()
+        qs = qs.filter(roles__nombre=rol_filtrado).distinct()
+    if first_q:
+        qs = qs.filter(first_name__icontains=first_q)
+    if last_q:
+        qs = qs.filter(last_name__icontains=last_q)
+    if id_q:
+        qs = qs.filter(identidad__icontains=id_q)
+
+    # Pagination (soporta per_page=all/todos y el hidden "cantidad")
+    per_page_raw = str(request.GET.get('per_page', request.GET.get('cantidad', '20'))).strip().lower()
+    if per_page_raw in ('all', 'todos'):
+        per_page = max(qs.count(), 1)
     else:
-        usuarios = User.objects.all()
+        try:
+            per_page = int(per_page_raw or 20)
+        except ValueError:
+            per_page = 20
+        per_page = max(5, min(per_page, 100))
+
+    paginator = Paginator(qs, per_page)
+    page_number = request.GET.get('page', 1)
+    try:
+        usuarios_page = paginator.get_page(page_number)
+    except (PageNotAnInteger, EmptyPage):
+        usuarios_page = paginator.get_page(1)
+
+    # Preserva querystring (excepto page) para mantener filtros
+    params = request.GET.copy()
+    params.pop('page', None)
+    querystring = params.urlencode()
 
     roles_disponibles = Rol.objects.all()
 
     return render(request, 'dashboard_admin/listar_usuarios.html', {
-        'usuarios': usuarios,
+        'usuarios': usuarios_page,
+        'page_obj': usuarios_page,
         'roles': roles_disponibles,
         'rol_filtrado': rol_filtrado,
+        'per_page': per_page,
+        'querystring': querystring,
+        # mantener valores en inputs
+        'first_q': first_q,
+        'last_q': last_q,
+        'id_q': id_q,
+        # (opcional) reflejar el valor mostrado en el selector
+        'cantidad': request.GET.get('cantidad', None),
     })
 
 

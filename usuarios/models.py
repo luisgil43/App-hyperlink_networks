@@ -1,10 +1,12 @@
 import json
-from django.utils import timezone
+from datetime import date
+
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.conf import settings
-from datetime import date
 from django.db.models import Sum
+from django.utils import timezone
+
 from utils.paths import upload_to  # 👈 Usamos la ruta dinámica
 
 
@@ -18,7 +20,7 @@ class Rol(models.Model):
 class CustomUser(AbstractUser):
     identidad = models.CharField(max_length=20, blank=True, null=True)
     roles = models.ManyToManyField("usuarios.Rol", blank=True)
-
+    proyectos = models.ManyToManyField('facturacion.Proyecto',through='ProyectoAsignacion',related_name='usuarios',blank=True)
     # Firma digital → ahora en Wasabi
     firma_digital = models.ImageField(
         upload_to=upload_to,
@@ -131,7 +133,7 @@ class CustomUser(AbstractUser):
         return primer_rol.nombre if primer_rol else None
 
     def obtener_dias_vacaciones_disponibles(self):
-        from rrhh.models import SolicitudVacaciones, ContratoTrabajo
+        from rrhh.models import ContratoTrabajo, SolicitudVacaciones
         contrato = ContratoTrabajo.objects.filter(
             tecnico=self).order_by('fecha_inicio').first()
         if not contrato or not contrato.fecha_inicio:
@@ -162,7 +164,27 @@ class FirmaRepresentanteLegal(models.Model):
     def __str__(self):
         return f"Firma representante legal (ID: {self.pk})"
 
+class ProyectoAsignacion(models.Model):
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='proyectoasignacion_set'
+    )
+    proyecto = models.ForeignKey(
+        'facturacion.Proyecto',
+        on_delete=models.CASCADE,
+        related_name='asignaciones'
+    )
+    # Visibilidad
+    include_history = models.BooleanField(default=True)
+    start_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        unique_together = ('usuario', 'proyecto')
+
+    def __str__(self):
+        return f'{self.usuario.username} → {self.proyecto.nombre}'
+    
 class Notificacion(models.Model):
     usuario = models.ForeignKey(
         'usuarios.CustomUser', on_delete=models.CASCADE)

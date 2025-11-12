@@ -1,106 +1,193 @@
 {% extends "dashboard_admin/base.html" %}
+{% load humanize %}
 
 {% block title %}Users - Admin{% endblock %}
 
 {% block dashboard_content %}
-<div class="p-6 max-w-7xl mx-auto">
-  <!-- Título principal -->
-  <h1 class="text-2xl font-bold mb-4">👤 User List</h1>
+<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-  <!-- Botón de agregar y filtro por rol -->
-  <div class="flex flex-wrap gap-4 items-center mb-6">
-    <!-- Botón para crear usuario -->
-    <a href="{% url 'dashboard_admin:crear_usuario' %}"
-       class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded">
-      ➕ Add User
-    </a>
+<style>
+  /* === Estilos de tabla y filtros (como el ledger) === */
+  .campo-filtro{
+    border:2px solid #1f2937;padding:.25rem .75rem;border-radius:.75rem;font-size:.875rem;height:2.25rem;background:#fff;transition:border-color .2s
+  }
+  .campo-filtro:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.3);outline:none}
+  .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
+  @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
+  .tabla-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%}
+  .tabla-responsive table{white-space:nowrap;min-width:1200px}
+</style>
 
-    <!-- Filtro por rol -->
-    <form method="get" class="flex items-center gap-2">
-      <label for="rol" class="text-sm font-medium text-gray-700">Filter by role:</label>
-      <select name="rol" id="rol" class="rounded border-gray-300 text-sm px-2 py-1">
-        <option value="">All</option>
-        {% for rol in roles %}
-          <option value="{{ rol.nombre }}" {% if rol_filtrado == rol.nombre %}selected{% endif %}>{{ rol.nombre|capfirst }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit"
-              class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">
-        Apply
-      </button>
-      {% if rol_filtrado %}
-        <a href="{% url 'dashboard_admin:listar_usuarios' %}"
-           class="text-sm text-red-600 hover:underline ml-2">Remove filter</a>
-      {% endif %}
-    </form>
+<!-- Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👤 User List</h2>
+  <div class="flex gap-2">
+    <a href="{% url 'dashboard_admin:crear_usuario' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">➕ Add User</a>
   </div>
+</div>
 
-  <!-- Mensajes del sistema -->
-  {% if messages %}
-    <ul class="mb-4">
-      {% for message in messages %}
-        <li class="p-2 rounded {{ message.tags }} bg-blue-100 text-blue-800">
-          {{ message }}
-        </li>
+<!-- Filtros (igual al patrón del ledger). Mantiene rol + cantidad oculta para preservar selección en recargas AJAX) -->
+<form id="form-filtros" method="get" class="filtros-compactos mb-6">
+  <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+    <!-- NUEVOS FILTROS -->
+    <label class="sr-only" for="first">First name</label>
+    <input id="first" name="first" class="campo-filtro filtro" type="text" placeholder="First name" value="{{ first_q|default:'' }}"/>
+
+    <label class="sr-only" for="last">Last name</label>
+    <input id="last" name="last" class="campo-filtro filtro" type="text" placeholder="Last name" value="{{ last_q|default:'' }}"/>
+
+    <label class="sr-only" for="id">ID</label>
+    <input id="id" name="id" class="campo-filtro filtro" type="text" placeholder="ID" value="{{ id_q|default:'' }}"/>
+    <label class="sr-only" for="rol">Filter by role</label>
+    <select name="rol" id="rol" class="campo-filtro filtro">
+      <option value="">All roles</option>
+      {% for rol in roles %}
+        <option value="{{ rol.nombre }}" {% if rol_filtrado == rol.nombre %}selected{% endif %}>{{ rol.nombre|capfirst }}</option>
       {% endfor %}
-    </ul>
-  {% endif %}
+    </select>
+    <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">❌ Clear</a>
 
-  <!-- Tabla de usuarios -->
-  <div class="overflow-x-auto">
-    <table class="min-w-full divide-y divide-gray-200 text-sm text-left bg-white shadow rounded-lg">
-      <thead class="bg-gray-100">
+    <!-- Mantener selección de cantidad entre recargas -->
+    <input type="hidden" name="cantidad" value="{{ cantidad|default:per_page }}">
+  </div>
+</form>
+
+<!-- Zona reemplazable por AJAX (como #zonaTabla en ledger) -->
+<div id="zonaTabla">
+  {% with pagina=page_obj %}
+  {% with base_qs=querystring|default:request.GET.urlencode %}
+
+  <div class="rounded-xl border border-gray-200 tabla-responsive">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full">
+      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
-          <th class="px-4 py-2 font-semibold">Username</th>
-          <th class="px-4 py-2">First Name</th>
-          <th class="px-4 py-2">Last Name</th>
-          <th class="px-4 py-2">ID</th>
-          <th class="px-4 py-2">Email</th>
-          <th class="px-4 py-2">Roles</th>
-          <th class="px-4 py-2">Active</th>
-          <th class="px-4 py-2">Actions</th>
+          <th class="p-2 border">Username</th>
+          <th class="p-2 border">First Name</th>
+          <th class="p-2 border">Last Name</th>
+          <th class="p-2 border">ID</th>
+          <th class="p-2 border">Email</th>
+          <th class="p-2 border">Roles</th>
+          <th class="p-2 border">Projects</th>
+          <th class="p-2 border">Active</th>
+          <th class="p-2 border">Actions</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for usuario in usuarios %}
-        <tr>
-          <td class="px-4 py-2">{{ usuario.username }}</td>
-          <td class="px-4 py-2">{{ usuario.first_name }}</td>
-          <td class="px-4 py-2">{{ usuario.last_name }}</td>
-          <td class="px-4 py-2">{{ usuario.identidad }}</td>
-          <td class="px-4 py-2">{{ usuario.email }}</td>
-          <td class="px-4 py-2">
+      <tbody class="text-center">
+        {% for usuario in pagina %}
+        <tr class="border-t">
+          <td class="p-2 border">{{ usuario.username }}</td>
+          <td class="p-2 border">{{ usuario.first_name }}</td>
+          <td class="p-2 border">{{ usuario.last_name }}</td>
+          <td class="p-2 border">{{ usuario.identidad }}</td>
+          <td class="p-2 border">{{ usuario.email }}</td>
+
+          <td class="p-2 border">
             {% for rol in usuario.roles.all %}
               <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">{{ rol.nombre }}</span>
             {% empty %}
               <span class="text-gray-400 text-sm">No roles</span>
             {% endfor %}
           </td>
-          <td class="px-4 py-2">
+
+          <!-- Proyectos (soporta through ProyectoAsignacion o M2M directa) -->
+          <td class="p-2 border">
+            {% with pas=usuario.proyectoasignacion_set.all %}
+              {% if pas %}
+                {% for a in pas %}
+                  <span class="inline-block bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
+                    {{ a.proyecto.nombre }}
+                    {% if not a.include_history %}
+                      (from {{ a.start_at|date:"Y-m-d" }})
+                    {% else %}
+                      (history)
+                    {% endif %}
+                  </span>
+                {% empty %}
+                  <span class="text-gray-400 text-sm">—</span>
+                {% endfor %}
+              {% else %}
+                {% with pms=usuario.proyectos.all %}
+                  {% if pms %}
+                    {% for p in pms %}
+                      <span class="inline-block bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
+                        {{ p.nombre }}
+                      </span>
+                    {% empty %}
+                      <span class="text-gray-400 text-sm">—</span>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-gray-400 text-sm">—</span>
+                  {% endif %}
+                {% endwith %}
+              {% endif %}
+            {% endwith %}
+          </td>
+
+          <td class="p-2 border">
             {% if usuario.is_active %}
               <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Yes</span>
             {% else %}
               <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ No</span>
             {% endif %}
           </td>
-          <td class="px-4 py-2 space-x-2">
+
+          <td class="p-2 border">
             <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
-               class="text-blue-600 hover:underline font-medium">Edit</a>
-            <button onclick="openModal('{{ usuario.id }}', '{{ usuario.username }}')"
-                    class="text-red-600 hover:underline font-medium">Delete</button>
+               class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+            <a href="#" onclick="openModal('{{ usuario.id }}','{{ usuario.username }}')"
+               class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
           </td>
         </tr>
         {% empty %}
-        <tr>
-          <td colspan="8" class="py-4 text-center text-gray-500">No users registered.</td>
-        </tr>
+        <tr><td colspan="9" class="p-4 text-center">No users registered.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <!-- Selector de cantidad (dentro de zonaTabla para que el JS lo enganche como en el ledger) -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form id="formCantidad" class="flex items-center gap-2">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+        {% with cval=cantidad|default:per_page %}
+          <option value="5"    {% if cval|stringformat:"s" == '5' %}selected{% endif %}>5</option>
+          <option value="10"   {% if not cval or cval|stringformat:"s" == '10' %}selected{% endif %}>10</option>
+          <option value="20"   {% if cval|stringformat:"s" == '20' %}selected{% endif %}>20</option>
+          <option value="todos"{% if cval|stringformat:"s" == 'todos' or cval|stringformat:"s" == 'all' %}selected{% endif %}>All</option>
+        {% endwith %}
+      </select>
+    </form>
+  </div>
+
+  <!-- Indicador de página -->
+  <div class="mt-2 flex justify-center text-sm">
+    {% with cval=cantidad|default:per_page %}
+      {% if cval|stringformat:"s" == 'todos' or cval|stringformat:"s" == 'all' %}
+        <span>Page 1 of 1</span>
+      {% else %}
+        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+      {% endif %}
+    {% endwith %}
+  </div>
+
+  <!-- Navegación paginada (enlaces con .pg-link como el ledger) -->
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous %}
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page=1">« First</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.previous_page_number }}">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next %}
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.next_page_number }}">Next ›</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.paginator.num_pages }}">Last »</a>
+    {% endif %}
+  </div>
+
+  {% endwith %}
+  {% endwith %}
 </div>
 
-<!-- Modal de confirmación -->
+<!-- Modal de eliminación (igual que antes) -->
 <div id="confirmModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
   <div class="bg-white rounded-lg shadow-lg max-w-sm w-full p-6">
     <h2 class="text-xl font-semibold mb-4">Confirm Deletion</h2>
@@ -116,17 +203,147 @@
   </div>
 </div>
 
-<!-- Script para abrir/cerrar modal -->
+<!-- Mensajes del sistema (si los usas) -->
+{% if messages %}
+  <ul class="mb-4 mt-4">
+    {% for message in messages %}
+      <li class="p-2 rounded {{ message.tags }} bg-blue-100 text-blue-800">
+        {{ message }}
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+<!-- JS: replica del patrón del ledger (scroll X, filtros, paginación AJAX) -->
 <script>
-  function openModal(userId, username) {
-    document.getElementById('confirmModal').classList.remove('hidden');
-    document.getElementById('modalMessage').textContent =
-      `Are you sure you want to delete the user "${username}"?`;
-    document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
+(function(){
+  const zona        = document.getElementById('zonaTabla');
+  const filtrosForm = document.getElementById('form-filtros');
+  let debounceTimer = null, controller = null;
+
+  /* ======== Mantener scroll horizontal ======== */
+  const SCROLL_KEY = 'usersScrollX:' + location.pathname;
+  function getScrollBox(){ return zona.querySelector('.tabla-responsive'); }
+  function readSavedX(){ return Number(sessionStorage.getItem(SCROLL_KEY) || 0); }
+  function saveX(x){ sessionStorage.setItem(SCROLL_KEY, String(x)); }
+  function hookScrollSaver(){
+    const box = getScrollBox();
+    if(!box) return;
+    let t=null;
+    box.addEventListener('scroll', ()=>{
+      if(t) return;
+      t=setTimeout(()=>{ t=null; saveX(box.scrollLeft); }, 120);
+    }, {passive:true});
+  }
+  function restoreX(x){
+    const box = getScrollBox();
+    if(!box) return;
+    requestAnimationFrame(()=>{ box.scrollLeft = x; });
+  }
+  /* =========================================== */
+
+  function paramsFromFilters(resetPage){
+    const p = new URLSearchParams(new FormData(filtrosForm));
+    if (resetPage) p.set('page','1');
+    return p;
   }
 
-  function closeModal() {
-    document.getElementById('confirmModal').classList.add('hidden');
+  async function cargarTablaCon(qs, push=true){
+    const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
+    saveX(prevX);
+
+    const url = `${location.pathname}?${qs}`;
+    if (push) history.replaceState(null, '', url);
+
+    if (controller) controller.abort();
+    controller = new AbortController();
+
+    const resp = await fetch(url, { signal: controller.signal });
+    const html = await resp.text();
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const nuevaZona = doc.getElementById('zonaTabla');
+    if (!nuevaZona) return;
+
+    zona.innerHTML = nuevaZona.innerHTML;
+
+    // Re-enganchar handlers
+    engancharPaginacion();
+    engancharCantidad();
+
+    // Restaurar scroll X
+    restoreX(prevX);
+    hookScrollSaver();
   }
+
+  function refiltrar(resetPage=true){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(()=>{
+      const p = paramsFromFilters(resetPage);
+      cargarTablaCon(p.toString(), true);
+    }, 250);
+  }
+
+  // Filtrar por rol (como ledger: .filtro)
+  filtrosForm.querySelectorAll('.filtro, #rol').forEach(el=>{
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>refiltrar(true));
+    el.addEventListener && el.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
+    });
+  });
+
+  function engancharPaginacion(){
+    zona.querySelectorAll('a.pg-link').forEach(a=>{
+      a.addEventListener('click', ev=>{
+        ev.preventDefault();
+        const href = new URL(a.getAttribute('href'), location.href);
+        const p = paramsFromFilters(false);
+        p.set('page', href.searchParams.get('page') || '1');
+        cargarTablaCon(p.toString(), true);
+      });
+    });
+  }
+
+  function engancharCantidad(){
+    const sel = zona.querySelector('#cantidad');
+    if(!sel) return;
+    sel.addEventListener('change', ()=>{
+      const val = sel.value; // '5' | '10' | '20' | 'todos'
+      // Actualizar hidden del form de filtros
+      const hidden = filtrosForm.querySelector('input[name="cantidad"]');
+      if (hidden) hidden.value = val;
+
+      // Compatibilidad con vistas antiguas: también enviar per_page
+      const p = paramsFromFilters(true);
+      if (val === 'todos') {
+        p.set('per_page', 'all');
+      } else {
+        p.set('per_page', val);
+      }
+      p.set('cantidad', val);
+
+      cargarTablaCon(p.toString(), true);
+    });
+  }
+
+  // Inicial
+  engancharPaginacion();
+  engancharCantidad();
+  restoreX(readSavedX());
+  hookScrollSaver();
+})();
+
+function openModal(userId, username) {
+  const modal = document.getElementById('confirmModal');
+  document.getElementById('modalMessage').textContent =
+    `Are you sure you want to delete the user "${username}"?`;
+  document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
+  modal.classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('confirmModal').classList.add('hidden');
+}
 </script>
+
+</div>
 {% endblock %}
