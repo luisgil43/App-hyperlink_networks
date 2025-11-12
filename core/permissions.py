@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+from typing import Iterable, Optional, Set
+
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+
+# Intentamos ubicar modelos sin acoplar el proyecto
+try:
+    from usuarios.models import \
+        ProyectoAsignacion  # through con include_history/start_at
+except Exception:
+    ProyectoAsignacion = None  # type: ignore
+
+try:
+    from facturacion.models import Proyecto
+except Exception:
+    Proyecto = None  # type: ignore
+
+
+# === Configuración por settings (opcionales) ===
+BYPASS_ROLES: Set[str] = set(getattr(settings, "CORE_BYPASS_ROLES", ["admin"]))
+PROJECT_PARAM_NAMES: Iterable[str] = getattr(
+    settings,
+    "CORE_PROJECT_PARAM_NAMES",
+    ("proyecto_id", "project_id", "proyecto"),
+)
+
+
+def _user_has_role(user, role_names: Iterable[str]) -> bool:
+    # Soporta M2M 'roles' (modelo Rol con nombre)
+    try:
+        return user.roles.filter(nombre__in=list(role_names)).exists()
+    except Exception:
+        return False
+
+
+def user_has_global_bypass(user) -> bool:
+    """
+    Bypass global si es superuser o tiene alguno de los roles en CORE_BYPASS_ROLES.
+    Por defecto, solo 'admin' (además de superuser).
+    """
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    if BYPASS_ROLES and _user_has_role(user, BYPASS_ROLES):
+        return True
+    return False
+
+
+def user_has_project_access(user, proyecto_id: Optional[int]) -> bool:
+    """
+    Regresa True si el usuario puede ver el proyecto indicado.
+    - Superuser o rol-bypass => True
+    - Con through ProyectoAsignacion:
+        include_history=True => acceso
+        include_history=False => acceso si start_at <= ahora
+    - Con M2M directo user.proyectos => acceso si está asociado
+    """
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if proyecto_id is None:
+        # Si no hay proyecto específico, no negamos (se valida en decorador/middleware solo si existe param)
+        return True
+    if user_has_global_bypass(user):
+        return True
+
+    # A través de ProyectoAsignacion
+    if ProyectoAsignacion is not None:
+        now = timezone.now()
+        try:
+            exists = ProyectoAsignacion.objects.filter(
+                usuario=user, proyecto_id=proyecto_id
+            ).filter(
+                models.Q(include_history=True)
+                | models.Q(include_history=False, start_at__lte=now)
+            ).exists()
+            if exists:
+                return True
+        except Exception:
+            pass
+
+    # M2M directo en el usuario
+    try:
+        if hasattr(user, "proyectos") and user.proyectos.filter(id=proyecto_id).exists():
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def projects_ids_for_user(user) -> Set[int]:
+    """
+    Retorna el conjunto de IDs de proyectos a los que el usuario tiene acceso.
+    Si tiene bypass global, devuelve todos (si el modelo Proyecto está disponible).
+    """
+    ids: Set[int] = set()
+    if not getattr(user, "is_authenticated", False):
+        return ids
+
+    # Bypass => todos los proyectos si es posible
+    if user_has_global_bypass(user) and Proyecto is not None:
+        try:
+            return set(Proyecto.objects.values_list("id", flat=True))
+        except Exception:
+            pass
+
+    # Through ProyectoAsignacion
+    if ProyectoAsignacion is not None:
+        now = timezone.now()
+        try:
+            asign_ids = ProyectoAsignacion.objects.filter(
+                usuario=user
+            ).filter(
+                models.Q(include_history=True)
+                | models.Q(include_history=False, start_at__lte=now)
+            ).values_list("proyecto_id", flat=True)
+            ids.update(asign_ids)
+        except Exception:
+            pass
+
+    # M2M directo
+    try:
+        if hasattr(user, "proyectos"):
+            ids.update(user.proyectos.values_list("id", flat=True))
+    except Exception:
+        pass
+
+    return ids
+
+
+def filter_queryset_by_access(qs, user, project_lookup: str) -> models.QuerySet:
+    """
+    Filtra un queryset por los proyectos a los que el usuario tiene acceso.
+    - qs: QuerySet a filtrar
+    - project_lookup: lookup al campo del proyecto (ej: 'proyecto_id', 'sesion__proyecto_id')
+    """
+    if user_has_global_bypass(user):
+        return qs
+    allowed = projects_ids_for_user(user)
+    if not allowed:
+        # Sin acceso => queryset vacío
+        return qs.none()
+    return qs.filter(**{f"{project_lookup}__in": list(allowed)})

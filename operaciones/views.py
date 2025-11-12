@@ -68,11 +68,13 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
                                 Table, TableStyle)
 
+from core.decorators import project_object_access_required
+from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
+                              user_has_project_access)
 from facturacion.models import CartolaMovimiento
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
-from operaciones.models import (AdjustmentEntry,  # <-- IMPORTA EL MODELO
-                                ItemBillingTecnico, SesionBilling,
-                                WeeklyPayment)
+from operaciones.models import AdjustmentEntry  # <-- IMPORTA EL MODELO
+from operaciones.models import ItemBillingTecnico, SesionBilling, WeeklyPayment
 from usuarios.decoradores import rol_requerido
 from usuarios.models import CustomUser  # ajusta si tu user model es otro
 from usuarios.utils import \
@@ -189,8 +191,7 @@ def mis_rendiciones(request):
         per_page = 10
         cantidad_str = '10'
 
-    movimientos_qs = CartolaMovimiento.objects.filter(
-        usuario=user).order_by('-fecha')
+    movimientos_qs = CartolaMovimiento.objects.filter(usuario=user).order_by('-fecha')
     paginator = Paginator(movimientos_qs, per_page)
     pagina = paginator.get_page(request.GET.get('page'))
 
@@ -212,34 +213,54 @@ def mis_rendiciones(request):
 
     # === claves presign (si vienen de un intento anterior fallido) ===
     wasabi_key_post = (request.POST.get('wasabi_key') or '').strip()
-    wasabi_key_odo_post = (request.POST.get(
-        'wasabi_key_foto_tablero') or '').strip()
+    wasabi_key_odo_post = (request.POST.get('wasabi_key_foto_tablero') or '').strip()
+
+    # 🔒 proyectos permitidos para ESTE usuario
+    allowed_ids = projects_ids_for_user(user)
 
     if request.method == 'POST':
         form = MovimientoUsuarioForm(request.POST, request.FILES)
 
+        # 🔒 Limitar el combo de proyectos del form (si existe) al usuario actual
+        if hasattr(form, 'fields') and 'proyecto' in form.fields:
+            form.fields['proyecto'].queryset = form.fields['proyecto'].queryset.filter(id__in=allowed_ids).order_by('nombre')
+
         if form.is_valid():
             mov: CartolaMovimiento = form.save(commit=False)
             mov.usuario = user
-            mov.fecha = now()
+            mov.fecha = timezone.now()
             mov.status = 'pendiente_abono_usuario' if (
                 mov.tipo and mov.tipo.categoria == "abono") else 'pendiente_supervisor'
 
+            # 🔒 Validación servidor: el proyecto elegido debe estar asignado al usuario
+            proj = form.cleaned_data.get('proyecto')
+            if not proj or proj.id not in allowed_ids:
+                form.add_error('proyecto', "No estás asignado a ese proyecto.")
+                ctx = {
+                    'pagina': pagina,
+                    'cantidad': cantidad_str,
+                    'saldo_disponible': saldo_disponible,
+                    'saldo_pendiente': saldo_pendiente,
+                    'saldo_rendido': saldo_rendido,
+                    'form': form,
+                    'direct_uploads_receipts_enabled': True,
+                    'receipt_max_mb': int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)),
+                    'wasabi_key': wasabi_key_post,
+                    'wasabi_key_foto_tablero': wasabi_key_odo_post,
+                }
+                return render(request, 'operaciones/mis_rendiciones.html', ctx)
+
             # ====== recibo (comprobante) ======
             if wasabi_key_post:
-                # Vino por subida directa
-                mov.comprobante.name = wasabi_key_post
+                mov.comprobante.name = wasabi_key_post  # subida directa
             else:
-                # Flujo clásico
-                mov.comprobante = form.cleaned_data.get(
-                    'comprobante') or mov.comprobante
+                mov.comprobante = form.cleaned_data.get('comprobante') or mov.comprobante
 
             # ====== foto tablero (odómetro) ======
             if wasabi_key_odo_post:
                 mov.foto_tablero.name = wasabi_key_odo_post
             else:
-                mov.foto_tablero = form.cleaned_data.get(
-                    'foto_tablero') or mov.foto_tablero
+                mov.foto_tablero = form.cleaned_data.get('foto_tablero') or mov.foto_tablero
 
             # ====== kilometraje ======
             mov.kilometraje = form.cleaned_data.get('kilometraje')
@@ -255,8 +276,7 @@ def mis_rendiciones(request):
                     time.sleep(1)
                 else:
                     mov.delete()
-                    messages.error(
-                        request, "Error uploading the receipt. Please try again.")
+                    messages.error(request, "Error uploading the receipt. Please try again.")
                     return redirect('operaciones:mis_rendiciones')
 
             if wasabi_key_odo_post:
@@ -266,15 +286,13 @@ def mis_rendiciones(request):
                     time.sleep(1)
                 else:
                     mov.delete()
-                    messages.error(
-                        request, "Error uploading the odometer photo. Please try again.")
+                    messages.error(request, "Error uploading the odometer photo. Please try again.")
                     return redirect('operaciones:mis_rendiciones')
 
-            messages.success(
-                request, "Expense report registered successfully.")
+            messages.success(request, "Expense report registered successfully.")
             return redirect('operaciones:mis_rendiciones')
 
-        # ---> Form inválido: re-render conservará las claves para NO re-subir
+        # ---> Form inválido: re-render conservando claves para NO re-subir
         ctx = {
             'pagina': pagina,
             'cantidad': cantidad_str,
@@ -289,8 +307,11 @@ def mis_rendiciones(request):
         }
         return render(request, 'operaciones/mis_rendiciones.html', ctx)
 
-    # GET
+    # GET: instanciar form y limitar queryset de proyectos
     form = MovimientoUsuarioForm()
+    if hasattr(form, 'fields') and 'proyecto' in form.fields:
+        form.fields['proyecto'].queryset = form.fields['proyecto'].queryset.filter(id__in=allowed_ids).order_by('nombre')
+
     return render(request, 'operaciones/mis_rendiciones.html', {
         'pagina': pagina,
         'cantidad': cantidad_str,
@@ -477,6 +498,7 @@ def multipart_abort(request):
 
 @login_required
 @rol_requerido('usuario')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def aprobar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
@@ -488,6 +510,7 @@ def aprobar_abono(request, pk):
 
 @login_required
 @rol_requerido('usuario')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def rechazar_abono(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
     if request.method == "POST":
@@ -495,31 +518,26 @@ def rechazar_abono(request, pk):
         mov.status = "rechazado_abono_usuario"
         mov.motivo_rechazo = motivo
         mov.save()
-        messages.error(
-            request, "Deposit rejected and sent to Finance for review."
-        )
+        messages.error(request, "Deposit rejected and sent to Finance for review.")
     return redirect('operaciones:mis_rendiciones')
+
 
 
 @login_required
 @rol_requerido('usuario')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def editar_rendicion(request, pk):
-    rendicion = get_object_or_404(
-        CartolaMovimiento, pk=pk, usuario=request.user)
+    rendicion = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
 
     if rendicion.status in ['aprobado_abono_usuario', 'aprobado_finanzas']:
-        messages.error(
-            request, "You cannot edit an already approved expense report.")
+        messages.error(request, "You cannot edit an already approved expense report.")
         return redirect('operaciones:mis_rendiciones')
 
     if request.method == 'POST':
-        form = MovimientoUsuarioForm(
-            request.POST, request.FILES, instance=rendicion)
+        form = MovimientoUsuarioForm(request.POST, request.FILES, instance=rendicion)
 
         if form.is_valid():
-            # Detectar cambios relevantes
-            campos_editados = [
-                f for f in form.changed_data if f not in ['status', 'actualizado']]
+            campos_editados = [f for f in form.changed_data if f not in ['status', 'actualizado']]
             if campos_editados and rendicion.status in [
                 'rechazado_abono_usuario', 'rechazado_supervisor', 'rechazado_pm', 'rechazado_finanzas'
             ]:
@@ -531,22 +549,17 @@ def editar_rendicion(request, pk):
     else:
         form = MovimientoUsuarioForm(instance=rendicion)
 
-    return render(request, 'operaciones/editar_rendicion.html', {
-        'form': form,
-    })
+    return render(request, 'operaciones/editar_rendicion.html', {'form': form})
 
 
 @login_required
 @rol_requerido('usuario')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def eliminar_rendicion(request, pk):
-    rendicion = get_object_or_404(
-        CartolaMovimiento, pk=pk, usuario=request.user
-    )
+    rendicion = get_object_or_404(CartolaMovimiento, pk=pk, usuario=request.user)
 
     if rendicion.status in ['aprobado_abono_usuario', 'aprobado_finanzas']:
-        messages.error(
-            request, "You cannot delete an already approved expense report."
-        )
+        messages.error(request, "You cannot delete an already approved expense report.")
         return redirect('operaciones:mis_rendiciones')
 
     if request.method == 'POST':
@@ -594,22 +607,21 @@ def _parse_fecha_fragmento(s: str):
 def vista_rendiciones(request):
     user = request.user
 
-    # Base visible según rol (igual)
+    # Base visible según rol
     if user.is_superuser:
         movimientos = CartolaMovimiento.objects.all()
     else:
         base = Q()
         if getattr(user, 'es_supervisor', False):
-            base |= Q(status='pendiente_supervisor') | Q(
-                status='rechazado_supervisor')
+            base |= Q(status='pendiente_supervisor') | Q(status='rechazado_supervisor')
         if getattr(user, 'es_pm', False):
-            base |= Q(status='aprobado_supervisor') | Q(
-                status='rechazado_pm') | Q(status='aprobado_pm')
+            base |= Q(status='aprobado_supervisor') | Q(status='rechazado_pm') | Q(status='aprobado_pm')
         if getattr(user, 'es_facturacion', False):
-            base |= Q(status='aprobado_pm') | Q(
-                status='rechazado_finanzas') | Q(status='aprobado_finanzas')
-        movimientos = CartolaMovimiento.objects.filter(
-            base) if base else CartolaMovimiento.objects.none()
+            base |= Q(status='aprobado_pm') | Q(status='rechazado_finanzas') | Q(status='aprobado_finanzas')
+        movimientos = CartolaMovimiento.objects.filter(base) if base else CartolaMovimiento.objects.none()
+
+    # 🔒 Limitar por proyectos asignados al usuario
+    movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
 
     # ---------- Filtros ----------
     du = request.GET.get('du', '').strip()
@@ -641,14 +653,12 @@ def vista_rendiciones(request):
             if fd:
                 q &= Q(**fd)
             if day_or_month is not None:
-                # usar __day / __month (no __date__day)
-                q &= (Q(fecha__day=day_or_month) |
-                      Q(fecha__month=day_or_month))
+                q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
 
     if q:
         movimientos = movimientos.filter(q)
 
-    # Orden personalizado (igual)
+    # Orden personalizado
     movimientos = movimientos.annotate(
         orden_status=Case(
             When(status__startswith='pendiente', then=Value(1)),
@@ -659,21 +669,19 @@ def vista_rendiciones(request):
         )
     ).order_by('orden_status', '-fecha')
 
-    # Totales (igual)
+    # Totales
     total = movimientos.aggregate(total=Sum('cargos'))['total'] or 0
-    pendientes = movimientos.filter(status__startswith='pendiente').aggregate(
-        total=Sum('cargos'))['total'] or 0
-    rechazados = movimientos.filter(status__startswith='rechazado').aggregate(
-        total=Sum('cargos'))['total'] or 0
+    pendientes = movimientos.filter(status__startswith='pendiente').aggregate(total=Sum('cargos'))['total'] or 0
+    rechazados = movimientos.filter(status__startswith='rechazado').aggregate(total=Sum('cargos'))['total'] or 0
 
-    # Paginación (igual)
+    # Paginación
     cantidad = request.GET.get('cantidad', '10')
     cantidad_pag = 1000000 if cantidad == 'todos' else int(cantidad)
     paginator = Paginator(movimientos, cantidad_pag)
     page_number = request.GET.get('page')
     pagina = paginator.get_page(page_number)
 
-    # ✅ Tomar las choices del campo del modelo
+    # Choices del modelo
     estado_choices = CartolaMovimiento._meta.get_field('status').choices
 
     base_qs = request.GET.copy()
@@ -697,6 +705,7 @@ def vista_rendiciones(request):
 
 @login_required
 @rol_requerido('pm', 'admin', 'supervisor', 'facturacion')
+@project_object_access_required(model='facturacion.CartolaMovimiento',object_kw='pk',project_attr='proyecto_id')
 def aprobar_rendicion(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk)
     user = request.user
@@ -719,6 +728,7 @@ def aprobar_rendicion(request, pk):
 
 @login_required
 @rol_requerido('pm', 'admin', 'supervisor', 'facturacion')
+@project_object_access_required(model='facturacion.CartolaMovimiento',object_kw='pk',project_attr='proyecto_id')
 def rechazar_rendicion(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
     if request.method == 'POST':
@@ -742,20 +752,43 @@ def rechazar_rendicion(request, pk):
 
 
 @login_required
-@rol_requerido('pm', 'admin')  # Solo PM
+@rol_requerido('pm', 'admin')  # Si quieres, agrega 'supervisor', 'facturacion'
 def exportar_rendiciones(request):
-    # Base que ve PM
-    movimientos = CartolaMovimiento.objects.filter(
-        Q(status='aprobado_supervisor') | Q(
-            status='rechazado_pm') | Q(status='aprobado_pm')
-    ).order_by('status', '-fecha')
+    from datetime import datetime
 
-    # Mismos filtros del listado
-    du = request.GET.get('du', '').strip()
-    fecha_txt = request.GET.get('fecha', '').strip()
-    proyecto = request.GET.get('proyecto', '').strip()
-    tipo_txt = request.GET.get('tipo', '').strip()
-    estado = request.GET.get('estado', '').strip()
+    import xlwt
+    from django.db.models import Case, IntegerField, Q, Value, When
+    from django.http import HttpResponse
+    from django.utils.timezone import is_aware
+
+    # ===== Base visible (misma lógica que vista_rendiciones) =====
+    if request.user.is_superuser:
+        base = CartolaMovimiento.objects.all()
+    else:
+        u = request.user
+        visible_q = Q()
+        if getattr(u, 'es_supervisor', False):
+            visible_q |= Q(status='pendiente_supervisor') | Q(status='rechazado_supervisor')
+        if getattr(u, 'es_pm', False):
+            visible_q |= Q(status='aprobado_supervisor') | Q(status='rechazado_pm') | Q(status='aprobado_pm')
+        if getattr(u, 'es_facturacion', False):
+            visible_q |= Q(status='aprobado_pm') | Q(status='rechazado_finanzas') | Q(status='aprobado_finanzas')
+
+        base = CartolaMovimiento.objects.filter(visible_q) if visible_q else CartolaMovimiento.objects.none()
+
+    # Limitar SIEMPRE a proyectos asignados al usuario
+    base = filter_queryset_by_access(
+        base.select_related('usuario', 'proyecto', 'tipo'),
+        request.user,
+        'proyecto_id'
+    )
+
+    # --------- Filtros (idénticos al listado) ----------
+    du        = (request.GET.get('du') or '').strip()
+    fecha_txt = (request.GET.get('fecha') or '').strip()
+    proyecto  = (request.GET.get('proyecto') or '').strip()
+    tipo_txt  = (request.GET.get('tipo') or '').strip()
+    estado    = (request.GET.get('estado') or '').strip()
 
     q = Q()
     if du:
@@ -768,19 +801,34 @@ def exportar_rendiciones(request):
         q &= Q(tipo__nombre__icontains=tipo_txt)
     if estado:
         q &= Q(status=estado)
+
     if fecha_txt:
         fd = _parse_fecha_fragmento(fecha_txt)
         if fd:
             day_or_month = fd.pop("_day_or_month", None)
+            # Normaliza claves antiguas 'fecha__date__*' → 'fecha__*'
+            if any(k.startswith('fecha__date__') for k in fd.keys()):
+                fd = {k.replace('fecha__date__', 'fecha__'): v for k, v in fd.items()}
             if fd:
                 q &= Q(**fd)
             if day_or_month is not None:
-                q &= (Q(fecha__date__day=day_or_month) |
-                      Q(fecha__date__month=day_or_month))
-    if q:
-        movimientos = movimientos.filter(q)
+                q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
 
-    # Excel (con Odometer km, como ya dejamos)
+    movimientos = base.filter(q) if q else base
+
+    # ===== Orden FINAL (igual que en vista_rendiciones) =====
+    movimientos = movimientos.annotate(
+        orden_status=Case(
+            When(status__startswith='pendiente', then=Value(1)),
+            When(status__startswith='rechazado', then=Value(2)),
+            When(status__startswith='aprobado',  then=Value(3)),
+            default=Value(4),
+            output_field=IntegerField(),
+        )
+    ).order_by('orden_status', '-fecha', '-id')
+    # (Si quieres puramente por fecha, usa solo: .order_by('-fecha', '-id'))
+
+    # ----- Excel -----
     response = HttpResponse(content_type='application/ms-excel')
     response['Content-Disposition'] = 'attachment; filename="expense_reports.xls"'
 
@@ -788,40 +836,52 @@ def exportar_rendiciones(request):
     ws = wb.add_sheet('Expense Reports')
 
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+    date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
-    columns = ["User", "Date", "Project", "Type",
-               "Remarks", "Amount", "Status", "Odometer (km)"]
-    for col_num, column_title in enumerate(columns):
-        ws.write(0, col_num, column_title, header_style)
+    columns = ["User", "Date", "Project", "Type", "Remarks", "Amount", "Status", "Odometer (km)"]
+    for col_num, title in enumerate(columns):
+        ws.write(0, col_num, title, header_style)
 
     for row_num, mov in enumerate(movimientos, start=1):
         ws.write(row_num, 0, str(mov.usuario))
+
         fecha_excel = mov.fecha
         if isinstance(fecha_excel, datetime):
             if is_aware(fecha_excel):
                 fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
             fecha_excel = fecha_excel.date()
         ws.write(row_num, 1, fecha_excel, date_style)
-        ws.write(row_num, 2, str(
-            getattr(mov.proyecto, "nombre", mov.proyecto or "")))
+
+        ws.write(row_num, 2, str(getattr(mov.proyecto, "nombre", mov.proyecto or "")))
         ws.write(row_num, 3, str(getattr(mov.tipo, "nombre", mov.tipo or "")))
         ws.write(row_num, 4, mov.observaciones or "")
         ws.write(row_num, 5, float(mov.cargos or 0))
         ws.write(row_num, 6, mov.get_status_display())
-        ws.write(row_num, 7, int(mov.kilometraje)
-                 if mov.kilometraje is not None else "")
+        ws.write(row_num, 7, int(mov.kilometraje) if mov.kilometraje is not None else "")
 
     wb.save(response)
     return response
 
-
 @login_required
 @rol_requerido('usuario')
 def exportar_mis_rendiciones(request):
+    from datetime import datetime
+
+    import xlwt
+    from django.http import HttpResponse
+    from django.utils.timezone import is_aware
+
     user = request.user
-    movimientos = (CartolaMovimiento.objects.filter(
-        usuario=user).order_by('-fecha'))
+
+    # Base: solo mis movimientos
+    base = (
+        CartolaMovimiento.objects
+        .filter(usuario=user)
+        .select_related('usuario', 'proyecto', 'tipo')
+        .order_by('-fecha')
+    )
+    # Limitar a proyectos donde el usuario tiene acceso
+    movimientos = filter_queryset_by_access(base, user, 'proyecto_id')
 
     # Crear archivo Excel
     response = HttpResponse(content_type='application/ms-excel')
@@ -833,7 +893,7 @@ def exportar_mis_rendiciones(request):
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
-    # Columnas (agregamos Odometer (km))
+    # Columnas (incluye Odometer (km))
     columns = [
         "User",
         "Date",
@@ -843,7 +903,7 @@ def exportar_mis_rendiciones(request):
         "Credits (USD)",
         "Remarks",
         "Status",
-        "Odometer (km)",   # 👈 nuevo campo
+        "Odometer (km)",
     ]
     for col_num, column_title in enumerate(columns):
         ws.write(0, col_num, column_title, header_style)
@@ -865,10 +925,7 @@ def exportar_mis_rendiciones(request):
         ws.write(row_num, 5, float(mov.abonos or 0))
         ws.write(row_num, 6, mov.observaciones or "")
         ws.write(row_num, 7, mov.get_status_display())
-        ws.write(row_num, 8, int(mov.kilometraje)
-                 if mov.kilometraje is not None else "")
-        # Si prefieres texto con separador de miles:
-        # ws.write(row_num, 8, f"{mov.kilometraje:,}".replace(",", ".") if mov.kilometraje else "")
+        ws.write(row_num, 8, int(mov.kilometraje) if mov.kilometraje is not None else "")
 
     wb.save(response)
     return response

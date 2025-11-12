@@ -52,11 +52,20 @@ User = get_user_model()
 
 import re
 
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.db.models import IntegerField
 from django.db.models.functions import Cast, Substr
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 
-from .models import Proyecto
+# ⬇️ agrega junto a tus imports
+from core.decorators import project_object_access_required
+from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
+                              user_has_project_access)
+
+from .models import CartolaMovimiento, Proyecto
 
 
 def suggest_next_project_code(prefix: str = "PRJ-", width: int = 6) -> str:
@@ -119,7 +128,7 @@ def listar_cartola(request):
         .select_related('usuario', 'proyecto', 'tipo')
         .order_by('-fecha')
     )
-
+    movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
     # Usuario (username, nombre, apellido)
     if du:
         movimientos = movimientos.filter(
@@ -195,13 +204,68 @@ def listar_cartola(request):
     return render(request, 'facturacion/listar_cartola.html', ctx)
 
 
+
+
 @login_required
 @rol_requerido('facturacion', 'admin')
 def registrar_abono(request):
+    # Detectar el usuario “destinatario” del abono (viene en el form)
+    target_user = None
+    user_field_names = ('usuario', 'user', 'tecnico')
     if request.method == 'POST':
-        form = CartolaAbonoForm(request.POST, request.FILES)
+        for fn in user_field_names:
+            uid = request.POST.get(fn)
+            if uid:
+                try:
+                    target_user = User.objects.get(pk=uid)
+                except User.DoesNotExist:
+                    target_user = None
+                break
+    else:
+        for fn in user_field_names:
+            uid = request.GET.get(fn)
+            if uid:
+                try:
+                    target_user = User.objects.get(pk=uid)
+                except User.DoesNotExist:
+                    target_user = None
+                break
+
+    form = CartolaAbonoForm(request.POST or None, request.FILES or None)
+
+    # 🔒 Restringir el combo de proyectos del formulario
+    if hasattr(form, 'fields') and 'proyecto' in form.fields:
+        # Si ya eligieron un usuario destino, mostrar SOLO proyectos donde él participa.
+        # Si no, mostrar (por defecto) los proyectos a los que el actor (tú) tiene acceso.
+        allowed_ids = projects_ids_for_user(target_user) if target_user else projects_ids_for_user(request.user)
+        form.fields['proyecto'].queryset = Proyecto.objects.filter(id__in=allowed_ids).order_by('nombre')
+
+    if request.method == 'POST':
         if form.is_valid():
             movimiento = form.save(commit=False)
+
+            # Si el form NO setea el usuario y lo detectamos arriba, lo fijamos.
+            if target_user and not getattr(movimiento, 'usuario_id', None):
+                movimiento.usuario = target_user
+
+            proj_id = getattr(getattr(movimiento, 'proyecto', None), 'id', None)
+            if not proj_id:
+                messages.error(request, "You must choose a project.")
+                return render(request, 'facturacion/registrar_abono.html', {'form': form})
+
+            # 🔒 1) El actor debe tener acceso al proyecto
+            if not user_has_project_access(request.user, proj_id):
+                messages.error(request, "You don't have access to the selected project.")
+                return render(request, 'facturacion/registrar_abono.html', {'form': form})
+
+            # 🔒 2) El usuario destino debe participar en ese proyecto
+            if getattr(movimiento, 'usuario_id', None):
+                target_allowed = projects_ids_for_user(movimiento.usuario)
+                if proj_id not in target_allowed:
+                    messages.error(request, "The selected user is not assigned to that project.")
+                    return render(request, 'facturacion/registrar_abono.html', {'form': form})
+
+            # Forzar categoría como abono
             tipo_abono = TipoGasto.objects.filter(categoria='abono').first()
             movimiento.tipo = tipo_abono
             movimiento.cargos = 0
@@ -213,10 +277,8 @@ def registrar_abono(request):
             messages.success(request, "Transaction registered successfully.")
             return redirect('facturacion:listar_cartola')
         else:
-            messages.error(
-                request, "Please correct the errors before proceeding.")
-    else:
-        form = CartolaAbonoForm()
+            messages.error(request, "Please correct the errors before proceeding.")
+
     return render(request, 'facturacion/registrar_abono.html', {'form': form})
 
 
@@ -335,6 +397,7 @@ def eliminar_proyecto(request, pk):
 
 @login_required
 @rol_requerido('facturacion', 'supervisor', 'pm', 'admin')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def aprobar_movimiento(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk)
     if mov.tipo and mov.tipo.categoria != "abono":
@@ -357,6 +420,7 @@ def aprobar_movimiento(request, pk):
 
 @login_required
 @rol_requerido('facturacion', 'supervisor', 'pm', 'admin')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def rechazar_movimiento(request, pk):
     mov = get_object_or_404(CartolaMovimiento, pk=pk)
     if request.method == 'POST':
@@ -377,9 +441,22 @@ def rechazar_movimiento(request, pk):
             messages.success(request, "Expense rejected successfully.")
     return redirect('facturacion:listar_cartola')
 
+@login_required
+@rol_requerido('admin')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
+def aprobar_abono_como_usuario(request, pk):
+    mov = get_object_or_404(CartolaMovimiento, pk=pk)
+    if mov.tipo and mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
+        mov.status = "aprobado_abono_usuario"
+        mov.save()
+        messages.success(request, "Deposit approved as user.")
+    next_url = request.GET.get('next') or request.META.get('HTTP_REFERER') or reverse('facturacion:listar_cartola')
+    return redirect(next_url)
+
 
 @login_required
 @rol_requerido('facturacion', 'admin')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
@@ -422,6 +499,7 @@ def editar_movimiento(request, pk):
 
 @login_required
 @rol_requerido('admin')
+@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def eliminar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
     if request.method == 'POST':
@@ -438,13 +516,13 @@ def listar_saldos_usuarios(request):
 
     # Estados según tu modelo (pendientes por etapa)
     USER_PENDING = ['pendiente_abono_usuario']
-    SUP_PENDING = ['pendiente_supervisor']
-    PM_PENDING = ['aprobado_supervisor']   # esperando PM
-    FIN_PENDING = ['aprobado_pm']           # esperando Finanzas
+    SUP_PENDING  = ['pendiente_supervisor']
+    PM_PENDING   = ['aprobado_supervisor']   # esperando PM
+    FIN_PENDING  = ['aprobado_pm']           # esperando Finanzas
 
-    # Constante decimal tipada (¡clave para evitar el FieldError!)
+    # Constante decimal tipada
     DEC = DecimalField(max_digits=12, decimal_places=2)
-    V0 = Value(Decimal('0.00'), output_field=DEC)
+    V0  = Value(Decimal('0.00'), output_field=DEC)
 
     # Sumas condicionadas (usar V0 en default)
     pend_user_abonos = Sum(
@@ -490,44 +568,48 @@ def listar_saldos_usuarios(request):
         )
     )
 
+    # 🔒 Filtra por proyectos a los que el usuario tiene acceso
+    base = CartolaMovimiento.objects.all()
+    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+
     qs = (
-        CartolaMovimiento.objects
+        base
         .values('usuario__id', 'usuario__first_name', 'usuario__last_name', 'usuario__email')
         .annotate(
             # Totales base (Coalesce con V0 decimal)
-            monto_rendido=Coalesce(Sum('cargos'), V0, output_field=DEC),
-            monto_asignado=Coalesce(Sum('abonos'), V0, output_field=DEC),
+            monto_rendido = Coalesce(Sum('cargos'), V0, output_field=DEC),
+            monto_asignado = Coalesce(Sum('abonos'), V0, output_field=DEC),
 
             # Pendiente por usuario (solo abonos)
-            pend_user=pend_user_abonos,
+            pend_user = pend_user_abonos,
 
-            # Parciales por etapa
-            _pend_sup_abonos=pend_sup_abonos,
-            _pend_sup_cargos=pend_sup_cargos,
-            _pend_pm_abonos=pend_pm_abonos,
-            _pend_pm_cargos=pend_pm_cargos,
-            _pend_fin_abonos=pend_fin_abonos,
-            _pend_fin_cargos=pend_fin_cargos,
+            # Parciales por etapa (abonos/cargos separados)
+            _pend_sup_abonos = pend_sup_abonos,
+            _pend_sup_cargos = pend_sup_cargos,
+            _pend_pm_abonos  = pend_pm_abonos,
+            _pend_pm_cargos  = pend_pm_cargos,
+            _pend_fin_abonos = pend_fin_abonos,
+            _pend_fin_cargos = pend_fin_cargos,
         )
         .annotate(
             # Combinar abonos+cargos en SQL (usa Coalesce(..., V0))
-            pend_sup=ExpressionWrapper(
+            pend_sup = ExpressionWrapper(
                 Coalesce(F('_pend_sup_abonos'), V0, output_field=DEC) +
                 Coalesce(F('_pend_sup_cargos'), V0, output_field=DEC),
                 output_field=DEC,
             ),
-            pend_pm=ExpressionWrapper(
+            pend_pm = ExpressionWrapper(
                 Coalesce(F('_pend_pm_abonos'), V0, output_field=DEC) +
                 Coalesce(F('_pend_pm_cargos'), V0, output_field=DEC),
                 output_field=DEC,
             ),
-            pend_fin=ExpressionWrapper(
+            pend_fin = ExpressionWrapper(
                 Coalesce(F('_pend_fin_abonos'), V0, output_field=DEC) +
                 Coalesce(F('_pend_fin_cargos'), V0, output_field=DEC),
                 output_field=DEC,
             ),
             # Disponible: asignado - rendido (todo decimal)
-            monto_disponible=ExpressionWrapper(
+            monto_disponible = ExpressionWrapper(
                 Coalesce(F('monto_asignado'), V0, output_field=DEC) -
                 Coalesce(F('monto_rendido'), V0, output_field=DEC),
                 output_field=DEC,
@@ -536,8 +618,7 @@ def listar_saldos_usuarios(request):
         .order_by('usuario__first_name', 'usuario__last_name')
     )
 
-    paginator = Paginator(
-        qs, qs.count() or 1) if cantidad == 'todos' else Paginator(qs, int(cantidad))
+    paginator = Paginator(qs, qs.count() or 1) if cantidad == 'todos' else Paginator(qs, int(cantidad))
     pagina = paginator.get_page(request.GET.get('page'))
 
     return render(request, 'facturacion/listar_saldos_usuarios.html', {
@@ -545,7 +626,6 @@ def listar_saldos_usuarios(request):
         'pagina': pagina,
         'cantidad': cantidad,
     })
-
 
 from datetime import datetime, time, timedelta
 
@@ -567,18 +647,23 @@ def _parse_date_any(s: str):
 @login_required
 @rol_requerido('facturacion', 'admin')
 def exportar_cartola(request):
+    import xlwt
     params = request.GET
 
-    du = (params.get('du') or '').strip()
+    du        = (params.get('du') or '').strip()
     fecha_str = (params.get('fecha') or '').strip()
-    proyecto = (params.get('proyecto') or '').strip()
+    proyecto  = (params.get('proyecto') or '').strip()
     categoria = (params.get('categoria') or '').strip()
-    tipo = (params.get('tipo') or '').strip()
-    estado = (params.get('estado') or '').strip()
-    rut = (params.get('rut_factura') or '').strip()  # opcional
+    tipo      = (params.get('tipo') or '').strip()
+    estado    = (params.get('estado') or '').strip()
+    rut       = (params.get('rut_factura') or '').strip()  # opcional
+
+    # 🔒 Limitar a proyectos con acceso del usuario
+    base = CartolaMovimiento.objects.all()
+    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
 
     movimientos = (
-        CartolaMovimiento.objects.all()
+        base
         .select_related('usuario', 'proyecto', 'tipo')
         .order_by('-fecha')
     )
@@ -628,7 +713,7 @@ def exportar_cartola(request):
     ws = wb.add_sheet('Transactions')
 
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+    date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
     columns = [
         "User", "Date", "Project", "Category", "Type", "Remarks",
@@ -693,7 +778,7 @@ def exportar_saldos(request):
     USER_PENDING = ['pendiente_usuario',
                     'pendiente_aprobacion_usuario', 'pendiente_abono_usuario']
     SUP_PENDING = ['pendiente_supervisor']
-    PM_PENDING = ['aprobado_supervisor', 'pendiente_pm']
+    PM_PENDING  = ['aprobado_supervisor', 'pendiente_pm']
     FIN_PENDING = ['aprobado_pm', 'pendiente_finanzas']
 
     def _sum_pending_abonos(status_list):
@@ -714,24 +799,28 @@ def exportar_saldos(request):
             )
         )
 
+    # 🔒 Limitar a proyectos con acceso del usuario
+    base = CartolaMovimiento.objects.all()
+    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+
     balances = (
-        CartolaMovimiento.objects
+        base
         .values('usuario__first_name', 'usuario__last_name')
         .annotate(
-            rendered_amount=Sum('cargos', default=0),
-            assigned_amount=Sum('abonos', default=0),
-            available_amount=Sum(F('abonos') - F('cargos'), default=0),
+            rendered_amount = Sum('cargos', default=0),
+            assigned_amount = Sum('abonos', default=0),
+            available_amount = Sum(F('abonos') - F('cargos'), default=0),
 
-            pending_user=_sum_pending_abonos(USER_PENDING),
+            pending_user = _sum_pending_abonos(USER_PENDING),
 
-            sup_abonos=_sum_pending_abonos(SUP_PENDING),
-            sup_cargos=_sum_pending_cargos(SUP_PENDING),
+            sup_abonos = _sum_pending_abonos(SUP_PENDING),
+            sup_cargos = _sum_pending_cargos(SUP_PENDING),
 
-            pm_abonos=_sum_pending_abonos(PM_PENDING),
-            pm_cargos=_sum_pending_cargos(PM_PENDING),
+            pm_abonos  = _sum_pending_abonos(PM_PENDING),
+            pm_cargos  = _sum_pending_cargos(PM_PENDING),
 
-            fin_abonos=_sum_pending_abonos(FIN_PENDING),
-            fin_cargos=_sum_pending_cargos(FIN_PENDING),
+            fin_abonos = _sum_pending_abonos(FIN_PENDING),
+            fin_cargos = _sum_pending_cargos(FIN_PENDING),
         )
         .order_by('usuario__first_name', 'usuario__last_name')
     )
@@ -755,7 +844,7 @@ def exportar_saldos(request):
 
     for r, b in enumerate(balances, start=1):
         pend_sup = float((b['sup_abonos'] or 0) + (b['sup_cargos'] or 0))
-        pend_pm = float((b['pm_abonos'] or 0) + (b['pm_cargos'] or 0))
+        pend_pm  = float((b['pm_abonos']  or 0) + (b['pm_cargos']  or 0))
         pend_fin = float((b['fin_abonos'] or 0) + (b['fin_cargos'] or 0))
 
         ws.write(r, 0, f"{b['usuario__first_name']} {b['usuario__last_name']}")
@@ -1327,21 +1416,6 @@ def invoices_export(request):
     wb.save(resp)
     return resp
 
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse
-
-from .models import CartolaMovimiento
 
 
-@login_required
-@rol_requerido('admin')
-def aprobar_abono_como_usuario(request, pk):
-    mov = get_object_or_404(CartolaMovimiento, pk=pk)
-    if mov.tipo and mov.tipo.categoria == "abono" and mov.status == "pendiente_abono_usuario":
-        mov.status = "aprobado_abono_usuario"
-        mov.save()
-        messages.success(request, "Deposit approved as user.")
-    next_url = request.GET.get('next') or request.META.get('HTTP_REFERER') or reverse('facturacion:listar_cartola')
-    return redirect(next_url)
+

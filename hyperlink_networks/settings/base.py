@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     # Local apps
     'liquidaciones',
     'dashboard',
+    "core",
     'operaciones',
     'prevencion',
     'rrhh',
@@ -99,6 +100,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    "core.middleware.ProjectAccessMiddleware",
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'usuarios.middleware.SessionExpiryMiddleware',
@@ -277,7 +279,8 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # ==============================
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_FAILURE_VIEW = 'usuarios.views.csrf_error_view'
-
+CORE_BYPASS_ROLES = ["admin"]
+CORE_PROJECT_PARAM_NAMES = ("proyecto_id", "project_id", "proyecto")
 # ==============================
 # DEFAULTS
 # ==============================
