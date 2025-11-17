@@ -1,13 +1,12 @@
 # operaciones/urls.py
 
 from django.urls import path
-from . import views as v
-from . import views_billing_exec as b
-from . import views_billing_exec as views
+
 from . import views
-from . import views_plans
+from . import views as v
 from . import views_adjustments
-from . import views_fotos_zip
+from . import views_billing_exec as b
+from . import views_fotos_zip, views_plans
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -245,6 +244,9 @@ urlpatterns = [
      path("plans/<int:plan_id>/view/", views_plans.view_plan, name="view_plan"),
     path("plans/<int:plan_id>/download/", views_plans.download_plan, name="download_plan"),
     path("sesiones/<int:sesion_id>/plans/readonly/", views_plans.list_plans_readonly, name="list_plans_readonly"),
+    path('precios/import/api/tecnicos/', v.api_tecnicos_por_proyecto, name='api_tecnicos_por_proyecto'),
+    
+    
 
 
 

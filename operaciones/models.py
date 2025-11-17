@@ -9,16 +9,20 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.text import slugify
 
+from facturacion.models import Proyecto
 from usuarios.models import CustomUser  # si no lo usas, puedes quitarlo
 from utils.paths import upload_to  # si no lo usas, puedes quitarlo
 
 
 class PrecioActividadTecnico(models.Model):
     tecnico = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        db_index=True,
     )
+
+    proyecto = models.ForeignKey("facturacion.Proyecto",on_delete=models.CASCADE,related_name="precios_tecnico",db_index=True)
     ciudad = models.CharField(max_length=100)
-    proyecto = models.CharField(max_length=200)
     oficina = models.CharField(max_length=100, default="-")
     cliente = models.CharField(max_length=100, default="-")
     tipo_trabajo = models.CharField(max_length=100, default="-")
@@ -32,16 +36,25 @@ class PrecioActividadTecnico(models.Model):
     class Meta:
         verbose_name = "Precio por Actividad"
         verbose_name_plural = "Precios por Actividad"
+        # ahora la unicidad usa el FK "proyecto"
         unique_together = (
             "tecnico", "ciudad", "proyecto", "oficina", "cliente", "codigo_trabajo"
         )
         indexes = [
-            models.Index(fields=[
-                "tecnico", "ciudad", "proyecto", "oficina", "cliente", "codigo_trabajo"
-            ]),
+            models.Index(
+                fields=[
+                    "tecnico",
+                    "ciudad",
+                    "proyecto",
+                    "oficina",
+                    "cliente",
+                    "codigo_trabajo",
+                ]
+            ),
         ]
 
     def __str__(self):
+        # Django mostrará el __str__ de Proyecto
         return f"{self.tecnico} — {self.ciudad}/{self.proyecto} · {self.codigo_trabajo}"
 
 
@@ -104,20 +117,22 @@ class SesionBilling(models.Model):
     is_direct_discount = models.BooleanField(default=False, db_index=True)
     origin_session = models.ForeignKey(
         "self",
-        null=True, blank=True,
+        null=True,
+        blank=True,
         related_name="discounts",
         on_delete=models.SET_NULL,
-        help_text="If set, this discount corrects the referenced session."
+        help_text="If set, this discount corrects the referenced session.",
     )
-    
+
     # ----- Split / Duplicate (facturación parcial) -----
     is_split_child = models.BooleanField(default=False, db_index=True)
     split_from = models.ForeignKey(
         "self",
-        null=True, blank=True,
+        null=True,
+        blank=True,
         related_name="split_children",
         on_delete=models.SET_NULL,
-        help_text="If set, this billing session was created by splitting from the referenced session."
+        help_text="If set, this billing session was created by splitting from the referenced session.",
     )
     split_comment = models.CharField(max_length=255, blank=True, default="")
 
@@ -145,7 +160,10 @@ class SesionBilling(models.Model):
     # Proyectos especiales (permite título/dirección manual en evidencias)
     proyecto_especial = models.BooleanField(
         default=False,
-        help_text="If enabled, 'extra' photos can include user-entered Title and Address; the report will use those fields."
+        help_text=(
+            "If enabled, 'extra' photos can include user-entered Title and "
+            "Address; the report will use those fields."
+        ),
     )
 
     # ----- Estado operativo y reporte único del proyecto -----
@@ -166,11 +184,21 @@ class SesionBilling(models.Model):
 
     # ----- Totales -----
     subtotal_tecnico = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00"))
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
     subtotal_empresa = models.DecimalField(
-        max_digits=12, decimal_places=2, default=Decimal("0.00"))
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
     real_company_billing = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True)
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
 
     # Semana del descuento (si aplica)
     discount_week = models.CharField(
@@ -190,7 +218,10 @@ class SesionBilling(models.Model):
 
     # =============================== FINANZAS ============================== #
     finance_status = models.CharField(
-        max_length=20, choices=FINANCE_STATUS, default="none", db_index=True
+        max_length=20,
+        choices=FINANCE_STATUS,
+        default="none",
+        db_index=True,
     )
     finance_note = models.TextField(blank=True, default="")
     finance_sent_at = models.DateTimeField(null=True, blank=True)
@@ -206,6 +237,58 @@ class SesionBilling(models.Model):
             models.Index(fields=["is_direct_discount"]),
             models.Index(fields=["is_split_child"]),
         ]
+
+    # ---------------------- SYNC con facturacion.Proyecto ----------------- #
+    def sync_from_proyecto_codigo(self):
+        """
+        Actualiza cliente/ciudad/proyecto/oficina usando facturacion.Proyecto.
+        Ahora es tolerante:
+          - Si self.proyecto_id trae el código (13_977), busca por codigo.
+          - Si self.proyecto_id o self.proyecto traen un número (1), intenta
+            resolver por PK y normaliza a codigo/nombre.
+        """
+        from facturacion.models import Proyecto
+
+        codigo = (self.proyecto_id or "").strip()
+
+        # Si no tenemos código, pero 'proyecto' parece un PK numérico,
+        # lo usamos como punto de partida.
+        if not codigo and (self.proyecto or "").strip().isdigit():
+            codigo = self.proyecto.strip()
+
+        # Si no hay nada, limpiamos y salimos
+        if not codigo:
+            self.cliente = ""
+            self.ciudad = ""
+            self.proyecto = ""
+            self.oficina = ""
+            return
+
+        p = None
+
+        # 1) Intentar primero por codigo (como antes)
+        try:
+            p = Proyecto.objects.get(codigo__iexact=codigo)
+        except Proyecto.DoesNotExist:
+            p = None
+
+        # 2) Si no existe por codigo y el "codigo" es numérico, probar como PK
+        if p is None and codigo.isdigit():
+            try:
+                p = Proyecto.objects.get(pk=int(codigo))
+            except Proyecto.DoesNotExist:
+                p = None
+
+        # Si aún así no encontramos nada, no tocamos los campos
+        if p is None:
+            return
+
+        # Normalizamos SIEMPRE a los datos reales del proyecto
+        self.proyecto_id = p.codigo          # siempre el código real (13_977, etc.)
+        self.cliente = p.mandante
+        self.ciudad = p.ciudad
+        self.proyecto = p.nombre             # lo que verás en pantalla, ya NO "1"
+        self.oficina = p.oficina
 
     # ---------------------- Helpers / business rules ---------------------- #
     @property
@@ -230,6 +313,7 @@ class SesionBilling(models.Model):
         if low.startswith("http://") or low.startswith("https://"):
             return val
         from urllib.parse import quote_plus
+
         return f"https://www.google.com/maps/search/?api=1&query={quote_plus(val)}"
 
     def __str__(self):
@@ -273,16 +357,27 @@ class SesionBilling(models.Model):
         self.finance_status = "discount_applied"
         if note:
             self.finance_note = note
-            self.save(update_fields=["finance_status",
-                      "finance_note", "finance_updated_at"])
+            self.save(
+                update_fields=[
+                    "finance_status",
+                    "finance_note",
+                    "finance_updated_at",
+                ]
+            )
         else:
             self.save(update_fields=["finance_status", "finance_updated_at"])
 
     # Forzar estado inicial correcto para descuentos directos
     def save(self, *args, **kwargs):
-        # Si es descuento directo, el primer estado de finanzas debe ser "review_discount".
+        # 1) Sincronizar datos de proyecto a partir del código
+        self.sync_from_proyecto_codigo()
+
+        # 2) Lógica de finanzas para descuentos directos:
+        #    si es descuento directo y aún no tiene estado “real” de finanzas,
+        #    lo dejamos en review_discount para que aparezca en el scope correcto.
         if self.is_direct_discount and self.finance_status in ("none", "", "sent"):
             self.finance_status = "review_discount"
+
         super().save(*args, **kwargs)
 
 # ======================= Job de Reporte Fotográfico =======================

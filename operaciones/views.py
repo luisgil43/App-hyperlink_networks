@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from io import BytesIO
 from tempfile import NamedTemporaryFile
+from typing import Optional
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -32,10 +33,13 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import FieldError
 from django.core.files.storage import default_storage
 from django.core.files.storage import default_storage as storage
 from django.core.paginator import Paginator
-from django.db import models, transaction
+from django.db import models
+from django.db import models as dj_models
+from django.db import transaction
 from django.db.models import (Case, Count, DecimalField, Exists, F, FloatField,
                               IntegerField, OuterRef, Prefetch, Q, Sum, Value,
                               When)
@@ -71,7 +75,7 @@ from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
 from core.decorators import project_object_access_required
 from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
-from facturacion.models import CartolaMovimiento
+from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
 from operaciones.models import AdjustmentEntry  # <-- IMPORTA EL MODELO
 from operaciones.models import ItemBillingTecnico, SesionBilling, WeeklyPayment
@@ -92,6 +96,25 @@ from .services.weekly import \
     materialize_week_for_payments  # crea/actualiza solo la semana indicada
 from .services.weekly import \
     sync_weekly_totals_no_create  # versión que NO crea
+
+try:
+    from operaciones.models import AdjustmentEntry
+except Exception:
+    AdjustmentEntry = None
+
+# 👇 nuevo
+from facturacion.models import Proyecto  # ajusta el app si está en otro lado
+
+  # type: ignore
+
+
+
+
+# operaciones/views.py
+
+
+
+
 
 WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 # --- Direct upload (receipts/rendiciones) ---
@@ -345,14 +368,6 @@ RECEIPT_ALLOWED_MIME = set(getattr(
 ALLOWED_MIME = RECEIPT_ALLOWED_MIME
 
 
-def _s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        config=Config(s3={"addressing_style": "path"})
-    )
 
 
 @login_required
@@ -929,10 +944,10 @@ def exportar_mis_rendiciones(request):
 
     wb.save(response)
     return response
-# operaciones/views.py
+
+from django.http import JsonResponse
 
 
-# ---------- LISTAR ----------
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'facturacion')
 def listar_precios_tecnico(request):
@@ -942,12 +957,24 @@ def listar_precios_tecnico(request):
 
     # Filtros (GET)
     f_tecnico = (request.GET.get('f_tecnico') or '').strip()
-    f_ciudad = (request.GET.get('f_ciudad') or '').strip()
-    f_proy = (request.GET.get('f_proyecto') or '').strip()
-    f_codigo = (request.GET.get('f_codigo') or '').strip()
+    f_ciudad  = (request.GET.get('f_ciudad') or '').strip()
+    f_proy    = (request.GET.get('f_proyecto') or '').strip()
+    f_codigo  = (request.GET.get('f_codigo') or '').strip()
 
-    qs = PrecioActividadTecnico.objects.select_related(
-        'tecnico').order_by('-fecha_creacion')
+    qs = (
+        PrecioActividadTecnico.objects
+        .select_related('tecnico')   # NO agregamos 'proyecto' hasta que sea FK
+        .order_by('-fecha_creacion')
+    )
+
+    # 🔒 Limitar por proyectos asignados al usuario actual SOLO si 'proyecto' es FK
+    try:
+        f = PrecioActividadTecnico._meta.get_field('proyecto')
+        if isinstance(f, dj_models.ForeignKey):
+            qs = filter_queryset_by_access(qs, request.user, 'proyecto_id')
+    except Exception:
+        # Si el modelo no tiene campo 'proyecto' o no es FK, no filtramos aquí
+        pass
 
     if f_tecnico:
         qs = qs.filter(
@@ -958,13 +985,21 @@ def listar_precios_tecnico(request):
     if f_ciudad:
         qs = qs.filter(ciudad__icontains=f_ciudad)
     if f_proy:
-        qs = qs.filter(proyecto__icontains=f_proy)
+        # Soporta ambos esquemas: FK a Proyecto o campo de texto simple
+        try:
+            qs = qs.filter(
+                Q(proyecto__nombre__icontains=f_proy) |
+                Q(proyecto__codigo__icontains=f_proy)
+            )
+        except FieldError:
+            qs = qs.filter(proyecto__icontains=f_proy)
+
     if f_codigo:
         qs = qs.filter(codigo_trabajo__icontains=f_codigo)
 
-    paginator = Paginator(qs, cantidad)
+    paginator   = Paginator(qs, cantidad)
     page_number = request.GET.get('page')
-    pagina = paginator.get_page(page_number)
+    pagina      = paginator.get_page(page_number)
 
     ctx = {
         'pagina': pagina,
@@ -977,268 +1012,376 @@ def listar_precios_tecnico(request):
     return render(request, 'operaciones/listar_precios_tecnico.html', ctx)
 
 
-# ---------- IMPORTAR -> PREVIEW (con conflictos) ----------
-@login_required
+try:
+    from usuarios.models import \
+        ProyectoAsignacion  # usuario, proyecto, include_history, start_at
+except Exception:
+    ProyectoAsignacion = None
+
+def _to2(val):
+    try:
+        return float(Decimal(str(val)).quantize(Decimal("0.01")))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
+def _tecnicos_de_proyecto_qs(proyecto: Optional[Proyecto]):
+    """
+    Devuelve usuarios asignados al proyecto (sin filtrar por rol):
+    1) via ProyectoAsignacion (preferido)
+    2) via M2M User.proyectos
+    3) via sesiones (SesionBillingTecnico -> sesion.proyecto_id) comparando contra
+       [proyecto.codigo, str(proyecto.id), proyecto.nombre]
+    """
+    User = get_user_model()
+    if not proyecto:
+        return User.objects.none()
+
+    # 1) Through table
+    try:
+        user_ids = proyecto.asignaciones.values_list("usuario_id", flat=True)
+        qs_pa = User.objects.filter(id__in=user_ids).order_by("first_name", "last_name", "username")
+        if qs_pa.exists():
+            return qs_pa
+    except Exception:
+        pass
+
+    # 2) M2M directo
+    try:
+        qs_m2m = User.objects.filter(proyectos=proyecto).order_by("first_name", "last_name", "username")
+        if qs_m2m.exists():
+            return qs_m2m
+    except Exception:
+        pass
+
+    # 3) Fallback por sesiones (usa posibles llaves)
+    keys = []
+    for k in (getattr(proyecto, "codigo", None), getattr(proyecto, "id", None), getattr(proyecto, "nombre", None)):
+        if k is not None and str(k).strip():
+            keys.append(str(k).strip())
+
+    if not keys:
+        return User.objects.none()
+
+    tech_ids = (
+        SesionBillingTecnico.objects
+        .filter(sesion__proyecto_id__in=keys)
+        .values_list("tecnico_id", flat=True)
+        .distinct()
+    )
+    return User.objects.filter(id__in=tech_ids).order_by("first_name", "last_name", "username")
+
+
+@login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm')
 def importar_precios(request):
     """
-    Sube el Excel, arma preview_data, calcula conflictos por (Ciudad, Proyecto, Oficina, Cliente)
-    y renderiza el preview. NO guarda aún.
+    GET  -> muestra form; si viene ?proyecto_id, filtra técnicos.
+    POST -> valida, arma preview y muestra conflictos.
     """
-    if request.method == 'POST':
-        form = ImportarPreciosForm(request.POST, request.FILES)
-        if not form.is_valid():
-            messages.error(request, "Invalid form.")
-            return redirect('operaciones:importar_precios')
+    proyectos_qs = filter_queryset_by_access(Proyecto.objects.all(), request.user, 'id')
 
+    # ---------------- GET ----------------
+    if request.method == 'GET':
+        form = ImportarPreciosForm()
+        proyecto_id_get = (request.GET.get('proyecto_id') or '').strip()
+
+        proyecto_sel = None
+        if proyecto_id_get and proyectos_qs.filter(pk=proyecto_id_get).exists():
+            proyecto_sel = proyectos_qs.get(pk=proyecto_id_get)
+
+        # filtra técnicos según proyecto seleccionado
+        form.fields['tecnicos'].queryset = _tecnicos_de_proyecto_qs(proyecto_sel)
+
+        return render(
+            request,
+            'operaciones/importar_precios.html',
+            {
+                'form': form,
+                'proyectos': proyectos_qs,
+                'proyecto_sel': proyecto_sel,
+            }
+        )
+
+    # ---------------- POST ----------------
+    form = ImportarPreciosForm(request.POST, request.FILES)
+
+    proyecto_id = (request.POST.get('proyecto_id') or '').strip()
+    if not proyecto_id:
+        messages.error(request, "Please select a Project.")
+        return redirect('operaciones:importar_precios')
+
+    if not proyectos_qs.filter(pk=proyecto_id).exists():
+        messages.error(request, "Selected Project not found or not allowed.")
+        return redirect('operaciones:importar_precios')
+
+    proyecto = proyectos_qs.get(pk=proyecto_id)
+
+    # 🔒 restringe 'tecnicos' ANTES de validar el form
+    form.fields['tecnicos'].queryset = _tecnicos_de_proyecto_qs(proyecto)
+
+    if not form.is_valid():
+        messages.error(request, "Invalid form.")
+        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+
+    try:
         archivo = request.FILES['archivo']
         tecnicos = form.cleaned_data['tecnicos']
 
-        try:
-            # 1) Verificar extensión
-            if not archivo.name.endswith('.xlsx'):
-                messages.error(request, "The file must be in .xlsx format.")
-                return redirect('operaciones:importar_precios')
+        # 1) extensión
+        if not archivo.name.endswith('.xlsx'):
+            messages.error(request, "The file must be in .xlsx format.")
+            return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
 
-            # 2) Leer Excel
-            df = pd.read_excel(archivo, header=0)
-            if df.empty:
-                messages.error(request, "The uploaded Excel file is empty.")
-                return redirect('operaciones:importar_precios')
+        # 2) leer excel
+        df = pd.read_excel(archivo, header=0)
+        if df.empty:
+            messages.error(request, "The uploaded Excel file is empty.")
+            return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
 
-            # 3) Normalizar columnas
-            df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True)
+        # 3) normalizar columnas
+        df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True)
 
-            colmap = {
-                'city': ['city', 'ciudad'],
-                'project': ['project', 'proyect', 'proyecto'],
-                'office': ['office', 'oficina', 'oficce'],
-                'client': ['client', 'cliente'],
-                'work_type': ['work_type', 'tipo_trabajo', 'tipo_de_trabajo'],
-                'code': ['code', 'job_code', 'codigo', 'codigo_trabajo'],
-                'description': ['description', 'descripcion', 'descripción'],
-                'uom': ['uom', 'unidad_medida', 'unidad', 'unit'],
-                'technical_price': ['technical_price', 'tech_price', 'precio_tecnico', 'precio_técnico'],
-                'company_price': ['company_price', 'precio_empresa', 'companyprice'],
+        colmap = {
+            'city': ['city', 'ciudad'],
+            'office': ['office', 'oficina', 'oficce'],
+            'client': ['client', 'cliente'],
+            'work_type': ['work_type', 'tipo_trabajo', 'tipo_de_trabajo'],
+            'code': ['code', 'job_code', 'codigo', 'codigo_trabajo'],
+            'description': ['description', 'descripcion', 'descripción'],
+            'uom': ['uom', 'unidad_medida', 'unidad', 'unit'],
+            'technical_price': ['technical_price', 'tech_price', 'precio_tecnico', 'precio_técnico'],
+            'company_price': ['company_price', 'precio_empresa', 'companyprice'],
+        }
+
+        def resolve(colkey, required=True):
+            for cand in colmap[colkey]:
+                if cand in df.columns:
+                    return cand
+            if required:
+                raise KeyError(f"Required column not found for '{colkey}'. Available columns: {list(df.columns)}")
+            return None
+
+        c_city = resolve('city')
+        c_code = resolve('code')
+        c_desc = resolve('description')
+        c_uom  = resolve('uom')
+        c_tp   = resolve('technical_price')
+        c_cp   = resolve('company_price')
+        c_office = resolve('office', required=False)
+        c_client = resolve('client', required=False)
+        c_wtype  = resolve('work_type', required=False)
+
+        # 4) preview
+        preview_data = []
+        for _, row in df.iterrows():
+            r = {
+                'ciudad': row.get(c_city),
+                'proyecto': proyecto.nombre,
+                'codigo_trabajo': row.get(c_code),
+                'descripcion': row.get(c_desc),
+                'uom': row.get(c_uom),
+                'precio_tecnico': _to2(row.get(c_tp)),
+                'precio_empresa': _to2(row.get(c_cp)),
+                'oficina': row.get(c_office) if c_office else "",
+                'cliente': row.get(c_client) if c_client else "",
+                'tipo_trabajo': row.get(c_wtype) if c_wtype else "",
+                'tecnico': [t.id for t in tecnicos],
+                'error': ''
             }
 
-            def resolve(colkey, required=True):
-                for cand in colmap[colkey]:
-                    if cand in df.columns:
-                        return cand
-                if required:
-                    raise KeyError(
-                        f"Required column not found for '{colkey}'. Available columns: {list(df.columns)}"
-                    )
-                return None
+            missing = []
+            if not r['ciudad']:         missing.append('city')
+            if not r['codigo_trabajo']: missing.append('code')
+            if not r['descripcion']:    missing.append('description')
+            if not r['uom']:            missing.append('uom')
+            if r['precio_tecnico'] is None:
+                r['error'] += (" | " if r['error'] else "") + "Invalid Technical Price"
+            if r['precio_empresa'] is None:
+                r['error'] += (" | " if r['error'] else "") + "Invalid Company Price"
+            if missing:
+                r['error'] += (" | " if r['error'] else "") + f"Missing fields: {', '.join(missing)}"
 
-            c_city = resolve('city')
-            c_proj = resolve('project')
-            c_code = resolve('code')
-            c_desc = resolve('description')
-            c_uom = resolve('uom')
-            c_tp = resolve('technical_price')
-            c_cp = resolve('company_price')
+            preview_data.append(r)
 
-            c_office = resolve('office', required=False)
-            c_client = resolve('client', required=False)
-            c_wtype = resolve('work_type', required=False)
+        request.session['preview_data'] = preview_data
+        request.session['selected_proyecto_id'] = proyecto.id
 
-            # 4) Armar preview_data
-            preview_data = []
+        # 5) conflictos por (tecnico, proyecto*, codigo_trabajo)
+        codes = {r['codigo_trabajo'] for r in preview_data if r.get('codigo_trabajo')}
+        has_conflicts = False
+        conflicts_by_tech = {}
 
-            def _to2(val):
-                try:
-                    return float(Decimal(str(val)).quantize(Decimal("0.01")))
-                except (InvalidOperation, ValueError, TypeError):
-                    return None
+        for t in tecnicos:
+            qs_conf = PrecioActividadTecnico.objects.filter(tecnico=t, codigo_trabajo__in=codes)
 
-            required = [c_city, c_proj, c_code, c_desc, c_uom, c_tp, c_cp]
-            for _, row in df.iterrows():
-                r = {
-                    'ciudad': row.get(c_city),
-                    'proyecto': row.get(c_proj),
-                    'codigo_trabajo': row.get(c_code),
-                    'descripcion': row.get(c_desc),
-                    'uom': row.get(c_uom),
-                    'precio_tecnico': _to2(row.get(c_tp)),
-                    'precio_empresa': _to2(row.get(c_cp)),
-                    'oficina': row.get(c_office) if c_office else "",
-                    'cliente': row.get(c_client) if c_client else "",
-                    'tipo_trabajo': row.get(c_wtype) if c_wtype else "",
-                    'tecnico': [t.id for t in tecnicos],
-                    'error': ''
-                }
+            # Soporta ambos esquemas de proyecto en PrecioActividadTecnico
+            try:
+                # Si existe proyecto_id (FK/char)
+                qs_conf = qs_conf.filter(proyecto_id=proyecto.id)
+            except FieldError:
+                # Fallback: campo legacy 'proyecto' (texto)
+                nome = str(getattr(proyecto, 'nombre', '')).strip()
+                cod  = str(getattr(proyecto, 'codigo', '')).strip()
+                cond = dj_models.Q()
+                if nome:
+                    cond |= dj_models.Q(proyecto__iexact=nome)
+                if cod:
+                    cond |= dj_models.Q(proyecto__iexact=cod)
+                if cond:
+                    qs_conf = qs_conf.filter(cond)
+                else:
+                    qs_conf = qs_conf.none()
 
-                # Validaciones básicas
-                missing_keys = []
-                if not r['ciudad']:
-                    missing_keys.append('city')
-                if not r['proyecto']:
-                    missing_keys.append('project')
-                if not r['codigo_trabajo']:
-                    missing_keys.append('code')
-                if not r['descripcion']:
-                    missing_keys.append('description')
-                if not r['uom']:
-                    missing_keys.append('uom')
-                if r['precio_tecnico'] is None:
-                    r['error'] += (" | " if r['error'] else "") + \
-                        "Invalid Technical Price"
-                if r['precio_empresa'] is None:
-                    r['error'] += (" | " if r['error'] else "") + \
-                        "Invalid Company Price"
-                if missing_keys:
-                    r['error'] += (" | " if r['error'] else "") + \
-                        f"Missing fields: {', '.join(missing_keys)}"
+            conflicts = list(qs_conf.values_list('codigo_trabajo', flat=True).distinct())
+            conflicts_by_tech[t.id] = conflicts
+            if conflicts:
+                has_conflicts = True
 
-                preview_data.append(r)
-
-            # 5) Guardar en sesión para el POST final
-            request.session['preview_data'] = preview_data
-
-            # 6) Calcular conflictos por (Ciudad, Proyecto, Oficina, Cliente)
-            combos = {
-                (row.get('ciudad'), row.get('proyecto'),
-                 row.get('oficina'), row.get('cliente'))
-                for row in preview_data
-                if row.get('ciudad') and row.get('proyecto') and row.get('oficina') and row.get('cliente')
+        return render(
+            request,
+            'operaciones/preview_import.html',
+            {
+                'preview_data': preview_data,
+                'tecnicos': tecnicos,
+                'has_conflicts': has_conflicts,
+                'conflicts_by_tech': conflicts_by_tech,
+                'proyecto_sel': proyecto,
             }
+        )
 
-            has_conflicts = False
-            conflicts_by_tech = {}
+    except KeyError as ke:
+        messages.error(request, f"Column not found or incorrectly assigned: {ke}")
+        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+    except Exception as e:
+        messages.error(request, f"Error during import: {str(e)}")
+        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+    
 
-            if combos:
-                combo_q = Q()
-                for c, p, o, cl in combos:
-                    combo_q |= Q(ciudad=c, proyecto=p, oficina=o, cliente=cl)
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin', 'pm')
+def api_tecnicos_por_proyecto(request):
+    """
+    Devuelve en JSON los técnicos asignados a un proyecto visible para el usuario.
 
-                for t in tecnicos:
-                    qs = (PrecioActividadTecnico.objects
-                          .filter(tecnico=t)
-                          .filter(combo_q)
-                          .values('ciudad', 'proyecto', 'oficina', 'cliente')
-                          .distinct())
-                    conflicts = list(qs)
-                    conflicts_by_tech[t.id] = conflicts
-                    if conflicts:
-                        has_conflicts = True
-            else:
-                for t in tecnicos:
-                    conflicts_by_tech[t.id] = []
+    Respuesta:
+      {
+        "tecnicos": [
+          { "id": 1, "name": "Juan Pérez", "username": "jperez" },
+          ...
+        ]
+      }
+    """
+    proyectos_qs = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        'id'
+    )
 
-            # 7) Render del preview con flags
-            return render(
-                request,
-                'operaciones/preview_import.html',
-                {
-                    'preview_data': preview_data,
-                    'tecnicos': tecnicos,
-                    'has_conflicts': has_conflicts,
-                    'conflicts_by_tech': conflicts_by_tech,
-                }
-            )
+    pid = (request.GET.get('proyecto_id') or '').strip()
+    data = {"tecnicos": []}
 
-        except KeyError as ke:
-            messages.error(
-                request, f"Column not found or incorrectly assigned: {ke}"
-            )
-            return redirect('operaciones:importar_precios')
-        except Exception as e:
-            messages.error(request, f"Error during import: {str(e)}")
-            return redirect('operaciones:importar_precios')
+    if pid and proyectos_qs.filter(pk=pid).exists():
+        proyecto = proyectos_qs.get(pk=pid)
+        for u in _tecnicos_de_proyecto_qs(proyecto):
+            full_name = (u.get_full_name() or "").strip()
+            label = full_name or u.username or f"User {u.id}"
+            data["tecnicos"].append({
+                "id": u.id,
+                "name": label,
+                "username": u.username,
+            })
 
-    # GET
-    form = ImportarPreciosForm()
-    return render(request, 'operaciones/importar_precios.html', {'form': form})
+    return JsonResponse(data)
 
 
+from django.contrib.auth import get_user_model
 # ---------- CONFIRMAR / GUARDAR ----------
+from django.db import transaction
+
+
 @login_required
 @rol_requerido('admin', 'pm')
 def confirmar_importar_precios(request):
-    """
-    Saves the data from session['preview_data'].
-    - If replace=yes: update_or_create using the key (tecnico, ciudad, proyecto, oficina, cliente, codigo_trabajo)
-    - If replace=no: get_or_create to avoid duplicates
-    """
     if request.method != 'POST':
         return redirect('operaciones:importar_precios')
 
     try:
         preview_data = request.session.get('preview_data', [])
-        if not preview_data:
-            messages.error(
-                request, "No data to save. Please try again.")
+        proyecto_id  = request.session.get('selected_proyecto_id')  # <-- clave
+        if not preview_data or not proyecto_id:
+            messages.error(request, "No data to save. Please try again.")
             return redirect('operaciones:importar_precios')
 
         replace = request.POST.get('replace') == 'yes'
-        created_total = 0
-        updated_total = 0
-        skipped_total = 0
+        created_total = updated_total = skipped_total = 0
+        User = get_user_model()
 
         with transaction.atomic():
             for row in preview_data:
-                # Skip if there's an error message
                 if row.get('error'):
                     continue
 
                 tecnico_ids = row.get('tecnico', [])
-                tecnicos = CustomUser.objects.filter(id__in=tecnico_ids)
+                tecnicos = User.objects.filter(id__in=tecnico_ids)
 
                 for tecnico in tecnicos:
                     lookup = dict(
                         tecnico=tecnico,
+                        proyecto_id=proyecto_id,                  # <-- FK real
                         ciudad=row.get('ciudad') or "",
-                        proyecto=row.get('proyecto') or "",
                         oficina=row.get('oficina') or "",
                         cliente=row.get('cliente') or "",
                         codigo_trabajo=row.get('codigo_trabajo') or "",
                     )
-
                     defaults = dict(
                         tipo_trabajo=row.get('tipo_trabajo') or "",
                         descripcion=row.get('descripcion') or "",
                         unidad_medida=row.get('uom') or "",
                         precio_tecnico=row.get('precio_tecnico') or 0,
                         precio_empresa=row.get('precio_empresa') or 0,
+                        # opcional: reflejar nombre legacy si mantienes ese campo CharField
+                        # proyecto=row.get('proyecto') or "",
                     )
 
                     if replace:
                         obj, created = PrecioActividadTecnico.objects.update_or_create(
                             **lookup, defaults=defaults
                         )
-                        if created:
-                            created_total += 1
-                        else:
-                            updated_total += 1
+                        if created: created_total += 1
+                        else:       updated_total += 1
                     else:
                         obj, created = PrecioActividadTecnico.objects.get_or_create(
                             **lookup, defaults=defaults
                         )
-                        if created:
-                            created_total += 1
-                        else:
-                            skipped_total += 1
+                        if created: skipped = False; created_total += 1
+                        else:       skipped_total += 1
 
         msg = f"Import completed. Created: {created_total}, updated: {updated_total}"
         if skipped_total:
             msg += f", skipped (already existing): {skipped_total}"
         messages.success(request, msg)
 
-        # Clear session
+        # limpiar sesión
         request.session.pop('preview_data', None)
+        request.session.pop('selected_proyecto_id', None)
+
         return redirect('operaciones:listar_precios_tecnico')
 
     except Exception as e:
-        messages.error(
-            request, f"An error occurred during the import: {str(e)}")
+        messages.error(request, f"An error occurred during the import: {str(e)}")
         return redirect('operaciones:importar_precios')
+    
+    
 # ---------- CRUD EDIT/DELETE ----------
+
+
+from core.permissions import project_object_access_required  # <-- NUEVO
 
 
 @login_required
 @rol_requerido('admin', 'pm')
+@project_object_access_required(model='operaciones.PrecioActividadTecnico', object_kw='pk', project_attr='proyecto_id')
 def editar_precio(request, pk):
     precio = get_object_or_404(PrecioActividadTecnico, pk=pk)
     if request.method == 'POST':
@@ -1254,12 +1397,12 @@ def editar_precio(request, pk):
 
 @login_required
 @rol_requerido('admin', 'pm')
+@project_object_access_required(model='operaciones.PrecioActividadTecnico', object_kw='pk', project_attr='proyecto_id')
 def eliminar_precio(request, pk):
     precio = get_object_or_404(PrecioActividadTecnico, pk=pk)
     precio.delete()
     messages.success(request, "Price deleted successfully.")
     return redirect('operaciones:listar_precios_tecnico')
-
 
 # --- BILLING DE AQUI PARA ABAJO ---
 #
@@ -1288,14 +1431,20 @@ def bulk_delete_precios(request):
         messages.info(request, "No prices selected.")
         return redirect('operaciones:listar_precios_tecnico')
 
-    qs = PrecioActividadTecnico.objects.filter(id__in=ids)
+    # 🔒 Solo puede borrar los que están dentro de sus proyectos
+    qs = filter_queryset_by_access(
+        PrecioActividadTecnico.objects.filter(id__in=ids).select_related('proyecto'),
+        request.user,
+        'proyecto_id'
+    )
+
     deleted_count = qs.count()
     qs.delete()
 
-    messages.success(
-        request, f"{deleted_count} price(s) deleted successfully.")
+    messages.success(request, f"{deleted_count} price(s) deleted successfully.")
 
-    # Reconstruir URL de retorno preservando filtros y paginación
+    # reconstruye URL de retorno preservando filtros/paginación...
+    # (tu código original aquí, igual)
     base = reverse('operaciones:listar_precios_tecnico')
     params = []
     if return_cantidad:
@@ -1310,7 +1459,6 @@ def bulk_delete_precios(request):
 
     url = f"{base}?{'&'.join(params)}" if params else base
     return redirect(url)
-
 
 # ===== Listado =====
 
@@ -1512,6 +1660,27 @@ def exportar_billing_excel(request):
         .order_by("id")
     )
 
+    # --- Seguridad extra: solo exportar billings de proyectos visibles para este usuario ---
+    # Admin/superuser puede exportar todo; el resto queda limitado a sus proyectos.
+    sesiones = list(sesiones)
+    if not request.user.is_superuser:
+        proyectos_visibles = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            "id",
+        )
+        if proyectos_visibles.exists():
+            allowed_proj_ids = {
+                str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
+            }
+            sesiones = [
+                s for s in sesiones
+                if getattr(s, "proyecto", None) in allowed_proj_ids
+            ]
+        else:
+            # Si no tiene proyectos visibles, no exportamos nada
+            sesiones = []
+
     # ========= 4) Filas =========
     total_subtotal_company = 0.0
     tz = timezone.get_current_timezone()
@@ -1661,6 +1830,32 @@ def billing_send_finance(request):
     skipped = []
     plan = []  # (id, new_finance_status)
 
+    # --- Seguridad extra: solo billings de proyectos a los que el usuario tiene acceso ---
+    # Admin/superuser puede enviar todo; PM queda restringido a sus proyectos visibles.
+    forbidden_ids = set()
+    if not request.user.is_superuser:
+        proyectos_visibles = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            "id",
+        )
+        if proyectos_visibles.exists():
+            allowed_proj_ids = {
+                str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
+            }
+            filtered_rows = []
+            for s in rows:
+                # En SesionBilling guardamos el PK del proyecto en s.proyecto (como string)
+                if getattr(s, "proyecto", None) in allowed_proj_ids:
+                    filtered_rows.append(s)
+                else:
+                    forbidden_ids.add(s.id)
+            rows = filtered_rows
+        else:
+            # Si el usuario no tiene proyectos visibles, ningún billing es enviable
+            forbidden_ids = {s.id for s in rows}
+            rows = []
+
     def _norm(s: str) -> str:
         return (s or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
 
@@ -1697,6 +1892,16 @@ def billing_send_finance(request):
                 "finance_status": s.finance_status,
                 "skip_reason": "NOT_ALLOWED_STATUS",
             })
+
+    # Agregar también los billings que se intentaron enviar pero pertenecen a proyectos no autorizados
+    for bid in forbidden_ids:
+        skipped.append({
+            "id": bid,
+            "estado": None,
+            "is_direct_discount": None,
+            "finance_status": None,
+            "skip_reason": "FORBIDDEN_PROJECT",
+        })
 
     # aplicar updates con lock
     by_id_new = {i: st for (i, st) in plan}
@@ -1796,14 +2001,19 @@ def listar_billing(request):
       - Resto:
           ocultar si finance_status ∈ {'sent','pending','paid','in_review'}.
     """
+    # Usuarios privilegiados que pueden ver TODO el historial (sin filtro por proyecto)
+    user = request.user
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
     visible_filter = (
         # ⬇️ descuento directo todavía sin enviar
-        (Q(is_direct_discount=True) & Q(
-            finance_sent_at__isnull=True) & ~Q(finance_status='paid'))
+        (Q(is_direct_discount=True) & Q(finance_sent_at__isnull=True) & ~Q(finance_status='paid'))
         |
         # ⬇️ flujo normal: ocultar enviados / en proceso de cobro
-        (Q(is_direct_discount=False) & ~Q(
-            finance_status__in=['sent', 'pending', 'paid', 'in_review']))
+        (Q(is_direct_discount=False) & ~Q(finance_status__in=['sent', 'pending', 'paid', 'in_review']))
     )
 
     qs = (
@@ -1816,8 +2026,7 @@ def listar_billing(request):
                 queryset=ItemBilling.objects.prefetch_related(
                     Prefetch(
                         "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related(
-                            "tecnico"),
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
                     )
                 ),
             ),
@@ -1836,6 +2045,41 @@ def listar_billing(request):
             ),
         )
     )
+
+    # 🔒 Limitar visibilidad por PROYECTO (columna "Project" = nombre)
+    # Solo se aplica a usuarios NORMALES. Los de historial ven todo.
+    if not can_view_legacy_history:
+        # Obtenemos los proyectos a los que el usuario tiene acceso y usamos su nombre
+        try:
+            proyectos_user = filter_queryset_by_access(
+                Proyecto.objects.all(),  # modelo de proyectos
+                request.user,
+                'id',                    # el permiso se define por id de Proyecto
+            )
+        except Exception:
+            proyectos_user = Proyecto.objects.none()
+
+        if proyectos_user.exists():
+            allowed_keys = set()
+
+            for p in proyectos_user:
+                # Nombre que se muestra en la columna "Project"
+                nombre = (getattr(p, "nombre", "") or "").strip()
+                if nombre:
+                    allowed_keys.add(nombre)
+
+                # (Opcional) añadimos id/código por compatibilidad con datos viejos,
+                # por si SesionBilling.proyecto guarda id o código.
+                codigo = getattr(p, "codigo", None)
+                if codigo:
+                    allowed_keys.add(str(codigo).strip())
+                allowed_keys.add(str(p.id).strip())
+
+            # SesionBilling.proyecto es el campo que luego se mapea a s.proyecto_nombre
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            # Si no tiene proyectos asignados, no ve ningún billing
+            qs = qs.none()
 
     # ---------- Filtros de servidor ----------
     f = {
@@ -1857,7 +2101,7 @@ def listar_billing(request):
         except ValueError:
             pass
 
-    # Project ID
+    # 🔍 Project ID → sigue filtrando por el campo numérico proyecto_id (columna "Project ID")
     if f["projid"]:
         qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
 
@@ -1888,12 +2132,9 @@ def listar_billing(request):
             qs_filtered = qs_filtered.filter(is_direct_discount=True)
         else:
             mapping = [
-                (("aprobado supervisor", "approved by supervisor"),
-                 Q(estado="aprobado_supervisor")),
-                (("rechazado supervisor", "rejected by supervisor"),
-                 Q(estado="rechazado_supervisor")),
-                (("en revision", "supervisor review", "in supervisor review"),
-                 Q(estado="en_revision_supervisor")),
+                (("aprobado supervisor", "approved by supervisor"), Q(estado="aprobado_supervisor")),
+                (("rechazado supervisor", "rejected by supervisor"), Q(estado="rechazado_supervisor")),
+                (("en revision", "supervisor review", "in supervisor review"), Q(estado="en_revision_supervisor")),
                 (("finalizado", "finished"), Q(estado="finalizado")),
                 (("en proceso", "in progress"), Q(estado="en_proceso")),
                 (("asignado", "assigned"), Q(estado="asignado")),
@@ -1930,6 +2171,40 @@ def listar_billing(request):
             per_page = 10
         pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
+    # ========= Mapear ID → nombre de Proyecto de forma segura =========
+    # s.proyecto puede ser:
+    #   - ID numérico (nuevo esquema)
+    #   - texto con el nombre (datos viejos)
+    proj_ids = set()
+    for s in pagina.object_list:
+        val = s.proyecto
+        if val is None:
+            continue
+        try:
+            proj_ids.add(int(val))
+        except (TypeError, ValueError):
+            # era un nombre, lo dejamos tal cual
+            continue
+
+    if proj_ids:
+        proyectos_map = {
+            p.id: getattr(p, "nombre", str(p))
+            for p in Proyecto.objects.filter(id__in=proj_ids)
+        }
+    else:
+        proyectos_map = {}
+
+    for s in pagina.object_list:
+        val = s.proyecto
+        try:
+            key = int(val)
+        except (TypeError, ValueError):
+            # ya es nombre legible
+            s.proyecto_nombre = val
+        else:
+            s.proyecto_nombre = proyectos_map.get(key, val)
+    # ================================================================
+
     can_edit_real_week = (
         getattr(request.user, "es_pm", False)
         or getattr(request.user, "es_facturacion", False)
@@ -1937,8 +2212,7 @@ def listar_billing(request):
         or request.user.is_superuser
     )
     can_edit_items = bool(
-        getattr(request.user, "es_admin_general",
-                False) or request.user.is_superuser
+        getattr(request.user, "es_admin_general", False) or request.user.is_superuser
     )
 
     # Mantener QS en paginación
@@ -1960,6 +2234,7 @@ def listar_billing(request):
             "qs_keep": qs_keep,
         },
     )
+
 
 
 @login_required
@@ -2087,13 +2362,30 @@ def crear_billing(request):
         .order_by("cliente")
     )
 
-    # Técnicos con al menos una tarifa cargada
-    tecnicos = (
-        Usuario.objects
-        .filter(precioactividadtecnico__isnull=False, is_active=True)
-        .distinct()
-        .order_by("first_name", "last_name", "username")
+    # ========= Proyectos visibles para este usuario =========
+    proyectos_visibles = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        'id',
     )
+
+    # Técnicos con al menos una tarifa cargada
+    # PERO solo en proyectos a los que el usuario tiene acceso
+    if proyectos_visibles.exists():
+        tecnicos = (
+            Usuario.objects
+            .filter(
+                is_active=True,
+                precioactividadtecnico__isnull=False,
+                precioactividadtecnico__proyecto_id__in=proyectos_visibles
+                    .values_list("id", flat=True),
+            )
+            .distinct()
+            .order_by("first_name", "last_name", "username")
+        )
+    else:
+        # Si el usuario no tiene proyectos asociados, no ve técnicos
+        tecnicos = Usuario.objects.none()
 
     return render(request, "operaciones/billing_editar.html", {
         "sesion": None,
@@ -2136,12 +2428,64 @@ def editar_billing(request, sesion_id: int):
         sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
     )
 
+    # 🔒 Proyectos visibles para el usuario
+    proyectos_qs = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        'id',
+    )
+
+    # ========= Resolver proyecto seleccionado (para el select "Project") =========
+    proyecto_sel = None
+
+    # 1) Primero intentamos con sesion.proyecto (puede ser id numérico o nombre)
+    raw = (getattr(sesion, "proyecto", "") or "").strip()
+    if raw:
+        try:
+            # ¿es un id numérico?
+            pid = int(raw)
+        except (TypeError, ValueError):
+            # no es número → buscamos por nombre/código
+            proyecto_sel = proyectos_qs.filter(
+                Q(nombre__iexact=raw) |
+                Q(codigo__iexact=raw)
+            ).first()
+        else:
+            proyecto_sel = proyectos_qs.filter(pk=pid).first()
+
+       # 2) Si aún no encontramos, intentamos con proyecto_id (NB6790, etc.)
+        if not proyecto_sel and sesion.proyecto_id:
+            code = str(sesion.proyecto_id).strip()
+            proyecto_sel = proyectos_qs.filter(
+                Q(codigo__iexact=code) |
+                Q(nombre__icontains=code)
+            ).first()
+
+         # 3) Normalizar valor y etiqueta para el <select id="project">
+        if proyecto_sel:
+        # Este ES el valor que debe viajar en el <option value="...">
+            proyecto_value = proyecto_sel.id
+        # Lo que mostramos al usuario (nombre del proyecto)
+            proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
+        else:
+        # Fallback para datos viejos por si no encontramos el Proyecto
+            raw_label = (sesion.proyecto or sesion.proyecto_id or "").strip()
+            proyecto_value = raw_label
+            proyecto_label = raw_label   
+
+        
+    # =========================================================================
+
     return render(request, "operaciones/billing_editar.html", {
         "sesion": sesion,
         "clientes": list(clientes),
         "tecnicos": tecnicos,
         "items": items,
         "ids_tecnicos": ids_tecnicos,
+        "proyectos": proyectos_qs,
+        "proyecto_sel": proyecto_sel,
+        "proyecto_value": proyecto_value,   # 👈
+        "proyecto_label": proyecto_label,   # 👈
     })
 
 
@@ -2197,15 +2541,22 @@ def billing_send_to_finance(request):
              y se marcan como finance_status='sent', finance_sent_at=now.
 
     Procesa id por id (no aborta el batch completo).
+
+    Permisos:
+      - superuser o usuario_historial: pueden enviar cualquier billing que vean
+        en la lista (sin filtro extra por proyecto).
+      - resto (admin/pm normales): solo pueden enviar billings de proyectos a los que
+        tengan acceso en Project Visibility.
     """
-    # --- parse ids + note ---
+    user = request.user
+
+    # === 1) parsear ids + nota ===
     ids, note = [], ""
-    if request.content_type and "application/json" in request.content_type:
+    if request.content_type and "application/json" in (request.content_type or ""):
         import json
         try:
             payload = json.loads(request.body.decode("utf-8"))
-            ids = [int(x)
-                   for x in (payload.get("ids") or []) if str(x).isdigit()]
+            ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
             note = (payload.get("note") or "").strip()
         except Exception:
             return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
@@ -2220,16 +2571,75 @@ def billing_send_to_finance(request):
     allowed_ops = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     now = timezone.now()
 
+    # === 2) misma lógica de VISIBILIDAD que en listar_billing ===
+    # Usuarios privilegiados de historial
+    can_view_legacy_history = bool(
+        user.is_superuser
+        or getattr(user, "es_usuario_historial", False)
+        or getattr(user, "usuario_historial", False)
+    )
+
+    # Mismo filtro de visibilidad que en listar_billing
+    visible_filter = (
+        # descuento directo todavía sin enviar
+        (Q(is_direct_discount=True) & Q(finance_sent_at__isnull=True) & ~Q(finance_status='paid'))
+        |
+        # flujo normal: ocultar enviados / en proceso de cobro
+        (Q(is_direct_discount=False) & ~Q(finance_status__in=['sent', 'pending', 'paid', 'in_review']))
+    )
+
+    # Base queryset: SOLO los billings que el usuario podría ver en la lista
     qs = (
         SesionBilling.objects
         .select_for_update()
-        .filter(id__in=ids)
-        .only("id", "is_direct_discount", "estado",
-              "finance_status", "finance_sent_at", "finance_note")
+        .filter(visible_filter, id__in=ids)
+        .only(
+            "id",
+            "is_direct_discount",
+            "estado",
+            "finance_status",
+            "finance_sent_at",
+            "finance_updated_at",
+            "finance_note",
+            "proyecto",
+            "proyecto_id",
+        )
     )
 
+    # === 3) Para usuarios normales, limitar por proyectos asignados (igual que listar_billing) ===
+    if not can_view_legacy_history:
+        try:
+            proyectos_user = filter_queryset_by_access(
+                Proyecto.objects.all(),  # modelo de proyectos
+                user,
+                "id",                    # permiso por id de Proyecto
+            )
+        except Exception:
+            proyectos_user = Proyecto.objects.none()
+
+        if proyectos_user.exists():
+            allowed_keys = set()
+            for p in proyectos_user:
+                nombre = (getattr(p, "nombre", "") or "").strip()
+                if nombre:
+                    allowed_keys.add(nombre)
+
+                codigo = getattr(p, "codigo", None)
+                if codigo:
+                    allowed_keys.add(str(codigo).strip())
+
+                allowed_keys.add(str(p.id).strip())
+
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            # sin proyectos asignados -> no puede enviar nada
+            qs = SesionBilling.objects.none().select_for_update()
+
+    # A partir de aquí, 'qs' contiene EXACTAMENTE los billings que
+    # el usuario puede ver en la lista y sobre los que tiene permiso de enviar.
+
     updated_ids = []
-    skipped = {}  # id -> reason
+    skipped = {}  # id -> reason (paid, invalid_status, ...)
 
     for s in qs:
         # No se puede enviar si ya está pagado
@@ -2245,29 +2655,46 @@ def billing_send_to_finance(request):
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
                 s.finance_note = (
-                    s.finance_note + "\n" if s.finance_note else "") + prefix + note
-            s.save(update_fields=[
-                   "finance_status", "finance_sent_at", "finance_updated_at", "finance_note"])
+                    s.finance_note + "\n" if s.finance_note else ""
+                ) + prefix + note
+            s.save(
+                update_fields=[
+                    "finance_status",
+                    "finance_sent_at",
+                    "finance_updated_at",
+                    "finance_note",
+                ]
+            )
             updated_ids.append(s.id)
         else:
             # Normal: validar estado operativo
             if s.estado not in allowed_ops:
                 skipped[s.id] = "invalid_status"
                 continue
+
             s.finance_status = "sent"
             s.finance_sent_at = now
             s.finance_updated_at = now
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
                 s.finance_note = (
-                    s.finance_note + "\n" if s.finance_note else "") + prefix + note
-            s.save(update_fields=[
-                   "finance_status", "finance_sent_at", "finance_updated_at", "finance_note"])
+                    s.finance_note + "\n" if s.finance_note else ""
+                ) + prefix + note
+            s.save(
+                update_fields=[
+                    "finance_status",
+                    "finance_sent_at",
+                    "finance_updated_at",
+                    "finance_note",
+                ]
+            )
             updated_ids.append(s.id)
 
-    # Respuesta
-    payload = {"ok": True, "count": len(
-        updated_ids), "updated_ids": updated_ids}
+    # Nota: si algún id vino en el POST pero NO estaba en 'qs',
+    # simplemente no se procesa (es como si fuera "forbidden").
+    # Eso garantiza que solo se envía lo que realmente ve en la lista.
+
+    payload = {"ok": True, "count": len(updated_ids), "updated_ids": updated_ids}
     if skipped:
         payload["skipped"] = skipped
 
@@ -2277,7 +2704,6 @@ def billing_send_to_finance(request):
     if updated_ids:
         messages.success(request, f"Sent to Finance: {len(updated_ids)}.")
     if skipped:
-        # Mensaje compactado de omitidos
         msg = ", ".join([f"#{i}: {r}" for i, r in skipped.items()])
         messages.warning(request, f"Skipped: {msg}")
     return redirect("operaciones:listar_billing")
@@ -2654,68 +3080,46 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     return redirect("operaciones:listar_billing")
 
 
-def _recalcular_items_sesion(sesion: SesionBilling):
-    ids = list(sesion.tecnicos_sesion.values_list("tecnico_id", flat=True))
-    partes = list(sesion.tecnicos_sesion.values_list("porcentaje", flat=True))
-    total_tec = Decimal("0.00")
-    for it in sesion.items.all():
-        it.desglose_tecnico.all().delete()
-        sub = Decimal("0.00")
-        for tid, pct in zip(ids, partes):
-            base = _tarifa_tecnico(
-                tid, sesion.cliente, sesion.ciudad, sesion.proyecto, sesion.oficina, it.codigo_trabajo
-            )
-            efectiva = money(base * (pct / Decimal("100")))
-            subtotal = money(efectiva * it.cantidad)
-            ItemBillingTecnico.objects.create(
-                item=it,
-                tecnico_id=tid,
-                tarifa_base=base,
-                porcentaje=pct,
-                tarifa_efectiva=efectiva,
-                subtotal=subtotal,
-            )
-            sub += subtotal
-        it.subtotal_tecnico = sub
-        it.save(update_fields=["subtotal_tecnico"])
-        total_tec += sub
-    sesion.subtotal_tecnico = money(total_tec)
-    sesion.save(update_fields=["subtotal_tecnico"])
-
-# ===== Búsquedas / AJAX =====
 
 
 # ===== Búsquedas / AJAX =====
 def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
     q = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo,
     ).first()
     return money(q.precio_empresa if q else 0)
 
 
 def _tarifa_tecnico(tecnico_id, cliente, ciudad, proyecto, oficina, codigo):
     q = PrecioActividadTecnico.objects.filter(
-        tecnico_id=tecnico_id, cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
+        tecnico_id=tecnico_id,
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo,
     ).first()
     return money(q.precio_tecnico if q else 0)
 
 
 def _meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
     p = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        oficina__iexact=oficina or "-",
+        codigo_trabajo__iexact=codigo,
     ).first()
     if not p:
         return None
     return {
         "tipo_trabajo": p.tipo_trabajo,
         "descripcion": p.descripcion,
-        "unidad_medida": p.unidad_medida
+        "unidad_medida": p.unidad_medida,
     }
 
 
@@ -2744,16 +3148,50 @@ def ajax_ciudades(request):
 
 @login_required
 def ajax_proyectos(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    ok = cliente and ciudad
-    data = list(
-        PrecioActividadTecnico.objects.filter(
-            cliente__iexact=cliente, ciudad__iexact=ciudad)
-        .values_list("proyecto", flat=True)
-        .distinct()
-        .order_by("proyecto")
-    ) if ok else []
+    cliente  = request.GET.get("client", "")
+    ciudad   = request.GET.get("city", "")
+    tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
+
+    data = []
+
+    if cliente and ciudad:
+        # 🔒 Proyectos a los que ESTE usuario tiene acceso
+        proyectos_visibles_qs = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            'id',
+        )
+        visible_ids = list(proyectos_visibles_qs.values_list("id", flat=True))
+
+        if visible_ids:
+            qs = (
+                PrecioActividadTecnico.objects
+                .filter(
+                    cliente__iexact=cliente,
+                    ciudad__iexact=ciudad,
+                    proyecto_id__in=visible_ids,  # 👈 solo proyectos visibles para el usuario
+                )
+                .select_related("proyecto")
+                .order_by("proyecto_id")
+            )
+
+            # 👉 si hay técnicos seleccionados, solo proyectos donde esos técnicos tengan precios
+            if tech_ids:
+                qs = qs.filter(tecnico_id__in=tech_ids)
+
+            seen = set()
+            for p in qs:
+                if not p.proyecto_id or p.proyecto_id in seen or p.proyecto is None:
+                    continue
+                seen.add(p.proyecto_id)
+                data.append({
+                    "id": p.proyecto_id,      # PK de facturacion.Proyecto
+                    "label": str(p.proyecto), # cómo se muestra (nombre del proyecto)
+                })
+        else:
+            # Usuario sin proyectos visibles → no hay opciones
+            data = []
+
     return JsonResponse({"results": data})
 
 
@@ -2761,16 +3199,21 @@ def ajax_proyectos(request):
 def ajax_oficinas(request):
     cliente = request.GET.get("client", "")
     ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
-    ok = cliente and ciudad and proyecto
-    data = list(
-        PrecioActividadTecnico.objects.filter(
-            cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto
+    proyecto_id = request.GET.get("project", "")  # viene el PK del select
+
+    data = []
+    if cliente and ciudad and proyecto_id:
+        data = list(
+            PrecioActividadTecnico.objects.filter(
+                cliente__iexact=cliente,
+                ciudad__iexact=ciudad,
+                proyecto_id=proyecto_id,
+            )
+            .values_list("oficina", flat=True)
+            .distinct()
+            .order_by("oficina")
         )
-        .values_list("oficina", flat=True)
-        .distinct()
-        .order_by("oficina")
-    ) if ok else []
+
     return JsonResponse({"results": data})
 
 
@@ -2778,21 +3221,26 @@ def ajax_oficinas(request):
 def ajax_buscar_codigos(request):
     cliente = request.GET.get("client", "")
     ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
+    proyecto_id = request.GET.get("project", "")   # ← es el PK
     oficina = request.GET.get("office", "")
     q = (request.GET.get("q") or "").strip()
-    if not (cliente and ciudad and proyecto and oficina):
+
+    if not (cliente and ciudad and proyecto_id and oficina):
         return JsonResponse({"error": "missing_filters"}, status=400)
+
     qs = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto, oficina__iexact=oficina or "-"
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id=proyecto_id,              # ← ahora por FK
+        oficina__iexact=oficina or "-",
     )
     if q:
         qs = qs.filter(codigo_trabajo__istartswith=q)
+
     data = list(
-        qs.values("codigo_trabajo", "tipo_trabajo",
-                  "descripcion", "unidad_medida")
-        .distinct()
-        .order_by("codigo_trabajo")[:20]
+        qs.values("codigo_trabajo", "tipo_trabajo", "descripcion", "unidad_medida")
+          .distinct()
+          .order_by("codigo_trabajo")[:20]
     )
     return JsonResponse({"results": data})
 
@@ -2801,9 +3249,10 @@ def ajax_buscar_codigos(request):
 def ajax_detalle_codigo(request):
     cliente = request.GET.get("client", "")
     ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
+    proyecto = request.GET.get("project", "")   # PK
     oficina = request.GET.get("office", "")
     codigo = (request.GET.get("code") or "").strip()
+
     if not (cliente and ciudad and proyecto and oficina and codigo):
         return JsonResponse({"error": "missing_filters"}, status=400)
 
@@ -2812,6 +3261,7 @@ def ajax_detalle_codigo(request):
         return JsonResponse({"error": "not_found"}, status=404)
 
     precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
+
     tech_ids = list(map(int, request.GET.getlist("tech_ids[]")))
     partes = repartir_100(len(tech_ids)) if tech_ids else []
     desglose = []
@@ -2821,1038 +3271,21 @@ def ajax_detalle_codigo(request):
             "tecnico_id": tid,
             "tarifa_base": f"{base:.2f}",
             "porcentaje": f"{pct:.2f}",
-            "tarifa_efectiva": f"{(base * (Decimal(pct)/100)):.2f}",
+            "tarifa_efectiva": f"{(base * (Decimal(pct) / 100)):.2f}",
         })
+
     return JsonResponse({
         "tipo_trabajo": meta["tipo_trabajo"],
         "descripcion": meta["descripcion"],
         "unidad_medida": meta["unidad_medida"],
         "precio_empresa": f"{precio_emp:.2f}",
-        "desglose_tecnico": desglose
+        "desglose_tecnico": desglose,
     })
-
-
-@login_required
-@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
-def produccion_admin(request):
-    """
-    Producción por técnico (vista Admin) con filtros + paginación (UX como Weekly Payments).
-    Filtros: proyecto (por Project ID parcial o nombre), REAL pay week (34 / W34 / 2025-W34),
-             técnico, cliente.
-    Solo filtra por semana REAL: 'semana_pago_real'.
-    Incluye también sesiones de DESCUENTO DIRECTO (is_direct_discount=True), aunque su estado
-    operativo no esté en aprobadas.
-    """
-    # --- imports locales para que la función sea autocontenida ---
-    import re
-    from decimal import Decimal
-    from urllib.parse import urlencode
-
-    from django.core.paginator import Paginator
-    from django.db.models import CharField, Q
-    from django.db.models.functions import Cast
-    from django.utils import timezone
-
-    # --- helpers locales ---
-    def _iso_week_str(dt):
-        y, w, _ = dt.isocalendar()
-        return f"{y}-W{int(w):02d}"
-
-    def parse_week_query(q: str):
-        """
-        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
-        Retorna (exact_iso, week_token)
-          - exact_iso: 'YYYY-W##' cuando viene año
-          - week_token: 'W##' cuando solo viene el número
-        """
-        if not q:
-            return (None, None)
-        s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
-        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
-        if m:
-            year, ww = int(m.group(1)), int(m.group(2))
-            return (f"{year}-W{ww:02d}", None)
-        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
-        if m:
-            ww = int(m.group(1))
-            return (None, f"W{ww:02d}")
-        return (None, None)
-
-    def _normalize_week_str(s: str) -> str:
-        """Normaliza guiones y espacios; devuelve MAYÚSCULAS."""
-        if not s:
-            return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
-        s = re.sub(r"\s+", "", s)
-        return s.upper()
-
-    # ---------------- configuración ----------------
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    current_week = _iso_week_str(timezone.now())
-
-    # ---------------- Filtros GET ----------------
-    f_project = (request.GET.get("f_project") or "").strip()
-    f_week_input = (request.GET.get("f_week") or "").strip()
-    f_tech = (request.GET.get("f_tech") or "").strip()
-    f_client = (request.GET.get("f_client") or "").strip()
-
-    exact_week, week_token = parse_week_query(f_week_input)
-
-    # ---------------- Query base ----------------
-    # 🔴 Cambio clave: incluir descuentos directos aunque no estén en estados_ok
-    qs = (
-        SesionBilling.objects
-        .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
-        .prefetch_related("tecnicos_sesion__tecnico", "items__desglose_tecnico")
-        .order_by("-creado_en")
-        .distinct()
-    )
-
-    # ---------------- Semana REAL (único criterio de semana) ----------------
-    if exact_week:
-        token = exact_week.split("-", 1)[-1].upper()  # 'W##'
-        qs = qs.filter(
-            Q(semana_pago_real__iexact=exact_week) |
-            Q(semana_pago_real__icontains=token)   # tolera 2025W34, etc.
-        )
-    elif week_token:
-        qs = qs.filter(semana_pago_real__icontains=week_token)
-
-    # ---------------- Otros filtros ----------------
-    if f_project:
-        qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
-        qs = qs.filter(
-            Q(proyecto_id_str__icontains=f_project) |
-            Q(proyecto__icontains=f_project)
-        )
-
-    if f_client:
-        qs = qs.filter(cliente__icontains=f_client)
-
-    # ---------------- Construcción de filas (una por técnico) ----------------
-    filas = []
-    for s in qs:
-        for asig in s.tecnicos_sesion.all():
-            tecnico = asig.tecnico
-
-            # Filtro por técnico (por fila)
-            if f_tech:
-                target = f_tech.lower()
-                full_name = ((tecnico.first_name or "") + " " +
-                             (tecnico.last_name or "")).strip().lower()
-                username = (tecnico.username or "").lower()
-                if target not in full_name and target not in username:
-                    continue
-
-            detalle = []
-            total_tecnico = Decimal('0')
-
-            for it in s.items.all():
-                bd = next(
-                    (d for d in it.desglose_tecnico.all()
-                     if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
-                    None
-                )
-                if not bd:
-                    continue
-
-                rate = bd.tarifa_efectiva if isinstance(
-                    bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
-                qty = it.cantidad if isinstance(
-                    it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
-
-                # ⚠️ si qty < 0 (descuento), subtotal será negativo → resta
-                sub_tec = rate * qty
-                total_tecnico += sub_tec
-
-                detalle.append({
-                    "codigo": it.codigo_trabajo,
-                    "tipo": it.tipo_trabajo,
-                    "desc": it.descripcion,
-                    "uom": it.unidad_medida,
-                    "qty": it.cantidad,
-                    "rate_tec": rate,
-                    "subtotal_tec": sub_tec,
-                })
-
-            filas.append({
-                "sesion": s,
-                "tecnico": tecnico,
-                "project_id": s.proyecto_id,
-                # Columna principal = semana REAL
-                "week": s.semana_pago_real or "—",
-                "status": s.estado,
-                # ← NUEVO para la vista
-                "is_discount": bool(getattr(s, "is_direct_discount", False)),
-                "client": s.cliente,
-                "city": s.ciudad,
-                "project": s.proyecto,
-                "office": s.oficina,
-                "real_week": s.semana_pago_real or "—",
-                "proj_week": s.semana_pago_proyectada or "—",
-                "total_tecnico": total_tecnico,
-                "detalle": detalle,
-            })
-
-    # ---------------- Filtro defensivo por semana REAL en memoria ----------------
-    if exact_week or week_token:
-        token = (week_token or exact_week.split("-", 1)[-1]).upper()  # 'W##'
-        exact_norm = _normalize_week_str(exact_week) if exact_week else None
-
-        def _match_row_real(r):
-            rw = _normalize_week_str(r["real_week"])
-            if exact_norm:
-                return (rw == exact_norm) or (token in rw)
-            return token in rw
-
-        filas = [r for r in filas if _match_row_real(r)]
-
-    # ---------------- Orden por semana real ----------------
-    def bucket_key(row):
-        rw = row["real_week"]
-        if rw == "—":
-            return (2, "ZZZ")
-        if rw == current_week:
-            return (0, "000")
-        if rw > current_week:
-            return (0, rw)
-        return (1, rw)
-
-    filas.sort(key=bucket_key)
-
-    # ---------------- Paginación ----------------
-    cantidad = request.GET.get("cantidad", "10")
-    if cantidad != "todos":
-        try:
-            per_page = max(5, min(int(cantidad), 100))
-        except ValueError:
-            per_page = 10
-        paginator = Paginator(filas, per_page)
-        page_number = request.GET.get("page") or 1
-        pagina = paginator.get_page(page_number)
-    else:
-        class _OnePage:
-            number = 1
-
-            @property
-            def paginator(self):
-                class P:
-                    num_pages = 1
-                return P()
-            has_previous = False
-            has_next = False
-            object_list = filas
-        pagina = _OnePage()
-
-    # QS de filtros
-    filters_dict = {
-        "f_project": f_project,
-        "f_week": f_week_input,
-        "f_tech": f_tech,
-        "f_client": f_client,
-        "cantidad": cantidad,
-    }
-    filters_qs = urlencode({k: v for k, v in filters_dict.items() if v})
-
-    return render(request, "operaciones/produccion_admin.html", {
-        "current_week": current_week,
-        "pagina": pagina,
-        "cantidad": cantidad,
-        "f_project": f_project,
-        "f_week_input": f_week_input,
-        "f_tech": f_tech,
-        "f_client": f_client,
-        "filters_qs": filters_qs,
-    })
-
-
-@login_required
-@rol_requerido('usuario')
-def produccion_usuario(request):
-    """
-    Producción del técnico logueado.
-    Incluye:
-      - sesiones aprobadas (Supervisor/PM/Finanzas)
-      - descuentos directos (is_direct_discount=True)
-      - cualquier sesión con líneas negativas (subtotal < 0)
-      - ajustes manuales (Fixed salary / Bonus / Advance)
-    """
-    tecnico = request.user
-
-    # ---------------- helpers ----------------
-    def _iso_week_str(dt):
-        y, w, _ = dt.isocalendar()
-        return f"{y}-W{int(w):02d}"
-
-    ADJ_LABEL = {
-        "fixed_salary": "Fixed salary",
-        "bonus": "Bonus",
-        "advance": "Advance",
-    }
-
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    current_week = _iso_week_str(timezone.now())
-
-    # filtro por semana REAL: "all" o "YYYY-W##"
-    week_filter = (request.GET.get("week") or "all").strip()
-    weeks_wanted = None if week_filter.lower() == "all" else {
-        week_filter.upper()}
-
-    filas = []
-    total_semana_actual = Decimal("0")
-
-    # ---------------- Sesiones ----------------
-    qs = (
-        SesionBilling.objects
-        .filter(items__desglose_tecnico__tecnico=tecnico)
-        .filter(
-            Q(estado__in=estados_ok)
-            | Q(is_direct_discount=True)
-            | Q(items__desglose_tecnico__subtotal__lt=0)
-        )
-        .prefetch_related("items__desglose_tecnico")
-        .order_by("-creado_en")
-        .distinct()
-    )
-
-    for s in qs:
-        rw = (s.semana_pago_real or "").upper()
-        if weeks_wanted is not None and rw not in weeks_wanted:
-            continue
-
-        detalle = []
-        total_tecnico = Decimal("0")
-        tiene_linea_negativa = False
-
-        for it in s.items.all():
-            bd = next(
-                (d for d in it.desglose_tecnico.all()
-                 if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
-                None
-            )
-            if not bd:
-                continue
-
-            rate = bd.tarifa_efectiva if isinstance(
-                bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
-            qty = it.cantidad if isinstance(
-                it.cantidad,       Decimal) else Decimal(str(it.cantidad or 0))
-
-            sub_tec = rate * qty
-            total_tecnico += sub_tec
-            if sub_tec < 0:
-                tiene_linea_negativa = True
-
-            detalle.append({
-                "codigo": it.codigo_trabajo,
-                "tipo": it.tipo_trabajo,
-                "desc": it.descripcion,
-                "uom": it.unidad_medida,
-                "qty": it.cantidad,
-                "rate_tec": rate,
-                "subtotal_tec": sub_tec,
-            })
-
-        if not detalle:
-            continue
-
-        is_discount_row = bool(
-            getattr(s, "is_direct_discount", False) or tiene_linea_negativa)
-
-        if rw == current_week:
-            total_semana_actual += total_tecnico  # incluye negativos
-
-        filas.append({
-            "sesion": s,
-            "project_id": s.proyecto_id,
-            "project_label": ("Direct discount" if is_discount_row else (s.proyecto_id or "—")),
-            "week": s.semana_pago_proyectada or "—",
-            "status": s.estado,
-            "is_discount": is_discount_row,
-            "client": s.cliente or "-",
-            "city": s.ciudad or "-",
-            "project": s.proyecto or "-",
-            "office": s.oficina or "-",
-            "real_week": s.semana_pago_real or "—",
-            "total_tecnico": total_tecnico,
-            "detalle": detalle,
-            "adjustment_type": "",  # para distinguir de ajustes en la plantilla
-        })
-
-    # ---------------- Ajustes (AdjustmentEntry) ----------------
-    # Trae SIEMPRE los ajustes del técnico; filtra por semana si corresponde
-    adj_qs = AdjustmentEntry.objects.filter(technician=tecnico)
-    if weeks_wanted is not None:
-        adj_qs = adj_qs.filter(week__in=weeks_wanted)
-
-    for a in adj_qs:
-        amt = a.amount if isinstance(
-            a.amount, Decimal) else Decimal(str(a.amount or 0))
-        rw = (a.week or "—").upper()
-
-        if rw == current_week:
-            # bonus/salario positivo; adelanto también positivo en la UI
-            total_semana_actual += abs(amt)
-
-        filas.append({
-            "sesion": None,
-            "project_id": a.project_id or "ADJ",
-            "project_label": ADJ_LABEL.get(a.adjustment_type, a.adjustment_type),
-            "week": a.week or "—",
-            "status": "",
-            "is_discount": False,
-            # En la tabla del usuario mostramos '-' para estas columnas
-            "client": "-", "city": "-", "project": "-", "office": "-",
-            "real_week": rw,
-            "total_tecnico": abs(amt),     # mostrar siempre positivo en la UI
-            "detalle": [],
-            "adjustment_type": a.adjustment_type,
-        })
-
-    # ---------------- Orden ----------------
-    def bucket_key(row):
-        rw = row["real_week"]
-        if rw == "—":
-            return (2, "ZZZ")
-        if rw == current_week:
-            return (0, "000")
-        if rw > current_week:
-            return (0, rw)
-        return (1, rw)
-
-    filas.sort(key=bucket_key)
-
-    return render(request, "operaciones/produccion_usuario.html", {
-        "filas": filas,
-        "current_week": current_week,
-        "total_semana_actual": total_semana_actual,
-        "week_filter": week_filter,
-    })
-
-
-def _s3_client():
-    """
-    Wasabi S3 en path-style para evitar problemas de CORS/SSL.
-    Usa el endpoint REGIONAL del bucket (p.ej. us-east-1).
-    """
-    return boto3.client(
-        "s3",
-        endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL",
-                             "https://s3.us-east-1.wasabisys.com"),
-        region_name=getattr(settings, "AWS_S3_REGION_NAME", "us-east-1"),
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4", s3={
-                      "addressing_style": "path"}),
-        verify=getattr(settings, "AWS_S3_VERIFY", True),
-    )
 
 
 ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
 
-@transaction.atomic
-def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -> dict:
-    """
-    Sincroniza WeeklyPayment con la producción (incluye descuentos):
-    - Actualiza amount si cambió (approved_user -> pending_payment).
-    - Elimina registros sin producción (== 0) si status != 'paid'.
-    - [opcional] Crea los que faltan cuando create_missing=True (pueden ser negativos).
-    """
-    # ✅ Incluir DESCUENTOS: OR subtotal__lt=0
-    base = (
-        ItemBillingTecnico.objects
-        .filter(item__sesion__semana_pago_real__gt="")
-        .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-    )
-    if week:
-        base = base.filter(item__sesion__semana_pago_real=week)
-
-    agg = (
-        base.values("tecnico_id", "item__sesion__semana_pago_real")
-        .annotate(total=Sum("subtotal"))
-    )
-
-    # 👉 No descartamos negativos. Sólo excluimos exactamente 0 para que
-    #     se elimine el WP existente o no se cree uno vacío.
-    prod_totals = {
-        (row["tecnico_id"], row["item__sesion__semana_pago_real"]): (row["total"] or Decimal("0"))
-        for row in agg
-        if (row["total"] or Decimal("0")) != 0
-    }
-
-    updated = deleted = created = 0
-
-    for wp in WeeklyPayment.objects.select_for_update():
-        if week and wp.week != week:
-            continue
-
-        key = (wp.technician_id, wp.week)
-        if key not in prod_totals:
-            # no hay producción neta (== 0) → eliminar si no está pagado
-            if wp.status != "paid":
-                wp.delete()
-                deleted += 1
-            continue
-
-        total = prod_totals[key]
-        if wp.amount != total:
-            wp.amount = total
-            save_fields = ["amount", "updated_at"]
-            if wp.status == "approved_user":
-                wp.status = "pending_payment"
-                save_fields.append("status")
-            wp.save(update_fields=save_fields)
-            updated += 1
-
-        prod_totals.pop(key, None)  # ya atendido
-
-    # Crea los que faltan (incluye negativos)
-    if create_missing and prod_totals:
-        to_create = [
-            WeeklyPayment(
-                technician_id=tech_id,
-                week=w,
-                amount=total,
-                status="pending_user",
-            )
-            for (tech_id, w), total in prod_totals.items()
-            if (not week) or (w == week)
-        ]
-        WeeklyPayment.objects.bulk_create(to_create, ignore_conflicts=True)
-        created = len(to_create)
-
-    return {"updated": updated, "deleted": deleted, "created": created}
-
-
-# ================================ ADMIN / PM ================================ #
-
-
-# imports (arriba de views.py)
-
-
-@login_required
-@rol_requerido('admin', 'pm', 'facturacion')
-@never_cache
-def admin_weekly_payments(request):
-    """
-    Pagos semanales:
-    - TOP: semana actual (no pagados). Se sincroniza creando faltantes.
-    - Bottom (Paid): historial con filtros, paginación y desglose por Project ID/Subtotal.
-    Incluye DESCUENTOS (subtotales negativos) en los desgloses por proyecto.
-    """
-    # Semana ISO actual
-    y, w, _ = timezone.localdate().isocalendar()
-    current_week = f"{y}-W{int(w):02d}"
-
-    # 🔧 Sincroniza SOLO la semana actual y CREA faltantes con producción (puede ser negativa)
-    _sync_weekly_totals(week=current_week, create_missing=True)
-
-    # ------------------ TOP (This week) ------------------
-    top_qs = (
-        WeeklyPayment.objects
-        .filter(week=current_week)
-        .exclude(status="paid")
-        .select_related("technician")
-        .order_by("status", "technician__first_name", "technician__last_name")
-    )
-    top = list(top_qs)  # para adjuntar atributos
-
-    # Desglose por proyecto para TOP  ✅ incluye descuentos
-    tech_ids_top = {wp.technician_id for wp in top}
-    details_map_top = {}
-    if tech_ids_top:
-        det = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id__in=tech_ids_top,
-                item__sesion__semana_pago_real=current_week,
-            )
-            # ← incluye descuentos
-            .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-            .values(
-                "tecnico_id",
-                "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
-            )
-            .annotate(subtotal=Sum("subtotal"))
-            .order_by("project_id")
-        )
-        for r in det:
-            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
-            details_map_top.setdefault(key, []).append(
-                {"project_id": r["project_id"],
-                    "subtotal": r["subtotal"] or Decimal("0")}
-            )
-    for wp in top:
-        wp.details = details_map_top.get((wp.technician_id, wp.week), [])
-
-    # ------------------ Helpers para normalizar semana (historial) ------------------
-    def _norm_week_input(raw: str) -> str:
-        s = (raw or "").strip().upper()
-        if not s:
-            return ""
-        # Acepta: 34 / W34 / 2025-W34 / 2025w34
-        m_year = re.match(r"^(\d{4})[- ]?W?(\d{1,2})$", s)
-        if m_year:
-            yy = int(m_year.group(1))
-            ww = int(m_year.group(2))
-            return f"{yy}-W{ww:02d}"
-        m_now = re.match(r"^W?(\d{1,2})$", s)
-        if m_now:
-            ww = int(m_now.group(1))
-            return f"{y}-W{ww:02d}"
-        return s
-
-    # ------------------ Filtros GET (historial pagado) ------------------
-    f_tech = (request.GET.get("f_tech") or "").strip()
-    f_week_input = (request.GET.get("f_week") or "").strip()
-    f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
-    f_receipt = (request.GET.get("f_receipt")
-                 or "").strip()   # "", "with", "without"
-
-    f_week = _norm_week_input(f_week_input)
-    f_paid_week = _norm_week_input(f_paid_week_input)
-
-    bottom_qs = WeeklyPayment.objects.filter(
-        status="paid").select_related("technician")
-
-    if f_tech:
-        bottom_qs = bottom_qs.filter(
-            Q(technician__first_name__icontains=f_tech) |
-            Q(technician__last_name__icontains=f_tech) |
-            Q(technician__username__icontains=f_tech)
-        )
-    if f_week:
-        bottom_qs = bottom_qs.filter(week=f_week)
-    if f_paid_week:
-        bottom_qs = bottom_qs.filter(paid_week=f_paid_week)
-    if f_receipt == "with":
-        bottom_qs = bottom_qs.exclude(Q(receipt__isnull=True) | Q(receipt=""))
-    elif f_receipt == "without":
-        bottom_qs = bottom_qs.filter(Q(receipt__isnull=True) | Q(receipt=""))
-
-    bottom_qs = bottom_qs.order_by(
-        "-paid_week", "-week",
-        "technician__first_name", "technician__last_name"
-    )
-
-    # ------------------ Paginación (historial pagado) ------------------
-    cantidad = (request.GET.get("cantidad") or "10").strip().lower()
-    page_number = request.GET.get("page") or "1"
-
-    if cantidad == "todos":
-        pagina = list(bottom_qs)  # renderizará como lista
-    else:
-        try:
-            per_page = max(1, min(100, int(cantidad)))
-        except ValueError:
-            per_page = 10
-            cantidad = "10"
-        paginator = Paginator(bottom_qs, per_page)
-        pagina = paginator.get_page(page_number)
-
-    # ===== Desglose para el HISTORIAL (Paid)  ✅ incluye descuentos =====
-    wp_list = list(pagina) if not isinstance(pagina, list) else pagina
-    tech_ids_bottom = {wp.technician_id for wp in wp_list}
-    weeks_bottom = {wp.week for wp in wp_list}
-
-    details_map_bottom = {}
-    if tech_ids_bottom and weeks_bottom:
-        det_b = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id__in=tech_ids_bottom,
-                item__sesion__semana_pago_real__in=weeks_bottom,
-            )
-            # ← incluye descuentos
-            .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-            .values(
-                "tecnico_id",
-                "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
-            )
-            .annotate(subtotal=Sum("subtotal"))
-            .order_by("item__sesion__semana_pago_real", "project_id")
-        )
-        for r in det_b:
-            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
-            details_map_bottom.setdefault(key, []).append(
-                {"project_id": r["project_id"],
-                    "subtotal": r["subtotal"] or Decimal("0")}
-            )
-    for wp in wp_list:
-        wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
-
-    # Querystring para mantener filtros en la paginación
-    keep = {
-        "f_tech": f_tech,
-        "f_week": f_week_input,
-        "f_paid_week": f_paid_week_input,
-        "f_receipt": f_receipt,
-        "cantidad": cantidad,
-    }
-    filters_qs = urlencode({k: v for k, v in keep.items() if v})
-
-    return render(request, "operaciones/pagos_admin_list.html", {
-        "current_week": current_week,
-
-        # TOP (pendientes de esta semana) con details adjuntos
-        "top": top,
-
-        # Historial pagado (cada objeto ya trae .details)
-        "pagina": pagina,
-        "cantidad": cantidad,
-        "filters_qs": filters_qs,
-
-        # valores de filtros para inputs
-        "f_tech": f_tech,
-        "f_week_input": f_week_input,
-        "f_paid_week_input": f_paid_week_input,
-        "f_receipt": f_receipt,
-    })
-
-
-@login_required
-@rol_requerido('admin', 'pm', 'facturacion')
-@require_POST
-@transaction.atomic
-def admin_unpay(request, pk: int):
-    """
-    Quita el comprobante y mueve el registro a 'pending_payment'.
-    Mantiene el historial (no borra el registro).
-    """
-    wp = get_object_or_404(WeeklyPayment, pk=pk)
-
-    if wp.status != "paid":
-        messages.info(request, "Only PAID items can be reverted.")
-        return redirect("operaciones:admin_weekly_payments")
-
-    # borra archivo del storage (si existe) sin guardar el modelo todavía
-    try:
-        if wp.receipt:
-            wp.receipt.delete(save=False)
-    except Exception:
-        # no interrumpir si no se pudo borrar físicamente
-        pass
-
-    wp.receipt = None
-    wp.paid_week = ""
-    wp.status = "pending_payment"
-    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
-
-    messages.success(request, "Payment reverted. It is now pending again.")
-    return redirect("operaciones:admin_weekly_payments")
-
-
-def _is_admin(user) -> bool:
-    # Adecuado a tu modelo de usuario
-    return getattr(user, "rol", "") == "admin" or getattr(user, "is_superuser", False)
-
-
-def _session_is_paid_locked(sesion) -> bool:
-    """
-    Queda bloqueada si existe al menos un WeeklyPayment en estado 'paid'
-    para (técnico de la sesión, semana real de la sesión).
-    """
-    week = (sesion.semana_pago_real or "").upper()
-    if not week:
-        return False
-    tech_ids = list(sesion.tecnicos_sesion.values_list(
-        "tecnico_id", flat=True))
-    if not tech_ids:
-        return False
-    return WeeklyPayment.objects.filter(
-        week=week, technician_id__in=tech_ids, status="paid"
-    ).exists()
-
-
-@login_required
-@require_POST
-def billing_set_real_week(request, pk: int):
-    """
-    Actualiza 'semana_pago_real' de una SesionBilling.
-    - Si hay pagos PAID relacionados, SOLO admin puede modificar.
-    - Re-sincroniza totales semanales alrededor del cambio.
-    """
-    sesion = get_object_or_404(SesionBilling, pk=pk)
-    new_week = (request.POST.get("week") or "").strip().upper()
-    if not new_week:
-        return JsonResponse({"ok": False, "error": "MISSING_WEEK"}, status=400)
-
-    is_admin = _is_admin(request.user)
-
-    # ¿Bloqueada por pagos 'PAID'?
-    if _session_is_paid_locked(sesion) and not is_admin:
-        return JsonResponse({
-            "ok": False,
-            "error": "LOCKED_PAID",
-            "message": "This session has PAID weekly payments. Only admins can change the real pay week."
-        }, status=403)
-
-    old_week = (sesion.semana_pago_real or "").upper()
-    sesion.semana_pago_real = new_week
-    sesion.save(update_fields=["semana_pago_real", "updated_at"])
-
-    # Re-sincroniza los totales semanales de ambas semanas
-    try:
-        if old_week:
-            _sync_weekly_totals(week=old_week)
-        _sync_weekly_totals(week=new_week)
-    except Exception:
-        pass
-
-    return JsonResponse({"ok": True, "week": new_week})
-
-
-@require_POST
-def presign_receipt(request, pk: int):
-    """
-    Presigned POST directo a Wasabi (path-style):
-    - Sin Content-Type en condiciones (evita mismatches).
-    - success_action_status=201.
-    - Fuerza URL path-style: https://s3.<region>.wasabisys.com/<bucket>
-    """
-    wp = get_object_or_404(WeeklyPayment, pk=pk)
-
-    filename = request.POST.get("filename") or "receipt"
-    _base, ext = os.path.splitext(filename)
-    ext = (ext or ".pdf").lower()
-
-    key = f"operaciones/pagos/{wp.week}/{wp.technician_id}/receipt_{uuid4().hex}{ext}"
-
-    s3 = _s3_client()
-    fields = {
-        "acl": "private",
-        "success_action_status": "201",
-    }
-    conditions = [
-        {"acl": "private"},
-        {"success_action_status": "201"},
-        ["content-length-range", 0, 25 * 1024 * 1024],
-        # NOTA: no metemos Content-Type en conditions para evitar CORS/preflight raros
-    ]
-
-    post = s3.generate_presigned_post(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        Key=key,
-        Fields=fields,
-        Conditions=conditions,
-        ExpiresIn=600,
-    )
-
-    # 👇 Forzar URL path-style (algunos entornos devuelven virtual-hosted)
-    endpoint = settings.AWS_S3_ENDPOINT_URL.rstrip("/")
-    bucket = settings.AWS_STORAGE_BUCKET_NAME
-    post["url"] = f"{endpoint}/{bucket}"
-
-    return JsonResponse({"post": post, "key": key})
-
-
-@login_required
-@rol_requerido('admin', 'pm', 'facturacion')
-@transaction.atomic
-def confirm_receipt(request, pk: int):
-    """
-    Confirma la subida directa: guarda key en FileField y marca 'paid'.
-    No re-sube el archivo; solo enlaza el objeto S3 ya subido.
-    """
-    wp = get_object_or_404(WeeklyPayment, pk=pk)
-    key = request.POST.get("key")
-    if not key:
-        return HttpResponseBadRequest("Missing key")
-
-    if wp.status not in ("approved_user", "pending_payment"):
-        messages.error(request, "This item is not approved by the worker yet.")
-        return redirect("operaciones:admin_weekly_payments")
-
-    # Enlaza el objeto subido en S3 (Wasabi)
-    wp.receipt.name = key
-    y, w, _ = timezone.localdate().isocalendar()
-    wp.paid_week = f"{y}-W{int(w):02d}"
-    wp.status = "paid"
-    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
-
-    messages.success(request, "Payment marked as PAID.")
-    return redirect("operaciones:admin_weekly_payments")
-
-
-# (Opcional) Respaldo de flujo clásico con multipart a Django
-@login_required
-@rol_requerido('admin', 'pm', 'facturacion')
-@transaction.atomic
-def admin_mark_paid(request, pk: int):
-    """
-    Alternativa si no quieres presigned: sube via Django, guarda y marca 'paid'.
-    """
-    wp = get_object_or_404(WeeklyPayment, pk=pk)
-    if wp.status not in ("approved_user", "pending_payment"):
-        messages.error(request, "This item is not approved by the worker yet.")
-        return redirect("operaciones:admin_weekly_payments")
-
-    form = PaymentMarkPaidForm(request.POST, request.FILES, instance=wp)
-    if not form.is_valid():
-        messages.error(request, "Receipt is required.")
-        return redirect("operaciones:admin_weekly_payments")
-
-    form.save()  # guarda receipt en Wasabi via DEFAULT_FILE_STORAGE
-    y, w, _ = timezone.localdate().isocalendar()
-    wp.paid_week = f"{y}-W{int(w):02d}"
-    wp.status = "paid"
-    wp.save(update_fields=["paid_week", "status", "updated_at"])
-
-    messages.success(request, "Payment marked as PAID.")
-    return redirect("operaciones:admin_weekly_payments")
-
-
-# ================================= USUARIO ================================= #
-
-
-@login_required
-@never_cache
-def user_weekly_payments(request):
-    """
-    Vista del trabajador:
-    - Sincroniza sus registros (sin crear nuevos).
-    - Lista sus WeeklyPayment.
-    - Adjunta 'details' = [(project_id, subtotal), ...] por cada (week).
-    """
-    from django.db.models import F, Sum
-
-    # sincroniza SOLO este técnico, sin crear weeklies
-    sync_weekly_totals_no_create(technician_id=request.user.id)
-
-    y, w, _ = timezone.localdate().isocalendar()
-    current_week = f"{y}-W{int(w):02d}"
-
-    ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-
-    # ¿Existe producción aprobada (>0) para (tecnico, week)?
-    prod_exists = (
-        ItemBillingTecnico.objects
-        .filter(tecnico_id=request.user.id,
-                item__sesion__semana_pago_real=OuterRef("week"),
-                item__sesion__estado__in=ESTADOS_OK)
-        .values("tecnico_id")
-        .annotate(total=Sum("subtotal"))
-        .filter(total__gt=0)
-    )
-
-    # Borra huérfanos (no paid) que no tengan producción vigente
-    (WeeklyPayment.objects
-        .filter(technician=request.user)
-        .annotate(has_prod=Exists(prod_exists))
-        .filter(has_prod=False)
-        .exclude(status="paid")
-        .delete())
-
-    # Lista solo los que sí tienen producción vigente
-    mine_qs = (
-        WeeklyPayment.objects
-        .filter(technician=request.user)
-        .annotate(has_prod=Exists(prod_exists))
-        .filter(has_prod=True)
-        .select_related("technician")
-        .order_by("-week")
-    )
-    mine = list(mine_qs)
-
-    # Desglose por proyecto para las semanas visibles del usuario
-    weeks = {wp.week for wp in mine}
-    details_map = {}
-    if weeks:
-        det = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id=request.user.id,
-                item__sesion__semana_pago_real__in=weeks,
-                item__sesion__estado__in=ESTADOS_OK,
-            )
-            .values(
-                "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
-            )
-            .annotate(subtotal=Sum("subtotal"))
-            .order_by("item__sesion__semana_pago_real", "project_id")
-        )
-        for r in det:
-            key = r["item__sesion__semana_pago_real"]
-            details_map.setdefault(key, []).append(
-                {"project_id": r["project_id"], "subtotal": r["subtotal"] or 0}
-            )
-
-    # Adjunta details a cada fila
-    for wp in mine:
-        wp.details = details_map.get(wp.week, [])
-
-    return render(request, "operaciones/pagos_user_list.html", {
-        "current_week": current_week,
-        "mine": mine,
-        "approve_form": PaymentApproveForm(),
-        "reject_form": PaymentRejectForm(),
-    })
-
-
-@login_required
-@transaction.atomic
-def user_approve_payment(request, pk: int):
-    wp = get_object_or_404(WeeklyPayment, pk=pk, technician=request.user)
-
-    if wp.status != "pending_user":
-        messages.info(
-            request, "You can only approve when status is 'Pending my approval'.")
-        return redirect("operaciones:user_weekly_payments")
-
-    wp.reject_reason = ""
-    wp.status = "pending_payment"  # aprobado -> queda esperando pago
-    wp.save(update_fields=["status", "reject_reason", "updated_at"])
-
-    messages.success(request, "Amount approved. Waiting for payment.")
-    return redirect("operaciones:user_weekly_payments")
-
-
-@login_required
-@transaction.atomic
-def user_reject_payment(request, pk: int):
-    wp = get_object_or_404(WeeklyPayment, pk=pk, technician=request.user)
-
-    if wp.status != "pending_user":
-        messages.info(
-            request, "You can only reject when status is 'Pending my approval'.")
-        return redirect("operaciones:user_weekly_payments")
-
-    form = PaymentRejectForm(request.POST, instance=wp)
-    if not form.is_valid():
-        messages.error(request, "Please provide a reason.")
-        return redirect("operaciones:user_weekly_payments")
-
-    wp = form.save(commit=False)
-    wp.status = "rejected_user"
-    wp.save(update_fields=["status", "reject_reason", "updated_at"])
-
-    messages.success(request, "Amount rejected. Your reason is visible now.")
-    return redirect("operaciones:user_weekly_payments")
-
-
-def admin_reset_payment_status(request, pk: int):
-    """
-    Vuelve un registro RECHAZADO a 'pending_user' para que el técnico lo vuelva a aprobar.
-    """
-    wp = get_object_or_404(WeeklyPayment, pk=pk)
-
-    if wp.status != "rejected_user":
-        messages.info(
-            request, "Only items rejected by the worker can be reset.")
-        return redirect("operaciones:admin_weekly_payments")
-
-    wp.status = "pending_user"
-    wp.reject_reason = ""  # si prefieres conservar el motivo, comenta esta línea
-    wp.save(update_fields=["status", "reject_reason", "updated_at"])
-
-    messages.success(request, "Status reset to 'Pending worker approval'.")
-    return redirect("operaciones:admin_weekly_payments")
-
-
 def _recalcular_items_sesion(sesion: SesionBilling):
     ids = list(sesion.tecnicos_sesion.values_list("tecnico_id", flat=True))
     partes = list(sesion.tecnicos_sesion.values_list("porcentaje", flat=True))
@@ -3881,157 +3314,12 @@ def _recalcular_items_sesion(sesion: SesionBilling):
     sesion.subtotal_tecnico = money(total_tec)
     sesion.save(update_fields=["subtotal_tecnico"])
 
-# ===== Búsquedas / AJAX =====
 
 
-# ===== Búsquedas / AJAX =====
-def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
-    q = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
-    ).first()
-    return money(q.precio_empresa if q else 0)
-
-
-def _tarifa_tecnico(tecnico_id, cliente, ciudad, proyecto, oficina, codigo):
-    q = PrecioActividadTecnico.objects.filter(
-        tecnico_id=tecnico_id, cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
-    ).first()
-    return money(q.precio_tecnico if q else 0)
-
-
-def _meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
-    p = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad,
-        proyecto__iexact=proyecto, oficina__iexact=oficina or "-",
-        codigo_trabajo__iexact=codigo
-    ).first()
-    if not p:
-        return None
-    return {
-        "tipo_trabajo": p.tipo_trabajo,
-        "descripcion": p.descripcion,
-        "unidad_medida": p.unidad_medida
-    }
 
 
 @login_required
-def ajax_clientes(request):
-    data = list(
-        PrecioActividadTecnico.objects
-        .values_list("cliente", flat=True)
-        .distinct()
-        .order_by("cliente")
-    )
-    return JsonResponse({"results": data})
-
-
-@login_required
-def ajax_ciudades(request):
-    cliente = request.GET.get("client", "")
-    data = list(
-        PrecioActividadTecnico.objects.filter(cliente__iexact=cliente)
-        .values_list("ciudad", flat=True)
-        .distinct()
-        .order_by("ciudad")
-    ) if cliente else []
-    return JsonResponse({"results": data})
-
-
-@login_required
-def ajax_proyectos(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    ok = cliente and ciudad
-    data = list(
-        PrecioActividadTecnico.objects.filter(
-            cliente__iexact=cliente, ciudad__iexact=ciudad)
-        .values_list("proyecto", flat=True)
-        .distinct()
-        .order_by("proyecto")
-    ) if ok else []
-    return JsonResponse({"results": data})
-
-
-@login_required
-def ajax_oficinas(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
-    ok = cliente and ciudad and proyecto
-    data = list(
-        PrecioActividadTecnico.objects.filter(
-            cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto
-        )
-        .values_list("oficina", flat=True)
-        .distinct()
-        .order_by("oficina")
-    ) if ok else []
-    return JsonResponse({"results": data})
-
-
-@login_required
-def ajax_buscar_codigos(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
-    oficina = request.GET.get("office", "")
-    q = (request.GET.get("q") or "").strip()
-    if not (cliente and ciudad and proyecto and oficina):
-        return JsonResponse({"error": "missing_filters"}, status=400)
-    qs = PrecioActividadTecnico.objects.filter(
-        cliente__iexact=cliente, ciudad__iexact=ciudad, proyecto__iexact=proyecto, oficina__iexact=oficina or "-"
-    )
-    if q:
-        qs = qs.filter(codigo_trabajo__istartswith=q)
-    data = list(
-        qs.values("codigo_trabajo", "tipo_trabajo",
-                  "descripcion", "unidad_medida")
-        .distinct()
-        .order_by("codigo_trabajo")[:20]
-    )
-    return JsonResponse({"results": data})
-
-
-@login_required
-def ajax_detalle_codigo(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")
-    oficina = request.GET.get("office", "")
-    codigo = (request.GET.get("code") or "").strip()
-    if not (cliente and ciudad and proyecto and oficina and codigo):
-        return JsonResponse({"error": "missing_filters"}, status=400)
-
-    meta = _meta_codigo(cliente, ciudad, proyecto, oficina, codigo)
-    if not meta:
-        return JsonResponse({"error": "not_found"}, status=404)
-
-    precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
-    tech_ids = list(map(int, request.GET.getlist("tech_ids[]")))
-    partes = repartir_100(len(tech_ids)) if tech_ids else []
-    desglose = []
-    for tid, pct in zip(tech_ids, partes):
-        base = _tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo)
-        desglose.append({
-            "tecnico_id": tid,
-            "tarifa_base": f"{base:.2f}",
-            "porcentaje": f"{pct:.2f}",
-            "tarifa_efectiva": f"{(base * (Decimal(pct)/100)):.2f}",
-        })
-    return JsonResponse({
-        "tipo_trabajo": meta["tipo_trabajo"],
-        "descripcion": meta["descripcion"],
-        "unidad_medida": meta["unidad_medida"],
-        "precio_empresa": f"{precio_emp:.2f}",
-        "desglose_tecnico": desglose
-    })
-
-
-@login_required
+@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def produccion_admin(request):
     """
     Producción por técnico (vista Admin) con filtros + paginación.
@@ -4041,6 +3329,10 @@ def produccion_admin(request):
     - La semana usada para filtrar es la REAL:
         sesiones -> 'semana_pago_real'
         ajustes  -> 'week'
+
+    NOTA: Usuarios "privilegiados" (superuser o rol usuario_historial)
+    pueden ver TODO el historial (modo antiguo).
+    El resto se rige por asignación de proyectos + ventana de visibilidad (lógica nueva).
     """
     import re
     from decimal import Decimal
@@ -4105,6 +3397,13 @@ def produccion_admin(request):
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     current_week = _iso_week_str(timezone.now())
 
+    # Usuarios privilegiados que pueden ver TODO el historial
+    user = request.user
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
     # ---------------- Filtros GET ----------------
     f_project = (request.GET.get("f_project") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
@@ -4113,14 +3412,51 @@ def produccion_admin(request):
 
     exact_week, week_token = parse_week_query(f_week_input)
 
+    # ---------------- Proyectos visibles para el usuario ----------------
+    # Igual que en listar_billing: aquí ya se respeta "history" vs fecha_inicio
+    try:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            'id',
+        )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    if proyectos_user.exists():
+        allowed_keys = set()
+        for p in proyectos_user:
+            # nombre legible del proyecto
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            # compatibilidad: código y id
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+            allowed_keys.add(str(p.id).strip())
+    else:
+        # sin proyectos asignados → no ve nada
+        allowed_keys = set()
+
     # ---------------- Query base: Sesiones ----------------
     qs = (
         SesionBilling.objects
         .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
-        .prefetch_related("tecnicos_sesion__tecnico", "items__desglose_tecnico")
         .order_by("-creado_en")
+        .prefetch_related(
+            "tecnicos_sesion__tecnico",
+            "items__desglose_tecnico",
+        )
         .distinct()
     )
+
+    # 🔒 limitar por proyectos asignados (campo texto "proyecto")
+    if allowed_keys:
+        qs = qs.filter(proyecto__in=allowed_keys)
+    else:
+        qs = SesionBilling.objects.none()
 
     # Semana REAL en sesiones (semana_pago_real)
     if exact_week:
@@ -4212,6 +3548,15 @@ def produccion_admin(request):
     if AdjustmentEntry is not None:
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
+        # 🔒 limitar ajustes a los proyectos asignados
+        if allowed_keys:
+            adj_qs = adj_qs.filter(
+                Q(project__in=allowed_keys) |
+                Q(project_id__in=allowed_keys)
+            )
+        else:
+            adj_qs = AdjustmentEntry.objects.none()
+
         # Semana real para ajustes (campo week)
         if exact_week:
             token = exact_week.split("-", 1)[-1].upper()  # 'W##'
@@ -4222,7 +3567,6 @@ def produccion_admin(request):
 
         # Filtros Project / Client / Tech para ajustes (campos “ligeros”)
         if f_project:
-            # ⬅️ Cambio: castear project_id a texto para icontains
             adj_qs = adj_qs.annotate(project_id_str=Cast('project_id', CharField()))
             adj_qs = adj_qs.filter(
                 Q(project_id_str__icontains=f_project) |
@@ -4248,10 +3592,9 @@ def produccion_admin(request):
             filas.append({
                 "sesion": None,
                 "tecnico": t,
-                # 👇 Ajustes: no mostrar ningún ID → solo '-'
                 "project_id": "-",
                 "week": a.week or "—",
-                "status": "",                 # sin estados de sesión para ajustes
+                "status": "",
                 "is_discount": False,
                 "client": a.client,
                 "city": a.city,
@@ -4265,6 +3608,81 @@ def produccion_admin(request):
                 "adjustment_id": a.id,
             })
 
+    # --------- Resolver label de proyecto (nombre) para cada fila ---------
+    # Igual que en billing: usamos SOLO los proyectos visibles (proyectos_user)
+    proyectos_list = list(proyectos_user)
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_project_label(row):
+        s = row.get("sesion")
+        proj_text = None
+        proj_id = None
+
+        if s is not None:
+            proj_text = (getattr(s, "proyecto", "") or "").strip()
+            proj_id = getattr(s, "proyecto_id", None)
+        else:
+            proj_text = (row.get("project") or "").strip()
+            proj_id = row.get("project_id", None)
+
+        proyecto_sel = None
+
+        # 1) intentar interpretar proj_text como PK
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        # 2) si no, probar con project_id
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            try:
+                pid2 = int(proj_id)
+            except (TypeError, ValueError):
+                key2 = str(proj_id).strip().lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        # Fallback: lo que ya teníamos
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    for row in filas:
+        row["project_label"] = _resolve_project_label(row)
+
+    # --------- Filtro adicional por texto de Project (incluye project_label) ---------
+    if f_project:
+        needle = f_project.lower()
+
+        def _match_project_text(row):
+            return (
+                needle in str(row.get("project_id") or "").lower() or
+                needle in str(row.get("project") or "").lower() or
+                needle in str(row.get("project_label") or "").lower()
+            )
+
+        filas = [r for r in filas if _match_project_text(r)]
+
     # --------------- Filtro defensivo por semana en memoria ---------------
     if exact_week or week_token:
         token = (week_token or exact_week.split("-", 1)[-1]).upper()  # 'W##'
@@ -4277,6 +3695,91 @@ def produccion_admin(request):
             return token in rw
 
         filas = [r for r in filas if _match_row_real(r)]
+
+    # --------- Ventana de visibilidad por ProyectoAsignacion ---------
+    # Solo se aplica a usuarios "normales". Los de historial ven todo.
+    try:
+        asignaciones = list(
+            ProyectoAsignacion.objects
+            .filter(usuario=request.user, proyecto__in=proyectos_list)
+            .select_related("proyecto")
+        )
+    except Exception:
+        asignaciones = []
+
+    if asignaciones and not can_view_legacy_history:
+        # Mapa PK de proyecto -> reglas de acceso
+        access_by_pk = {}
+        for a in asignaciones:
+            if a.include_history or not a.start_at:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": True,
+                    "start_week": None,
+                }
+            else:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": False,
+                    # semana ISO a partir de la fecha de inicio de visibilidad
+                    "start_week": _iso_week_str(a.start_at),
+                }
+
+        def _project_pk_from_row(row):
+            """
+            Intenta obtener el PK de Proyecto para la fila, usando primero
+            sesion.proyecto_id y, si no, el nombre/código ya resuelto.
+            """
+            s = row.get("sesion")
+
+            # 1) intentar con proyecto_id de la sesión (charfield)
+            if s is not None:
+                raw = getattr(s, "proyecto_id", None)
+                if raw not in (None, "", "-"):
+                    try:
+                        return int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            # 2) intentar por nombre/código usando los mapas by_name / by_code
+            text = (
+                str(row.get("project_label") or "").strip()
+                or str(row.get("project") or "").strip()
+            )
+            key = text.lower()
+            if key:
+                p = by_name.get(key)
+                if p:
+                    return p.id
+                p = by_code.get(key)
+                if p:
+                    return p.id
+            return None
+
+        def _row_allowed(row):
+            """
+            Devuelve True si el usuario puede ver esta fila
+            según include_history / start_at de ProyectoAsignacion.
+            """
+            pk = _project_pk_from_row(row)
+            if pk is None:
+                # fila sin proyecto asociado o no asignado al usuario
+                return False
+
+            access = access_by_pk.get(pk)
+            if not access:
+                return False
+
+            # Si tiene historial completo, no restringimos por semana
+            if access["include_history"] or access["start_week"] is None:
+                return True
+
+            # Comparar la semana REAL de la fila vs la semana de inicio
+            week_str = _normalize_week_str(row.get("real_week"))
+            if not week_str:
+                return False
+
+            return _week_sort_key(week_str) >= _week_sort_key(access["start_week"])
+
+        filas = [r for r in filas if _row_allowed(r)]
 
     # --------------- Orden por semana real: más reciente primero ---------------
     filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
@@ -4303,6 +3806,7 @@ def produccion_admin(request):
             has_previous = False
             has_next = False
             object_list = filas
+
         pagina = _OnePage()
 
     # QS de filtros
@@ -4326,13 +3830,19 @@ def produccion_admin(request):
         "filters_qs": filters_qs,
     })
 
+
 @login_required
 @rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def Exportar_produccion_admin(request):
     """
     Exporta a Excel:
       Project ID | Real pay week | Status | Technician | Client | City | Project | Office | Technical Billing
-    Incluye sesiones aprobadas (o descuentos directos) y ajustes (bonus/advance/fixed_salary).
+
+    MUY IMPORTANTE:
+    - Usa EXACTAMENTE la misma lógica de filtros/visibilidad que produccion_admin
+      (proyectos asignados + ventana ProyectoAsignacion + rol usuario_historial).
+    - Por lo tanto, el número de filas exportadas SIEMPRE coincide con las que ve el usuario
+      en la vista Producción Admin (ignorando solo la paginación).
     """
     import re
     from decimal import Decimal
@@ -4344,50 +3854,67 @@ def Exportar_produccion_admin(request):
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
+    from facturacion.models import Proyecto
     from operaciones.models import SesionBilling
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
         AdjustmentEntry = None
 
-    # ---------------- Helpers (alineados con la vista) ----------------
+    from usuarios.models import ProyectoAsignacion  # ventana de visibilidad
+
+    # ---------------- helpers (copiados de produccion_admin) ----------------
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
 
     def parse_week_query(q: str):
+        """
+        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
+        Retorna (exact_iso, week_token)
+        """
         if not q:
             return (None, None)
         s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
-        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)
+        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
         if m:
             year, ww = int(m.group(1)), int(m.group(2))
             return (f"{year}-W{ww:02d}", None)
-        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)
+        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
         if m:
-            return (None, f"W{int(m.group(1)):02d}")
+            ww = int(m.group(1))
+            return (None, f"W{ww:02d}")
         return (None, None)
 
     def _normalize_week_str(s: str) -> str:
         if not s:
             return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")
+        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
         s = re.sub(r"\s+", "", s)
         return s.upper()
 
     def _week_sort_key(week_str: str):
+        """
+        Acepta variantes como '2025-W40', '2025W40', 'W40'.
+        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
+        """
         if not week_str:
             return (-1, -1)
-        s = week_str.upper().replace("WEEK", "W").replace(" ", "")
+
+        s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
+        # 1) YYYY-W##
         m = re.search(r'(\d{4})-?W(\d{1,2})', s)
         if m:
             return (int(m.group(1)), int(m.group(2)))
+        # 2) Solo W##
         m = re.search(r'W(\d{1,2})', s)
         if m:
-            return (0, int(m.group(1)))  # sin año -> al final
+            # Si no hay año, usamos 0 para que queden al final
+            return (0, int(m.group(1)))
         return (-1, -1)
 
-    def _status_label(sesion_estado: str, is_discount: bool) -> str:
+    def _status_label_export(sesion_estado: str, is_discount: bool) -> str:
+        """Etiqueta en inglés para el Excel."""
         if is_discount:
             return "Direct discount"
         mapping = {
@@ -4403,42 +3930,85 @@ def Exportar_produccion_admin(request):
         }
         return mapping.get((sesion_estado or "").lower(), (sesion_estado or ""))
 
-    # ---------------- Filtros GET ----------------
+    # ---------------- configuración (igual que produccion_admin) ----------------
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    current_week = _iso_week_str(timezone.now())
+
+    user = request.user
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
+    # ---------------- Filtros GET (igual que produccion_admin) ----------------
     f_project = (request.GET.get("f_project") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
     f_tech = (request.GET.get("f_tech") or "").strip()
     f_client = (request.GET.get("f_client") or "").strip()
 
     exact_week, week_token = parse_week_query(f_week_input)
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    _ = _iso_week_str(timezone.now())  # solo por simetría; no se usa directo
 
-    # ---------------- Query base: SESIONES ----------------
+    # ---------------- Proyectos visibles para el usuario ----------------
+    try:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            'id',
+        )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    if proyectos_user.exists():
+        allowed_keys = set()
+        for p in proyectos_user:
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+            allowed_keys.add(str(p.id).strip())
+    else:
+        allowed_keys = set()
+
+    # ---------------- Query base: Sesiones ----------------
     qs = (
         SesionBilling.objects
         .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
-        .prefetch_related("tecnicos_sesion__tecnico", "items__desglose_tecnico")
         .order_by("-creado_en")
+        .prefetch_related(
+            "tecnicos_sesion__tecnico",
+            "items__desglose_tecnico",
+        )
         .distinct()
     )
 
-    # Semana REAL
+    if allowed_keys:
+        qs = qs.filter(proyecto__in=allowed_keys)
+    else:
+        qs = SesionBilling.objects.none()
+
+    # Semana REAL en sesiones (semana_pago_real)
     if exact_week:
         token = exact_week.split("-", 1)[-1].upper()
-        qs = qs.filter(Q(semana_pago_real__iexact=exact_week) |
-                       Q(semana_pago_real__icontains=token))
+        qs = qs.filter(
+            Q(semana_pago_real__iexact=exact_week) |
+            Q(semana_pago_real__icontains=token)
+        )
     elif week_token:
         qs = qs.filter(semana_pago_real__icontains=week_token)
 
-    # Project / Client
     if f_project:
         qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
-        qs = qs.filter(Q(proyecto_id_str__icontains=f_project) |
-                       Q(proyecto__icontains=f_project))
+        qs = qs.filter(
+            Q(proyecto_id_str__icontains=f_project) |
+            Q(proyecto__icontains=f_project)
+        )
     if f_client:
         qs = qs.filter(cliente__icontains=f_client)
 
-    # ---------------- Construcción de filas ----------------
+    # ---------------- Construcción de filas (IGUAL QUE produccion_admin) ----------------
     filas = []
 
     # 1) Sesiones por técnico
@@ -4446,7 +4016,6 @@ def Exportar_produccion_admin(request):
         for asig in s.tecnicos_sesion.all():
             tecnico = asig.tecnico
 
-            # Filtro por técnico
             if f_tech:
                 target = f_tech.lower()
                 full_name = ((tecnico.first_name or "") + " " +
@@ -4455,45 +4024,79 @@ def Exportar_produccion_admin(request):
                 if target not in full_name and target not in username:
                     continue
 
+            detalle = []
             total_tecnico = Decimal('0')
+
             for it in s.items.all():
-                bd = next((d for d in it.desglose_tecnico.all()
-                           if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)), None)
+                bd = next(
+                    (d for d in it.desglose_tecnico.all()
+                     if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
+                    None
+                )
                 if not bd:
                     continue
+
                 rate = bd.tarifa_efectiva if isinstance(
                     bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
                 qty = it.cantidad if isinstance(
                     it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
-                total_tecnico += rate * qty  # qty negativa produce descuento
+
+                sub_tec = rate * qty
+                total_tecnico += sub_tec
+
+                detalle.append({
+                    "codigo": it.codigo_trabajo,
+                    "tipo": it.tipo_trabajo,
+                    "desc": it.descripcion,
+                    "uom": it.unidad_medida,
+                    "qty": it.cantidad,
+                    "rate_tec": rate,
+                    "subtotal_tec": sub_tec,
+                })
 
             filas.append({
-                "project_id": s.proyecto_id or "-",
-                "week": s.semana_pago_real or "—",
-                "status": _status_label(s.estado, bool(getattr(s, "is_direct_discount", False))),
+                "sesion": s,
                 "tecnico": tecnico,
-                "client": s.cliente or "-",
-                "city": s.ciudad or "-",
-                "project": s.proyecto or "-",
-                "office": s.oficina or "-",
+                "project_id": s.proyecto_id,
+                "week": s.semana_pago_real or "—",
+                "status": s.estado,
+                "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
                 "real_week": s.semana_pago_real or "—",
+                "proj_week": s.semana_pago_proyectada or "—",
                 "total_tecnico": total_tecnico,
+                "detalle": detalle,
+                "adjustment_type": "",
             })
 
-    # 2) AJUSTES (bonus/advance/fixed_salary) -> monto positivo
+    # 2) Ajustes manuales
     if AdjustmentEntry is not None:
-        adj_qs = AdjustmentEntry.objects.select_related("technician").all()
+        adj_qs = AdjustmentEntry.objects.select_related("technician")
+
+        if allowed_keys:
+            adj_qs = adj_qs.filter(
+                Q(project__in=allowed_keys) |
+                Q(project_id__in=allowed_keys)
+            )
+        else:
+            adj_qs = AdjustmentEntry.objects.none()
 
         if exact_week:
             token = exact_week.split("-", 1)[-1].upper()
-            adj_qs = adj_qs.filter(
-                Q(week__iexact=exact_week) | Q(week__icontains=token))
+            adj_qs = adj_qs.filter(Q(week__iexact=exact_week)
+                                   | Q(week__icontains=token))
         elif week_token:
             adj_qs = adj_qs.filter(week__icontains=week_token)
 
         if f_project:
-            adj_qs = adj_qs.filter(Q(project_id__icontains=f_project) | Q(
-                project__icontains=f_project))
+            adj_qs = adj_qs.annotate(project_id_str=Cast('project_id', CharField()))
+            adj_qs = adj_qs.filter(
+                Q(project_id_str__icontains=f_project) |
+                Q(project__icontains=f_project)
+            )
         if f_client:
             adj_qs = adj_qs.filter(client__icontains=f_client)
         if f_tech:
@@ -4505,33 +4108,105 @@ def Exportar_produccion_admin(request):
             )
 
         for a in adj_qs:
+            t = a.technician
             amt = a.amount if isinstance(
                 a.amount, Decimal) else Decimal(str(a.amount or 0))
-            signed_amount = amt.copy_abs()  # SIEMPRE positivo en export
-
-            status_label = {
-                "bonus": "Bonus",
-                "advance": "Advance",
-                "fixed_salary": "Fixed salary",
-            }.get(a.adjustment_type, a.adjustment_type or "")
+            signed_amount = amt.copy_abs()  # SIEMPRE POSITIVO
 
             filas.append({
-                "project_id": a.project_id or "-",
+                "sesion": None,
+                "tecnico": t,
+                "project_id": "-",
                 "week": a.week or "—",
-                "status": status_label,
-                "tecnico": a.technician,
-                "client": a.client or "-",
-                "city": a.city or "-",
-                "project": a.project or "-",
-                "office": a.office or "-",
+                "status": "",
+                "is_discount": False,
+                "client": a.client,
+                "city": a.city,
+                "project": a.project,
+                "office": a.office,
                 "real_week": a.week or "—",
+                "proj_week": a.week or "—",
                 "total_tecnico": signed_amount,
+                "detalle": [],
+                "adjustment_type": a.adjustment_type,
+                "adjustment_id": a.id,
             })
 
-    # Filtro defensivo por semana (en memoria)
+    # --------- Resolver label de proyecto (igual que produccion_admin) ---------
+    proyectos_list = list(proyectos_user)
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_project_label(row):
+        s = row.get("sesion")
+        proj_text = None
+        proj_id = None
+
+        if s is not None:
+            proj_text = (getattr(s, "proyecto", "") or "").strip()
+            proj_id = getattr(s, "proyecto_id", None)
+        else:
+            proj_text = (row.get("project") or "").strip()
+            proj_id = row.get("project_id", None)
+
+        proyecto_sel = None
+
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            try:
+                pid2 = int(proj_id)
+            except (TypeError, ValueError):
+                key2 = str(proj_id).strip().lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    for row in filas:
+        row["project_label"] = _resolve_project_label(row)
+
+    # --------- Filtro adicional por texto de Project ---------
+    if f_project:
+        needle = f_project.lower()
+
+        def _match_project_text(row):
+            return (
+                needle in str(row.get("project_id") or "").lower() or
+                needle in str(row.get("project") or "").lower() or
+                needle in str(row.get("project_label") or "").lower()
+            )
+
+        filas = [r for r in filas if _match_project_text(r)]
+
+    # --------- Filtro defensivo por semana ---------
     if exact_week or week_token:
         token = (week_token or exact_week.split("-", 1)[-1]).upper()
-        exact_norm = _normalize_week_str(exact_week) if exact_week else None
+        exact_norm = exact_week.upper() if exact_week else None
 
         def _match_row_real(r):
             rw = _normalize_week_str(r["real_week"])
@@ -4541,10 +4216,80 @@ def Exportar_produccion_admin(request):
 
         filas = [r for r in filas if _match_row_real(r)]
 
-    # Orden por semana real descendente
+    # --------- Ventana de visibilidad por ProyectoAsignacion ---------
+    try:
+        asignaciones = list(
+            ProyectoAsignacion.objects
+            .filter(usuario=request.user, proyecto__in=proyectos_list)
+            .select_related("proyecto")
+        )
+    except Exception:
+        asignaciones = []
+
+    if asignaciones and not can_view_legacy_history:
+        access_by_pk = {}
+        for a in asignaciones:
+            if a.include_history or not a.start_at:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": True,
+                    "start_week": None,
+                }
+            else:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": False,
+                    "start_week": _iso_week_str(a.start_at),
+                }
+
+        def _project_pk_from_row(row):
+            s = row.get("sesion")
+
+            if s is not None:
+                raw = getattr(s, "proyecto_id", None)
+                if raw not in (None, "", "-"):
+                    try:
+                        return int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            text = (
+                str(row.get("project_label") or "").strip()
+                or str(row.get("project") or "").strip()
+            )
+            key = text.lower()
+            if key:
+                p = by_name.get(key)
+                if p:
+                    return p.id
+                p = by_code.get(key)
+                if p:
+                    return p.id
+            return None
+
+        def _row_allowed(row):
+            pk = _project_pk_from_row(row)
+            if pk is None:
+                return False
+
+            access = access_by_pk.get(pk)
+            if not access:
+                return False
+
+            if access["include_history"] or access["start_week"] is None:
+                return True
+
+            week_str = _normalize_week_str(row.get("real_week"))
+            if not week_str:
+                return False
+
+            return _week_sort_key(week_str) >= _week_sort_key(access["start_week"])
+
+        filas = [r for r in filas if _row_allowed(r)]
+
+    # --------------- Orden por semana real (misma que vista) ---------------
     filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
 
-    # ---------------- Generar Excel ----------------
+    # ============ A PARTIR DE AQUÍ SOLO GENERAMOS EL EXCEL ============
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Production"
@@ -4562,19 +4307,35 @@ def Exportar_produccion_admin(request):
         except Exception:
             tech_name = getattr(tech, "username", "") or ""
 
+        # Status: sesiones vs ajustes
+        if r.get("adjustment_type"):
+            status = {
+                "bonus": "Bonus",
+                "advance": "Advance",
+                "fixed_salary": "Fixed salary",
+            }.get(r["adjustment_type"], r["adjustment_type"])
+        else:
+            status = _status_label_export(r.get("status", ""), r.get("is_discount", False))
+
+        project_cell = (
+            r.get("project_label")
+            or r.get("project")
+            or "-"
+        )
+
         ws.append([
             r.get("project_id", "-") or "-",
             r.get("week", "") or r.get("real_week", ""),
-            r.get("status", ""),
+            status or "",
             tech_name,
             r.get("client", "-") or "-",
             r.get("city", "-") or "-",
-            r.get("project", "-") or "-",
+            project_cell,
             r.get("office", "-") or "-",
             float(r.get("total_tecnico") or 0.0),
         ])
 
-    # Auto-ancho y formato numérico
+    # Auto ancho + formato numérico
     for col in ws.columns:
         max_len = 0
         letter = get_column_letter(col[0].column)
@@ -4585,17 +4346,20 @@ def Exportar_produccion_admin(request):
                 pass
         ws.column_dimensions[letter].width = min(max(10, max_len + 2), 50)
 
+    # Columna de monto
     last_col = len(headers)
-    for col_cells in ws.iter_cols(min_col=last_col, max_col=last_col, min_row=2, values_only=False):
+    for col_cells in ws.iter_cols(
+        min_col=last_col, max_col=last_col, min_row=2, values_only=False
+    ):
         for c in col_cells:
             c.number_format = '#,##0.00'
 
     resp = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
     resp["Content-Disposition"] = 'attachment; filename="production_export.xlsx"'
     wb.save(resp)
     return resp
-
 
 @login_required
 @rol_requerido('usuario')
@@ -4938,7 +4702,63 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
 # ================================ ADMIN / PM ================================ #
 
 
-# imports (arriba de views.py)
+
+# ...
+
+# ================================ ADMIN / PM ================================ #
+
+def _visible_tech_ids_for_user(user):
+    """
+    Devuelve:
+      - None  => sin restricción (ve a todos)
+      - set() => IDs de técnicos que el usuario puede ver
+
+    Regla:
+      - admin / superuser -> todos
+      - facturación SIN ser pm/supervisor -> todos
+      - pm / supervisor (aunque tengan facturación) -> solo usuarios
+        que comparten al menos un proyecto con ellos (+ ellos mismos)
+      - otros -> solo ellos mismos
+    """
+    from usuarios.models import \
+        ProyectoAsignacion  # import local para evitar ciclos
+
+    # Siempre puede verse a sí mismo
+    ids = {user.id}
+
+    tiene_rol = getattr(user, "tiene_rol", None)
+    if not callable(tiene_rol):
+        # Por seguridad: si no tenemos helper de roles, solo él mismo
+        return ids
+
+    # 1) Admin / superuser -> sin filtro
+    if user.is_superuser or getattr(user, "es_admin_general", False):
+        return None
+
+    # 2) Facturación pura (NO pm/supervisor) -> sin filtro
+    if getattr(user, "es_facturacion", False) and not (
+        tiene_rol("pm") or tiene_rol("supervisor")
+    ):
+        return None
+
+    # 3) Si NO es pm ni supervisor -> sólo él mismo
+    if not (tiene_rol("pm") or tiene_rol("supervisor")):
+        return ids
+
+    # 4) pm / supervisor -> técnicos con proyectos en común
+    my_project_ids = ProyectoAsignacion.objects.filter(
+        usuario=user
+    ).values_list("proyecto_id", flat=True)
+
+    if not my_project_ids:
+        return ids  # sólo él mismo si no tiene proyectos asignados
+
+    others = ProyectoAsignacion.objects.filter(
+        proyecto_id__in=my_project_ids
+    ).values_list("usuario_id", flat=True).distinct()
+
+    ids.update(others)
+    return ids
 
 
 @login_required
@@ -4950,7 +4770,322 @@ def admin_weekly_payments(request):
     - TOP: semana actual (no pagados; crea faltantes). Muestra desglose por proyecto y
       además líneas para Direct discount y para ajustes (Fixed salary/Bonus/Advance).
     - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
+
+    ⚠️ Visibilidad:
+      - Admin / superuser -> todos los técnicos
+      - Facturación sola -> todos los técnicos
+      - PM / Supervisor -> solo técnicos que comparten proyecto con él (+ él mismo)
+      - Otros -> solo él mismo
     """
+    import re
+    from collections import defaultdict
+
+    # ========= Helpers locales =========
+    def _norm_week_input(raw: str) -> str:
+        s = (raw or "").strip().upper()
+        if not s:
+            return ""
+        m_year = re.match(r"^(\d{4})[- ]?W?(\d{1,2})$", s)
+        if m_year:
+            yy = int(m_year.group(1))
+            ww = int(m_year.group(2))
+            return f"{yy}-W{ww:02d}"
+        y, w, _ = timezone.localdate().isocalendar()
+        m_now = re.match(r"^W?(\d{1,2})$", s)
+        if m_now:
+            ww = int(m_now.group(1))
+            return f"{y}-W{ww:02d}"
+        return s
+
+    def _dec0():
+        return Value(
+            Decimal("0.00"),
+            output_field=DecimalField(max_digits=18, decimal_places=2),
+        )
+
+    # Etiquetas legibles para ajustes
+    ADJ_LABEL = {
+        "fixed_salary": "Fixed salary",
+        "bonus": "Bonus",
+        "advance": "Advance",
+    }
+    ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    # ========= Semana actual + sync =========
+    y, w, _ = timezone.localdate().isocalendar()
+    current_week = f"{y}-W{int(w):02d}"
+
+    # Crea/ajusta weekly payments para la semana actual (incluye ajustes)
+    _sync_weekly_totals(week=current_week, create_missing=True)
+
+    # ========= Visibilidad por usuario =========
+    visible_tech_ids = _visible_tech_ids_for_user(request.user)
+
+    # ========= TOP (This week) =========
+    top_qs = (
+        WeeklyPayment.objects
+        .filter(week=current_week, amount__gt=0)   # sólo pagables
+        .exclude(status="paid")
+        .select_related("technician")
+        .order_by("status", "technician__first_name", "technician__last_name")
+    )
+
+    # Limitar por técnicos visibles
+    if visible_tech_ids is not None:
+        top_qs = top_qs.filter(technician_id__in=visible_tech_ids)
+
+    top = list(top_qs)
+
+    # ---- Desglose (This week): producción + ajustes
+    tech_ids_top = {wp.technician_id for wp in top}
+    details_map_top: dict[tuple[int, str], list] = {}
+
+    # 1) Producción por proyecto, separando si fue "descuento directo"
+    if tech_ids_top:
+        det_prod = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id__in=tech_ids_top,
+                item__sesion__semana_pago_real=current_week,
+            )
+            .filter(
+                Q(item__sesion__estado__in=ESTADOS_OK) |
+                Q(subtotal__lt=0)
+            )
+            .values(
+                "tecnico_id",
+                "item__sesion__semana_pago_real",
+                "item__sesion__proyecto_id",
+                is_discount=F("item__sesion__is_direct_discount"),
+            )
+            .annotate(
+                subtotal=Coalesce(
+                    Sum("subtotal"),
+                    _dec0(),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            )
+            .order_by("item__sesion__proyecto_id")
+        )
+        for r in det_prod:
+            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            label = "Direct discount" if r["is_discount"] else (
+                r["item__sesion__proyecto_id"] or "—"
+            )
+            details_map_top.setdefault(key, []).append(
+                {
+                    "project_label": str(label),
+                    "subtotal": r["subtotal"] or Decimal("0.00"),
+                }
+            )
+
+    # 2) Ajustes de la semana actual (Fixed salary / Bonus / Advance)
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    if AdjustmentEntry is not None and tech_ids_top:
+        det_adj = (
+            AdjustmentEntry.objects
+            .filter(technician_id__in=tech_ids_top, week=current_week)
+            .values("technician_id", "week", "adjustment_type")
+            .annotate(
+                total=Coalesce(
+                    Sum("amount"),
+                    _dec0(),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            )
+        )
+        for r in det_adj:
+            key = (r["technician_id"], r["week"])
+            label = ADJ_LABEL.get(r["adjustment_type"], r["adjustment_type"])
+            details_map_top.setdefault(key, []).append(
+                {
+                    "project_label": label,
+                    "subtotal": r["total"] or Decimal("0.00"),
+                }
+            )
+
+    # adjuntar al objeto
+    for wp in top:
+        wp.details = details_map_top.get((wp.technician_id, wp.week), [])
+
+    # ========= BOTTOM (historial Paid) =========
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
+    f_receipt = (request.GET.get("f_receipt") or "").strip()   # "", "with", "without"
+
+    f_week = _norm_week_input(f_week_input)
+    f_paid_week = _norm_week_input(f_paid_week_input)
+
+    bottom_qs = WeeklyPayment.objects.filter(
+        status="paid"
+    ).select_related("technician")
+
+    # Limitar por técnicos visibles
+    if visible_tech_ids is not None:
+        bottom_qs = bottom_qs.filter(technician_id__in=visible_tech_ids)
+
+    if f_tech:
+        bottom_qs = bottom_qs.filter(
+            Q(technician__first_name__icontains=f_tech) |
+            Q(technician__last_name__icontains=f_tech) |
+            Q(technician__username__icontains=f_tech)
+        )
+    if f_week:
+        bottom_qs = bottom_qs.filter(week=f_week)
+    if f_paid_week:
+        bottom_qs = bottom_qs.filter(paid_week=f_paid_week)
+    if f_receipt == "with":
+        bottom_qs = bottom_qs.exclude(
+            Q(receipt__isnull=True) | Q(receipt="")
+        )
+    elif f_receipt == "without":
+        bottom_qs = bottom_qs.filter(
+            Q(receipt__isnull=True) | Q(receipt="")
+        )
+
+    bottom_qs = bottom_qs.order_by(
+        "-paid_week",
+        "-week",
+        "technician__first_name",
+        "technician__last_name",
+    )
+
+    # ========= Paginación =========
+    cantidad = (request.GET.get("cantidad") or "10").strip().lower()
+    page_number = request.GET.get("page") or "1"
+
+    if cantidad == "todos":
+        pagina = list(bottom_qs)
+    else:
+        try:
+            per_page = max(1, min(100, int(cantidad)))
+        except ValueError:
+            per_page = 10
+            cantidad = "10"
+        paginator = Paginator(bottom_qs, per_page)
+        pagina = paginator.get_page(page_number)
+
+    # ---- Desglose (Paid): producción + ajustes
+    wp_list = list(pagina) if not isinstance(pagina, list) else pagina
+    tech_ids_bottom = {wp.technician_id for wp in wp_list}
+    weeks_bottom = {wp.week for wp in wp_list}
+
+    details_map_bottom: dict[tuple[int, str], list] = {}
+    if tech_ids_bottom and weeks_bottom:
+        # Producción
+        det_b_prod = (
+            ItemBillingTecnico.objects
+            .filter(
+                tecnico_id__in=tech_ids_bottom,
+                item__sesion__semana_pago_real__in=weeks_bottom,
+            )
+            .filter(
+                Q(item__sesion__estado__in=ESTADOS_OK) |
+                Q(subtotal__lt=0)
+            )
+            .values(
+                "tecnico_id",
+                "item__sesion__semana_pago_real",
+                "item__sesion__proyecto_id",
+                is_discount=F("item__sesion__is_direct_discount"),
+            )
+            .annotate(
+                subtotal=Coalesce(
+                    Sum("subtotal"),
+                    _dec0(),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            )
+            .order_by(
+                "item__sesion__semana_pago_real",
+                "item__sesion__proyecto_id",
+            )
+        )
+        for r in det_b_prod:
+            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            label = "Direct discount" if r["is_discount"] else (
+                r["item__sesion__proyecto_id"] or "—"
+            )
+            details_map_bottom.setdefault(key, []).append(
+                {
+                    "project_label": str(label),
+                    "subtotal": r["subtotal"] or Decimal("0.00"),
+                }
+            )
+
+        # Ajustes
+        if AdjustmentEntry is not None:
+            det_b_adj = (
+                AdjustmentEntry.objects
+                .filter(
+                    technician_id__in=tech_ids_bottom,
+                    week__in=weeks_bottom,
+                )
+                .values("technician_id", "week", "adjustment_type")
+                .annotate(
+                    total=Coalesce(
+                        Sum("amount"),
+                        _dec0(),
+                        output_field=DecimalField(max_digits=18, decimal_places=2),
+                    )
+                )
+            )
+            for r in det_b_adj:
+                key = (r["technician_id"], r["week"])
+                label = ADJ_LABEL.get(
+                    r["adjustment_type"],
+                    r["adjustment_type"],
+                )
+                details_map_bottom.setdefault(key, []).append(
+                    {
+                        "project_label": label,
+                        "subtotal": r["total"] or Decimal("0.00"),
+                    }
+                )
+
+    for wp in wp_list:
+        wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
+
+    # ========= Querystring para mantener filtros =========
+    keep = {
+        "f_tech": f_tech,
+        "f_week": f_week_input,
+        "f_paid_week": f_paid_week_input,
+        "f_receipt": f_receipt,
+        "cantidad": cantidad,
+    }
+    filters_qs = urlencode({k: v for k, v in keep.items() if v})
+
+    return render(request, "operaciones/pagos_admin_list.html", {
+        "current_week": current_week,
+        "top": top,
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "filters_qs": filters_qs,
+        "f_tech": f_tech,
+        "f_week_input": f_week_input,
+        "f_paid_week_input": f_paid_week_input,
+        "f_receipt": f_receipt,
+    })
+
+"""
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+@never_cache
+def admin_weekly_payments(request):
+    """
+"""
+    Pagos semanales:
+    - TOP: semana actual (no pagados; crea faltantes). Muestra desglose por proyecto y
+      además líneas para Direct discount y para ajustes (Fixed salary/Bonus/Advance).
+    - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
+    """
+"""
     import re
     from collections import defaultdict
     from decimal import Decimal
@@ -5185,7 +5320,7 @@ def admin_weekly_payments(request):
         "f_paid_week_input": f_paid_week_input,
         "f_receipt": f_receipt,
     })
-
+"""
 
 @login_required
 @rol_requerido('admin', 'pm', 'facturacion')

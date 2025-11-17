@@ -128,6 +128,10 @@ class CustomUser(AbstractUser):
         return self.tiene_rol('admin') or self.is_superuser
 
     @property
+    def es_usuario_historial(self):
+        return self.tiene_rol('usuario_historial') or self.is_superuser
+    
+    @property
     def rol(self):
         primer_rol = self.roles.first()
         return primer_rol.nombre if primer_rol else None

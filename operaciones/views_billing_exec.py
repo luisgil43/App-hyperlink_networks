@@ -26,8 +26,9 @@ from django.core.files import File
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage as storage
 from django.db import transaction
-from django.db.models import (Case, Count, DecimalField, IntegerField,
-                              OuterRef, Subquery, Sum, Value, When)
+from django.db.models import (Case, Count, DecimalField, Exists, F, FloatField,
+                              IntegerField, OuterRef, Prefetch, Q, Subquery,
+                              Sum, Value, When)
 from django.db.models.functions import Coalesce
 from django.http import (FileResponse, Http404, HttpResponse,
                          HttpResponseBadRequest, HttpResponseForbidden,
@@ -47,6 +48,10 @@ from openpyxl import Workbook
 from PIL import ExifTags, Image, ImageFile
 from pillow_heif import register_heif_opener
 
+from core.decorators import project_object_access_required
+from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
+                              user_has_project_access)
+from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.excel_images import tmp_jpeg_from_filefield
 from usuarios.decoradores import rol_requerido
 
@@ -134,11 +139,59 @@ def mis_assignments(request):
         .order_by('estado_priority', '-sesion__creado_en', '-id')
     )
 
+    # ================== NUEVO: resolver nombre legible del proyecto ==================
+    asignaciones = list(asignaciones)
+
+    proyectos_qs = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        'id',
+    )
+
+    for a in asignaciones:
+        s = a.sesion
+        proyecto_sel = None
+        raw = (getattr(s, "proyecto", "") or "").strip()
+
+        if raw:
+            try:
+                # Caso nuevo: s.proyecto guarda el PK del Proyecto
+                pid = int(raw)
+            except (TypeError, ValueError):
+                # Datos viejos: s.proyecto es texto (nombre/código)
+                proyecto_sel = proyectos_qs.filter(
+                    Q(nombre__iexact=raw) |
+                    Q(codigo__iexact=raw)
+                ).first()
+            else:
+                proyecto_sel = proyectos_qs.filter(pk=pid).first()
+
+        # Si no encontramos nada con s.proyecto, probamos con s.proyecto_id (NBxxxx, etc.)
+        if not proyecto_sel and getattr(s, "proyecto_id", None):
+            code = str(s.proyecto_id).strip()
+            proyecto_sel = proyectos_qs.filter(
+                Q(codigo__iexact=code) |
+                Q(nombre__icontains=code)
+            ).first()
+
+        if proyecto_sel:
+            a.proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
+        else:
+            # Fallback para sesiones antiguas / casos raros
+            a.proyecto_label = (
+                getattr(s, "proyecto", None)
+                or getattr(s, "proyecto_id", "") 
+                or ""
+            ).strip()
+    # ===============================================================================
+
     return render(
         request,
         "operaciones/billing_mis_asignaciones.html",
         {"asignaciones": asignaciones}
     )
+
+
 
 @login_required
 @rol_requerido('usuario')
@@ -1163,6 +1216,44 @@ def revisar_sesion(request, sesion_id):
     status_url = reverse("operaciones:project_report_status",
                          kwargs={"sesion_id": s.id})
 
+    # ========= Resolver etiqueta legible del proyecto (para el header) =========
+    proyectos_qs = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        'id',
+    )
+
+    proyecto_sel = None
+    raw = (s.proyecto or "").strip()
+
+    if raw:
+        try:
+            # si s.proyecto es el PK (nuevo flujo)
+            pid = int(raw)
+        except (TypeError, ValueError):
+            # datos viejos: nombre/código en texto
+            proyecto_sel = proyectos_qs.filter(
+                Q(nombre__iexact=raw) |
+                Q(codigo__iexact=raw)
+            ).first()
+        else:
+            proyecto_sel = proyectos_qs.filter(pk=pid).first()
+
+    # si no encontramos nada con s.proyecto, probamos con s.proyecto_id (NB3231, etc.)
+    if not proyecto_sel and s.proyecto_id:
+        code = str(s.proyecto_id).strip()
+        proyecto_sel = proyectos_qs.filter(
+            Q(codigo__iexact=code) |
+            Q(nombre__icontains=code)
+        ).first()
+
+    if proyecto_sel:
+        proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
+    else:
+        # fallback para sesiones antiguas / casos raros
+        proyecto_label = (s.proyecto or s.proyecto_id or "").strip()
+
+    # =============================== RENDER =============================== #
     return render(
         request,
         "operaciones/billing_revisar_sesion.html",
@@ -1177,6 +1268,8 @@ def revisar_sesion(request, sesion_id):
             "poll_ms": 1000,
             # 👈 para que el JS no pinte aprobado si no lo está
             "server_approved": server_approved,
+            # 👈 NUEVO: nombre legible del proyecto
+            "proyecto_label": proyecto_label,
         },
     )
 

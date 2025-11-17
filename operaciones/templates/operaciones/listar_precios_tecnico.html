@@ -11,7 +11,7 @@
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💰 Technician Prices</h2>
 
     <div class="flex items-center gap-2">
-      <a href="{% url 'operaciones:importar_precios' %}"
+      <a href="{% url 'operaciones:importar_precios' %}{% if request.GET.proyecto_id %}?proyecto_id={{ request.GET.proyecto_id }}{% endif %}"
          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
         ➕ Import Prices
       </a>
@@ -106,7 +106,8 @@
             <td class="p-2 border">{{ price.fecha_creacion|date:"d/m/Y" }}</td>
             <td class="p-2 border">{{ price.tecnico.get_full_name }}</td>
             <td class="p-2 border">{{ price.ciudad }}</td>
-            <td class="p-2 border">{{ price.proyecto }}</td>
+            <!-- Si es FK: muestra 'proyecto.nombre'; si es texto: muestra 'proyecto' -->
+            <td class="p-2 border">{{ price.proyecto.nombre|default:price.proyecto }}</td>
             <td class="p-2 border">{{ price.oficina }}</td>
             <td class="p-2 border">{{ price.cliente }}</td>
             <td class="p-2 border">{{ price.tipo_trabajo }}</td>
@@ -254,16 +255,13 @@
     modalConfirm.addEventListener('click', () => { modalConfirm.disabled = true; form.submit(); });
 
     // --- Auto-filtrado (debounce) ---
-    const filtersForm = document.getElementById('filters-form');
     const filterInputs = document.querySelectorAll('.filter-input');
     let debounceTimer = null;
 
     function submitFilters(){
-      // siempre que cambie filtros, ir a page=1
       const url = new URL(window.location.href);
       url.searchParams.set('cantidad', "{{ cantidad }}");
       url.searchParams.delete('page');
-      // sincroniza valores actuales de inputs
       filterInputs.forEach(inp => {
         if (inp.value) url.searchParams.set(inp.name, inp.value);
         else url.searchParams.delete(inp.name);
@@ -273,7 +271,7 @@
 
     function onFilterInput(){
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(submitFilters, 400); // 400ms debounce
+      debounceTimer = setTimeout(submitFilters, 400);
     }
     filterInputs.forEach(inp => {
       inp.addEventListener('input', onFilterInput);

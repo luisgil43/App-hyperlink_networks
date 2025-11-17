@@ -199,9 +199,8 @@
 
           <td class="p-2 border">{{ s.cliente }}</td>
           <td class="p-2 border">{{ s.ciudad }}</td>
-          <td class="p-2 border">{{ s.proyecto }}</td>
+          <td class="p-2 border">{{ s.project_label }}</td>
           <td class="p-2 border">{{ s.oficina }}</td>
-
           <td class="p-2 border text-right">${{ s.subtotal_tecnico|floatformat:2 }}</td>
           <td class="p-2 border text-right">${{ s.subtotal_empresa|floatformat:2 }}</td>
 
@@ -232,7 +231,6 @@
   {% else %}
     —   {# en blanco, raya o 0 -> no mostrar diferencia #}
   {% endif %}
-</td>
 
           <!-- Finance status -->
 <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>

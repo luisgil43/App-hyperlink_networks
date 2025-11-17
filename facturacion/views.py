@@ -37,12 +37,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from facturacion.models import CartolaMovimiento
+from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.forms import MovimientoUsuarioForm
 from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
                                 ItemBillingTecnico, SesionBilling,
                                 SesionBillingTecnico)
 from usuarios.decoradores import rol_requerido
+from usuarios.models import ProyectoAsignacion
 
 from .forms import (CartolaAbonoForm, CartolaGastoForm,
                     CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm)
@@ -885,6 +886,151 @@ def _can_edit_real_week(user) -> bool:
         return True
 
 
+
+
+
+
+
+
+
+
+
+
+def _limit_invoices_by_assignment_and_history(qs, user):
+    """
+    Lógica de historial igual que en producción admin, usando ProyectoAsignacion:
+
+      - Toma las ProyectoAsignacion del usuario.
+      - Si include_history=True -> ve TODO el historial de ese proyecto.
+      - Si include_history=False y tiene start_at -> solo ve desde start_at.
+      - Resultado: solo invoices de proyectos donde está asignado.
+
+    Si el usuario no tiene asignaciones, devuelve qs.none().
+    """
+    asignaciones = ProyectoAsignacion.objects.filter(usuario=user)
+    if not asignaciones.exists():
+        return qs.none()
+
+    cond = Q()
+    for asig in asignaciones:
+        pid_str = str(asig.proyecto_id)
+        if asig.include_history or not asig.start_at:
+            cond |= Q(proyecto_id=pid_str)
+        else:
+            cond |= Q(proyecto_id=pid_str, creado_en__gte=asig.start_at)
+
+    return qs.filter(cond)
+
+
+def _attach_project_label(page_obj):
+    """
+    Crea un atributo 'project_label' en cada SesionBilling de la página,
+    usando la MISMA filosofía que en produccion_admin:
+
+      - Usa Proyecto (id, código, nombre).
+      - Intenta resolver primero por 'proyecto' (texto),
+        luego por 'proyecto_id'.
+      - Si encuentra Proyecto -> usa p.nombre.
+      - Si no encuentra, hace fallback a s.proyecto o s.proyecto_id.
+    """
+    sessions = list(page_obj.object_list)
+    if not sessions:
+        return page_obj
+
+    # --- Recolectamos textos/ids candidatos de esta página ---
+    raw_texts = set()
+    raw_ids = set()
+
+    for s in sessions:
+        proj_text = (getattr(s, "proyecto", "") or "").strip()
+        proj_id = getattr(s, "proyecto_id", None)
+
+        for raw in (proj_text, proj_id):
+            if raw in (None, "", "-"):
+                continue
+            txt = str(raw).strip()
+            if not txt:
+                continue
+            raw_texts.add(txt)
+            try:
+                raw_ids.add(int(txt))
+            except (TypeError, ValueError):
+                # no es un entero, puede ser código o nombre
+                pass
+
+    # Si no hay nada, solo ponemos fallback y salimos
+    if not raw_texts and not raw_ids:
+        for s in sessions:
+            s.project_label = getattr(s, "proyecto", None) or getattr(s, "proyecto_id", "") or ""
+        page_obj.object_list = sessions
+        return page_obj
+
+    # --- Cargamos solo los proyectos relevantes ---
+    proj_q = Q()
+    if raw_ids:
+        proj_q |= Q(pk__in=raw_ids)
+    if raw_texts:
+        proj_q |= Q(codigo__in=raw_texts) | Q(nombre__in=raw_texts)
+
+    proyectos = Proyecto.objects.filter(proj_q).distinct()
+
+    by_id = {p.id: p for p in proyectos}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_for_session(s):
+        proj_text = (getattr(s, "proyecto", "") or "").strip()
+        proj_id = getattr(s, "proyecto_id", None)
+
+        proyecto_sel = None
+
+        # 1) intentar con proj_text (igual que en produccion_admin)
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        # 2) si no, probar con proyecto_id
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            txt = str(proj_id).strip()
+            try:
+                pid2 = int(txt)
+            except (TypeError, ValueError):
+                key2 = txt.lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        # 3) Construir label
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        # Fallback: lo que ya teníamos en la sesión
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    for s in sessions:
+        s.project_label = _resolve_for_session(s)
+
+    page_obj.object_list = sessions
+    return page_obj
+
+
 @login_required
 @rol_requerido("facturacion", "admin")
 def invoices_list(request):
@@ -895,20 +1041,59 @@ def invoices_list(request):
       - 'paid': solo pagados.
       - 'all' : todo lo de Finanzas (enviado, en revisión, pendiente, rechazado, pagado,
                 y descuentos directos ENVIADOS). Excluye 'none', vacío y nulos.
+
+    Visibilidad:
+      - Usuarios normales: solo ven invoices de proyectos a los que tienen acceso
+        (según ProyectoAsignacion / filter_queryset_by_access).
+      - Usuarios privilegiados (superuser o es_usuario_historial): pueden ver TODO
+        el historial de Finanzas (sin restringir por proyectos asignados).
     """
+    user = request.user
     scope = request.GET.get("scope", "open")  # open | all | paid
 
+    # ---------------- Usuarios privilegiados (historial completo) ----------------
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
+    # ---------------- Proyectos visibles para el usuario ----------------
+    try:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            user,
+            "id",
+        )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    if proyectos_user.exists():
+        allowed_keys = set()
+        for p in proyectos_user:
+            # nombre legible del proyecto
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            # compatibilidad: código y id
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+            allowed_keys.add(str(p.id).strip())
+    else:
+        # sin proyectos asignados → no ve nada (para usuarios normales)
+        allowed_keys = set()
+
+    # -------------------- Query base + prefetch --------------------
     qs = (
         SesionBilling.objects
         .prefetch_related(
-            # anidados de forma explícita
             Prefetch(
                 "items",
                 queryset=ItemBilling.objects.prefetch_related(
                     Prefetch(
                         "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related(
-                            "tecnico"),
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
                     )
                 ),
             ),
@@ -929,17 +1114,13 @@ def invoices_list(request):
         .order_by("-creado_en")
     )
 
-    # Estados “abiertos” (en Finanzas) sin contar 'review_discount' no enviado
-    FINANCE_OPEN_BASE = ["discount_applied",
-                         "sent", "in_review", "pending", "rejected"]
+    # -------------------- Alcance Finanzas (open / all / paid) --------------------
+    FINANCE_OPEN_BASE = ["discount_applied", "sent", "in_review", "pending", "rejected"]
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
 
     elif scope == "all":
-        # Todo lo que compete a Finanzas:
-        #   - Excluye 'none', vacíos y nulos
-        #   - Excluye 'review_discount' NO ENVIADOS (finance_sent_at IS NULL)
         qs = qs.exclude(
             Q(finance_status__in=["none", ""]) |
             Q(finance_status__isnull=True) |
@@ -947,14 +1128,19 @@ def invoices_list(request):
         )
 
     else:  # "open"
-        # Abiertos: base + 'review_discount' SOLO si fue ENVIADO
         qs = qs.filter(
             Q(finance_status__in=FINANCE_OPEN_BASE) |
-            (Q(finance_status="review_discount")
-             & Q(finance_sent_at__isnull=False))
+            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
         ).exclude(finance_status="paid")
 
-    # -------- Filtros por GET (livianos, no rompen si vienen vacíos) --------
+    # ---------------- 🔒 Limitar por proyectos asignados (solo usuarios NO historial) ----------------
+    if not can_view_legacy_history:
+        if allowed_keys:
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            qs = SesionBilling.objects.none()
+
+    # -------------------- Filtros por GET (ligeros) --------------------
     date_s = (request.GET.get("date") or "").strip()
     projid_s = (request.GET.get("projid") or "").strip()
     week_s = (request.GET.get("week") or "").strip()
@@ -1007,9 +1193,8 @@ def invoices_list(request):
 
     # Evitar duplicados por joins con tecnicos_sesion/items
     qs = qs.distinct()
-    # ------------------------------------------------------------------------
 
-    # Paginación
+    # -------------------- Paginación --------------------
     cantidad = request.GET.get("cantidad", "10")
     try:
         per_page = 1_000_000 if cantidad == "todos" else int(cantidad)
@@ -1019,13 +1204,16 @@ def invoices_list(request):
 
     pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
+    # Adjuntamos etiqueta legible de proyecto (project_label) a cada sesión
+    pagina = _attach_project_label(pagina)
+
     ctx = {
         "pagina": pagina,
         "cantidad": cantidad,
         "scope": scope,
         "can_edit_real_week": _can_edit_real_week(request.user),
 
-        # ⬇️ NUEVO: para rellenar los inputs y reconstruir enlaces
+        # para rellenar inputs y reconstruir enlaces
         "date_s": date_s,
         "projid_s": projid_s,
         "week_s": week_s,
@@ -1251,29 +1439,186 @@ def _to_excel_dt(value):
 
 @rol_requerido('facturacion', 'admin', 'pm')
 def invoices_export(request):
-    scope = request.GET.get("scope", "open")  # open | paid | all
+    """
+    Exporta a Excel los invoices de Finanzas.
 
+    - Respeta el scope: open | paid | all (igual que invoices_list).
+    - Usa la MISMA lógica de visibilidad por proyecto que invoices_list:
+        * Usuarios normales: solo proyectos a los que están asignados.
+        * Usuarios con historial (is_superuser o es_usuario_historial): ven todo.
+    - En la columna 'Project' se escribe el NOMBRE del Proyecto cuando se puede resolver.
+    """
+    from decimal import Decimal
+
+    from django.db.models import Q
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from openpyxl import Workbook
+
+    from facturacion.models import Proyecto
+
+    user = request.user
+    scope = request.GET.get("scope", "open")  # open | all | paid
+
+    # --------- Usuarios privilegiados (historial completo) ---------
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
+    # --------- Proyectos visibles para el usuario (igual que invoices_list) ---------
+    try:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            user,
+            "id",
+        )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    proyectos_list = list(proyectos_user)
+
+    if proyectos_list:
+        allowed_keys = set()
+        for p in proyectos_list:
+            # nombre legible del proyecto
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            # compatibilidad: código y id
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+            allowed_keys.add(str(p.id).strip())
+    else:
+        allowed_keys = set()
+
+    # --------- Query base + prefetch (igual patrón que invoices_list) ---------
     qs = (
         SesionBilling.objects
         .prefetch_related(
-            "items",
             Prefetch(
-                "items__desglose_tecnico",
-                queryset=ItemBillingTecnico.objects.select_related("tecnico")
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                    )
+                ),
             ),
-            "tecnicos_sesion__tecnico",
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects
+                .select_related("tecnico")
+                .prefetch_related(
+                    Prefetch(
+                        "evidencias",
+                        queryset=EvidenciaFotoBilling.objects.only(
+                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
+                        ).order_by("-id"),
+                    )
+                ),
+            ),
         )
-    ).filter(
-        Q(is_direct_discount=True) |
-        Q(estado__in=["aprobado_supervisor", "aprobado_pm"]) |
-        Q(finance_status__in=["paid"])
+        .order_by("-creado_en")
     )
 
-    if scope == "open":
-        qs = qs.exclude(finance_status="paid")
-    elif scope == "paid":
+    # --------- Alcance Finanzas (open / all / paid) – igual que invoices_list ---------
+    FINANCE_OPEN_BASE = ["discount_applied", "sent", "in_review", "pending", "rejected"]
+
+    if scope == "paid":
         qs = qs.filter(finance_status="paid")
 
+    elif scope == "all":
+        qs = qs.exclude(
+            Q(finance_status__in=["none", ""]) |
+            Q(finance_status__isnull=True) |
+            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
+        )
+
+    else:  # "open"
+        qs = qs.filter(
+            Q(finance_status__in=FINANCE_OPEN_BASE) |
+            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
+        ).exclude(finance_status="paid")
+
+    # --------- 🔒 Limitar por proyectos asignados (solo usuarios NO historial) ---------
+    if not can_view_legacy_history:
+        if allowed_keys:
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            qs = SesionBilling.objects.none()
+
+    # No usamos filtros adicionales por GET aquí (date, projid, etc.),
+    # pero si quieres se pueden copiar de invoices_list.
+
+    qs = qs.distinct()
+
+    # --------- Mapas de Proyecto para obtener el nombre ---------
+    # Para poner en la columna "Project" el nombre del Proyecto
+    # cuando es posible resolverlo.
+    if can_view_legacy_history:
+        # Para usuarios de historial, intentamos tener todos los proyectos
+        proyectos_all = Proyecto.objects.all()
+        proyectos_list = list(proyectos_all)
+    # si no es historial, ya tenemos proyectos_list con los asignados
+
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_project_label(s):
+        """
+        Devuelve el nombre legible del proyecto para el Excel:
+
+        - Si SesionBilling.proyecto guarda ID numérico → busca en by_id.
+        - Si guarda nombre/código → intenta mapear a Proyecto.
+        - Si no encuentra nada, devuelve el texto original o el project_id.
+        """
+        proj_text = (getattr(s, "proyecto", "") or "").strip()
+        proj_id = getattr(s, "proyecto_id", None)
+
+        proyecto_sel = None
+
+        # 1) intentar interpretar proj_text como PK
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        # 2) intentar con proyecto_id (NB6790, etc.)
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            try:
+                pid2 = int(proj_id)
+            except (TypeError, ValueError):
+                key2 = str(proj_id).strip().lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    # --------- Mapas de estado (igual que el export anterior) ---------
     status_map = {
         "aprobado_pm": "Approved by PM",
         "rechazado_pm": "Rejected by PM",
@@ -1303,6 +1648,7 @@ def invoices_export(request):
             parts.append(f"{name} ({st.porcentaje:.2f}%)")
         return ", ".join(parts)
 
+    # --------- Crear Excel ---------
     wb = Workbook()
     ws = wb.active
     ws.title = "Invoices"
@@ -1330,6 +1676,8 @@ def invoices_export(request):
         pay_or_disc = f"{real_week} / {disc_week}" if (
             real_week and disc_week) else (real_week or disc_week)
 
+        project_label = _resolve_project_label(s)
+
         head_common = [
             _to_excel_dt(s.creado_en),
             s.proyecto_id,
@@ -1339,7 +1687,7 @@ def invoices_export(request):
             techs_string(s),
             s.cliente or "",
             s.ciudad or "",
-            s.proyecto or "",
+            project_label or "",
             s.oficina or "",
             float(s.subtotal_tecnico or 0),
             float(s.subtotal_empresa or 0),
@@ -1363,17 +1711,9 @@ def invoices_export(request):
 
             if desglose:
                 for bd in desglose:
-                    # % del técnico (0–100)
                     pct = Decimal(str(bd.porcentaje or 0)) / Decimal('100')
-
-                    # 👉 Quantity PRORRATEADA
                     qty_tec = (qty_total * pct)
-
-                    # 👉 Technical rate = tarifa_base (sin %)
-                    base_rate = Decimal(
-                        str(getattr(bd, "tarifa_base", 0) or 0))
-
-                    # Subtotales prorrateados
+                    base_rate = Decimal(str(getattr(bd, "tarifa_base", 0) or 0))
                     sub_tec = base_rate * qty_tec
                     sub_comp = comp_rate * qty_tec
 
@@ -1382,15 +1722,14 @@ def invoices_export(request):
                         it.tipo_trabajo or "",
                         it.descripcion or "",
                         it.unidad_medida or "",
-                        float(qty_tec),             # cantidad por técnico
-                        float(base_rate),           # rate sin %
-                        float(comp_rate),           # company rate
+                        float(qty_tec),
+                        float(base_rate),
+                        float(comp_rate),
                         float(sub_tec),
                         float(sub_comp),
                     ]
                     ws.append(row)
             else:
-                # Sin desglose: una sola fila con totales del ítem
                 sub_tec_item = Decimal(str(it.subtotal_tecnico or 0))
                 sub_comp_item = Decimal(
                     str(it.subtotal_empresa or (comp_rate * qty_total)))
@@ -1400,8 +1739,7 @@ def invoices_export(request):
                     it.descripcion or "",
                     it.unidad_medida or "",
                     float(qty_total),
-                    # sin desglose: no hay rate por técnico
-                    float(Decimal("0.00")),
+                    float(Decimal("0.00")),  # sin desglose no hay rate técnico
                     float(comp_rate),
                     float(sub_tec_item),
                     float(sub_comp_item),
@@ -1415,7 +1753,3 @@ def invoices_export(request):
     resp["Content-Disposition"] = f'attachment; filename="invoices_{now_str}.xlsx"'
     wb.save(resp)
     return resp
-
-
-
-

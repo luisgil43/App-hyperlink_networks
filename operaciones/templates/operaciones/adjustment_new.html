@@ -1,6 +1,7 @@
 {% extends "dashboard_admin/base.html" %}
 
 {% block title %}{% if editing %}Edit Adjustment{% else %}New Adjustment{% endif %}{% endblock %}
+
 {% block dashboard_content %}
 <div class="max-w-xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
   <div class="flex items-center justify-between mb-4">
@@ -16,7 +17,7 @@
 
     <div>
       <label class="block text-sm font-medium">Technician</label>
-      <select name="technician" required class="w-full border rounded-xl px-3 py-2">
+      <select name="technician" id="tech-select" required class="w-full border rounded-xl px-3 py-2">
         <option value="">— Select —</option>
         {% for u in techs %}
           <option value="{{ u.id }}"
@@ -25,6 +26,9 @@
           </option>
         {% endfor %}
       </select>
+      <p class="text-xs text-gray-500 mt-1">
+        Only technicians that share at least one project with you are listed.
+      </p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -56,21 +60,24 @@
              placeholder="0.00"
              value="{% if editing %}{{ adj.amount }}{% endif %}">
       <p class="text-xs text-gray-500 mt-1">
-        Bonus/Fixed salary adds; Advance subtracts (en vista admin suma).
+        Bonus/Fixed salary adds; Advance subtracts (in the admin view it is aggregated as positive for totals).
       </p>
     </div>
 
     <div>
       <label class="block text-sm font-medium">Project</label>
-      <select name="project_select" class="w-full border rounded-xl px-3 py-2">
+      <select name="project_select" id="project-select" class="w-full border rounded-xl px-3 py-2">
         <option value="">— No project —</option>
         {% for p in projects %}
           <option value="{{ p.id }}"
-            {% if editing and adj.project_id|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+            {% if editing and selected_project_id and selected_project_id == p.id %}selected{% endif %}>
             {{ p.nombre }}{% if p.mandante %} — {{ p.mandante }}{% endif %}
           </option>
         {% endfor %}
       </select>
+      <p class="text-xs text-gray-500 mt-1">
+        Once you select a technician, only projects in common between you and that technician will be available.
+      </p>
     </div>
 
     {# Eliminados: Client, City, Office, Project ID, Note #}
@@ -83,4 +90,59 @@
     </div>
   </form>
 </div>
+
+<script>
+(function(){
+  const techSelect = document.getElementById('tech-select');
+  const projSelect = document.getElementById('project-select');
+  if (!techSelect || !projSelect) return;
+
+  // Mapa proyecto -> [tech_ids...] generado en la vista
+  const rawMap = "{{ proj_tech_map_json|default:'{}'|escapejs }}";
+  let projMap = {};
+  try { projMap = JSON.parse(rawMap || "{}"); } catch(e) { projMap = {}; }
+
+  const options = Array.from(projSelect.options);
+
+  function updateProjects(){
+    const techId = techSelect.value;
+
+    // Si no hay técnico seleccionado, mostramos todos los proyectos visibles para el usuario
+    if (!techId){
+      options.forEach(opt => {
+        opt.hidden = false;
+        opt.disabled = false;
+      });
+      return;
+    }
+
+    const tid = parseInt(techId, 10);
+
+    options.forEach(opt => {
+      if (!opt.value){
+        // opción "— No project —"
+        opt.hidden = false;
+        opt.disabled = false;
+        return;
+      }
+      const allowed = projMap[opt.value] || [];
+      // Mostrar solo si el técnico está en la lista de ese proyecto
+      const isOk = allowed.length === 0 ? false : allowed.includes(tid);
+      opt.hidden = !isOk;
+      opt.disabled = !isOk;
+    });
+
+    // Si el actualmente seleccionado quedó oculto, reseteamos
+    const selected = projSelect.options[projSelect.selectedIndex];
+    if (selected && selected.hidden){
+      projSelect.value = "";
+    }
+  }
+
+  techSelect.addEventListener('change', updateProjects);
+  // Estado inicial (especialmente en edit)
+  updateProjects();
+})();
+</script>
+
 {% endblock %}

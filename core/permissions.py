@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from functools import wraps
 from typing import Iterable, Optional, Set
 
+from django.apps import apps
 from django.conf import settings
 from django.db import models
+from django.db import models as dj_models
 from django.utils import timezone
 
 # Intentamos ubicar modelos sin acoplar el proyecto
@@ -145,3 +148,98 @@ def filter_queryset_by_access(qs, user, project_lookup: str) -> models.QuerySet:
         # Sin acceso => queryset vacío
         return qs.none()
     return qs.filter(**{f"{project_lookup}__in": list(allowed)})
+
+from functools import wraps
+
+
+def _extract_project_id_from_request(request, kwargs, param_names) -> int | None:
+    """Busca un proyecto_id en kwargs o GET/POST usando los nombres configurados."""
+    for name in param_names:
+        val = kwargs.get(name) or request.GET.get(name) or request.POST.get(name)
+        if val:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _extract_project_id_from_object(object_kw: str | None,
+                                    model_label: str | None,
+                                    project_attr: str,
+                                    kwargs) -> int | None:
+    """
+    Si se pasa object_kw y model_label, carga la instancia y devuelve el project id.
+    - model_label: 'app_label.ModelName'
+    - project_attr: ej. 'proyecto_id' o 'proyecto'
+    """
+    if not object_kw or not model_label:
+        return None
+    try:
+        Model = apps.get_model(model_label)
+        pk = kwargs.get(object_kw)
+        if pk is None:
+            return None
+        obj = Model.objects.only(project_attr).get(pk=pk)
+        value = getattr(obj, project_attr, None)
+        # Si project_attr es FK ('proyecto'), obtener su id
+        if isinstance(value, dj_models.Model):
+            return getattr(value, "id", None)
+        # Si ya es *_id, devolver tal cual
+        if isinstance(value, int):
+            return value
+        # Cadenas numéricas
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    except Exception:
+        return None
+
+
+def project_object_access_required(_view_func=None, *,
+                                   model: str | None = None,
+                                   object_kw: str | None = None,
+                                   project_attr: str = "proyecto_id",
+                                   request_param_names=PROJECT_PARAM_NAMES):
+    """
+    Decorador compatible con:
+      @project_object_access_required
+      @project_object_access_required(model='app.Model', object_kw='pk', project_attr='proyecto_id')
+
+    Lógica:
+    - Si podemos deducir un proyecto_id desde el objeto (model+object_kw) o desde parámetros de request/kwargs,
+      validamos con user_has_project_access. Si NO tiene acceso -> 403.
+    - Si no podemos deducir proyecto_id, dejamos pasar (las vistas de listados deberían filtrar vía filter_queryset_by_access).
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped(request, *args, **kwargs):
+            # bypass global (superuser/roles)
+            if user_has_global_bypass(request.user):
+                return view_func(request, *args, **kwargs)
+
+            proyecto_id = None
+
+            # 1) Intentar desde objeto (detalle/edición)
+            proyecto_id = _extract_project_id_from_object(object_kw, model, project_attr, kwargs)
+
+            # 2) Intentar desde parámetros (listados u otras vistas)
+            if proyecto_id is None:
+                proyecto_id = _extract_project_id_from_request(request, kwargs, request_param_names)
+
+            # 3) Validar acceso si tenemos un id concreto
+            if proyecto_id is not None and not user_has_project_access(request.user, proyecto_id):
+                from django.http import HttpResponseForbidden
+                return HttpResponseForbidden("You don't have access to this project.")
+
+            # 4) Si no hay proyecto deducible, dejar pasar (la vista aplicará filtro a nivel de queryset)
+            return view_func(request, *args, **kwargs)
+        return _wrapped
+
+    # Uso sin paréntesis: @project_object_access_required
+    if callable(_view_func):
+        return decorator(_view_func)
+
+    # Uso con kwargs: @project_object_access_required(...)
+    return decorator

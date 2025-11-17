@@ -139,7 +139,7 @@
                 <td class="p-2 border">{{ r.tecnico.get_full_name|default:r.tecnico.username }}</td>
                 <td class="p-2 border">{{ r.client|default:"-" }}</td>
                 <td class="p-2 border">{{ r.city|default:"-" }}</td>
-                <td class="p-2 border">{{ r.project|default:"-" }}</td>
+                <td class="p-2 border">{{ r.project_label|default:"-" }}</td>
                 <td class="p-2 border">{{ r.office|default:"-" }}</td>
                 <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
 
@@ -254,7 +254,7 @@
                 <td class="p-2 border">{{ r.tecnico.get_full_name|default:r.tecnico.username }}</td>
                 <td class="p-2 border">{{ r.client|default:"-" }}</td>
                 <td class="p-2 border">{{ r.city|default:"-" }}</td>
-                <td class="p-2 border">{{ r.project|default:"-" }}</td>
+                <td class="p-2 border">{{ r.project_label|default:"-" }}</td>
                 <td class="p-2 border">{{ r.office|default:"-" }}</td>
                 <td class="p-2 border text-right">${{ r.total_tecnico|floatformat:2 }}</td>
 
