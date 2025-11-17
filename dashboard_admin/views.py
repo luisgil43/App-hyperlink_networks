@@ -115,7 +115,6 @@ def grupos_view(request):
 def editar_usuario_view(request, user_id):
     usuario = get_object_or_404(User, id=user_id)
     grupos = Group.objects.all()
-    # 👉 Roles: solo queryset, el label_en se usa en el template
     roles_disponibles = Rol.objects.all()
 
     if request.method == 'POST':
@@ -130,11 +129,11 @@ def editar_usuario_view(request, user_id):
         usuario.identidad = request.POST.get('identidad', usuario.identidad)
 
         # --- groups ---
-        grupo_ids = request.POST.getlist('groups')
+        grupo_ids = request.POST.getlist('groups')          # 👉 ya vienen como strings
         usuario.groups.set(grupo_ids)
 
         # --- roles (M2M) ---
-        roles_ids = request.POST.getlist('roles')
+        roles_ids = request.POST.getlist('roles')           # 👉 también strings
         usuario.roles.set(roles_ids)
 
         # --- password (optional) ---
@@ -143,12 +142,15 @@ def editar_usuario_view(request, user_id):
         if password1 or password2:
             if password1 != password2:
                 messages.error(request, 'Passwords do not match.')
+                # Re-render con lo que el usuario marcó
                 return render(request, 'dashboard_admin/editar_usuario.html', {
                     'usuario': usuario,
                     'grupos': grupos,
                     'roles': roles_disponibles,
-                    'roles_seleccionados': set(map(int, roles_ids)),
-                    'grupo_ids_post': set(map(int, grupo_ids)),
+                    'roles_seleccionados': set(roles_ids),     # ids como strings
+                    'grupo_ids_post': set(grupo_ids),          # ids como strings
+                    # proyectos se mantienen como estaban
+                    'proyectos': Proyecto.objects.all().order_by('nombre'),
                 })
             usuario.set_password(password1)
 
@@ -188,8 +190,13 @@ def editar_usuario_view(request, user_id):
         return redirect('dashboard_admin:listar_usuarios')
 
     # --- GET: preload current selections ---
-    roles_seleccionados = set(usuario.roles.values_list('id', flat=True))
-    grupo_ids_post = set(usuario.groups.values_list('id', flat=True))
+    # 👉 LO IMPORTANTE: convertir ids a STRING para que el template pueda marcar los checkboxes
+    roles_seleccionados = [
+        str(pk) for pk in usuario.roles.values_list('id', flat=True)
+    ]
+    grupo_ids_post = [
+        str(gid) for gid in usuario.groups.values_list('id', flat=True)
+    ]
 
     # Precarga de proyectos + modo/fecha visibilidad
     proyectos_all = Proyecto.objects.all().order_by('nombre')
@@ -215,8 +222,8 @@ def editar_usuario_view(request, user_id):
         'usuario': usuario,
         'grupos': grupos,
         'roles': roles_disponibles,
-        'roles_seleccionados': roles_seleccionados,
-        'grupo_ids_post': grupo_ids_post,
+        'roles_seleccionados': roles_seleccionados,           # <- strings
+        'grupo_ids_post': grupo_ids_post,                     # <- strings
         'proyectos': proyectos_all,
         'proyectos_seleccionados': proyectos_seleccionados,
         'project_visibility': project_visibility,
