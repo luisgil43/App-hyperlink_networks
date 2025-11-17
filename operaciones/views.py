@@ -3413,13 +3413,18 @@ def produccion_admin(request):
     exact_week, week_token = parse_week_query(f_week_input)
 
     # ---------------- Proyectos visibles para el usuario ----------------
-    # Igual que en listar_billing: aquí ya se respeta "history" vs fecha_inicio
+    # Igual que en listar_billing: aquí ya se respeta "history" vs fecha_inicio.
+    # PERO si es usuario de historial o superuser, ve TODOS los proyectos.
     try:
-        proyectos_user = filter_queryset_by_access(
-            Proyecto.objects.all(),
-            request.user,
-            'id',
-        )
+        base_proyectos = Proyecto.objects.all()
+        if can_view_legacy_history:
+            proyectos_user = base_proyectos
+        else:
+            proyectos_user = filter_queryset_by_access(
+                base_proyectos,
+                request.user,
+                'id',
+            )
     except Exception:
         proyectos_user = Proyecto.objects.none()
 
@@ -3437,7 +3442,7 @@ def produccion_admin(request):
                 allowed_keys.add(str(codigo).strip())
             allowed_keys.add(str(p.id).strip())
     else:
-        # sin proyectos asignados → no ve nada
+        # sin proyectos asignados → no ve nada (para usuarios normales)
         allowed_keys = set()
 
     # ---------------- Query base: Sesiones ----------------
@@ -3453,10 +3458,12 @@ def produccion_admin(request):
     )
 
     # 🔒 limitar por proyectos asignados (campo texto "proyecto")
-    if allowed_keys:
-        qs = qs.filter(proyecto__in=allowed_keys)
-    else:
-        qs = SesionBilling.objects.none()
+    # SOLO para usuarios normales; los de historial ven todo.
+    if not can_view_legacy_history:
+        if allowed_keys:
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            qs = SesionBilling.objects.none()
 
     # Semana REAL en sesiones (semana_pago_real)
     if exact_week:
@@ -3549,13 +3556,14 @@ def produccion_admin(request):
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
         # 🔒 limitar ajustes a los proyectos asignados
-        if allowed_keys:
-            adj_qs = adj_qs.filter(
-                Q(project__in=allowed_keys) |
-                Q(project_id__in=allowed_keys)
-            )
-        else:
-            adj_qs = AdjustmentEntry.objects.none()
+        if not can_view_legacy_history:
+            if allowed_keys:
+                adj_qs = adj_qs.filter(
+                    Q(project__in=allowed_keys) |
+                    Q(project_id__in=allowed_keys)
+                )
+            else:
+                adj_qs = AdjustmentEntry.objects.none()
 
         # Semana real para ajustes (campo week)
         if exact_week:
@@ -3830,7 +3838,6 @@ def produccion_admin(request):
         "filters_qs": filters_qs,
     })
 
-
 @login_required
 @rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
 def Exportar_produccion_admin(request):
@@ -3950,11 +3957,15 @@ def Exportar_produccion_admin(request):
 
     # ---------------- Proyectos visibles para el usuario ----------------
     try:
-        proyectos_user = filter_queryset_by_access(
-            Proyecto.objects.all(),
-            request.user,
-            'id',
-        )
+        base_proyectos = Proyecto.objects.all()
+        if can_view_legacy_history:
+            proyectos_user = base_proyectos
+        else:
+            proyectos_user = filter_queryset_by_access(
+                base_proyectos,
+                request.user,
+                'id',
+            )
     except Exception:
         proyectos_user = Proyecto.objects.none()
 
@@ -3984,10 +3995,12 @@ def Exportar_produccion_admin(request):
         .distinct()
     )
 
-    if allowed_keys:
-        qs = qs.filter(proyecto__in=allowed_keys)
-    else:
-        qs = SesionBilling.objects.none()
+    # Igual que en produccion_admin: solo limitamos por proyectos si NO es historial
+    if not can_view_legacy_history:
+        if allowed_keys:
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            qs = SesionBilling.objects.none()
 
     # Semana REAL en sesiones (semana_pago_real)
     if exact_week:
@@ -4076,13 +4089,14 @@ def Exportar_produccion_admin(request):
     if AdjustmentEntry is not None:
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
-        if allowed_keys:
-            adj_qs = adj_qs.filter(
-                Q(project__in=allowed_keys) |
-                Q(project_id__in=allowed_keys)
-            )
-        else:
-            adj_qs = AdjustmentEntry.objects.none()
+        if not can_view_legacy_history:
+            if allowed_keys:
+                adj_qs = adj_qs.filter(
+                    Q(project__in=allowed_keys) |
+                    Q(project_id__in=allowed_keys)
+                )
+            else:
+                adj_qs = AdjustmentEntry.objects.none()
 
         if exact_week:
             token = exact_week.split("-", 1)[-1].upper()
@@ -4360,6 +4374,8 @@ def Exportar_produccion_admin(request):
     resp["Content-Disposition"] = 'attachment; filename="production_export.xlsx"'
     wb.save(resp)
     return resp
+
+
 
 @login_required
 @rol_requerido('usuario')
