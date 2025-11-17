@@ -22,6 +22,11 @@
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
   <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👤 User List</h2>
   <div class="flex gap-2">
+    <button id="btn-export-users"
+            type="button"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ⬇ Export
+    </button>
     <a href="{% url 'dashboard_admin:crear_usuario' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">➕ Add User</a>
   </div>
 </div>
@@ -343,7 +348,19 @@ function openModal(userId, username) {
 function closeModal() {
   document.getElementById('confirmModal').classList.add('hidden');
 }
+
+ const btnExport = document.getElementById('btn-export-users');
+  if (btnExport) {
+    btnExport.addEventListener('click', function () {
+      const base = "{% url 'dashboard_admin:exportar_usuarios' %}";
+      const qs = window.location.search;   // incluye ?first=...&last=... etc
+      const url = qs ? (base + qs) : base;
+      window.location.href = url;         // dispara la descarga
+    });
+  }
+
 </script>
+
 
 </div>
 {% endblock %}

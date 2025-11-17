@@ -1,5 +1,6 @@
-from django.urls import path
 from django.shortcuts import redirect
+from django.urls import path
+
 from . import views
 
 app_name = 'dashboard_admin'
@@ -18,6 +19,7 @@ urlpatterns = [
 
     path('usuarios/', views.listar_usuarios, name='listar_usuarios'),
     path('usuarios/crear/', views.crear_usuario_view, name='crear_usuario'),
+     path('usuarios/exportar/', views.exportar_usuarios, name='exportar_usuarios'),
     path('usuarios/editar/<int:user_id>/',
          views.editar_usuario_view, name='editar_usuario'),
     path('usuarios/eliminar/<int:user_id>/',

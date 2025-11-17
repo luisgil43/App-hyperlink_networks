@@ -562,3 +562,128 @@ def eliminar_feriado(request, pk):
 
 def redirigir_a_login_unificado(request):
     return redirect('usuarios:login_unificado')
+
+
+@login_required(login_url='usuarios:login')
+@rol_requerido('admin')
+def exportar_usuarios(request):
+    """
+    Exporta a Excel la lista de usuarios,
+    respetando los mismos filtros que listar_usuarios.
+    """
+    from decimal import Decimal
+
+    from django.http import HttpResponse
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    # ---- Filtros (mismos names del template) ----
+    first_q = (request.GET.get('first') or '').strip()
+    last_q  = (request.GET.get('last') or '').strip()
+    id_q    = (request.GET.get('id') or '').strip()
+    rol_filtrado = (request.GET.get('rol') or '').strip()
+
+    # Query base (puedes ajustar el order_by si en listar_usuarios usas otro)
+    qs = (
+        CustomUser.objects
+        .all()
+        .prefetch_related(
+            'roles',
+            'proyectoasignacion_set__proyecto',
+            'proyectos',
+        )
+        .order_by('first_name', 'last_name', 'username')
+    )
+
+    if first_q:
+        qs = qs.filter(first_name__icontains=first_q)
+    if last_q:
+        qs = qs.filter(last_name__icontains=last_q)
+    if id_q:
+        qs = qs.filter(identidad__icontains=id_q)
+    if rol_filtrado:
+        qs = qs.filter(roles__nombre=rol_filtrado)
+
+    # ---- Crear Excel ----
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Users"
+
+    headers = [
+        "Username",
+        "First name",
+        "Last name",
+        "ID",
+        "Email",
+        "Active",
+        "Staff",
+        "Superuser",
+        "Roles",
+        "Projects",
+    ]
+    ws.append(headers)
+
+    for u in qs:
+        # Roles
+        roles_str = ", ".join(u.roles.values_list("nombre", flat=True))
+
+        # Proyectos (igual lógica que en el template)
+        proyectos_txt = ""
+
+        pas = list(
+            u.proyectoasignacion_set.select_related("proyecto").all()
+        )
+        if pas:
+            parts = []
+            for a in pas:
+                if not a.proyecto:
+                    continue
+                base = a.proyecto.nombre or ""
+                if a.include_history:
+                    suf = " (history)"
+                elif a.start_at:
+                    suf = f" (from {a.start_at.date().isoformat()})"
+                else:
+                    suf = ""
+                parts.append(base + suf)
+            proyectos_txt = "; ".join(parts)
+        else:
+            # Fallback M2M directa u.proyectos
+            if hasattr(u, "proyectos"):
+                ps = list(u.proyectos.all())
+                if ps:
+                    proyectos_txt = "; ".join(p.nombre for p in ps)
+
+        ws.append([
+            u.username or "",
+            u.first_name or "",
+            u.last_name or "",
+            u.identidad or "",
+            u.email or "",
+            "Yes" if u.is_active else "No",
+            "Yes" if u.is_staff else "No",
+            "Yes" if u.is_superuser else "No",
+            roles_str or "",
+            proyectos_txt or "",
+        ])
+
+    # Auto ancho de columnas
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                max_len = max(max_len, len(str(cell.value or "")))
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = min(max(10, max_len + 2), 50)
+
+    response = HttpResponse(
+        content_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        )
+    )
+    response["Content-Disposition"] = 'attachment; filename="users_export.xlsx"'
+    wb.save(response)
+    return response
