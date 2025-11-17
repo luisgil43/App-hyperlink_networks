@@ -82,13 +82,13 @@ class UsuarioForm(forms.ModelForm):
         if (pwd1 or pwd2) and pwd1 != pwd2:
             self.add_error('password2', 'Passwords do not match.')
 
-        # --- Estados: al menos uno marcado ---
+        """
         is_active = bool(cleaned.get('is_active'))
         is_staff = bool(cleaned.get('is_staff'))
         is_super = bool(cleaned.get('is_superuser'))
         if not (is_active or is_staff or is_super):
             # ponemos el error en is_active para mostrarlo en UI
-            self.add_error('is_active', 'Please choose at least one status (Active, Staff, or Superuser).')
+            self.add_error('is_active', 'Please choose at least one status (Active, Staff, or Superuser).')"""
 
         # --- Proyectos: al menos uno ---
         # Leemos directamente de POST porque el campo no es de este ModelForm

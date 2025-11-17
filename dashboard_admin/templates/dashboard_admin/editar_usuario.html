@@ -330,22 +330,7 @@
   roleBoxes.forEach(cb => cb.addEventListener('change', validateRoles));
   validateRoles();
 
-  // ---- STATUS (Active/Staff/Superuser) ----
-  const statusBoxes = [
-    form.querySelector('input[name="is_active"]'),
-    form.querySelector('input[name="is_staff"]'),
-    form.querySelector('input[name="is_superuser"]'),
-  ].filter(Boolean);
-  const STATUS_MSG  = 'Please choose at least one status (Active, Staff, or Superuser).';
-
-  function validateStatus(){
-    const any = statusBoxes.some(cb => cb && cb.checked);
-    if (statusBoxes[0]) statusBoxes[0].setCustomValidity(any ? '' : STATUS_MSG);
-    return any;
-  }
-  statusBoxes.forEach(cb => cb && cb.addEventListener('change', validateStatus));
-  validateStatus();
-
+ 
   // ---- PROJECTS ----
   const projectBoxes = Array.from(document.querySelectorAll('.proj-checkbox'));
   const PROJECT_MSG  = 'Please select at least one project.';
@@ -385,12 +370,13 @@
       if (el.type === 'email' && el.validity.typeMismatch) el.setCustomValidity('Please enter a valid email address.');
     });
 
+    
+
     const okRoles  = validateRoles();
-    const okStatus = validateStatus();
     const okProj   = validateProjects();
     const okPw     = validatePw();
 
-    if (!form.checkValidity() || !okRoles || !okStatus || !okProj || !okPw){
+      if (!form.checkValidity() || !okRoles || !okProj || !okPw){
       e.preventDefault();
       form.reportValidity();
     }
