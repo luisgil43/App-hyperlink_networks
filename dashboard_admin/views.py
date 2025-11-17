@@ -1,4 +1,7 @@
+import os
 import re
+from decimal import Decimal
+from io import BytesIO
 
 from django.conf import settings
 from django.contrib import messages
@@ -8,13 +11,20 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.models import Group
 from django.contrib.auth.views import LoginView
+from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.models import Prefetch
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import NoReverseMatch, reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement  # 👈 para cantSplit
+from docx.shared import Inches, Pt, RGBColor
 
 from dashboard.models import ProduccionTecnico
 from facturacion.models import Proyecto
@@ -23,7 +33,7 @@ from rrhh.models import Feriado
 from usuarios.decoradores import rol_requerido
 from usuarios.models import CustomUser
 from usuarios.models import CustomUser as User
-from usuarios.models import Notificacion, Rol
+from usuarios.models import Notificacion, Rol, get_role_label_en
 
 # Intentamos ubicar el modelo de asignación (si ya existe con through)
 try:
@@ -105,6 +115,7 @@ def grupos_view(request):
 def editar_usuario_view(request, user_id):
     usuario = get_object_or_404(User, id=user_id)
     grupos = Group.objects.all()
+    # 👉 Roles: solo queryset, el label_en se usa en el template
     roles_disponibles = Rol.objects.all()
 
     if request.method == 'POST':
@@ -148,7 +159,9 @@ def editar_usuario_view(request, user_id):
         start_dt = None
         if visibility_mode == 'from_now':
             try:
-                start_dt = timezone.make_aware(timezone.datetime.fromisoformat(start_date_str)) if start_date_str else timezone.now()
+                start_dt = timezone.make_aware(
+                    timezone.datetime.fromisoformat(start_date_str)
+                ) if start_date_str else timezone.now()
             except Exception:
                 start_dt = timezone.now()
 
@@ -233,18 +246,18 @@ def crear_usuario_view(request, identidad=None):
 
         # --- Proyectos seleccionados y modo de visibilidad ---
         proy_ids = [int(pid) for pid in request.POST.getlist('proyectos')]
-        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()  # 'history' | 'from_now'
+        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()
         start_date_str = (request.POST.get('project_start_date') or '').strip()
-        # Si es "from_now" y viene una fecha válida, úsala; si no, usa now()
         start_dt = None
         if visibility_mode == 'from_now':
             try:
-                # Formato esperado 'YYYY-MM-DD' (ajusta si tu form envía datetime)
-                start_dt = timezone.make_aware(timezone.datetime.fromisoformat(start_date_str)) if start_date_str else timezone.now()
+                start_dt = timezone.make_aware(
+                    timezone.datetime.fromisoformat(start_date_str)
+                ) if start_date_str else timezone.now()
             except Exception:
                 start_dt = timezone.now()
 
-        # Campos jerárquicos (se mantienen)
+        # Campos jerárquicos
         def get_user_or_none(uid):
             return CustomUser.objects.filter(id=uid).first() if uid else None
 
@@ -294,7 +307,7 @@ def crear_usuario_view(request, identidad=None):
                 usuario.set_password(password1)
             usuario.save()
 
-            # --- Asignación de proyectos (reemplaza actuales por POST) ---
+            # Asignación de proyectos (reemplaza actuales por POST)
             if ProyectoAsignacion:
                 ProyectoAsignacion.objects.filter(usuario=usuario).delete()
                 objetos = []
@@ -339,12 +352,12 @@ def crear_usuario_view(request, identidad=None):
                 logistica_encargado=logistica_encargado,
                 encargado_flota=encargado_flota,
                 encargado_subcontrato=encargado_subcontrato,
-                encargado_facturacion=encargado_facturacion
+                encargado_facturacion=encargado_facturacion,
             )
             usuario.groups.set(grupo_ids)
             usuario.roles.set(roles_ids)
 
-            # --- Asignación de proyectos al crear ---
+            # Asignación de proyectos al crear
             if ProyectoAsignacion:
                 include_history = (visibility_mode == 'history')
                 objetos = []
@@ -369,13 +382,14 @@ def crear_usuario_view(request, identidad=None):
     if not grupo_ids_post and usuario:
         grupo_ids_post = [str(g.id) for g in usuario.groups.all()]
 
+    # 👉 Roles: solo queryset, sin asignar label_en
     roles_disponibles = Rol.objects.all()
     roles_seleccionados = usuario.roles.values_list('id', flat=True) if usuario else []
     roles_seleccionados = [str(id) for id in roles_seleccionados]
 
     usuarios_activos = CustomUser.objects.filter(is_active=True).order_by('first_name', 'last_name')
 
-    # --- Proyectos para el form + preselección + modo/fecha visibilidad ---
+    # Proyectos + modo/fecha visibilidad
     proyectos_all = Proyecto.objects.all().order_by('nombre')
     proyectos_seleccionados = []
     project_visibility = 'history'
@@ -388,11 +402,9 @@ def crear_usuario_view(request, identidad=None):
                 .select_related('proyecto')
             )
             proyectos_seleccionados = [a.proyecto_id for a in asignaciones]
-            # Si TODAS son history => 'history'; si hay alguna from_now => 'from_now'
             any_from_now = any(not a.include_history for a in asignaciones)
             project_visibility = 'from_now' if any_from_now else 'history'
             if any_from_now:
-                # Usa la mínima start_at como sugerencia (si existe)
                 fechas = [a.start_at for a in asignaciones if a.start_at]
                 if fechas:
                     project_start_date = fechas and fechas[0].date().isoformat()
@@ -405,13 +417,14 @@ def crear_usuario_view(request, identidad=None):
         'usuario': usuario,
         'roles': roles_disponibles,
         'roles_seleccionados': roles_seleccionados,
-        'usuarios': usuarios_activos,  # para los selects jerárquicos
-        'proyectos': proyectos_all,  # lista completa para el <select multiple>
-        'proyectos_seleccionados': proyectos_seleccionados,  # ids preseleccionados
-        'project_visibility': project_visibility,  # 'history' | 'from_now'
-        'project_start_date': project_start_date,  # YYYY-MM-DD si aplica
+        'usuarios': usuarios_activos,
+        'proyectos': proyectos_all,
+        'proyectos_seleccionados': proyectos_seleccionados,
+        'project_visibility': project_visibility,
+        'project_start_date': project_start_date,
     }
     return render(request, 'dashboard_admin/crear_usuario.html', contexto)
+
 
 
 @login_required(login_url='usuarios:login')
@@ -571,19 +584,17 @@ def exportar_usuarios(request):
     Exporta a Excel la lista de usuarios,
     respetando los mismos filtros que listar_usuarios.
     """
-    from decimal import Decimal
-
     from django.http import HttpResponse
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
     # ---- Filtros (mismos names del template) ----
-    first_q = (request.GET.get('first') or '').strip()
-    last_q  = (request.GET.get('last') or '').strip()
-    id_q    = (request.GET.get('id') or '').strip()
+    first_q      = (request.GET.get('first') or '').strip()
+    last_q       = (request.GET.get('last') or '').strip()
+    id_q         = (request.GET.get('id') or '').strip()
     rol_filtrado = (request.GET.get('rol') or '').strip()
 
-    # Query base (puedes ajustar el order_by si en listar_usuarios usas otro)
+    # Query base
     qs = (
         CustomUser.objects
         .all()
@@ -624,8 +635,11 @@ def exportar_usuarios(request):
     ws.append(headers)
 
     for u in qs:
-        # Roles
-        roles_str = ", ".join(u.roles.values_list("nombre", flat=True))
+        # Roles -> EN INGLÉS usando get_role_label_en
+        roles_str = ", ".join(
+            get_role_label_en(r.nombre)
+            for r in u.roles.all()
+        )
 
         # Proyectos (igual lógica que en el template)
         proyectos_txt = ""
@@ -686,4 +700,179 @@ def exportar_usuarios(request):
     )
     response["Content-Disposition"] = 'attachment; filename="users_export.xlsx"'
     wb.save(response)
+    return response
+
+
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'facturacion')
+def exportar_formato_nuevo_usuario_docx(request):
+    """
+    Genera un DOCX de solicitud de creación de usuario:
+      - Logo (esquina sup. izq.) + títulos centrados en el cuerpo
+      - Tabla de datos de usuario
+      - Tabla de roles (desde Rol) en INGLÉS
+      - Tabla de proyectos (desde Proyecto)
+    """
+
+    # Helper: evitar que una fila se parta entre páginas
+    def _no_row_split(table):
+        for row in table.rows:
+            tr = row._tr
+            trPr = tr.get_or_add_trPr()
+            cant_split = OxmlElement('w:cantSplit')
+            trPr.append(cant_split)
+
+    document = Document()
+
+    # ------------------------------------------------------------------
+    # LOGO + TÍTULO (fuera del encabezado)
+    # ------------------------------------------------------------------
+    logo_path = os.path.join(settings.BASE_DIR, "static", "images", "logoh.png")
+    logo_par = document.add_paragraph()
+    logo_par.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    try:
+        run_logo = logo_par.add_run()
+        run_logo.add_picture(logo_path, width=Inches(1.4))
+    except Exception:
+        logo_par.add_run("HYPERLINK").bold = True
+
+    title_par = document.add_paragraph()
+    title_par.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    strong_blue = RGBColor(0x1E, 0x73, 0xBE)  # azul fuerte
+
+    run1 = title_par.add_run("HYPERLINK NETWORKS PLATFORM\n")
+    run1.font.name = "Calibri"
+    run1.font.size = Pt(13)
+    run1.bold = True
+    run1.font.color.rgb = strong_blue
+
+    run2 = title_par.add_run("User creation request")
+    run2.font.name = "Calibri"
+    run2.font.size = Pt(11)
+    run2.bold = False
+    run2.font.color.rgb = strong_blue
+
+    document.add_paragraph()  # espacio
+
+    # ------------------------------------------------------------------
+    # 1) User information
+    # ------------------------------------------------------------------
+    p_info = document.add_paragraph("User information")
+    p_info.style = document.styles["Heading 2"]
+    p_info.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for r in p_info.runs:
+        r.font.color.rgb = strong_blue
+
+    table_info = document.add_table(rows=5, cols=2)
+    table_info.style = "Table Grid"
+
+    labels = [
+        "First Name:",
+        "Last Name:",
+        "ID / Identification number:",
+        "Email:",
+        "Observation:",
+    ]
+    for i, label in enumerate(labels):
+        row = table_info.rows[i]
+        cell_label = row.cells[0]
+        cell_val = row.cells[1]
+
+        r_label = cell_label.paragraphs[0].add_run(label)
+        r_label.bold = True
+        r_label.font.name = "Calibri"
+        r_label.font.size = Pt(10)
+
+        cell_val.paragraphs[0].add_run("")
+
+    _no_row_split(table_info)
+    document.add_paragraph()
+
+    # ------------------------------------------------------------------
+    # 2) Roles
+    # ------------------------------------------------------------------
+    p_roles = document.add_paragraph("Roles (mark with X the requested roles)")
+    p_roles.style = document.styles["Heading 2"]
+    p_roles.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for r in p_roles.runs:
+        r.font.color.rgb = strong_blue
+
+    table_roles = document.add_table(rows=1, cols=2)
+    table_roles.style = "Table Grid"
+
+    hdr_row = table_roles.rows[0]
+    hdr_row.cells[0].paragraphs[0].add_run("X").bold = True
+    hdr_row.cells[1].paragraphs[0].add_run("Role").bold = True
+
+    # 👉 ahora usamos get_role_label_en para mostrar EN INGLÉS
+    for rol in Rol.objects.all().order_by("nombre"):
+        row = table_roles.add_row()
+        row.cells[0].paragraphs[0].add_run("")  # X vacío
+        label_en = get_role_label_en(rol.nombre)
+        txt = row.cells[1].paragraphs[0].add_run(label_en)
+        txt.font.name = "Calibri"
+        txt.font.size = Pt(10)
+
+    _no_row_split(table_roles)
+    document.add_paragraph()
+
+    # ------------------------------------------------------------------
+    # 3) Projects
+    # ------------------------------------------------------------------
+    p_proy = document.add_paragraph(
+        "Projects (mark with X the projects this user should access)"
+    )
+    p_proy.style = document.styles["Heading 2"]
+    p_proy.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for r in p_proy.runs:
+        r.font.color.rgb = strong_blue
+
+    table_proj = document.add_table(rows=1, cols=7)
+    table_proj.style = "Table Grid"
+
+    headers = ["X", "Code", "Project name", "Client", "City", "State", "Office"]
+    for idx, text in enumerate(headers):
+        cell = table_proj.rows[0].cells[idx]
+        run = cell.paragraphs[0].add_run(text)
+        run.bold = True
+        run.font.name = "Calibri"
+        run.font.size = Pt(10)
+
+    try:
+        proyectos_qs = Proyecto.objects.all().order_by("id")
+    except Exception:
+        proyectos_qs = []
+
+    for p in proyectos_qs:
+        row = table_proj.add_row()
+        row.cells[0].paragraphs[0].add_run("")  # X
+        row.cells[1].paragraphs[0].add_run(getattr(p, "codigo", "") or "")
+        row.cells[2].paragraphs[0].add_run(getattr(p, "nombre", "") or "")
+        row.cells[3].paragraphs[0].add_run(getattr(p, "mandante", "") or "")
+        row.cells[4].paragraphs[0].add_run(getattr(p, "ciudad", "") or "")
+        row.cells[5].paragraphs[0].add_run(getattr(p, "estado", "") or "")
+        row.cells[6].paragraphs[0].add_run(getattr(p, "oficina", "") or "")
+
+    _no_row_split(table_proj)
+
+    # ------------------------------------------------------------------
+    # Respuesta HTTP
+    # ------------------------------------------------------------------
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-"
+            "officedocument.wordprocessingml.document"
+        ),
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="user_creation_request.docx"'
+    )
     return response

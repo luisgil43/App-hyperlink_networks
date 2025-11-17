@@ -20,6 +20,7 @@ urlpatterns = [
     path('usuarios/', views.listar_usuarios, name='listar_usuarios'),
     path('usuarios/crear/', views.crear_usuario_view, name='crear_usuario'),
      path('usuarios/exportar/', views.exportar_usuarios, name='exportar_usuarios'),
+     path('usuarios/exportar-formato-nuevo/',views.exportar_formato_nuevo_usuario_docx,name='exportar_formato_nuevo_usuario_docx'),
     path('usuarios/editar/<int:user_id>/',
          views.editar_usuario_view, name='editar_usuario'),
     path('usuarios/eliminar/<int:user_id>/',
@@ -34,4 +35,5 @@ urlpatterns = [
          views.eliminar_feriado, name='eliminar_feriado'),
 
     path('index/', views.inicio_admin, name='index'),
+
 ]

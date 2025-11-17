@@ -22,6 +22,11 @@
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
   <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👤 User List</h2>
   <div class="flex gap-2">
+    <button id="btn-export-new-user-docx"
+            type="button"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ⬇ New user form (Word)
+    </button>
     <button id="btn-export-users"
             type="button"
             class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm shadow">
@@ -45,11 +50,14 @@
     <input id="id" name="id" class="campo-filtro filtro" type="text" placeholder="ID" value="{{ id_q|default:'' }}"/>
     <label class="sr-only" for="rol">Filter by role</label>
     <select name="rol" id="rol" class="campo-filtro filtro">
-      <option value="">All roles</option>
-      {% for rol in roles %}
-        <option value="{{ rol.nombre }}" {% if rol_filtrado == rol.nombre %}selected{% endif %}>{{ rol.nombre|capfirst }}</option>
-      {% endfor %}
-    </select>
+  <option value="">All roles</option>
+  {% for rol in roles %}
+    <option value="{{ rol.nombre }}"
+            {% if rol_filtrado == rol.nombre %}selected{% endif %}>
+      {{ rol.label_en|default:rol.nombre }}
+    </option>
+  {% endfor %}
+</select>
     <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">❌ Clear</a>
 
     <!-- Mantener selección de cantidad entre recargas -->
@@ -87,12 +95,14 @@
           <td class="p-2 border">{{ usuario.email }}</td>
 
           <td class="p-2 border">
-            {% for rol in usuario.roles.all %}
-              <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">{{ rol.nombre }}</span>
-            {% empty %}
-              <span class="text-gray-400 text-sm">No roles</span>
-            {% endfor %}
-          </td>
+  {% for rol in usuario.roles.all %}
+    <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
+      {{ rol.label_en|default:rol.nombre }}
+    </span>
+  {% empty %}
+    <span class="text-gray-400 text-sm">No roles</span>
+  {% endfor %}
+</td>
 
           <!-- Proyectos (soporta through ProyectoAsignacion o M2M directa) -->
           <td class="p-2 border">
@@ -359,6 +369,16 @@ function closeModal() {
     });
   }
 
+
+    // --- Botón: formato Word para nuevo usuario ---
+  const btnNewUserDocx = document.getElementById('btn-export-new-user-docx');
+  if (btnNewUserDocx) {
+    btnNewUserDocx.addEventListener('click', function () {
+      const url = "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
+      window.location.href = url;
+    });
+  }
+  
 </script>
 
 

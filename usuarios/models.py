@@ -9,14 +9,45 @@ from django.utils import timezone
 
 from utils.paths import upload_to  # 👈 Usamos la ruta dinámica
 
+# ===== Labels en inglés para mostrar en formularios / documentos =====
+# Mapeo interno -> etiqueta en inglés
+ROLE_LABELS_EN = {
+    "admin": "Admin",
+    "pm": "Project Manager",
+    "supervisor": "Supervisor",
+    "rrhh": "HR",
+    "prevencion": "Safety / Prevention",
+    "logistica": "Logistics",
+    "bodeguero": "Warehouse",
+    "flota": "Fleet",
+    "subcontrato": "Subcontract",
+    "facturacion": "Billing / Finance",
+    "usuario": "User",
+    "usuario_historial": "History access",
+}
 
+
+def get_role_label_en(internal_name: str) -> str:
+    """
+    Devuelve la etiqueta en inglés para un rol interno.
+    Si no lo encontramos, devolvemos el nombre tal cual.
+    """
+    if not internal_name:
+        return ""
+    key = str(internal_name).strip().lower()
+    return ROLE_LABELS_EN.get(key, internal_name)
 class Rol(models.Model):
     nombre = models.CharField(max_length=30, unique=True)
 
+    @property
+    def label_en(self):
+        # para usar como rol.label_en en templates
+        return get_role_label_en(self.nombre)
+
     def __str__(self):
         return self.nombre
-
-
+    
+    
 class CustomUser(AbstractUser):
     identidad = models.CharField(max_length=20, blank=True, null=True)
     roles = models.ManyToManyField("usuarios.Rol", blank=True)
