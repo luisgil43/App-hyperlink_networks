@@ -24,6 +24,9 @@ ROLE_LABELS_EN = {
     "facturacion": "Billing / Finance",
     "usuario": "User",
     "usuario_historial": "History access",
+    "emision_facturacion": "Invoice Issuance",
+    
+    
 }
 
 
@@ -153,6 +156,9 @@ class CustomUser(AbstractUser):
     @property
     def es_facturacion(self):
         return self.tiene_rol('facturacion') or self.is_superuser
+    @property
+    def es_emision_facturacion(self):
+        return self.tiene_rol('emision_facturacion') or self.is_superuser
 
     @property
     def es_admin_general(self):
@@ -161,6 +167,8 @@ class CustomUser(AbstractUser):
     @property
     def es_usuario_historial(self):
         return self.tiene_rol('usuario_historial') or self.is_superuser
+    
+    
     
     @property
     def rol(self):

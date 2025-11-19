@@ -197,6 +197,8 @@
               <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
               <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Ready to Invoice</a></li>
               
+
+       {% if request.user.es_admin_general or request.user.es_emision_facturacion  %}       
               <li class="group">
   <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
     <span class="flex items-center gap-2">🧾 Invoicing</span>
@@ -213,6 +215,7 @@
 </li>
           </ul>
       </li>
+      {% endif %}
       {% endif %}
 
       <!-- SECCIÓN: User Management -->

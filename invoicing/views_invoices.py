@@ -27,6 +27,7 @@ from usuarios.decoradores import rol_requerido
 from .models import (BrandingProfile, BrandingSettings, Customer, Invoice,
                      ItemCode)
 from .utils_branding import get_active_branding
+from .views_templates import TEMPLATES_CATALOG
 
 
 @ensure_csrf_cookie
@@ -415,52 +416,89 @@ def _resolve_invoice_template(template_key: str):
         return None, candidates
 
 
+
 # ---------- Compose (se deja tal cual, solo agregamos contexto opcional) ----------
+# invoicing/views_invoices.py
+
 @login_required
-@rol_requerido("admin", "facturacion")
+@rol_requerido("admin", "facturacion", "billing", "finance")
 def invoice_new(request):
-    # Si viene explícito por query, lo respetamos (sin filtrar por owner)
-    pid = request.GET.get("profile_id")
-    profile = BrandingProfile.objects.filter(id=pid).first() if pid else None
+    # Catálogo de templates (por si lo necesitas en el front)
+    templates_catalog = TEMPLATES_CATALOG
 
-    # Si no hay perfil explícito y el usuario es de facturación/superuser,
-    # intentamos usar un "default global": el último BrandingSettings que tenga default_profile
-    if not profile and (
-        request.user.is_superuser or
-        request.user.groups.filter(name__in=['facturacion','billing','finance']).exists()
-    ):
-        bs_global = (BrandingSettings.objects
-                     .filter(default_profile__isnull=False)
-                     .order_by('-id')
-                     .first())
-        if bs_global and bs_global.default_profile_id:
-            profile = BrandingProfile.objects.filter(id=bs_global.default_profile_id).first()
+    # Perfiles de branding accesibles (propios + globales)
+    branding_profiles = BrandingProfile.objects.filter(
+        Q(owner=request.user) | Q(owner=None)
+    ).order_by("name")
 
-    # Fallback: default del propio usuario (como lo tenías)
-    if not profile:
+    # 1) Perfil elegido explícitamente por querystring (?profile_id=...)
+    profile = None
+    profile_id = (request.GET.get("profile_id") or "").strip()
+    if profile_id:
+        profile = branding_profiles.filter(id=profile_id).first()
+
+    # 2) Default del USUARIO (si no se eligió profile_id)
+    if not profile and branding_profiles.exists():
         bs_user, _ = BrandingSettings.objects.get_or_create(owner=request.user)
         if bs_user.default_profile_id:
-            profile = BrandingProfile.objects.filter(owner=request.user, id=bs_user.default_profile_id).first()
+            profile = branding_profiles.filter(id=bs_user.default_profile_id).first()
 
-    branding = get_active_branding(request.user, profile.id if profile else None)
-    chosen_key = (profile.template_key if profile and profile.template_key else "classic")
+    # 3) Fallback GLOBAL (owner=None) solo si el usuario no tiene default
+    if not profile and branding_profiles.exists():
+        bs_global = (
+            BrandingSettings.objects
+            .filter(owner=None, default_profile__isnull=False)
+            .order_by("-id")
+            .first()
+        )
+        if bs_global and bs_global.default_profile_id:
+            profile = branding_profiles.filter(id=bs_global.default_profile_id).first()
 
-    preview_url = f'{reverse("invoicing:template_preview", kwargs={"key": chosen_key})}'
+    # 4) Último fallback: primer perfil que exista
+    if not profile:
+        profile = branding_profiles.first()
+
+    # ---- Branding efectivo (colores, logo, template, etc.) ----
+    branding = get_active_branding(
+        request.user,
+        profile_id=(profile.id if profile else None),
+    )
+
+    # Tomamos SIEMPRE el template_key que venga del branding;
+    # si no tiene, usamos el del perfil; si tampoco, "classic".
+    chosen_key = (
+        getattr(branding, "template_key", None)
+        or (getattr(profile, "template_key", None) if profile else None)
+        or "classic"
+    )
+
+    # URL para el iframe de preview del template
+    preview_url = reverse(
+        "invoicing:template_preview",
+        kwargs={"key": chosen_key},
+    )
     if profile:
         preview_url += f"?profile_id={profile.id}"
 
+    # Si vienes de "Duplicar factura", esto rellena el front con la API
     duplicate_id = (request.GET.get("duplicate_id") or "").strip()
-    prefill_api = reverse("invoicing:api_invoice_prefill") + f"?id={duplicate_id}" if duplicate_id else ""
+    prefill_api = (
+        reverse("invoicing:invoice_prefill_api") + f"?id={duplicate_id}"
+        if duplicate_id
+        else ""
+    )
 
-    return render(request, "invoicing/invoice_new.html", {
+    context = {
         "page_title": "New Invoice",
-        "branding": branding,
+        "branding": branding,               # objeto ActiveBranding
+        "profile": profile,                 # perfil activo (para company_name, etc.)
+        "branding_profiles": branding_profiles,
         "preview_url": preview_url,
-        "profile": profile,
+        "templates_catalog": templates_catalog,
         "prefill_from_id": duplicate_id,
         "prefill_api": prefill_api,
-    })
-
+    }
+    return render(request, "invoicing/invoice_new.html", context)
 
 # ---------- Crear (sin cambios funcionales salvo que emitimos en 'pending') ----------
 @login_required
