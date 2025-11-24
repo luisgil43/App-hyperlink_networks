@@ -1784,8 +1784,8 @@ def billing_send_finance(request):
       - Sellar finance_sent_at también cuando new_status='review_discount'.
       - Permitir re-sellar si ya está en 'review_discount' PERO sin finance_sent_at (intentos previos).
     """
-    # ---- parseo ids + nota ----
-    ids, note = [], ""
+        # ---- parseo ids + nota + daily_number ----
+    ids, note, daily_number = [], "", ""
     ctype = (request.content_type or "").lower()
 
     if "application/json" in ctype:
@@ -1795,10 +1795,12 @@ def billing_send_finance(request):
             return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
         ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
         note = (payload.get("note") or "").strip()
+        daily_number = (payload.get("daily_number") or "").strip()
     else:
         raw = (request.POST.get("ids") or "").strip()
         ids = [int(x) for x in raw.split(",") if x.isdigit()]
         note = (request.POST.get("note") or "").strip()
+        daily_number = (request.POST.get("daily_number") or "").strip()
 
     if not ids:
         return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
@@ -1912,15 +1914,18 @@ def billing_send_finance(request):
 
             touched_fields = ["finance_status"]
 
-            # Siempre sellamos updated_at si existe
             if hasattr(s, "finance_updated_at"):
                 s.finance_updated_at = now
                 touched_fields.append("finance_updated_at")
 
-            # ✅ SELLAR finance_sent_at para 'sent' y también para 'review_discount'
             if hasattr(s, "finance_sent_at") and new_status in ("sent", "review_discount"):
                 s.finance_sent_at = now
                 touched_fields.append("finance_sent_at")
+
+            # 👇 Guardar Daily Number (mismo para todos los seleccionados)
+            if daily_number:
+                s.finance_daily_number = daily_number
+                touched_fields.append("finance_daily_number")
 
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "

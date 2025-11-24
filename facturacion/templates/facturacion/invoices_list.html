@@ -88,6 +88,7 @@
     <th class="p-2 border text-left">Office</th>
     <th class="p-2 border text-right">Technical Billing</th>
     <th class="p-2 border text-right">Company Billing</th>
+    <th class="p-2 border text-right">Daily Number</th> 
     <th class="p-2 border text-right">Real Company Billing</th>
     <th class="p-2 border text-right">Difference</th>
     <th class="p-2 border text-left">Finance status</th>
@@ -203,7 +204,7 @@
           <td class="p-2 border">{{ s.oficina }}</td>
           <td class="p-2 border text-right">${{ s.subtotal_tecnico|floatformat:2 }}</td>
           <td class="p-2 border text-right">${{ s.subtotal_empresa|floatformat:2 }}</td>
-
+          <td class="p-2 text-center">{% if s.finance_daily_number %}{{ s.finance_daily_number }}{% else %}—{% endif %}</td>
           <!-- Real Company Billing (inline edit) -->
           <td class="p-2 border text-right" data-col="real">
             <span class="real-view" id="real-view-{{ s.id }}">

@@ -421,7 +421,7 @@ def _resolve_invoice_template(template_key: str):
 # invoicing/views_invoices.py
 
 @login_required
-@rol_requerido("admin", "facturacion", "billing", "finance")
+@rol_requerido("admin", "facturacion")
 def invoice_new(request):
     # Catálogo de templates (por si lo necesitas en el front)
     templates_catalog = TEMPLATES_CATALOG

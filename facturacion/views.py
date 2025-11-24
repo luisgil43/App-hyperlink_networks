@@ -1656,7 +1656,7 @@ def invoices_export(request):
     headers = [
         "Date", "Project ID", "Project address", "Projected week",
         "Status", "Technicians", "Client", "City", "Project", "Office",
-        "Technical Billing", "Company Billing", "Real Company Billing",
+        "Technical Billing", "Company Billing", "Daily Number", "Real Company Billing",
         "Difference", "Finance status", "Finance note",
         "Pay week / Discount week",
         # Detalle (por técnico):
@@ -1691,6 +1691,7 @@ def invoices_export(request):
             s.oficina or "",
             float(s.subtotal_tecnico or 0),
             float(s.subtotal_empresa or 0),
+            (s.finance_daily_number or ""), 
             float(s.real_company_billing or 0),
             float((s.diferencia or 0)),
             finance_label,

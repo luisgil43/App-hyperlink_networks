@@ -226,6 +226,8 @@ class SesionBilling(models.Model):
     finance_note = models.TextField(blank=True, default="")
     finance_sent_at = models.DateTimeField(null=True, blank=True)
     finance_updated_at = models.DateTimeField(auto_now=True)
+    finance_daily_number = models.CharField("Daily Number", max_length=50, blank=True, default="")
+    
     # ====================================================================== #
 
     class Meta:

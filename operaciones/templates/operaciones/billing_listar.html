@@ -542,6 +542,12 @@ document.addEventListener('click', function(e){
       <textarea id="finance-note" class="w-full border rounded-lg px-3 py-2 h-24"
                 placeholder="Write a short note…"></textarea>
 
+      <label class="block text-sm text-gray-700 mt-2">Daily Number</label>
+      <input id="finance-daily"
+             type="text"
+             class="w-full border rounded-lg px-3 py-2"
+             placeholder="Enter Daily Number">
+
       <input type="hidden" id="finance-mode" value="send"><!-- send | both -->
       <input type="hidden" id="finance-ids-hidden" value="">
 
@@ -859,6 +865,7 @@ document.addEventListener('click', function(e){
   const modal   = document.getElementById('modal-finance');
   const form    = document.getElementById('finance-form');
   const noteEl  = document.getElementById('finance-note');
+  const dailyEl = document.getElementById('finance-daily');
   const modeEl  = document.getElementById('finance-mode');
   const idsEl   = document.getElementById('finance-ids-hidden');
 
@@ -868,6 +875,7 @@ document.addEventListener('click', function(e){
   function closeFinanceModal(){
     modal.classList.add('hidden');
     noteEl.value = '';
+    if (dailyEl) dailyEl.value = '';  
   }
 
   document.getElementById('finance-cancel')?.addEventListener('click', (e)=> {
@@ -886,7 +894,11 @@ document.addEventListener('click', function(e){
     const ids  = idsEl.value ? idsEl.value.split(',') : [];
     const mode = modeEl.value;
     try{
-      await window.sendToFinance(ids, noteEl.value.trim());
+      await window.sendToFinance(
+        ids,
+        noteEl.value.trim(),
+        dailyEl?.value.trim() || ""   // 👈 pasamos Daily Number
+      );
       if(mode === 'both'){
         exportIdsInp.value = ids.join(',');
         exportForm.submit();
@@ -1087,17 +1099,25 @@ document.addEventListener('click', function(e){
   setActionsEnabled();
 
   // ---------- Robust sender (JSON-only, handles session/CSRF) ----------
-  async function sendToFinance(ids, note){
+  async function sendToFinance(ids, note, daily){
+    const payload = {
+      ids: ids || [],
+      note: note || "",
+    };
+    if (daily) {
+      payload.daily_number = daily;
+    }
+
     const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
       method: "POST",
-      credentials: "same-origin",        // ensure session cookies go with the request
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "X-CSRFToken": csrftoken,
         "X-Requested-With": "XMLHttpRequest",
       },
-      body: JSON.stringify({ ids: ids || [], note: note || "" })
+      body: JSON.stringify(payload)
     });
 
     // If redirected to login, treat as expired session
