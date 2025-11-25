@@ -1,6 +1,7 @@
 import json
 from datetime import date
 
+import pyotp
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -191,6 +192,44 @@ class CustomUser(AbstractUser):
         total_disponible = dias_generados - \
             dias_consumidos_manualmente - float(dias_aprobados)
         return round(total_disponible, 2)
+    
+    two_factor_enabled = models.BooleanField(
+        default=False,
+        help_text="Si está activo, el usuario debe ingresar un código TOTP al iniciar sesión."
+    )
+    two_factor_secret = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Secreto base32 usado para generar códigos TOTP (Google Authenticator, etc.)."
+    )
+
+    def get_or_create_two_factor_secret(self):
+        """
+        Genera (si hace falta) y retorna el secreto TOTP del usuario.
+        """
+        if not self.two_factor_secret:
+            # pyotp recomienda base32
+            self.two_factor_secret = pyotp.random_base32()
+            self.save(update_fields=["two_factor_secret"])
+        return self.two_factor_secret
+    
+    def reset_two_factor(self):
+        """
+        Resetea completamente el 2FA del usuario:
+          - Desactiva el flag
+          - Limpia el secreto
+          - Elimina dispositivos de confianza
+        """
+        from .models import \
+            TrustedDevice  # evitar import circular si hace falta
+
+        self.two_factor_enabled = False
+        self.two_factor_secret = ""
+        self.save(update_fields=["two_factor_enabled", "two_factor_secret"])
+
+        TrustedDevice.objects.filter(user=self).delete()
+
 
     def __str__(self):
         nombre = self.get_full_name() or self.username
@@ -246,3 +285,31 @@ class Notificacion(models.Model):
 
     class Meta:
         ordering = ['-fecha']
+
+
+class TrustedDevice(models.Model):
+    """
+    Dispositivo marcado como confiable para no pedir 2FA durante un tiempo.
+    Se vincula a un usuario y se identifica por un token almacenado en cookie.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="trusted_devices",
+    )
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Trusted device"
+        verbose_name_plural = "Trusted devices"
+
+    def is_valid(self):
+        return self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"{self.user.username} - {self.token[:8]}..."

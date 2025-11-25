@@ -1,0 +1,38 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Home - Admin Panel{% endblock %}
+
+{% block dashboard_content %}
+<div class="text-center mt-10">
+    <!-- Mensaje de bienvenida -->
+    <h1 class="text-3xl font-bold text-gray-800 mb-4">
+        Hello {{ request.user.get_full_name }}!
+    </h1>
+    <p class="text-xl text-gray-600 mb-6">
+        What would you like to manage today?
+    </p>
+
+    <!-- Botones principales del panel admin -->
+    <div class="flex justify-center gap-6 flex-wrap">
+        <!-- Cargar liquidaciones -->
+        <a href="{% url 'operaciones:crear_billing' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            📄 Create Billing
+        </a>
+
+        <!-- Cargar producciones -->
+        <a href="{% url 'operaciones:produccion_admin' %}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            💳  Salaries & Productions
+        </a>
+
+        <!-- Cargar contratos -->
+        <a href="{% url 'invoicing:invoices_list' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            🧾 Invoices
+        </a>
+
+        <!-- Cargar fichas de ingreso -->
+        <a href="{% url 'facturacion:listar_cartola' %}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+            📑 Account Transactions
+        </a>
+    </div>
+</div>
+{% endblock %}

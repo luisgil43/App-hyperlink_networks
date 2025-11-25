@@ -36,10 +36,9 @@
   </div>
 </div>
 
-<!-- Filtros (igual al patrón del ledger). Mantiene rol + cantidad oculta para preservar selección en recargas AJAX) -->
+<!-- Filtros -->
 <form id="form-filtros" method="get" class="filtros-compactos mb-6">
   <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
-    <!-- NUEVOS FILTROS -->
     <label class="sr-only" for="first">First name</label>
     <input id="first" name="first" class="campo-filtro filtro" type="text" placeholder="First name" value="{{ first_q|default:'' }}"/>
 
@@ -48,24 +47,25 @@
 
     <label class="sr-only" for="id">ID</label>
     <input id="id" name="id" class="campo-filtro filtro" type="text" placeholder="ID" value="{{ id_q|default:'' }}"/>
+
     <label class="sr-only" for="rol">Filter by role</label>
     <select name="rol" id="rol" class="campo-filtro filtro">
-  <option value="">All roles</option>
-  {% for rol in roles %}
-    <option value="{{ rol.nombre }}"
-            {% if rol_filtrado == rol.nombre %}selected{% endif %}>
-      {{ rol.label_en|default:rol.nombre }}
-    </option>
-  {% endfor %}
-</select>
+      <option value="">All roles</option>
+      {% for rol in roles %}
+        <option value="{{ rol.nombre }}"
+                {% if rol_filtrado == rol.nombre %}selected{% endif %}>
+          {{ rol.label_en|default:rol.nombre }}
+        </option>
+      {% endfor %}
+    </select>
+
     <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">❌ Clear</a>
 
-    <!-- Mantener selección de cantidad entre recargas -->
     <input type="hidden" name="cantidad" value="{{ cantidad|default:per_page }}">
   </div>
 </form>
 
-<!-- Zona reemplazable por AJAX (como #zonaTabla en ledger) -->
+<!-- Zona reemplazable por AJAX -->
 <div id="zonaTabla">
   {% with pagina=page_obj %}
   {% with base_qs=querystring|default:request.GET.urlencode %}
@@ -81,6 +81,7 @@
           <th class="p-2 border">Email</th>
           <th class="p-2 border">Roles</th>
           <th class="p-2 border">Projects</th>
+          <th class="p-2 border">2FA</th>
           <th class="p-2 border">Active</th>
           <th class="p-2 border">Actions</th>
         </tr>
@@ -94,17 +95,18 @@
           <td class="p-2 border">{{ usuario.identidad }}</td>
           <td class="p-2 border">{{ usuario.email }}</td>
 
+          <!-- Roles -->
           <td class="p-2 border">
-  {% for rol in usuario.roles.all %}
-    <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
-      {{ rol.label_en|default:rol.nombre }}
-    </span>
-  {% empty %}
-    <span class="text-gray-400 text-sm">No roles</span>
-  {% endfor %}
-</td>
+            {% for rol in usuario.roles.all %}
+              <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
+                {{ rol.label_en|default:rol.nombre }}
+              </span>
+            {% empty %}
+              <span class="text-gray-400 text-sm">No roles</span>
+            {% endfor %}
+          </td>
 
-          <!-- Proyectos (soporta through ProyectoAsignacion o M2M directa) -->
+          <!-- Proyectos -->
           <td class="p-2 border">
             {% with pas=usuario.proyectoasignacion_set.all %}
               {% if pas %}
@@ -138,6 +140,20 @@
             {% endwith %}
           </td>
 
+          <!-- 2FA -->
+          <td class="p-2 border">
+            {% if usuario.two_factor_enabled %}
+              <span class="inline-block bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">
+                Enabled
+              </span>
+            {% else %}
+              <span class="inline-block bg-slate-100 text-slate-500 text-xs font-semibold px-2 py-1 rounded-full">
+                Disabled
+              </span>
+            {% endif %}
+          </td>
+
+          <!-- Active -->
           <td class="p-2 border">
             {% if usuario.is_active %}
               <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Yes</span>
@@ -146,21 +162,40 @@
             {% endif %}
           </td>
 
+          <!-- Actions -->
           <td class="p-2 border">
-            <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
-               class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-            <a href="#" onclick="openModal('{{ usuario.id }}','{{ usuario.username }}')"
-               class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+            <div class="flex flex-col sm:flex-row gap-1 justify-center">
+              <!-- Edit -->
+              <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
+                 class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">
+                ✏️ Edit
+              </a>
+
+              <!-- Delete -->
+              <a href="#" onclick="openModal('{{ usuario.id }}','{{ usuario.username }}')"
+                 class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">
+                🗑️ Delete
+              </a>
+
+              <!-- Reset 2FA (solo si tiene 2FA activado) -->
+              {% if usuario.two_factor_enabled %}
+              <button type="button"
+                      onclick="openReset2faModal('{{ usuario.id }}','{{ usuario.username }}')"
+                      class="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-yellow-200 transition">
+                🔄 Reset 2FA
+              </button>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="9" class="p-4 text-center">No users registered.</td></tr>
+        <tr><td colspan="10" class="p-4 text-center">No users registered.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <!-- Selector de cantidad (dentro de zonaTabla para que el JS lo enganche como en el ledger) -->
+  <!-- Selector de cantidad -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form id="formCantidad" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -186,7 +221,7 @@
     {% endwith %}
   </div>
 
-  <!-- Navegación paginada (enlaces con .pg-link como el ledger) -->
+  <!-- Navegación paginada -->
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous %}
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page=1">« First</a>
@@ -202,23 +237,50 @@
   {% endwith %}
 </div>
 
-<!-- Modal de eliminación (igual que antes) -->
+<!-- Modal de eliminación -->
 <div id="confirmModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
-  <div class="bg-white rounded-lg shadow-lg max-w-sm w-full p-6">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
     <h2 class="text-xl font-semibold mb-4">Confirm Deletion</h2>
     <p id="modalMessage" class="mb-6 text-gray-700"></p>
     <div class="flex justify-end space-x-4">
-      <button onclick="closeModal()" class="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 font-semibold">Cancel</button>
+      <button onclick="closeModal()" class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
+        Cancel
+      </button>
       <form id="deleteForm" method="POST">
         {% csrf_token %}
         <button type="submit" name="delete_user"
-                class="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold">Delete</button>
+                class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold">
+          Delete
+        </button>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Mensajes del sistema (si los usas) -->
+<!-- Modal Reset 2FA -->
+<div id="reset2faModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+    <h2 class="text-xl font-semibold mb-4">Reset Two-Factor Authentication</h2>
+    <p id="reset2faMessage" class="mb-6 text-gray-700"></p>
+    <div class="flex justify-end space-x-4">
+      <button type="button"
+              onclick="closeReset2faModal()"
+              class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
+        Cancel
+      </button>
+      <form id="reset2faForm" method="POST">
+        {% csrf_token %}
+        <input type="hidden" name="user_id" id="reset2faUserId">
+        <button type="submit" name="reset_2fa"
+                class="px-4 py-2 rounded-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold">
+          Reset 2FA
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Mensajes del sistema -->
 {% if messages %}
   <ul class="mb-4 mt-4">
     {% for message in messages %}
@@ -229,14 +291,12 @@
   </ul>
 {% endif %}
 
-<!-- JS: replica del patrón del ledger (scroll X, filtros, paginación AJAX) -->
 <script>
 (function(){
   const zona        = document.getElementById('zonaTabla');
   const filtrosForm = document.getElementById('form-filtros');
   let debounceTimer = null, controller = null;
 
-  /* ======== Mantener scroll horizontal ======== */
   const SCROLL_KEY = 'usersScrollX:' + location.pathname;
   function getScrollBox(){ return zona.querySelector('.tabla-responsive'); }
   function readSavedX(){ return Number(sessionStorage.getItem(SCROLL_KEY) || 0); }
@@ -255,7 +315,6 @@
     if(!box) return;
     requestAnimationFrame(()=>{ box.scrollLeft = x; });
   }
-  /* =========================================== */
 
   function paramsFromFilters(resetPage){
     const p = new URLSearchParams(new FormData(filtrosForm));
@@ -281,11 +340,9 @@
 
     zona.innerHTML = nuevaZona.innerHTML;
 
-    // Re-enganchar handlers
     engancharPaginacion();
     engancharCantidad();
 
-    // Restaurar scroll X
     restoreX(prevX);
     hookScrollSaver();
   }
@@ -298,11 +355,10 @@
     }, 250);
   }
 
-  // Filtrar por rol (como ledger: .filtro)
   filtrosForm.querySelectorAll('.filtro, #rol').forEach(el=>{
     const evt = el.tagName === 'SELECT' ? 'change' : 'input';
     el.addEventListener(evt, ()=>refiltrar(true));
-    el.addEventListener && el.addEventListener('keydown', e=>{
+    el.addEventListener('keydown', e=>{
       if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
     });
   });
@@ -323,12 +379,10 @@
     const sel = zona.querySelector('#cantidad');
     if(!sel) return;
     sel.addEventListener('change', ()=>{
-      const val = sel.value; // '5' | '10' | '20' | 'todos'
-      // Actualizar hidden del form de filtros
+      const val = sel.value;
       const hidden = filtrosForm.querySelector('input[name="cantidad"]');
       if (hidden) hidden.value = val;
 
-      // Compatibilidad con vistas antiguas: también enviar per_page
       const p = paramsFromFilters(true);
       if (val === 'todos') {
         p.set('per_page', 'all');
@@ -341,7 +395,6 @@
     });
   }
 
-  // Inicial
   engancharPaginacion();
   engancharCantidad();
   restoreX(readSavedX());
@@ -355,32 +408,44 @@ function openModal(userId, username) {
   document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
   modal.classList.remove('hidden');
 }
+
 function closeModal() {
   document.getElementById('confirmModal').classList.add('hidden');
 }
 
- const btnExport = document.getElementById('btn-export-users');
-  if (btnExport) {
-    btnExport.addEventListener('click', function () {
-      const base = "{% url 'dashboard_admin:exportar_usuarios' %}";
-      const qs = window.location.search;   // incluye ?first=...&last=... etc
-      const url = qs ? (base + qs) : base;
-      window.location.href = url;         // dispara la descarga
-    });
-  }
+function openReset2faModal(userId, username) {
+  const modal = document.getElementById('reset2faModal');
+  const msg   = document.getElementById('reset2faMessage');
+  const input = document.getElementById('reset2faUserId');
 
+  msg.textContent = `Reset 2FA for user "${username}"? This will remove their 2FA secret and trusted devices.`;
+  input.value = userId;
 
-    // --- Botón: formato Word para nuevo usuario ---
-  const btnNewUserDocx = document.getElementById('btn-export-new-user-docx');
-  if (btnNewUserDocx) {
-    btnNewUserDocx.addEventListener('click', function () {
-      const url = "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
-      window.location.href = url;
-    });
-  }
-  
+  modal.classList.remove('hidden');
+}
+
+function closeReset2faModal() {
+  document.getElementById('reset2faModal').classList.add('hidden');
+}
+
+const btnExport = document.getElementById('btn-export-users');
+if (btnExport) {
+  btnExport.addEventListener('click', function () {
+    const base = "{% url 'dashboard_admin:exportar_usuarios' %}";
+    const qs = window.location.search;
+    const url = qs ? (base + qs) : base;
+    window.location.href = url;
+  });
+}
+
+const btnNewUserDocx = document.getElementById('btn-export-new-user-docx');
+if (btnNewUserDocx) {
+  btnNewUserDocx.addEventListener('click', function () {
+    const url = "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
+    window.location.href = url;
+  });
+}
 </script>
-
 
 </div>
 {% endblock %}

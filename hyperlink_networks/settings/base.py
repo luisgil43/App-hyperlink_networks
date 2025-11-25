@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -100,10 +100,18 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    "core.middleware.ProjectAccessMiddleware",
+
+    # 👇 El mensaje flash necesita que este middleware vaya antes
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    # 👇 Middlewares propios que usan sesión / mensajes
     'usuarios.middleware.SessionExpiryMiddleware',
+    'usuarios.middleware.TwoFactorEnforceMiddleware',
+
+    # 👇 Lógica de proyectos (solo se ejecuta si la sesión sigue viva y 2FA ok)
+    "core.middleware.ProjectAccessMiddleware",
+
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     # 👇 Axes debe ser el ÚLTIMO
     'axes.middleware.AxesMiddleware',
@@ -273,6 +281,11 @@ else:
     EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']  # obliga env
 
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+# ==============================
+# 2FA
+# ==============================
+TWO_FACTOR_ISSUER_NAME = "Hyperlink Networks"
+TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)
 
 # ==============================
 # SECURITY

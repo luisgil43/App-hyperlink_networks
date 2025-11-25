@@ -33,7 +33,7 @@ from rrhh.models import Feriado
 from usuarios.decoradores import rol_requerido
 from usuarios.models import CustomUser
 from usuarios.models import CustomUser as User
-from usuarios.models import Notificacion, Rol, get_role_label_en
+from usuarios.models import Notificacion, Rol, TrustedDevice, get_role_label_en
 
 # Intentamos ubicar el modelo de asignación (si ya existe con through)
 try:
@@ -437,19 +437,58 @@ def crear_usuario_view(request, identidad=None):
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'rrhh')
 def listar_usuarios(request):
-    # Delete (POST)
-    if request.method == "POST" and "delete_user" in request.POST:
+    # --- Acciones POST ---
+    if request.method == "POST":
         user_id = request.POST.get("user_id")
-        try:
-            usuario = User.objects.get(id=user_id)
-            username = usuario.username
-            usuario.delete()
-            messages.success(request, f'User "{username}" deleted successfully.')
-        except User.DoesNotExist:
-            messages.error(request, "User not found.")
-        return redirect('dashboard_admin:listar_usuarios')
 
-    # Filtros
+        # 1) Eliminar usuario
+        if "delete_user" in request.POST:
+            try:
+                usuario = User.objects.get(id=user_id)
+                username = usuario.username
+                usuario.delete()
+                messages.success(request, f'User "{username}" deleted successfully.')
+            except User.DoesNotExist:
+                messages.error(request, "User not found.")
+            return redirect('dashboard_admin:listar_usuarios')
+
+        # 2) Reset 2FA
+        if "reset_2fa" in request.POST:
+            try:
+                usuario = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                messages.error(request, "User not found.")
+                return redirect('dashboard_admin:listar_usuarios')
+
+            # Limpiar secreto y bandera de 2FA si existen esos campos
+            update_fields = []
+            if hasattr(usuario, "two_factor_secret"):
+                usuario.two_factor_secret = ""
+                update_fields.append("two_factor_secret")
+            if hasattr(usuario, "two_factor_enabled"):
+                usuario.two_factor_enabled = False
+                update_fields.append("two_factor_enabled")
+
+            if update_fields:
+                usuario.save(update_fields=update_fields)
+            else:
+                # por si acaso tu modelo no tiene esos campos en algún entorno
+                usuario.save()
+
+            # Borrar dispositivos de confianza asociados
+            try:
+                TrustedDevice.objects.filter(user=usuario).delete()
+            except Exception:
+                # No rompemos la vista si algo falla aquí
+                pass
+
+            messages.success(
+                request,
+                f'2FA has been reset for user "{usuario.username}". They must configure it again.'
+            )
+            return redirect('dashboard_admin:listar_usuarios')
+
+    # --- Filtros GET ---
     rol_filtrado = (request.GET.get('rol') or '').strip()
     first_q = (request.GET.get('first') or '').strip()
     last_q  = (request.GET.get('last') or '').strip()
@@ -509,11 +548,9 @@ def listar_usuarios(request):
         'rol_filtrado': rol_filtrado,
         'per_page': per_page,
         'querystring': querystring,
-        # mantener valores en inputs
         'first_q': first_q,
         'last_q': last_q,
         'id_q': id_q,
-        # (opcional) reflejar el valor mostrado en el selector
         'cantidad': request.GET.get('cantidad', None),
     })
 
