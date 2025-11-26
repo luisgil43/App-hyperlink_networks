@@ -5,7 +5,7 @@
 {% block title %}Transactions Ledger{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
 <style>
   .campo-filtro{
@@ -18,13 +18,29 @@
   .tabla-responsive table{white-space:nowrap;min-width:1200px}
 </style>
 
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">📑 Transactions Ledger</h2>
-  <div class="flex gap-2">
-    <a href="{% url 'facturacion:crear_tipo' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">+ Create Type</a>
-    <a href="{% url 'facturacion:crear_proyecto' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">+ Create Project</a>
-    <a href="{% url 'facturacion:registrar_abono' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">+ Register Credit</a>
-    <a id="exportLink" href="{% url 'facturacion:exportar_cartola' %}?{{ request.GET.urlencode }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">📥 Export to Excel</a>
+<div class="flex flex-wrap items-center gap-3 mb-4">
+  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+    📑 Transactions Ledger
+  </h2>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="{% url 'facturacion:crear_tipo' %}"
+       class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      + Create Type
+    </a>
+    <a href="{% url 'facturacion:crear_proyecto' %}"
+       class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      + Create Project
+    </a>
+    <a href="{% url 'facturacion:registrar_abono' %}"
+       class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      + Register Credit
+    </a>
+    <a id="exportLink"
+       href="{% url 'facturacion:exportar_cartola' %}?{{ request.GET.urlencode }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow flex items-center gap-1">
+      📄 Export to Excel
+    </a>
   </div>
 </div>
 
@@ -50,6 +66,65 @@
     <input type="hidden" name="cantidad" value="{{ cantidad }}">
   </div>
 </form>
+
+<div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+    <div id="columnToggles" class="absolute left-0 mt-1 w-56 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <!-- ✅ Master checkbox -->
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all columns</span>
+      </label>
+
+      <div class="space-y-1 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="0" checked> <span>User</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="1" checked> <span>Date</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="2" checked> <span>Project</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="3" checked> <span>Category</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="4" checked> <span>Type</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Remarks</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Transfer Nº</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>Receipt(s)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Odometer</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Expenses</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Credits</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Actions</span>
+        </label>
+      </div>
+    </div>
+  </details>
+</div>
 
 <div id="zonaTabla">
   <div class="rounded-xl border border-gray-200 tabla-responsive">
@@ -150,7 +225,7 @@
 
     {% if mov.tipo.categoria == "abono" and mov.status == 'pendiente_abono_usuario' %}
       <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-   data-url="{% url 'facturacion:aprobar_abono_como_usuario' mov.id %}">✅ Approve Credit as User</a>
+         data-url="{% url 'facturacion:aprobar_abono_como_usuario' mov.id %}">✅ Approve Credit as User</a>
     {% elif mov.tipo.categoria != "abono" %}
       {% if mov.status == 'pendiente_supervisor' or mov.status == 'aprobado_supervisor' or mov.status == 'aprobado_pm' %}
         <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
@@ -162,11 +237,13 @@
 
   {% else %}
     {% if mov.tipo.categoria == "abono" %}
-      {% if user.es_facturacion and mov.status == 'pendiente_abono_usuario' %}
-        <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-           class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-        <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+      {% if user.es_facturacion %}
+        {% if mov.status == 'pendiente_abono_usuario' or mov.status == 'rechazado_abono_usuario' %}
+          <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+             class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+          <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+             class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+        {% endif %}
       {% endif %}
     {% else %}
       {% if user.es_supervisor and mov.status == 'pendiente_supervisor' %}
@@ -282,14 +359,137 @@
   }
   /* =========================================== */
 
+  /* ======== Visibilidad de columnas (localStorage + "Show all") ======== */
+  const COL_KEY = 'ledgerCols:' + location.pathname;
+
+  function loadColsState(){
+    try{
+      const raw = localStorage.getItem(COL_KEY);
+      if(!raw) return {};
+      const obj = JSON.parse(raw);
+      return (obj && typeof obj === 'object') ? obj : {};
+    }catch(_){
+      return {};
+    }
+  }
+
+  function saveColsState(state){
+    try{
+      localStorage.setItem(COL_KEY, JSON.stringify(state));
+    }catch(_){}
+  }
+
+  function applyColumnVisibility(){
+    if (!zona) return;
+    const table = zona.querySelector('table');
+    if (!table) return;
+
+    const state = loadColsState();   // {0:true, 1:false, ...}
+
+    const headerCells = table.querySelectorAll('thead tr th');
+    headerCells.forEach((th, idx)=>{
+      const visible = state[idx] !== false;   // default: visible
+      th.style.display = visible ? '' : 'none';
+    });
+
+    table.querySelectorAll('tbody tr').forEach(tr=>{
+      const tds = tr.querySelectorAll('td');
+      tds.forEach((td, idx)=>{
+        const visible = state[idx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    // Sincronizar checkboxes del panel (individuales + master)
+    const panel  = document.getElementById('columnToggles');
+    const master = panel ? panel.querySelector('#col-toggle-all') : null;
+    if(panel){
+      const checks = panel.querySelectorAll('.col-toggle');
+      let allOn = true;
+      checks.forEach(cb=>{
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        const visible = state[idx] !== false;
+        cb.checked = visible;
+        if(!visible) allOn = false;
+      });
+      if(master){
+        master.checked = allOn;
+      }
+    }
+  }
+
+  function engancharColumnToggles(){
+    const panel = document.getElementById('columnToggles');
+    if(!panel) return;
+
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    // Individuales
+    checks.forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const idx   = parseInt(cb.dataset.col || '0', 10);
+        const state = loadColsState();
+        state[idx]  = cb.checked;     // true/false
+        saveColsState(state);
+        applyColumnVisibility();      // esto también actualiza el master
+      });
+    });
+
+    // ✅ Master: "Show all columns"
+    if(master){
+      master.addEventListener('change', ()=>{
+        const state = loadColsState();
+        const val   = master.checked;   // true = mostrar todas, false = ocultar todas
+
+        checks.forEach(cb=>{
+          const idx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[idx] = val;
+        });
+
+        saveColsState(state);
+        applyColumnVisibility();
+      });
+    }
+  }
+  /* ======================================================== */
+
+  /* ======== Cerrar el dropdown al hacer clic fuera ======== */
+  function initColumnsDropdown(){
+    const details = document.querySelector('details.relative');
+    if(!details) return;
+
+    document.addEventListener('click', (e)=>{
+      if(!details.open) return;
+      // Si el clic fue dentro del <details>, no cerramos
+      if(details.contains(e.target)) return;
+      // Clic fuera → cerramos
+      details.open = false;
+    });
+  }
+  /* ======================================================== */
+
+  // 👇 SIEMPRE mantener sincronizado el hidden "cantidad" con el select #cantidad
+  function syncCantidad(){
+    if (!filtrosForm || !zona) return;
+    const sel    = zona.querySelector('#cantidad');
+    const hidden = filtrosForm.querySelector('input[name="cantidad"]');
+    if (sel && hidden) {
+      hidden.value = sel.value;
+    }
+  }
+
   function paramsFromFilters(resetPage){
+    // antes de leer filtros, aseguramos que cantidad esté sincronizado
+    syncCantidad();
     const p = new URLSearchParams(new FormData(filtrosForm));
     if (resetPage) p.set('page','1');
     return p;
   }
 
   async function cargarTablaCon(qs, push=true){
-    // 👇 guardar scroll actual antes de refrescar
+    // 👇 guardar scroll actual antes de refrescar (para NO perder la posición)
     const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
     saveX(prevX);
 
@@ -312,8 +512,15 @@
     engancharPaginacion();
     engancharAprobar();
     engancharCantidad();
+    engancharColumnToggles();
 
-    // 👇 restaurar scroll y volver a escuchar
+    // 👇 sincronizar cantidad después del re-render
+    syncCantidad();
+
+    // 👇 aplicar visibilidad de columnas después de re-render
+    applyColumnVisibility();
+
+    // 👇 restaurar scroll horizontal y volver a escuchar
     restoreX(prevX);
     hookScrollSaver();
   }
@@ -349,33 +556,40 @@
   function engancharCantidad(){
     const sel = zona.querySelector('#cantidad');
     if(!sel) return;
+
+    // al cargar, sincronizar hidden con el valor actual del select
+    syncCantidad();
+
     sel.addEventListener('change', ()=>{
+      // cada vez que cambie el select, actualizamos el hidden
+      syncCantidad();
       const p = paramsFromFilters(true);
-      p.set('cantidad', sel.value);
+      p.set('cantidad', sel.value);   // por si acaso, lo reforzamos en el QS
       cargarTablaCon(p.toString(), true);
     });
   }
 
- function engancharAprobar(){
-  zona.querySelectorAll('.js-approve').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      const url = btn.dataset.url;
-      const method = (btn.dataset.method || 'POST').toUpperCase();
-      try{
-        if(method === 'GET'){
-          await fetch(url, { method: 'GET' });
-        }else{
-          const fd  = new FormData();
-          fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
-          await fetch(url, { method:'POST', body: fd });
-        }
-        const p = paramsFromFilters(false);
-        await cargarTablaCon(p.toString(), false);
-      }catch(_){}
+  function engancharAprobar(){
+    zona.querySelectorAll('.js-approve').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        const url = btn.dataset.url;
+        const method = (btn.dataset.method || 'POST').toUpperCase();
+        try{
+          if(method === 'GET'){
+            await fetch(url, { method: 'GET' });
+          }else{
+            const fd  = new FormData();
+            fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            await fetch(url, { method:'POST', body: fd });
+          }
+          // 👇 aquí usamos paramsFromFilters(false) que ya respeta "cantidad"
+          const p = paramsFromFilters(false);
+          await cargarTablaCon(p.toString(), false);
+        }catch(_){}
+      });
     });
-  });
-}
+  }
 
   window.abrirModalRechazo = function(id){
     const modal = document.getElementById('modalRechazo');
@@ -405,10 +619,18 @@
   engancharPaginacion();
   engancharAprobar();
   engancharCantidad();
+  engancharColumnToggles();
+  initColumnsDropdown();
+
+  // 👇 aplicar visibilidad de columnas en la carga inicial
+  applyColumnVisibility();
 
   // 👇 aplicar estado de scroll al cargar y seguir guardándolo
   restoreX(readSavedX());
   hookScrollSaver();
+
+  // 👇 y dejar "cantidad" sincronizado desde el inicio
+  syncCantidad();
 })();
 </script>
 

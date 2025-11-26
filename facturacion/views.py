@@ -461,10 +461,10 @@ def aprobar_abono_como_usuario(request, pk):
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
-    # Mantener tu lógica de formularios exactamente igual
-    FormClass = CartolaAbonoForm if (
-        movimiento.tipo and movimiento.tipo.categoria == "abono") else MovimientoUsuarioForm
-    estado_restaurado = 'pendiente_abono_usuario' if FormClass == CartolaAbonoForm else 'pendiente_supervisor'
+    # ¿Es abono o gasto?
+    es_abono = bool(movimiento.tipo and movimiento.tipo.categoria == "abono")
+    FormClass = CartolaAbonoForm if es_abono else MovimientoUsuarioForm
+    estado_restaurado = 'pendiente_abono_usuario' if es_abono else 'pendiente_supervisor'
 
     if request.method == 'POST':
         form = FormClass(request.POST, request.FILES, instance=movimiento)
@@ -479,16 +479,25 @@ def editar_movimiento(request, pk):
             if 'foto_tablero' in request.FILES:
                 movimiento.foto_tablero = request.FILES['foto_tablero']
 
-            # Si NO es fuel, no forzamos nada más (no tocamos otros campos)
-            # Si es fuel y en el formulario viene kilometraje, ya quedó en movimiento por form.save(commit=False)
-
-            if form.changed_data:
+            # ----- Reset de estado -----
+            if es_abono and movimiento.status == 'rechazado_abono_usuario':
+                movimiento.status = 'pendiente_abono_usuario'
+                movimiento.motivo_rechazo = ""
+            elif form.changed_data:
                 movimiento.status = estado_restaurado
                 movimiento.motivo_rechazo = ""
 
             movimiento.save()
             messages.success(request, "Expense updated successfully.")
-            return redirect('facturacion:listar_cartola')
+
+            # 👇 RESPETAR FILTROS (next con todos los params)
+            next_url = (
+                request.GET.get('next')
+                or request.POST.get('next')
+                or request.META.get('HTTP_REFERER')
+                or reverse('facturacion:listar_cartola')
+            )
+            return redirect(next_url)
     else:
         form = FormClass(instance=movimiento)
 
@@ -503,10 +512,21 @@ def editar_movimiento(request, pk):
 @project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def eliminar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
+
     if request.method == 'POST':
         movimiento.delete()
         messages.success(request, "Expense deleted successfully.")
-        return redirect('facturacion:listar_cartola')
+
+        # 👇 RESPETAR FILTROS (next con todos los params)
+        next_url = (
+            request.GET.get('next')
+            or request.POST.get('next')
+            or request.META.get('HTTP_REFERER')
+            or reverse('facturacion:listar_cartola')
+        )
+        return redirect(next_url)
+
+    # GET: muestra la pantalla de confirmación
     return render(request, 'facturacion/eliminar_movimiento.html', {'movimiento': movimiento})
 
 
