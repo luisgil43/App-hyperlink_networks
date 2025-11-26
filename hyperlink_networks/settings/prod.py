@@ -1,6 +1,9 @@
-from .base import *  # Importa todas las configuraciones base
 import os
+from datetime import date
+
 import dj_database_url
+
+from .base import *  # Importa todas las configuraciones base
 
 DEBUG = False
 
@@ -60,6 +63,9 @@ AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',  # ← primero
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+# 2FA
+TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)  # fecha para producción
 
 # ==============================
 # Configuración de Axes

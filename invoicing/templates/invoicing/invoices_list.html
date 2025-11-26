@@ -80,13 +80,26 @@
             <td class="p-2 border text-right">${{ inv.total|floatformat:2 }}</td>
             <td class="p-2 border font-mono">{{ inv.number }}</td>
             <td class="p-2 border">{{ inv.issue_date|date:"Y-m-d" }}</td>
-            <td class="p-2 border">
-              {% if inv.pdf %}
-                <a class="text-blue-600 hover:underline" href="{{ inv.pdf.url }}" target="_blank">Open PDF</a>
-              {% else %}
-                <span class="text-slate-400">—</span>
-              {% endif %}
-            </td>
+<td class="p-2 border">
+  {% if inv.pdf %}
+    <div class="flex items-center justify-center gap-2">
+      <!-- Abrir en otra pestaña -->
+      <a href="{{ inv.pdf.url }}"
+         target="_blank"
+         class="text-blue-600 hover:underline text-xs sm:text-sm">
+        Open PDF
+      </a>
+
+      <!-- Descargar directo (va a la vista con Content-Disposition: attachment) -->
+      <a href="{% url 'invoicing:invoice_download_pdf' inv.id %}"
+         class="inline-flex items-center px-2 py-1 rounded-full border border-slate-300 text-xs sm:text-sm text-slate-700 hover:bg-slate-100">
+        ⬇ Download
+      </a>
+    </div>
+  {% else %}
+    <span class="text-slate-400">—</span>
+  {% endif %}
+</td>
             <td class="p-2 border">
               <select data-status data-id="{{ inv.id }}"
                       class="text-xs px-2 py-1 rounded-full border focus:outline-none">
@@ -96,12 +109,19 @@
                 <option value="void"    {% if inv.status == 'void' %}selected{% endif %}>Void</option>
               </select>
             </td>
-            <td class="p-2 border">
+                        <td class="p-2 border">
               <div class="flex items-center justify-center gap-2">
+                <!-- EDIT -->
+                <a href="{% url 'invoicing:invoice_new' %}?edit_id={{ inv.id }}"
+                   class="text-amber-700 hover:underline text-sm">✏️ Edit</a>
+
+                <!-- DUPLICATE -->
+                <a href="{% url 'invoicing:invoice_new' %}?duplicate_id={{ inv.id }}"
+                   class="text-sky-700 hover:underline text-sm">⧉ Duplicate</a>
+
                 <!-- DELETE -->
-                               <div class="flex items-center justify-center gap-3">
-                <a href="{% url 'invoicing:invoice_new' %}?duplicate_id={{ inv.id }}" class="text-sky-700 hover:underline text-sm">⧉ Duplicate</a>
-                <button class="text-rose-600 hover:underline text-sm" data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
+                <button class="text-rose-600 hover:underline text-sm"
+                        data-delete data-id="{{ inv.id }}">🗑️ Delete</button>
               </div>
             </td>
           </tr>

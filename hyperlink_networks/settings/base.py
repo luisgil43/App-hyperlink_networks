@@ -285,7 +285,7 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # 2FA
 # ==============================
 TWO_FACTOR_ISSUER_NAME = "Hyperlink Networks"
-TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)
+TWO_FACTOR_ENFORCE_DATE = None
 
 # ==============================
 # SECURITY

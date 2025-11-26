@@ -275,11 +275,13 @@ def invoice_compose_eml(request, iid: int):
     resp["Content-Disposition"] = f'attachment; filename="Invoice-{inv.number}.eml"'
     return resp
 # ---------- Prefill para duplicar (no emite) ----------
+
 @login_required
 @require_GET
 def invoice_prefill_api(request):
     """
-    Devuelve JSON con datos de una factura para precargar la pantalla de 'Nueva factura'.
+    Devuelve JSON con datos de una factura para precargar la pantalla
+    de 'Nueva factura' (duplicate) o 'Editar factura'.
     Prioridad: InvoiceLine -> JSONField Invoice.lines
     """
     iid = request.GET.get("id")
@@ -292,12 +294,12 @@ def invoice_prefill_api(request):
         from .models import InvoiceLine  # si no existe, saltará a except
         for ln in InvoiceLine.objects.filter(invoice=inv).order_by("id"):
             items.append({
-                "daily": ln.daily or "",
-                "job_code": ln.job_code or "",
+                "daily":       ln.daily or "",
+                "job_code":    ln.job_code or "",
                 "description": ln.description or "",
-                "qty": str(getattr(ln, "qty", "") or ""),
-                "uom": ln.uom or "",
-                "rate": str(getattr(ln, "rate", "") or ""),
+                "qty":         str(getattr(ln, "qty", "") or ""),
+                "uom":         ln.uom or "",
+                "rate":        str(getattr(ln, "rate", "") or ""),
             })
     except Exception:
         pass
@@ -316,6 +318,14 @@ def invoice_prefill_api(request):
             })
 
     data = {
+        # 🔹 Datos completos de la factura (para EDIT)
+        "invoice_id": inv.id,
+        "number": inv.number or "",
+        "status": inv.status,
+        "profile_id": inv.branding_profile_id,
+        "template_key": inv.template_key or "",
+
+        # 🔹 Lo que ya usabas para duplicar
         "customer_id": inv.customer_id,
         "customer_name": getattr(inv.customer, "name", ""),
         "customer": {
@@ -480,23 +490,32 @@ def invoice_new(request):
     if profile:
         preview_url += f"?profile_id={profile.id}"
 
-    # Si vienes de "Duplicar factura", esto rellena el front con la API
+    # Si vienes de "Duplicar factura" o "Editar factura", esto rellena el front con la API
     duplicate_id = (request.GET.get("duplicate_id") or "").strip()
+    edit_id      = (request.GET.get("edit_id") or "").strip()
+
+    # source_id: el ID desde el cual prellenamos (para duplicate o edit)
+    source_id = edit_id or duplicate_id
+
     prefill_api = (
-        reverse("invoicing:invoice_prefill_api") + f"?id={duplicate_id}"
-        if duplicate_id
+        reverse("invoicing:api_invoice_prefill") + f"?id={source_id}"
+        if source_id
         else ""
     )
 
     context = {
-        "page_title": "New Invoice",
+        "page_title": "New Invoice" if not edit_id else "Edit Invoice",
         "branding": branding,               # objeto ActiveBranding
         "profile": profile,                 # perfil activo (para company_name, etc.)
         "branding_profiles": branding_profiles,
         "preview_url": preview_url,
         "templates_catalog": templates_catalog,
-        "prefill_from_id": duplicate_id,
+        "prefill_from_id": source_id,
         "prefill_api": prefill_api,
+
+        # Flags para que el front sepa si está en modo edición
+        "edit_mode": bool(edit_id),
+        "edit_invoice_id": edit_id,
     }
     return render(request, "invoicing/invoice_new.html", context)
 
@@ -672,3 +691,214 @@ def invoice_next_number_api(request):
 
     number = f"{prefix}-{str(maxn + 1).zfill(6)}"
     return JsonResponse({"ok": True, "number": number})
+
+
+@login_required
+@require_POST
+def invoice_update_api(request):
+    """
+    Actualiza una factura existente y regenera su PDF.
+    Si el usuario entra a editar y luego cancela, este endpoint NO se llama
+    y el PDF existente se mantiene igual.
+    """
+    data = json.loads(request.body.decode("utf-8") or "{}")
+
+    iid = data.get("id")
+    inv = get_object_or_404(Invoice, id=iid)
+
+    # --- Customer ---
+    cust_id = data.get("customer_id") or inv.customer_id
+    customer = get_object_or_404(Customer, id=cust_id)
+
+    # --- Fechas ---
+    issue_date = _parse_date_iso(data.get("issue_date")) or inv.issue_date
+    due_date   = _parse_date_iso(data.get("due_date")) or inv.due_date
+
+    # --- Items / totales ---
+    items    = data.get("items") or []
+    currency = (data.get("currency_symbol") or "$").strip() or "$"
+    tax_pct  = Decimal(str(data.get("tax_percent") or "0"))
+    notes    = data.get("notes", None)
+    terms    = data.get("terms", None)
+
+    # si no vienen notes/terms en el payload, mantenemos las anteriores
+    if notes is None:
+        notes = getattr(inv, "notes", "") or ""
+    if terms is None:
+        terms = getattr(inv, "terms", "") or ""
+
+    # --- Branding / template ---
+    profile = inv.branding_profile
+    pid = data.get("profile_id")
+    if pid:
+        profile = BrandingProfile.objects.filter(id=pid).first() or profile
+
+    template_key = data.get("template_key") or inv.template_key or "invoice_t1"
+
+    # --- Recalcular montos ---
+    subtotal = Decimal("0.00")
+    norm_items = []
+    for it in items:
+        qty  = Decimal(str(it.get("qty") or 0))
+        rate = Decimal(str(it.get("rate") or 0))
+        amt  = (qty if qty > 0 else Decimal("0")) * (rate if rate > 0 else Decimal("0"))
+        subtotal += amt
+        norm_items.append({
+            "daily": (it.get("daily") or "").strip(),
+            "job_code": (it.get("job_code") or "").strip(),
+            "description": (it.get("description") or "").strip(),
+            "qty": f"{qty:.2f}",
+            "uom": (it.get("uom") or "").strip(),
+            "rate": f"{rate:.2f}",
+            "amount": f"{amt:.2f}",
+        })
+
+    tax_amount = (subtotal * (tax_pct / Decimal("100"))).quantize(Decimal("0.01"))
+    total      = (subtotal + tax_amount).quantize(Decimal("0.01"))
+
+    # --- Número de factura ---
+    requested_number = (data.get("number") or "").strip()
+
+    if not requested_number:
+        # si no mandan número, mantenemos el existente
+        final_number = inv.number
+    elif requested_number == inv.number:
+        # si mandan el mismo, no lo cambiamos
+        final_number = inv.number
+    else:
+        # si el usuario cambió el número, validamos colisión
+        exists = (
+            Invoice.objects
+            .filter(number=requested_number)
+            .exclude(id=inv.id)
+            .exists()
+        )
+        if exists:
+            return JsonResponse(
+                {"ok": False, "error": "Invoice number already exists."},
+                status=400,
+            )
+        final_number = requested_number
+
+    tpl, _ = _resolve_invoice_template(template_key)
+    if not tpl:
+        return JsonResponse(
+            {"ok": False, "error": "Invoice template not found."},
+            status=400,
+        )
+
+    # --- Actualizar en DB + reemplazar líneas + regenerar PDF ---
+    with transaction.atomic():
+        inv.customer = customer
+        inv.number   = final_number
+        inv.issue_date = issue_date
+        inv.due_date   = due_date
+        inv.total      = total
+        inv.branding_profile = profile
+        inv.template_key = _normalize_template_key(template_key)
+        inv.notes = notes
+        inv.terms = terms
+
+        # (Opcional) permitir que el front actualice status
+        new_status = data.get("status")
+        allowed_status = {
+            Invoice.STATUS_PENDING,
+            Invoice.STATUS_OVERDUE,
+            Invoice.STATUS_PAID,
+            Invoice.STATUS_VOID,
+        }
+        if new_status in allowed_status:
+            inv.status = new_status
+
+        inv.save()
+
+        # Reemplazar líneas
+        InvoiceLine = None
+        try:
+            from .models import InvoiceLine as _InvoiceLine
+            InvoiceLine = _InvoiceLine
+        except Exception:
+            InvoiceLine = None
+
+        if InvoiceLine:
+            InvoiceLine.objects.filter(invoice=inv).delete()
+            line_objs = []
+            for it in items:
+                qty  = Decimal(str(it.get("qty") or 0))
+                rate = Decimal(str(it.get("rate") or 0))
+                line_objs.append(InvoiceLine(
+                    invoice=inv,
+                    daily=(it.get("daily") or "").strip(),
+                    job_code=(it.get("job_code") or "").strip(),
+                    description=(it.get("description") or "").strip(),
+                    qty=qty,
+                    uom=(it.get("uom") or "").strip(),
+                    rate=rate,
+                ))
+            if line_objs:
+                InvoiceLine.objects.bulk_create(line_objs)
+        else:
+            # caso JSONField lines
+            if any(f.name == "lines" for f in Invoice._meta.get_fields()):
+                inv.lines = norm_items
+                inv.save(update_fields=["lines"])
+
+        # Regenerar PDF y reemplazar el archivo actual
+        ctx = {
+            "invoice": {
+                "number": final_number,
+                "issue_date": issue_date,
+                "due_date": due_date,
+                "subtotal": subtotal,
+                "tax_percent": tax_pct,
+                "tax_amount": tax_amount,
+                "total": total,
+                "currency_symbol": currency,
+                "notes": notes,
+                "terms": terms,
+                "status": inv.status,
+            },
+            "customer": customer,
+            "profile": profile,
+            "items": norm_items,
+            "branding": None,
+            "pdf_mode": True,
+            "request": request,
+        }
+
+        pdf_bytes = HTML(
+            string=tpl.render(ctx, request),
+            base_url=request.build_absolute_uri("/"),
+        ).write_pdf()
+
+        inv.pdf.save(f"invoice-{final_number}.pdf", ContentFile(pdf_bytes), save=True)
+
+    return JsonResponse({
+        "ok": True,
+        "id": inv.id,
+        "number": final_number,
+        "pdf_url": inv.pdf.url,
+    })
+
+from django.http import FileResponse, Http404
+
+
+@login_required
+@rol_requerido("admin", "facturacion")
+def invoice_download_pdf(request, iid: int):
+    """
+    Descarga directa del PDF de una factura, con Content-Disposition: attachment.
+    """
+    inv = get_object_or_404(Invoice, id=iid)
+
+    if not inv.pdf:
+        raise Http404("PDF not found.")
+
+    # Nombre de archivo amigable
+    filename = f"Invoice-{inv.number or inv.id}.pdf"
+
+    # FileResponse ya se encarga de hacer streaming eficiente
+    inv.pdf.open("rb")
+    response = FileResponse(inv.pdf, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response

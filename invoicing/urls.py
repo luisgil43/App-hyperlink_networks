@@ -49,10 +49,12 @@ urlpatterns = [
     path("api/customers/",  views_api.api_customers, name="api_customers"),
     path("api/itemcodes/",  views_api.api_itemcodes, name="api_itemcodes"),
     path("api/invoices/create", views_invoices.invoice_create_api, name="api_invoice_create"),
+    path("api/invoices/update",      views_invoices.invoice_update_api,  name="api_invoice_update"),
     path("api/invoices/next-number", views_invoices.invoice_next_number_api, name="api_invoice_next_number"),
 
     path("invoices/compose_eml/<int:iid>/", views_invoices.invoice_compose_eml, name="invoice_compose_eml"),
     path("api/invoices/prefill",            views_invoices.invoice_prefill_api,  name="api_invoice_prefill"),
+     path("invoices/<int:iid>/download/",views_invoices.invoice_download_pdf,name="invoice_download_pdf"),
 
     
 

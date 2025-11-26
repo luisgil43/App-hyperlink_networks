@@ -21,9 +21,15 @@
 </div>
 
 <script>
+  // Flags que vienen desde la view invoice_new
+  const EDIT_MODE       = {{ edit_mode|yesno:"true,false" }};
+  const EDIT_INVOICE_ID = "{{ edit_invoice_id|default:'' }}";
+</script>
+
+<script>
 function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:""; }
 
-/* === Forzar fecha HOY dentro del iframe (funciona aunque el iframe ya estuviera cargado) === */
+/* === Forzar fecha HOY dentro del iframe (SOLO en modo NUEVO / DUPLICAR) === */
 (function(){
   const iframe = document.getElementById('invoice-frame');
 
@@ -33,6 +39,9 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
 
   function forceDefaultDates(){
     try{
+      // ❗️Si estamos en modo edición, NO tocamos las fechas
+      if (EDIT_MODE) return true;
+
       const fdoc = iframe.contentDocument || iframe.contentWindow.document;
       if(!fdoc) return false;
 
@@ -41,7 +50,7 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
 
       if(!inputDate) return false; // aún no está renderizado
 
-      // Siempre forzar a HOY
+      // Siempre forzar a HOY (solo nueva/duplicar)
       const today = toYMD(new Date());
       inputDate.value = today;
 
@@ -84,7 +93,7 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
   }catch(e){}
 })();
 
-/* === Guardar === */
+/* === Guardar (crear vs actualizar) === */
 document.getElementById('btn-save').addEventListener('click', async ()=>{
   const iframe = document.getElementById('invoice-frame');
   const fdoc = iframe.contentDocument || iframe.contentWindow.document;
@@ -138,8 +147,8 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     due = window.__PREFILL__.due_date;
   }
 
-  // Si no hay número visible en iframe, pide uno (usando el customer del prefill si existe)
-  if (!number) {
+  // ❗️Solo NUEVA / DUPLICAR generan número automático si falta
+  if (!EDIT_MODE && !number) {
     try{
       const q = custId ? `?customer_id=${custId}` : '';
       const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
@@ -182,7 +191,7 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     }).filter(x=> x.job_code || x.description || x.amount);
   }
 
-  // --- payload final ---
+  // --- payload base ---
   const payload = {
     number,
     issue_date: issue,
@@ -197,8 +206,17 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     template_key: templateKey
   };
 
+  // --- decidir si CREAR o ACTUALIZAR ---
+  let url;
+  if (EDIT_MODE && EDIT_INVOICE_ID) {
+    payload.id = Number(EDIT_INVOICE_ID);
+    url = "{% url 'invoicing:api_invoice_update' %}";
+  } else {
+    url = "{% url 'invoicing:api_invoice_create' %}";
+  }
+
   try{
-    const r = await fetch("{% url 'invoicing:api_invoice_create' %}", {
+    const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type":"application/json", "X-CSRFToken": getCSRF() },
       body: JSON.stringify(payload)
@@ -335,29 +353,64 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     if (custHidden && prefill.customer_id) custHidden.value = prefill.customer_id;
 
     // --- DATES / TAX / CURRENCY ---
-    if (prefill.due_date){
-      const due = fdoc.getElementById('inv-due');
-      if (due){ due.value = prefill.due_date; due.dispatchEvent(new Event('input',{bubbles:true})); }
+    if (EDIT_MODE) {
+      // ➜ EDITAR: respetar fechas y número de la factura original
+      if (prefill.issue_date){
+        const issue = fdoc.getElementById('inv-date');
+        if (issue){
+          issue.value = prefill.issue_date;
+          issue.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+      }
+      if (prefill.due_date){
+        const due = fdoc.getElementById('inv-due');
+        if (due){
+          due.value = prefill.due_date;
+          due.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+      }
+      if (prefill.number){
+        const num = fdoc.getElementById('inv-number');
+        if (num){
+          num.value = prefill.number;
+          num.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+      }
+    } else {
+      // ➜ NUEVA / DUPLICAR:
+      // las fechas se ponen en el script exterior (HOY / HOY+30)
+      // aquí solo podrías tocar due_date si quisieras, pero lo dejamos tal cual.
     }
+
     if (prefill.tax_percent != null){
       const tax = fdoc.getElementById('tax-percent');
-      if (tax){ tax.value = prefill.tax_percent; tax.dispatchEvent(new Event('input',{bubbles:true})); }
+      if (tax){
+        tax.value = prefill.tax_percent;
+        tax.dispatchEvent(new Event('input',{bubbles:true}));
+      }
     }
     if (prefill.currency_symbol){
       const root = fdoc.getElementById('invoice-root');
       if (root){ root.dataset.currency = prefill.currency_symbol; }
     }
 
-    // --- SUGERIR NÚMERO NUEVO (no reutilizar el viejo) ---
-    try{
-      const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
-      const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
-      const j = await r.json();
-      if (j.ok && j.number){
-        const num = fdoc.getElementById('inv-number');
-        if (num){ num.value = j.number; num.dispatchEvent(new Event('input',{bubbles:true})); }
-      }
-    }catch(_){}
+    // --- NÚMERO DE FACTURA ---
+    if (!EDIT_MODE) {
+      // ➜ DUPLICAR / NUEVA: sugerir número nuevo
+      try{
+        const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
+        const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
+        const j = await r.json();
+        if (j.ok && j.number){
+          const num = fdoc.getElementById('inv-number');
+          if (num){
+            num.value = j.number;
+            num.dispatchEvent(new Event('input',{bubbles:true}));
+          }
+        }
+      }catch(_){}
+    }
+    // En EDIT_MODE el número ya lo pusimos arriba desde prefill.number
 
     // --- ITEMS ---
     const tbody = fdoc.querySelector('#items-body');

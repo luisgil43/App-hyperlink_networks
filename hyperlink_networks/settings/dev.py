@@ -1,5 +1,7 @@
-from .base import *
 import os
+from datetime import date
+
+from .base import *
 
 # ==============================
 # Desarrollo
@@ -33,6 +35,8 @@ CSRF_COOKIE_SECURE = False
 SESSION_COOKIE_SECURE = False
 SECURE_SSL_REDIRECT = False
 
+# 2FA
+TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)
 # Email simulado en consola (no se envían)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
