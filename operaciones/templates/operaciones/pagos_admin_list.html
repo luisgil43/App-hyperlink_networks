@@ -3,7 +3,7 @@
 {% block title %}Weekly Payments{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -19,8 +19,8 @@
 
   <!-- ================= TOP: actuales (no pagados) ================= -->
   <h2 class="text-lg font-semibold mb-2">This week</h2>
-  <div class="overflow-x-auto">
-   <table class="table-auto w-full text-sm min-w-[950px]" style="white-space: nowrap;">
+ <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
   <thead class="bg-gray-100">
     <tr>
       <th class="w-10"></th>

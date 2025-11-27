@@ -6,15 +6,19 @@
 {% block title %}My Expense Reports{% endblock %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 
   <!-- Header -->
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 My Expense Reports</h2>
-    <a href="{% url 'operaciones:exportar_mis_rendiciones' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
-      📥 Export to Excel
-    </a>
-  </div>
+<div class="flex flex-col sm:flex-row items-start gap-2 mb-4">
+  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+    🧾 My Expense Reports
+  </h2>
+
+  <a href="{% url 'operaciones:exportar_mis_rendiciones' %}"
+     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+    📥 Export to Excel
+  </a>
+</div>
 
   <!-- Balance cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -132,11 +136,10 @@
   </div>
 
   <!-- Tabla -->
-  <div class="rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1200px]" style="white-space: nowrap;">
+  <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
-          <th class="p-2 border">Name</th>
           <th class="p-2 border">Date</th>
           <th class="p-2 border">Project</th>
           <th class="p-2 border">Type</th>
@@ -152,7 +155,6 @@
       <tbody class="text-center">
         {% for mov in pagina %}
         <tr class="border-t">
-          <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
           <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
           <td class="p-2 border">{{ mov.proyecto }}</td>
           <td class="p-2 border">{{ mov.tipo }}</td>

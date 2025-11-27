@@ -4550,6 +4550,69 @@ def produccion_usuario(request):
             "adjustment_label": a.get_adjustment_type_display(),
         })
 
+    # -------- Resolver label de proyecto (nombre amigable, igual que admin) --------
+    from facturacion.models import Proyecto
+
+    proyectos_list = list(Proyecto.objects.all())
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_project_label(row):
+        s = row.get("sesion")
+        proj_text = None
+        proj_id = None
+
+        if s is not None:
+            proj_text = (getattr(s, "proyecto", "") or "").strip()
+            proj_id = getattr(s, "proyecto_id", None)
+        else:
+            proj_text = (row.get("project") or "").strip()
+            proj_id = row.get("project_id", None)
+
+        proyecto_sel = None
+
+        # 1) intentar interpretar proj_text como PK
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        # 2) si no, probar con project_id
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            try:
+                pid2 = int(proj_id)
+            except (TypeError, ValueError):
+                key2 = str(proj_id).strip().lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        # Fallback
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    for row in filas:
+        row["project_label"] = _resolve_project_label(row)
+
     # -------- Orden requerido --------
     def sort_key(row):
         t = _parse_iso_week(row["real_week"])

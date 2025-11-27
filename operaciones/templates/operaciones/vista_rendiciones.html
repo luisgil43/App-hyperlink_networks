@@ -5,7 +5,7 @@
 {% block title %}Expense Reports{% endblock %}
 
 {% block dashboard_content %}
-<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 
   <style>
     .campo-filtro{
@@ -172,8 +172,8 @@
 
   <div id="zonaTabla">
     <!-- Tabla responsive -->
-    <div class="rounded-xl border border-gray-200 tabla-responsive">
-      <table class="table-auto border border-gray-300 rounded-xl text-sm w-full">
+    <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
         <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
           <tr>
             <th class="p-2 border">Name</th>

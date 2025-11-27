@@ -4,11 +4,99 @@
 {% block title %}My Assignments{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
   <h1 class="text-2xl font-bold mb-4">🧾 My Assignments</h1>
 
+<div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+
+    <!-- IMPORTANTE: mismo id que usa el script -->
+    <div id="columnToggles" class="absolute left-0 mt-1 w-56 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <!-- Master checkbox -->
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all columns</span>
+      </label>
+
+      <!-- Una línea por columna (0-based, coincide con el <thead>) -->
+      <div class="space-y-1 text-sm">
+        <!-- 0 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="0" checked>
+          <span>Date</span>
+        </label>
+
+        <!-- 1 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="1" checked>
+          <span>Project ID</span>
+        </label>
+
+        <!-- 2 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="2" checked>
+          <span>Project address</span>
+        </label>
+
+        <!-- 3 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="3" checked>
+          <span>Client</span>
+        </label>
+
+        <!-- 4 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="4" checked>
+          <span>City</span>
+        </label>
+
+        <!-- 5 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="5" checked>
+          <span>Project</span>
+        </label>
+
+        <!-- 6 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="6" checked>
+          <span>Office</span>
+        </label>
+
+        <!-- 7 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="7" checked>
+          <span>My Billing</span>
+        </label>
+
+        <!-- 8 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="8" checked>
+          <span>Status</span>
+        </label>
+
+        <!-- 9 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="9" checked>
+          <span>Photo Report</span>
+        </label>
+
+        <!-- 10 -->
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked>
+          <span>Actions</span>
+        </label>
+      </div>
+    </div>
+  </details>
+</div>
+
   <div class="overflow-x-auto">
-    <table class="table-auto w-full text-sm min-w-[1400px]" style="white-space: nowrap;">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
       <thead class="bg-gray-100">
         <tr>
           <th class="p-2 text-left">Date</th>
@@ -247,6 +335,126 @@
   // Restaurar al cargar y guardar al salir/recargar
   document.addEventListener('DOMContentLoaded', restore);
   window.addEventListener('beforeunload', saveBeforeLeave);
+})();
+</script>
+<script>
+(function () {
+  // Panel de columnas
+  const panel = document.getElementById('columnToggles');
+  if (!panel) return;
+
+  // Tabla asociada: usa la que tenga data-columns-table
+  const table =
+    document.querySelector('[data-columns-table]') ||
+    document.querySelector('table');
+  if (!table) return;
+
+  // Clave para recordar las columnas por vista/tabla
+  const tableId = table.dataset.columnsTable || location.pathname;
+  const STORAGE_KEY = 'cols:' + tableId;
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function applyVisibility() {
+    const state = loadState(); // {0: true, 1: false, ...}
+
+    // Encabezados
+    const theadCells = table.querySelectorAll('thead tr th');
+    theadCells.forEach((th, idx) => {
+      const visible = state[idx] !== false; // por defecto visible
+      th.style.display = visible ? '' : 'none';
+    });
+
+    // Celdas
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      const tds = tr.querySelectorAll('td');
+      tds.forEach((td, idx) => {
+        const visible = state[idx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    // Sincronizar checkboxes + master
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+    let allOn = true;
+
+    checks.forEach((cb) => {
+      const idx = parseInt(cb.dataset.col || '0', 10);
+      const visible = state[idx] !== false;
+      cb.checked = visible;
+      if (!visible) allOn = false;
+    });
+
+    if (master) {
+      master.checked = allOn;
+    }
+  }
+
+  function bindToggles() {
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    // Individuales
+    checks.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        const state = loadState();
+        state[idx] = cb.checked;
+        saveState(state);
+        applyVisibility();
+      });
+    });
+
+    // Master "Show all columns"
+    if (master) {
+      master.addEventListener('change', () => {
+        const val = master.checked;
+        const state = loadState();
+
+        checks.forEach((cb) => {
+          const idx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[idx] = val;
+        });
+
+        saveState(state);
+        applyVisibility();
+      });
+    }
+  }
+
+  // Cerrar el <details> al hacer clic fuera
+  function bindOutsideClickToClose() {
+    const details = panel.closest('details');
+    if (!details) return;
+
+    document.addEventListener('click', (e) => {
+      if (!details.open) return;
+      if (details.contains(e.target)) return;
+      details.open = false;
+    });
+  }
+
+  // Inicializar
+  bindToggles();
+  applyVisibility();
+  bindOutsideClickToClose();
 })();
 </script>
 {% endblock %}
