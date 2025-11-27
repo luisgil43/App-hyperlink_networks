@@ -43,54 +43,61 @@
       method="get"
       class="mb-4 text-sm">
 
-  <div class="inline-flex flex-wrap items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+  <div class="inline-flex flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
 
     <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">User</label>
       <input type="text"
              name="du"
              value="{{ filtros.du }}"
              placeholder="Filter by User"
-             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
     <div class="w-full sm:w-40">
+      <label class="text-xs text-gray-600">Date</label>
       <input type="text"
              name="fecha"
              value="{{ filtros.fecha }}"
              placeholder="DD-MM-YYYY (ej. 20)"
-             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
     <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">Project</label>
       <input type="text"
              name="proyecto"
              value="{{ filtros.proyecto }}"
              placeholder="Filter by Project"
-             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
     <div class="w-full sm:w-44">
+      <label class="text-xs text-gray-600">Type</label>
       <input type="text"
              name="tipo"
              value="{{ filtros.tipo }}"
              placeholder="Filter by Type"
-             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
     <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Status</label>
       <select name="estado"
-              class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+              class="w-full border rounded px-2 py-1.5 text-sm filtro">
         <option value="">All statuses</option>
         {% for codigo, nombre in estado_choices %}
-          <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>{{ nombre }}</option>
+          <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>
+            {{ nombre }}
+          </option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="w-full sm:w-auto flex items-center">
+    <div class="w-full sm:w-auto flex items-end">
       <!-- Clear (sin recargar) -->
       <button type="button" id="btnClear"
-              class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">
+              class="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
         ❌ Clear
       </button>
     </div>

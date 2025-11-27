@@ -29,6 +29,31 @@
     <style>
         .rotate-90 { transform: rotate(90deg); }
         .bg-sidebar { background-color: #1e293b; }
+
+            /* ===== Layout: sidebar colapsable ===== */
+    .content-wrapper {
+      transition: margin-left 0.2s ease;
+    }
+
+    @media (min-width: 768px) {
+      .content-wrapper.with-sidebar main {
+        margin-left: 18rem; /* equivalente a ml-72 */
+      }
+      .content-wrapper.no-sidebar main {
+        margin-left: 0;
+      }
+    }
+
+    #side-nav {
+      transition: transform 0.2s ease;
+    }
+
+    /* En desktop, cuando está colapsado lo movemos a la izquierda */
+    @media (min-width: 768px) {
+      #side-nav.collapsed {
+        transform: translateX(-100%);
+      }
+    }
     </style>
 </head>
 
@@ -76,7 +101,7 @@
 
       <!-- IZQUIERDA: Logo y nombre -->
       <div class="flex items-center gap-3">
-        <button onclick="toggleSidebar()" class="md:hidden text-gray-800 text-2xl">☰</button>
+        <button onclick="toggleSidebar()"class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
         <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
         <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
       </div>
@@ -99,7 +124,7 @@
 </header>
 
 <!-- CONTENEDOR PRINCIPAL -->
-<div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper">
+<div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar">
 
   <!-- MENÚ LATERAL -->
   <nav id="side-nav"
@@ -260,7 +285,7 @@
   </nav>
 
   <!-- CONTENIDO PRINCIPAL -->
-  <main class="md:ml-72 flex-1 p-6 z-10 bg-gray-100">
+ <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
     {% block dashboard_content %}{% endblock %}
   </main>
 </div>
@@ -301,10 +326,23 @@
     }
   }
 
-  // Mostrar/ocultar menú lateral
+   // Mostrar/ocultar menú lateral
   function toggleSidebar() {
-    const nav = document.getElementById('side-nav');
-    nav.classList.toggle('-translate-x-full');
+    const nav     = document.getElementById('side-nav');
+    const wrapper = document.querySelector('.content-wrapper');
+    if (!nav || !wrapper) return;
+
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+
+    if (isDesktop) {
+      // En desktop: colapsar/expandir y ajustar margen del contenido
+      const collapsed = nav.classList.toggle('collapsed');
+      wrapper.classList.toggle('no-sidebar', collapsed);
+      wrapper.classList.toggle('with-sidebar', !collapsed);
+    } else {
+      // En móvil: off-canvas clásico
+      nav.classList.toggle('-translate-x-full');
+    }
   }
 
   // Mostrar/ocultar panel de notificaciones

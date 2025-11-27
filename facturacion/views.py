@@ -1327,6 +1327,14 @@ def invoices_list(request):
     return render(request, "facturacion/invoices_list.html", ctx)
 
 
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.http import HttpResponseForbidden, JsonResponse
+from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_POST
+
+
 @require_POST
 def invoice_update_real(request, pk):
     # Solo AJAX
@@ -1335,14 +1343,14 @@ def invoice_update_real(request, pk):
 
     s = get_object_or_404(SesionBilling, pk=pk)
 
-    real_raw = request.POST.get('real', None)
-    week_raw = request.POST.get('week', None)
+    real_raw  = request.POST.get('real', None)
+    week_raw  = request.POST.get('week', None)
+    daily_raw = request.POST.get('daily_number', None)
 
     with transaction.atomic():
         updated_fields = []
 
         # ----- Real Company Billing -----
-        # la clave llegó (aunque sea vacía)
         if real_raw is not None:
             raw = (real_raw or '').strip()
 
@@ -1368,6 +1376,13 @@ def invoice_update_real(request, pk):
             s.semana_pago_real = (week_raw or '').strip()
             updated_fields.append('semana_pago_real')
 
+        # ----- Daily Number (permite vacío) -----
+        if daily_raw is not None:
+            value = (daily_raw or '').strip()
+            s.finance_daily_number = value or None
+            updated_fields.append('finance_daily_number')
+
+        # Guardar solo si algo cambió
         if updated_fields:
             updated_fields.append('finance_updated_at')  # tu campo auto_now
             s.save(update_fields=updated_fields)
@@ -1379,12 +1394,16 @@ def invoice_update_real(request, pk):
 
     return JsonResponse({
         'ok': True,
-        'real': (None if s.real_company_billing is None else f'{s.real_company_billing:.2f}'),
+        'real': (
+            None
+            if s.real_company_billing is None
+            else f'{s.real_company_billing:.2f}'
+        ),
         'week': s.semana_pago_real or '',
-        'difference': ('' if diff is None else f'{diff:.2f}'),
+        'daily_number': s.finance_daily_number or '',
+        'difference': '' if diff is None else f'{diff:.2f}',
         'finance_status': s.finance_status,
     })
-
 
 @login_required
 @rol_requerido("facturacion", "admin")
