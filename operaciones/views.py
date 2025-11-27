@@ -689,11 +689,23 @@ def vista_rendiciones(request):
     pendientes = movimientos.filter(status__startswith='pendiente').aggregate(total=Sum('cargos'))['total'] or 0
     rechazados = movimientos.filter(status__startswith='rechazado').aggregate(total=Sum('cargos'))['total'] or 0
 
-    # Paginación
-    cantidad = request.GET.get('cantidad', '10')
-    cantidad_pag = 1000000 if cantidad == 'todos' else int(cantidad)
+    # Paginación (sin "todos", máximo 100)
+    raw_cantidad = request.GET.get("cantidad", "10")
+    try:
+        cantidad_pag = int(raw_cantidad)
+    except (TypeError, ValueError):
+        cantidad_pag = 10
+
+    # forzamos rango 5–100
+    if cantidad_pag < 5:
+        cantidad_pag = 5
+    if cantidad_pag > 100:
+        cantidad_pag = 100
+
+    cantidad = str(cantidad_pag)
+
     paginator = Paginator(movimientos, cantidad_pag)
-    page_number = request.GET.get('page')
+    page_number = request.GET.get("page")
     pagina = paginator.get_page(page_number)
 
     # Choices del modelo
@@ -2168,15 +2180,23 @@ def listar_billing(request):
     # ---------- /Filtros de servidor ----------
 
     # Paginación
+        # Paginación (sin "todos", máximo 100)
     cantidad = request.GET.get("cantidad", "10")
-    if cantidad == "todos":
-        pagina = Paginator(qs, qs.count() or 1).get_page(1)
-    else:
-        try:
-            per_page = int(cantidad)
-        except (TypeError, ValueError):
-            per_page = 10
-        pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
+
+    try:
+        per_page = int(cantidad)
+    except (TypeError, ValueError):
+        per_page = 10
+
+    if per_page < 1:
+        per_page = 10
+    if per_page > 100:
+        per_page = 100
+
+    # normalizamos cantidad para que el template muestre el valor final
+    cantidad = str(per_page)
+
+    pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
 
     # ========= Mapear ID → nombre de Proyecto de forma segura =========
     # s.proyecto puede ser:

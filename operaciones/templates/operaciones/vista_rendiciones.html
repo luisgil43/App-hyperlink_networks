@@ -5,7 +5,7 @@
 {% block title %}Expense Reports{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <style>
     .campo-filtro{
@@ -15,45 +15,153 @@
     .campo-filtro:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.3);outline:none}
     .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
     @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
-    .tabla-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%}
-    .tabla-responsive table{white-space:nowrap;min-width:1100px}
+      .tabla-responsive{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  width:100%;
+}
+.tabla-responsive table{
+  white-space:nowrap;
+  min-width:100%;   /* usa el ancho del contenedor, pero crece si hace falta */
+}
   </style>
 
   <!-- Encabezado -->
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-start gap-2 mb-4">
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Expense Reports</h2>
     {% if user.es_pm %}
       <a id="exportLink" href="{% url 'operaciones:exportar_rendiciones' %}?{{ request.GET.urlencode }}"
-         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full sm:w-auto">
+         
         📥 Export to Excel
       </a>
     {% endif %}
   </div>
 
   <!-- Filtros (auto) -->
-  <form id="form-filtros" method="get" class="filtros-compactos mb-6">
-    <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
-      <input type="text" name="du"        value="{{ filtros.du }}"        placeholder="Filter by User"        class="campo-filtro filtro">
-      <input type="text" name="fecha"     value="{{ filtros.fecha }}"     placeholder="DD-MM-YYYY (ej. 20)"   class="campo-filtro filtro">
-      <input type="text" name="proyecto"  value="{{ filtros.proyecto }}"  placeholder="Filter by Project"     class="campo-filtro filtro">
-      <input type="text" name="tipo"      value="{{ filtros.tipo }}"      placeholder="Filter by Type"        class="campo-filtro filtro">
+<form id="form-filtros"
+      method="get"
+      class="mb-4 text-sm">
 
-      <select name="estado" class="campo-filtro filtro">
-  <option value="">All statuses</option>
-  {% for codigo, nombre in estado_choices %}
-    <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>{{ nombre }}</option>
-  {% endfor %}
-</select>
+  <div class="inline-flex flex-wrap items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
 
+    <div class="w-full sm:w-52">
+      <input type="text"
+             name="du"
+             value="{{ filtros.du }}"
+             placeholder="Filter by User"
+             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+    </div>
+
+    <div class="w-full sm:w-40">
+      <input type="text"
+             name="fecha"
+             value="{{ filtros.fecha }}"
+             placeholder="DD-MM-YYYY (ej. 20)"
+             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+    </div>
+
+    <div class="w-full sm:w-52">
+      <input type="text"
+             name="proyecto"
+             value="{{ filtros.proyecto }}"
+             placeholder="Filter by Project"
+             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+    </div>
+
+    <div class="w-full sm:w-44">
+      <input type="text"
+             name="tipo"
+             value="{{ filtros.tipo }}"
+             placeholder="Filter by Type"
+             class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+    </div>
+
+    <div class="w-full sm:w-48">
+      <select name="estado"
+              class="campo-filtro filtro border rounded-lg px-2 py-1.5 w-full">
+        <option value="">All statuses</option>
+        {% for codigo, nombre in estado_choices %}
+          <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>{{ nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="w-full sm:w-auto flex items-center">
       <!-- Clear (sin recargar) -->
       <button type="button" id="btnClear"
               class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">
         ❌ Clear
       </button>
-
-      <input type="hidden" name="cantidad" value="{{ cantidad }}">
     </div>
-  </form>
+
+    <!-- Mantener cantidad actual -->
+    <input type="hidden" name="cantidad" value="{{ cantidad }}">
+  </div>
+</form>
+
+<div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+
+    <div id="columnToggles" class="absolute left-0 mt-1 w-64 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <!-- Master checkbox -->
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all columns</span>
+      </label>
+
+      <!-- Una línea por cada columna, índices 0..9 en el mismo orden del <thead> -->
+      <div class="space-y-1 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="0" checked>
+          <span>Name</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="1" checked>
+          <span>Date</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="2" checked>
+          <span>Project</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="3" checked>
+          <span>Type</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="4" checked>
+          <span>Expenses (USD)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="5" checked>
+          <span>Credits (USD)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="6" checked>
+          <span>Receipt(s)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="7" checked>
+          <span>Odometer (km)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="8" checked>
+          <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="9" checked>
+          <span>Actions</span>
+        </label>
+      </div>
+    </div>
+  </details>
+</div>
+
 
   <div id="zonaTabla">
     <!-- Tabla responsive -->
@@ -208,21 +316,18 @@
       <form id="formCantidad" class="flex items-center gap-2">
         <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
         <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
-          <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
-          <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-          <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-          <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-        </select>
+  <option value="5"   {% if cantidad == '5' %}selected{% endif %}>5</option>
+  <option value="10"  {% if cantidad == '10' %}selected{% endif %}>10</option>
+  <option value="20"  {% if cantidad == '20' %}selected{% endif %}>20</option>
+  <option value="50"  {% if cantidad == '50' %}selected{% endif %}>50</option>
+  <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+</select>
       </form>
     </div>
 
-    <div class="mt-2 flex justify-center text-sm">
-      {% if cantidad == 'todos' %}
-        <span>Page 1 of 1</span>
-      {% else %}
-        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-      {% endif %}
-    </div>
+   <div class="mt-2 flex justify-center text-sm">
+  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+</div>
 
     <div class="mt-2 flex justify-center gap-2 text-sm">
       {% if pagina.has_previous %}
@@ -451,6 +556,127 @@
       document.getElementById('modalRechazo').classList.add('hidden');
     }
   </script>
+
+  <script>
+(function () {
+  // Panel de columnas
+  const panel = document.getElementById('columnToggles');
+  if (!panel) return;
+
+  // Tabla asociada: usa la que tenga data-columns-table
+  const table =
+    document.querySelector('[data-columns-table]') ||
+    document.querySelector('table');
+  if (!table) return;
+
+  // Clave para recordar las columnas por vista/tabla
+  const tableId = table.dataset.columnsTable || location.pathname;
+  const STORAGE_KEY = 'cols:' + tableId;
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function applyVisibility() {
+    const state = loadState(); // {0: true, 1: false, ...}
+
+    // Encabezados
+    const theadCells = table.querySelectorAll('thead tr th');
+    theadCells.forEach((th, idx) => {
+      const visible = state[idx] !== false; // por defecto visible
+      th.style.display = visible ? '' : 'none';
+    });
+
+    // Celdas
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      const tds = tr.querySelectorAll('td');
+      tds.forEach((td, idx) => {
+        const visible = state[idx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    // Sincronizar checkboxes + master
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+    let allOn = true;
+
+    checks.forEach((cb) => {
+      const idx = parseInt(cb.dataset.col || '0', 10);
+      const visible = state[idx] !== false;
+      cb.checked = visible;
+      if (!visible) allOn = false;
+    });
+
+    if (master) {
+      master.checked = allOn;
+    }
+  }
+
+  function bindToggles() {
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    // Individuales
+    checks.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        const state = loadState();
+        state[idx] = cb.checked;
+        saveState(state);
+        applyVisibility();
+      });
+    });
+
+    // Master "Show all columns"
+    if (master) {
+      master.addEventListener('change', () => {
+        const val = master.checked;
+        const state = loadState();
+
+        checks.forEach((cb) => {
+          const idx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[idx] = val;
+        });
+
+        saveState(state);
+        applyVisibility();
+      });
+    }
+  }
+
+  // Cerrar el <details> al hacer clic fuera
+  function bindOutsideClickToClose() {
+    const details = panel.closest('details');
+    if (!details) return;
+
+    document.addEventListener('click', (e) => {
+      if (!details.open) return;
+      if (details.contains(e.target)) return;
+      details.open = false;
+    });
+  }
+
+  // Inicializar
+  bindToggles();
+  applyVisibility();
+  bindOutsideClickToClose();
+})();
+</script>
 
 </div>
 {% endblock %}

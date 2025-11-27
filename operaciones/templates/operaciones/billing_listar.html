@@ -54,62 +54,76 @@
     </div>
   </div>
 
-  <!-- Quick filters (inputs más pequeños, independientes del ancho de la tabla) -->
-   <form id="filters-form"
-        method="get"
-        class="flex flex-wrap items-center gap-3 mb-3 text-sm">
+  <!-- Quick filters (compactos, independientes del ancho de la tabla) -->
+<form id="filters-form"
+      method="get"
+      class="mb-3 text-sm">
 
-    <input name="date"
-           value="{{ f.date }}"
-           id="f-date"
-           class="border rounded-lg px-3 py-2 w-52"
-           placeholder="Date (YYYY-MM-DD)"
-           autocomplete="off">
+  <div class="inline-flex flex-wrap items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
 
-    <input name="projid"
-           value="{{ f.projid }}"
-           id="f-projid"
-           class="border rounded-lg px-3 py-2 w-44"
-           placeholder="Project ID"
-           autocomplete="off">
+    <div class="w-full sm:w-52">
+      <input name="date"
+             value="{{ f.date }}"
+             id="f-date"
+             class="border rounded-lg px-2 py-1.5 w-full"
+             placeholder="Date (YYYY-MM-DD)"
+             autocomplete="off">
+    </div>
 
-    <input name="week"
-           value="{{ f.week }}"
-           id="f-week"
-           class="border rounded-lg px-3 py-2 w-32"
-           placeholder="Week"
-           autocomplete="off">
+    <div class="w-full sm:w-44">
+      <input name="projid"
+             value="{{ f.projid }}"
+             id="f-projid"
+             class="border rounded-lg px-2 py-1.5 w-full"
+             placeholder="Project ID"
+             autocomplete="off">
+    </div>
 
-    <input name="tech"
-           value="{{ f.tech }}"
-           id="f-tech"
-           class="border rounded-lg px-3 py-2 w-52"
-           placeholder="Technicians"
-           autocomplete="off">
+    <div class="w-full sm:w-32">
+      <input name="week"
+             value="{{ f.week }}"
+             id="f-week"
+             class="border rounded-lg px-2 py-1.5 w-full"
+             placeholder="Week"
+             autocomplete="off">
+    </div>
 
-    <input name="client"
-           value="{{ f.client }}"
-           id="f-client"
-           class="border rounded-lg px-3 py-2 w-52"
-           placeholder="Client"
-           autocomplete="off">
+    <div class="w-full sm:w-52">
+      <input name="tech"
+             value="{{ f.tech }}"
+             id="f-tech"
+             class="border rounded-lg px-2 py-1.5 w-full"
+             placeholder="Technicians"
+             autocomplete="off">
+    </div>
 
-    <div class="flex items-center gap-2">
+    <div class="w-full sm:w-52">
+      <input name="client"
+             value="{{ f.client }}"
+             id="f-client"
+             class="border rounded-lg px-2 py-1.5 w-full"
+             placeholder="Client"
+             autocomplete="off">
+    </div>
+
+    <div class="w-full sm:w-auto flex items-center gap-2">
       <input name="status"
              value="{{ f.status }}"
              id="f-status"
-             class="border rounded-lg px-3 py-2 w-44"
+             class="border rounded-lg px-2 py-1.5 w-40"
              placeholder="Status"
              autocomplete="off">
       <button id="btn-clear"
               type="button"
-              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 whitespace-nowrap">
+              class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 whitespace-nowrap">
         Clear
       </button>
     </div>
 
+    <!-- Mantener cantidad actual -->
     <input type="hidden" name="cantidad" value="{{ cantidad }}">
-  </form>
+  </div>
+</form>
 
 
 <div class="flex justify-start mb-2">
@@ -590,20 +604,20 @@ else %}asignado assigned{% endif %}"
         <input type="hidden" name="status" value="{{ f.status }}">
         <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
         <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-          <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
-          <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
-          <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
-          <option value="todos"{% if cantidad == 'todos' %}selected{% endif %}>All</option>
-        </select>
+  <option value="5"   {% if cantidad == '5' %}selected{% endif %}>5</option>
+  <option value="10"  {% if cantidad == '10' %}selected{% endif %}>10</option>
+  <option value="20"  {% if cantidad == '20' %}selected{% endif %}>20</option>
+  <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+</select>
       </form>
     </div>
 
     <div class="mt-2 flex justify-center gap-2 text-sm">
-      {% if pagina.has_previous and cantidad != 'todos' %}
+      {% if pagina.has_previous %}
         <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
         <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
       {% endif %}
-      {% if pagina.has_next and cantidad != 'todos' %}
+      {% if pagina.has_next %}
         <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
         <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
       {% endif %}

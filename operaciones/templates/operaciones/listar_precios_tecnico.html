@@ -4,13 +4,13 @@
 {% block title %}Technician Prices{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <!-- Header -->
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-start gap-2 mb-4">
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💰 Technician Prices</h2>
 
-    <div class="flex items-center gap-2">
+    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
       <a href="{% url 'operaciones:importar_precios' %}{% if request.GET.proyecto_id %}?proyecto_id={{ request.GET.proyecto_id }}{% endif %}"
          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
         ➕ Import Prices
@@ -26,39 +26,44 @@
   </div>
 
   <!-- Filtros (auto-envío con debounce) -->
-  <form id="filters-form" method="get" class="mb-4 bg-gray-50 border border-gray-200 rounded-xl p-3">
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">Technician</label>
-        <input type="text" name="f_tecnico" value="{{ f_tecnico }}" placeholder="Name/username"
-               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">City</label>
-        <input type="text" name="f_ciudad" value="{{ f_ciudad }}" placeholder="City"
-               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">Project</label>
-        <input type="text" name="f_proyecto" value="{{ f_proyecto }}" placeholder="Project"
-               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">Job Code</label>
-        <input type="text" name="f_codigo" value="{{ f_codigo }}" placeholder="Code"
-               class="w-full border rounded-lg px-3 py-2 text-sm filter-input" />
-      </div>
+<form id="filters-form" method="get" class="mb-4">
+  <div class="inline-flex flex-wrap gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+
+    <div class="w-full sm:w-48">
+      <label class="block text-xs text-gray-600 mb-1">Technician</label>
+      <input type="text" name="f_tecnico" value="{{ f_tecnico }}" placeholder="Name/username"
+             class="w-full border rounded-lg px-2 py-1.5 text-sm filter-input" />
     </div>
 
-    <div class="mt-3 flex flex-wrap gap-2">
+    <div class="w-full sm:w-40">
+      <label class="block text-xs text-gray-600 mb-1">City</label>
+      <input type="text" name="f_ciudad" value="{{ f_ciudad }}" placeholder="City"
+             class="w-full border rounded-lg px-2 py-1.5 text-sm filter-input" />
+    </div>
+
+    <div class="w-full sm:w-48">
+      <label class="block text-xs text-gray-600 mb-1">Project</label>
+      <input type="text" name="f_proyecto" value="{{ f_proyecto }}" placeholder="Project"
+             class="w-full border rounded-lg px-2 py-1.5 text-sm filter-input" />
+    </div>
+
+    <div class="w-full sm:w-36">
+      <label class="block text-xs text-gray-600 mb-1">Job Code</label>
+      <input type="text" name="f_codigo" value="{{ f_codigo }}" placeholder="Code"
+             class="w-full border rounded-lg px-2 py-1.5 text-sm filter-input" />
+    </div>
+
+    <div class="w-full sm:w-auto flex items-end">
       <!-- Mantener cantidad actual al filtrar -->
       <input type="hidden" name="cantidad" value="{{ cantidad }}">
       <a href="{% url 'operaciones:listar_precios_tecnico' %}"
-         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-full text-sm">
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-full text-sm text-center">
         Reset
       </a>
     </div>
-  </form>
+
+  </div>
+</form>
 
   <!-- Form que envía los IDs seleccionados -->
   <form id="bulk-delete-form" method="post" action="{% url 'operaciones:bulk_delete_precios' %}">

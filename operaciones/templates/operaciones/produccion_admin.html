@@ -4,70 +4,78 @@
 {% block title %}Production Verification{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-  <!-- Header -->
-  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-    <div class="flex items-center gap-3">
-      <h1 class="text-2xl font-bold">✅ Production Verification</h1>
-    </div>
-
-    <!-- Derecha: Current week + botones -->
-    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
-      <span class="text-sm text-gray-600 text-center sm:text-left">
-        Current week: <b>{{ current_week }}</b>
-      </span>
-      <a href="{% url 'operaciones:admin_weekly_payments' %}"
-         class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
-        <span class="sm:hidden">💳 Totals</span>
-        <span class="hidden sm:inline">💳 Show totals to pay</span>
-      </a>
-
-      <a href="{% url 'operaciones:adjustment_new' %}"
-         class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
-        ➕ New Adjustment
-      </a>
-
-      <a href="{% url 'operaciones:Exportar_produccion_admin' %}?{{ filters_qs }}"
-         class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
-        ⬇ Export
-      </a>
-    </div>
+<!-- Header -->
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-start gap-2 mb-4">
+  <div class="flex items-center gap-3">
+    <h1 class="text-2xl font-bold">✅ Production Verification</h1>
   </div>
 
+  <!-- Izquierda: Current week + botones -->
+  <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+    <span class="text-sm text-gray-600 text-center sm:text-left">
+      Current week: <b>{{ current_week }}</b>
+    </span>
+    <a href="{% url 'operaciones:admin_weekly_payments' %}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+      <span class="sm:hidden">💳 Totals</span>
+      <span class="hidden sm:inline">💳 Show totals to pay</span>
+    </a>
+
+    <a href="{% url 'operaciones:adjustment_new' %}"
+       class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+      ➕ New Adjustment
+    </a>
+
+    <a href="{% url 'operaciones:Exportar_produccion_admin' %}?{{ filters_qs }}"
+       class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-full shadow w-full sm:w-auto whitespace-nowrap text-sm text-center">
+      ⬇ Export
+    </a>
+  </div>
+</div>
+
   <!-- Filtros -->
-  <form id="filters" class="mb-3" onsubmit="return false;">
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
-      <div>
-        <label class="text-xs text-gray-600">Project</label>
-        <input name="f_project" type="text" value="{{ f_project }}"
-               class="w-full border rounded px-2 py-1.5"
-               placeholder="Project or ID">
-      </div>
-      <div>
-        <label class="text-xs text-gray-600">Real pay week</label>
-        <input name="f_week" type="text" value="{{ f_week_input }}"
-               class="w-full border rounded px-2 py-1.5"
-               placeholder="2025-W34">
-      </div>
-      <div>
-        <label class="text-xs text-gray-600">Technician</label>
-        <input name="f_tech" type="text" value="{{ f_tech }}"
-               class="w-full border rounded px-2 py-1.5"
-               placeholder="Name or username">
-      </div>
-      <div>
-        <label class="text-xs text-gray-600">Client</label>
-        <input name="f_client" type="text" value="{{ f_client }}"
-               class="w-full border rounded px-2 py-1.5"
-               placeholder="Client name">
-      </div>
-      <div class="flex items-end">
-        <a href="{% url 'operaciones:produccion_admin' %}"
-           class="px-3 py-2 rounded border bg-white hover:bg-gray-50 w-full text-center">Reset</a>
-      </div>
+<form id="filters" class="mb-3" onsubmit="return false;">
+  <div class="inline-flex flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+    
+    <div class="w-full sm:w-44">
+      <label class="text-xs text-gray-600">Project</label>
+      <input name="f_project" type="text" value="{{ f_project }}"
+             class="w-full border rounded px-2 py-1.5 text-sm"
+             placeholder="Project or ID">
     </div>
-  </form>
+
+    <div class="w-full sm:w-40">
+      <label class="text-xs text-gray-600">Real pay week</label>
+      <input name="f_week" type="text" value="{{ f_week_input }}"
+             class="w-full border rounded px-2 py-1.5 text-sm"
+             placeholder="2025-W34">
+    </div>
+
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Technician</label>
+      <input name="f_tech" type="text" value="{{ f_tech }}"
+             class="w-full border rounded px-2 py-1.5 text-sm"
+             placeholder="Name or username">
+    </div>
+
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Client</label>
+      <input name="f_client" type="text" value="{{ f_client }}"
+             class="w-full border rounded px-2 py-1.5 text-sm"
+             placeholder="Client name">
+    </div>
+
+    <div class="w-full sm:w-auto flex items-end">
+      <a href="{% url 'operaciones:produccion_admin' %}"
+         class="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
+        Reset
+      </a>
+    </div>
+
+  </div>
+</form>
 
   <!-- Tabla -->
   <div id="prod-wrap">
