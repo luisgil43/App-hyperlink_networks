@@ -155,7 +155,7 @@
       </thead>
       <tbody class="text-center">
         {% for mov in pagina %}
-        <tr class="border-t">
+        <tr class="border-t" data-mov-id="{{ mov.id }}">
           <td class="p-2 border">{{ mov.usuario }}</td>
           <td class="p-2 border">{{ mov.fecha }}</td>
           <td class="p-2 border">{{ mov.proyecto }}</td>
@@ -576,23 +576,57 @@
   }
 
   function engancharAprobar(){
-    zona.querySelectorAll('.js-approve').forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
+    zona.querySelectorAll('.js-approve').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
         e.preventDefault();
-        const url = btn.dataset.url;
+
+        const url    = btn.dataset.url;
         const method = (btn.dataset.method || 'POST').toUpperCase();
-        try{
-          if(method === 'GET'){
-            await fetch(url, { method: 'GET' });
-          }else{
-            const fd  = new FormData();
-            fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
-            await fetch(url, { method:'POST', body: fd });
+        const row    = btn.closest('tr');
+
+        if (!url || !row) return;
+
+        // Evitar doble click
+        if (btn.dataset.loading === '1') return;
+        btn.dataset.loading = '1';
+
+        const originalText = btn.textContent;
+        btn.textContent    = 'Approving...';
+
+        try {
+          const fd = new FormData();
+          fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+          const resp = await fetch(url, {
+            method: method,
+            body: fd,
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',  // para que el backend sepa que es AJAX
+            },
+          });
+
+          if (!resp.ok) {
+            throw new Error('Error approving movement.');
           }
-          // 👇 aquí usamos paramsFromFilters(false) que ya respeta "cantidad"
-          const p = paramsFromFilters(false);
-          await cargarTablaCon(p.toString(), false);
-        }catch(_){}
+
+          // ✅ SOLO tocamos la fila actual
+          // Opción: quitar la fila (lo normal si estás viendo "pendientes")
+          row.style.transition = 'opacity 0.2s ease';
+          row.style.opacity = '0.4';
+          setTimeout(() => {
+            row.remove();
+          }, 200);
+
+          // Si quieres en vez de borrar la fila actualizar solo el texto de estado,
+          // aquí podríamos buscar la celda de estado y cambiarla con innerHTML.
+
+        } catch (err) {
+          console.error(err);
+          alert(err.message || 'Error approving movement.');
+          btn.textContent    = originalText;
+          btn.dataset.loading = '';
+          return;
+        }
       });
     });
   }

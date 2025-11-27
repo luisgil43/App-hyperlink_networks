@@ -454,25 +454,23 @@
 
   <!-- Pagination -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-    <form method="get" class="flex items-center gap-2">
-      <input type="hidden" name="scope" value="{{ scope }}">
+    <form id="formCantidad" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-      <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+        <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
         <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
         <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
+        <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+
+        
       </select>
     </form>
   </div>
 
-  <div class="mt-2 flex justify-center text-sm">
-    {% if cantidad == 'todos' %}
-      <span>Page 1 of 1</span>
-    {% else %}
-      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-    {% endif %}
-  </div>
+<div class="mt-2 flex justify-center text-sm">
+  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+</div>
 
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous and cantidad != 'todos' %}
@@ -1532,6 +1530,22 @@ document.addEventListener('click', function(e){
       errBox.classList.remove('hidden');
       btnOk.disabled = false;
     }
+  });
+})();
+</script>
+<script>
+(function () {
+  const select = document.getElementById('cantidad');
+  if (!select) return;
+
+  select.addEventListener('change', function () {
+    const url = new URL(window.location.href);
+    // setear cantidad nueva
+    url.searchParams.set('cantidad', select.value);
+    // resetear a página 1 para que no se quede en una página fuera de rango
+    url.searchParams.set('page', '1');
+    // recargar con los mismos filtros + nueva cantidad
+    window.location.href = url.toString();
   });
 })();
 </script>

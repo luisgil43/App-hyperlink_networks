@@ -426,22 +426,63 @@ def eliminar_proyecto(request, pk):
 @rol_requerido('facturacion', 'supervisor', 'pm', 'admin')
 @project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
 def aprobar_movimiento(request, pk):
+    """
+    Aprueba un movimiento.
+
+    - Si es petición AJAX → responde JSON (sin redirect).
+    - Si es petición normal → mantiene el redirect a listar_cartola.
+    """
     mov = get_object_or_404(CartolaMovimiento, pk=pk)
+
+    ok = False
+    prev_status = mov.status
+    new_status = mov.status
+
     if mov.tipo and mov.tipo.categoria != "abono":
-        # Asignar aprobador según el rol
-        if request.user.es_supervisor and mov.status == 'pendiente_supervisor':
+        # Asignar aprobador según el rol / estado actual
+        if getattr(request.user, "es_supervisor", False) and mov.status == 'pendiente_supervisor':
             mov.status = 'aprobado_supervisor'
             mov.aprobado_por_supervisor = request.user
-        elif request.user.es_pm and mov.status == 'aprobado_supervisor':
+        elif getattr(request.user, "es_pm", False) and mov.status == 'aprobado_supervisor':
             mov.status = 'aprobado_pm'
             mov.aprobado_por_pm = request.user
-        elif request.user.es_facturacion and mov.status == 'aprobado_pm':
+        elif getattr(request.user, "es_facturacion", False) and mov.status == 'aprobado_pm':
             mov.status = 'aprobado_finanzas'
-            mov.aprobado_por_finanzas = request.user  # Usuario de finanzas
+            mov.aprobado_por_finanzas = request.user
 
-        mov.motivo_rechazo = ''  # Limpiar cualquier rechazo previo
-        mov.save()
+        if mov.status != prev_status:
+            mov.motivo_rechazo = ''  # Limpiar cualquier rechazo previo
+            mov.save()
+            ok = True
+            new_status = mov.status
+
+    # --- Si es AJAX, devolvemos JSON ---
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        if not ok:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "Movement cannot be approved in the current state or category.",
+                    "status": mov.status,
+                    "status_display": mov.get_status_display(),
+                },
+                status=400,
+            )
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "id": mov.pk,
+                "status": new_status,
+                "status_display": mov.get_status_display(),
+            }
+        )
+
+    # --- Flujo normal (no AJAX) ---
+    if ok:
         messages.success(request, "Expense approved successfully.")
+    else:
+        messages.error(request, "Expense cannot be approved in the current state.")
     return redirect('facturacion:listar_cartola')
 
 
@@ -1240,15 +1281,31 @@ def invoices_list(request):
     # Evitar duplicados por joins con tecnicos_sesion/items
     qs = qs.distinct()
 
-    # -------------------- Paginación --------------------
-    cantidad = request.GET.get("cantidad", "10")
-    try:
-        per_page = 1_000_000 if cantidad == "todos" else int(cantidad)
-    except Exception:
-        per_page = 10
-        cantidad = "10"
+      # -------------------- Paginación --------------------
+    raw_cantidad = request.GET.get("cantidad", "10")
+    page_number = request.GET.get("page")
 
-    pagina = Paginator(qs, per_page).get_page(request.GET.get("page"))
+    MAX_PAGE_SIZE = 100  # 👈 límite duro
+
+    if raw_cantidad == "todos":
+        # si viene "todos", en realidad mostramos como máximo 100
+        per_page = MAX_PAGE_SIZE
+        cantidad = "todos"
+    else:
+        try:
+            per_page = int(raw_cantidad)
+            cantidad = raw_cantidad
+        except Exception:
+            per_page = 10
+            cantidad = "10"
+
+        # mínimos / máximos
+        if per_page < 5:
+            per_page = 5
+        if per_page > MAX_PAGE_SIZE:
+            per_page = MAX_PAGE_SIZE
+
+    pagina = Paginator(qs, per_page).get_page(page_number)
 
     # Adjuntamos etiqueta legible de proyecto (project_label) a cada sesión
     pagina = _attach_project_label(pagina)
