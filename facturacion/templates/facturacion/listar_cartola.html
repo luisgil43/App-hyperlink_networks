@@ -14,8 +14,15 @@
   .campo-filtro:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.3);outline:none}
   .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
   @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
-  .tabla-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%}
-  .tabla-responsive table{white-space:nowrap;min-width:1200px}
+  .tabla-responsive{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  width:100%;
+}
+.tabla-responsive table{
+  white-space:nowrap;
+  min-width:100%;   /* usa el ancho del contenedor, pero crece si hace falta */
+}
 </style>
 
 <div class="flex flex-wrap items-center gap-3 mb-4">
@@ -284,18 +291,17 @@
         <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
         <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
         <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
+        <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+
+        
       </select>
     </form>
   </div>
 
-  <div class="mt-2 flex justify-center text-sm">
-    {% if cantidad == 'todos' %}
-      <span>Page 1 of 1</span>
-    {% else %}
-      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-    {% endif %}
-  </div>
+<div class="mt-2 flex justify-center text-sm">
+  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+</div>
 
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous %}

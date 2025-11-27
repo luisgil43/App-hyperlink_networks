@@ -112,10 +112,31 @@ def listar_cartola(request):
 
     params = request.GET.copy()
 
-    cantidad = params.get('cantidad', '10')
+    # ==========================
+    # Manejo de 'cantidad'
+    # ==========================
+    raw_cantidad = params.get('cantidad', '10')
     page_number = params.get('page', '1')
-    cantidad_int = 1000000 if cantidad == 'todos' else int(cantidad)
 
+    MAX_PAGE_SIZE = 100  # 👈 límite duro
+
+    try:
+        cantidad_int = int(raw_cantidad)
+    except (TypeError, ValueError):
+        cantidad_int = 10  # valor por defecto sano
+
+    # mínimos / máximos
+    if cantidad_int < 5:
+        cantidad_int = 5
+    if cantidad_int > MAX_PAGE_SIZE:
+        cantidad_int = MAX_PAGE_SIZE
+
+    # lo que usará el template para marcar el <select>
+    cantidad = str(cantidad_int)
+
+    # ==========================
+    # Filtros
+    # ==========================
     du = params.get('du', '').strip()
     fecha_str = params.get('fecha', '').strip()
     proyecto = params.get('proyecto', '').strip()
@@ -130,6 +151,7 @@ def listar_cartola(request):
         .order_by('-fecha')
     )
     movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
+
     # Usuario (username, nombre, apellido)
     if du:
         movimientos = movimientos.filter(
@@ -149,17 +171,21 @@ def listar_cartola(request):
             fecha_valida = parse_date_any(fecha_str)
             if not fecha_valida:
                 messages.warning(
-                    request, "Invalid date. Use DD-MM-YYYY or only the day (e.g. 20).")
+                    request,
+                    "Invalid date. Use DD-MM-YYYY or only the day (e.g. 20)."
+                )
             else:
                 campo_fecha = CartolaMovimiento._meta.get_field('fecha')
                 if isinstance(campo_fecha, models.DateTimeField):
                     # Rango del día en la zona horaria activa
                     tz = timezone.get_current_timezone()
                     start = timezone.make_aware(
-                        datetime.combine(fecha_valida, time.min), tz)
+                        datetime.combine(fecha_valida, time.min), tz
+                    )
                     end = start + timedelta(days=1)
                     movimientos = movimientos.filter(
-                        fecha__gte=start, fecha__lt=end)
+                        fecha__gte=start, fecha__lt=end
+                    )
                 else:
                     # Si es DateField: igualdad directa
                     movimientos = movimientos.filter(fecha=fecha_valida)
@@ -174,7 +200,9 @@ def listar_cartola(request):
     if estado:
         movimientos = movimientos.filter(status=estado)
 
+    # ==========================
     # Paginación
+    # ==========================
     paginator = Paginator(movimientos, cantidad_int)
     pagina = paginator.get_page(page_number)
 
@@ -196,15 +224,13 @@ def listar_cartola(request):
 
     ctx = {
         'pagina': pagina,
-        'cantidad': cantidad,
+        'cantidad': cantidad,   # 👈 ahora siempre es '5','10','20','50','100', etc.
         'estado_choices': estado_choices,
         'filtros': filtros,
         'base_qs': base_qs,
         'full_qs': full_qs,
     }
     return render(request, 'facturacion/listar_cartola.html', ctx)
-
-
 
 
 @login_required
