@@ -452,8 +452,8 @@ def two_factor_verify(request):
 
         # Código correcto → recuperamos backend y limpiamos sesión temporal
         backend_path = request.session.pop("pending_2fa_backend", None)
-        next_url = request.session.pop("pending_2fa_next", None)
         request.session.pop("pending_2fa_user_id", None)
+        next_url = request.session.pop("pending_2fa_next", None)
 
         # Si por alguna razón no tenemos backend en sesión, usamos el primero de settings
         if not backend_path:
@@ -462,25 +462,27 @@ def two_factor_verify(request):
         # Hacemos login definitivo indicando el backend
         login(request, user, backend=backend_path)
 
-        # --- Definimos la response final (respetando next si existe) ---
-        if next_url:
-            from django.shortcuts import redirect as _redirect
-            response = _redirect(next_url)
-        else:
-            response = _redirect_after_login(request, user)
-
-        # --- Creamos dispositivo confiable si el usuario lo pidió ---
+        # Creamos dispositivo confiable si el usuario lo pidió
         if remember_device:
             device = _create_trusted_device(request, user)
+            response = _redirect_after_login(request, user)
             max_age = TRUSTED_DEVICE_DAYS * 24 * 60 * 60
             response.set_cookie(
                 TRUSTED_DEVICE_COOKIE_NAME,
                 device.token,
                 max_age=max_age,
+                expires=device.expires_at,   # 👈 fuerza cookie persistente hasta esta fecha
                 secure=not settings.DEBUG,
                 httponly=True,
                 samesite="Lax",
             )
+        else:
+            response = _redirect_after_login(request, user)
+
+        # Si había un next, lo respetamos
+        if next_url:
+            from django.shortcuts import redirect as _redirect
+            response = _redirect(next_url)
 
         return response
 
