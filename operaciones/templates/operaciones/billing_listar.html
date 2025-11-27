@@ -4,88 +4,220 @@
 
 {% block dashboard_content %}
 
-<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   <!-- Header -->
 
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-    <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Billing</h1>
+  <!-- Header -->
+<div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-    <!-- Toolbar (right side): Bulk actions -->
-    <div class="flex items-center gap-2">
-      <!-- Actions dropdown -->
-      <div class="relative" id="bulk-actions">
-        <button type="button" id="btn-actions"
-                class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled>
-          Actions ▾
-        </button>
-        <div id="menu-actions"
-          class="hidden absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
-          <button type="button" data-action="export"
-                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
-          <button type="button" data-action="send"
-                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
-          <button type="button" data-action="both"
-                  class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
-          <button type="button" data-action="merge_xlsx" class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
+  <div class="flex flex-col gap-3 mb-4">
+    <!-- Título + botones en la izquierda -->
+    <div class="flex flex-wrap items-center gap-3">
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        🧾 Billing
+      </h1>
+
+      <!-- Toolbar (left): Bulk actions -->
+      <div class="flex items-center gap-2">
+        <!-- Actions dropdown -->
+        <div class="relative" id="bulk-actions">
+          <button type="button" id="btn-actions"
+                  class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled>
+            Actions ▾
+          </button>
+          <div id="menu-actions"
+            class="hidden absolute left-0 mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
+            <button type="button" data-action="export"
+                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
+            <button type="button" data-action="send"
+                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
+            <button type="button" data-action="both"
+                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
+            <button type="button" data-action="merge_xlsx"
+                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
+          </div>
         </div>
+
+        <!-- Hidden export form (kept for server export endpoint) -->
+        <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
+          {% csrf_token %}
+          <input type="hidden" name="ids" id="export-ids">
+        </form>
+
+        <a href="{% url 'operaciones:crear_billing' %}"
+           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+          ➕ New Billing
+        </a>
       </div>
-
-      <!-- Hidden export form (kept for server export endpoint) -->
-      <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
-        {% csrf_token %}
-        <input type="hidden" name="ids" id="export-ids">
-      </form>
-
-      <a href="{% url 'operaciones:crear_billing' %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
-        ➕ New Billing
-      </a>
     </div>
   </div>
 
-  <!-- Quick filters -->
-  <form id="filters-form" method="get" class="grid sm:grid-cols-6 gap-2 mb-3">
-    <input name="date"   value="{{ f.date }}"   id="f-date"   class="border rounded px-3 py-2" placeholder="Date (YYYY-MM-DD)" autocomplete="off">
-    <input name="projid" value="{{ f.projid }}" id="f-projid" class="border rounded px-3 py-2" placeholder="Project ID" autocomplete="off">
-    <input name="week"   value="{{ f.week }}"   id="f-week"   class="border rounded px-3 py-2" placeholder="Week" autocomplete="off">
-    <input name="tech"   value="{{ f.tech }}"   id="f-tech"   class="border rounded px-3 py-2" placeholder="Technicians" autocomplete="off">
-    <input name="client" value="{{ f.client }}" id="f-client" class="border rounded px-3 py-2" placeholder="Client" autocomplete="off">
-    <div class="flex gap-2">
-      <input name="status" value="{{ f.status }}" id="f-status" class="border rounded px-3 py-2 w-full" placeholder="Status" autocomplete="off">
-      <button id="btn-clear" type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200">Clear</button>
+  <!-- Quick filters (inputs más pequeños, independientes del ancho de la tabla) -->
+   <form id="filters-form"
+        method="get"
+        class="flex flex-wrap items-center gap-3 mb-3 text-sm">
+
+    <input name="date"
+           value="{{ f.date }}"
+           id="f-date"
+           class="border rounded-lg px-3 py-2 w-52"
+           placeholder="Date (YYYY-MM-DD)"
+           autocomplete="off">
+
+    <input name="projid"
+           value="{{ f.projid }}"
+           id="f-projid"
+           class="border rounded-lg px-3 py-2 w-44"
+           placeholder="Project ID"
+           autocomplete="off">
+
+    <input name="week"
+           value="{{ f.week }}"
+           id="f-week"
+           class="border rounded-lg px-3 py-2 w-32"
+           placeholder="Week"
+           autocomplete="off">
+
+    <input name="tech"
+           value="{{ f.tech }}"
+           id="f-tech"
+           class="border rounded-lg px-3 py-2 w-52"
+           placeholder="Technicians"
+           autocomplete="off">
+
+    <input name="client"
+           value="{{ f.client }}"
+           id="f-client"
+           class="border rounded-lg px-3 py-2 w-52"
+           placeholder="Client"
+           autocomplete="off">
+
+    <div class="flex items-center gap-2">
+      <input name="status"
+             value="{{ f.status }}"
+             id="f-status"
+             class="border rounded-lg px-3 py-2 w-44"
+             placeholder="Status"
+             autocomplete="off">
+      <button id="btn-clear"
+              type="button"
+              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 whitespace-nowrap">
+        Clear
+      </button>
     </div>
+
     <input type="hidden" name="cantidad" value="{{ cantidad }}">
   </form>
 
+
+<div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+
+    <div id="columnToggles" class="absolute left-0 mt-1 w-72 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <!-- ✅ Master checkbox -->
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all columns</span>
+      </label>
+
+      <!-- ✅ UNA LÍNEA POR COLUMNA (índice 0-16 en el mismo orden de tu <thead>) -->
+      <div class="space-y-1 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="0" checked> <span>Date</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="1" checked> <span>Project ID</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="2" checked> <span>Project address</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="3" checked> <span>Week</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="4" checked> <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Technicians</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Client</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>City</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Project</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Office</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Technical Billing</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Company Billing</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Real Company Billing</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="13" checked> <span>Different</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="14" checked> <span>Finance Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="15" checked> <span>Real pay week / Direct discount week</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="16" checked> <span>Actions</span>
+        </label>
+      </div>
+    </div>
+  </details>
+</div>
+
+
   <!-- Table -->
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
-    <table id="billing-table" class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
-      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
-        <tr>
-          <th class="p-2 border w-10"></th> <!-- caret -->
-          <th class="p-2 border w-10">
-            <input id="chk-all" type="checkbox" class="w-4 h-4">
-          </th> <!-- select -->
-          <th class="p-2 border text-left">Date</th>
-          <th class="p-2 border text-left">Project ID</th>
-          <th class="p-2 border text-left">Project address</th>
-          <th class="p-2 border text-left">Week</th>
-          <th class="p-2 border text-left">Status</th>
-          <th class="p-2 border text-left">Technicians</th>
-          <th class="p-2 border text-left">Client</th>
-          <th class="p-2 border text-left">City</th>
-          <th class="p-2 border text-left">Project</th>
-          <th class="p-2 border text-left">Office</th>
-          <th class="p-2 border text-right">Technical Billing</th>
-          <th class="p-2 border text-right">Company Billing</th>
-          <th class="p-2 border text-right">Real Company Billing</th>
-          <th class="p-2 border text-right">Different</th>
-          <th class="p-2 border text-left">Finance Status</th>
-          <th class="p-2 border text-left">Real pay week/Direct discount week</th>
-          <th class="p-2 border text-center">Actions</th>
-        </tr>
-      </thead>
+  <table id="billing-table"
+         data-columns-table="billing"     
+         data-columns-offset="2"          
+         class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]"
+         style="white-space: nowrap;">
+    <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+      <tr>
+        <th class="p-2 border w-10"></th> <!-- caret -->
+        <th class="p-2 border w-10">
+          <input id="chk-all" type="checkbox" class="w-4 h-4">
+        </th> <!-- select -->
+        <th class="p-2 border text-left">Date</th>
+        <th class="p-2 border text-left">Project ID</th>
+        <th class="p-2 border text-left">Project address</th>
+        <th class="p-2 border text-left">Week</th>
+        <th class="p-2 border text-left">Status</th>
+        <th class="p-2 border text-left">Technicians</th>
+        <th class="p-2 border text-left">Client</th>
+        <th class="p-2 border text-left">City</th>
+        <th class="p-2 border text-left">Project</th>
+        <th class="p-2 border text-left">Office</th>
+        <th class="p-2 border text-right">Technical Billing</th>
+        <th class="p-2 border text-right">Company Billing</th>
+        <th class="p-2 border text-right">Real Company Billing</th>
+        <th class="p-2 border text-right">Different</th>
+        <th class="p-2 border text-left">Finance Status</th>
+        <th class="p-2 border text-left">Real pay week/Direct discount week</th>
+        <th class="p-2 border text-center">Actions</th>
+      </tr>
+    </thead>
       <tbody class="text-left">
         {% for s in pagina.object_list %}
         <!-- Main row -->
@@ -1323,6 +1455,10 @@ document.addEventListener('click', function(e){
     const newPager = doc.getElementById('pager');
     const curPager = document.getElementById('pager');
     if (newPager && curPager) curPager.replaceWith(newPager);
+
+    if (window.applyBillingColumnsVisibility) {
+      window.applyBillingColumnsVisibility();
+    }
   }
 
   function buildUrlFromForm(){
@@ -1491,5 +1627,152 @@ document.addEventListener('click', function(e){
     const data = await resp.json().catch(() => ({}));
     // TODO: refrescar la celda/row si lo necesitas
   }
+</script>
+
+<script>
+(function () {
+  const panel = document.getElementById('columnToggles');
+  if (!panel) return;
+
+  const table = document.getElementById('billing-table');
+  if (!table) return;
+
+  // 👇 columnas fijas al inicio: caret + checkbox
+  const offset = parseInt(table.dataset.columnsOffset || '0', 10);
+
+  // clave única para esta tabla en localStorage
+  const tableId = table.dataset.columnsTable || 'billing-table';
+  const STORAGE_KEY = 'cols:' + tableId;
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function applyVisibility() {
+    const state = loadState(); // índices lógicos: 0=Date, 1=Project ID, ...
+
+    // --- THEAD ---
+    const theadCells = table.querySelectorAll('thead tr th');
+    theadCells.forEach((th, realIdx) => {
+      // columnas fijas (flecha + checkbox) SIEMPRE visibles
+      if (realIdx < offset) {
+        th.style.display = '';
+        return;
+      }
+      const logicalIdx = realIdx - offset;
+      const visible = state[logicalIdx] !== false; // por defecto visible
+      th.style.display = visible ? '' : 'none';
+    });
+
+    // --- TBODY ---
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      const tds = tr.querySelectorAll('td');
+
+      // 🔹 NO queremos aplicar la lógica de columnas a las filas de detalle
+      //    (las que NO tienen data-row="main"), para que el detalle se vea completo.
+      const isMain = tr.dataset.row === 'main';
+      if (!isMain) {
+        // mostramos siempre todas las celdas de detalle
+        tds.forEach((td) => {
+          td.style.display = '';
+        });
+        return;
+      }
+
+      // Fila principal -> sí aplica la lógica de columnas
+      tds.forEach((td, realIdx) => {
+        if (realIdx < offset) {
+          td.style.display = '';
+          return;
+        }
+        const logicalIdx = realIdx - offset;
+        const visible = state[logicalIdx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    // Sincronizar checkboxes del panel + master
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+    let allOn = true;
+
+    checks.forEach((cb) => {
+      const logicalIdx = parseInt(cb.dataset.col || '0', 10);
+      const visible = state[logicalIdx] !== false;
+      cb.checked = visible;
+      if (!visible) allOn = false;
+    });
+
+    if (master) {
+      master.checked = allOn;
+    }
+  }
+
+  function bindToggles() {
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    // Checkboxes individuales
+    checks.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const logicalIdx = parseInt(cb.dataset.col || '0', 10);
+        const state = loadState();
+        state[logicalIdx] = cb.checked;   // true/false
+        saveState(state);
+        applyVisibility();
+      });
+    });
+
+    // Master "Show all columns"
+    if (master) {
+      master.addEventListener('change', () => {
+        const val = master.checked;
+        const state = loadState();
+
+        checks.forEach((cb) => {
+          const logicalIdx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[logicalIdx] = val;
+        });
+
+        saveState(state);
+        applyVisibility();
+      });
+    }
+  }
+
+  // Cerrar el <details> al hacer clic fuera
+  function bindOutsideClickToClose() {
+    const details = panel.closest('details');
+    if (!details) return;
+
+    document.addEventListener('click', (e) => {
+      if (!details.open) return;
+      if (details.contains(e.target)) return;
+      details.open = false;
+    });
+  }
+
+  // Init
+  bindToggles();
+  applyVisibility();
+  bindOutsideClickToClose();
+
+  // Lo dejamos global por si luego quieres re-aplicarlo tras un AJAX
+  window.applyBillingColumnsVisibility = applyVisibility;
+})();
 </script>
 {% endblock %}
