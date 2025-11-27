@@ -322,25 +322,29 @@
           {% endif %}
         </tbody>
       </table>
+   </div>
+
+    <!-- Selector de cantidad SIEMPRE visible -->
+    <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+      <form method="get" class="flex items-center gap-2" onsubmit="return false;">
+        <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+        <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+          <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="50"   {% if cantidad == '50' %}selected{% endif %}>50</option>
+          <option value="100"  {% if cantidad == '100' %}selected{% endif %}>100</option>
+        </select>
+      </form>
+
+      {% if pagina.paginator.num_pages > 1 %}
+        <div class="mt-2 sm:mt-0 flex justify-center sm:justify-end text-sm w-full sm:w-auto">
+          <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+        </div>
+      {% endif %}
     </div>
 
-    {% if cantidad != 'todos' and pagina.paginator.num_pages > 1 %}
-      <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-        <form method="get" class="flex items-center gap-2" onsubmit="return false;">
-          <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-          <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
-            <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
-            <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
-            <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
-            <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-          </select>
-        </form>
-      </div>
-
-      <div class="mt-2 flex justify-center text-sm">
-        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-      </div>
-
+    {% if pagina.paginator.num_pages > 1 %}
       <div class="mt-2 flex justify-center gap-2 text-sm">
         {% if pagina.has_previous %}
           <a data-pagelink href="?{{ filters_qs }}&page=1"
@@ -351,26 +355,11 @@
         {% if pagina.has_next %}
           <a data-pagelink href="?{{ filters_qs }}&page={{ pagina.next_page_number }}"
              class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-          <a data-pagelink
-             href="?{{ filters_qs }}&page={{ pagina.next_page_number }}"
+          <a data-pagelink href="?{{ filters_qs }}&page={{ pagina.paginator.num_pages }}"
              class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
         {% endif %}
       </div>
-    {% else %}
-      <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-        <form method="get" class="flex items-center gap-2" onsubmit="return false;">
-          <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-          <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
-            <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
-            <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
-            <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
-            <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
-          </select>
-        </form>
-      </div>
     {% endif %}
-  </div>
-</div>
 
 <!-- Modal eliminar -->
 <div id="modal-del" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">

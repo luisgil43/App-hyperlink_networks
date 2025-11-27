@@ -951,11 +951,16 @@ from django.http import JsonResponse
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'facturacion')
 def listar_precios_tecnico(request):
-    # Cantidad por página
+    # ---- Cantidad por página (solo estos valores) ----
     cantidad_str = request.GET.get('cantidad', '10')
-    cantidad = 1000000 if cantidad_str == 'todos' else int(cantidad_str)
+    allowed_page_sizes = {"5", "10", "20", "50", "100"}
 
-    # Filtros (GET)
+    if cantidad_str not in allowed_page_sizes:
+        cantidad_str = "10"
+
+    cantidad = int(cantidad_str)
+
+    # ---- Filtros (GET) ----
     f_tecnico = (request.GET.get('f_tecnico') or '').strip()
     f_ciudad  = (request.GET.get('f_ciudad') or '').strip()
     f_proy    = (request.GET.get('f_proyecto') or '').strip()
@@ -973,7 +978,6 @@ def listar_precios_tecnico(request):
         if isinstance(f, dj_models.ForeignKey):
             qs = filter_queryset_by_access(qs, request.user, 'proyecto_id')
     except Exception:
-        # Si el modelo no tiene campo 'proyecto' o no es FK, no filtramos aquí
         pass
 
     if f_tecnico:
@@ -985,7 +989,6 @@ def listar_precios_tecnico(request):
     if f_ciudad:
         qs = qs.filter(ciudad__icontains=f_ciudad)
     if f_proy:
-        # Soporta ambos esquemas: FK a Proyecto o campo de texto simple
         try:
             qs = qs.filter(
                 Q(proyecto__nombre__icontains=f_proy) |
@@ -993,7 +996,6 @@ def listar_precios_tecnico(request):
             )
         except FieldError:
             qs = qs.filter(proyecto__icontains=f_proy)
-
     if f_codigo:
         qs = qs.filter(codigo_trabajo__icontains=f_codigo)
 
@@ -3794,33 +3796,22 @@ def produccion_admin(request):
 
         filas = [r for r in filas if _row_allowed(r)]
 
-    # --------------- Orden por semana real: más reciente primero ---------------
-    filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
-
     # --------------- Paginación ---------------
     cantidad = request.GET.get("cantidad", "10")
-    if cantidad != "todos":
-        try:
-            per_page = max(5, min(int(cantidad), 100))
-        except ValueError:
-            per_page = 10
-        paginator = Paginator(filas, per_page)
-        page_number = request.GET.get("page") or 1
-        pagina = paginator.get_page(page_number)
-    else:
-        class _OnePage:
-            number = 1
 
-            @property
-            def paginator(self):
-                class P:
-                    num_pages = 1
-                return P()
-            has_previous = False
-            has_next = False
-            object_list = filas
+    # Solo aceptamos estos tamaños; cualquier otro valor cae a 10
+    allowed_page_sizes = {"5", "10", "20", "50", "100"}
+    if cantidad not in allowed_page_sizes:
+        cantidad = "10"
 
-        pagina = _OnePage()
+    try:
+        per_page = int(cantidad)
+    except ValueError:
+        per_page = 10
+
+    paginator = Paginator(filas, per_page)
+    page_number = request.GET.get("page") or 1
+    pagina = paginator.get_page(page_number)
 
     # QS de filtros
     filters_dict = {

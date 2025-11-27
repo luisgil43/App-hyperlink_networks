@@ -134,7 +134,7 @@
     </div>
   </form>
 
-  <!-- Show (preservar filtros) -->
+<!-- Show (preservar filtros) -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form method="get" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -143,20 +143,17 @@
       <input type="hidden" name="f_proyecto" value="{{ f_proyecto }}">
       <input type="hidden" name="f_codigo"   value="{{ f_codigo }}">
       <select name="cantidad" id="cantidad" onchange="this.form.submit()" class="border rounded-lg px-3 py-1">
-        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
-        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
-        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
-        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+        <option value="5"    {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10"   {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20"   {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="50"   {% if cantidad == '50' %}selected{% endif %}>50</option>
+        <option value="100"  {% if cantidad == '100' %}selected{% endif %}>100</option>
       </select>
     </form>
   </div>
 
   <div class="mt-2 flex justify-center text-sm">
-    {% if cantidad == 'todos' %}
-      <span>Page 1 of 1</span>
-    {% else %}
-      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-    {% endif %}
+    <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
   </div>
 
   <!-- Paginación con filtros -->
@@ -174,7 +171,6 @@
          class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
     {% endif %}
   </div>
-</div>
 
 <!-- Modal de confirmación: Delete Selected -->
 <div id="confirmModal" class="fixed inset-0 z-[9999] hidden items-center justify-center">
