@@ -8,7 +8,8 @@
 
   <!-- Header -->
 
-
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 
   <div class="flex flex-col gap-3 mb-4">
     <!-- Título + botones en la izquierda -->
@@ -693,6 +694,19 @@ document.addEventListener('click', function(e){
              class="w-full border rounded-lg px-3 py-2"
              placeholder="Enter Daily Number">
 
+       <label class="block text-sm text-gray-700 mt-2">Finish date</label>
+      <input id="finance-finish"
+             type="text"
+             class="w-full border rounded-lg px-3 py-2"
+             placeholder="dd/mm/yyyy"
+             autocomplete="off"
+             required>
+
+      <!-- 🔴 mensaje de error debajo del campo -->
+      <p id="finance-finish-error"
+         class="text-xs text-red-600 mt-1 hidden"></p>
+
+
       <input type="hidden" id="finance-mode" value="send"><!-- send | both -->
       <input type="hidden" id="finance-ids-hidden" value="">
 
@@ -1011,16 +1025,28 @@ document.addEventListener('click', function(e){
   const form    = document.getElementById('finance-form');
   const noteEl  = document.getElementById('finance-note');
   const dailyEl = document.getElementById('finance-daily');
+  const finishEl = document.getElementById('finance-finish');
   const modeEl  = document.getElementById('finance-mode');
   const idsEl   = document.getElementById('finance-ids-hidden');
+  const finishErrorEl = document.getElementById('finance-finish-error');
 
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
 
-  function closeFinanceModal(){
+    function closeFinanceModal(){
     modal.classList.add('hidden');
     noteEl.value = '';
-    if (dailyEl) dailyEl.value = '';  
+    if (dailyEl)  dailyEl.value  = '';
+    if (finishEl) finishEl.value = '';
+
+    // 🔄 limpiar estados de error
+    if (finishErrorEl) {
+      finishErrorEl.textContent = '';
+      finishErrorEl.classList.add('hidden');
+    }
+    if (finishEl) {
+      finishEl.classList.remove('border-red-500','focus:ring-red-500','focus:border-red-500');
+    }
   }
 
   document.getElementById('finance-cancel')?.addEventListener('click', (e)=> {
@@ -1034,15 +1060,40 @@ document.addEventListener('click', function(e){
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal();
   });
 
-  form.addEventListener('submit', async (e)=>{
+   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const ids  = idsEl.value ? idsEl.value.split(',') : [];
     const mode = modeEl.value;
+
+        const finish = (finishEl?.value || '').trim();
+
+    // limpiar error previo
+    if (finishErrorEl) {
+      finishErrorEl.textContent = '';
+      finishErrorEl.classList.add('hidden');
+    }
+    if (finishEl) {
+      finishEl.classList.remove('border-red-500','focus:ring-red-500','focus:border-red-500');
+    }
+
+    if (!finish) {
+      if (finishErrorEl) {
+        finishErrorEl.textContent = 'Finish date is required.';
+        finishErrorEl.classList.remove('hidden');
+      }
+      if (finishEl) {
+        finishEl.classList.add('border-red-500','focus:ring-red-500','focus:border-red-500');
+        finishEl.focus();
+      }
+      return;
+    }
+
     try{
       await window.sendToFinance(
         ids,
         noteEl.value.trim(),
-        dailyEl?.value.trim() || ""   // 👈 pasamos Daily Number
+        dailyEl?.value.trim() || "",
+        finish                 // 👈 ahora enviamos la fecha
       );
       if(mode === 'both'){
         exportIdsInp.value = ids.join(',');
@@ -1244,13 +1295,18 @@ document.addEventListener('click', function(e){
   setActionsEnabled();
 
   // ---------- Robust sender (JSON-only, handles session/CSRF) ----------
-  async function sendToFinance(ids, note, daily){
+    async function sendToFinance(ids, note, daily, finishDate){
     const payload = {
       ids: ids || [],
       note: note || "",
     };
+
     if (daily) {
       payload.daily_number = daily;
+    }
+    if (finishDate) {
+      // "2025-12-04" (formato ISO que espera el backend)
+      payload.finish_date = finishDate;
     }
 
     const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
@@ -1786,6 +1842,58 @@ document.addEventListener('click', function(e){
 
   // Lo dejamos global por si luego quieres re-aplicarlo tras un AJAX
   window.applyBillingColumnsVisibility = applyVisibility;
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<script>
+(function () {
+  function initDatePickers() {
+    if (!window.flatpickr) {
+      console.warn('flatpickr no está disponible');
+      return;
+    }
+
+    // 👉 Campo del modal
+    var finish = document.getElementById('finance-finish');
+    if (finish && !finish._flatpickr) {
+  flatpickr(finish, {
+    dateFormat: 'Y-m-d',     // valor real para el backend
+    altInput: true,          // input visible
+    altFormat: 'd/m/Y',      // lo que ve el usuario
+    locale: 'en',
+    onChange: function () {
+      // cuando el usuario elige fecha, limpiamos el error
+      var err = document.getElementById('finance-finish-error');
+      if (err) {
+        err.textContent = '';
+        err.classList.add('hidden');
+      }
+      finish.classList.remove('border-red-500','focus:ring-red-500','focus:border-red-500');
+    }
+  });
+}
+
+    // (Opcional) si quieres también datepicker en el filtro rápido f-date:
+    var filterDate = document.getElementById('f-date');
+    if (filterDate && !filterDate._flatpickr) {
+      flatpickr(filterDate, {
+        dateFormat: 'Y-m-d',
+        altInput: true,
+        altFormat: 'Y-m-d',
+        locale: 'en',
+        allowInput: true
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDatePickers);
+  } else {
+    // Ya cargó el DOM (p.ej. si esta vista se inyecta con AJAX)
+    initDatePickers();
+  }
 })();
 </script>
 {% endblock %}

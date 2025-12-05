@@ -1781,6 +1781,9 @@ def _norm(txt: str) -> str:
     return "".join(ch for ch in t if ch.isalnum())
 
 
+from datetime import datetime  # 👈 si no lo tienes ya, agrégalo arriba
+
+
 @require_POST
 @login_required
 @rol_requerido("admin", "pm")
@@ -1798,8 +1801,9 @@ def billing_send_finance(request):
       - Sellar finance_sent_at también cuando new_status='review_discount'.
       - Permitir re-sellar si ya está en 'review_discount' PERO sin finance_sent_at (intentos previos).
     """
-        # ---- parseo ids + nota + daily_number ----
+    # ---- parseo ids + nota + daily_number + finish_date ----
     ids, note, daily_number = [], "", ""
+    finish_date = None
     ctype = (request.content_type or "").lower()
 
     if "application/json" in ctype:
@@ -1810,11 +1814,28 @@ def billing_send_finance(request):
         ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
         note = (payload.get("note") or "").strip()
         daily_number = (payload.get("daily_number") or "").strip()
+        finish_str = (payload.get("finish_date") or "").strip()
     else:
         raw = (request.POST.get("ids") or "").strip()
         ids = [int(x) for x in raw.split(",") if x.isdigit()]
         note = (request.POST.get("note") or "").strip()
         daily_number = (request.POST.get("daily_number") or "").strip()
+        finish_str = (request.POST.get("finish_date") or "").strip()
+
+    # 👉 parsear finish_date si viene
+    if finish_str:
+        try:
+            # formato esperado: YYYY-MM-DD (lo que envía el JS con flatpickr)
+            finish_date = datetime.fromisoformat(finish_str).date()
+        except ValueError:
+            try:
+                # fallback por si alguna vez llega como dd/mm/YYYY
+                finish_date = datetime.strptime(finish_str, "%d/%m/%Y").date()
+            except ValueError:
+                return JsonResponse(
+                    {"ok": False, "error": "INVALID_FINISH_DATE"},
+                    status=400,
+                )
 
     if not ids:
         return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
@@ -1940,6 +1961,11 @@ def billing_send_finance(request):
             if daily_number:
                 s.finance_daily_number = daily_number
                 touched_fields.append("finance_daily_number")
+
+            # 👇 NUEVO: guardar fecha de término si viene
+            if finish_date is not None:
+                s.finance_finish_date = finish_date
+                touched_fields.append("finance_finish_date")
 
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
@@ -2562,10 +2588,12 @@ def billing_send_to_finance(request):
 
     Reglas:
       - Descuentos directos (is_direct_discount=True):
-          -> finance_status='review_discount', finance_sent_at=now (si no está pagado).
+          -> finance_status='review_discount', finance_sent_at=now (si es primera vez y no está pagado).
+          -> si ya fue enviado antes: solo actualiza daily/finish_date/nota/updated_at.
       - No descuentos:
-          -> requieren estado en {'aprobado_supervisor','aprobado_pm','aprobado_finanzas'}
-             y se marcan como finance_status='sent', finance_sent_at=now.
+          -> requieren estado en {'aprobado_supervisor','aprobado_pm','aprobado_finanzas'}.
+          -> si es primera vez: finance_status='sent', finance_sent_at=now.
+          -> si ya está en sent/pending/in_review: solo actualiza daily/finish_date/nota/updated_at.
 
     Procesa id por id (no aborta el batch completo).
 
@@ -2577,49 +2605,77 @@ def billing_send_to_finance(request):
     """
     user = request.user
 
-    # === 1) parsear ids + nota ===
+    # === 1) parsear ids + nota + daily + finish_date ===
     ids, note = [], ""
+    daily_number = ""
+    finish_date_str = ""
+    finish_date = None
+
     if request.content_type and "application/json" in (request.content_type or ""):
         import json
         try:
             payload = json.loads(request.body.decode("utf-8"))
             ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
             note = (payload.get("note") or "").strip()
+            daily_number = (payload.get("daily_number") or "").strip()
+            finish_date_str = (payload.get("finish_date") or "").strip()
         except Exception:
             return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
     else:
         raw = (request.POST.get("ids") or "").strip()
         ids = [int(x) for x in raw.split(",") if x.isdigit()]
         note = (request.POST.get("note") or "").strip()
+        daily_number = (request.POST.get("daily_number") or "").strip()
+        finish_date_str = (request.POST.get("finish_date") or "").strip()
 
     if not ids:
         return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
 
+    # Parsear fecha de finalización si viene
+    if finish_date_str:
+        finish_date_str = finish_date_str.strip()
+        finish_date = None
+        parsed_ok = False
+
+        # 1) Intentar formato ISO: YYYY-MM-DD
+        try:
+            finish_date = date.fromisoformat(finish_date_str)
+            parsed_ok = True
+        except ValueError:
+            pass
+
+        # 2) Intentar formato chileno: DD/MM/YYYY
+        if not parsed_ok:
+            try:
+                finish_date = datetime.strptime(finish_date_str, "%d/%m/%Y").date()
+                parsed_ok = True
+            except ValueError:
+                pass
+
+        if not parsed_ok:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "INVALID_FINISH_DATE",
+                    "message": "Finish date must be in format YYYY-MM-DD or DD/MM/YYYY.",
+                },
+                status=400,
+            )
+
     allowed_ops = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     now = timezone.now()
 
-    # === 2) misma lógica de VISIBILIDAD que en listar_billing ===
-    # Usuarios privilegiados de historial
+    # === 2) misma lógica de VISIBILIDAD que en listar_billing (pero sin visible_filter) ===
     can_view_legacy_history = bool(
         user.is_superuser
         or getattr(user, "es_usuario_historial", False)
         or getattr(user, "usuario_historial", False)
     )
 
-    # Mismo filtro de visibilidad que en listar_billing
-    visible_filter = (
-        # descuento directo todavía sin enviar
-        (Q(is_direct_discount=True) & Q(finance_sent_at__isnull=True) & ~Q(finance_status='paid'))
-        |
-        # flujo normal: ocultar enviados / en proceso de cobro
-        (Q(is_direct_discount=False) & ~Q(finance_status__in=['sent', 'pending', 'paid', 'in_review']))
-    )
-
-    # Base queryset: SOLO los billings que el usuario podría ver en la lista
-    qs = (
+    base_qs = (
         SesionBilling.objects
         .select_for_update()
-        .filter(visible_filter, id__in=ids)
+        .filter(id__in=ids)
         .only(
             "id",
             "is_direct_discount",
@@ -2628,18 +2684,19 @@ def billing_send_to_finance(request):
             "finance_sent_at",
             "finance_updated_at",
             "finance_note",
+            "finance_daily_number",
+            "finance_finish_date",
             "proyecto",
             "proyecto_id",
         )
     )
 
-    # === 3) Para usuarios normales, limitar por proyectos asignados (igual que listar_billing) ===
     if not can_view_legacy_history:
         try:
             proyectos_user = filter_queryset_by_access(
-                Proyecto.objects.all(),  # modelo de proyectos
+                Proyecto.objects.all(),
                 user,
-                "id",                    # permiso por id de Proyecto
+                "id",
             )
         except Exception:
             proyectos_user = Proyecto.objects.none()
@@ -2657,69 +2714,77 @@ def billing_send_to_finance(request):
 
                 allowed_keys.add(str(p.id).strip())
 
-            qs = qs.filter(proyecto__in=allowed_keys)
+            qs = base_qs.filter(proyecto__in=allowed_keys)
         else:
-            # sin proyectos asignados -> no puede enviar nada
             qs = SesionBilling.objects.none().select_for_update()
-
-    # A partir de aquí, 'qs' contiene EXACTAMENTE los billings que
-    # el usuario puede ver en la lista y sobre los que tiene permiso de enviar.
+    else:
+        qs = base_qs
 
     updated_ids = []
-    skipped = {}  # id -> reason (paid, invalid_status, ...)
+    skipped = {}
 
     for s in qs:
-        # No se puede enviar si ya está pagado
+        # Nunca tocamos pagos
         if s.finance_status == "paid":
             skipped[s.id] = "paid"
             continue
 
+        base_fields = [
+            "finance_status",
+            "finance_sent_at",
+            "finance_updated_at",
+            "finance_note",
+        ]
+
         if s.is_direct_discount:
-            # Descuento directo: siempre enviable -> review_discount + sent_at
-            s.finance_status = "review_discount"
-            s.finance_sent_at = now
+            # Primera vez: setear estado & sent_at
+            if s.finance_sent_at is None and s.finance_status != "paid":
+                s.finance_status = "review_discount"
+                s.finance_sent_at = now
+
+            # Siempre actualizamos updated_at y nota (si viene)
             s.finance_updated_at = now
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
                 s.finance_note = (
                     s.finance_note + "\n" if s.finance_note else ""
                 ) + prefix + note
-            s.save(
-                update_fields=[
-                    "finance_status",
-                    "finance_sent_at",
-                    "finance_updated_at",
-                    "finance_note",
-                ]
-            )
+
+            s.save(update_fields=base_fields)
             updated_ids.append(s.id)
+
         else:
-            # Normal: validar estado operativo
+            # No descuentos: respetamos allowed_ops sobre estado de la sesión
             if s.estado not in allowed_ops:
                 skipped[s.id] = "invalid_status"
                 continue
 
-            s.finance_status = "sent"
-            s.finance_sent_at = now
+            # Primera vez: si aún no está en sent/pending/in_review → marcar como sent
+            if s.finance_status not in ["sent", "pending", "in_review"]:
+                s.finance_status = "sent"
+                s.finance_sent_at = now
+
+            # Siempre actualizamos updated_at y nota
             s.finance_updated_at = now
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
                 s.finance_note = (
                     s.finance_note + "\n" if s.finance_note else ""
                 ) + prefix + note
-            s.save(
-                update_fields=[
-                    "finance_status",
-                    "finance_sent_at",
-                    "finance_updated_at",
-                    "finance_note",
-                ]
-            )
+
+            s.save(update_fields=base_fields)
             updated_ids.append(s.id)
 
-    # Nota: si algún id vino en el POST pero NO estaba en 'qs',
-    # simplemente no se procesa (es como si fuera "forbidden").
-    # Eso garantiza que solo se envía lo que realmente ve en la lista.
+    # 👇 NUEVO: aseguramos que daily y finish_date se apliquen a TODOS los actualizados
+    if updated_ids and (daily_number or finish_date is not None):
+        bulk_qs = SesionBilling.objects.filter(id__in=updated_ids)
+        update_kwargs = {}
+        if daily_number:
+            update_kwargs["finance_daily_number"] = daily_number
+        if finish_date is not None:
+            update_kwargs["finance_finish_date"] = finish_date
+        if update_kwargs:
+            bulk_qs.update(**update_kwargs)
 
     payload = {"ok": True, "count": len(updated_ids), "updated_ids": updated_ids}
     if skipped:

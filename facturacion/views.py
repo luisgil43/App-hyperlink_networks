@@ -1235,6 +1235,11 @@ def invoices_list(request):
     client_s = (request.GET.get("client") or "").strip()
     status_s = (request.GET.get("status") or "").strip().lower()
 
+    # 🔹 nuevos filtros específicos
+    f_finish = (request.GET.get("f_finish") or "").strip()
+    f_projid = (request.GET.get("f_projid") or "").strip()
+    f_client = (request.GET.get("f_client") or "").strip()
+
     # Date (YYYY-MM-DD). Si viene mal formado, se ignora.
     if date_s:
         try:
@@ -1278,10 +1283,26 @@ def invoices_list(request):
         elif "assigned" in status_s or "asignado" in status_s:
             qs = qs.filter(estado="asignado")
 
+    # 🔹 Nuevo: filtro por fecha de finalización (finance_end_date, formato YYYY-MM-DD)
+    if f_finish:
+        try:
+            d_fin = datetime.strptime(f_finish, "%Y-%m-%d").date()
+            qs = qs.filter(finance_end_date__date=d_fin)
+        except ValueError:
+            pass
+
+    # 🔹 Nuevo: filtro por Project ID (extra, además del viejo 'projid')
+    if f_projid:
+        qs = qs.filter(proyecto_id__icontains=f_projid)
+
+    # 🔹 Nuevo: filtro por Client (extra, además del viejo 'client')
+    if f_client:
+        qs = qs.filter(cliente__icontains=f_client)
+
     # Evitar duplicados por joins con tecnicos_sesion/items
     qs = qs.distinct()
 
-      # -------------------- Paginación --------------------
+    # -------------------- Paginación --------------------
     raw_cantidad = request.GET.get("cantidad", "10")
     page_number = request.GET.get("page")
 
@@ -1323,9 +1344,13 @@ def invoices_list(request):
         "tech_s": tech_s,
         "client_s": client_s,
         "status_s": status_s,
+
+        # nuevos filtros (para el template)
+        "f_finish": f_finish,
+        "f_projid": f_projid,
+        "f_client": f_client,
     }
     return render(request, "facturacion/invoices_list.html", ctx)
-
 
 from decimal import Decimal, InvalidOperation
 
@@ -1778,10 +1803,10 @@ def invoices_export(request):
     headers = [
         "Date", "Project ID", "Project address", "Projected week",
         "Status", "Technicians", "Client", "City", "Project", "Office",
-        "Technical Billing", "Company Billing", "Daily Number", "Real Company Billing",
+        "Technical Billing", "Company Billing",
+        "Daily Number", "Finish date", "Real Company Billing",
         "Difference", "Finance status", "Finance note",
         "Pay week / Discount week",
-        # Detalle (por técnico):
         "Job Code", "Work Type", "Description", "UOM", "Quantity",
         "Technical Rate", "Company Rate", "Subtotal Technical", "Subtotal Company",
     ]
@@ -1813,7 +1838,8 @@ def invoices_export(request):
             s.oficina or "",
             float(s.subtotal_tecnico or 0),
             float(s.subtotal_empresa or 0),
-            (s.finance_daily_number or ""), 
+            (s.finance_daily_number or ""),
+            _to_excel_dt(s.finance_finish_date) if getattr(s, "finance_finish_date", None) else "",
             float(s.real_company_billing or 0),
             float((s.diferencia or 0)),
             finance_label,

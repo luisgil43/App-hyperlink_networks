@@ -13,15 +13,15 @@
       🗂️ Project Maps — Billing #{{ sesion.id }}
     </h1>
 
-    <div class="flex items-center gap-2">
-      <button type="button"
-              onclick="history.back()"
-              class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm shadow">
-        ← Back
-      </button>
-    </div>
+   <div class="flex items-center gap-2">
+  <a href="{% url 'operaciones:configurar_requisitos' sesion.id %}"
+     class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm shadow">
+    ← Back
+  </a>
+</div>
   </div>
 
+  
   {# Upload box (solo si can_import) #}
   {% if can_import %}
   <div class="border rounded-2xl p-4 sm:p-5 mb-6">

@@ -45,46 +45,59 @@
 
 
 
-<!-- Filtros sutiles (mismo estilo que Production Verification) -->
 <form id="filters" class="mb-3" onsubmit="return false;">
   <div class="inline-flex flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
 
     <div class="w-full sm:w-52">
       <label class="text-xs text-gray-600">Technician</label>
-      <input name="f_tech" type="text" value="{{ f_tech }}"
-             class="w-full border rounded px-2 py-1.5 text-sm"
-             placeholder="Name or username">
+      <input id="f-tech" name="f_tech" type="text" value="{{ f_tech }}"
+       class="w-full border rounded px-2 py-1.5 text-sm"
+       placeholder="Name or username">
     </div>
 
-    <div class="w-full sm:w-48">
-      <label class="text-xs text-gray-600">Pay week</label>
-      <input name="f_week" type="text" value="{{ f_week_input }}"
-             class="w-full border rounded px-2 py-1.5 text-sm"
-             placeholder="e.g. W34 or 2025-W34">
-    </div>
-
-    <div class="w-full sm:w-48">
-      <label class="text-xs text-gray-600">Paid week</label>
-      <input name="f_paid_week" type="text" value="{{ f_paid_week_input }}"
-             class="w-full border rounded px-2 py-1.5 text-sm"
-             placeholder="e.g. W34 or 2025-W34">
-    </div>
-
+     <!-- 🔹 Project ID -->
     <div class="w-full sm:w-44">
-      <label class="text-xs text-gray-600">Receipt</label>
-      <select name="f_receipt" class="w-full border rounded px-2 py-1.5 text-sm">
-        <option value="" {% if not f_receipt %}selected{% endif %}>Any</option>
-        <option value="with" {% if f_receipt == "with" %}selected{% endif %}>With receipt</option>
-        <option value="without" {% if f_receipt == "without" %}selected{% endif %}>Without receipt</option>
-      </select>
+      <label class="text-xs text-gray-600">Project ID</label>
+      <input id="f-projid" name="f_projid" type="text" value="{{ f_projid }}"
+       class="w-full border rounded px-2 py-1.5 text-sm"
+       placeholder="e.g. NB6790">
     </div>
 
-    <div class="w-full sm:w-auto flex items-end">
-      <a href="{% url 'operaciones:admin_weekly_payments' %}"
-         class="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
-        Reset
-      </a>
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Week</label>
+      <input id="f-week" name="f_week" type="text" value="{{ f_week_input }}"
+       class="w-full border rounded px-2 py-1.5 text-sm"
+       placeholder="e.g. W34 or 2025-W34">
     </div>
+    
+    <!-- 🔹 Client -->
+    <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">Client</label>
+      <input id="f-client" name="f_client" type="text" value="{{ f_client }}"
+       class="w-full border rounded px-2 py-1.5 text-sm"
+       placeholder="Client name">
+    </div>
+
+
+    <!-- 🔹 Finish date -->
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Finish date</label>
+      <input id="f-finish" name="f_finish" type="text" value="{{ f_finish }}"
+       class="w-full border rounded px-2 py-1.5 text-sm"
+       placeholder="YYYY-MM-DD">
+    </div>
+
+   
+
+    
+
+   <div class="w-full sm:w-auto flex items-end">
+  <button type="button"
+          id="btn-clear"
+          class="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
+    Reset
+  </button>
+</div>
 
   </div>
 </form>
@@ -184,26 +197,31 @@
 
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="15" checked>
-          <span>Real Company Billing</span>
+          <span>Finish date</span>
         </label>
 
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="16" checked>
-          <span>Difference</span>
+          <span>Real Company Billing</span>
         </label>
 
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="17" checked>
-          <span>Finance status</span>
+          <span>Difference</span>
         </label>
 
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="18" checked>
-          <span>Pay week / Discount week</span>
+          <span>Finance status</span>
         </label>
 
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="19" checked>
+          <span>Pay week / Discount week</span>
+        </label>
+
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="20" checked>
           <span>Actions</span>
         </label>
       </div>
@@ -233,7 +251,8 @@
     <th class="p-2 border text-left">Office</th>
     <th class="p-2 border text-right">Technical Billing</th>
     <th class="p-2 border text-right">Company Billing</th>
-    <th class="p-2 border text-right">Daily Number</th> 
+    <th class="p-2 border text-right">Daily Number</th>
+    <th class="p-2 border text-left">Finish date</th>
     <th class="p-2 border text-right">Real Company Billing</th>
     <th class="p-2 border text-right">Difference</th>
     <th class="p-2 border text-left">Finance status</th>
@@ -245,16 +264,17 @@
       <tbody class="text-left">
         {% for s in pagina.object_list %}
         <!-- Main row -->
-        <tr class="border-t align-top"
-            data-row="main"
-            data-id="{{ s.id }}"
-            data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
-            data-projid="{{ s.proyecto_id|default:''|lower }}"
-            data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
-            data-status="{% if s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% elif s.estado == 'en_proceso' %}en proceso in progress progress{% else %}asignado assigned{% endif %}"
-            data-client="{{ s.cliente|default:''|lower }}"
-            data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
-
+     <tr class="border-t align-top"
+    data-row="main"
+    data-id="{{ s.id }}"
+    data-date="{{ s.creado_en|date:'Y-m-d'|lower }}"
+    data-projid="{{ s.proyecto_id|default:''|lower }}"
+    data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
+    data-status="{% if s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% elif s.estado == 'en_proceso' %}en proceso in progress progress{% else %}asignado assigned{% endif %}"
+    data-client="{{ s.cliente|default:''|lower }}"
+    data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }} {{ st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}"
+    data-finish="{{ s.finance_finish_date|date:'Y-m-d'|default:''|lower }}">
+            
 <!-- checkbox de selección única (sin checkbox si es Direct Discount) -->
 <td class="p-2 border text-center align-top">
   {% if not s.is_direct_discount %}
@@ -365,6 +385,14 @@
     ✏️
   </button>
 </td>
+
+<td class="p-2 border text-left">
+  {% if s.finance_finish_date %}
+    {{ s.finance_finish_date|date:"Y-m-d" }}
+  {% else %}
+    —
+  {% endif %}
+</td>
           <!-- Real Company Billing (inline edit) -->
           <td class="p-2 border text-right" data-col="real">
             <span class="real-view" id="real-view-{{ s.id }}">
@@ -392,7 +420,7 @@
   {% else %}
     —   {# en blanco, raya o 0 -> no mostrar diferencia #}
   {% endif %}
-
+</td>
           <!-- Finance status -->
 <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
   {% if s.finance_status == "review_discount" %}
@@ -497,7 +525,7 @@
         <tr id="detalle-{{ s.id }}" class="hidden">
           <td class="border"></td>  <!-- caret -->
           <!-- 17 columnas visibles arriba -> colspan = 17 -->
-          <td class="p-3 border bg-gray-50" colspan="17">
+          <td class="p-3 border bg-gray-50" colspan="21">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -822,7 +850,6 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
-<!-- Filters + "Discount verified" -->
 <script>
 (function () {
   /* ===================== Filters ===================== */
@@ -837,6 +864,7 @@ document.addEventListener('click', function(e){
     tech:   document.getElementById("f-tech"),
     client: document.getElementById("f-client"),
     status: document.getElementById("f-status"),
+    finish: document.getElementById("f-finish"),
   };
   const btnClear = document.getElementById("btn-clear");
 
@@ -866,16 +894,25 @@ document.addEventListener('click', function(e){
       tech:   v(inputs.tech),
       client: v(inputs.client),
       status: v(inputs.status),
+      finish: v(inputs.finish),
     };
 
     allRows.forEach((tr) => {
+      const rowTech   = norm(tr.dataset.tech || "");
+      const rowClient = norm(tr.dataset.client || "");
+      const rowProjid = norm(tr.dataset.projid || "");
+      const rowWeek   = norm(tr.dataset.week || "");
+      const rowDate   = norm(tr.dataset.date || "");
+      const rowFinish = norm(tr.dataset.finish || "");
+
       const ok =
-        (!f.date   || tr.dataset.date.toLowerCase().includes(f.date)) &&
-        (!f.projid || tr.dataset.projid.toLowerCase().includes(f.projid)) &&
-        (!f.week   || tr.dataset.week.toLowerCase().includes(f.week)) &&
-        (!f.tech   || (tr.dataset.tech || "").toLowerCase().includes(f.tech)) &&
-        (!f.client || tr.dataset.client.toLowerCase().includes(f.client)) &&
-        (!f.status || statusHaystackFor(tr).includes(f.status));
+        (!f.date   || rowDate.includes(f.date)) &&
+        (!f.projid || rowProjid.includes(f.projid)) &&
+        (!f.week   || rowWeek.includes(f.week)) &&
+        (!f.tech   || rowTech.includes(f.tech)) &&
+        (!f.client || rowClient.includes(f.client)) &&
+        (!f.status || statusHaystackFor(tr).includes(f.status)) &&
+        (!f.finish || rowFinish.includes(f.finish));
 
       tr.style.display = ok ? "" : "none";
 
@@ -887,11 +924,21 @@ document.addEventListener('click', function(e){
     });
   }
 
-  Object.values(inputs).forEach((i) => i?.addEventListener("input", applyFilters));
+  // Listeners de inputs (solo los que existan)
+  Object.values(inputs).forEach((i) => {
+    if (!i) return;
+    i.addEventListener("input", applyFilters);
+  });
+
+  // Reset seguro: solo limpia inputs existentes
   btnClear?.addEventListener("click", () => {
-    Object.values(inputs).forEach((i) => (i.value = ""));
+    Object.values(inputs).forEach((i) => {
+      if (i) i.value = "";
+    });
     applyFilters();
   });
+
+  // Filtro inicial al cargar
   applyFilters();
 
   /* ===================== Discount verified (robusto) ===================== */
