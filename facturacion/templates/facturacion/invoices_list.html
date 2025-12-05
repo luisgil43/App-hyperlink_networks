@@ -1035,17 +1035,28 @@ document.addEventListener('click', function(e){
     input.select?.();
   }
 
-  function exitEditDaily(id, val){
-    const view  = document.getElementById(`daily-view-${id}`);
-    const input = document.getElementById(`daily-input-${id}`);
-    if (!view || !input) return;
+ function exitEditDaily(id, val){
+  const view  = document.getElementById(`daily-view-${id}`);
+  const input = document.getElementById(`daily-input-${id}`);
+  if (!view || !input) return;
 
-    const raw = (val ?? "").toString().trim();
-    view.textContent = raw === "" ? "—" : raw;
+  // Aceptar null, undefined, "", "-", "—", e incluso "None"
+  let raw = val == null ? "" : String(val).trim();
 
-    view.classList.remove("hidden");
-    input.classList.add("hidden");
+  if (
+    raw === "" ||
+    raw === "-" ||
+    raw === "—" ||
+    raw.toLowerCase() === "none"
+  ) {
+    view.textContent = "—";
+  } else {
+    view.textContent = raw;
   }
+
+  view.classList.remove("hidden");
+  input.classList.add("hidden");
+}
 
   /* ===================== Inline edit: Real Pay Week ===================== */
   function enterEditWeek(id){
@@ -1097,30 +1108,37 @@ document.addEventListener('click', function(e){
   });
 
 
-    // DAILY NUMBER
-  document.addEventListener("keydown", async (e)=>{
-    const input = e.target.closest(".daily-input");
-    if (!input || input.classList.contains("hidden")) return;
-    const id = input.id.replace("daily-input-","");
+   // DAILY NUMBER
+document.addEventListener("keydown", async (e)=>{
+  const input = e.target.closest(".daily-input");
+  if (!input || input.classList.contains("hidden")) return;
+  const id = input.id.replace("daily-input-","");
 
-    if (e.key === "Escape"){
-      exitEditDaily(id, input.value);
-      return;
+  if (e.key === "Escape"){
+    exitEditDaily(id, input.value);
+    return;
+  }
+  if (e.key === "Enter"){
+    e.preventDefault();
+    try{
+      const url = `{% url 'facturacion:invoices' %}`
+        .replace("/invoices/", `/invoices/${id}/update-real/`);
+      const payload = await ajaxForm(url, { daily_number: input.value });
+
+      // Usar exactamente lo que venga del backend si existe, incluso null
+      const serverVal =
+        payload && Object.prototype.hasOwnProperty.call(payload, "daily_number")
+          ? payload.daily_number
+          : input.value;
+
+      exitEditDaily(id, serverVal);
+      toast("Saved.", "success");
+    }catch(err){
+      toast(err.message || "Save failed", "error");
+      input.focus();
     }
-    if (e.key === "Enter"){
-      e.preventDefault();
-      try{
-        const url = `{% url 'facturacion:invoices' %}`
-          .replace("/invoices/", `/invoices/${id}/update-real/`);
-        const payload = await ajaxForm(url, { daily_number: input.value });
-        exitEditDaily(id, (payload && payload.daily_number) || input.value);
-        toast("Saved.", "success");
-      }catch(err){
-        toast(err.message || "Save failed", "error");
-        input.focus();
-      }
-    }
-  });
+  }
+});
 
   // iOS: blur/change
   async function saveRealFromInput(input){
@@ -1153,24 +1171,30 @@ document.addEventListener('click', function(e){
     if (dailyInput) { saveDailyFromInput(dailyInput); return; }
   });
 
-    async function saveDailyFromInput(input){
-    if (!input || input.classList.contains('hidden')) return;
-    if (input.dataset.saving === '1') return;
-    input.dataset.saving = '1';
+   async function saveDailyFromInput(input){
+  if (!input || input.classList.contains('hidden')) return;
+  if (input.dataset.saving === '1') return;
+  input.dataset.saving = '1';
 
-    const id = input.id.replace('daily-input-','');
-    try{
-      const url = `{% url 'facturacion:invoices' %}`
-        .replace('/invoices/', `/invoices/${id}/update-real/`);
-      const payload = await ajaxForm(url, { daily_number: input.value });
-      exitEditDaily(id, (payload && payload.daily_number) || input.value);
-      toast("Saved.", "success");
-    }catch(err){
-      input.dataset.saving = '';
-      toast(err.message || 'Save failed', 'error');
-      input.focus();
-    }
+  const id = input.id.replace('daily-input-','');
+  try{
+    const url = `{% url 'facturacion:invoices' %}`
+      .replace('/invoices/', `/invoices/${id}/update-real/`);
+    const payload = await ajaxForm(url, { daily_number: input.value });
+
+    const serverVal =
+      payload && Object.prototype.hasOwnProperty.call(payload, "daily_number")
+        ? payload.daily_number
+        : input.value;
+
+    exitEditDaily(id, serverVal);
+    toast("Saved.", "success");
+  }catch(err){
+    input.dataset.saving = '';
+    toast(err.message || 'Save failed', 'error');
+    input.focus();
   }
+}
 
   // WEEK
   document.addEventListener("keydown", async (e)=>{
