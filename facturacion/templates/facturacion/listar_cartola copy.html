@@ -15,65 +15,14 @@
   .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
   @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
   .tabla-responsive{
-    overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
-    width:100%;
-  }
-  .tabla-responsive table{
-    white-space:nowrap;
-    min-width:100%;
-  }
-
-  /* ====== Cabecera tipo Excel ====== */
-  .excel-header-btn{
-    width:100%;
-    justify-content:center;
-    font-size:0.875rem;
-  }
-  .excel-header-btn .excel-arrow{
-    font-size:0.65rem;
-    margin-left:2px;
-  }
-  .excel-header-btn:hover .excel-arrow{
-    color:#111827;
-  }
-
-  .excel-panel{
-    position:fixed;
-    z-index:50;
-    width:260px;
-    background:#fff;
-    border-radius:0.75rem;
-    border:1px solid #d1d5db;
-    box-shadow:0 10px 30px rgba(0,0,0,.15);
-    padding:0.75rem;
-    font-size:0.8rem;
-  }
-  .excel-panel h3{
-    font-weight:600;
-    margin-bottom:0.5rem;
-  }
-  .excel-panel small{
-    font-size:0.7rem;
-    color:#6b7280;
-  }
-  .excel-panel .excel-options{
-    max-height:180px;
-    overflow-y:auto;
-    border:1px solid #e5e7eb;
-    border-radius:0.5rem;
-    padding:0.25rem 0.5rem;
-    margin-top:0.25rem;
-    background:#f9fafb;
-  }
-
-    .excel-col-filtered .excel-header-btn{
-    background:#e0f2fe;          /* celestito */
-    border-radius:999px;
-  }
-  .excel-col-filtered .excel-arrow{
-    color:#2563eb !important;    /* flecha azul cuando hay filtro */
-  }
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  width:100%;
+}
+.tabla-responsive table{
+  white-space:nowrap;
+  min-width:100%;   /* usa el ancho del contenedor, pero crece si hace falta */
+}
 </style>
 
 <div class="flex flex-wrap items-center gap-3 mb-4">
@@ -102,6 +51,77 @@
   </div>
 </div>
 
+<form id="form-filtros" method="get" class="mb-6">
+  <div class="inline-flex flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">User</label>
+      <input type="text"
+             name="du"
+             value="{{ filtros.du }}"
+             placeholder="Filter by User"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Date</label>
+      <input type="text"
+             name="fecha"
+             value="{{ filtros.fecha }}"
+             placeholder="DD-MM-YYYY (ej. 20)"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+    <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">Project</label>
+      <input type="text"
+             name="proyecto"
+             value="{{ filtros.proyecto }}"
+             placeholder="Filter by Project"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+    <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">Category</label>
+      <input type="text"
+             name="categoria"
+             value="{{ filtros.categoria }}"
+             placeholder="Filter by Category"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+    <div class="w-full sm:w-52">
+      <label class="text-xs text-gray-600">Type</label>
+      <input type="text"
+             name="tipo"
+             value="{{ filtros.tipo }}"
+             placeholder="Filter by Type"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+    <div class="w-full sm:w-48">
+      <label class="text-xs text-gray-600">Status</label>
+      <select name="estado"
+              class="w-full border rounded px-2 py-1.5 text-sm filtro">
+        <option value="">All statuses</option>
+        {% for codigo, nombre in estado_choices %}
+          <option value="{{ codigo }}" {% if filtros.estado == codigo %}selected{% endif %}>
+            {{ nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="w-full sm:w-auto flex items-end">
+      <a href="{% url 'facturacion:listar_cartola' %}"
+         class="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
+        ❌ Clear
+      </a>
+    </div>
+
+    <input type="hidden" name="cantidad" value="{{ cantidad }}">
+  </div>
+</form>
 <div class="flex justify-start mb-2">
   <details class="relative">
     <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
@@ -161,97 +181,26 @@
   </details>
 </div>
 
-<div class="flex justify-start mb-2">
-  <button type="button"
-          id="btnExcelClearAll"
-          class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-gray-50">
-    ❌ Clear filters
-  </button>
-</div>
-
 <div id="zonaTabla">
   <div class="rounded-xl border border-gray-200 tabla-responsive">
-    <table id="tabla-cartola" class="table-auto border border-gray-300 rounded-xl text-sm w-full">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
-          <!-- 👉 filtros Excel en TODAS las columnas menos Actions -->
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>User</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Date</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Project</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Category</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Type</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Remarks</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Transfer Number</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Receipt(s)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Odometer (km)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border text-right" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Expenses (USD)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border text-right" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Credits (USD)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <th class="p-2 border" data-excel-col>
-            <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Status</span>
-              <span class="excel-arrow text-gray-500">▼</span>
-            </button>
-          </th>
-          <!-- Sin filtro Excel -->
+          <th class="p-2 border">User</th>
+          <th class="p-2 border">Date</th>
+          <th class="p-2 border">Project</th>
+          <th class="p-2 border">Category</th>
+          <th class="p-2 border">Type</th>
+          <th class="p-2 border">Remarks</th>
+          <th class="p-2 border">Transfer Number</th>
+          <th class="p-2 border">Receipt(s)</th>            <!-- 👈 renombrado -->
+          <th class="p-2 border">Odometer (km)</th>         <!-- 👈 NUEVA COLUMNA -->
+          <th class="p-2 border text-right">Expenses (USD)</th>
+          <th class="p-2 border text-right">Credits (USD)</th>
+          <th class="p-2 border">Status</th>
           <th class="p-2 border">Actions</th>
         </tr>
       </thead>
-
       <tbody class="text-center">
         {% for mov in pagina %}
         <tr class="border-t" data-mov-id="{{ mov.id }}">
@@ -290,8 +239,7 @@
           <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
           <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
 
-          <!-- 🔹 valor "limpio" para el filtro Excel -->
-          <td class="p-2 text-sm" data-excel-value="{{ mov.get_status_display }}">
+          <td class="p-2 text-sm">
             <div class="flex flex-col gap-1 text-left leading-tight">
               {% if mov.status == 'pendiente_supervisor' %}
                 <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending Supervisor Approval</span>
@@ -393,13 +341,15 @@
         <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
         <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
         <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+
+        
       </select>
     </form>
   </div>
 
-  <div class="mt-2 flex justify-center text-sm">
-    <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-  </div>
+<div class="mt-2 flex justify-center text-sm">
+  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+</div>
 
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous %}
@@ -428,65 +378,17 @@
   </div>
 </div>
 
-<!-- Panel flotante tipo Excel -->
-<div id="excelFilterPanel" class="excel-panel hidden">
-  <h3 id="excelPanelTitle">Column</h3>
-  <small>Filter values</small>
-
-  <div class="mt-2">
-    <input id="excelFilterSearch"
-           type="text"
-           placeholder="Search..."
-           class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
-  </div>
-
-  <div class="mt-2 excel-options" id="excelFilterOptions">
-    <!-- opciones dinámicas -->
-  </div>
-
-  <div class="mt-3 flex justify-end gap-2">
-    <button type="button"
-            id="excelFilterClearAll"
-            class="px-2 py-1 border rounded-md text-xs">
-      Clear
-    </button>
-    <button type="button"
-            id="excelFilterApply"
-            class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">
-      Apply
-    </button>
-  </div>
-</div>
-
 <script>
 (function(){
   const zona        = document.getElementById('zonaTabla');
-  const filtrosForm = document.getElementById('form-filtros'); // puede no existir
+  const filtrosForm = document.getElementById('form-filtros');
   const exportLink  = document.getElementById('exportLink');
   let debounceTimer = null, controller = null;
-
-  /* ======== Estado filtros tipo Excel ======== */
-  const excel = {
-    panel: document.getElementById('excelFilterPanel'),
-    titleEl: document.getElementById('excelPanelTitle'),
-    searchInput: document.getElementById('excelFilterSearch'),
-    optsBox: document.getElementById('excelFilterOptions'),
-    btnApply: document.getElementById('excelFilterApply'),
-    btnClearAll: document.getElementById('excelFilterClearAll'), // Clear del popup
-    table: null,
-    tbody: null,
-    headers: [],
-    allRows: [],
-    distinctValues: {},
-    activeFilters: {},
-    currentColIndex: null,
-    panelEventsBound: false
-  };
 
   /* ======== Mantener scroll horizontal ======== */
   const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
 
-  function getScrollBox(){
+  function getScrollBox(){           // contenedor con overflow-x
     return zona.querySelector('.tabla-responsive');
   }
   function readSavedX(){
@@ -509,6 +411,7 @@
     if(!box) return;
     requestAnimationFrame(()=>{ box.scrollLeft = x; });
   }
+  /* =========================================== */
 
   /* ======== Visibilidad de columnas (localStorage + "Show all") ======== */
   const COL_KEY = 'ledgerCols:' + location.pathname;
@@ -551,6 +454,7 @@
       });
     });
 
+    // Sincronizar checkboxes del panel (individuales + master)
     const panel  = document.getElementById('columnToggles');
     const master = panel ? panel.querySelector('#col-toggle-all') : null;
     if(panel){
@@ -575,42 +479,52 @@
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
 
+    // Individuales
     checks.forEach(cb=>{
       cb.addEventListener('change', ()=>{
         const idx   = parseInt(cb.dataset.col || '0', 10);
         const state = loadColsState();
-        state[idx]  = cb.checked;
+        state[idx]  = cb.checked;     // true/false
         saveColsState(state);
-        applyColumnVisibility();
+        applyColumnVisibility();      // esto también actualiza el master
       });
     });
 
+    // ✅ Master: "Show all columns"
     if(master){
       master.addEventListener('change', ()=>{
         const state = loadColsState();
-        const val   = master.checked;
+        const val   = master.checked;   // true = mostrar todas, false = ocultar todas
+
         checks.forEach(cb=>{
           const idx = parseInt(cb.dataset.col || '0', 10);
           cb.checked = val;
           state[idx] = val;
         });
+
         saveColsState(state);
         applyColumnVisibility();
       });
     }
   }
+  /* ======================================================== */
 
+  /* ======== Cerrar el dropdown al hacer clic fuera ======== */
   function initColumnsDropdown(){
     const details = document.querySelector('details.relative');
     if(!details) return;
 
     document.addEventListener('click', (e)=>{
       if(!details.open) return;
+      // Si el clic fue dentro del <details>, no cerramos
       if(details.contains(e.target)) return;
+      // Clic fuera → cerramos
       details.open = false;
     });
   }
+  /* ======================================================== */
 
+  // 👇 SIEMPRE mantener sincronizado el hidden "cantidad" con el select #cantidad
   function syncCantidad(){
     if (!filtrosForm || !zona) return;
     const sel    = zona.querySelector('#cantidad');
@@ -621,19 +535,15 @@
   }
 
   function paramsFromFilters(resetPage){
-    if (filtrosForm){
-      syncCantidad();
-      const p = new URLSearchParams(new FormData(filtrosForm));
-      if (resetPage) p.set('page','1');
-      return p;
-    } else {
-      const p = new URLSearchParams(window.location.search);
-      if (resetPage) p.set('page','1');
-      return p;
-    }
+    // antes de leer filtros, aseguramos que cantidad esté sincronizado
+    syncCantidad();
+    const p = new URLSearchParams(new FormData(filtrosForm));
+    if (resetPage) p.set('page','1');
+    return p;
   }
 
   async function cargarTablaCon(qs, push=true){
+    // 👇 guardar scroll actual antes de refrescar (para NO perder la posición)
     const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
     saveX(prevX);
 
@@ -652,15 +562,19 @@
 
     zona.innerHTML = nuevaZona.innerHTML;
 
+    // Re-enganchar handlers
     engancharPaginacion();
     engancharAprobar();
     engancharCantidad();
     engancharColumnToggles();
-    initColumnsDropdown();
-    engancharFiltros();
-    initExcelFilters();
 
+    // 👇 sincronizar cantidad después del re-render
+    syncCantidad();
+
+    // 👇 aplicar visibilidad de columnas después de re-render
     applyColumnVisibility();
+
+    // 👇 restaurar scroll horizontal y volver a escuchar
     restoreX(prevX);
     hookScrollSaver();
   }
@@ -673,16 +587,13 @@
     }, 300);
   }
 
-  function engancharFiltros(){
-    if (!filtrosForm) return;
-    filtrosForm.querySelectorAll('.filtro').forEach(el=>{
-      const evt = el.tagName === 'SELECT' ? 'change' : 'input';
-      el.addEventListener(evt, ()=>refiltrar(true));
-      el.addEventListener('keydown', e=>{
-        if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
-      });
+  filtrosForm.querySelectorAll('.filtro').forEach(el=>{
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>refiltrar(true));
+    el.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
     });
-  }
+  });
 
   function engancharPaginacion(){
     zona.querySelectorAll('a.pg-link').forEach(a=>{
@@ -699,9 +610,15 @@
   function engancharCantidad(){
     const sel = zona.querySelector('#cantidad');
     if(!sel) return;
+
+    // al cargar, sincronizar hidden con el valor actual del select
+    syncCantidad();
+
     sel.addEventListener('change', ()=>{
+      // cada vez que cambie el select, actualizamos el hidden
+      syncCantidad();
       const p = paramsFromFilters(true);
-      p.set('cantidad', sel.value);
+      p.set('cantidad', sel.value);   // por si acaso, lo reforzamos en el QS
       cargarTablaCon(p.toString(), true);
     });
   }
@@ -716,6 +633,8 @@
         const row    = btn.closest('tr');
 
         if (!url || !row) return;
+
+        // Evitar doble click
         if (btn.dataset.loading === '1') return;
         btn.dataset.loading = '1';
 
@@ -730,7 +649,7 @@
             method: method,
             body: fd,
             headers: {
-              'X-Requested-With': 'XMLHttpRequest',
+              'X-Requested-With': 'XMLHttpRequest',  // para que el backend sepa que es AJAX
             },
           });
 
@@ -738,11 +657,16 @@
             throw new Error('Error approving movement.');
           }
 
+          // ✅ SOLO tocamos la fila actual
+          // Opción: quitar la fila (lo normal si estás viendo "pendientes")
           row.style.transition = 'opacity 0.2s ease';
           row.style.opacity = '0.4';
           setTimeout(() => {
             row.remove();
           }, 200);
+
+          // Si quieres en vez de borrar la fila actualizar solo el texto de estado,
+          // aquí podríamos buscar la celda de estado y cambiarla con innerHTML.
 
         } catch (err) {
           console.error(err);
@@ -779,259 +703,22 @@
     await cargarTablaCon(p.toString(), false);
   });
 
-  /* ================== LÓGICA FILTROS TIPO EXCEL ================== */
-
-  function excelGetCellValue(td){
-    if(!td) return '(Vacías)';
-    let text = '';
-    if (td.dataset && td.dataset.excelValue){
-      text = td.dataset.excelValue;
-    } else {
-      text = (td.textContent || '');
-    }
-    text = text.trim();
-    return text || '(Vacías)';
-  }
-
-  // valores distintos usando SOLO filas visibles (para cadenas de filtros)
-  function excelBuildDistinctValuesFromVisible(){
-    excel.distinctValues = {};
-    excel.allRows.forEach(row=>{
-      if (row.style.display === 'none') return; // ya filtrada por otra columna
-      Array.from(row.cells).forEach((td, idx)=>{
-        if(!excel.distinctValues[idx]) excel.distinctValues[idx] = new Set();
-        const text = excelGetCellValue(td);
-        excel.distinctValues[idx].add(text);
-      });
-    });
-  }
-
-  function excelUpdateHeaderStates(){
-    if(!excel.headers) return;
-    excel.headers.forEach((th, idx)=>{
-      if(!th.hasAttribute('data-excel-col')) return;
-      const hasFilter = !!(excel.activeFilters[idx] && excel.activeFilters[idx].size > 0);
-      th.classList.toggle('excel-col-filtered', hasFilter);
-    });
-  }
-
-  function excelApplyFilters(){
-    excel.allRows.forEach(row=>{
-      let visible = true;
-      for (const [colIndexStr, values] of Object.entries(excel.activeFilters)){
-        const idx = parseInt(colIndexStr, 10);
-        if(!values || values.size === 0) continue;
-        const cell = row.cells[idx];
-        const text = excelGetCellValue(cell);
-        if(!values.has(text)){
-          visible = false;
-          break;
-        }
-      }
-      row.style.display = visible ? '' : 'none';
-    });
-
-    excelUpdateHeaderStates();
-  }
-
-  // 🔹 Clear global (todos los filtros)
-  function excelClearAll(){
-    excel.activeFilters = {};
-    excelApplyFilters();
-    if(excel.panel) excel.panel.classList.add('hidden');
-  }
-
-  function excelFilterOptionList(query){
-    if(!excel.optsBox) return;
-    const q = query.trim().toLowerCase();
-    excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
-      const text = lbl.textContent.toLowerCase();
-      lbl.style.display = text.includes(q) ? '' : 'none';
-    });
-  }
-
-  function excelRenderOptions(colIndex){
-    if(!excel.optsBox) return;
-    excel.optsBox.innerHTML = '';
-
-    const valuesSet = excel.distinctValues[colIndex] || new Set();
-    const values = Array.from(valuesSet).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-    const selected = excel.activeFilters[colIndex];
-
-    const allLabel = document.createElement('label');
-    allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
-    const allCb = document.createElement('input');
-    allCb.type = 'checkbox';
-    allCb.dataset.selectAll = '1';
-    allCb.checked = !selected || selected.size === values.length;
-    allCb.addEventListener('change', ()=>{
-      const checks = excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]');
-      checks.forEach(cb=> cb.checked = allCb.checked);
-    });
-    allLabel.appendChild(allCb);
-    allLabel.appendChild(document.createTextNode(' (Select all)'));
-    excel.optsBox.appendChild(allLabel);
-
-    values.forEach(val=>{
-      const label = document.createElement('label');
-      label.className = 'flex items-center gap-1 text-xs mt-0.5';
-      label.dataset.optionLabel = '1';
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.dataset.value = val;
-      cb.checked = !selected || selected.has(val);
-
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(' ' + val));
-      excel.optsBox.appendChild(label);
-    });
-  }
-
-  function excelOpenForHeader(th){
-    if(!excel.panel) return;
-
-    // recalcular opciones SOLO con filas visibles
-    excelBuildDistinctValuesFromVisible();
-
-    excel.currentColIndex = parseInt(th.dataset.excelIndex, 10);
-    excel.titleEl.textContent = th.innerText.trim();
-    excelRenderOptions(excel.currentColIndex);
-
-    const rect = th.getBoundingClientRect();
-    const panelWidth  = excel.panel.offsetWidth || 260;
-    const panelHeight = excel.panel.offsetHeight || 220;
-
-    let left = rect.left + (rect.width - panelWidth) / 2;
-    let top  = rect.bottom + 4;
-
-    const minLeft = 8;
-    const maxLeft = window.innerWidth - panelWidth - 8;
-    if (left < minLeft) left = minLeft;
-    if (left > maxLeft) left = maxLeft;
-
-    const maxTop = window.innerHeight - panelHeight - 8;
-    if (top > maxTop) top = maxTop;
-
-    excel.panel.style.left = left + 'px';
-    excel.panel.style.top  = top + 'px';
-
-    excel.panel.classList.remove('hidden');
-    excel.searchInput.value = '';
-    excelFilterOptionList('');
-    excel.searchInput.focus();
-  }
-
-  function excelBindPanelEventsOnce(){
-    if(excel.panelEventsBound || !excel.panel) return;
-
-    excel.searchInput.addEventListener('input', ()=>{
-      excelFilterOptionList(excel.searchInput.value);
-    });
-
-    // Apply del popup -> sólo la columna actual
-    excel.btnApply.addEventListener('click', ()=>{
-      if(excel.currentColIndex == null){
-        excel.panel.classList.add('hidden');
-        return;
-      }
-      const checks = excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]');
-      const selected = new Set();
-      checks.forEach(cb=>{
-        if(cb.checked) selected.add(cb.dataset.value);
-      });
-
-      const fullSet = excel.distinctValues[excel.currentColIndex] || new Set();
-      if(selected.size === 0 || selected.size === fullSet.size){
-        delete excel.activeFilters[excel.currentColIndex];
-      }else{
-        excel.activeFilters[excel.currentColIndex] = selected;
-      }
-      excelApplyFilters();
-      excel.panel.classList.add('hidden');
-    });
-
-    // 🔸 Clear del popup -> limpia SOLO la columna actual
-    excel.btnClearAll.addEventListener('click', ()=>{
-      if (excel.currentColIndex == null){
-        excel.panel.classList.add('hidden');
-        return;
-      }
-      // Quitar filtro de esa columna
-      delete excel.activeFilters[excel.currentColIndex];
-
-      // Marcar todos los valores de la lista como seleccionados
-      const checks = excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]');
-      checks.forEach(cb => { cb.checked = true; });
-
-      excelApplyFilters();
-      excel.panel.classList.add('hidden');
-    });
-
-    // cerrar panel al hacer clic fuera
-    document.addEventListener('click', (e)=>{
-      if(excel.panel.classList.contains('hidden')) return;
-      if(excel.panel.contains(e.target)) return;
-      if(e.target.closest('.excel-header-btn')) return;
-      excel.panel.classList.add('hidden');
-    });
-
-    excel.panelEventsBound = true;
-  }
-
-  function initExcelFilters(){
-    excelBindPanelEventsOnce();
-
-    if(!zona) return;
-    const table = zona.querySelector('#tabla-cartola');
-    if(!table) return;
-
-    excel.table   = table;
-    excel.tbody   = table.querySelector('tbody');
-    excel.headers = table.querySelectorAll('thead th');
-    excel.allRows = Array.from(excel.tbody.rows);
-    excel.activeFilters = {};   // al recargar desde servidor
-
-    excelBuildDistinctValuesFromVisible();
-    excelApplyFilters();
-
-    excel.headers.forEach((th, idx)=>{
-      if(th.hasAttribute('data-excel-col')){
-        th.dataset.excelIndex = idx;
-        const btn = th.querySelector('.excel-header-btn');
-        if(btn){
-          btn.addEventListener('click', (ev)=>{
-            ev.stopPropagation();
-            excelOpenForHeader(th);
-          });
-        }
-      }
-    });
-  }
-
-  // 🔹 Botón global "❌ Clear filters" (todas las columnas)
-  function engancharClearExcelGlobal(){
-    const btn = document.getElementById('btnExcelClearAll');
-    if(!btn) return;
-    btn.addEventListener('click', (e)=>{
-      e.preventDefault();
-      excelClearAll();
-    });
-  }
-
-  /* ================== Inicial ================== */
-
+  // Inicial
   engancharPaginacion();
   engancharAprobar();
   engancharCantidad();
   engancharColumnToggles();
   initColumnsDropdown();
-  engancharFiltros();
+
+  // 👇 aplicar visibilidad de columnas en la carga inicial
   applyColumnVisibility();
+
+  // 👇 aplicar estado de scroll al cargar y seguir guardándolo
   restoreX(readSavedX());
   hookScrollSaver();
-  initExcelFilters();          // filtros tipo Excel
-  engancharClearExcelGlobal(); // botón global "Clear filters"
+
+  // 👇 y dejar "cantidad" sincronizado desde el inicio
+  syncCantidad();
 })();
 </script>
 
