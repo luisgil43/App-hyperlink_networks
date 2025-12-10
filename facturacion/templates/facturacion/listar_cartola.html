@@ -256,7 +256,7 @@
         {% for mov in pagina %}
         <tr class="border-t" data-mov-id="{{ mov.id }}">
           <td class="p-2 border">{{ mov.usuario }}</td>
-          <td class="p-2 border">{{ mov.fecha }}</td>
+          <td class="p-2 border"data-excel-value="{{ mov.fecha|date:'d-m-Y' }}">{{ mov.fecha|date:"d-m-Y" }}</td>
           <td class="p-2 border">{{ mov.proyecto }}</td>
           <td class="p-2 border">{{ mov.tipo.categoria|title }}</td>
           <td class="p-2 border">{{ mov.tipo }}</td>
