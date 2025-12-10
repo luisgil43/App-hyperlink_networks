@@ -164,7 +164,7 @@
 <div class="flex justify-start mb-2">
   <button type="button"
           id="btnExcelClearAll"
-          class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-gray-50">
+          class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
     ❌ Clear filters
   </button>
 </div>
@@ -465,6 +465,35 @@
   const exportLink  = document.getElementById('exportLink');
   let debounceTimer = null, controller = null;
 
+  /* =================== Helpers para guardar / cargar filtros Excel =================== */
+
+  function loadExcelFilters(){
+    try{
+      const key = 'ledgerExcelFilters:' + location.pathname;
+      const raw = sessionStorage.getItem(key);
+      if(!raw) return {};
+      const obj = JSON.parse(raw);
+      const result = {};
+      Object.entries(obj).forEach(([col, arr])=>{
+        result[col] = new Set(arr);
+      });
+      return result;
+    }catch(_){
+      return {};
+    }
+  }
+
+  function saveExcelFilters(active){
+    try{
+      const key = 'ledgerExcelFilters:' + location.pathname;
+      const plain = {};
+      Object.entries(active).forEach(([col, set])=>{
+        plain[col] = Array.from(set);
+      });
+      sessionStorage.setItem(key, JSON.stringify(plain));
+    }catch(_){}
+  }
+
   /* ======== Estado filtros tipo Excel ======== */
   const excel = {
     panel: document.getElementById('excelFilterPanel'),
@@ -478,7 +507,7 @@
     headers: [],
     allRows: [],
     distinctValues: {},
-    activeFilters: {},
+    activeFilters: loadExcelFilters(),   // 👈 cargamos lo que hubiera guardado
     currentColIndex: null,
     panelEventsBound: false
   };
@@ -658,7 +687,7 @@
     engancharColumnToggles();
     initColumnsDropdown();
     engancharFiltros();
-    initExcelFilters();
+    initExcelFilters();          // 👈 vuelve a enganchar Excel con mismos filtros
 
     applyColumnVisibility();
     restoreX(prevX);
@@ -743,6 +772,12 @@
           setTimeout(() => {
             row.remove();
           }, 200);
+
+          // 👇 re-aplicamos filtros sobre lo que quede en la página
+          if (excel.table && excel.allRows.length){
+            excel.allRows = Array.from(excel.tbody.rows);
+            excelApplyFilters();
+          }
 
         } catch (err) {
           console.error(err);
@@ -832,6 +867,7 @@
     });
 
     excelUpdateHeaderStates();
+    saveExcelFilters(excel.activeFilters);   // 👈 persistimos en sessionStorage
   }
 
   // 🔹 Clear global (todos los filtros)
@@ -957,10 +993,8 @@
         excel.panel.classList.add('hidden');
         return;
       }
-      // Quitar filtro de esa columna
-      delete excel.activeFilters[excel.currentColIndex];
+      delete excel.activeFilters[excel.currentColIndex];    // quitar filtro de esa columna
 
-      // Marcar todos los valores de la lista como seleccionados
       const checks = excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]');
       checks.forEach(cb => { cb.checked = true; });
 
@@ -990,7 +1024,7 @@
     excel.tbody   = table.querySelector('tbody');
     excel.headers = table.querySelectorAll('thead th');
     excel.allRows = Array.from(excel.tbody.rows);
-    excel.activeFilters = {};   // al recargar desde servidor
+    // 👇 NO reseteamos activeFilters aquí, así se mantiene entre recargas
 
     excelBuildDistinctValuesFromVisible();
     excelApplyFilters();
