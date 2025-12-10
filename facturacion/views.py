@@ -93,6 +93,7 @@ def _next_project_code():
 @login_required
 @rol_requerido('facturacion', 'admin')
 def listar_cartola(request):
+    import json
     from datetime import datetime, time, timedelta
 
     from django.contrib import messages
@@ -100,6 +101,9 @@ def listar_cartola(request):
     from django.db import models
     from django.db.models import Q
     from django.utils import timezone
+
+    from .models import \
+        CartolaMovimiento  # asegúrate de tener este import arriba
 
     def parse_date_any(s: str):
         """Devuelve date para varios formatos comunes o None."""
@@ -125,36 +129,34 @@ def listar_cartola(request):
     except (TypeError, ValueError):
         cantidad_int = 10  # valor por defecto sano
 
-    # mínimos / máximos
     if cantidad_int < 5:
         cantidad_int = 5
     if cantidad_int > MAX_PAGE_SIZE:
         cantidad_int = MAX_PAGE_SIZE
 
-    # lo que usará el template para marcar el <select>
     cantidad = str(cantidad_int)
 
     # ==========================
-    # Filtros
+    # Filtros por GET
     # ==========================
-    du = params.get('du', '').strip()
+    du        = params.get('du', '').strip()
     fecha_str = params.get('fecha', '').strip()
-    proyecto = params.get('proyecto', '').strip()
+    proyecto  = params.get('proyecto', '').strip()
     categoria = params.get('categoria', '').strip()
-    tipo = params.get('tipo', '').strip()
-    estado = params.get('estado', '').strip()
+    tipo      = params.get('tipo', '').strip()
+    estado    = params.get('estado', '').strip()
 
-    # ✅ micro-optimización: evitar N+1
-    movimientos = (
+    # Query base
+    movimientos_qs = (
         CartolaMovimiento.objects.all()
         .select_related('usuario', 'proyecto', 'tipo')
         .order_by('-fecha')
     )
-    movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
+    movimientos_qs = filter_queryset_by_access(movimientos_qs, request.user, 'proyecto_id')
 
-    # Usuario (username, nombre, apellido)
+    # Usuario
     if du:
-        movimientos = movimientos.filter(
+        movimientos_qs = movimientos_qs.filter(
             Q(usuario__username__icontains=du) |
             Q(usuario__first_name__icontains=du) |
             Q(usuario__last_name__icontains=du)
@@ -164,9 +166,8 @@ def listar_cartola(request):
     if fecha_str:
         solo_digitos = fecha_str.isdigit()
         if solo_digitos and 1 <= int(fecha_str) <= 31:
-            # Buscar por día del mes (cualquier mes/año)
             dia = int(fecha_str)
-            movimientos = movimientos.filter(fecha__day=dia)
+            movimientos_qs = movimientos_qs.filter(fecha__day=dia)
         else:
             fecha_valida = parse_date_any(fecha_str)
             if not fecha_valida:
@@ -177,36 +178,81 @@ def listar_cartola(request):
             else:
                 campo_fecha = CartolaMovimiento._meta.get_field('fecha')
                 if isinstance(campo_fecha, models.DateTimeField):
-                    # Rango del día en la zona horaria activa
                     tz = timezone.get_current_timezone()
                     start = timezone.make_aware(
                         datetime.combine(fecha_valida, time.min), tz
                     )
                     end = start + timedelta(days=1)
-                    movimientos = movimientos.filter(
+                    movimientos_qs = movimientos_qs.filter(
                         fecha__gte=start, fecha__lt=end
                     )
                 else:
-                    # Si es DateField: igualdad directa
-                    movimientos = movimientos.filter(fecha=fecha_valida)
-    # ===========================
+                    movimientos_qs = movimientos_qs.filter(fecha=fecha_valida)
 
     if proyecto:
-        movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
+        movimientos_qs = movimientos_qs.filter(proyecto__nombre__icontains=proyecto)
     if categoria:
-        movimientos = movimientos.filter(tipo__categoria__icontains=categoria)
+        movimientos_qs = movimientos_qs.filter(tipo__categoria__icontains=categoria)
     if tipo:
-        movimientos = movimientos.filter(tipo__nombre__icontains=tipo)
+        movimientos_qs = movimientos_qs.filter(tipo__nombre__icontains=tipo)
     if estado:
-        movimientos = movimientos.filter(status=estado)
+        movimientos_qs = movimientos_qs.filter(status=estado)
+
+    # ============================================================
+    #  AQUI cargamos TODO el queryset en memoria para:
+    #  - Paginación
+    #  - Filtros Excel (distinct globales)
+    # ============================================================
+    movimientos_list = list(movimientos_qs)  # 👈 todos los registros filtrados
+
+    # -------- Distinct globales para filtros tipo Excel ----------
+    excel_global = {}
+
+    # Col 0: User (igual que la columna de la tabla: str(usuario))
+    users_set = {str(m.usuario) for m in movimientos_list if m.usuario}
+    excel_global[0] = sorted(users_set)
+
+    # Col 1: Date (formato DD-MM-YYYY)
+    from datetime import datetime as py_datetime
+    dates_set = set()
+    for m in movimientos_list:
+        if not m.fecha:
+            continue
+        dt = m.fecha
+        if isinstance(dt, py_datetime):
+            dt = timezone.localtime(dt)
+        dates_set.add(dt.strftime("%d-%m-%Y"))
+    excel_global[1] = sorted(dates_set)
+
+    # Col 2: Project (str(proyecto))
+    projects_set = {str(m.proyecto) for m in movimientos_list if m.proyecto}
+    excel_global[2] = sorted(projects_set)
+
+    # Col 3: Category (categoria en Title)
+    cat_set = {
+        (m.tipo.categoria or "").title()
+        for m in movimientos_list
+        if m.tipo and m.tipo.categoria
+    }
+    excel_global[3] = sorted(cat_set)
+
+    # Col 4: Type (str(tipo))
+    type_set = {str(m.tipo) for m in movimientos_list if m.tipo}
+    excel_global[4] = sorted(type_set)
+
+    # Col 11: Status (get_status_display)
+    estado_map = dict(CartolaMovimiento.ESTADOS)
+    status_codes = {m.status for m in movimientos_list if m.status}
+    excel_global[11] = sorted(estado_map.get(c, c) for c in status_codes)
+
+    excel_global_json = json.dumps(excel_global)
 
     # ==========================
     # Paginación
     # ==========================
-    paginator = Paginator(movimientos, cantidad_int)
+    paginator = Paginator(movimientos_list, cantidad_int)
     pagina = paginator.get_page(page_number)
 
-    # QS para paginación manteniendo filtros
     params_no_page = params.copy()
     params_no_page.pop('page', None)
     base_qs = params_no_page.urlencode()
@@ -224,11 +270,12 @@ def listar_cartola(request):
 
     ctx = {
         'pagina': pagina,
-        'cantidad': cantidad,   # 👈 ahora siempre es '5','10','20','50','100', etc.
+        'cantidad': cantidad,
         'estado_choices': estado_choices,
         'filtros': filtros,
         'base_qs': base_qs,
         'full_qs': full_qs,
+        'excel_global_json': excel_global_json,  # 👈 para los filtros Excel
     }
     return render(request, 'facturacion/listar_cartola.html', ctx)
 
