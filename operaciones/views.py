@@ -622,17 +622,26 @@ def _parse_fecha_fragmento(s: str):
 def vista_rendiciones(request):
     user = request.user
 
-    # Base visible según rol
+    # --------- Base visible según rol ---------
     if user.is_superuser:
+        # Súper admin ve todo
         movimientos = CartolaMovimiento.objects.all()
     else:
         base = Q()
+        # Rechazados (de cualquier etapa) visibles para supervisor y PM
+        q_rechazados = Q(status__startswith='rechazado')
+
+        # Supervisor: ve solo lo pendiente para él + todos los rechazados
         if getattr(user, 'es_supervisor', False):
-            base |= Q(status='pendiente_supervisor') | Q(status='rechazado_supervisor')
+            base |= Q(status='pendiente_supervisor') | q_rechazados
+
+        # PM: ve lo pendiente para él (lo aprobado por supervisor) + todos los rechazados
         if getattr(user, 'es_pm', False):
-            base |= Q(status='aprobado_supervisor') | Q(status='rechazado_pm') | Q(status='aprobado_pm')
-        if getattr(user, 'es_facturacion', False):
-            base |= Q(status='aprobado_pm') | Q(status='rechazado_finanzas') | Q(status='aprobado_finanzas')
+            base |= Q(status='aprobado_supervisor') | q_rechazados
+
+        # 👇 OJO: ya NO se consideran estados de finanzas aquí
+        # if getattr(user, 'es_facturacion', False): ...
+
         movimientos = CartolaMovimiento.objects.filter(base) if base else CartolaMovimiento.objects.none()
 
     # 🔒 Limitar por proyectos asignados al usuario
@@ -684,7 +693,7 @@ def vista_rendiciones(request):
         )
     ).order_by('orden_status', '-fecha')
 
-    # Totales
+    # Totales (solo sobre lo que ve el usuario)
     total = movimientos.aggregate(total=Sum('cargos'))['total'] or 0
     pendientes = movimientos.filter(status__startswith='pendiente').aggregate(total=Sum('cargos'))['total'] or 0
     rechazados = movimientos.filter(status__startswith='rechazado').aggregate(total=Sum('cargos'))['total'] or 0
