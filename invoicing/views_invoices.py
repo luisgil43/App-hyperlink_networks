@@ -317,15 +317,17 @@ def invoice_prefill_api(request):
                 "rate":        str(it.get("rate", "")),
             })
 
+    from decimal import Decimal
+
     data = {
-        # 🔹 Datos completos de la factura (para EDIT)
+        # Datos base
         "invoice_id": inv.id,
         "number": inv.number or "",
         "status": inv.status,
         "profile_id": inv.branding_profile_id,
         "template_key": inv.template_key or "",
 
-        # 🔹 Lo que ya usabas para duplicar
+        # Cliente
         "customer_id": inv.customer_id,
         "customer_name": getattr(inv.customer, "name", ""),
         "customer": {
@@ -338,15 +340,22 @@ def invoice_prefill_api(request):
             "email": getattr(inv.customer, "email", "") or "",
             "phone": getattr(inv.customer, "phone", "") or "",
         },
+
+        # Fechas
         "issue_date": inv.issue_date.isoformat(),
         "due_date": inv.due_date.isoformat() if inv.due_date else "",
+
+        # Totales y textos
         "currency_symbol": "$",
-        "tax_percent": "0",
+        "tax_percent": str(inv.tax_percent or Decimal("0")),          # 👈 tax actual
+        "discount_amount": str(inv.discount_amount or Decimal("0")),  # 👈 descuento actual
         "notes": getattr(inv, "notes", "") or "",
         "terms": getattr(inv, "terms", "") or "",
         "items": items,
     }
     return JsonResponse({"ok": True, "prefill": data})
+
+
 
 # ---------- Helpers usados por create/duplicate ----------
 def _parse_date_iso(s: str):
@@ -532,14 +541,22 @@ def invoice_create_api(request):
     due_date   = _parse_date_iso(data.get("due_date"))
     items      = data.get("items") or []
     currency   = (data.get("currency_symbol") or "$").strip() or "$"
-    tax_pct    = Decimal(str(data.get("tax_percent") or "0"))
+
+    tax_pct = Decimal(str(data.get("tax_percent") or "0"))
+    # 🔹 NUEVO: descuento desde el payload
+    try:
+        discount_amount = Decimal(str(data.get("discount_amount") or "0"))
+    except Exception:
+        discount_amount = Decimal("0.00")
+    discount_amount = discount_amount.quantize(Decimal("0.01"))
+
     notes      = data.get("notes") or ""
     terms      = data.get("terms") or ""
 
     profile = None
     pid = data.get("profile_id")
     if pid:
-        profile = BrandingProfile.objects.filter(id=pid).first()  # << antes filtraba por owner
+        profile = BrandingProfile.objects.filter(id=pid).first()
     template_key = data.get("template_key") or "invoice_t1"
 
     subtotal = Decimal("0.00")
@@ -559,8 +576,13 @@ def invoice_create_api(request):
             "amount": f"{amt:.2f}",
         })
 
+    subtotal = subtotal.quantize(Decimal("0.01"))
     tax_amount = (subtotal * (tax_pct / Decimal("100"))).quantize(Decimal("0.01"))
-    total      = (subtotal + tax_amount).quantize(Decimal("0.01"))
+
+    total = subtotal + tax_amount - discount_amount
+    if total < 0:
+        total = Decimal("0.00")
+    total = total.quantize(Decimal("0.01"))
 
     requested_number = (data.get("number") or "").strip()
     final_number = _ensure_unique_number(
@@ -572,22 +594,24 @@ def invoice_create_api(request):
         return JsonResponse({"ok": False, "error": "Invoice template not found."}, status=400)
 
     with transaction.atomic():
-        # 1) Crear la factura **guardando también notes/terms**
         inv = Invoice.objects.create(
             owner=request.user,
             customer=customer,
             number=final_number,
             issue_date=issue_date,
             due_date=due_date,
+            subtotal=subtotal,
+            tax_percent=tax_pct,
+            tax_amount=tax_amount,
+            discount_amount=discount_amount,
             total=total,
             branding_profile=profile,
             template_key=_normalize_template_key(template_key),
             status=Invoice.STATUS_PENDING,
-            notes=notes,          # <-- agregado
-            terms=terms,          # <-- agregado
+            notes=notes,
+            terms=terms,
         )
 
-        # 2) Persistir líneas
         InvoiceLine = None
         try:
             from .models import InvoiceLine as _InvoiceLine
@@ -616,7 +640,6 @@ def invoice_create_api(request):
                 inv.lines = norm_items
                 inv.save(update_fields=["lines"])
 
-        # 3) Generar y adjuntar PDF
         ctx = {
             "invoice": {
                 "number": final_number,
@@ -625,10 +648,11 @@ def invoice_create_api(request):
                 "subtotal": subtotal,
                 "tax_percent": tax_pct,
                 "tax_amount": tax_amount,
+                "discount_amount": discount_amount,  # 👈 usado por template
                 "total": total,
                 "currency_symbol": currency,
-                "notes": notes,   # ya se usan en PDF
-                "terms": terms,   # ya se usan en PDF
+                "notes": notes,
+                "terms": terms,
                 "status": inv.status,
             },
             "customer": customer,
@@ -639,8 +663,10 @@ def invoice_create_api(request):
             "request": request,
         }
 
-        pdf_bytes = HTML(string=tpl.render(ctx, request),
-                         base_url=request.build_absolute_uri("/")).write_pdf()
+        pdf_bytes = HTML(
+            string=tpl.render(ctx, request),
+            base_url=request.build_absolute_uri("/"),
+        ).write_pdf()
         inv.pdf.save(f"invoice-{final_number}.pdf", ContentFile(pdf_bytes), save=True)
 
     return JsonResponse({"ok": True, "id": inv.id, "number": final_number, "pdf_url": inv.pdf.url})
@@ -698,36 +724,40 @@ def invoice_next_number_api(request):
 def invoice_update_api(request):
     """
     Actualiza una factura existente y regenera su PDF.
-    Si el usuario entra a editar y luego cancela, este endpoint NO se llama
-    y el PDF existente se mantiene igual.
     """
     data = json.loads(request.body.decode("utf-8") or "{}")
 
     iid = data.get("id")
     inv = get_object_or_404(Invoice, id=iid)
 
-    # --- Customer ---
     cust_id = data.get("customer_id") or inv.customer_id
     customer = get_object_or_404(Customer, id=cust_id)
 
-    # --- Fechas ---
     issue_date = _parse_date_iso(data.get("issue_date")) or inv.issue_date
     due_date   = _parse_date_iso(data.get("due_date")) or inv.due_date
 
-    # --- Items / totales ---
     items    = data.get("items") or []
     currency = (data.get("currency_symbol") or "$").strip() or "$"
-    tax_pct  = Decimal(str(data.get("tax_percent") or "0"))
-    notes    = data.get("notes", None)
-    terms    = data.get("terms", None)
+    tax_pct  = Decimal(str(data.get("tax_percent") or inv.tax_percent or "0"))
 
-    # si no vienen notes/terms en el payload, mantenemos las anteriores
+    # 🔹 Descuento: si no viene en el payload, conservamos el que estaba
+    discount_raw = data.get("discount_amount", None)
+    if discount_raw is None:
+        discount_amount = inv.discount_amount or Decimal("0.00")
+    else:
+        try:
+            discount_amount = Decimal(str(discount_raw))
+        except Exception:
+            discount_amount = inv.discount_amount or Decimal("0.00")
+    discount_amount = discount_amount.quantize(Decimal("0.01"))
+
+    notes = data.get("notes", None)
+    terms = data.get("terms", None)
     if notes is None:
         notes = getattr(inv, "notes", "") or ""
     if terms is None:
         terms = getattr(inv, "terms", "") or ""
 
-    # --- Branding / template ---
     profile = inv.branding_profile
     pid = data.get("profile_id")
     if pid:
@@ -735,7 +765,6 @@ def invoice_update_api(request):
 
     template_key = data.get("template_key") or inv.template_key or "invoice_t1"
 
-    # --- Recalcular montos ---
     subtotal = Decimal("0.00")
     norm_items = []
     for it in items:
@@ -753,20 +782,18 @@ def invoice_update_api(request):
             "amount": f"{amt:.2f}",
         })
 
+    subtotal = subtotal.quantize(Decimal("0.01"))
     tax_amount = (subtotal * (tax_pct / Decimal("100"))).quantize(Decimal("0.01"))
-    total      = (subtotal + tax_amount).quantize(Decimal("0.01"))
 
-    # --- Número de factura ---
+    total = subtotal + tax_amount - discount_amount
+    if total < 0:
+        total = Decimal("0.00")
+    total = total.quantize(Decimal("0.01"))
+
     requested_number = (data.get("number") or "").strip()
-
-    if not requested_number:
-        # si no mandan número, mantenemos el existente
-        final_number = inv.number
-    elif requested_number == inv.number:
-        # si mandan el mismo, no lo cambiamos
+    if not requested_number or requested_number == inv.number:
         final_number = inv.number
     else:
-        # si el usuario cambió el número, validamos colisión
         exists = (
             Invoice.objects
             .filter(number=requested_number)
@@ -787,19 +814,23 @@ def invoice_update_api(request):
             status=400,
         )
 
-    # --- Actualizar en DB + reemplazar líneas + regenerar PDF ---
     with transaction.atomic():
         inv.customer = customer
         inv.number   = final_number
         inv.issue_date = issue_date
         inv.due_date   = due_date
-        inv.total      = total
-        inv.branding_profile = profile
-        inv.template_key = _normalize_template_key(template_key)
-        inv.notes = notes
-        inv.terms = terms
 
-        # (Opcional) permitir que el front actualice status
+        inv.subtotal      = subtotal
+        inv.tax_percent   = tax_pct
+        inv.tax_amount    = tax_amount
+        inv.discount_amount = discount_amount
+        inv.total         = total
+
+        inv.branding_profile = profile
+        inv.template_key     = _normalize_template_key(template_key)
+        inv.notes            = notes
+        inv.terms            = terms
+
         new_status = data.get("status")
         allowed_status = {
             Invoice.STATUS_PENDING,
@@ -812,7 +843,6 @@ def invoice_update_api(request):
 
         inv.save()
 
-        # Reemplazar líneas
         InvoiceLine = None
         try:
             from .models import InvoiceLine as _InvoiceLine
@@ -838,12 +868,10 @@ def invoice_update_api(request):
             if line_objs:
                 InvoiceLine.objects.bulk_create(line_objs)
         else:
-            # caso JSONField lines
             if any(f.name == "lines" for f in Invoice._meta.get_fields()):
                 inv.lines = norm_items
                 inv.save(update_fields=["lines"])
 
-        # Regenerar PDF y reemplazar el archivo actual
         ctx = {
             "invoice": {
                 "number": final_number,
@@ -852,6 +880,7 @@ def invoice_update_api(request):
                 "subtotal": subtotal,
                 "tax_percent": tax_pct,
                 "tax_amount": tax_amount,
+                "discount_amount": discount_amount,
                 "total": total,
                 "currency_symbol": currency,
                 "notes": notes,

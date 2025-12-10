@@ -50,18 +50,15 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
 
       if(!inputDate) return false; // aún no está renderizado
 
-      // Siempre forzar a HOY (solo nueva/duplicar)
       const today = toYMD(new Date());
       inputDate.value = today;
 
-      // Due = hoy + 30
       if (inputDue){
         const d = new Date();
         d.setDate(d.getDate()+30);
         inputDue.value = toYMD(d);
       }
 
-      // Evitar autocompletado del navegador
       inputDate.setAttribute('autocomplete','off');
       if (inputDue) inputDue.setAttribute('autocomplete','off');
 
@@ -69,7 +66,6 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
     }catch(e){ return false; }
   }
 
-  // Si el iframe termina de cargar después:
   iframe.addEventListener('load', ()=> {
     if (!forceDefaultDates()){
       const t0 = Date.now();
@@ -79,7 +75,6 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
     }
   });
 
-  // Si el iframe ya estaba listo cuando se añadió el listener:
   try{
     const doc = iframe.contentDocument || iframe.contentWindow.document;
     if (doc && doc.readyState !== 'loading'){
@@ -98,7 +93,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   const iframe = document.getElementById('invoice-frame');
   const fdoc = iframe.contentDocument || iframe.contentWindow.document;
 
-  // --- lectores genéricos para notas/términos ---
   function readField(fdoc, selectors){
     for (const sel of selectors){
       const el = fdoc.querySelector(sel);
@@ -120,7 +114,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     '[contenteditable][data-field="terms"]'
   ];
 
-  // --- tomar desde iframe (si existen) ---
   let number   = fdoc.querySelector('#inv-number')?.value?.trim() || '';
   let issue    = fdoc.querySelector('#inv-date')?.value || '';
   let due      = fdoc.querySelector('#inv-due')?.value || '';
@@ -134,11 +127,16 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     fdoc.getElementById('invoice-root')?.dataset?.templateKey ||
     "{{ profile.template_key|default:'classic' }}";
 
-  // customer id dentro del iframe… o desde PREFILL de respaldo
+  // 🔹 NUEVO: leer el descuento desde el iframe
+  let discountAmt = 0;
+  const discInput = fdoc.querySelector('#discount-amount');
+  if (discInput) {
+    discountAmt = parseFloat(discInput.value || '0') || 0;
+  }
+
   let custId = fdoc.querySelector('#billto-addr strong')?.dataset?.customerId
             || (window.__PREFILL__?.customer_id ? String(window.__PREFILL__.customer_id) : '');
 
-  // Respaldo de currency/tax/due desde PREFILL si no hay en iframe
   if (!currency && window.__PREFILL__?.currency_symbol) currency = window.__PREFILL__.currency_symbol;
   if ((!taxPct || isNaN(taxPct)) && window.__PREFILL__?.tax_percent != null) {
     taxPct = parseFloat(window.__PREFILL__.tax_percent) || 0;
@@ -147,7 +145,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     due = window.__PREFILL__.due_date;
   }
 
-  // ❗️Solo NUEVA / DUPLICAR generan número automático si falta
   if (!EDIT_MODE && !number) {
     try{
       const q = custId ? `?customer_id=${custId}` : '';
@@ -160,7 +157,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   if (!custId) { alert('Select a customer first.'); return; }
   if (!number) { alert('Invoice number is required.'); return; }
 
-  // Buscar filas de items en el iframe
   const rows = Array.from(fdoc.querySelectorAll('#items-body tr.row'));
   let items = rows.map(tr=>{
     const g = s=> tr.querySelector(s);
@@ -176,7 +172,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     };
   }).filter(x=> x.job_code || x.description || x.amount);
 
-  // --- RESPALDO: si no hay items en el iframe, usa los del PREFILL ---
   if (!items.length && window.__PREFILL__?.items?.length) {
     items = window.__PREFILL__.items.map(it => {
       const qty  = parseFloat(it.qty || '0')  || 0;
@@ -191,7 +186,7 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     }).filter(x=> x.job_code || x.description || x.amount);
   }
 
-  // --- payload base ---
+  // --- payload base (CON DESCUENTO) ---
   const payload = {
     number,
     issue_date: issue,
@@ -199,6 +194,7 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     customer_id: Number(custId),
     currency_symbol: currency || '$',
     tax_percent: taxPct || 0,
+    discount_amount: discountAmt || 0,   // 👈 AQUÍ VA EL DESCUENTO
     items,
     notes,
     terms,
@@ -206,7 +202,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     template_key: templateKey
   };
 
-  // --- decidir si CREAR o ACTUALIZAR ---
   let url;
   if (EDIT_MODE && EDIT_INVOICE_ID) {
     payload.id = Number(EDIT_INVOICE_ID);
@@ -329,6 +324,7 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
   }
 
   async function applyPrefill(){
+    const iframe = document.getElementById('invoice-frame');
     const fdoc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!fdoc) return;
 
@@ -352,7 +348,7 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
     const custHidden = fdoc.querySelector('input[name="customer_id"]');
     if (custHidden && prefill.customer_id) custHidden.value = prefill.customer_id;
 
-    // --- DATES / TAX / CURRENCY ---
+    // --- DATES / NUMBER ---
     if (EDIT_MODE) {
       // ➜ EDITAR: respetar fechas y número de la factura original
       if (prefill.issue_date){
@@ -377,26 +373,50 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
         }
       }
     } else {
-      // ➜ NUEVA / DUPLICAR:
-      // las fechas se ponen en el script exterior (HOY / HOY+30)
-      // aquí solo podrías tocar due_date si quisieras, pero lo dejamos tal cual.
+      // ➜ NUEVA / DUPLICAR: las fechas ya las pone el padre (HOY / HOY+30),
+      // aquí sólo sugerimos número nuevo.
     }
 
+    // --- TAX ---
     if (prefill.tax_percent != null){
       const tax = fdoc.getElementById('tax-percent');
       if (tax){
-        tax.value = prefill.tax_percent;
-        tax.dispatchEvent(new Event('input',{bubbles:true}));
+        tax.value = String(prefill.tax_percent);
+        try {
+          tax.dispatchEvent(new Event('input',{bubbles:true}));
+          tax.dispatchEvent(new Event('change',{bubbles:true}));
+        } catch(_) {}
       }
     }
+
+    // --- CURRENCY ---
     if (prefill.currency_symbol){
       const root = fdoc.getElementById('invoice-root');
       if (root){ root.dataset.currency = prefill.currency_symbol; }
     }
 
-    // --- NÚMERO DE FACTURA ---
+    // --- DESCUENTO ---
+    if (prefill.discount_amount != null){
+      const discInput = fdoc.getElementById('discount-amount');
+      const discShow  = fdoc.getElementById('discount-show');
+      const discRaw   = String(prefill.discount_amount || '0').trim();
+      const discNum   = parseFloat(discRaw || '0') || 0;
+
+      if (discInput){
+        discInput.value = discRaw;
+        try {
+          discInput.dispatchEvent(new Event('input',{bubbles:true}));
+          discInput.dispatchEvent(new Event('change',{bubbles:true}));
+        } catch(_) {}
+      }
+      if (discShow){
+        const cur = (fdoc.getElementById('invoice-root')?.dataset?.currency || '$');
+        discShow.textContent = cur + discNum.toFixed(2);
+      }
+    }
+
+    // --- NÚMERO DE FACTURA (para DUPLICAR / NUEVA) ---
     if (!EDIT_MODE) {
-      // ➜ DUPLICAR / NUEVA: sugerir número nuevo
       try{
         const q = prefill.customer_id ? `?customer_id=${prefill.customer_id}` : '';
         const r = await fetch("{% url 'invoicing:api_invoice_next_number' %}"+q, {credentials:'same-origin'});
@@ -410,7 +430,6 @@ document.getElementById('btn-save').addEventListener('click', async ()=>{
         }
       }catch(_){}
     }
-    // En EDIT_MODE el número ya lo pusimos arriba desde prefill.number
 
     // --- ITEMS ---
     const tbody = fdoc.querySelector('#items-body');

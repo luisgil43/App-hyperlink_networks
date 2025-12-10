@@ -363,28 +363,61 @@ data-template-key="t1"
       </div>
     </div>
 
-    <!-- Totals -->
+        <!-- Totals -->
     <div class="totals">
       <div class="totalbox">
         {% if pdf_mode %}
-          <div class="row"><span>Subtotal</span><span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</span></div>
+          <div class="row">
+            <span>Subtotal</span>
+            <span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</span>
+          </div>
+
           <div class="row">
             <span>Tax ({{ invoice.tax_percent }}%)</span>
             <div style="display:flex;gap:8px;align-items:center">
               <span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax_amount }}</span>
             </div>
           </div>
-          <div class="row grand"><span>Total</span><span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</span></div>
+
+          <!-- NUEVO: Descuento en PDF (muestra lo que tengas en el modelo) -->
+          <div class="row">
+            <span>Discount</span>
+            <span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.discount_amount|default:"0.00" }}</span>
+          </div>
+
+          <div class="row grand">
+            <span>Total</span>
+            <span>{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</span>
+          </div>
         {% else %}
-          <div class="row"><span>Subtotal</span><span id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</span></div>
+          <div class="row">
+            <span>Subtotal</span>
+            <span id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+          </div>
+
           <div class="row">
             <span>Tax (%)</span>
             <div style="display:flex;gap:8px;align-items:center">
-              <input id="tax-percent" type="number" value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
+              <input id="tax-percent" type="number"
+                     value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
               <span id="tax-amount">{{ invoice.currency_symbol|default:"$" }}0.00</span>
             </div>
           </div>
-          <div class="row grand"><span>Total</span><span id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</span></div>
+
+          <!-- NUEVO: Descuento (monto fijo que se resta del total) -->
+          <div class="row">
+            <span>Discount</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="discount-amount" type="number"
+                     value="{{ invoice.discount_amount|default:'0' }}" min="0" step="0.01">
+              <span id="discount-show">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+            </div>
+          </div>
+
+          <div class="row grand">
+            <span>Total</span>
+            <span id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -610,16 +643,19 @@ data-template-key="t1"
     closeModal();
   }
 
-  const tbody = $('#items-body');
+  const tbody  = $('#items-body');
   const btnAdd = $('#btn-add-line');
-  const TAX_IN = $('#tax-percent');
-  const EL_SUB = $('#subtotal-val');
-  const EL_TAX = $('#tax-amount');
-  const EL_TOT = $('#total-val');
+
+  const TAX_IN   = $('#tax-percent');
+  const DISC_IN  = $('#discount-amount');
+  const EL_SUB   = $('#subtotal-val');
+  const EL_TAX   = $('#tax-amount');
+  const EL_DISC  = $('#discount-show');
+  const EL_TOT   = $('#total-val');
 
   function fmt(n){ return CURRENCY + (Number(n||0).toFixed(2)); }
 
-  function calc(){
+    function calc(){
     let subtotal = 0;
     $$('.row', tbody).forEach(tr=>{
       const qty  = parseFloat($('.i-qty', tr)?.value?.replace(',', '.') || '0') || 0;
@@ -631,12 +667,21 @@ data-template-key="t1"
       if (amtShow)  amtShow.textContent = fmt(amt);
       subtotal += amt;
     });
+
     if (EL_SUB) EL_SUB.textContent = fmt(subtotal);
+
     const taxP = TAX_IN ? Math.max(0, parseFloat(TAX_IN.value)||0) / 100 : 0;
     const taxAmount = subtotal * taxP;
     if (EL_TAX) EL_TAX.textContent = fmt(taxAmount);
-    if (EL_TOT) EL_TOT.textContent = taxP > 0 ? fmt(subtotal + taxAmount) : fmt(subtotal);
+
+    const discount = DISC_IN ? Math.max(0, parseFloat(DISC_IN.value)||0) : 0;
+    if (EL_DISC) EL_DISC.textContent = fmt(discount);
+
+    const total = Math.max(0, subtotal + taxAmount - discount);
+    if (EL_TOT) EL_TOT.textContent = fmt(total);
   }
+
+  window.recalcTotals = calc;
 
   function openMenu(menu){ menu.hidden = false; menu.dataset.index = '' }
   function closeMenu(menu){ menu.hidden = true; menu.dataset.index = '' }
@@ -789,7 +834,11 @@ data-template-key="t1"
   btnAdd && btnAdd.addEventListener('click', ()=>{ tbody.appendChild(mkRow()); });
   for(let i=0;i<5;i++) tbody.appendChild(mkRow());
 
-  TAX_IN && TAX_IN.addEventListener('input', calc);
+
+
+  TAX_IN  && TAX_IN.addEventListener('input', calc);
+  DISC_IN && DISC_IN.addEventListener('input', calc);
+
   calc();
 })();
 </script>

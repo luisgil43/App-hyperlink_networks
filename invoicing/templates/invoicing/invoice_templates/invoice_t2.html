@@ -395,19 +395,49 @@
         </div>
         <div class="totals">
           {% if pdf_mode %}
-            <div class="totals-row"><div class="label">Subtotal</div><div><strong>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</strong></div></div>
-            <div class="totals-row"><div class="label">Tax ({{ invoice.tax_percent }}%)</div><div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax_amount }}</div></div>
-            <div class="totals-row total"><div class="label">Total</div><div style="font-size:18px;">{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</div></div>
+            <div class="totals-row">
+              <div class="label">Subtotal</div>
+              <div><strong>{{ invoice.currency_symbol|default:"$" }}{{ invoice.subtotal }}</strong></div>
+            </div>
+            <div class="totals-row">
+              <div class="label">Tax ({{ invoice.tax_percent }}%)</div>
+              <div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.tax_amount }}</div>
+            </div>
+            <!-- NUEVO: Descuento en PDF -->
+            <div class="totals-row">
+              <div class="label">Discount</div>
+              <div>{{ invoice.currency_symbol|default:"$" }}{{ invoice.discount_amount|default:"0.00" }}</div>
+            </div>
+            <div class="totals-row total">
+              <div class="label">Total</div>
+              <div style="font-size:18px;">{{ invoice.currency_symbol|default:"$" }}{{ invoice.total }}</div>
+            </div>
           {% else %}
-            <div class="totals-row"><div class="label">Subtotal</div><div><strong id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</strong></div></div>
+            <div class="totals-row">
+              <div class="label">Subtotal</div>
+              <div><strong id="subtotal-val">{{ invoice.currency_symbol|default:"$" }}0.00</strong></div>
+            </div>
             <div class="totals-row">
               <div class="label">Tax (%)</div>
               <div class="row-inline">
-                <input id="tax-percent" type="number" value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
+                <input id="tax-percent" type="number"
+                       value="{{ invoice.tax_percent|default:'0' }}" min="0" step="0.01">
                 <span id="tax-amount">{{ invoice.currency_symbol|default:"$" }}0.00</span>
               </div>
             </div>
-            <div class="totals-row total"><div class="label">Total</div><div style="font-size:18px;" id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</div></div>
+            <!-- NUEVO: Descuento (monto fijo) -->
+            <div class="totals-row">
+              <div class="label">Discount</div>
+              <div class="row-inline">
+                <input id="discount-amount" type="number"
+                       value="{{ invoice.discount_amount|default:'0' }}" min="0" step="0.01">
+                <span id="discount-show">{{ invoice.currency_symbol|default:"$" }}0.00</span>
+              </div>
+            </div>
+            <div class="totals-row total">
+              <div class="label">Total</div>
+              <div style="font-size:18px;" id="total-val">{{ invoice.currency_symbol|default:"$" }}0.00</div>
+            </div>
           {% endif %}
         </div>
       </div>
@@ -518,8 +548,22 @@
   const qInput = $('#cust-q'), btnSearch = $('#cust-search'), list = $('#cust-list');
 
   let selectedCustomer = null;
-  function openModal(){ if(!modal) return; modal.classList.add('show'); document.body.classList.add('modal-open'); if(qInput){ qInput.value=''; list.innerHTML=''; qInput.focus(); doSearch(); } }
-  function closeModal(){ if(!modal) return; modal.classList.remove('show'); document.body.classList.remove('modal-open'); }
+  function openModal(){
+    if(!modal) return;
+    modal.classList.add('show');
+    document.body.classList.add('modal-open');
+    if(qInput){
+      qInput.value='';
+      list.innerHTML='';
+      qInput.focus();
+      doSearch();
+    }
+  }
+  function closeModal(){
+    if(!modal) return;
+    modal.classList.remove('show');
+    document.body.classList.remove('modal-open');
+  }
   btnPick && btnPick.addEventListener('click', openModal);
   btnClose && btnClose.addEventListener('click', closeModal);
   modal && modal.addEventListener('click', (e)=>{ if(e.target===modal) closeModal(); });
@@ -536,7 +580,10 @@
       const res = await fetch(u, {headers:{'X-Requested-With':'fetch'}});
       const data = await res.json();
       list.innerHTML = '';
-      if(!data.results?.length){ list.innerHTML='<div class="item small">No customers.</div>'; return; }
+      if(!data.results?.length){
+        list.innerHTML='<div class="item small">No customers.</div>';
+        return;
+      }
       data.results.forEach(c=>{
         const div = document.createElement('div');
         div.className='item';
@@ -545,7 +592,9 @@
         div.addEventListener('click', ()=> chooseCustomer(c));
         list.appendChild(div);
       });
-    }catch{ list.innerHTML = '<div class="item small">Network error</div>'; }
+    }catch{
+      list.innerHTML = '<div class="item small">Network error</div>';
+    }
   }
 
   async function fetchNextNumber(customerId){
@@ -585,29 +634,47 @@
 
   const tbody = $('#items-body');
   const btnAdd = $('#btn-add-line');
-  const TAX_IN = $('#tax-percent');
-  const EL_SUB = $('#subtotal-val');
-  const EL_TAX = $('#tax-amount');
-  const EL_TOT = $('#total-val');
+  const TAX_IN  = $('#tax-percent');
+  const DISC_IN = $('#discount-amount');
+  const EL_SUB  = $('#subtotal-val');
+  const EL_TAX  = $('#tax-amount');
+  const EL_DISC = $('#discount-show');
+  const EL_TOT  = $('#total-val');
 
   function fmt(n){ return CURRENCY + (Number(n||0).toFixed(2)); }
 
   function calc(){
     let subtotal = 0;
     $$('.row', tbody).forEach(tr=>{
-      const qty  = parseFloat($('.i-qty', tr).value.replace(',', '.')) || 0;
-      const rate = parseFloat($('.i-rate', tr).value.replace(',', '.')) || 0;
+      const qtyEl  = $('.i-qty',  tr);
+      const rateEl = $('.i-rate', tr);
+      if (!qtyEl || !rateEl) return;
+      const qty  = parseFloat(qtyEl.value.replace(',', '.')) || 0;
+      const rate = parseFloat(rateEl.value.replace(',', '.')) || 0;
       const amt  = Math.max(0, qty) * Math.max(0, rate);
-      $('.i-amount', tr).value = amt.toFixed(2);
-      $('.i-amount-show', tr).textContent = fmt(amt);
+      const amtInput = $('.i-amount', tr);
+      const amtShow  = $('.i-amount-show', tr);
+      if (amtInput) amtInput.value = amt.toFixed(2);
+      if (amtShow)  amtShow.textContent = fmt(amt);
       subtotal += amt;
     });
+
     if (EL_SUB) EL_SUB.textContent = fmt(subtotal);
+
     const taxP = Math.max(0, parseFloat(TAX_IN?.value)||0) / 100;
     const taxAmount = subtotal * taxP;
     if (EL_TAX) EL_TAX.textContent = fmt(taxAmount);
-    if (EL_TOT) EL_TOT.textContent = taxP > 0 ? fmt(subtotal + taxAmount) : fmt(subtotal);
+
+    const discount = DISC_IN ? Math.max(0, parseFloat(DISC_IN.value)||0) : 0;
+    if (EL_DISC) EL_DISC.textContent = fmt(discount);
+
+    let total = subtotal + taxAmount - discount;
+    if (total < 0) total = 0;
+    if (EL_TOT) EL_TOT.textContent = fmt(total);
   }
+
+  // Exponer para cuando se edite/duplique desde fuera
+  window.recalcTotals = calc;
 
   function openMenu(menu){ menu.hidden = false; menu.dataset.index = '' }
   function closeMenu(menu){ menu.hidden = true; menu.dataset.index = '' }
@@ -809,7 +876,9 @@
   btnAdd && btnAdd.addEventListener('click', ()=>{ tbody.appendChild(mkRow()); });
   for(let i=0;i<5;i++) tbody.appendChild(mkRow());
 
-  TAX_IN && TAX_IN.addEventListener('input', calc);
+  TAX_IN  && TAX_IN.addEventListener('input', calc);
+  DISC_IN && DISC_IN.addEventListener('input', calc);
+
   calc();
 })();
 </script>

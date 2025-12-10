@@ -185,37 +185,28 @@ class ItemCode(models.Model):
         return f"{self.job_code} — {self.description or 'Item'}"
     
 
-# --- Invoices (issued) ---
 from decimal import Decimal
 from uuid import uuid4
 
+from django.conf import settings
+from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
-"""
-def upload_to_invoice_pdf(instance, filename: str) -> str:
-    # mismo storage ya configurado: wasabi_storage
-    return f"finanzas/facturacion/invoices/{instance.owner_id}/{uuid4().hex}.pdf"""
-
-
 
 def upload_to_invoice_pdf(instance, filename: str) -> str:
-  
     def safe_segment(s: str) -> str:
         s = (s or "").strip()
         # Evitar separadores de ruta
         s = s.replace("/", "-").replace("\\", "-")
-        # Opcional: si prefieres slugs sin espacios, descomenta la línea siguiente:
-        # s = slugify(s, allow_unicode=True)
         return s or "Sin-Nombre"
 
     customer_dir = safe_segment(getattr(instance.customer, "name", "Cliente"))
     invoice_num  = safe_segment(getattr(instance, "number", uuid4().hex))
-
     return f"finanzas/facturacion/invoices/{customer_dir}/{invoice_num}.pdf"
 
+
 class Invoice(models.Model):
-    
     STATUS_PENDING = "pending"   # Emitida pendiente
     STATUS_OVERDUE = "overdue"   # Vencida (se debe cobrar)
     STATUS_PAID    = "paid"      # Pagada
@@ -228,22 +219,76 @@ class Invoice(models.Model):
         (STATUS_VOID,    "Void"),
     ]
 
-    owner    = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="invoices")
-    customer = models.ForeignKey("Customer", on_delete=models.PROTECT, related_name="invoices")
+    owner    = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="invoices",
+    )
+    customer = models.ForeignKey(
+        "Customer",
+        on_delete=models.PROTECT,
+        related_name="invoices",
+    )
 
-    number      = models.CharField(max_length=40)   # p.ej. CCU-000012
-    issue_date  = models.DateField(default=timezone.now)
-    total       = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    number     = models.CharField(max_length=40)   # p.ej. CCU-000012
+    issue_date = models.DateField(default=timezone.now)
 
-    pdf         = models.FileField(upload_to=upload_to_invoice_pdf, storage=wasabi_storage, blank=True, null=True)
-    lines       = models.JSONField(default=list, blank=True)
+    # === NUEVOS CAMPOS DE TOTALES ===
+    subtotal = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    tax_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Tax percentage (e.g. 19.00 for 19%)",
+    )
+    tax_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Flat discount amount subtracted from subtotal+tax",
+    )
+    total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+
+    pdf   = models.FileField(
+        upload_to=upload_to_invoice_pdf,
+        storage=wasabi_storage,
+        blank=True,
+        null=True,
+    )
+    lines = models.JSONField(default=list, blank=True)
+
     # branding/template usados al emitir
-    branding_profile = models.ForeignKey("BrandingProfile", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices")
-    template_key     = models.CharField(max_length=30, blank=True, default="classic")
-    due_date   = models.DateField(null=True, blank=True)
-    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_CHOICES)
-    created_at  = models.DateTimeField(auto_now_add=True)
-    updated_at  = models.DateTimeField(auto_now=True)
+    branding_profile = models.ForeignKey(
+        "BrandingProfile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invoices",
+    )
+    template_key = models.CharField(max_length=30, blank=True, default="classic")
+
+    due_date  = models.DateField(null=True, blank=True)
+    status    = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,  # 👈 pequeño fix, antes usaba la lista entera
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     notes = models.TextField(blank=True, default="")
     terms = models.TextField(blank=True, default="")
 
@@ -265,3 +310,33 @@ class Invoice(models.Model):
             return self.pdf.url if self.pdf else ""
         except Exception:
             return ""
+
+    # === NUEVO: recálculo de totales desde self.lines ===
+    def recompute_totals(self):
+        """
+        Lee los montos desde self.lines (lista de dicts) y recalcula:
+        subtotal, tax_amount y total (restando discount_amount).
+        Espera que cada línea tenga una clave 'amount'.
+        """
+        q = Decimal("0.01")
+        subtotal = Decimal("0.00")
+
+        for row in (self.lines or []):
+            try:
+                amt = Decimal(str(row.get("amount", "0") or "0"))
+            except Exception:
+                amt = Decimal("0.00")
+            subtotal += amt
+
+        self.subtotal = subtotal.quantize(q)
+
+        tax_pct = (self.tax_percent or Decimal("0.00")).quantize(q)
+        self.tax_amount = (self.subtotal * tax_pct / Decimal("100")).quantize(q)
+
+        disc = (self.discount_amount or Decimal("0.00")).quantize(q)
+
+        total = self.subtotal + self.tax_amount - disc
+        if total < 0:
+            total = Decimal("0.00")
+
+        self.total = total.quantize(q)
