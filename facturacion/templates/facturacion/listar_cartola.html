@@ -169,7 +169,7 @@
   </button>
 </div>
 
-<div id="zonaTabla">
+<div id="zonaTabla" data-excel-global="{{ excel_global_json|escapejs }}">
   <div class="rounded-xl border border-gray-200 tabla-responsive">
     <table id="tabla-cartola" class="table-auto border border-gray-300 rounded-xl text-sm w-full">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
@@ -494,6 +494,20 @@
     }catch(_){}
   }
 
+  /* =================== Excel globals desde el servidor =================== */
+
+  function loadExcelGlobalFromZona(){
+    try{
+      if(!zona) return {};
+      const raw = zona.dataset.excelGlobal || '{}';
+      return JSON.parse(raw);
+    }catch(_){
+      return {};
+    }
+  }
+
+  let excelGlobalValues = loadExcelGlobalFromZona(); // 👈 todos los registros (no sólo la página)
+
   /* ======== Estado filtros tipo Excel ======== */
   const excel = {
     panel: document.getElementById('excelFilterPanel'),
@@ -501,13 +515,13 @@
     searchInput: document.getElementById('excelFilterSearch'),
     optsBox: document.getElementById('excelFilterOptions'),
     btnApply: document.getElementById('excelFilterApply'),
-    btnClearAll: document.getElementById('excelFilterClearAll'), // Clear del popup
+    btnClearAll: document.getElementById('excelFilterClearAll'),
     table: null,
     tbody: null,
     headers: [],
     allRows: [],
     distinctValues: {},
-    activeFilters: loadExcelFilters(),   // 👈 cargamos lo que hubiera guardado
+    activeFilters: loadExcelFilters(),   // 👈 recupera filtros guardados
     currentColIndex: null,
     panelEventsBound: false
   };
@@ -564,11 +578,11 @@
     const table = zona.querySelector('table');
     if (!table) return;
 
-    const state = loadColsState();   // {0:true, 1:false, ...}
+    const state = loadColsState();
 
     const headerCells = table.querySelectorAll('thead tr th');
     headerCells.forEach((th, idx)=>{
-      const visible = state[idx] !== false;   // default: visible
+      const visible = state[idx] !== false;
       th.style.display = visible ? '' : 'none';
     });
 
@@ -681,13 +695,17 @@
 
     zona.innerHTML = nuevaZona.innerHTML;
 
+    // actualizar excel_global
+    zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+    excelGlobalValues = loadExcelGlobalFromZona();
+
     engancharPaginacion();
     engancharAprobar();
     engancharCantidad();
     engancharColumnToggles();
     initColumnsDropdown();
     engancharFiltros();
-    initExcelFilters();          // 👈 vuelve a enganchar Excel con mismos filtros
+    initExcelFilters();          // reaplica filtros Excel
 
     applyColumnVisibility();
     restoreX(prevX);
@@ -773,8 +791,8 @@
             row.remove();
           }, 200);
 
-          // 👇 re-aplicamos filtros sobre lo que quede en la página
-          if (excel.table && excel.allRows.length){
+          // re-aplicar filtros sobre filas restantes de la página
+          if (excel.table && excel.tbody){
             excel.allRows = Array.from(excel.tbody.rows);
             excelApplyFilters();
           }
@@ -828,11 +846,19 @@
     return text || '(Vacías)';
   }
 
-  // valores distintos usando SOLO filas visibles (para cadenas de filtros)
-  function excelBuildDistinctValuesFromVisible(){
+  // construir distinct usando:
+  //  - valores globales del servidor (todos los registros)
+  //  - y como fallback, lo que haya en la página actual
+  function excelBuildDistinctValues(){
     excel.distinctValues = {};
+
+    if (excelGlobalValues){
+      Object.entries(excelGlobalValues).forEach(([idx, arr])=>{
+        excel.distinctValues[idx] = new Set(arr);
+      });
+    }
+
     excel.allRows.forEach(row=>{
-      if (row.style.display === 'none') return; // ya filtrada por otra columna
       Array.from(row.cells).forEach((td, idx)=>{
         if(!excel.distinctValues[idx]) excel.distinctValues[idx] = new Set();
         const text = excelGetCellValue(td);
@@ -867,10 +893,10 @@
     });
 
     excelUpdateHeaderStates();
-    saveExcelFilters(excel.activeFilters);   // 👈 persistimos en sessionStorage
+    saveExcelFilters(excel.activeFilters);
   }
 
-  // 🔹 Clear global (todos los filtros)
+  // Clear global (todos los filtros)
   function excelClearAll(){
     excel.activeFilters = {};
     excelApplyFilters();
@@ -927,11 +953,10 @@
   function excelOpenForHeader(th){
     if(!excel.panel) return;
 
-    // recalcular opciones SOLO con filas visibles
-    excelBuildDistinctValuesFromVisible();
-
     excel.currentColIndex = parseInt(th.dataset.excelIndex, 10);
     excel.titleEl.textContent = th.innerText.trim();
+
+    excelBuildDistinctValues();
     excelRenderOptions(excel.currentColIndex);
 
     const rect = th.getBoundingClientRect();
@@ -987,13 +1012,13 @@
       excel.panel.classList.add('hidden');
     });
 
-    // 🔸 Clear del popup -> limpia SOLO la columna actual
+    // Clear del popup -> limpia SOLO la columna actual
     excel.btnClearAll.addEventListener('click', ()=>{
       if (excel.currentColIndex == null){
         excel.panel.classList.add('hidden');
         return;
       }
-      delete excel.activeFilters[excel.currentColIndex];    // quitar filtro de esa columna
+      delete excel.activeFilters[excel.currentColIndex];
 
       const checks = excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]');
       checks.forEach(cb => { cb.checked = true; });
@@ -1024,9 +1049,8 @@
     excel.tbody   = table.querySelector('tbody');
     excel.headers = table.querySelectorAll('thead th');
     excel.allRows = Array.from(excel.tbody.rows);
-    // 👇 NO reseteamos activeFilters aquí, así se mantiene entre recargas
 
-    excelBuildDistinctValuesFromVisible();
+    excelBuildDistinctValues();
     excelApplyFilters();
 
     excel.headers.forEach((th, idx)=>{
@@ -1043,7 +1067,7 @@
     });
   }
 
-  // 🔹 Botón global "❌ Clear filters" (todas las columnas)
+  // Botón global "❌ Clear filters"
   function engancharClearExcelGlobal(){
     const btn = document.getElementById('btnExcelClearAll');
     if(!btn) return;
@@ -1064,10 +1088,9 @@
   applyColumnVisibility();
   restoreX(readSavedX());
   hookScrollSaver();
-  initExcelFilters();          // filtros tipo Excel
-  engancharClearExcelGlobal(); // botón global "Clear filters"
+  initExcelFilters();
+  engancharClearExcelGlobal();
 })();
 </script>
-
 </div>
 {% endblock %}
