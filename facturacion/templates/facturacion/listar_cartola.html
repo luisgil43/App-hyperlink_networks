@@ -169,7 +169,7 @@
   </button>
 </div>
 
-<div id="zonaTabla" data-excel-global="{{ excel_global_json|escapejs }}">
+<div id="zonaTabla" data-excel-global='{{ excel_global_json|safe }}'>
   <div class="rounded-xl border border-gray-200 tabla-responsive">
     <table id="tabla-cartola" class="table-auto border border-gray-300 rounded-xl text-sm w-full">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
@@ -494,6 +494,23 @@
     }catch(_){}
   }
 
+  // 👉 Empuja los filtros Excel al querystring (?excel_filters=...)
+  function addExcelFiltersToParams(p){
+    if(!p) return p;
+    const plain = {};
+    Object.entries(excel.activeFilters || {}).forEach(([col, set])=>{
+      if(set && set.size){
+        plain[col] = Array.from(set);
+      }
+    });
+    if(Object.keys(plain).length){
+      p.set('excel_filters', JSON.stringify(plain));
+    }else{
+      p.delete('excel_filters');
+    }
+    return p;
+  }
+
   /* =================== Excel globals desde el servidor =================== */
 
   function loadExcelGlobalFromZona(){
@@ -716,6 +733,7 @@
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(()=>{
       const p = paramsFromFilters(resetPage);
+      addExcelFiltersToParams(p);              // 👈 incluir filtros Excel
       cargarTablaCon(p.toString(), true);
     }, 300);
   }
@@ -738,6 +756,7 @@
         const href = new URL(a.getAttribute('href'), location.href);
         const p = paramsFromFilters(false);
         p.set('page', href.searchParams.get('page') || '1');
+        addExcelFiltersToParams(p);            // 👈 mantener filtros Excel
         cargarTablaCon(p.toString(), true);
       });
     });
@@ -749,6 +768,7 @@
     sel.addEventListener('change', ()=>{
       const p = paramsFromFilters(true);
       p.set('cantidad', sel.value);
+      addExcelFiltersToParams(p);              // 👈 mantener filtros Excel
       cargarTablaCon(p.toString(), true);
     });
   }
@@ -829,6 +849,7 @@
     await fetch(url, { method:'POST', body: fd });
     cerrarModalRechazo();
     const p = paramsFromFilters(false);
+    addExcelFiltersToParams(p);
     await cargarTablaCon(p.toString(), false);
   });
 
@@ -1010,6 +1031,11 @@
       }
       excelApplyFilters();
       excel.panel.classList.add('hidden');
+
+      // 🔄 recargar desde servidor con estos filtros Excel
+      const p = paramsFromFilters(true);
+      addExcelFiltersToParams(p);
+      cargarTablaCon(p.toString(), true);
     });
 
     // Clear del popup -> limpia SOLO la columna actual
@@ -1025,6 +1051,10 @@
 
       excelApplyFilters();
       excel.panel.classList.add('hidden');
+
+      const p = paramsFromFilters(true);
+      addExcelFiltersToParams(p);
+      cargarTablaCon(p.toString(), true);
     });
 
     // cerrar panel al hacer clic fuera
@@ -1074,6 +1104,9 @@
     btn.addEventListener('click', (e)=>{
       e.preventDefault();
       excelClearAll();
+      const p = paramsFromFilters(true);
+      addExcelFiltersToParams(p);
+      cargarTablaCon(p.toString(), true);
     });
   }
 

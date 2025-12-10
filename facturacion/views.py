@@ -94,7 +94,9 @@ def _next_project_code():
 @rol_requerido('facturacion', 'admin')
 def listar_cartola(request):
     import json
-    from datetime import datetime, time, timedelta
+    from datetime import datetime
+    from datetime import datetime as py_datetime
+    from datetime import time, timedelta
 
     from django.contrib import messages
     from django.core.paginator import Paginator
@@ -102,8 +104,7 @@ def listar_cartola(request):
     from django.db.models import Q
     from django.utils import timezone
 
-    from .models import \
-        CartolaMovimiento  # asegúrate de tener este import arriba
+    from .models import CartolaMovimiento
 
     def parse_date_any(s: str):
         """Devuelve date para varios formatos comunes o None."""
@@ -116,18 +117,25 @@ def listar_cartola(request):
 
     params = request.GET.copy()
 
+    # ---------- Filtros tipo Excel recibidos por GET ----------
+    excel_filters_raw = params.get('excel_filters', '').strip()
+    try:
+        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
+    except json.JSONDecodeError:
+        excel_filters = {}
+
     # ==========================
     # Manejo de 'cantidad'
     # ==========================
     raw_cantidad = params.get('cantidad', '10')
     page_number = params.get('page', '1')
 
-    MAX_PAGE_SIZE = 100  # 👈 límite duro
+    MAX_PAGE_SIZE = 100
 
     try:
         cantidad_int = int(raw_cantidad)
     except (TypeError, ValueError):
-        cantidad_int = 10  # valor por defecto sano
+        cantidad_int = 10
 
     if cantidad_int < 5:
         cantidad_int = 5
@@ -199,21 +207,59 @@ def listar_cartola(request):
         movimientos_qs = movimientos_qs.filter(status=estado)
 
     # ============================================================
-    #  AQUI cargamos TODO el queryset en memoria para:
-    #  - Paginación
-    #  - Filtros Excel (distinct globales)
+    #  Traemos TODO el queryset a memoria:
+    #  - luego aplicamos filtros Excel (sobre Python)
+    #  - luego paginamos
     # ============================================================
-    movimientos_list = list(movimientos_qs)  # 👈 todos los registros filtrados
+    movimientos_list = list(movimientos_qs)
+
+    # ---------- Aplicar filtros Excel sobre la lista ----------
+    if excel_filters:
+        def matches_excel_filters(m):
+            for col, values in excel_filters.items():
+                if not values:
+                    continue
+                values_set = set(values)
+
+                if col == "0":      # User
+                    label = str(m.usuario) if m.usuario else ""
+                elif col == "1":    # Date (dd-mm-YYYY)
+                    dt = getattr(m, "fecha", None)
+                    if not dt:
+                        label = ""
+                    else:
+                        if isinstance(dt, py_datetime):
+                            dt = timezone.localtime(dt)
+                        label = dt.strftime("%d-%m-%Y")
+                elif col == "2":    # Project
+                    label = str(m.proyecto) if m.proyecto else ""
+                elif col == "3":    # Category (title)
+                    if m.tipo and m.tipo.categoria:
+                        label = m.tipo.categoria.title()
+                    else:
+                        label = ""
+                elif col == "4":    # Type
+                    label = str(m.tipo) if m.tipo else ""
+                elif col == "11":   # Status (display)
+                    label = m.get_status_display() if m.status else ""
+                else:
+                    # otras columnas (numéricas, etc.) las ignoramos por ahora
+                    continue
+
+                if label not in values_set:
+                    return False
+            return True
+
+        movimientos_list = [m for m in movimientos_list if matches_excel_filters(m)]
 
     # -------- Distinct globales para filtros tipo Excel ----------
     excel_global = {}
 
-    # Col 0: User (igual que la columna de la tabla: str(usuario))
+    # Col 0: User
     users_set = {str(m.usuario) for m in movimientos_list if m.usuario}
     excel_global[0] = sorted(users_set)
 
-    # Col 1: Date (formato DD-MM-YYYY)
-    from datetime import datetime as py_datetime
+    # Col 1: Date (DD-MM-YYYY)
     dates_set = set()
     for m in movimientos_list:
         if not m.fecha:
@@ -224,11 +270,11 @@ def listar_cartola(request):
         dates_set.add(dt.strftime("%d-%m-%Y"))
     excel_global[1] = sorted(dates_set)
 
-    # Col 2: Project (str(proyecto))
+    # Col 2: Project
     projects_set = {str(m.proyecto) for m in movimientos_list if m.proyecto}
     excel_global[2] = sorted(projects_set)
 
-    # Col 3: Category (categoria en Title)
+    # Col 3: Category
     cat_set = {
         (m.tipo.categoria or "").title()
         for m in movimientos_list
@@ -236,11 +282,11 @@ def listar_cartola(request):
     }
     excel_global[3] = sorted(cat_set)
 
-    # Col 4: Type (str(tipo))
+    # Col 4: Type
     type_set = {str(m.tipo) for m in movimientos_list if m.tipo}
     excel_global[4] = sorted(type_set)
 
-    # Col 11: Status (get_status_display)
+    # Col 11: Status
     estado_map = dict(CartolaMovimiento.ESTADOS)
     status_codes = {m.status for m in movimientos_list if m.status}
     excel_global[11] = sorted(estado_map.get(c, c) for c in status_codes)
@@ -275,7 +321,7 @@ def listar_cartola(request):
         'filtros': filtros,
         'base_qs': base_qs,
         'full_qs': full_qs,
-        'excel_global_json': excel_global_json,  # 👈 para los filtros Excel
+        'excel_global_json': excel_global_json,
     }
     return render(request, 'facturacion/listar_cartola.html', ctx)
 
