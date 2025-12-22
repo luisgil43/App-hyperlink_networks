@@ -4936,7 +4936,7 @@ def _visible_tech_ids_for_user(user):
 def admin_weekly_payments(request):
     """
     Pagos semanales:
-    - TOP: semana actual (no pagados; crea faltantes). Muestra desglose por proyecto y
+    - TOP: NO pagados (hasta la semana actual, incluye semanas anteriores). Muestra desglose por proyecto y
       además líneas para Direct discount y para ajustes (Fixed salary/Bonus/Advance).
     - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
 
@@ -4948,6 +4948,13 @@ def admin_weekly_payments(request):
     """
     import re
     from collections import defaultdict
+    from decimal import Decimal
+    from urllib.parse import urlencode
+
+    from django.core.paginator import Paginator
+    from django.db.models import DecimalField, F, Q, Sum, Value
+    from django.db.models.functions import Coalesce
+    from django.utils import timezone
 
     # ========= Helpers locales =========
     def _norm_week_input(raw: str) -> str:
@@ -4985,18 +4992,20 @@ def admin_weekly_payments(request):
     current_week = f"{y}-W{int(w):02d}"
 
     # Crea/ajusta weekly payments para la semana actual (incluye ajustes)
+    # (Esto lo dejamos tal cual lo tenías; el bug era de visualización del TOP)
     _sync_weekly_totals(week=current_week, create_missing=True)
 
     # ========= Visibilidad por usuario =========
     visible_tech_ids = _visible_tech_ids_for_user(request.user)
 
-    # ========= TOP (This week) =========
+    # ========= TOP (NO pagados hasta semana actual) =========
+    # 🔥 FIX: antes era solo week=current_week; ahora incluimos semanas anteriores (ej: W51 en semana W52)
     top_qs = (
         WeeklyPayment.objects
-        .filter(week=current_week, amount__gt=0)   # sólo pagables
+        .filter(week__lte=current_week, amount__gt=0)   # sólo pagables y no futuras
         .exclude(status="paid")
         .select_related("technician")
-        .order_by("status", "technician__first_name", "technician__last_name")
+        .order_by("-week", "status", "technician__first_name", "technician__last_name")
     )
 
     # Limitar por técnicos visibles
@@ -5005,17 +5014,18 @@ def admin_weekly_payments(request):
 
     top = list(top_qs)
 
-    # ---- Desglose (This week): producción + ajustes
+    # ---- Desglose (TOP): producción + ajustes (para TODAS las semanas del TOP)
     tech_ids_top = {wp.technician_id for wp in top}
+    weeks_top = {wp.week for wp in top}
     details_map_top: dict[tuple[int, str], list] = {}
 
     # 1) Producción por proyecto, separando si fue "descuento directo"
-    if tech_ids_top:
+    if tech_ids_top and weeks_top:
         det_prod = (
             ItemBillingTecnico.objects
             .filter(
                 tecnico_id__in=tech_ids_top,
-                item__sesion__semana_pago_real=current_week,
+                item__sesion__semana_pago_real__in=weeks_top,
             )
             .filter(
                 Q(item__sesion__estado__in=ESTADOS_OK) |
@@ -5034,7 +5044,7 @@ def admin_weekly_payments(request):
                     output_field=DecimalField(max_digits=18, decimal_places=2),
                 )
             )
-            .order_by("item__sesion__proyecto_id")
+            .order_by("item__sesion__semana_pago_real", "item__sesion__proyecto_id")
         )
         for r in det_prod:
             key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
@@ -5048,16 +5058,16 @@ def admin_weekly_payments(request):
                 }
             )
 
-    # 2) Ajustes de la semana actual (Fixed salary / Bonus / Advance)
+    # 2) Ajustes (Fixed salary / Bonus / Advance) para las semanas del TOP
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
         AdjustmentEntry = None
 
-    if AdjustmentEntry is not None and tech_ids_top:
+    if AdjustmentEntry is not None and tech_ids_top and weeks_top:
         det_adj = (
             AdjustmentEntry.objects
-            .filter(technician_id__in=tech_ids_top, week=current_week)
+            .filter(technician_id__in=tech_ids_top, week__in=weeks_top)
             .values("technician_id", "week", "adjustment_type")
             .annotate(
                 total=Coalesce(
@@ -5241,7 +5251,6 @@ def admin_weekly_payments(request):
         "f_paid_week_input": f_paid_week_input,
         "f_receipt": f_receipt,
     })
-
 
 
 @login_required
