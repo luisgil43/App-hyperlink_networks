@@ -19,30 +19,44 @@
     }
 
     body {
-      margin: 0; padding: 0;
+      margin: 0;
+      padding: 0;
       font-family: 'Segoe UI', sans-serif;
-      background: radial-gradient(circle at top,
-                  rgba(255,255,255,0.12) 0,
-                  transparent 55%),
-                  linear-gradient(180deg,
-                  var(--body-bg-top),
-                  var(--body-bg-bottom));
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+
+      /* Fondo solo con la imagen 3D de Navidad */
+      background-color: #020617;
+      background-image: url("{% static 'images/navidadplanix.png' %}");
+      background-position: center center;
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-attachment: fixed;
+
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       min-height: 100vh;
       color: #0f172a;
       position: relative;
       overflow: hidden;
     }
 
+    /* En móviles quitamos el fixed para que no se “corte” la imagen */
+    @media (max-width: 768px) {
+      body {
+        background-attachment: scroll;
+        background-size: cover;
+      }
+    }
+
     /* ===== Nieve ===== */
     .snow-container {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 999; /* AHORA por encima de todo */
-}
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 999; /* AHORA por encima de todo */
+    }
 
     .snowflake {
       position: absolute;
@@ -120,7 +134,8 @@
       padding: 2.2rem 2.1rem;
       border-radius: 18px;
       box-shadow: 0 16px 40px rgba(0,0,0,0.25);
-      max-width: 420px; width: 100%;
+      max-width: 420px;
+      width: 100%;
       text-align: center;
       border-top: 4px solid var(--xmas-green);
       border-bottom: 4px solid var(--xmas-red);
@@ -133,7 +148,8 @@
     .login-container::after {
       content: "";
       position: absolute;
-      width: 140px; height: 140px;
+      width: 140px;
+      height: 140px;
       border-radius: 50%;
       filter: blur(18px);
       opacity: 0.35;
@@ -141,11 +157,13 @@
     }
     .login-container::before {
       background: var(--xmas-red);
-      top: -60px; left: -60px;
+      top: -60px;
+      left: -60px;
     }
     .login-container::after {
       background: var(--xmas-green);
-      bottom: -60px; right: -60px;
+      bottom: -60px;
+      right: -60px;
     }
 
     .login-container img.login-logo {
