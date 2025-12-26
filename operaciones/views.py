@@ -639,9 +639,6 @@ def vista_rendiciones(request):
         if getattr(user, 'es_pm', False):
             base |= Q(status='aprobado_supervisor') | q_rechazados
 
-        # 👇 OJO: ya NO se consideran estados de finanzas aquí
-        # if getattr(user, 'es_facturacion', False): ...
-
         movimientos = CartolaMovimiento.objects.filter(base) if base else CartolaMovimiento.objects.none()
 
     # 🔒 Limitar por proyectos asignados al usuario
@@ -650,6 +647,7 @@ def vista_rendiciones(request):
     # ---------- Filtros ----------
     du = request.GET.get('du', '').strip()
     fecha_txt = request.GET.get('fecha', '').strip()
+    real_fecha_txt = request.GET.get('real_fecha', '').strip()  # ✅ NUEVO
     proyecto = request.GET.get('proyecto', '').strip()
     tipo_txt = request.GET.get('tipo', '').strip()
     estado = request.GET.get('estado', '').strip()
@@ -669,7 +667,7 @@ def vista_rendiciones(request):
     if estado:
         q &= Q(status=estado)
 
-    # Fecha flexible
+    # Fecha flexible (campo "fecha" = created_at / fecha del movimiento)
     if fecha_txt:
         fd = _parse_fecha_fragmento(fecha_txt)
         if fd:
@@ -678,6 +676,27 @@ def vista_rendiciones(request):
                 q &= Q(**fd)
             if day_or_month is not None:
                 q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
+
+    # ✅ NUEVO: Real consumption date flexible (DateField)
+    if real_fecha_txt:
+        fd = _parse_fecha_fragmento(real_fecha_txt)
+        if fd:
+            day_or_month = fd.pop("_day_or_month", None)
+
+            # normaliza posibles claves antiguas y mapea fecha__* -> real_consumption_date__*
+            new_fd = {}
+            for k, v in fd.items():
+                k2 = k.replace('fecha__date__', 'fecha__')
+                if k2.startswith('fecha__'):
+                    k2 = k2.replace('fecha__', 'real_consumption_date__', 1)
+                new_fd[k2] = v
+
+            if new_fd:
+                q &= Q(**new_fd)
+
+            if day_or_month is not None:
+                q &= (Q(real_consumption_date__day=day_or_month) |
+                      Q(real_consumption_date__month=day_or_month))
 
     if q:
         movimientos = movimientos.filter(q)
@@ -705,7 +724,6 @@ def vista_rendiciones(request):
     except (TypeError, ValueError):
         cantidad_pag = 10
 
-    # forzamos rango 5–100
     if cantidad_pag < 5:
         cantidad_pag = 5
     if cantidad_pag > 100:
@@ -731,8 +749,12 @@ def vista_rendiciones(request):
         'pendientes': pendientes,
         'rechazados': rechazados,
         'filtros': {
-            'du': du, 'fecha': fecha_txt, 'proyecto': proyecto,
-            'tipo': tipo_txt, 'estado': estado
+            'du': du,
+            'fecha': fecha_txt,
+            'real_fecha': real_fecha_txt,  # ✅ NUEVO
+            'proyecto': proyecto,
+            'tipo': tipo_txt,
+            'estado': estado
         },
         'estado_choices': estado_choices,
         'base_qs': base_qs,
@@ -819,9 +841,10 @@ def exportar_rendiciones(request):
         'proyecto_id'
     )
 
-    # --------- Filtros (idénticos al listado) ----------
+    # --------- Filtros ----------
     du        = (request.GET.get('du') or '').strip()
     fecha_txt = (request.GET.get('fecha') or '').strip()
+    real_fecha_txt = (request.GET.get('real_fecha') or '').strip()  # ✅ NUEVO
     proyecto  = (request.GET.get('proyecto') or '').strip()
     tipo_txt  = (request.GET.get('tipo') or '').strip()
     estado    = (request.GET.get('estado') or '').strip()
@@ -838,11 +861,11 @@ def exportar_rendiciones(request):
     if estado:
         q &= Q(status=estado)
 
+    # Fecha flexible (fecha del movimiento)
     if fecha_txt:
         fd = _parse_fecha_fragmento(fecha_txt)
         if fd:
             day_or_month = fd.pop("_day_or_month", None)
-            # Normaliza claves antiguas 'fecha__date__*' → 'fecha__*'
             if any(k.startswith('fecha__date__') for k in fd.keys()):
                 fd = {k.replace('fecha__date__', 'fecha__'): v for k, v in fd.items()}
             if fd:
@@ -850,9 +873,29 @@ def exportar_rendiciones(request):
             if day_or_month is not None:
                 q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
 
+    # ✅ NUEVO: Real consumption date flexible
+    if real_fecha_txt:
+        fd = _parse_fecha_fragmento(real_fecha_txt)
+        if fd:
+            day_or_month = fd.pop("_day_or_month", None)
+
+            new_fd = {}
+            for k, v in fd.items():
+                k2 = k.replace('fecha__date__', 'fecha__')
+                if k2.startswith('fecha__'):
+                    k2 = k2.replace('fecha__', 'real_consumption_date__', 1)
+                new_fd[k2] = v
+
+            if new_fd:
+                q &= Q(**new_fd)
+
+            if day_or_month is not None:
+                q &= (Q(real_consumption_date__day=day_or_month) |
+                      Q(real_consumption_date__month=day_or_month))
+
     movimientos = base.filter(q) if q else base
 
-    # ===== Orden FINAL (igual que en vista_rendiciones) =====
+    # ===== Orden FINAL =====
     movimientos = movimientos.annotate(
         orden_status=Case(
             When(status__startswith='pendiente', then=Value(1)),
@@ -862,7 +905,6 @@ def exportar_rendiciones(request):
             output_field=IntegerField(),
         )
     ).order_by('orden_status', '-fecha', '-id')
-    # (Si quieres puramente por fecha, usa solo: .order_by('-fecha', '-id'))
 
     # ----- Excel -----
     response = HttpResponse(content_type='application/ms-excel')
@@ -874,7 +916,7 @@ def exportar_rendiciones(request):
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
-    columns = ["User", "Date", "Project", "Type", "Remarks", "Amount", "Status", "Odometer (km)"]
+    columns = ["User", "Date", "Real consumption date", "Project", "Type", "Remarks", "Amount", "Status", "Odometer (km)"]
     for col_num, title in enumerate(columns):
         ws.write(0, col_num, title, header_style)
 
@@ -888,12 +930,17 @@ def exportar_rendiciones(request):
             fecha_excel = fecha_excel.date()
         ws.write(row_num, 1, fecha_excel, date_style)
 
-        ws.write(row_num, 2, str(getattr(mov.proyecto, "nombre", mov.proyecto or "")))
-        ws.write(row_num, 3, str(getattr(mov.tipo, "nombre", mov.tipo or "")))
-        ws.write(row_num, 4, mov.observaciones or "")
-        ws.write(row_num, 5, float(mov.cargos or 0))
-        ws.write(row_num, 6, mov.get_status_display())
-        ws.write(row_num, 7, int(mov.kilometraje) if mov.kilometraje is not None else "")
+        if mov.real_consumption_date:
+            ws.write(row_num, 2, mov.real_consumption_date, date_style)
+        else:
+            ws.write(row_num, 2, "")
+
+        ws.write(row_num, 3, str(getattr(mov.proyecto, "nombre", mov.proyecto or "")))
+        ws.write(row_num, 4, str(getattr(mov.tipo, "nombre", mov.tipo or "")))
+        ws.write(row_num, 5, mov.observaciones or "")
+        ws.write(row_num, 6, float(mov.cargos or 0))
+        ws.write(row_num, 7, mov.get_status_display())
+        ws.write(row_num, 8, int(mov.kilometraje) if mov.kilometraje is not None else "")
 
     wb.save(response)
     return response
@@ -929,10 +976,11 @@ def exportar_mis_rendiciones(request):
     header_style = xlwt.easyxf('font: bold on; align: horiz center')
     date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
-    # Columnas (incluye Odometer (km))
+    # ✅ NUEVO: agregamos "Real consumption date"
     columns = [
         "User",
         "Date",
+        "Real consumption date",
         "Project",
         "Type",
         "Expenses (USD)",
@@ -955,13 +1003,20 @@ def exportar_mis_rendiciones(request):
 
         ws.write(row_num, 0, mov.usuario.get_full_name())
         ws.write(row_num, 1, fecha_excel, date_style)
-        ws.write(row_num, 2, str(mov.proyecto or ""))
-        ws.write(row_num, 3, str(mov.tipo or ""))
-        ws.write(row_num, 4, float(mov.cargos or 0))
-        ws.write(row_num, 5, float(mov.abonos or 0))
-        ws.write(row_num, 6, mov.observaciones or "")
-        ws.write(row_num, 7, mov.get_status_display())
-        ws.write(row_num, 8, int(mov.kilometraje) if mov.kilometraje is not None else "")
+
+        # ✅ NUEVO: Real consumption date
+        if mov.real_consumption_date:
+            ws.write(row_num, 2, mov.real_consumption_date, date_style)
+        else:
+            ws.write(row_num, 2, "")
+
+        ws.write(row_num, 3, str(mov.proyecto or ""))
+        ws.write(row_num, 4, str(mov.tipo or ""))
+        ws.write(row_num, 5, float(mov.cargos or 0))
+        ws.write(row_num, 6, float(mov.abonos or 0))
+        ws.write(row_num, 7, mov.observaciones or "")
+        ws.write(row_num, 8, mov.get_status_display())
+        ws.write(row_num, 9, int(mov.kilometraje) if mov.kilometraje is not None else "")
 
     wb.save(response)
     return response

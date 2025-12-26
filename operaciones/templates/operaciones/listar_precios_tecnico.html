@@ -255,6 +255,42 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal(); });
     modalConfirm.addEventListener('click', () => { modalConfirm.disabled = true; form.submit(); });
 
+    // === Persistencia de foco/cursor al filtrar ===
+    const FOCUS_KEY = 'techPricesFilterFocus:' + location.pathname;
+
+    function saveFocusState(){
+      const el = document.activeElement;
+      if (!el || !el.classList || !el.classList.contains('filter-input') || !el.name) {
+        sessionStorage.removeItem(FOCUS_KEY);
+        return;
+      }
+      sessionStorage.setItem(FOCUS_KEY, JSON.stringify({
+        name: el.name,
+        start: el.selectionStart,
+        end: el.selectionEnd
+      }));
+    }
+
+    function restoreFocusState(){
+      const raw = sessionStorage.getItem(FOCUS_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(FOCUS_KEY);
+      try {
+        const data = JSON.parse(raw);
+        const safeName = (window.CSS && CSS.escape) ? CSS.escape(data.name) : data.name;
+        const inp = document.querySelector(`.filter-input[name="${safeName}"]`);
+        if (!inp) return;
+        inp.focus({ preventScroll: true });
+        const len = (inp.value || '').length;
+        const s = (typeof data.start === 'number') ? Math.min(data.start, len) : len;
+        const e = (typeof data.end === 'number') ? Math.min(data.end, len) : len;
+        try { inp.setSelectionRange(s, e); } catch(_) {}
+      } catch(_) {}
+    }
+
+    // Restaurar foco apenas cargue
+    restoreFocusState();
+
     // --- Auto-filtrado (debounce) ---
     const filterInputs = document.querySelectorAll('.filter-input');
     let debounceTimer = null;
@@ -267,6 +303,9 @@
         if (inp.value) url.searchParams.set(inp.name, inp.value);
         else url.searchParams.delete(inp.name);
       });
+
+      // Guardar foco antes de redirigir
+      saveFocusState();
       window.location.href = url.toString();
     }
 
@@ -274,6 +313,7 @@
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(submitFilters, 400);
     }
+
     filterInputs.forEach(inp => {
       inp.addEventListener('input', onFilterInput);
       inp.addEventListener('change', onFilterInput);
@@ -293,5 +333,4 @@
     sortedRows.forEach(row => tbody.appendChild(row));
   }
 </script>
-
 {% endblock %}

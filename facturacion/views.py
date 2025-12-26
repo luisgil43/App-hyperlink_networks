@@ -223,6 +223,7 @@ def listar_cartola(request):
 
                 if col == "0":      # User
                     label = str(m.usuario) if m.usuario else ""
+
                 elif col == "1":    # Date (dd-mm-YYYY)
                     dt = getattr(m, "fecha", None)
                     if not dt:
@@ -231,17 +232,31 @@ def listar_cartola(request):
                         if isinstance(dt, py_datetime):
                             dt = timezone.localtime(dt)
                         label = dt.strftime("%d-%m-%Y")
+
                 elif col == "2":    # Project
                     label = str(m.proyecto) if m.proyecto else ""
-                elif col == "3":    # Category (title)
+
+                elif col == "3":    # Real consumption date (dd/mm/YYYY o —)
+                    d = getattr(m, "real_consumption_date", None)
+                    if not d:
+                        label = "—"
+                    else:
+                        if isinstance(d, py_datetime):
+                            d = timezone.localtime(d)
+                        label = d.strftime("%d/%m/%Y")
+
+                elif col == "4":    # Category (title)
                     if m.tipo and m.tipo.categoria:
                         label = m.tipo.categoria.title()
                     else:
                         label = ""
-                elif col == "4":    # Type
+
+                elif col == "5":    # Type
                     label = str(m.tipo) if m.tipo else ""
-                elif col == "11":   # Status (display)
+
+                elif col == "12":   # Status (display)
                     label = m.get_status_display() if m.status else ""
+
                 else:
                     # otras columnas (numéricas, etc.) las ignoramos por ahora
                     continue
@@ -274,22 +289,33 @@ def listar_cartola(request):
     projects_set = {str(m.proyecto) for m in movimientos_list if m.proyecto}
     excel_global[2] = sorted(projects_set)
 
-    # Col 3: Category
+    # Col 3: Real consumption date (DD/MM/YYYY)
+    rcd_set = set()
+    for m in movimientos_list:
+        d = getattr(m, "real_consumption_date", None)
+        if not d:
+            continue
+        if isinstance(d, py_datetime):
+            d = timezone.localtime(d)
+        rcd_set.add(d.strftime("%d/%m/%Y"))
+    excel_global[3] = sorted(rcd_set)
+
+    # Col 4: Category
     cat_set = {
         (m.tipo.categoria or "").title()
         for m in movimientos_list
         if m.tipo and m.tipo.categoria
     }
-    excel_global[3] = sorted(cat_set)
+    excel_global[4] = sorted(cat_set)
 
-    # Col 4: Type
+    # Col 5: Type
     type_set = {str(m.tipo) for m in movimientos_list if m.tipo}
-    excel_global[4] = sorted(type_set)
+    excel_global[5] = sorted(type_set)
 
-    # Col 11: Status
+    # Col 12: Status
     estado_map = dict(CartolaMovimiento.ESTADOS)
     status_codes = {m.status for m in movimientos_list if m.status}
-    excel_global[11] = sorted(estado_map.get(c, c) for c in status_codes)
+    excel_global[12] = sorted(estado_map.get(c, c) for c in status_codes)
 
     excel_global_json = json.dumps(excel_global)
 
@@ -615,6 +641,9 @@ def aprobar_abono_como_usuario(request, pk):
     return redirect(next_url)
 
 
+from django import forms  # 👈 agregar este import arriba
+
+
 @login_required
 @rol_requerido('facturacion', 'admin')
 @project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
@@ -626,10 +655,38 @@ def editar_movimiento(request, pk):
     FormClass = CartolaAbonoForm if es_abono else MovimientoUsuarioForm
     estado_restaurado = 'pendiente_abono_usuario' if es_abono else 'pendiente_supervisor'
 
+    def ensure_real_consumption_date_field(form):
+        """
+        Asegura que el form tenga real_consumption_date para precargar y guardar,
+        sin depender de cómo esté declarado el ModelForm.
+        """
+        if hasattr(movimiento, "real_consumption_date") and "real_consumption_date" not in form.fields:
+            form.fields["real_consumption_date"] = forms.DateField(
+                required=False,
+                widget=forms.DateInput(attrs={"type": "date"})
+            )
+            # precarga
+            if movimiento.real_consumption_date:
+                val = movimiento.real_consumption_date
+                # por si fuera datetime
+                if hasattr(val, "date"):
+                    try:
+                        val = timezone.localtime(val).date()
+                    except Exception:
+                        val = val.date()
+                form.initial["real_consumption_date"] = val
+        return form
+
     if request.method == 'POST':
         form = FormClass(request.POST, request.FILES, instance=movimiento)
+        form = ensure_real_consumption_date_field(form)
+
         if form.is_valid():
             movimiento = form.save(commit=False)
+
+            # ✅ guardar nuevo campo si viene en el form
+            if "real_consumption_date" in form.cleaned_data:
+                movimiento.real_consumption_date = form.cleaned_data.get("real_consumption_date")
 
             # Reemplazo explícito del comprobante si viene un archivo nuevo
             if 'comprobante' in request.FILES:
@@ -650,7 +707,6 @@ def editar_movimiento(request, pk):
             movimiento.save()
             messages.success(request, "Expense updated successfully.")
 
-            # 👇 RESPETAR FILTROS (next con todos los params)
             next_url = (
                 request.GET.get('next')
                 or request.POST.get('next')
@@ -660,6 +716,7 @@ def editar_movimiento(request, pk):
             return redirect(next_url)
     else:
         form = FormClass(instance=movimiento)
+        form = ensure_real_consumption_date_field(form)
 
     return render(request, 'facturacion/editar_movimiento.html', {
         'form': form,
@@ -897,7 +954,7 @@ def exportar_cartola(request):
     date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
 
     columns = [
-        "User", "Date", "Project", "Category", "Type", "Remarks",
+        "User", "Date", "Project", "Real consumption date", "Category", "Type", "Remarks",
         "Transfer Number", "Odometer (km)", "Debits", "Credits", "Status"
     ]
     for col_num, title in enumerate(columns):
@@ -923,31 +980,43 @@ def exportar_cartola(request):
         # Project
         ws.write(row_num, 2, str(getattr(mov, 'proyecto', '') or ''))
 
+        # ✅ Real consumption date (nuevo)
+        rcd = getattr(mov, 'real_consumption_date', None)
+        if isinstance(rcd, datetime):
+            if is_aware(rcd):
+                rcd = rcd.astimezone().replace(tzinfo=None)
+            rcd = rcd.date()
+        if rcd:
+            ws.write(row_num, 3, rcd, date_style)
+        else:
+            ws.write(row_num, 3, "")
+
         # Category / Type (protegido contra None)
         cat = (getattr(getattr(mov, 'tipo', None), 'categoria', '') or '')
         tipo_txt = str(getattr(mov, 'tipo', '') or '')
-        ws.write(row_num, 3, str(cat).title())
-        ws.write(row_num, 4, tipo_txt)
+        ws.write(row_num, 4, str(cat).title())
+        ws.write(row_num, 5, tipo_txt)
 
         # Remarks / Transfer
-        ws.write(row_num, 5, mov.observaciones or "")
-        ws.write(row_num, 6, mov.numero_transferencia or "")
+        ws.write(row_num, 6, mov.observaciones or "")
+        ws.write(row_num, 7, mov.numero_transferencia or "")
 
         # Odometer
         try:
-            ws.write(row_num, 7, float(mov.kilometraje) if mov.kilometraje is not None else "")
+            ws.write(row_num, 8, float(mov.kilometraje) if mov.kilometraje is not None else "")
         except Exception:
-            ws.write(row_num, 7, "")
+            ws.write(row_num, 8, "")
 
         # Debits / Credits
-        ws.write(row_num, 8, float(mov.cargos or 0))
-        ws.write(row_num, 9, float(mov.abonos or 0))
+        ws.write(row_num, 9, float(mov.cargos or 0))
+        ws.write(row_num, 10, float(mov.abonos or 0))
 
         # Status (display)
-        ws.write(row_num, 10, mov.get_status_display())
+        ws.write(row_num, 11, mov.get_status_display())
 
     wb.save(response)
     return response
+
 
 @login_required
 @rol_requerido('facturacion', 'admin')

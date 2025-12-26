@@ -39,7 +39,15 @@
         <p class="text-red-600 text-sm mt-1">{{ form.proyecto.errors.0 }}</p>
       {% endif %}
     </div>
-
+    {% if form.fields.real_consumption_date %}
+<div class="mb-4">
+  <label class="block text-sm font-medium text-gray-700">Real consumption date</label>
+  {{ form.real_consumption_date|add_class:"w-full border rounded-xl px-3 py-2" }}
+  {% if form.real_consumption_date.errors %}
+    <p class="text-red-600 text-sm mt-1">{{ form.real_consumption_date.errors.0 }}</p>
+  {% endif %}
+</div>
+{% endif %}
     <!-- Tipo (opcional) -->
     {% if form.fields.tipo %}
     <div class="mb-4">

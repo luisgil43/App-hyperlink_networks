@@ -6,6 +6,7 @@ from django.core.validators import FileExtensionValidator
 # facturacion/models.py
 # 👇 NUEVO: imports si no los tienes ya
 from django.db import models
+from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
@@ -110,6 +111,12 @@ class CartolaMovimiento(models.Model):
     tipo_doc = models.CharField(
         max_length=20, choices=TIPO_DOC_CHOICES,
         blank=True, null=True, verbose_name="Document Type"
+    )
+    # Date when the user actually incurred the expense (required)
+    real_consumption_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Real consumption date",
     )
     numero_doc = models.CharField(
         max_length=50, blank=True, null=True, verbose_name="Document Number"

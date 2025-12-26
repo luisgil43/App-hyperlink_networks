@@ -7,7 +7,8 @@
 
 {% block content %}
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
-
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <!-- Header -->
 <div class="flex flex-col sm:flex-row items-start gap-2 mb-4">
   <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -65,10 +66,14 @@
     {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
   </div>
   <div>
+  <label class="block text-sm font-medium text-gray-700">Real consumption date:</label>
+  {{ form.real_consumption_date|add_class:"w-full border rounded-xl px-3 py-2" }}
+  </div>
+  <div>
     <label class="block text-sm font-medium text-gray-700">Type:</label>
     {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
   </div>
-
+  
   <!-- Fila 2 -->
   <div>
     <label class="block text-sm font-medium text-gray-700">Amount (USD):</label>
@@ -135,6 +140,73 @@
 </form>
   </div>
 
+
+  <div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+
+    <div id="columnToggles" class="absolute left-0 mt-1 w-64 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <!-- Master checkbox -->
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all columns</span>
+      </label>
+
+      <!-- Índices 0..10 en el MISMO orden del <thead> -->
+      <div class="space-y-1 text-sm">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="0" checked>
+          <span>Date</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="1" checked>
+          <span>Project</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="2" checked>
+          <span>Real consumption date</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="3" checked>
+          <span>Type</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="4" checked>
+          <span>Expenses (USD)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="5" checked>
+          <span>Credits (USD)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="6" checked>
+          <span>Remarks</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="7" checked>
+          <span>Receipt</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="8" checked>
+          <span>Odometer (km)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="9" checked>
+          <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked>
+          <span>Actions</span>
+        </label>
+      </div>
+    </div>
+  </details>
+</div>
+
   <!-- Tabla -->
   <div class="overflow-x-auto">
     <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
@@ -142,6 +214,7 @@
         <tr>
           <th class="p-2 border">Date</th>
           <th class="p-2 border">Project</th>
+          <th class="p-2 border">Real consumption date</th>
           <th class="p-2 border">Type</th>
           <th class="p-2 border text-right">Expenses (USD)</th>
           <th class="p-2 border text-right">Credits (USD)</th>
@@ -157,6 +230,7 @@
         <tr class="border-t">
           <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
           <td class="p-2 border">{{ mov.proyecto }}</td>
+          <td class="p-2 border">{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:"d/m/Y" }}{% else %}—{% endif %}</td>
           <td class="p-2 border">{{ mov.tipo }}</td>
           <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
           <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
@@ -658,6 +732,140 @@ document.getElementById("formRendicion").addEventListener("submit", async (e) =>
   window.addEventListener('beforeunload', saveBeforeLeave);
 })();
 </script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const el = document.getElementById("id_real_consumption_date");
+  if (!el) return;
 
+  // Si viene vacío, setear HOY en formato ISO
+  if (!el.value) {
+    const t = new Date();
+    const yyyy = t.getFullYear();
+    const mm = String(t.getMonth() + 1).padStart(2, "0");
+    const dd = String(t.getDate()).padStart(2, "0");
+    el.value = `${yyyy}-${mm}-${dd}`;
+  }
+
+  flatpickr(el, {
+    // lo que se manda a Django
+    dateFormat: "Y-m-d",
+
+    // lo que ve el usuario
+    altInput: true,
+    altFormat: "d/m/Y",   // ✅ 26/12/2025
+
+    defaultDate: el.value,
+    disableMobile: true,
+    locale: { firstDayOfWeek: 1 } // opcional: lunes primero (más “Europa/Chile”)
+  });
+});
+</script>
+
+<script>
+(function () {
+  const panel = document.getElementById('columnToggles');
+  if (!panel) return;
+
+  const table =
+    document.querySelector('[data-columns-table="my-expense-reports"]') ||
+    document.querySelector('[data-columns-table]') ||
+    document.querySelector('table');
+
+  if (!table) return;
+
+  const tableId = table.dataset.columnsTable || location.pathname;
+  const STORAGE_KEY = 'cols:' + tableId;
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  function applyVisibility() {
+    const state = loadState();
+
+    const theadCells = table.querySelectorAll('thead tr th');
+    theadCells.forEach((th, idx) => {
+      const visible = state[idx] !== false; // default visible
+      th.style.display = visible ? '' : 'none';
+    });
+
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      const tds = tr.querySelectorAll('td');
+      tds.forEach((td, idx) => {
+        const visible = state[idx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+    let allOn = true;
+
+    checks.forEach((cb) => {
+      const idx = parseInt(cb.dataset.col || '0', 10);
+      const visible = state[idx] !== false;
+      cb.checked = visible;
+      if (!visible) allOn = false;
+    });
+
+    if (master) master.checked = allOn;
+  }
+
+  function bindToggles() {
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    checks.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        const state = loadState();
+        state[idx] = cb.checked;
+        saveState(state);
+        applyVisibility();
+      });
+    });
+
+    if (master) {
+      master.addEventListener('change', () => {
+        const val = master.checked;
+        const state = loadState();
+        checks.forEach((cb) => {
+          const idx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[idx] = val;
+        });
+        saveState(state);
+        applyVisibility();
+      });
+    }
+  }
+
+  function bindOutsideClickToClose() {
+    const details = panel.closest('details');
+    if (!details) return;
+
+    document.addEventListener('click', (e) => {
+      if (!details.open) return;
+      if (details.contains(e.target)) return;
+      details.open = false;
+    });
+  }
+
+  bindToggles();
+  applyVisibility();
+  bindOutsideClickToClose();
+})();
+</script>
 
 {% endblock %}

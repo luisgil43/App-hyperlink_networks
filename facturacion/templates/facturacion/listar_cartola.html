@@ -127,34 +127,37 @@
           <input type="checkbox" class="col-toggle" data-col="2" checked> <span>Project</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="3" checked> <span>Category</span>
+          <input type="checkbox" class="col-toggle" data-col="3" checked><span>Real consumption date</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="4" checked> <span>Type</span>
+          <input type="checkbox" class="col-toggle" data-col="4" checked> <span>Category</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Remarks</span>
+          <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Type</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Transfer Nº</span>
+          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Remarks</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>Receipt(s)</span>
+          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>Transfer Nº</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Odometer</span>
+          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Receipt(s)</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Expenses</span>
+          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Odometer</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Credits</span>
+          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Expenses</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Status</span>
+          <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Credits</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Actions</span>
+          <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="13" checked> <span>Actions</span>
         </label>
       </div>
     </div>
@@ -193,6 +196,12 @@
               <span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+          <th class="p-2 border" data-excel-col>
+  <button type="button" class="excel-header-btn flex items-center gap-1">
+    <span>Real consumption date</span>
+    <span class="excel-arrow text-gray-500">▼</span>
+  </button>
+</th>
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
               <span>Category</span>
@@ -258,6 +267,14 @@
           <td class="p-2 border">{{ mov.usuario }}</td>
           <td class="p-2 border"data-excel-value="{{ mov.fecha|date:'d-m-Y' }}">{{ mov.fecha|date:"d-m-Y" }}</td>
           <td class="p-2 border">{{ mov.proyecto }}</td>
+          <td class="p-2 border"
+    data-excel-value="{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:'d/m/Y' }}{% else %}—{% endif %}">
+  {% if mov.real_consumption_date %}
+    {{ mov.real_consumption_date|date:"d/m/Y" }}
+  {% else %}
+    —
+  {% endif %}
+</td>
           <td class="p-2 border">{{ mov.tipo.categoria|title }}</td>
           <td class="p-2 border">{{ mov.tipo }}</td>
           <td class="p-2 border">{{ mov.observaciones }}</td>
@@ -378,7 +395,7 @@
 </td>
         </tr>
         {% empty %}
-        <tr><td colspan="15" class="p-4 text-center">No transactions registered.</td></tr>
+        <tr><td colspan="14" class="p-4 text-center">No transactions registered.</td></tr>
         {% endfor %}
       </tbody>
     </table>

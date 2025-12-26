@@ -1,20 +1,20 @@
-# servicios/forms.py
+# forms.py
 
-from .models import WeeklyPayment
-from .models import SesionBilling
-from .models import PrecioActividadTecnico
-from usuarios.models import CustomUser, Rol
-from usuarios.models import CustomUser
-from django.core.exceptions import ValidationError
-import requests
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from facturacion.models import CartolaMovimiento
-from decimal import Decimal
-from django.forms import ModelMultipleChoiceField
-from django.contrib.auth import get_user_model
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
+import requests
 from django import forms
-from decimal import Decimal, InvalidOperation
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.forms import ModelMultipleChoiceField
+# ✅ NUEVO
+from django.utils import timezone
+
+from facturacion.models import CartolaMovimiento
+from usuarios.models import CustomUser, Rol
+
+from .models import PrecioActividadTecnico, SesionBilling, WeeklyPayment
 
 
 class MovimientoUsuarioForm(forms.ModelForm):
@@ -23,6 +23,18 @@ class MovimientoUsuarioForm(forms.ModelForm):
             attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
         label="Amount (USD)",
         required=True,
+    )
+
+    # ✅ NUEVO: Real consumption date (solo requerido al crear; en edición no se auto-llena)
+    real_consumption_date = forms.DateField(
+        required=False,  # lo controlamos en __init__/clean para no pisar edición
+        label="Real consumption date",
+        widget=forms.DateInput(
+            attrs={
+                "class": "w-full border rounded-xl px-3 py-2",
+                "autocomplete": "off",
+            }
+        ),
     )
 
     # Main file field (optional; may be resolved via presign in the view)
@@ -63,12 +75,15 @@ class MovimientoUsuarioForm(forms.ModelForm):
     class Meta:
         model = CartolaMovimiento
         fields = [
-            'proyecto', 'tipo', 'cargos', 'observaciones',
+            'proyecto', 'tipo',
+            'real_consumption_date',  # ✅ NUEVO
+            'cargos', 'observaciones',
             'comprobante', 'kilometraje', 'foto_tablero'
         ]
         labels = {
             'proyecto': 'Project',
             'tipo': 'Type',
+            'real_consumption_date': 'Real consumption date',  # ✅ NUEVO
             'cargos': 'Amount (USD)',
             'observaciones': 'Remarks',
             'comprobante': 'Receipt',
@@ -84,6 +99,24 @@ class MovimientoUsuarioForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        is_edit = bool(getattr(self.instance, "pk", None))
+
+        # ✅ NUEVO: Solo en CREAR se pone hoy por defecto.
+        # En EDITAR: si viene vacío, se deja vacío (para no “convertir” lo viejo en hoy).
+        if not is_edit:
+            if not self.initial.get("real_consumption_date"):
+                self.initial["real_consumption_date"] = timezone.localdate()
+
+        # ✅ Requerido solo al crear
+        if "real_consumption_date" in self.fields:
+            if not is_edit:
+                self.fields["real_consumption_date"].required = True
+                self.fields["real_consumption_date"].widget.attrs["required"] = "required"
+            else:
+                self.fields["real_consumption_date"].required = False
+                self.fields["real_consumption_date"].widget.attrs.pop("required", None)
+
         # Keep file inputs optional; we validate explicitly
         for name in ('comprobante', 'comprobante_foto', 'comprobante_archivo', 'foto_tablero'):
             if name in self.fields:
@@ -92,10 +125,15 @@ class MovimientoUsuarioForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
 
+        is_edit = bool(getattr(self.instance, "pk", None))
+
+        # ✅ NUEVO: requerido SOLO al crear (para que registros viejos puedan seguir con "—")
+        if not is_edit and not cleaned.get("real_consumption_date"):
+            self.add_error("real_consumption_date", "This field is required.")
+
         # ====== Direct-upload keys (presigned) from hidden inputs ======
         wasabi_key = (self.data.get('wasabi_key') or '').strip()
-        wasabi_key_odo = (self.data.get(
-            'wasabi_key_foto_tablero') or '').strip()
+        wasabi_key_odo = (self.data.get('wasabi_key_foto_tablero') or '').strip()
 
         # ====== Resolve receipt from classic multipart if present ======
         if not cleaned.get('comprobante'):
@@ -111,19 +149,16 @@ class MovimientoUsuarioForm(forms.ModelForm):
             elif comp_main:
                 cleaned['comprobante'] = comp_main
                 self.instance.comprobante = comp_main
-            # If using presign, the view will set field.name = wasabi_key
 
         # ====== Fuel rules ======
         tipo = cleaned.get('tipo')
-        tipo_nombre = (getattr(tipo, 'nombre', '')
-                       or str(tipo or '')).strip().lower()
+        tipo_nombre = (getattr(tipo, 'nombre', '') or str(tipo or '')).strip().lower()
         es_fuel = (tipo_nombre == 'fuel')
 
         if es_fuel:
             # Odometer km required
             if not cleaned.get('kilometraje'):
-                self.add_error(
-                    'kilometraje', "Odometer (km) is required for Fuel.")
+                self.add_error('kilometraje', "Odometer (km) is required for Fuel.")
 
             # Receipt required (accept presigned key or uploaded file)
             has_receipt = bool(
@@ -132,8 +167,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
                 getattr(self.instance, 'comprobante', None)
             )
             if not has_receipt:
-                self.add_error(
-                    'comprobante', "You must attach a receipt (photo or file) for Fuel.")
+                self.add_error('comprobante', "You must attach a receipt (photo or file) for Fuel.")
 
             # Dashboard photo required (accept presigned key or uploaded file)
             has_dashboard = bool(
@@ -143,8 +177,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
                 getattr(self.instance, 'foto_tablero', None)
             )
             if not has_dashboard:
-                self.add_error(
-                    'foto_tablero', "You must attach a dashboard (odometer) photo for Fuel.")
+                self.add_error('foto_tablero', "You must attach a dashboard (odometer) photo for Fuel.")
 
         # 👉 Flags for the model clean() so it doesn't block when presigned keys exist
         if wasabi_key:
@@ -163,8 +196,7 @@ class MovimientoUsuarioForm(forms.ModelForm):
         try:
             return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         except InvalidOperation:
-            raise ValidationError(
-                "Enter a valid amount (e.g., 30.50 or 30,50).")
+            raise ValidationError("Enter a valid amount (e.g., 30.50 or 30,50).")
 
 
 class ImportarPreciosForm(forms.Form):

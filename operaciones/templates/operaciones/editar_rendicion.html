@@ -6,7 +6,11 @@
 {% block content %}
 <div class="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
   <!-- título más discreto -->
-  <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2"✏️ Edit Expense Report</h2>
+  <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">✏️ Edit Expense Report</h2>
+
+  <!-- ✅ Flatpickr (calendar en inglés por defecto) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
   <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="formEditar">
     {% csrf_token %}
@@ -19,6 +23,12 @@
     <div>
       <label class="block text-sm font-medium text-gray-700">Type</label>
       {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
+    </div>
+
+    <!-- ✅ NUEVO: Real consumption date (precarga igual que los demás campos) -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700">Real consumption date</label>
+      {{ form.real_consumption_date|add_class:"w-full border rounded-xl px-3 py-2 text-sm" }}
     </div>
 
     <!-- Amount / Odometer (km) -->
@@ -182,6 +192,18 @@
     inFoto?.addEventListener("change", () => putSelectedPreview("preview_tablero", inFoto.files[0]));
     inRec1?.addEventListener("change", () => putSelectedPreview("preview_comprobante", inRec1.files[0]));
     inRec2?.addEventListener("change", () => putSelectedPreview("preview_comprobante", inRec2.files[0]));
+
+    // ✅ Flatpickr: muestra 26/12/2025 pero guarda YYYY-MM-DD
+    const el = document.getElementById("id_real_consumption_date");
+    if (el) {
+      flatpickr(el, {
+        dateFormat: "Y-m-d",   // backend
+        altInput: true,
+        altFormat: "d/m/Y",    // ✅ usuario ve DD/MM/YYYY
+        defaultDate: el.value || null, // ✅ precarga lo existente
+        disableMobile: true,
+      });
+    }
   });
 </script>
 {% endblock %}

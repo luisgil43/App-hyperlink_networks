@@ -38,7 +38,6 @@
     {% endif %}
   </div>
 
-  <!-- Filtros (auto) -->
 <form id="form-filtros"
       method="get"
       class="mb-4 text-sm">
@@ -63,12 +62,23 @@
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
+   
     <div class="w-full sm:w-52">
       <label class="text-xs text-gray-600">Project</label>
       <input type="text"
              name="proyecto"
              value="{{ filtros.proyecto }}"
              placeholder="Filter by Project"
+             class="w-full border rounded px-2 py-1.5 text-sm filtro">
+    </div>
+
+      <!-- ✅ NUEVO -->
+    <div class="w-full sm:w-56">
+      <label class="text-xs text-gray-600">Real consumption date</label>
+      <input type="text"
+             name="real_fecha"
+             value="{{ filtros.real_fecha }}"
+             placeholder="DD-MM-YYYY (ej. 20)"
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
@@ -80,6 +90,8 @@
              placeholder="Filter by Type"
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
+
+   
 
     <div class="w-full sm:w-48">
       <label class="text-xs text-gray-600">Status</label>
@@ -95,14 +107,12 @@
     </div>
 
     <div class="w-full sm:w-auto flex items-end">
-      <!-- Clear (sin recargar) -->
       <button type="button" id="btnClear"
               class="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
         ❌ Clear
       </button>
     </div>
 
-    <!-- Mantener cantidad actual -->
     <input type="hidden" name="cantidad" value="{{ cantidad }}">
   </div>
 </form>
@@ -138,30 +148,34 @@
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="3" checked>
-          <span>Type</span>
+          <span>Real consumption date</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="4" checked>
-          <span>Expenses (USD)</span>
+          <span>Type</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="5" checked>
-          <span>Credits (USD)</span>
+          <span>Expenses (USD)</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="6" checked>
-          <span>Receipt(s)</span>
+          <span>Credits (USD)</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="7" checked>
-          <span>Odometer (km)</span>
+          <span>Receipt(s)</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="8" checked>
-          <span>Status</span>
+          <span>Odometer (km)</span>
         </label>
         <label class="flex items-center gap-2">
           <input type="checkbox" class="col-toggle" data-col="9" checked>
+          <span>Status</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked>
           <span>Actions</span>
         </label>
       </div>
@@ -179,6 +193,7 @@
             <th class="p-2 border">Name</th>
             <th class="p-2 border">Date</th>
             <th class="p-2 border">Project</th>
+            <th class="p-2 border">Real consumption date</th>
             <th class="p-2 border">Type</th>
             <th class="p-2 border text-right">Expenses (USD)</th>
             <th class="p-2 border text-right">Credits (USD)</th>
@@ -194,6 +209,10 @@
             <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
             <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
             <td class="p-2 border">{{ mov.proyecto }}</td>
+            <td class="p-2 border">{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:"d/m/Y" }}{% else %}
+    —
+  {% endif %}
+</td>
             <td class="p-2 border">{{ mov.tipo }}</td>
             <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
             <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
@@ -375,8 +394,8 @@
   const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
 
   function getScrollBox(){
-    // contenedor con overflow-x
-    return zona.querySelector('.tabla-responsive');
+  // tu contenedor real ahora es overflow-x-auto
+  return zona.querySelector('.overflow-x-auto') || zona.querySelector('.tabla-responsive');
   }
   function readSavedX(){
     return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
@@ -407,9 +426,11 @@
   }
 
   function limpiarFiltros(){
-    filtrosForm.querySelectorAll('input.campo-filtro').forEach(i => i.value = '');
-    const sel = filtrosForm.querySelector('select[name="estado"]');
-    if (sel) sel.value = '';
+  // limpia todos los inputs de filtros (incluye du, fecha, real_fecha, proyecto, tipo)
+  filtrosForm.querySelectorAll('input.filtro').forEach(i => i.value = '');
+
+  // limpia selects (estado)
+  filtrosForm.querySelectorAll('select.filtro').forEach(s => s.value = '');
   }
 
   async function cargarTablaCon(qs, push=true){
@@ -437,6 +458,9 @@
     engancharCantidad();
     engancharAprobar();
     engancharRechazo();
+
+    // ✅ Re-aplicar columnas ocultas tras refrescar (incluye Clear)
+    if (window.__colsApply) window.__colsApply();
 
     // Restaurar scroll después del re-render
     restoreX(prevX);
@@ -564,50 +588,45 @@
     }
   </script>
 
-  <script>
+<script>
 (function () {
-  // Panel de columnas
   const panel = document.getElementById('columnToggles');
   if (!panel) return;
 
-  // Tabla asociada: usa la que tenga data-columns-table
-  const table =
-    document.querySelector('[data-columns-table]') ||
-    document.querySelector('table');
-  if (!table) return;
+  function getTable() {
+    const zona = document.getElementById('zonaTabla');
+    return zona ? zona.querySelector('table') : null; // ✅ SIEMPRE la tabla del listado
+  }
 
-  // Clave para recordar las columnas por vista/tabla
-  const tableId = table.dataset.columnsTable || location.pathname;
-  const STORAGE_KEY = 'cols:' + tableId;
+  const STORAGE_KEY = 'cols:' + location.pathname;
 
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return {};
-      const obj = JSON.parse(raw);
-      return obj && typeof obj === 'object' ? obj : {};
+      return raw ? JSON.parse(raw) : {};
     } catch (e) {
       return {};
     }
   }
 
   function saveState(state) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
   function applyVisibility() {
-    const state = loadState(); // {0: true, 1: false, ...}
+    const table = getTable();
+    if (!table) return;
 
-    // Encabezados
+    const state = loadState();
+
+    // Headers
     const theadCells = table.querySelectorAll('thead tr th');
     theadCells.forEach((th, idx) => {
-      const visible = state[idx] !== false; // por defecto visible
+      const visible = state[idx] !== false;
       th.style.display = visible ? '' : 'none';
     });
 
-    // Celdas
+    // Body cells
     table.querySelectorAll('tbody tr').forEach((tr) => {
       const tds = tr.querySelectorAll('td');
       tds.forEach((td, idx) => {
@@ -616,7 +635,7 @@
       });
     });
 
-    // Sincronizar checkboxes + master
+    // Sync checkboxes + master
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
     let allOn = true;
@@ -628,16 +647,13 @@
       if (!visible) allOn = false;
     });
 
-    if (master) {
-      master.checked = allOn;
-    }
+    if (master) master.checked = allOn;
   }
 
   function bindToggles() {
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
 
-    // Individuales
     checks.forEach((cb) => {
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.col || '0', 10);
@@ -648,25 +664,21 @@
       });
     });
 
-    // Master "Show all columns"
     if (master) {
       master.addEventListener('change', () => {
         const val = master.checked;
         const state = loadState();
-
         checks.forEach((cb) => {
           const idx = parseInt(cb.dataset.col || '0', 10);
           cb.checked = val;
           state[idx] = val;
         });
-
         saveState(state);
         applyVisibility();
       });
     }
   }
 
-  // Cerrar el <details> al hacer clic fuera
   function bindOutsideClickToClose() {
     const details = panel.closest('details');
     if (!details) return;
@@ -678,7 +690,9 @@
     });
   }
 
-  // Inicializar
+  // ✅ Exponer para que el AJAX lo re-aplique tras Clear/paginación/filtros
+  window.__colsApply = applyVisibility;
+
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
