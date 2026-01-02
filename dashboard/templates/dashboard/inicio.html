@@ -1,186 +1,35 @@
 {% extends "dashboard/base.html" %}
-{% load static %}
 
 {% block content %}
+<div class="text-center mt-12">
+  <!-- Mensaje de bienvenida -->
+  <h1 class="text-3xl font-bold text-gray-800 mb-2">
+    Hello {{ request.user.get_full_name }}!
+  </h1>
+  <p class="text-lg text-gray-600 mb-8">
+    How can we help you today?
+  </p>
 
-{# ===== ESTILOS PARA NIEVE + SANTA ===== #}
-<style>
-  /* Nieve global (no bloquea clics) */
-  .snow-container {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 20; /* por encima del fondo, por debajo del header (z-50) */
-  }
+  <!-- Botones principales del dashboard -->
+  <div class="flex flex-wrap justify-center gap-4 px-4">
 
-  .snowflake {
-    position: absolute;
-    top: -10px;
-    color: rgba(255,255,255,0.9);
-    font-size: 8px;
-    animation-name: snow-fall;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-    will-change: transform;
-    text-shadow: 0 0 4px rgba(15,23,42,0.8);
-  }
+    <!-- Ver Rendion -->
+    <a href="{% url 'operaciones:mis_rendiciones' %}" class="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+      📄 My Expense Reports
+    </a>
 
-  @keyframes snow-fall {
-    0% {
-      transform: translate3d(0, -10px, 0);
-      opacity: 0;
-    }
-    10% {
-      opacity: 1;
-    }
-    100% {
-      transform: translate3d(0, 110vh, 0);
-      opacity: 0;
-    }
-  }
+    <!-- Ver lAsigancion-->
+    <a href="{% url 'operaciones:mis_assignments' %}" class="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+      🪙 My Assignment
+    </a>
 
-  /* Capa de Santa volando */
-  .santa-layer {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 30; /* por encima de la nieve y del contenido, debajo del header (50) */
-  }
+    <!-- Ver producción -->
+    <a href="{% url 'operaciones:produccion_usuario' %}" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+      📊 Salary & Production
+    </a>
 
-  .santa-sleigh {
-    position: absolute;
-    top: 12%;       /* altura inicial */
-    left: -25%;     /* empieza fuera de la pantalla por la izquierda */
-    width: 260px;   /* tamaño del Santa */
-    animation: santa-fly 18s linear infinite;
-    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.4));
-  }
+    
 
-  @keyframes santa-fly {
-    0% {
-      transform: translate(0, 0);
-    }
-    20% {
-      transform: translate(30vw, -6vh);
-    }
-    40% {
-      transform: translate(60vw, 2vh);
-    }
-    60% {
-      transform: translate(90vw, -4vh);
-    }
-    80% {
-      transform: translate(110vw, 4vh);
-    }
-    100% {
-      transform: translate(130vw, 0);
-    }
-  }
-
-  @media (max-width: 768px) {
-    .santa-sleigh {
-      width: 200px;
-      top: 18%;
-    }
-  }
-</style>
-
-{# ===== CAPA DE NIEVE ===== #}
-<div id="snow-container" class="snow-container"></div>
-
-{# ===== SANTA VOLANDO ===== #}
-<div class="santa-layer">
-  <img src="{% static 'images/santa-sleigh.png' %}"
-       alt="Santa sleigh"
-       class="santa-sleigh">
-</div>
-
-{# ===== CONTENIDO DEL DASHBOARD (estilo navideño como admin) ===== #}
-<div
-  class="min-h-screen -m-6 md:-m-8 flex items-start justify-center"
-  style="
-    background:
-      radial-gradient(circle at top,
-        rgba(255,255,255,0.12) 0,
-        transparent 55%),
-      linear-gradient(180deg,#0f172a,#1b4332);
-  "
->
-  <div
-    class="w-full max-w-4xl bg-white/95 rounded-2xl shadow-2xl px-8 py-8 mt-8 mb-10
-           border-t-4 border-emerald-600 border-b-4 border-[#d62828]"
-  >
-    <!-- Mensaje de bienvenida -->
-    <h1 class="text-3xl font-bold mb-2 text-[#1e73be] text-center tracking-wide">
-      Hello {{ request.user.get_full_name }}!
-    </h1>
-    <p class="text-lg text-gray-600 mb-3 text-center">
-      How can we help you today?
-    </p>
-
-    <!-- Mensaje navideño -->
-    <p class="text-sm font-semibold text-emerald-700 text-center mb-8 flex items-center justify-center gap-2">
-      🎄 <span class="text-[#d62828]">Happy Holidays</span> and welcome to the platform 🎅
-    </p>
-
-    <!-- Botones principales del dashboard -->
-    <div class="flex flex-wrap justify-center gap-4 px-4">
-
-      <!-- My Expense Reports -->
-      <a href="{% url 'operaciones:mis_rendiciones' %}"
-         class="flex items-center gap-2 bg-gradient-to-r from-[#d62828] to-[#2f855a]
-                hover:brightness-110 text-white font-semibold py-3 px-6 rounded-full
-                shadow-lg transition transform hover:-translate-y-0.5">
-        📄 My Expense Reports
-      </a>
-
-      <!-- My Assignments -->
-      <a href="{% url 'operaciones:mis_assignments' %}"
-         class="flex items-center gap-2 bg-gradient-to-r from-[#d62828] to-[#2f855a]
-                hover:brightness-110 text-white font-semibold py-3 px-6 rounded-full
-                shadow-lg transition transform hover:-translate-y-0.5">
-        🪙 My Assignments
-      </a>
-
-      <!-- Salary & Production -->
-      <a href="{% url 'operaciones:produccion_usuario' %}"
-         class="flex items-center gap-2 bg-gradient-to-r from-[#d62828] to-[#2f855a]
-                hover:brightness-110 text-white font-semibold py-3 px-6 rounded-full
-                shadow-lg transition transform hover:-translate-y-0.5">
-        📊 Salary & Production
-      </a>
-
-    </div>
   </div>
 </div>
-
-{# ===== SCRIPT PARA GENERAR LOS COPOS ===== #}
-<script>
-  (function () {
-    const container = document.getElementById('snow-container');
-    if (!container) return;
-
-    const flakes = 80;  // puedes subir o bajar este número
-
-    for (let i = 0; i < flakes; i++) {
-      const span = document.createElement('span');
-      span.className = 'snowflake';
-      span.textContent = '❆';
-
-      const size = 6 + Math.random() * 8; // px
-      const left = Math.random() * 100;   // vw
-      const duration = 8 + Math.random() * 10; // s
-      const delay = Math.random() * -duration; // empieza en distintos puntos
-
-      span.style.left = left + 'vw';
-      span.style.fontSize = size + 'px';
-      span.style.animationDuration = duration + 's';
-      span.style.animationDelay = delay + 's';
-
-      container.appendChild(span);
-    }
-  })();
-</script>
-
 {% endblock %}

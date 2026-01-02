@@ -5,127 +5,13 @@
   <title>Select Role</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    :root {
-      --xmas-red:   #d62828;
-      --xmas-green: #2f855a;
-      --card-bg:    #ffffff;
-      --body-bg-top:    #0f172a;
-      --body-bg-bottom: #1b4332;
-    }
-
-    /* Mismo fondo que el login navideño */
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top,
-                  rgba(255,255,255,0.12) 0,
-                  transparent 55%),
-                  linear-gradient(180deg,
-                  var(--body-bg-top),
-                  var(--body-bg-bottom));
-      position: relative;
-      overflow: hidden;
-    }
-
-    /* ===== Nieve ===== */
-    .snow-container {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      overflow: hidden;
-      z-index: 999; /* por encima del fondo, por debajo de la tarjeta */
-    }
-
-    .snowflake {
-      position: absolute;
-      top: -10px;
-      color: rgba(255,255,255,0.9);
-      font-size: 8px;
-      animation-name: snow-fall;
-      animation-timing-function: linear;
-      animation-iteration-count: infinite;
-      will-change: transform;
-      text-shadow: 0 0 4px rgba(15,23,42,0.8);
-    }
-
-    @keyframes snow-fall {
-      0% {
-        transform: translate3d(0, -10px, 0);
-        opacity: 0;
-      }
-      10% {
-        opacity: 1;
-      }
-      100% {
-        transform: translate3d(0, 110vh, 0);
-        opacity: 0;
-      }
-    }
-
-    /* Tarjeta similar al login */
-    .role-card {
-      background-color: var(--card-bg);
-      box-shadow: 0 16px 40px rgba(0,0,0,0.25);
-      border-radius: 18px;
-      border-top: 4px solid var(--xmas-green);
-      border-bottom: 4px solid var(--xmas-red);
-      position: relative;
-      overflow: hidden;
-      z-index: 2; /* por encima de la nieve */
-    }
-
-    .role-card::before,
-    .role-card::after {
-      content: "";
-      position: absolute;
-      width: 140px;
-      height: 140px;
-      border-radius: 50%;
-      filter: blur(18px);
-      opacity: 0.35;
-      z-index: -1;
-    }
-    .role-card::before {
-      background: var(--xmas-red);
-      top: -60px;
-      left: -60px;
-    }
-    .role-card::after {
-      background: var(--xmas-green);
-      bottom: -60px;
-      right: -60px;
-    }
-
-    /* Botón con el mismo gradiente rojo-verde del login */
-    .xmas-btn {
-      background: linear-gradient(90deg, var(--xmas-red), var(--xmas-green));
-      box-shadow: 0 8px 18px rgba(0,0,0,0.18);
-      transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
-    }
-    .xmas-btn:hover {
-      filter: brightness(1.07);
-      transform: translateY(-1px);
-      box-shadow: 0 10px 22px rgba(0,0,0,0.22);
-    }
-    .xmas-btn:active {
-      transform: translateY(0);
-      box-shadow: 0 4px 10px rgba(0,0,0,0.18);
-    }
-  </style>
 </head>
-<body class="min-h-screen flex items-center justify-center">
-
-  <!-- Capa de nieve -->
-  <div id="snow-container" class="snow-container"></div>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
 
   <!-- Contenedor principal -->
-  <div class="role-card w-full max-w-sm p-6">
+  <div class="bg-white p-6 rounded-xl shadow w-full max-w-sm">
     <!-- Título de la vista -->
-    <h2 class="text-xl font-bold text-center mb-4 text-gray-900">
-      How would you like to log in?
-    </h2>
+    <h2 class="text-xl font-bold text-center mb-4 text-gray-900">How would you like to log in?</h2>
 
     <!-- Formulario para seleccionar el rol -->
     <form method="post">
@@ -133,7 +19,7 @@
       <div class="space-y-3">
         <!-- Botón para entrar como usuario -->
         <button type="submit" name="opcion" value="usuario"
-          class="w-full xmas-btn text-white font-semibold py-2 px-4 rounded-xl">
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-xl">
           Log in as User
         </button>
         <!-- Botón para entrar como administrador -->
@@ -144,34 +30,6 @@
       </div>
     </form>
   </div>
-
-  <!-- Script para generar los copos -->
-  <script>
-    (function () {
-      const container = document.getElementById('snow-container');
-      if (!container) return;
-
-      const flakes = 80; // ajusta cantidad si quieres
-
-      for (let i = 0; i < flakes; i++) {
-        const span = document.createElement('span');
-        span.className = 'snowflake';
-        span.textContent = '❆';
-
-        const size = 6 + Math.random() * 8;      // px
-        const left = Math.random() * 100;        // vw
-        const duration = 8 + Math.random() * 10; // s
-        const delay = Math.random() * -duration; // que empiecen desfasados
-
-        span.style.left = left + 'vw';
-        span.style.fontSize = size + 'px';
-        span.style.animationDuration = duration + 's';
-        span.style.animationDelay = delay + 's';
-
-        container.appendChild(span);
-      }
-    })();
-  </script>
 
 </body>
 </html>

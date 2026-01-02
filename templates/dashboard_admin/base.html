@@ -27,56 +27,10 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-    .rotate-90 { transform: rotate(90deg); }
+        .rotate-90 { transform: rotate(90deg); }
+        .bg-sidebar { background-color: #1e293b; }
 
-    :root {
-      --brand-blue:   #1e73be;
-      --xmas-red:     #d62828;
-      --xmas-green:   #2f855a;
-      --body-bg-top:    #0f172a;  /* mismo top del login */
-      --body-bg-bottom: #1b4332;  /* mismo bottom del login */
-    }
-
-    /* Header con degradado azul-verde como el fondo del login */
-    header {
-      background:
-        radial-gradient(circle at top left,
-          rgba(255,255,255,0.08) 0,
-          transparent 60%),
-        linear-gradient(90deg, var(--body-bg-top), var(--body-bg-bottom));
-      color: #f9fafb;
-      box-shadow: 0 8px 18px rgba(0,0,0,0.4);
-      border-bottom: 3px solid rgba(214,40,40,0.7); /* rojito navideño suave */
-    }
-
-    /* Ajustar textos dentro del header para que se lean bien sobre fondo oscuro */
-    header .text-gray-800,
-    header .text-gray-700 {
-      color: #f9fafb !important;
-    }
-    header .text-red-600 {
-      color: #fecaca !important;
-    }
-    header .text-red-600:hover {
-      color: #fee2e2 !important;
-    }
-
-    /* Menú lateral con el mismo degradado que el login/Home */
-    #side-nav {
-      background:
-        radial-gradient(circle at top,
-          rgba(255,255,255,0.06) 0,
-          transparent 55%),
-        linear-gradient(180deg, var(--body-bg-top), var(--body-bg-bottom));
-    }
-
-    /* Por si usas bg-sidebar en algún otro sitio, lo dejamos transparente
-       para no romper el degradado del nav */
-    .bg-sidebar {
-      background-color: transparent;
-    }
-
-        /* ===== Layout: sidebar colapsable ===== */
+            /* ===== Layout: sidebar colapsable ===== */
     .content-wrapper {
       transition: margin-left 0.2s ease;
     }
@@ -100,7 +54,7 @@
         transform: translateX(-100%);
       }
     }
-</style>
+    </style>
 </head>
 
 
@@ -147,8 +101,8 @@
 
       <!-- IZQUIERDA: Logo y nombre -->
       <div class="flex items-center gap-3">
-        <button onclick="toggleSidebar()" class="text-gray-100 text-2xl md:text-xl mr-1">☰</button>
-        <img src="{% static 'images/planixnavidad.png' %}" alt="Logo" class="h-12">
+        <button onclick="toggleSidebar()"class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
+        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
         <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
       </div>
 
@@ -331,7 +285,7 @@
   </nav>
 
   <!-- CONTENIDO PRINCIPAL -->
-  <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
+ <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
     {% block dashboard_content %}{% endblock %}
   </main>
 </div>
@@ -372,7 +326,7 @@
     }
   }
 
-    // Mostrar/ocultar menú lateral
+   // Mostrar/ocultar menú lateral
   function toggleSidebar() {
     const nav     = document.getElementById('side-nav');
     const wrapper = document.querySelector('.content-wrapper');
