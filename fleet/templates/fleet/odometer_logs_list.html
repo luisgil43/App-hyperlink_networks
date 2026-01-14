@@ -1,0 +1,172 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Fleet • Odometer Logs{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Fleet • Odometer Logs</h2>
+      <p class="text-gray-500 text-sm">Historical mileage entries used for service alerts.</p>
+    </div>
+
+    <div class="flex gap-2">
+      <a href="{% url 'fleet:vehicles_list' %}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
+        ← Vehicles
+      </a>
+
+      <a href="{% url 'fleet:odometer_log_create' %}"
+         class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
+        ➕ New Odometer Entry
+      </a>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="flex flex-col lg:flex-row lg:items-end gap-3 mb-4">
+    <div class="flex-1">
+      <label class="block text-xs text-gray-500 mb-1">Search</label>
+      <input type="text" name="q" value="{{ q }}"
+             placeholder="Vehicle, plate, project, notes..."
+             class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+    </div>
+
+    <div class="w-full sm:w-72">
+      <label class="block text-xs text-gray-500 mb-1">Vehicle</label>
+      <select name="vehicle"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="">All vehicles</option>
+        {% for v in vehicles_for_filter %}
+          <option value="{{ v.id }}" {% if vehicle_id|stringformat:"s" == v.id|stringformat:"s" %}selected{% endif %}>
+            {{ v.name }} ({{ v.fleet_id }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="w-full sm:w-40">
+      <label class="block text-xs text-gray-500 mb-1">Per page</label>
+      <select name="per_page"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+      </select>
+    </div>
+
+    <div class="flex gap-2">
+      <button class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full text-sm shadow">Apply</button>
+
+      <a href="{% url 'fleet:odometer_logs_list' %}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Reset</a>
+
+      <a href="{% url 'fleet:odometer_logs_export_csv' %}{% if vehicle_id %}?vehicle={{ vehicle_id }}{% endif %}"
+         class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm shadow border border-emerald-200">
+        ⬇ Export CSV
+      </a>
+    </div>
+  </form>
+
+  <!-- Table -->
+  <div class="overflow-x-auto border border-gray-200 rounded-2xl">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr>
+          <th class="text-left px-4 py-3 font-semibold">Date</th>
+          <th class="text-left px-4 py-3 font-semibold">Vehicle</th>
+          <th class="text-left px-4 py-3 font-semibold">Project</th>
+          <th class="text-right px-4 py-3 font-semibold">Odometer</th>
+          <th class="text-right px-4 py-3 font-semibold">Delta</th>
+          <th class="text-left px-4 py-3 font-semibold">Notes</th>
+          <th class="text-right px-4 py-3 font-semibold">Photo</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-gray-100">
+        {% for r in page.object_list %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3">{{ r.date }}</td>
+
+          <td class="px-4 py-3">
+            <div class="font-semibold text-gray-900">{{ r.vehicle.name }}</div>
+            <div class="text-xs text-gray-500">{{ r.vehicle.fleet_id }} • {{ r.vehicle.plate_state }} {{ r.vehicle.plate }}</div>
+          </td>
+
+          <td class="px-4 py-3">
+            {% if r.project %}{{ r.project.nombre }}{% else %}<span class="text-gray-400">—</span>{% endif %}
+          </td>
+
+          <td class="px-4 py-3 text-right font-semibold">
+            {{ r.odometer }} <span class="text-xs text-gray-500">{{ r.vehicle.unit_label }}</span>
+          </td>
+
+          <td class="px-4 py-3 text-right">
+            <span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
+              +{{ r.delta_since_last }} {{ r.vehicle.unit_label }}
+            </span>
+          </td>
+
+          <td class="px-4 py-3">
+            {% if r.notes %}{{ r.notes }}{% else %}<span class="text-gray-400">—</span>{% endif %}
+          </td>
+
+          <td class="px-4 py-3 text-right">
+            {% if r.odometer_photo %}
+              <a href="{{ r.odometer_photo.url }}" target="_blank"
+                 class="inline-flex items-center px-3 py-1.5 rounded-full text-xs bg-gray-900 text-white hover:bg-black">
+                View
+              </a>
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+            No odometer logs found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page.paginator.num_pages > 1 %}
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-4">
+    <div class="text-sm text-gray-500">
+      Page {{ page.number }} of {{ page.paginator.num_pages }} • {{ page.paginator.count }} entries
+    </div>
+
+    <div class="flex items-center gap-2">
+      {% if page.has_previous %}
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page=1{% if base_qs %}&{{ base_qs }}{% endif %}">First</a>
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.previous_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}">Prev</a>
+      {% else %}
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">First</span>
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Prev</span>
+      {% endif %}
+
+      <span class="px-3 py-2 rounded-xl bg-gray-50 text-sm text-gray-700">{{ page.number }}</span>
+
+      {% if page.has_next %}
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.next_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}">Next</a>
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.paginator.num_pages }}{% if base_qs %}&{{ base_qs }}{% endif %}">Last</a>
+      {% else %}
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Next</span>
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Last</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

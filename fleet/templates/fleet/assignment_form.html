@@ -1,0 +1,143 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}
+  {% if mode == "edit" %}Edit Assignment{% else %}New Assignment{% endif %}
+{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex items-center justify-between gap-3 mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        {% if mode == "edit" %}✏️ Edit Assignment{% else %}➕ New Assignment{% endif %}
+      </h2>
+      <p class="text-gray-500 text-sm">
+        Assign a vehicle to a project and a person. This will drive visibility and notifications later.
+      </p>
+    </div>
+
+    <a href="{% url 'fleet:assignments_list' %}"
+       class="inline-flex items-center px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm shadow">
+      ← Back
+    </a>
+  </div>
+
+  <form method="post" class="space-y-6" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="border border-red-200 bg-red-50 text-red-700 rounded-2xl px-4 py-3 text-sm">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 border border-gray-200 rounded-2xl p-5">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Assignment</h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Vehicle <span class="text-red-500">*</span></label>
+            {{ form.vehicle }}
+            {% if form.vehicle.errors %}<p class="mt-1 text-xs text-red-600">{{ form.vehicle.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Project <span class="text-red-500">*</span></label>
+            {{ form.project }}
+            {% if form.project.errors %}<p class="mt-1 text-xs text-red-600">{{ form.project.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Assigned to <span class="text-red-500">*</span></label>
+            {{ form.assigned_to }}
+            {% if form.assigned_to.errors %}<p class="mt-1 text-xs text-red-600">{{ form.assigned_to.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Start date <span class="text-red-500">*</span></label>
+            {{ form.start_date }}
+            {% if form.start_date.errors %}<p class="mt-1 text-xs text-red-600">{{ form.start_date.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">PM</label>
+            {{ form.pm }}
+            {% if form.pm.errors %}<p class="mt-1 text-xs text-red-600">{{ form.pm.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
+            {{ form.supervisor }}
+            {% if form.supervisor.errors %}<p class="mt-1 text-xs text-red-600">{{ form.supervisor.errors|striptags }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          {{ form.notes }}
+          {% if form.notes.errors %}<p class="mt-1 text-xs text-red-600">{{ form.notes.errors|striptags }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="border border-gray-200 rounded-2xl p-5">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Status</h3>
+
+        <div class="flex items-center gap-3">
+          <label class="relative inline-flex items-center cursor-pointer select-none">
+            <input type="checkbox" name="{{ form.is_active.html_name }}" class="sr-only peer"
+                   {% if form.is_active.value %}checked{% endif %}>
+            <div class="w-12 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:bg-emerald-600 transition-colors"></div>
+            <div class="absolute left-1 top-1 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow"></div>
+          </label>
+
+          <div class="flex flex-col">
+            <span class="text-sm font-semibold text-gray-900">
+              <span class="peer-checked:hidden">Inactive</span>
+              <span class="hidden peer-checked:inline">Active</span>
+            </span>
+            <span class="text-xs text-gray-500">Only active assignments control visibility.</span>
+          </div>
+        </div>
+
+        <div class="mt-4 bg-gray-50 border border-gray-200 rounded-2xl p-4">
+          <div class="text-sm font-semibold text-gray-900 mb-1">Tip</div>
+          <p class="text-sm text-gray-600">
+            This is the foundation for service alerts and notifications (email/telegram) in the next phases.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <a href="{% url 'fleet:assignments_list' %}"
+         class="px-5 py-2.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm shadow">
+        Cancel
+      </a>
+
+      <button type="submit"
+              class="px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm shadow">
+        {% if mode == "edit" %}Save changes{% else %}Create assignment{% endif %}
+      </button>
+    </div>
+
+  </form>
+</div>
+
+<style>
+  /* Make Django default widgets match Hyperlink style */
+  select, input[type="text"], input[type="date"], textarea {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+  }
+  select:focus, input:focus, textarea:focus {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+    border-color: #10b981;
+  }
+</style>
+{% endblock %}

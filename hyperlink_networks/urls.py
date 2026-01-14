@@ -57,6 +57,9 @@ urlpatterns = [
 
     # Invoicing (¡este es el include que fallaba!)
     path('invoicing/', include(('invoicing.urls', 'invoicing'), namespace='invoicing')),
+    path("fleet/", include("fleet.urls")),
+    path("notifications/", include("notifications.urls")),
+    path("underground/", include("underground.urls")),
 
     # Iconos/legacy en raíz
     path("apple-touch-icon.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon.png"), permanent=True), name="apple_touch_icon"),

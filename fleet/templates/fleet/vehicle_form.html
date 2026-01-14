@@ -1,0 +1,339 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}
+  {% if mode == "edit" %}Edit Vehicle{% else %}New Vehicle{% endif %}
+{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between gap-3 mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        {% if mode == "edit" %}
+          ✏️ Edit Vehicle
+        {% else %}
+          ➕ New Vehicle
+        {% endif %}
+      </h2>
+      <p class="text-gray-500 text-sm">
+        {% if mode == "edit" %}
+          Update vehicle details. Default unit is Miles (USA).
+        {% else %}
+          Create a new vehicle. Default unit is Miles (USA).
+        {% endif %}
+      </p>
+    </div>
+
+    <a href="{% url 'fleet:vehicles_list' %}"
+       class="inline-flex items-center px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm shadow">
+      ← Back
+    </a>
+  </div>
+
+  <form id="vehicleForm" method="post" class="space-y-6">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="border border-red-200 bg-red-50 text-red-700 rounded-2xl px-4 py-3 text-sm">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- LEFT: Vehicle Info -->
+      <div class="lg:col-span-2 border border-gray-200 rounded-2xl p-5">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Vehicle Info</h3>
+
+        <!-- Row 1: name + status -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <!-- Vehicle name -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Vehicle name <span class="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="{{ form.name.html_name }}"
+              value="{{ form.name.value|default_if_none:'' }}"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              required
+              placeholder="{{ form.name.field.widget.attrs.placeholder|default:'e.g. F-150 Crew Cab #3' }}"
+            >
+            {% if form.name.errors %}
+              <p class="mt-1 text-xs text-red-600">{{ form.name.errors|striptags }}</p>
+            {% endif %}
+          </div>
+
+          <!-- Status toggle (NOT required in HTML5; boolean shouldn't force checked) -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Status <span class="text-red-500">*</span>
+            </label>
+
+            <div class="flex items-center gap-3">
+              <label class="relative inline-flex items-center cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  name="{{ form.is_active.html_name }}"
+                  class="sr-only peer"
+                  {% if form.is_active.value %}checked{% endif %}
+                />
+                <div class="w-12 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer
+                            peer-checked:bg-emerald-600 transition-colors"></div>
+                <div class="absolute left-1 top-1 w-5 h-5 bg-white rounded-full transition-transform
+                            peer-checked:translate-x-5 shadow"></div>
+              </label>
+
+              <div class="flex flex-col">
+                <span class="text-sm font-semibold text-gray-900">
+                  <span class="peer-checked:hidden">Inactive</span>
+                  <span class="hidden peer-checked:inline">Active</span>
+                </span>
+                <span class="text-xs text-gray-500">
+                  If inactive, this vehicle won’t be shown in “Active” lists.
+                </span>
+              </div>
+            </div>
+
+            {% if form.is_active.errors %}
+              <p class="mt-1 text-xs text-red-600">{{ form.is_active.errors|striptags }}</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Row 2: make + model -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Make <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="{{ form.make.html_name }}" value="{{ form.make.value|default_if_none:'' }}"
+                   required
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.make.errors %}<p class="mt-1 text-xs text-red-600">{{ form.make.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Model <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="{{ form.model.html_name }}" value="{{ form.model.value|default_if_none:'' }}"
+                   required
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.model.errors %}<p class="mt-1 text-xs text-red-600">{{ form.model.errors|striptags }}</p>{% endif %}
+          </div>
+        </div>
+
+        <!-- Row 3: year + purchase_price -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Year <span class="text-red-500">*</span>
+            </label>
+            <input type="number" name="{{ form.year.html_name }}" value="{{ form.year.value|default_if_none:'' }}"
+                   required
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.year.errors %}<p class="mt-1 text-xs text-red-600">{{ form.year.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Purchase price (USD) <span class="text-red-500">*</span>
+            </label>
+            <input type="number" step="0.01" name="{{ form.purchase_price.html_name }}" value="{{ form.purchase_price.value|default_if_none:'' }}"
+                   required
+                   placeholder="{{ form.purchase_price.field.widget.attrs.placeholder|default:'e.g. 35000' }}"
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.purchase_price.errors %}<p class="mt-1 text-xs text-red-600">{{ form.purchase_price.errors|striptags }}</p>{% endif %}
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Notes <span class="text-red-500">*</span>
+          </label>
+          <textarea name="{{ form.notes.html_name }}"
+                    required
+                    class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    rows="4">{{ form.notes.value|default_if_none:'' }}</textarea>
+          {% if form.notes.errors %}<p class="mt-1 text-xs text-red-600">{{ form.notes.errors|striptags }}</p>{% endif %}
+        </div>
+      </div>
+
+      <!-- RIGHT: Identifiers -->
+      <div class="border border-gray-200 rounded-2xl p-5">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Identifiers</h3>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Plate <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="{{ form.plate.html_name }}" value="{{ form.plate.value|default_if_none:'' }}"
+                   required
+                   placeholder="{{ form.plate.field.widget.attrs.placeholder|default:'e.g. ABC-1234' }}"
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.plate.errors %}<p class="mt-1 text-xs text-red-600">{{ form.plate.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Plate state <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="{{ form.plate_state.html_name }}" value="{{ form.plate_state.value|default_if_none:'' }}"
+                   required
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.plate_state.errors %}<p class="mt-1 text-xs text-red-600">{{ form.plate_state.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              VIN <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="{{ form.vin.html_name }}" value="{{ form.vin.value|default_if_none:'' }}"
+                   required
+                   placeholder="{{ form.vin.field.widget.attrs.placeholder|default:'17-character VIN' }}"
+                   class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if form.vin.errors %}<p class="mt-1 text-xs text-red-600">{{ form.vin.errors|striptags }}</p>{% endif %}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Serials <span class="text-red-500">*</span>
+            </label>
+            <textarea name="{{ form.serials.html_name }}"
+                      required
+                      class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      rows="3">{{ form.serials.value|default_if_none:'' }}</textarea>
+            {% if form.serials.errors %}<p class="mt-1 text-xs text-red-600">{{ form.serials.errors|striptags }}</p>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Odometer -->
+    <div class="border border-gray-200 rounded-2xl p-5">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Odometer</h3>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Unit <span class="text-red-500">*</span>
+          </label>
+          <select name="{{ form.odometer_unit.html_name }}"
+                  required
+                  class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% for opt in form.odometer_unit.field.choices %}
+              <option value="{{ opt.0 }}" {% if form.odometer_unit.value == opt.0 %}selected{% endif %}>{{ opt.1 }}</option>
+            {% endfor %}
+          </select>
+          <p class="mt-1 text-xs text-gray-500">USA default is Miles.</p>
+          {% if form.odometer_unit.errors %}<p class="mt-1 text-xs text-red-600">{{ form.odometer_unit.errors|striptags }}</p>{% endif %}
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Initial odometer <span class="text-red-500">*</span>
+          </label>
+          <input type="number" name="{{ form.initial_odometer.html_name }}" value="{{ form.initial_odometer.value|default_if_none:'' }}"
+                 required
+                 placeholder="{{ form.initial_odometer.field.widget.attrs.placeholder|default:'e.g. 12500' }}"
+                 class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <p class="mt-1 text-xs text-gray-500">Used as the starting point for services.</p>
+          {% if form.initial_odometer.errors %}<p class="mt-1 text-xs text-red-600">{{ form.initial_odometer.errors|striptags }}</p>{% endif %}
+        </div>
+
+        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+          <div class="text-sm font-semibold text-gray-900 mb-1">Tip</div>
+          <p class="text-sm text-gray-600">
+            Later, the odometer will be updated automatically via fuel/expense reports (Mileage Logs).
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer buttons -->
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <a href="{% url 'fleet:vehicles_list' %}"
+         class="px-5 py-2.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm shadow">
+        Cancel
+      </a>
+
+      <button type="submit"
+              class="px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm shadow">
+        {% if mode == "edit" %}Save changes{% else %}Create vehicle{% endif %}
+      </button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById("vehicleForm");
+  if (!form) return;
+
+  const MSG = {
+    valueMissing: "Please fill out this field.",
+    typeMismatch: "Please enter a valid value.",
+    patternMismatch: "Please match the requested format.",
+    tooShort: "Please lengthen this text.",
+    tooLong: "Please shorten this text.",
+    rangeUnderflow: "Please enter a value within the allowed range.",
+    rangeOverflow: "Please enter a value within the allowed range.",
+    stepMismatch: "Please enter a valid step value.",
+    badInput: "Please enter a valid number."
+  };
+
+  function getMessage(el) {
+    const v = el.validity;
+    if (v.valueMissing) return MSG.valueMissing;
+    if (v.typeMismatch) return MSG.typeMismatch;
+    if (v.patternMismatch) return MSG.patternMismatch;
+    if (v.tooShort) return MSG.tooShort;
+    if (v.tooLong) return MSG.tooLong;
+    if (v.rangeUnderflow) return MSG.rangeUnderflow;
+    if (v.rangeOverflow) return MSG.rangeOverflow;
+    if (v.stepMismatch) return MSG.stepMismatch;
+    if (v.badInput) return MSG.badInput;
+    return "Please check this field.";
+  }
+
+  // Apply custom english messages to all required fields
+  const fields = form.querySelectorAll("input[required], select[required], textarea[required]");
+
+  fields.forEach((el) => {
+    // When browser detects invalid, replace native localized message
+    el.addEventListener("invalid", function () {
+      el.setCustomValidity(getMessage(el));
+    });
+
+    // Clear custom message when user edits
+    const clear = () => el.setCustomValidity("");
+    el.addEventListener("input", clear);
+    el.addEventListener("change", clear);
+  });
+
+  // On submit, make sure the first invalid shows our english message
+  form.addEventListener("submit", function (e) {
+    // Clear old custom validity
+    fields.forEach((el) => el.setCustomValidity(""));
+
+    if (!form.checkValidity()) {
+      e.preventDefault();
+
+      // Set english messages before showing
+      fields.forEach((el) => {
+        if (!el.checkValidity()) el.setCustomValidity(getMessage(el));
+      });
+
+      form.reportValidity();
+    }
+  });
+})();
+</script>
+
+{% endblock %}

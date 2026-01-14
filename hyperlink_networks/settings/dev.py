@@ -38,7 +38,7 @@ SESSION_COOKIE_SECURE = False
 SECURE_SSL_REDIRECT = False
 
 # 2FA
-TWO_FACTOR_ENFORCE_DATE = date(2025, 12, 31)
+TWO_FACTOR_ENFORCE_DATE = date(2026, 1, 30)
 # Email simulado en consola (no se envían)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 

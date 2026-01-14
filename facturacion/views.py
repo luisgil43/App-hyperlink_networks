@@ -104,6 +104,8 @@ def listar_cartola(request):
     from django.db.models import Q
     from django.utils import timezone
 
+    from core.permissions import filter_queryset_by_assignment_history
+
     from .models import CartolaMovimiento
 
     def parse_date_any(s: str):
@@ -160,7 +162,15 @@ def listar_cartola(request):
         .select_related('usuario', 'proyecto', 'tipo')
         .order_by('-fecha')
     )
-    movimientos_qs = filter_queryset_by_access(movimientos_qs, request.user, 'proyecto_id')
+
+    # ✅ BLINDADO: por proyecto + include_history/start_at
+    # Si tu campo proyecto en CartolaMovimiento es FK "proyecto", normalmente el id es "proyecto_id"
+    movimientos_qs = filter_queryset_by_assignment_history(
+        movimientos_qs,
+        request.user,
+        project_field="proyecto_id",
+        date_field="fecha",
+    )
 
     # Usuario
     if du:
@@ -170,7 +180,7 @@ def listar_cartola(request):
             Q(usuario__last_name__icontains=du)
         )
 
-    # ===== Filtro de FECHA =====
+    # ===== Filtro de FECHA (input del filtro) =====
     if fecha_str:
         solo_digitos = fecha_str.isdigit()
         if solo_digitos and 1 <= int(fecha_str) <= 31:
@@ -258,7 +268,6 @@ def listar_cartola(request):
                     label = m.get_status_display() if m.status else ""
 
                 else:
-                    # otras columnas (numéricas, etc.) las ignoramos por ahora
                     continue
 
                 if label not in values_set:
@@ -270,11 +279,9 @@ def listar_cartola(request):
     # -------- Distinct globales para filtros tipo Excel ----------
     excel_global = {}
 
-    # Col 0: User
     users_set = {str(m.usuario) for m in movimientos_list if m.usuario}
     excel_global[0] = sorted(users_set)
 
-    # Col 1: Date (DD-MM-YYYY)
     dates_set = set()
     for m in movimientos_list:
         if not m.fecha:
@@ -285,11 +292,9 @@ def listar_cartola(request):
         dates_set.add(dt.strftime("%d-%m-%Y"))
     excel_global[1] = sorted(dates_set)
 
-    # Col 2: Project
     projects_set = {str(m.proyecto) for m in movimientos_list if m.proyecto}
     excel_global[2] = sorted(projects_set)
 
-    # Col 3: Real consumption date (DD/MM/YYYY)
     rcd_set = set()
     for m in movimientos_list:
         d = getattr(m, "real_consumption_date", None)
@@ -300,7 +305,6 @@ def listar_cartola(request):
         rcd_set.add(d.strftime("%d/%m/%Y"))
     excel_global[3] = sorted(rcd_set)
 
-    # Col 4: Category
     cat_set = {
         (m.tipo.categoria or "").title()
         for m in movimientos_list
@@ -308,11 +312,9 @@ def listar_cartola(request):
     }
     excel_global[4] = sorted(cat_set)
 
-    # Col 5: Type
     type_set = {str(m.tipo) for m in movimientos_list if m.tipo}
     excel_global[5] = sorted(type_set)
 
-    # Col 12: Status
     estado_map = dict(CartolaMovimiento.ESTADOS)
     status_codes = {m.status for m in movimientos_list if m.status}
     excel_global[12] = sorted(estado_map.get(c, c) for c in status_codes)
@@ -350,6 +352,7 @@ def listar_cartola(request):
         'excel_global_json': excel_global_json,
     }
     return render(request, 'facturacion/listar_cartola.html', ctx)
+
 
 
 @login_required
@@ -750,19 +753,27 @@ def eliminar_movimiento(request, pk):
 @login_required
 @rol_requerido('facturacion', 'admin')
 def listar_saldos_usuarios(request):
+    from decimal import Decimal
+
+    from django.core.paginator import Paginator
+    from django.db.models import (Case, DecimalField, ExpressionWrapper, F, Q,
+                                  Sum, Value, When)
+    from django.db.models.functions import Coalesce
+
+    from core.permissions import filter_queryset_by_assignment_history
+
+    from .models import CartolaMovimiento
+
     cantidad = request.GET.get('cantidad', '5')
 
-    # Estados según tu modelo (pendientes por etapa)
     USER_PENDING = ['pendiente_abono_usuario']
     SUP_PENDING  = ['pendiente_supervisor']
-    PM_PENDING   = ['aprobado_supervisor']   # esperando PM
-    FIN_PENDING  = ['aprobado_pm']           # esperando Finanzas
+    PM_PENDING   = ['aprobado_supervisor']
+    FIN_PENDING  = ['aprobado_pm']
 
-    # Constante decimal tipada
     DEC = DecimalField(max_digits=12, decimal_places=2)
     V0  = Value(Decimal('0.00'), output_field=DEC)
 
-    # Sumas condicionadas (usar V0 en default)
     pend_user_abonos = Sum(
         Case(
             When(Q(abonos__gt=0) & Q(status__in=USER_PENDING), then=F('abonos')),
@@ -806,22 +817,25 @@ def listar_saldos_usuarios(request):
         )
     )
 
-    # 🔒 Filtra por proyectos a los que el usuario tiene acceso
     base = CartolaMovimiento.objects.all()
-    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+
+    # ✅ BLINDADO: proyecto + include_history/start_at también para agregados
+    base = filter_queryset_by_assignment_history(
+        base,
+        request.user,
+        project_field="proyecto_id",
+        date_field="fecha",
+    )
 
     qs = (
         base
         .values('usuario__id', 'usuario__first_name', 'usuario__last_name', 'usuario__email')
         .annotate(
-            # Totales base (Coalesce con V0 decimal)
             monto_rendido = Coalesce(Sum('cargos'), V0, output_field=DEC),
             monto_asignado = Coalesce(Sum('abonos'), V0, output_field=DEC),
 
-            # Pendiente por usuario (solo abonos)
             pend_user = pend_user_abonos,
 
-            # Parciales por etapa (abonos/cargos separados)
             _pend_sup_abonos = pend_sup_abonos,
             _pend_sup_cargos = pend_sup_cargos,
             _pend_pm_abonos  = pend_pm_abonos,
@@ -830,7 +844,6 @@ def listar_saldos_usuarios(request):
             _pend_fin_cargos = pend_fin_cargos,
         )
         .annotate(
-            # Combinar abonos+cargos en SQL (usa Coalesce(..., V0))
             pend_sup = ExpressionWrapper(
                 Coalesce(F('_pend_sup_abonos'), V0, output_field=DEC) +
                 Coalesce(F('_pend_sup_cargos'), V0, output_field=DEC),
@@ -846,7 +859,6 @@ def listar_saldos_usuarios(request):
                 Coalesce(F('_pend_fin_cargos'), V0, output_field=DEC),
                 output_field=DEC,
             ),
-            # Disponible: asignado - rendido (todo decimal)
             monto_disponible = ExpressionWrapper(
                 Coalesce(F('monto_asignado'), V0, output_field=DEC) -
                 Coalesce(F('monto_rendido'), V0, output_field=DEC),
@@ -864,6 +876,7 @@ def listar_saldos_usuarios(request):
         'pagina': pagina,
         'cantidad': cantidad,
     })
+
 
 from datetime import datetime, time, timedelta
 
@@ -885,7 +898,27 @@ def _parse_date_any(s: str):
 @login_required
 @rol_requerido('facturacion', 'admin')
 def exportar_cartola(request):
+    from datetime import datetime, time, timedelta
+
     import xlwt
+    from django.db import models
+    from django.db.models import Q
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from django.utils.timezone import is_aware
+
+    from core.permissions import filter_queryset_by_assignment_history
+
+    from .models import CartolaMovimiento
+
+    def _parse_date_any(s: str):
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+        return None
+
     params = request.GET
 
     du        = (params.get('du') or '').strip()
@@ -894,19 +927,22 @@ def exportar_cartola(request):
     categoria = (params.get('categoria') or '').strip()
     tipo      = (params.get('tipo') or '').strip()
     estado    = (params.get('estado') or '').strip()
-    rut       = (params.get('rut_factura') or '').strip()  # opcional
-
-    # 🔒 Limitar a proyectos con acceso del usuario
-    base = CartolaMovimiento.objects.all()
-    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+    rut       = (params.get('rut_factura') or '').strip()
 
     movimientos = (
-        base
+        CartolaMovimiento.objects.all()
         .select_related('usuario', 'proyecto', 'tipo')
         .order_by('-fecha')
     )
 
-    # Usuario: igual que en listar_cartola (du => username/nombre/apellido)
+    # ✅ BLINDADO: proyecto + include_history/start_at
+    movimientos = filter_queryset_by_assignment_history(
+        movimientos,
+        request.user,
+        project_field="proyecto_id",
+        date_field="fecha",
+    )
+
     if du:
         movimientos = movimientos.filter(
             Q(usuario__username__icontains=du) |
@@ -914,7 +950,6 @@ def exportar_cartola(request):
             Q(usuario__last_name__icontains=du)
         )
 
-    # Fecha: igual que en listar_cartola (día suelto o fecha completa; DateTime→rango)
     if fecha_str:
         if fecha_str.isdigit() and 1 <= int(fecha_str) <= 31:
             dia = int(fecha_str)
@@ -942,7 +977,6 @@ def exportar_cartola(request):
     if estado:
         movimientos = movimientos.filter(status=estado)
 
-    # ----- Excel -----
     response = HttpResponse(content_type='application/vnd.ms-excel')
     now_str = timezone.localtime().strftime("%Y%m%d_%H%M%S")
     response['Content-Disposition'] = f'attachment; filename="transactions_ledger_{now_str}.xls"'
@@ -966,10 +1000,8 @@ def exportar_cartola(request):
         return response
 
     for row_num, mov in enumerate(movimientos, start=1):
-        # User
         ws.write(row_num, 0, str(mov.usuario))
 
-        # Date → date naive para xlwt
         fecha_excel = getattr(mov, 'fecha', None)
         if isinstance(fecha_excel, datetime):
             if is_aware(fecha_excel):
@@ -977,10 +1009,8 @@ def exportar_cartola(request):
             fecha_excel = fecha_excel.date()
         ws.write(row_num, 1, fecha_excel, date_style)
 
-        # Project
         ws.write(row_num, 2, str(getattr(mov, 'proyecto', '') or ''))
 
-        # ✅ Real consumption date (nuevo)
         rcd = getattr(mov, 'real_consumption_date', None)
         if isinstance(rcd, datetime):
             if is_aware(rcd):
@@ -991,27 +1021,21 @@ def exportar_cartola(request):
         else:
             ws.write(row_num, 3, "")
 
-        # Category / Type (protegido contra None)
         cat = (getattr(getattr(mov, 'tipo', None), 'categoria', '') or '')
         tipo_txt = str(getattr(mov, 'tipo', '') or '')
         ws.write(row_num, 4, str(cat).title())
         ws.write(row_num, 5, tipo_txt)
 
-        # Remarks / Transfer
         ws.write(row_num, 6, mov.observaciones or "")
         ws.write(row_num, 7, mov.numero_transferencia or "")
 
-        # Odometer
         try:
             ws.write(row_num, 8, float(mov.kilometraje) if mov.kilometraje is not None else "")
         except Exception:
             ws.write(row_num, 8, "")
 
-        # Debits / Credits
         ws.write(row_num, 9, float(mov.cargos or 0))
         ws.write(row_num, 10, float(mov.abonos or 0))
-
-        # Status (display)
         ws.write(row_num, 11, mov.get_status_display())
 
     wb.save(response)
@@ -1021,6 +1045,8 @@ def exportar_cartola(request):
 @login_required
 @rol_requerido('facturacion', 'admin')
 def exportar_saldos(request):
+    from datetime import datetime
+
     import xlwt
     from django.db.models import Case, DecimalField, F, Q, Sum, Value, When
     from django.http import HttpResponse
@@ -1052,6 +1078,74 @@ def exportar_saldos(request):
     # 🔒 Limitar a proyectos con acceso del usuario
     base = CartolaMovimiento.objects.all()
     base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    # Si include_history=True => todo; si start_at => desde start_at en adelante
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    can_view_legacy_history = (
+        request.user.is_superuser or
+        getattr(request.user, "es_usuario_historial", False)
+    )
+
+    if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
+        try:
+            # OJO: aquí base ya está filtrado por proyectos visibles
+            proyecto_ids_visibles = list(
+                base.values_list("proyecto_id", flat=True).distinct()
+            )
+        except Exception:
+            proyecto_ids_visibles = []
+
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects
+                .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+            )
+        except Exception:
+            asignaciones = []
+
+        if asignaciones:
+            access_by_pk = {}
+            for a in asignaciones:
+                if a.include_history or not a.start_at:
+                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                else:
+                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+
+            ids_ok = []
+            # usamos values_list para no romper con select_related/deferred
+            for mid, pid, fecha in base.values_list("id", "proyecto_id", "fecha"):
+                if pid is None:
+                    continue
+                access = access_by_pk.get(pid)
+                if not access:
+                    continue
+                if access["include_history"] or access["start_at"] is None:
+                    ids_ok.append(mid)
+                    continue
+                if not fecha:
+                    continue
+
+                start_at = access["start_at"]
+                # normaliza a date (evita datetime vs date)
+                if isinstance(start_at, datetime):
+                    start_date = start_at.date()
+                else:
+                    start_date = start_at
+
+                if isinstance(fecha, datetime):
+                    fecha_date = fecha.date()
+                else:
+                    fecha_date = fecha
+
+                if fecha_date >= start_date:
+                    ids_ok.append(mid)
+
+            base = base.filter(id__in=ids_ok)
 
     balances = (
         base
@@ -1108,7 +1202,6 @@ def exportar_saldos(request):
 
     wb.save(response)
     return response
-
 
 def _parse_decimal(val: str | None) -> Decimal | None:
     if val is None:
@@ -1300,6 +1393,17 @@ def invoices_list(request):
     user = request.user
     scope = request.GET.get("scope", "open")  # open | all | paid
 
+    from datetime import datetime
+
+    from django.core.paginator import Paginator
+    from django.db.models import Prefetch, Q
+    from django.utils import timezone
+
+    from facturacion.models import Proyecto
+    from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
+                                    ItemBillingTecnico, SesionBilling,
+                                    SesionBillingTecnico)
+
     # ---------------- Usuarios privilegiados (historial completo) ----------------
     can_view_legacy_history = (
         user.is_superuser or
@@ -1388,6 +1492,76 @@ def invoices_list(request):
             qs = qs.filter(proyecto__in=allowed_keys)
         else:
             qs = SesionBilling.objects.none()
+
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    # Si include_history=True => todo; si start_at => desde start_at en adelante
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects
+                .filter(usuario=user, proyecto__in=proyectos_user)
+                .select_related("proyecto")
+            )
+        except Exception:
+            asignaciones = []
+
+        if asignaciones:
+            access_by_key = {}
+            for a in asignaciones:
+                p = getattr(a, "proyecto", None)
+                if not p:
+                    continue
+
+                if a.include_history or not a.start_at:
+                    access = {"include_history": True, "start_at": None}
+                else:
+                    access = {"include_history": False, "start_at": a.start_at}
+
+                for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
+                    if k is None:
+                        continue
+                    ks = str(k).strip()
+                    if ks:
+                        access_by_key[ks.lower()] = access
+
+            ids_ok = []
+            for sid, proj_txt, creado_en in qs.values_list("id", "proyecto", "creado_en"):
+                key = (str(proj_txt).strip().lower() if proj_txt else "")
+                if not key:
+                    continue
+
+                access = access_by_key.get(key)
+                if not access:
+                    continue
+
+                if access["include_history"] or access["start_at"] is None:
+                    ids_ok.append(sid)
+                    continue
+
+                if not creado_en:
+                    continue
+
+                start_at = access["start_at"]
+                # normalizar a date para evitar datetime vs date
+                if isinstance(start_at, datetime):
+                    start_date = start_at.date()
+                else:
+                    start_date = start_at
+
+                if isinstance(creado_en, datetime):
+                    creado_date = timezone.localtime(creado_en).date() if timezone.is_aware(creado_en) else creado_en.date()
+                else:
+                    creado_date = creado_en
+
+                if creado_date >= start_date:
+                    ids_ok.append(sid)
+
+            qs = qs.filter(id__in=ids_ok)
 
     # -------------------- Filtros por GET (ligeros) --------------------
     date_s = (request.GET.get("date") or "").strip()
@@ -1757,6 +1931,7 @@ def invoices_export(request):
         * Usuarios con historial (is_superuser o es_usuario_historial): ven todo.
     - En la columna 'Project' se escribe el NOMBRE del Proyecto cuando se puede resolver.
     """
+    from datetime import datetime
     from decimal import Decimal
 
     from django.db.models import Q
@@ -1858,6 +2033,76 @@ def invoices_export(request):
             qs = qs.filter(proyecto__in=allowed_keys)
         else:
             qs = SesionBilling.objects.none()
+
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    # Si include_history=True => todo; si start_at => desde start_at en adelante
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects
+                .filter(usuario=user, proyecto__in=proyectos_user)
+                .select_related("proyecto")
+            )
+        except Exception:
+            asignaciones = []
+
+        if asignaciones:
+            access_by_key = {}
+            for a in asignaciones:
+                p = getattr(a, "proyecto", None)
+                if not p:
+                    continue
+
+                if a.include_history or not a.start_at:
+                    access = {"include_history": True, "start_at": None}
+                else:
+                    access = {"include_history": False, "start_at": a.start_at}
+
+                for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
+                    if k is None:
+                        continue
+                    ks = str(k).strip()
+                    if ks:
+                        access_by_key[ks.lower()] = access
+
+            ids_ok = []
+            for sid, proj_txt, creado_en in qs.values_list("id", "proyecto", "creado_en"):
+                key = (str(proj_txt).strip().lower() if proj_txt else "")
+                if not key:
+                    continue
+
+                access = access_by_key.get(key)
+                if not access:
+                    continue
+
+                if access["include_history"] or access["start_at"] is None:
+                    ids_ok.append(sid)
+                    continue
+
+                if not creado_en:
+                    continue
+
+                start_at = access["start_at"]
+                # normaliza a date (evita datetime vs date)
+                if isinstance(start_at, datetime):
+                    start_date = start_at.date()
+                else:
+                    start_date = start_at
+
+                if isinstance(creado_en, datetime):
+                    creado_date = timezone.localtime(creado_en).date() if timezone.is_aware(creado_en) else creado_en.date()
+                else:
+                    creado_date = creado_en
+
+                if creado_date >= start_date:
+                    ids_ok.append(sid)
+
+            qs = qs.filter(id__in=ids_ok)
 
     # No usamos filtros adicionales por GET aquí (date, projid, etc.),
     # pero si quieres se pueden copiar de invoices_list.

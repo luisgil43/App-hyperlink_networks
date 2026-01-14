@@ -1,0 +1,191 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Fleet • Vehicles{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🚚 Fleet • Vehicles</h2>
+      <p class="text-gray-500 text-sm">Manage vehicles, odometer units, and basic data.</p>
+    </div>
+
+    <a href="{% url 'fleet:vehicle_create' %}"
+       class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ➕ New Vehicle
+    </a>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="flex flex-col lg:flex-row lg:items-end gap-3 mb-4">
+    <div class="flex-1">
+      <label class="block text-xs text-gray-500 mb-1">Search</label>
+      <input type="text" name="q" value="{{ q }}"
+             placeholder="Name, plate, VIN, make, model, fleet id..."
+             class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+    </div>
+
+    <div class="w-full sm:w-56">
+      <label class="block text-xs text-gray-500 mb-1">Status</label>
+      <select name="status"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status == "inactive" %}selected{% endif %}>Inactive</option>
+        <option value="all" {% if status == "all" %}selected{% endif %}>All</option>
+      </select>
+    </div>
+
+    <div class="w-full sm:w-40">
+      <label class="block text-xs text-gray-500 mb-1">Per page</label>
+      <select name="per_page"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+      </select>
+    </div>
+
+    <div class="flex gap-2">
+      <button class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full text-sm shadow">
+        Apply
+      </button>
+
+      <a href="{% url 'fleet:vehicles_list' %}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
+        Reset
+      </a>
+    </div>
+  </form>
+
+  <!-- Table -->
+  <div class="overflow-x-auto border border-gray-200 rounded-2xl">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr>
+          <th class="text-left px-4 py-3 font-semibold">Vehicle</th>
+          <th class="text-left px-4 py-3 font-semibold">Plate</th>
+          <th class="text-left px-4 py-3 font-semibold">Make / Model</th>
+          <th class="text-left px-4 py-3 font-semibold">Unit</th>
+          <th class="text-right px-4 py-3 font-semibold">Last Odometer</th>
+          <th class="text-left px-4 py-3 font-semibold">Status</th>
+          <th class="text-right px-4 py-3 font-semibold">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-gray-100">
+        {% for v in page.object_list %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3">
+            <div class="font-semibold text-gray-900">{{ v.name }}</div>
+            <div class="text-xs text-gray-500">
+              {{ v.fleet_id }}
+              {% if v.vin %} • VIN: {{ v.vin }}{% endif %}
+            </div>
+          </td>
+
+          <td class="px-4 py-3">
+            {% if v.plate %}
+              <div class="font-medium text-gray-900">{{ v.plate }}</div>
+              {% if v.plate_state %}
+                <div class="text-xs text-gray-500">{{ v.plate_state }}</div>
+              {% endif %}
+            {% else %}
+              <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+
+          <td class="px-4 py-3">
+            <div class="text-gray-900">
+              {% if v.make %}{{ v.make }}{% else %}<span class="text-gray-400">—</span>{% endif %}
+              {% if v.model %} • {{ v.model }}{% endif %}
+              {% if v.year %} • {{ v.year }}{% endif %}
+            </div>
+          </td>
+
+          <td class="px-4 py-3">
+            <span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
+              {{ v.get_odometer_unit_display }}
+            </span>
+          </td>
+
+          <td class="px-4 py-3 text-right font-semibold">
+            {{ v.last_odometer }} <span class="text-xs text-gray-500">{{ v.unit_label }}</span>
+          </td>
+
+          <td class="px-4 py-3">
+            {% if v.is_active %}
+              <span class="px-2 py-1 rounded-full text-xs bg-emerald-100 text-emerald-700">Active</span>
+            {% else %}
+              <span class="px-2 py-1 rounded-full text-xs bg-gray-200 text-gray-700">Inactive</span>
+            {% endif %}
+          </td>
+
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <a href="{% url 'fleet:vehicle_detail' v.id %}"
+               class="inline-flex items-center px-3 py-1.5 rounded-full text-xs bg-gray-900 text-white hover:bg-black">
+              View
+            </a>
+            <a href="{% url 'fleet:vehicle_edit' v.id %}"
+               class="inline-flex items-center px-3 py-1.5 rounded-full text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 ml-2">
+              Edit
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+            No vehicles found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page.paginator.num_pages > 1 %}
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-4">
+    <div class="text-sm text-gray-500">
+      Page {{ page.number }} of {{ page.paginator.num_pages }} • {{ page.paginator.count }} vehicles
+    </div>
+
+    <div class="flex items-center gap-2">
+      {% if page.has_previous %}
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page=1{% if base_qs %}&{{ base_qs }}{% endif %}">
+          First
+        </a>
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.previous_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}">
+          Prev
+        </a>
+      {% else %}
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">First</span>
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Prev</span>
+      {% endif %}
+
+      <span class="px-3 py-2 rounded-xl bg-gray-50 text-sm text-gray-700">
+        {{ page.number }}
+      </span>
+
+      {% if page.has_next %}
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.next_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}">
+          Next
+        </a>
+        <a class="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm"
+           href="?page={{ page.paginator.num_pages }}{% if base_qs %}&{{ base_qs }}{% endif %}">
+          Last
+        </a>
+      {% else %}
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Next</span>
+        <span class="px-3 py-2 rounded-xl bg-gray-50 text-gray-300 text-sm">Last</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

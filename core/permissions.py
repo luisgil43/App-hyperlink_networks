@@ -243,3 +243,49 @@ def project_object_access_required(_view_func=None, *,
 
     # Uso con kwargs: @project_object_access_required(...)
     return decorator
+
+
+from django.db.models import Q
+from django.utils import timezone
+
+from usuarios.models import ProyectoAsignacion
+
+
+def filter_queryset_by_assignment_history(qs, user, project_field: str, date_field: str):
+    """
+    Restringe un queryset por asignaciones ProyectoAsignacion:
+      - include_history=True  -> ve todo el historial del proyecto
+      - include_history=False -> ve solo desde start_at (inclusive)
+
+    project_field: nombre del campo en el modelo qs (ej: 'proyecto_id')
+    date_field:    nombre del campo fecha en el modelo qs (ej: 'fecha' o 'creado_en')
+    """
+    asignaciones = ProyectoAsignacion.objects.filter(usuario=user)
+    if not asignaciones.exists():
+        return qs.none()
+
+    # Detectar si date_field es DateField o DateTimeField
+    model = qs.model
+    field = model._meta.get_field(date_field)
+    is_datefield = field.get_internal_type() == "DateField"
+
+    cond = Q()
+    for a in asignaciones:
+        pid = a.proyecto_id
+
+        # history completo
+        if a.include_history or not a.start_at:
+            cond |= Q(**{project_field: pid})
+            continue
+
+        # desde start_at
+        start_val = a.start_at
+        if is_datefield:
+            start_val = start_val.date()
+
+        cond |= Q(**{
+            project_field: pid,
+            f"{date_field}__gte": start_val,
+        })
+
+    return qs.filter(cond)

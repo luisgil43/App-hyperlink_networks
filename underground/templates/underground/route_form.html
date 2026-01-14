@@ -1,0 +1,47 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}New Underground Route{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6 max-w-2xl">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4">➕ Create Route</h2>
+
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+      {{ form.name }}
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Start (ft)</label>
+        {{ form.start_ft }}
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">End (ft)</label>
+        {{ form.end_ft }}
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Segment length (ft)</label>
+        {{ form.segment_length_ft }}
+      </div>
+    </div>
+
+    {% if form.errors %}
+      <div class="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+        {{ form.errors }}
+      </div>
+    {% endif %}
+
+    <div class="flex gap-2">
+      <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow" type="submit">
+        Create
+      </button>
+      <a class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm" href="{% url 'underground:route_list' %}">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

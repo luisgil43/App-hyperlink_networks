@@ -149,6 +149,7 @@
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
 <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
 <li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
+<li><a href="{% url 'underground:route_list' %}" class="hover:text-emerald-400">Underground</a></li>
         </ul>
       </li>
       {% endif %}
@@ -207,6 +208,49 @@
           </ul>
       </li>
       {% endif %}
+
+<!-- SECCIÓN: Fleet -->
+{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+       onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🚚 Fleet</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+
+  <ul class="ml-4 submenu space-y-1 hidden">
+    <li>
+      <a href="{% url 'fleet:vehicles_list' %}" class="hover:text-emerald-400">
+        Vehicles
+      </a>
+    </li>
+
+    <!-- ✅ Phase 2 -->
+    <li>
+      <a href="{% url 'fleet:odometer_logs_list' %}" class="hover:text-emerald-400">
+        Odometer Logs
+      </a>
+    </li>
+
+    <!-- ✅ Assignments (Phase next) -->
+    <li>
+      <a href="{% url 'fleet:assignments_list' %}" class="hover:text-emerald-400">
+        Assignments
+      </a>
+    </li>
+
+    <!-- placeholders (próximas fases) -->
+    <li><a href="#" class="opacity-60 cursor-not-allowed">Services (soon)</a></li>
+    <li><a href="#" class="opacity-60 cursor-not-allowed">Documents (soon)</a></li>
+
+    <li class="pt-1">
+      <a href="{% url 'notifications:center' %}" class="hover:text-emerald-400">
+        Notifications
+      </a>
+    </li>
+  </ul>
+</li>
+{% endif %}
 
       <!-- SECCIÓN: Finance -->
       {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}

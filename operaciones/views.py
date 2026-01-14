@@ -109,13 +109,6 @@ from facturacion.models import Proyecto  # ajusta el app si está en otro lado
 
 
 
-
-# operaciones/views.py
-
-
-
-
-
 WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 # --- Direct upload (receipts/rendiciones) ---
 
@@ -644,6 +637,63 @@ def vista_rendiciones(request):
     # 🔒 Limitar por proyectos asignados al usuario
     movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
 
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    can_view_legacy_history = (
+        request.user.is_superuser or
+        getattr(request.user, "es_usuario_historial", False)
+    )
+
+    if ProyectoAsignacion is not None and (not can_view_legacy_history):
+        try:
+            # Proyectos que ya pasaron por filter_queryset_by_access (ojo: aquí ya está limitado)
+            # Sacamos IDs desde el queryset actual para cruzar contra asignaciones
+            proyecto_ids_visibles = list(
+                movimientos.values_list("proyecto_id", flat=True).distinct()
+            )
+        except Exception:
+            proyecto_ids_visibles = []
+
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects
+                .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+            )
+        except Exception:
+            asignaciones = []
+
+        if asignaciones:
+            access_by_pk = {}
+            for a in asignaciones:
+                if a.include_history or not a.start_at:
+                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                else:
+                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+
+            # Filtramos por fecha usando el campo "fecha" del movimiento (tu campo principal)
+            ids_ok = []
+            for m in movimientos.only("id", "proyecto_id", "fecha"):
+                pk = getattr(m, "proyecto_id", None)
+                if pk is None:
+                    continue
+                access = access_by_pk.get(pk)
+                if not access:
+                    continue
+                if access["include_history"] or access["start_at"] is None:
+                    ids_ok.append(m.id)
+                    continue
+                # si el movimiento no tiene fecha, lo excluimos (mismo criterio defensivo)
+                if not getattr(m, "fecha", None):
+                    continue
+                if m.fecha >= access["start_at"]:
+                    ids_ok.append(m.id)
+
+            movimientos = movimientos.filter(id__in=ids_ok)
+
     # ---------- Filtros ----------
     du = request.GET.get('du', '').strip()
     fecha_txt = request.GET.get('fecha', '').strip()
@@ -761,6 +811,8 @@ def vista_rendiciones(request):
     })
 
 
+
+
 @login_required
 @rol_requerido('pm', 'admin', 'supervisor', 'facturacion')
 @project_object_access_required(model='facturacion.CartolaMovimiento',object_kw='pk',project_attr='proyecto_id')
@@ -825,12 +877,20 @@ def exportar_rendiciones(request):
     else:
         u = request.user
         visible_q = Q()
+
+        # ✅ MISMA lógica que vista_rendiciones:
+        # - Rechazados (cualquier etapa) visibles para supervisor y PM
+        q_rechazados = Q(status__startswith='rechazado')
+
         if getattr(u, 'es_supervisor', False):
-            visible_q |= Q(status='pendiente_supervisor') | Q(status='rechazado_supervisor')
+            visible_q |= Q(status='pendiente_supervisor') | q_rechazados
+
         if getattr(u, 'es_pm', False):
-            visible_q |= Q(status='aprobado_supervisor') | Q(status='rechazado_pm') | Q(status='aprobado_pm')
+            visible_q |= Q(status='aprobado_supervisor') | q_rechazados
+
+        # Si facturación está entrando a este export, mantenemos su lógica SIN romper la de la vista:
         if getattr(u, 'es_facturacion', False):
-            visible_q |= Q(status='aprobado_pm') | Q(status='rechazado_finanzas') | Q(status='aprobado_finanzas')
+            visible_q |= Q(status='aprobado_pm') | q_rechazados
 
         base = CartolaMovimiento.objects.filter(visible_q) if visible_q else CartolaMovimiento.objects.none()
 
@@ -840,6 +900,60 @@ def exportar_rendiciones(request):
         request.user,
         'proyecto_id'
     )
+
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    can_view_legacy_history = (
+        request.user.is_superuser or
+        getattr(request.user, "es_usuario_historial", False)
+    )
+
+    if ProyectoAsignacion is not None and (not can_view_legacy_history):
+        try:
+            proyecto_ids_visibles = list(
+                base.values_list("proyecto_id", flat=True).distinct()
+            )
+        except Exception:
+            proyecto_ids_visibles = []
+
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects
+                .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+            )
+        except Exception:
+            asignaciones = []
+
+        if asignaciones:
+            access_by_pk = {}
+            for a in asignaciones:
+                if a.include_history or not a.start_at:
+                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                else:
+                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+
+            ids_ok = []
+
+            # ✅ ÚNICO CAMBIO: antes era base.only("id","proyecto_id","fecha")
+            for mid, pid, fecha in base.values_list("id", "proyecto_id", "fecha"):
+                if pid is None:
+                    continue
+                access = access_by_pk.get(pid)
+                if not access:
+                    continue
+                if access["include_history"] or access["start_at"] is None:
+                    ids_ok.append(mid)
+                    continue
+                if not fecha:
+                    continue
+                if fecha >= access["start_at"]:
+                    ids_ok.append(mid)
+
+            base = base.filter(id__in=ids_ok)
 
     # --------- Filtros ----------
     du        = (request.GET.get('du') or '').strip()
@@ -1049,12 +1163,163 @@ def listar_precios_tecnico(request):
     )
 
     # 🔒 Limitar por proyectos asignados al usuario actual SOLO si 'proyecto' es FK
+    is_fk_proyecto = False
     try:
         f = PrecioActividadTecnico._meta.get_field('proyecto')
         if isinstance(f, dj_models.ForeignKey):
+            is_fk_proyecto = True
             qs = filter_queryset_by_access(qs, request.user, 'proyecto_id')
     except Exception:
         pass
+
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    can_view_legacy_history = (
+        request.user.is_superuser or
+        getattr(request.user, "es_usuario_historial", False)
+    )
+
+    if ProyectoAsignacion is not None and (not can_view_legacy_history):
+        # --- Caso A: proyecto es FK ---
+        if is_fk_proyecto:
+            try:
+                proyecto_ids_visibles = list(
+                    qs.values_list("proyecto_id", flat=True).distinct()
+                )
+            except Exception:
+                proyecto_ids_visibles = []
+
+            try:
+                asignaciones = list(
+                    ProyectoAsignacion.objects
+                    .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+                    .select_related("proyecto")
+                )
+            except Exception:
+                asignaciones = []
+
+            if asignaciones:
+                access_by_pk = {}
+                for a in asignaciones:
+                    if a.include_history or not a.start_at:
+                        access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                    else:
+                        access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+
+                ids_ok = []
+                for pid, rid, fcrea in qs.values_list("proyecto_id", "id", "fecha_creacion"):
+                    if pid is None:
+                        continue
+                    access = access_by_pk.get(pid)
+                    if not access:
+                        continue
+                    if access["include_history"] or access["start_at"] is None:
+                        ids_ok.append(rid)
+                        continue
+                    if not fcrea:
+                        continue
+
+                    # ✅ FIX MINIMO: normalizar date vs datetime antes de comparar
+                    start_at = access["start_at"]
+                    fcrea_cmp = fcrea.date() if hasattr(fcrea, "date") else fcrea
+                    start_cmp = start_at.date() if hasattr(start_at, "date") else start_at
+
+                    if fcrea_cmp >= start_cmp:
+                        ids_ok.append(rid)
+
+                qs = qs.filter(id__in=ids_ok)
+
+        # --- Caso B: proyecto es TEXTO (legacy) ---
+        else:
+            # 1) Limitar por proyectos visibles del usuario -> allowed_keys (nombre/código/id)
+            try:
+                from facturacion.models import Proyecto
+            except Exception:
+                Proyecto = None
+
+            if Proyecto is not None:
+                try:
+                    proyectos_user = filter_queryset_by_access(Proyecto.objects.all(), request.user, 'id')
+                except Exception:
+                    proyectos_user = Proyecto.objects.none()
+
+                if proyectos_user.exists():
+                    allowed_keys = set()
+                    for p in proyectos_user:
+                        nombre = (getattr(p, "nombre", "") or "").strip()
+                        if nombre:
+                            allowed_keys.add(nombre)
+
+                        codigo = getattr(p, "codigo", None)
+                        if codigo:
+                            allowed_keys.add(str(codigo).strip())
+
+                        allowed_keys.add(str(p.id).strip())
+                else:
+                    allowed_keys = set()
+
+                if allowed_keys:
+                    qs = qs.filter(proyecto__in=allowed_keys)
+                else:
+                    qs = PrecioActividadTecnico.objects.none()
+
+                # 2) Ventana por fecha usando keys (nombre/código/id) -> start_at/include_history
+                try:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects
+                        .filter(usuario=request.user, proyecto__in=list(proyectos_user))
+                        .select_related("proyecto")
+                    )
+                except Exception:
+                    asignaciones = []
+
+                if asignaciones:
+                    access_by_key = {}
+                    for a in asignaciones:
+                        p = getattr(a, "proyecto", None)
+                        if not p:
+                            continue
+
+                        if a.include_history or not a.start_at:
+                            access = {"include_history": True, "start_at": None}
+                        else:
+                            access = {"include_history": False, "start_at": a.start_at}
+
+                        # guardamos varias llaves posibles
+                        for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
+                            if k is None:
+                                continue
+                            ks = str(k).strip()
+                            if ks:
+                                access_by_key[ks.lower()] = access
+
+                    ids_ok = []
+                    for rid, proj_txt, fcrea in qs.values_list("id", "proyecto", "fecha_creacion"):
+                        key = (str(proj_txt).strip().lower() if proj_txt else "")
+                        if not key:
+                            continue
+                        access = access_by_key.get(key)
+                        if not access:
+                            continue
+                        if access["include_history"] or access["start_at"] is None:
+                            ids_ok.append(rid)
+                            continue
+                        if not fcrea:
+                            continue
+
+                        # ✅ FIX MINIMO: normalizar date vs datetime antes de comparar
+                        start_at = access["start_at"]
+                        fcrea_cmp = fcrea.date() if hasattr(fcrea, "date") else fcrea
+                        start_cmp = start_at.date() if hasattr(start_at, "date") else start_at
+
+                        if fcrea_cmp >= start_cmp:
+                            ids_ok.append(rid)
+
+                    qs = qs.filter(id__in=ids_ok)
 
     if f_tecnico:
         qs = qs.filter(
@@ -1600,10 +1865,8 @@ def exportar_billing_excel(request):
     HDR_FILL = PatternFill("solid", fgColor="374151")   # gris oscuro
     HDR_FONT = Font(bold=True, color="FFFFFF")
     HDR_ALIGN = Alignment(horizontal="center", vertical="center")
-    CELL_ALIGN_LEFT = Alignment(
-        horizontal="left", vertical="center", wrap_text=False)
-    CELL_ALIGN_LEFT_WRAP = Alignment(
-        horizontal="left", vertical="center", wrap_text=True)
+    CELL_ALIGN_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    CELL_ALIGN_LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
     CELL_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
     THIN = Side(style="thin", color="D1D5DB")
     BORDER_ALL = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -1732,8 +1995,10 @@ def exportar_billing_excel(request):
         SesionBilling.objects.filter(id__in=ids)
         .prefetch_related(
             Prefetch("items", queryset=ItemBilling.objects.order_by("id")),
-            Prefetch("tecnicos_sesion",
-                     queryset=SesionBillingTecnico.objects.select_related("tecnico")),
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+            ),
         )
         .order_by("id")
     )
@@ -1751,10 +2016,53 @@ def exportar_billing_excel(request):
             allowed_proj_ids = {
                 str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
             }
-            sesiones = [
-                s for s in sesiones
-                if getattr(s, "proyecto", None) in allowed_proj_ids
-            ]
+
+            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
+            # Si include_history=True -> sin corte por fecha
+            # Si include_history=False y start_at existe -> solo desde start_at en adelante
+            asignaciones = []
+            try:
+                if ProyectoAsignacion is not None:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects
+                        .filter(usuario=request.user, proyecto__in=proyectos_visibles)
+                        .select_related("proyecto")
+                    )
+            except Exception:
+                asignaciones = []
+
+            if asignaciones:
+                asign_by_pid = {}
+                for a in asignaciones:
+                    p = getattr(a, "proyecto", None)
+                    if not p:
+                        continue
+                    asign_by_pid[str(getattr(p, "id", "")).strip()] = a
+
+                sesiones_filtradas = []
+                for s in sesiones:
+                    sp = getattr(s, "proyecto", None)
+                    if sp not in allowed_proj_ids:
+                        continue
+
+                    a = asign_by_pid.get(str(sp).strip())
+                    if not a:
+                        # si no hay asignación, mantenemos solo por proyecto (no cambiamos lógica base)
+                        sesiones_filtradas.append(s)
+                        continue
+
+                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                        sesiones_filtradas.append(s)
+                    else:
+                        if getattr(s, "creado_en", None) and s.creado_en >= a.start_at:
+                            sesiones_filtradas.append(s)
+
+                sesiones = sesiones_filtradas
+            else:
+                sesiones = [
+                    s for s in sesiones
+                    if getattr(s, "proyecto", None) in allowed_proj_ids
+                ]
         else:
             # Si no tiene proyectos visibles, no exportamos nada
             sesiones = []
@@ -1765,18 +2073,14 @@ def exportar_billing_excel(request):
 
     for s in sesiones:
         dt = s.creado_en
-        date_str = timezone.localtime(dt, tz).strftime(
-            "%d-%b").lower() if dt else ""
-        week_str = getattr(s, "semana_pago_proyectada",
-                           "") or getattr(s, "week", "")
+        date_str = timezone.localtime(dt, tz).strftime("%d-%b").lower() if dt else ""
+        week_str = getattr(s, "semana_pago_proyectada", "") or getattr(s, "week", "")
         city = getattr(s, "ciudad", "") or getattr(s, "city", "")
-        project_id = getattr(s, "proyecto_id", "") or getattr(
-            s, "project_id", "")
+        project_id = getattr(s, "proyecto_id", "") or getattr(s, "project_id", "")
 
         if not s.items.all():
             addr_session = _get_address_from_session_only(s)
-            ws.append([project_id, date_str, week_str,
-                      addr_session, city, "", "", "", 0.0, 0.0])
+            ws.append([project_id, date_str, week_str, addr_session, city, "", "", "", 0.0, 0.0])
             continue
 
         for it in s.items.all():
@@ -1789,12 +2093,9 @@ def exportar_billing_excel(request):
                 week_str,                    # C
                 project_address,             # D
                 city,                        # E
-                getattr(it, "tipo_trabajo", "") or getattr(
-                    it, "work_type", ""),   # F
-                getattr(it, "codigo_trabajo", "") or getattr(
-                    it, "job_code", ""),  # G
-                getattr(it, "descripcion", "") or getattr(
-                    it, "description", ""),  # H
+                getattr(it, "tipo_trabajo", "") or getattr(it, "work_type", ""),  # F
+                getattr(it, "codigo_trabajo", "") or getattr(it, "job_code", ""),  # G
+                getattr(it, "descripcion", "") or getattr(it, "description", ""),  # H
                 qty,                         # I
                 sub_company                  # J
             ])
@@ -1812,29 +2113,26 @@ def exportar_billing_excel(request):
 
     # Zebra desde la fila 2 (datos) hasta la última fila de datos
     data_end = ws.max_row
-    _apply_zebra(ws, start_row=2, end_row=data_end,
-                 gray_hex=ZEBRA_GRAY, white_hex=ZEBRA_WHITE)
+    _apply_zebra(ws, start_row=2, end_row=data_end, gray_hex=ZEBRA_GRAY, white_hex=ZEBRA_WHITE)
 
     _style_after_fill(ws)
 
     # ========= 6) Fila Total =========
     ws.append([""] * 10)  # separador opcional
     total_row = ws.max_row
-    ws.cell(row=total_row, column=9, value="Total").font = Font(
-        bold=True)                   # I
-    ws.cell(row=total_row, column=10,
-            value=total_subtotal_company).font = Font(bold=True)   # J
+    ws.cell(row=total_row, column=9, value="Total").font = Font(bold=True)  # I
+    ws.cell(row=total_row, column=10, value=total_subtotal_company).font = Font(bold=True)  # J
     ws.cell(row=total_row, column=10).number_format = '$#,##0.00'
     for col in range(1, 11):
         c = ws.cell(row=total_row, column=col)
         c.border = BORDER_ALL
         c.alignment = CELL_ALIGN_RIGHT if col in (9, 10) else (
-            CELL_ALIGN_LEFT_WRAP if col in (4, 8) else CELL_ALIGN_LEFT)
+            CELL_ALIGN_LEFT_WRAP if col in (4, 8) else CELL_ALIGN_LEFT
+        )
 
     return _xlsx_response(wb)
 
 
-# views.py
 
 
 def _norm(txt: str) -> str:
@@ -1944,10 +2242,39 @@ def billing_send_finance(request):
             allowed_proj_ids = {
                 str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
             }
+
+            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
+            asignaciones = []
+            try:
+                if ProyectoAsignacion is not None:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects
+                        .filter(usuario=request.user, proyecto__in=proyectos_visibles)
+                        .select_related("proyecto")
+                    )
+            except Exception:
+                asignaciones = []
+
+            asign_by_pid = {}
+            if asignaciones:
+                for a in asignaciones:
+                    p = getattr(a, "proyecto", None)
+                    if not p:
+                        continue
+                    asign_by_pid[str(getattr(p, "id", "")).strip()] = a
+
             filtered_rows = []
             for s in rows:
                 # En SesionBilling guardamos el PK del proyecto en s.proyecto (como string)
-                if getattr(s, "proyecto", None) in allowed_proj_ids:
+                sp = getattr(s, "proyecto", None)
+                if sp in allowed_proj_ids:
+                    # Si hay asignaciones, aplicar corte por fecha
+                    if asign_by_pid:
+                        a = asign_by_pid.get(str(sp).strip())
+                        if a and (not getattr(a, "include_history", False)) and getattr(a, "start_at", None):
+                            if getattr(s, "creado_en", None) and s.creado_en < a.start_at:
+                                forbidden_ids.add(s.id)
+                                continue
                     filtered_rows.append(s)
                 else:
                     forbidden_ids.add(s.id)
@@ -2033,17 +2360,14 @@ def billing_send_finance(request):
 
             if note:
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
-                s.finance_note = ((s.finance_note + "\n")
-                                  if s.finance_note else "") + prefix + note
+                s.finance_note = ((s.finance_note + "\n") if s.finance_note else "") + prefix + note
                 touched_fields.append("finance_note")
 
             s.save(update_fields=touched_fields)
             updated += 1
-            updated_rows.append(
-                {"id": s.id, "finance_status": s.finance_status})
+            updated_rows.append({"id": s.id, "finance_status": s.finance_status})
 
     return JsonResponse({"ok": True, "count": updated, "updated": updated_rows, "skipped": skipped})
-
 
 @login_required
 @rol_requerido('admin', 'pm')
@@ -2186,6 +2510,47 @@ def listar_billing(request):
 
             # SesionBilling.proyecto es el campo que luego se mapea a s.proyecto_nombre
             qs = qs.filter(proyecto__in=allowed_keys)
+
+            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
+            # Si include_history=True -> sin corte por fecha
+            # Si include_history=False y start_at existe -> solo desde start_at en adelante
+            try:
+                if ProyectoAsignacion is not None:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects
+                        .filter(usuario=request.user, proyecto__in=proyectos_user)
+                        .select_related("proyecto")
+                    )
+                else:
+                    asignaciones = []
+            except Exception:
+                asignaciones = []
+
+            if asignaciones:
+                window_q = Q()
+                for a in asignaciones:
+                    p = getattr(a, "proyecto", None)
+                    if not p:
+                        continue
+
+                    # keys compatibles con SesionBilling.proyecto (nombre/código/id)
+                    keys = set()
+                    nombre = (getattr(p, "nombre", "") or "").strip()
+                    if nombre:
+                        keys.add(nombre)
+                    codigo = getattr(p, "codigo", None)
+                    if codigo:
+                        keys.add(str(codigo).strip())
+                    keys.add(str(p.id).strip())
+
+                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                        window_q |= Q(proyecto__in=keys)
+                    else:
+                        window_q |= (Q(proyecto__in=keys) & Q(creado_en__gte=a.start_at))
+
+                # Si no pudimos construir nada, que no muestre nada (más seguro)
+                qs = qs.filter(window_q) if window_q else qs.none()
+
         else:
             # Si no tiene proyectos asignados, no ve ningún billing
             qs = qs.none()
@@ -2270,7 +2635,7 @@ def listar_billing(request):
     # ---------- /Filtros de servidor ----------
 
     # Paginación
-        # Paginación (sin "todos", máximo 100)
+    # Paginación (sin "todos", máximo 100)
     cantidad = request.GET.get("cantidad", "10")
 
     try:
@@ -2752,8 +3117,11 @@ def billing_send_to_finance(request):
             "finance_finish_date",
             "proyecto",
             "proyecto_id",
+            "creado_en",
         )
     )
+
+    forbidden_ids = set()
 
     if not can_view_legacy_history:
         try:
@@ -2779,13 +3147,59 @@ def billing_send_to_finance(request):
                 allowed_keys.add(str(p.id).strip())
 
             qs = base_qs.filter(proyecto__in=allowed_keys)
+
+            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
+            asignaciones = []
+            try:
+                if ProyectoAsignacion is not None:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects
+                        .filter(usuario=user, proyecto__in=proyectos_user)
+                        .select_related("proyecto")
+                    )
+            except Exception:
+                asignaciones = []
+
+            if asignaciones:
+                window_q = Q()
+                for a in asignaciones:
+                    p = getattr(a, "proyecto", None)
+                    if not p:
+                        continue
+
+                    keys = set()
+                    nombre = (getattr(p, "nombre", "") or "").strip()
+                    if nombre:
+                        keys.add(nombre)
+                    codigo = getattr(p, "codigo", None)
+                    if codigo:
+                        keys.add(str(codigo).strip())
+                    keys.add(str(p.id).strip())
+
+                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                        window_q |= Q(proyecto__in=keys)
+                    else:
+                        window_q |= (Q(proyecto__in=keys) & Q(creado_en__gte=a.start_at))
+
+                if window_q:
+                    qs_ids_allowed = set(qs.filter(window_q).values_list("id", flat=True))
+                    forbidden_ids = set(ids) - qs_ids_allowed
+                    qs = qs.filter(id__in=qs_ids_allowed)
+                else:
+                    forbidden_ids = set(ids)
+                    qs = qs.none()
         else:
             qs = SesionBilling.objects.none().select_for_update()
+            forbidden_ids = set(ids)
     else:
         qs = base_qs
 
     updated_ids = []
     skipped = {}
+
+    # marcar fuera de ventana/proyecto como skipped (sin cambiar estructura)
+    for bid in forbidden_ids:
+        skipped[int(bid)] = "forbidden_project"
 
     for s in qs:
         # Nunca tocamos pagos
@@ -3499,6 +3913,14 @@ def produccion_admin(request):
     from django.db.models.functions import Cast
     from django.utils import timezone
 
+    from facturacion.models import Proyecto
+    from operaciones.models import SesionBilling
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+    from usuarios.models import ProyectoAsignacion  # ventana de visibilidad
+
     # ---------------- helpers ----------------
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
@@ -3982,6 +4404,7 @@ def produccion_admin(request):
         "f_client": f_client,
         "filters_qs": filters_qs,
     })
+
 
 @login_required
 @rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
@@ -4521,7 +4944,6 @@ def Exportar_produccion_admin(request):
     return resp
 
 
-
 @login_required
 @rol_requerido('usuario')
 def produccion_usuario(request):
@@ -5011,6 +5433,9 @@ def admin_weekly_payments(request):
     from django.db.models.functions import Coalesce
     from django.utils import timezone
 
+    from facturacion.models import Proyecto
+    from usuarios.models import ProyectoAsignacion
+
     # ========= Helpers locales =========
     def _norm_week_input(raw: str) -> str:
         s = (raw or "").strip().upper()
@@ -5034,6 +5459,34 @@ def admin_weekly_payments(request):
             output_field=DecimalField(max_digits=18, decimal_places=2),
         )
 
+    def _iso_week_str(dt):
+        y, w, _ = dt.isocalendar()
+        return f"{y}-W{int(w):02d}"
+
+    def _normalize_week_str(s: str) -> str:
+        if not s:
+            return ""
+        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = re.sub(r"\s+", "", s)
+        return s.upper()
+
+    def _week_sort_key(week_str: str):
+        """
+        Acepta variantes como '2025-W40', '2025W40', 'W40'.
+        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
+        """
+        if not week_str:
+            return (-1, -1)
+
+        s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
+        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        m = re.search(r'W(\d{1,2})', s)
+        if m:
+            return (0, int(m.group(1)))
+        return (-1, -1)
+
     # Etiquetas legibles para ajustes
     ADJ_LABEL = {
         "fixed_salary": "Fixed salary",
@@ -5053,8 +5506,108 @@ def admin_weekly_payments(request):
     # ========= Visibilidad por usuario =========
     visible_tech_ids = _visible_tech_ids_for_user(request.user)
 
+    # ========= NUEVO: limitar por proyecto + ventana de visibilidad (misma lógica) =========
+    user = request.user
+    can_view_legacy_history = (
+        user.is_superuser or
+        getattr(user, "es_usuario_historial", False)
+    )
+
+    # Proyectos visibles para el usuario (igual patrón que produccion_admin)
+    try:
+        base_proyectos = Proyecto.objects.all()
+        if can_view_legacy_history:
+            proyectos_user = base_proyectos
+        else:
+            proyectos_user = filter_queryset_by_access(
+                base_proyectos,
+                request.user,
+                'id',
+            )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    if proyectos_user.exists():
+        allowed_keys = set()
+        for p in proyectos_user:
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+            allowed_keys.add(str(p.id).strip())
+    else:
+        allowed_keys = set()
+
+    proyectos_list = list(proyectos_user)
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    # Ventana de visibilidad por ProyectoAsignacion (igual que produccion_admin)
+    try:
+        asignaciones = list(
+            ProyectoAsignacion.objects
+            .filter(usuario=request.user, proyecto__in=proyectos_list)
+            .select_related("proyecto")
+        )
+    except Exception:
+        asignaciones = []
+
+    access_by_pk = {}
+    if asignaciones and not can_view_legacy_history:
+        for a in asignaciones:
+            if a.include_history or not a.start_at:
+                access_by_pk[a.proyecto_id] = {"include_history": True, "start_week": None}
+            else:
+                access_by_pk[a.proyecto_id] = {"include_history": False, "start_week": _iso_week_str(a.start_at)}
+
+    def _project_pk_from_any(raw_proj_id, raw_proj_text):
+        # 1) si viene id numérico
+        if raw_proj_id not in (None, "", "-"):
+            try:
+                pid = int(raw_proj_id)
+            except (TypeError, ValueError):
+                pid = None
+            else:
+                if pid in by_id:
+                    return pid
+
+        # 2) si viene texto (nombre/código)
+        key = (str(raw_proj_text or "").strip()).lower()
+        if key:
+            p = by_name.get(key) or by_code.get(key)
+            if p:
+                return p.id
+        return None
+
+    def _allowed_by_window(project_pk: int | None, week_str: str) -> bool:
+        if can_view_legacy_history:
+            return True
+        if not access_by_pk:
+            return False
+        if project_pk is None:
+            return False
+        access = access_by_pk.get(project_pk)
+        if not access:
+            return False
+        if access["include_history"] or access["start_week"] is None:
+            return True
+        wk = _normalize_week_str(week_str)
+        if not wk:
+            return False
+        return _week_sort_key(wk) >= _week_sort_key(access["start_week"])
+
     # ========= TOP (NO pagados hasta semana actual) =========
-    # 🔥 FIX: antes era solo week=current_week; ahora incluimos semanas anteriores (ej: W51 en semana W52)
     top_qs = (
         WeeklyPayment.objects
         .filter(week__lte=current_week, amount__gt=0)   # sólo pagables y no futuras
@@ -5086,10 +5639,20 @@ def admin_weekly_payments(request):
                 Q(item__sesion__estado__in=ESTADOS_OK) |
                 Q(subtotal__lt=0)
             )
+        )
+        if not can_view_legacy_history:
+            if allowed_keys:
+                det_prod = det_prod.filter(item__sesion__proyecto__in=allowed_keys)
+            else:
+                det_prod = ItemBillingTecnico.objects.none()
+
+        det_prod = (
+            det_prod
             .values(
                 "tecnico_id",
                 "item__sesion__semana_pago_real",
                 "item__sesion__proyecto_id",
+                "item__sesion__proyecto",
                 is_discount=F("item__sesion__is_direct_discount"),
             )
             .annotate(
@@ -5101,8 +5664,14 @@ def admin_weekly_payments(request):
             )
             .order_by("item__sesion__semana_pago_real", "item__sesion__proyecto_id")
         )
+
         for r in det_prod:
-            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            week_real = r["item__sesion__semana_pago_real"]
+            proj_pk = _project_pk_from_any(r.get("item__sesion__proyecto_id"), r.get("item__sesion__proyecto"))
+            if not _allowed_by_window(proj_pk, week_real):
+                continue
+
+            key = (r["tecnico_id"], week_real)
             label = "Direct discount" if r["is_discount"] else (
                 r["item__sesion__proyecto_id"] or "—"
             )
@@ -5120,10 +5689,16 @@ def admin_weekly_payments(request):
         AdjustmentEntry = None
 
     if AdjustmentEntry is not None and tech_ids_top and weeks_top:
+        det_adj = AdjustmentEntry.objects.filter(technician_id__in=tech_ids_top, week__in=weeks_top)
+        if not can_view_legacy_history:
+            if allowed_keys:
+                det_adj = det_adj.filter(Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys))
+            else:
+                det_adj = AdjustmentEntry.objects.none()
+
         det_adj = (
-            AdjustmentEntry.objects
-            .filter(technician_id__in=tech_ids_top, week__in=weeks_top)
-            .values("technician_id", "week", "adjustment_type")
+            det_adj
+            .values("technician_id", "week", "adjustment_type", "project_id", "project")
             .annotate(
                 total=Coalesce(
                     Sum("amount"),
@@ -5132,8 +5707,14 @@ def admin_weekly_payments(request):
                 )
             )
         )
+
         for r in det_adj:
-            key = (r["technician_id"], r["week"])
+            wk = r["week"]
+            proj_pk = _project_pk_from_any(r.get("project_id"), r.get("project"))
+            if not _allowed_by_window(proj_pk, wk):
+                continue
+
+            key = (r["technician_id"], wk)
             label = ADJ_LABEL.get(r["adjustment_type"], r["adjustment_type"])
             details_map_top.setdefault(key, []).append(
                 {
@@ -5142,9 +5723,15 @@ def admin_weekly_payments(request):
                 }
             )
 
-    # adjuntar al objeto
+    # adjuntar al objeto + ajustar monto visible + filtrar filas que no queden con nada visible
+    top_filtered = []
     for wp in top:
         wp.details = details_map_top.get((wp.technician_id, wp.week), [])
+        visible_total = sum((d.get("subtotal") or Decimal("0.00")) for d in wp.details) if wp.details else Decimal("0.00")
+        wp.amount = visible_total
+        if visible_total > 0:
+            top_filtered.append(wp)
+    top = top_filtered
 
     # ========= BOTTOM (historial Paid) =========
     f_tech = (request.GET.get("f_tech") or "").strip()
@@ -5222,10 +5809,20 @@ def admin_weekly_payments(request):
                 Q(item__sesion__estado__in=ESTADOS_OK) |
                 Q(subtotal__lt=0)
             )
+        )
+        if not can_view_legacy_history:
+            if allowed_keys:
+                det_b_prod = det_b_prod.filter(item__sesion__proyecto__in=allowed_keys)
+            else:
+                det_b_prod = ItemBillingTecnico.objects.none()
+
+        det_b_prod = (
+            det_b_prod
             .values(
                 "tecnico_id",
                 "item__sesion__semana_pago_real",
                 "item__sesion__proyecto_id",
+                "item__sesion__proyecto",
                 is_discount=F("item__sesion__is_direct_discount"),
             )
             .annotate(
@@ -5240,8 +5837,14 @@ def admin_weekly_payments(request):
                 "item__sesion__proyecto_id",
             )
         )
+
         for r in det_b_prod:
-            key = (r["tecnico_id"], r["item__sesion__semana_pago_real"])
+            week_real = r["item__sesion__semana_pago_real"]
+            proj_pk = _project_pk_from_any(r.get("item__sesion__proyecto_id"), r.get("item__sesion__proyecto"))
+            if not _allowed_by_window(proj_pk, week_real):
+                continue
+
+            key = (r["tecnico_id"], week_real)
             label = "Direct discount" if r["is_discount"] else (
                 r["item__sesion__proyecto_id"] or "—"
             )
@@ -5254,13 +5857,19 @@ def admin_weekly_payments(request):
 
         # Ajustes
         if AdjustmentEntry is not None:
+            det_b_adj = AdjustmentEntry.objects.filter(
+                technician_id__in=tech_ids_bottom,
+                week__in=weeks_bottom,
+            )
+            if not can_view_legacy_history:
+                if allowed_keys:
+                    det_b_adj = det_b_adj.filter(Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys))
+                else:
+                    det_b_adj = AdjustmentEntry.objects.none()
+
             det_b_adj = (
-                AdjustmentEntry.objects
-                .filter(
-                    technician_id__in=tech_ids_bottom,
-                    week__in=weeks_bottom,
-                )
-                .values("technician_id", "week", "adjustment_type")
+                det_b_adj
+                .values("technician_id", "week", "adjustment_type", "project_id", "project")
                 .annotate(
                     total=Coalesce(
                         Sum("amount"),
@@ -5269,8 +5878,14 @@ def admin_weekly_payments(request):
                     )
                 )
             )
+
             for r in det_b_adj:
-                key = (r["technician_id"], r["week"])
+                wk = r["week"]
+                proj_pk = _project_pk_from_any(r.get("project_id"), r.get("project"))
+                if not _allowed_by_window(proj_pk, wk):
+                    continue
+
+                key = (r["technician_id"], wk)
                 label = ADJ_LABEL.get(
                     r["adjustment_type"],
                     r["adjustment_type"],
@@ -5282,8 +5897,20 @@ def admin_weekly_payments(request):
                     }
                 )
 
+    # aplicar detalles + ajustar monto visible + filtrar filas que no queden con nada visible
+    wp_list_filtered = []
     for wp in wp_list:
         wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
+        visible_total = sum((d.get("subtotal") or Decimal("0.00")) for d in wp.details) if wp.details else Decimal("0.00")
+        wp.amount = visible_total
+        if visible_total > 0:
+            wp_list_filtered.append(wp)
+
+    # si pagina es Page, reemplazamos la lista interna para render (sin tocar paginator)
+    if isinstance(pagina, list):
+        pagina = wp_list_filtered
+    else:
+        pagina.object_list = wp_list_filtered
 
     # ========= Querystring para mantener filtros =========
     keep = {

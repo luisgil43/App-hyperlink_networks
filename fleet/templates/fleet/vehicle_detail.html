@@ -1,0 +1,95 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Vehicle • {{ vehicle.name }}{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800">🚚 {{ vehicle.name }}</h2>
+      <p class="text-gray-500 text-sm">{{ vehicle.fleet_id }}{% if vehicle.plate %} • {{ vehicle.plate }}{% endif %}</p>
+    </div>
+
+    <div class="flex gap-2">
+      <a href="{% url 'fleet:vehicles_list' %}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
+        ← Back
+      </a>
+      <a href="{% url 'fleet:vehicle_edit' vehicle.id %}"
+         class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full text-sm shadow">
+        Edit
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="border border-gray-200 rounded-2xl p-4 lg:col-span-2">
+      <h3 class="font-bold text-gray-800 mb-3">Overview</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-3">
+          <div class="text-xs text-gray-500">Make / Model</div>
+          <div class="font-semibold text-gray-900">
+            {% if vehicle.make %}{{ vehicle.make }}{% else %}—{% endif %}
+            {% if vehicle.model %} • {{ vehicle.model }}{% endif %}
+            {% if vehicle.year %} • {{ vehicle.year }}{% endif %}
+          </div>
+        </div>
+
+        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-3">
+          <div class="text-xs text-gray-500">Odometer</div>
+          <div class="font-semibold text-gray-900">
+            {{ vehicle.last_odometer }} {{ vehicle.unit_label }}
+          </div>
+          <div class="text-xs text-gray-400">
+            Initial: {{ vehicle.initial_odometer }} {{ vehicle.unit_label }}
+          </div>
+        </div>
+
+        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-3">
+          <div class="text-xs text-gray-500">Plate</div>
+          <div class="font-semibold text-gray-900">
+            {% if vehicle.plate %}{{ vehicle.plate }}{% else %}—{% endif %}
+            {% if vehicle.plate_state %}<span class="text-gray-500">({{ vehicle.plate_state }})</span>{% endif %}
+          </div>
+        </div>
+
+        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-3">
+          <div class="text-xs text-gray-500">VIN</div>
+          <div class="font-semibold text-gray-900">{% if vehicle.vin %}{{ vehicle.vin }}{% else %}—{% endif %}</div>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="text-xs text-gray-500">Notes</div>
+        <div class="text-sm text-gray-800 whitespace-pre-line">{% if vehicle.notes %}{{ vehicle.notes }}{% else %}—{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="border border-gray-200 rounded-2xl p-4">
+      <h3 class="font-bold text-gray-800 mb-3">Status</h3>
+
+      {% if vehicle.is_active %}
+        <div class="px-3 py-2 rounded-2xl bg-emerald-100 text-emerald-700 text-sm font-semibold">Active</div>
+      {% else %}
+        <div class="px-3 py-2 rounded-2xl bg-gray-200 text-gray-700 text-sm font-semibold">Inactive</div>
+      {% endif %}
+
+      <div class="mt-4 text-xs text-gray-400">
+        Created: {{ vehicle.created_at }}<br>
+        Updated: {{ vehicle.updated_at }}
+      </div>
+
+      <div class="mt-6 border-t pt-4">
+        <div class="text-xs text-gray-500 mb-2">Next steps</div>
+        <ul class="text-sm text-gray-700 space-y-1">
+          <li>• Assign this vehicle to a project (Phase 3)</li>
+          <li>• Create service schedules (Phase 5)</li>
+          <li>• Auto-update odometer via fuel/expense reports (Phase 4)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
