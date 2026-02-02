@@ -1,0 +1,101 @@
+{% extends "dashboard_admin/base.html" %}
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto p-4">
+  <div class="mb-4">
+    <h1 class="text-2xl font-semibold">
+      {% if mode == "create" %}New Bore Log{% else %}Edit Bore Log{% endif %}
+    </h1>
+    <p class="text-sm text-gray-500">
+      Fill the header fields. The DOCX template is global and fixed.
+    </p>
+  </div>
+
+  {% if messages %}
+    <div class="space-y-2 mb-4">
+      {% for message in messages %}
+        <div class="p-3 rounded-lg {% if message.tags == 'success' %}bg-green-50 text-green-800{% elif message.tags == 'error' %}bg-red-50 text-red-800{% else %}bg-gray-50 text-gray-800{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post"
+        class="bg-white rounded-2xl shadow-sm border p-4 space-y-4">
+    {% csrf_token %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">{{ form.project_name.label }}</label>
+        {{ form.project_name }}
+        {% if form.project_name.errors %}<p class="text-sm text-red-600 mt-1">{{ form.project_name.errors }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">{{ form.rod_length.label }}</label>
+        {{ form.rod_length }}
+        {% if form.rod_length.errors %}<p class="text-sm text-red-600 mt-1">{{ form.rod_length.errors }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">{{ form.driller_name.label }}</label>
+        {{ form.driller_name }}
+        {% if form.driller_name.errors %}<p class="text-sm text-red-600 mt-1">{{ form.driller_name.errors }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">{{ form.vendor_name.label }}</label>
+        {{ form.vendor_name }}
+        {% if form.vendor_name.errors %}<p class="text-sm text-red-600 mt-1">{{ form.vendor_name.errors }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">{{ form.status.label }}</label>
+        {{ form.status }}
+        {% if form.status.errors %}<p class="text-sm text-red-600 mt-1">{{ form.status.errors }}</p>{% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-1">{{ form.notes.label }}</label>
+      {{ form.notes }}
+      {% if form.notes.errors %}<p class="text-sm text-red-600 mt-1">{{ form.notes.errors }}</p>{% endif %}
+    </div>
+
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+      {% if sesion %}
+        <a href="{% url 'borelogs:borelog_list_for_billing' sesion.id %}"
+           class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center">
+          Cancel
+        </a>
+      {% elif sesion_id %}
+        <a href="{% url 'borelogs:borelog_list_for_billing' sesion_id %}"
+           class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center">
+          Cancel
+        </a>
+      {% else %}
+        <a href="{% url 'borelogs:borelog_list' %}"
+           class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center">
+          Cancel
+        </a>
+      {% endif %}
+
+      <button type="submit"
+              class="w-full sm:w-auto px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+        Save
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Estilos Tailwind para inputs (si tu base no los aplica)
+  // Comentarios en español.
+  (function () {
+    const els = document.querySelectorAll("input, select, textarea");
+    els.forEach(el => {
+      el.classList.add("w-full", "rounded-lg", "border", "px-3", "py-2", "bg-white");
+    });
+  })();
+</script>
+{% endblock %}

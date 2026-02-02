@@ -66,6 +66,8 @@ urlpatterns = [
     path("apple-touch-icon-120x120.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"), permanent=True), name="apple_touch_icon_120"),
     path("apple-touch-icon-120x120-precomposed.png", RedirectView.as_view(url=staticfiles_storage.url("icons/apple-touch-icon-120x120.png"), permanent=True), name="apple_touch_icon_120_pre"),
     path("favicon.ico", RedirectView.as_view(url=staticfiles_storage.url("icons/favicon.ico"), permanent=True), name="favicon_root"),
+    path("borelogs/", include("borelogs.urls")),
+
 ]
 
 # Archivos estáticos y media (solo en DEBUG)

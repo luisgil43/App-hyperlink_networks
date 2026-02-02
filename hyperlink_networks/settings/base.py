@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     # Local apps
     'liquidaciones',
     'dashboard',
+    "borelogs",
     "core",
     "fleet",
     "notifications",
