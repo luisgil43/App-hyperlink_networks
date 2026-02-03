@@ -410,7 +410,7 @@ else %}asignado assigned{% endif %}"
             {% else %}
               <div class="flex items-center justify-center gap-3">
                 <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
-                <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Photo Reqs</a>
+                <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
                 <button type="button"
                         class="btn-open-delete text-red-600 hover:underline"
                         data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
@@ -518,7 +518,7 @@ else %}asignado assigned{% endif %}"
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
                 <a href="{% url 'operaciones:configurar_requisitos' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
-                  Configure Photo Reqs
+                  Configure Requirements
                 </a>
               </div>
               <div class="overflow-x-auto rounded border">
