@@ -1,9 +1,11 @@
-{% extends "dashboard_admin/base.html" %}
+{% extends "dashboard/base.html" %}
 
 {% block title %}Bore Logs — Billing #{{ sesion.id }}{% endblock %}
 
-{% block dashboard_content %}
-<div class="max-w-7xl mx-auto p-4">
+{% block content %}
+{% with back_asig=request.GET.back_asig qs=request.GET.urlencode %}
+<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+
   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
     <div>
       <div class="flex items-center gap-2">
@@ -17,17 +19,18 @@
       </p>
     </div>
 
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-      <a href="{% url 'borelogs:borelog_create_for_billing' sesion.id %}"
-         class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
-        + New Bore Log
+    {# ✅ Back: si vienes desde Upload (back_asig), vuelve a Upload. Si no, vuelve a Mis Assignments. #}
+    {% if back_asig %}
+      <a href="{% url 'operaciones:upload_evidencias' back_asig %}"
+         class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center inline-block">
+        ⬅️ Back
       </a>
-
-      <a href="{% url 'operaciones:configurar_requisitos' sesion.id %}"
-         class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center">
-        Back to Requirements
+    {% else %}
+      <a href="{% url 'operaciones:mis_assignments' %}"
+         class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center inline-block">
+        ⬅️ Back
       </a>
-    </div>
+    {% endif %}
   </div>
 
   {% if messages %}
@@ -53,12 +56,14 @@
             <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
           </tr>
         </thead>
+
         <tbody class="divide-y">
           {% for b in borelogs %}
           <tr class="hover:bg-gray-50">
             <td class="px-4 py-3">
+              {# ✅ conserva back_asig para que el listado siga pudiendo volver a Upload #}
               <a class="text-blue-700 hover:underline"
-                 href="{% url 'borelogs:borelog_detail' b.pk %}">
+                 href="{% url 'borelogs:borelog_detail_user' b.pk %}?ui=user{% if qs %}&{{ qs }}{% endif %}">
                 {{ b.project_name }}
               </a>
               <div class="text-xs text-gray-500">#{{ b.id }} • {{ b.created_at|date:"Y-m-d H:i" }}</div>
@@ -78,31 +83,26 @@
 
             <td class="px-4 py-3 whitespace-nowrap">
               <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <a href="{% url 'borelogs:borelog_edit' b.pk %}"
-                   class="px-3 py-1.5 rounded-lg border hover:bg-white bg-gray-50 text-center">
-                  Edit
+                <a href="{% url 'borelogs:borelog_detail_user' b.pk %}?ui=user{% if qs %}&{{ qs }}{% endif %}"
+                   class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-center">
+                  Fill Table
                 </a>
-
-                <form method="post" action="{% url 'borelogs:borelog_delete' b.pk %}">
-                  {% csrf_token %}
-                  <button type="submit"
-                          class="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700">
-                    Delete
-                  </button>
-                </form>
               </div>
             </td>
           </tr>
           {% empty %}
           <tr>
             <td class="px-4 py-6 text-center text-gray-500" colspan="6">
-              No Bore Logs yet for this billing. Click <strong>New Bore Log</strong> to create one.
+              No Bore Logs yet for this billing.
             </td>
           </tr>
           {% endfor %}
         </tbody>
+
       </table>
     </div>
   </div>
+
 </div>
+{% endwith %}
 {% endblock %}

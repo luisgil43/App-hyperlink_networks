@@ -6,11 +6,10 @@
 
   <div class="flex items-center justify-between">
   <div class="flex items-center gap-2">
-    <button type="button"
-            class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
-            onclick="if (document.referrer) { history.back(); } else { window.location.href='/operaciones/billing/my/'; }">
-      ⬅️ Back
-    </button>
+   <a href="{% url 'operaciones:mis_assignments' %}"
+   class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded">
+  ⬅️ Back
+</a>
 
     <h1 class="text-2xl font-bold">📸 Upload Photos — Billing #{{ a.sesion.id }}</h1>
   </div>
@@ -20,6 +19,11 @@
        class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded">
       View Maps
     </a>
+
+<a href="{% url 'borelogs:borelog_list_for_billing_user' a.sesion.id %}?back_asig={{ a.pk }}"
+   class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded">
+  Bore Logs
+</a>
 
     <form id="finalizar-form" method="post" action="{% url 'operaciones:finish_assignment' a.pk %}">
       {% csrf_token %}

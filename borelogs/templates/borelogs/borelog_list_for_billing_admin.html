@@ -1,0 +1,111 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Bore Logs — Billing #{{ sesion.id }}{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto p-4">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-2xl font-semibold">Bore Logs</h1>
+        <span class="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs">
+          Billing #{{ sesion.id }}
+        </span>
+      </div>
+      <p class="text-sm text-gray-500">
+        Only Bore Logs created for this billing.
+      </p>
+    </div>
+
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+      <a href="{% url 'borelogs:borelog_create_for_billing' sesion.id %}?ui=admin"
+         class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+        + New Bore Log
+      </a>
+
+      <a href="{% url 'operaciones:configurar_requisitos' sesion.id %}"
+         class="w-full sm:w-auto px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-center">
+        Back to Requirements
+      </a>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="space-y-2 mb-4">
+      {% for message in messages %}
+        <div class="p-3 rounded-lg {% if message.tags == 'success' %}bg-green-50 text-green-800{% elif message.tags == 'error' %}bg-red-50 text-red-800{% elif message.tags == 'warning' %}bg-amber-50 text-amber-800{% else %}bg-gray-50 text-gray-800{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left">
+            <th class="px-4 py-3 font-medium text-gray-700">Project Name</th>
+            <th class="px-4 py-3 font-medium text-gray-700">Rod Length</th>
+            <th class="px-4 py-3 font-medium text-gray-700">Driller Name</th>
+            <th class="px-4 py-3 font-medium text-gray-700">Vendor Name</th>
+            <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+            <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody class="divide-y">
+          {% for b in borelogs %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+              <a class="text-blue-700 hover:underline"
+                 href="{% url 'borelogs:borelog_detail' b.pk %}?ui=admin">
+                {{ b.project_name }}
+              </a>
+              <div class="text-xs text-gray-500">#{{ b.id }} • {{ b.created_at|date:"Y-m-d H:i" }}</div>
+            </td>
+
+            <td class="px-4 py-3">{{ b.rod_length|default:"—" }}</td>
+            <td class="px-4 py-3">{{ b.driller_name|default:"—" }}</td>
+            <td class="px-4 py-3">{{ b.vendor_name|default:"—" }}</td>
+
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if b.status == "open" %}
+                <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs">Open</span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs">Closed</span>
+              {% endif %}
+            </td>
+
+            <td class="px-4 py-3 whitespace-nowrap">
+              <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <a href="{% url 'borelogs:borelog_edit' b.pk %}?ui=admin"
+                   class="px-3 py-1.5 rounded-lg border hover:bg-white bg-gray-50 text-center">
+                  Edit
+                </a>
+
+                <form method="post" action="{% url 'borelogs:borelog_delete' b.pk %}?ui=admin">
+                  {% csrf_token %}
+                  <button type="submit"
+                          class="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+
+          {% empty %}
+          <tr>
+            <td class="px-4 py-6 text-center text-gray-500" colspan="6">
+              No Bore Logs yet for this billing. Click <strong>New Bore Log</strong> to create one.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
