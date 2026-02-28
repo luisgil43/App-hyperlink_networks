@@ -36,14 +36,14 @@ from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-
-from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.forms import MovimientoUsuarioForm
 from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
                                 ItemBillingTecnico, SesionBilling,
                                 SesionBillingTecnico)
 from usuarios.decoradores import rol_requerido
 from usuarios.models import ProyectoAsignacion
+
+from facturacion.models import CartolaMovimiento, Proyecto
 
 from .forms import (CartolaAbonoForm, CartolaGastoForm,
                     CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm)
@@ -53,6 +53,10 @@ User = get_user_model()
 
 import re
 
+# ⬇️ agrega junto a tus imports
+from core.decorators import project_object_access_required
+from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
+                              user_has_project_access)
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
@@ -60,11 +64,6 @@ from django.db.models import IntegerField
 from django.db.models.functions import Cast, Substr
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-
-# ⬇️ agrega junto a tus imports
-from core.decorators import project_object_access_required
-from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
-                              user_has_project_access)
 
 from .models import CartolaMovimiento, Proyecto
 
@@ -94,136 +93,147 @@ def _next_project_code():
 @rol_requerido('facturacion', 'admin')
 def listar_cartola(request):
     import json
-    from datetime import datetime
+    import re
     from datetime import datetime as py_datetime
-    from datetime import time, timedelta
 
     from django.contrib import messages
     from django.core.paginator import Paginator
-    from django.db import models
-    from django.db.models import Q
-    from django.utils import timezone
+    from django.db.models import Case, CharField, IntegerField, Q, Value, When
+    from django.db.models.functions import Cast
 
-    from core.permissions import filter_queryset_by_assignment_history
+    # --- Cantidad/paginación (mantén string para la UI)
+    cantidad_param = request.GET.get('cantidad', '10')
 
-    from .models import CartolaMovimiento
-
-    def parse_date_any(s: str):
-        """Devuelve date para varios formatos comunes o None."""
-        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except ValueError:
-                pass
-        return None
-
-    params = request.GET.copy()
+    # Limitamos a máx. 100 (y "todos" también se interpreta como 100)
+    if cantidad_param == 'todos':
+        page_size = 100
+    else:
+        try:
+            page_size = max(5, min(int(cantidad_param), 100))
+        except ValueError:
+            page_size = 10
+            cantidad_param = '10'
 
     # ---------- Filtros tipo Excel recibidos por GET ----------
-    excel_filters_raw = params.get('excel_filters', '').strip()
+    params = request.GET.copy()
+    excel_filters_raw = (params.get('excel_filters') or '').strip()
     try:
         excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
     except json.JSONDecodeError:
         excel_filters = {}
 
-    # ==========================
-    # Manejo de 'cantidad'
-    # ==========================
-    raw_cantidad = params.get('cantidad', '10')
-    page_number = params.get('page', '1')
+    # --- Filtros (string trimming)
+    usuario = (request.GET.get('usuario') or '').strip()
+    fecha_txt = (request.GET.get('fecha') or '').strip()
+    proyecto = (request.GET.get('proyecto') or '').strip()
+    categoria = (request.GET.get('categoria') or '').strip()
+    tipo = (request.GET.get('tipo') or '').strip()
+    rut_factura = (request.GET.get('rut_factura') or '').strip()
+    estado = (request.GET.get('estado') or '').strip()
 
-    MAX_PAGE_SIZE = 100
+    # --- Base queryset
+    movimientos = CartolaMovimiento.objects.all()
 
-    try:
-        cantidad_int = int(raw_cantidad)
-    except (TypeError, ValueError):
-        cantidad_int = 10
-
-    if cantidad_int < 5:
-        cantidad_int = 5
-    if cantidad_int > MAX_PAGE_SIZE:
-        cantidad_int = MAX_PAGE_SIZE
-
-    cantidad = str(cantidad_int)
-
-    # ==========================
-    # Filtros por GET
-    # ==========================
-    du        = params.get('du', '').strip()
-    fecha_str = params.get('fecha', '').strip()
-    proyecto  = params.get('proyecto', '').strip()
-    categoria = params.get('categoria', '').strip()
-    tipo      = params.get('tipo', '').strip()
-    estado    = params.get('estado', '').strip()
-
-    # Query base
-    movimientos_qs = (
-        CartolaMovimiento.objects.all()
-        .select_related('usuario', 'proyecto', 'tipo')
-        .order_by('-fecha')
+    # Anotar fecha como texto ISO (YYYY-MM-DD...) para poder usar icontains
+    movimientos = movimientos.annotate(
+        fecha_iso=Cast('fecha', CharField())
     )
 
-    # ✅ BLINDADO: por proyecto + include_history/start_at
-    # Si tu campo proyecto en CartolaMovimiento es FK "proyecto", normalmente el id es "proyecto_id"
-    movimientos_qs = filter_queryset_by_assignment_history(
-        movimientos_qs,
-        request.user,
-        project_field="proyecto_id",
-        date_field="fecha",
-    )
-
-    # Usuario
-    if du:
-        movimientos_qs = movimientos_qs.filter(
-            Q(usuario__username__icontains=du) |
-            Q(usuario__first_name__icontains=du) |
-            Q(usuario__last_name__icontains=du)
+    # --- Filtro usuario: username / nombres / apellidos
+    if usuario:
+        movimientos = movimientos.filter(
+            Q(usuario__username__icontains=usuario) |
+            Q(usuario__first_name__icontains=usuario) |
+            Q(usuario__last_name__icontains=usuario)
         )
 
-    # ===== Filtro de FECHA (input del filtro) =====
-    if fecha_str:
-        solo_digitos = fecha_str.isdigit()
-        if solo_digitos and 1 <= int(fecha_str) <= 31:
-            dia = int(fecha_str)
-            movimientos_qs = movimientos_qs.filter(fecha__day=dia)
-        else:
-            fecha_valida = parse_date_any(fecha_str)
-            if not fecha_valida:
+    # --- Filtro fecha (permite parcial: DD, DD-MM, DD-MM-YYYY)
+    if fecha_txt:
+        # Permitimos 08-12-2025, 08/12/2025, 8-12, 29, etc.
+        fecha_normalizada = fecha_txt.replace('/', '-').strip()
+
+        # Patrones permitidos: "D", "DD", "DD-MM", "DD-M", "DD-MM-YYYY"
+        m = re.match(r'^(\d{1,2})(?:-(\d{1,2}))?(?:-(\d{1,4}))?$', fecha_normalizada)
+        if m:
+            dia_str = m.group(1)
+            mes_str = m.group(2)
+            anio_str = m.group(3)
+
+            try:
+                q_fecha = Q()
+
+                # Siempre filtramos por día
+                dia = int(dia_str)
+                q_fecha &= Q(fecha__day=dia)
+
+                # Si hay mes, también filtramos por mes
+                if mes_str:
+                    mes = int(mes_str)
+                    q_fecha &= Q(fecha__month=mes)
+
+                # Si hay año completo (4 dígitos), filtramos por año
+                if anio_str and len(anio_str) == 4:
+                    anio = int(anio_str)
+                    q_fecha &= Q(fecha__year=anio)
+
+                movimientos = movimientos.filter(q_fecha)
+
+            except ValueError:
                 messages.warning(
                     request,
-                    "Invalid date. Use DD-MM-YYYY or only the day (e.g. 20)."
+                    "Formato de fecha inválido. Use DD, DD-MM o DD-MM-YYYY."
                 )
-            else:
-                campo_fecha = CartolaMovimiento._meta.get_field('fecha')
-                if isinstance(campo_fecha, models.DateTimeField):
-                    tz = timezone.get_current_timezone()
-                    start = timezone.make_aware(
-                        datetime.combine(fecha_valida, time.min), tz
-                    )
-                    end = start + timedelta(days=1)
-                    movimientos_qs = movimientos_qs.filter(
-                        fecha__gte=start, fecha__lt=end
-                    )
-                else:
-                    movimientos_qs = movimientos_qs.filter(fecha=fecha_valida)
+        else:
+            messages.warning(
+                request,
+                "Formato de fecha inválido. Use DD, DD-MM o DD-MM-YYYY."
+            )
 
+    # --- Otros filtros
     if proyecto:
-        movimientos_qs = movimientos_qs.filter(proyecto__nombre__icontains=proyecto)
+        movimientos = movimientos.filter(proyecto__nombre__icontains=proyecto)
     if categoria:
-        movimientos_qs = movimientos_qs.filter(tipo__categoria__icontains=categoria)
+        movimientos = movimientos.filter(tipo__categoria__icontains=categoria)
     if tipo:
-        movimientos_qs = movimientos_qs.filter(tipo__nombre__icontains=tipo)
+        movimientos = movimientos.filter(tipo__nombre__icontains=tipo)
+    if rut_factura:
+        movimientos = movimientos.filter(rut_factura__icontains=rut_factura)
     if estado:
-        movimientos_qs = movimientos_qs.filter(status=estado)
+        movimientos = movimientos.filter(status=estado)
+
+    # ✅ SOLO MOSTRAR: pendientes por finanzas + aprobados por finanzas
+    movimientos = movimientos.filter(status__in=['aprobado_pm', 'aprobado_finanzas'])
+
+    # --- ORDEN personalizado (se mantiene igual)
+    movimientos = movimientos.annotate(
+        prioridad=Case(
+            When(status='aprobado_pm', then=Value(0)),
+            When(status__startswith='pendiente', then=Value(1)),
+            When(status__startswith='rechazado', then=Value(2)),
+            When(status__startswith='aprobado', then=Value(3)),
+            default=Value(4),
+            output_field=IntegerField(),
+        )
+    ).order_by('prioridad', '-fecha')
 
     # ============================================================
-    #  Traemos TODO el queryset a memoria:
-    #  - luego aplicamos filtros Excel (sobre Python)
-    #  - luego paginamos
+    #  Traemos TODO a memoria:
+    #  - aplicar filtros Excel (Python)
+    #  - construir excel_global (todos los registros filtrados)
+    #  - luego paginar
     # ============================================================
-    movimientos_list = list(movimientos_qs)
+    movimientos_list = list(movimientos)
 
-    # ---------- Aplicar filtros Excel sobre la lista ----------
+    # Helpers de formato CLP (para que los valores del panel se vean igual que la tabla)
+    def format_clp(n):
+        try:
+            n = 0 if n is None else n
+            n_int = int(n)
+            return f"${n_int:,}".replace(",", ".")
+        except Exception:
+            return "$0"
+
+    # ---------- Aplicar filtros Excel ----------
     if excel_filters:
         def matches_excel_filters(m):
             for col, values in excel_filters.items():
@@ -231,128 +241,206 @@ def listar_cartola(request):
                     continue
                 values_set = set(values)
 
-                if col == "0":      # User
+                # índices según tabla GZ:
+                # 0 Usuario
+                # 1 Fecha
+                # 2 Fecha real del gasto
+                # 3 Proyecto
+                # 4 Categoría
+                # 5 Tipo
+                # 6 RUT factura
+                # 7 Tipo de documento
+                # 8 N° Documento
+                # 9 Observaciones
+                # 10 N° Transferencia
+                # 11 Comprobante
+                # 12 Cargos
+                # 13 Abonos
+                # 14 Status
+                if col == "0":
                     label = str(m.usuario) if m.usuario else ""
 
-                elif col == "1":    # Date (dd-mm-YYYY)
-                    dt = getattr(m, "fecha", None)
-                    if not dt:
-                        label = ""
-                    else:
-                        if isinstance(dt, py_datetime):
-                            dt = timezone.localtime(dt)
-                        label = dt.strftime("%d-%m-%Y")
+                elif col == "1":
+                    d = getattr(m, "fecha", None)
+                    label = d.strftime("%d-%m-%Y") if d else ""
 
-                elif col == "2":    # Project
+                elif col == "2":
+                    d = getattr(m, "fecha_transaccion", None) or getattr(m, "fecha", None)
+                    label = d.strftime("%d-%m-%Y") if d else ""
+
+                elif col == "3":
                     label = str(m.proyecto) if m.proyecto else ""
 
-                elif col == "3":    # Real consumption date (dd/mm/YYYY o —)
-                    d = getattr(m, "real_consumption_date", None)
-                    if not d:
-                        label = "—"
-                    else:
-                        if isinstance(d, py_datetime):
-                            d = timezone.localtime(d)
-                        label = d.strftime("%d/%m/%Y")
-
-                elif col == "4":    # Category (title)
-                    if m.tipo and m.tipo.categoria:
-                        label = m.tipo.categoria.title()
+                elif col == "4":
+                    if m.tipo and getattr(m.tipo, "categoria", None):
+                        label = (m.tipo.categoria or "").title()
                     else:
                         label = ""
 
-                elif col == "5":    # Type
+                elif col == "5":
                     label = str(m.tipo) if m.tipo else ""
 
-                elif col == "12":   # Status (display)
-                    label = m.get_status_display() if m.status else ""
+                elif col == "6":
+                    label = (getattr(m, "rut_factura", None) or "—").strip() or "—"
+
+                elif col == "7":
+                    label = (getattr(m, "tipo_doc", None) or "—").strip() or "—"
+
+                elif col == "8":
+                    label = (getattr(m, "numero_doc", None) or "—").strip() or "—"
+
+                elif col == "9":
+                    label = (getattr(m, "observaciones", None) or "").strip()
+
+                elif col == "10":
+                    label = (getattr(m, "numero_transferencia", None) or "—").strip() or "—"
+
+                elif col == "11":
+                    label = "Ver" if getattr(m, "comprobante", None) else "—"
+
+                elif col == "12":
+                    label = format_clp(getattr(m, "cargos", 0) or 0)
+
+                elif col == "13":
+                    label = format_clp(getattr(m, "abonos", 0) or 0)
+
+                elif col == "14":
+                    label = m.get_status_display() if getattr(m, "status", None) else ""
 
                 else:
                     continue
 
                 if label not in values_set:
                     return False
+
             return True
 
         movimientos_list = [m for m in movimientos_list if matches_excel_filters(m)]
 
-    # -------- Distinct globales para filtros tipo Excel ----------
+    # ---------- Distinct globales para filtros tipo Excel ----------
     excel_global = {}
 
-    users_set = {str(m.usuario) for m in movimientos_list if m.usuario}
-    excel_global[0] = sorted(users_set)
+    # 0 Usuario
+    excel_global[0] = sorted({str(m.usuario) for m in movimientos_list if m.usuario})
 
-    dates_set = set()
-    for m in movimientos_list:
-        if not m.fecha:
-            continue
-        dt = m.fecha
-        if isinstance(dt, py_datetime):
-            dt = timezone.localtime(dt)
-        dates_set.add(dt.strftime("%d-%m-%Y"))
-    excel_global[1] = sorted(dates_set)
+    # 1 Fecha
+    excel_global[1] = sorted({
+        m.fecha.strftime("%d-%m-%Y")
+        for m in movimientos_list
+        if getattr(m, "fecha", None)
+    })
 
-    projects_set = {str(m.proyecto) for m in movimientos_list if m.proyecto}
-    excel_global[2] = sorted(projects_set)
+    # 2 Fecha real del gasto
+    excel_global[2] = sorted({
+        (getattr(m, "fecha_transaccion", None) or getattr(m, "fecha", None)).strftime("%d-%m-%Y")
+        for m in movimientos_list
+        if (getattr(m, "fecha_transaccion", None) or getattr(m, "fecha", None))
+    })
 
-    rcd_set = set()
-    for m in movimientos_list:
-        d = getattr(m, "real_consumption_date", None)
-        if not d:
-            continue
-        if isinstance(d, py_datetime):
-            d = timezone.localtime(d)
-        rcd_set.add(d.strftime("%d/%m/%Y"))
-    excel_global[3] = sorted(rcd_set)
+    # 3 Proyecto
+    excel_global[3] = sorted({str(m.proyecto) for m in movimientos_list if m.proyecto})
 
-    cat_set = {
+    # 4 Categoría
+    excel_global[4] = sorted({
         (m.tipo.categoria or "").title()
         for m in movimientos_list
-        if m.tipo and m.tipo.categoria
-    }
-    excel_global[4] = sorted(cat_set)
+        if m.tipo and getattr(m.tipo, "categoria", None)
+    })
 
-    type_set = {str(m.tipo) for m in movimientos_list if m.tipo}
-    excel_global[5] = sorted(type_set)
+    # 5 Tipo
+    excel_global[5] = sorted({str(m.tipo) for m in movimientos_list if m.tipo})
 
+    # 6 RUT factura
+    excel_global[6] = sorted({
+        (getattr(m, "rut_factura", None) or "—").strip() or "—"
+        for m in movimientos_list
+    })
+
+    # 7 Tipo doc
+    excel_global[7] = sorted({
+        (getattr(m, "tipo_doc", None) or "—").strip() or "—"
+        for m in movimientos_list
+    })
+
+    # 8 N° doc
+    excel_global[8] = sorted({
+        (getattr(m, "numero_doc", None) or "—").strip() or "—"
+        for m in movimientos_list
+    })
+
+    # 9 Observaciones
+    excel_global[9] = sorted({
+        (getattr(m, "observaciones", None) or "").strip()
+        for m in movimientos_list
+    })
+
+    # 10 N° transferencia
+    excel_global[10] = sorted({
+        (getattr(m, "numero_transferencia", None) or "—").strip() or "—"
+        for m in movimientos_list
+    })
+
+    # 11 Comprobante
+    excel_global[11] = sorted({
+        "Ver" if getattr(m, "comprobante", None) else "—"
+        for m in movimientos_list
+    })
+
+    # 12 Cargos
+    excel_global[12] = sorted({
+        format_clp(getattr(m, "cargos", 0) or 0)
+        for m in movimientos_list
+    })
+
+    # 13 Abonos
+    excel_global[13] = sorted({
+        format_clp(getattr(m, "abonos", 0) or 0)
+        for m in movimientos_list
+    })
+
+    # 14 Status (display)
     estado_map = dict(CartolaMovimiento.ESTADOS)
-    status_codes = {m.status for m in movimientos_list if m.status}
-    excel_global[12] = sorted(estado_map.get(c, c) for c in status_codes)
+    status_codes = {m.status for m in movimientos_list if getattr(m, "status", None)}
+    excel_global[14] = sorted(estado_map.get(c, c) for c in status_codes)
 
     excel_global_json = json.dumps(excel_global)
 
-    # ==========================
-    # Paginación
-    # ==========================
-    paginator = Paginator(movimientos_list, cantidad_int)
+    # --- Paginación (después de filtros Excel)
+    paginator = Paginator(movimientos_list, page_size)
+    page_number = request.GET.get('page')
     pagina = paginator.get_page(page_number)
 
+    # --- Estado choices y eco de filtros a la plantilla
+    estado_choices = CartolaMovimiento.ESTADOS
+    filtros = {
+        'usuario': usuario,
+        'fecha': fecha_txt,
+        'proyecto': proyecto,
+        'categoria': categoria,
+        'tipo': tipo,
+        'rut_factura': rut_factura,
+        'estado': estado,
+    }
+
+    # qs helpers (igual estilo Hyperlink, por si luego quieres usar)
     params_no_page = params.copy()
     params_no_page.pop('page', None)
     base_qs = params_no_page.urlencode()
     full_qs = params.urlencode()
 
-    estado_choices = CartolaMovimiento.ESTADOS
-    filtros = {
-        'du': du,
-        'fecha': fecha_str,
-        'proyecto': proyecto,
-        'categoria': categoria,
-        'tipo': tipo,
-        'estado': estado,
-    }
-
-    ctx = {
-        'pagina': pagina,
-        'cantidad': cantidad,
-        'estado_choices': estado_choices,
-        'filtros': filtros,
-        'base_qs': base_qs,
-        'full_qs': full_qs,
-        'excel_global_json': excel_global_json,
-    }
-    return render(request, 'facturacion/listar_cartola.html', ctx)
-
+    return render(
+        request,
+        'facturacion/listar_cartola.html',
+        {
+            'pagina': pagina,
+            'cantidad': cantidad_param,
+            'estado_choices': estado_choices,
+            'filtros': filtros,
+            'excel_global_json': excel_global_json,
+            'base_qs': base_qs,
+            'full_qs': full_qs,
+        }
+    )
 
 
 @login_required
@@ -755,12 +843,11 @@ def eliminar_movimiento(request, pk):
 def listar_saldos_usuarios(request):
     from decimal import Decimal
 
+    from core.permissions import filter_queryset_by_assignment_history
     from django.core.paginator import Paginator
     from django.db.models import (Case, DecimalField, ExpressionWrapper, F, Q,
                                   Sum, Value, When)
     from django.db.models.functions import Coalesce
-
-    from core.permissions import filter_queryset_by_assignment_history
 
     from .models import CartolaMovimiento
 
@@ -901,13 +988,12 @@ def exportar_cartola(request):
     from datetime import datetime, time, timedelta
 
     import xlwt
+    from core.permissions import filter_queryset_by_assignment_history
     from django.db import models
     from django.db.models import Q
     from django.http import HttpResponse
     from django.utils import timezone
     from django.utils.timezone import is_aware
-
-    from core.permissions import filter_queryset_by_assignment_history
 
     from .models import CartolaMovimiento
 
@@ -1398,11 +1484,11 @@ def invoices_list(request):
     from django.core.paginator import Paginator
     from django.db.models import Prefetch, Q
     from django.utils import timezone
-
-    from facturacion.models import Proyecto
     from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
+
+    from facturacion.models import Proyecto
 
     # ---------------- Usuarios privilegiados (historial completo) ----------------
     can_view_legacy_history = (
