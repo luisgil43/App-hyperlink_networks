@@ -125,7 +125,7 @@ def _redirect_after_login(request, user):
       - Solo rol usuario => entra directo a UI usuario
       - Solo roles admin => entra directo a UI admin
       - Usuario + roles admin => muestra pantalla para elegir (seleccionar_rol)
-    Además setea request.session['ui_mode'] en consecuencia.
+        PERO: si ya hay ui_mode guardado en sesión, respeta eso y NO pregunta de nuevo.
     """
     # Roles del usuario (si existe la M2M roles)
     roles_nombres = []
@@ -170,11 +170,15 @@ def _redirect_after_login(request, user):
         request.session.modified = True
         return redirect("dashboard_admin:inicio_admin")
 
-    # Ambos => elegir
-    request.session.pop("ui_mode", None)  # opcional: limpiar modo previo para que elija
-    request.session.modified = True
+    # Ambos => si YA eligió antes, respetar ui_mode
+    current_mode = (request.session.get("ui_mode") or "").strip().lower()
+    if current_mode == "admin":
+        return redirect("dashboard_admin:inicio_admin")
+    if current_mode == "user":
+        return redirect("dashboard:inicio_tecnico")
+
+    # Ambos y NO hay modo guardado => pedir elección
     return redirect("usuarios:seleccionar_rol")
-    
 
 def rate_limit_handler(request, exception=None):
     # Usa tu template si quieres:

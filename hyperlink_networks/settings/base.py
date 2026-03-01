@@ -309,13 +309,16 @@ IDLE_TIMEOUT_SECONDS = 15 * 60          # 15 minutos de inactividad
 SESSION_ABSOLUTE_TIMEOUT = None         # Ej: 8*60*60 para 8h si lo necesitas
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 SESSION_SAVE_EVERY_REQUEST = False
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 días (ajusta)
 MESSAGE_STORAGE = 'django.contrib.messages.storage.cookie.CookieStorage'
 if DEBUG:
     CSRF_COOKIE_HTTPONLY = False
 else:
     CSRF_COOKIE_HTTPONLY = True
 
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 
 LOGGING = {
     "version": 1,
