@@ -25,6 +25,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_POST
 
 from hyperlink_networks.utils.email_utils import enviar_correo_manual
 from usuarios.decoradores import axes_dispatch, axes_post_only, ratelimit
@@ -120,24 +121,58 @@ from django.shortcuts import redirect
 
 def _redirect_after_login(request, user):
     """
-    Redirección después de login:
-      - Si el usuario solo tiene rol 'usuario' (o ningún rol) → dashboard principal.
-      - Si tiene otros roles → pantalla de selección de rol.
+    Redirección después de login (reglas):
+      - Solo rol usuario => entra directo a UI usuario
+      - Solo roles admin => entra directo a UI admin
+      - Usuario + roles admin => muestra pantalla para elegir (seleccionar_rol)
+    Además setea request.session['ui_mode'] en consecuencia.
     """
-    # Obtener nombres de roles asociados al usuario (según tu modelo Rol: campos id, nombre, customuser)
+    # Roles del usuario (si existe la M2M roles)
     roles_nombres = []
-    if hasattr(user, "roles"):
-        # Usamos 'nombre' porque el modelo Rol no tiene campo 'codigo'
-        roles_nombres = list(user.roles.values_list("nombre", flat=True))
+    try:
+        if hasattr(user, "roles"):
+            roles_nombres = list(user.roles.values_list("nombre", flat=True))
+    except Exception:
+        roles_nombres = []
 
-    # Normalizamos a minúsculas por si en la BD están con mayúsculas
-    roles_nombres = [r.lower() for r in roles_nombres]
+    roles = {str(r).strip().lower() for r in roles_nombres if r}
 
-    # Caso 1: sin roles o solo rol 'usuario' → va directo al dashboard normal
-    if not roles_nombres or (len(roles_nombres) == 1 and roles_nombres[0] == "usuario"):
-        return redirect("dashboard:index")
+    has_user_role = ("usuario" in roles)
 
-    # Caso 2: tiene más de un rol o algún rol administrativo → va a seleccionar_rol
+    admin_roles_set = {
+        "admin", "rrhh", "pm", "supervisor", "facturacion",
+        "logistica", "subcontrato", "flota", "prevencion", "bodeguero",
+        "emision_facturacion",
+    }
+    has_admin_role = bool(roles.intersection(admin_roles_set)) or bool(getattr(user, "is_staff", False)) or bool(getattr(user, "is_superuser", False))
+
+    # Si no tiene roles en la tabla:
+    # - staff/superuser => admin
+    # - no staff => user
+    if not roles:
+        if has_admin_role:
+            request.session["ui_mode"] = "admin"
+            request.session.modified = True
+            return redirect("dashboard_admin:inicio_admin")
+        request.session["ui_mode"] = "user"
+        request.session.modified = True
+        return redirect("dashboard:inicio_tecnico")
+
+    # Solo usuario
+    if has_user_role and not has_admin_role:
+        request.session["ui_mode"] = "user"
+        request.session.modified = True
+        return redirect("dashboard:inicio_tecnico")
+
+    # Solo admin
+    if has_admin_role and not has_user_role:
+        request.session["ui_mode"] = "admin"
+        request.session.modified = True
+        return redirect("dashboard_admin:inicio_admin")
+
+    # Ambos => elegir
+    request.session.pop("ui_mode", None)  # opcional: limpiar modo previo para que elija
+    request.session.modified = True
     return redirect("usuarios:seleccionar_rol")
     
 
@@ -376,20 +411,63 @@ def login_unificado(request):
 
 @login_required
 def seleccionar_rol(request):
-    usuario = request.user
-    roles_usuario = usuario.roles.all()
+    user = request.user
 
-    if request.method == 'POST':
-        opcion = request.POST.get('opcion')
-        if opcion == 'usuario':
-            return redirect('dashboard:index')
-        elif opcion in ['admin', 'rrhh', 'supervisor', 'pm', 'facturacion', 'logistica', 'subcontrato', 'flota', 'bodeguero', 'prevencion']:
-            return redirect('dashboard_admin:index')
-        else:
-            messages.error(request, "Rol no reconocido.")
-            return redirect('usuarios:seleccionar_rol')
+    roles_nombres = []
+    try:
+        if hasattr(user, "roles"):
+            roles_nombres = list(user.roles.values_list("nombre", flat=True))
+    except Exception:
+        roles_nombres = []
 
-    return render(request, 'usuarios/seleccionar_rol.html', {'roles': roles_usuario})
+    roles = {str(r).strip().lower() for r in roles_nombres if r}
+
+    has_user_role = ("usuario" in roles)
+
+    admin_roles_set = {
+        "admin", "rrhh", "pm", "supervisor", "facturacion",
+        "logistica", "subcontrato", "flota", "prevencion", "bodeguero",
+        "emision_facturacion",
+    }
+    has_admin_role = bool(roles.intersection(admin_roles_set)) or user.is_staff or user.is_superuser
+
+    # ✅ Si no tiene ambos => NO mostrar selector
+    if has_admin_role and not has_user_role:
+        request.session["ui_mode"] = "admin"
+        request.session.modified = True
+        return redirect("dashboard_admin:inicio_admin")
+
+    if has_user_role and not has_admin_role:
+        request.session["ui_mode"] = "user"
+        request.session.modified = True
+        return redirect("dashboard:inicio_tecnico")
+
+    if not (has_user_role and has_admin_role):
+        # caso raro: sin roles y no staff
+        request.session["ui_mode"] = "user"
+        request.session.modified = True
+        return redirect("dashboard:inicio_tecnico")
+
+    # ✅ Ambos => permite elegir
+    if request.method == "POST":
+        opcion = (request.POST.get("opcion") or "").strip().lower()
+
+        if opcion == "usuario":
+            request.session["ui_mode"] = "user"
+            request.session.modified = True
+            return redirect("dashboard:inicio_tecnico")
+
+        if opcion == "admin":
+            request.session["ui_mode"] = "admin"
+            request.session.modified = True
+            return redirect("dashboard_admin:inicio_admin")
+
+        messages.error(request, "Invalid option.")
+        return redirect("usuarios:seleccionar_rol")
+
+    # Render con roles para que tu template muestre botones
+    roles_usuario = user.roles.all() if hasattr(user, "roles") else []
+    return render(request, "usuarios/seleccionar_rol.html", {"roles": roles_usuario})
 
 
 @login_required
@@ -565,3 +643,46 @@ def two_factor_setup(request):
         "devices": devices,
     }
     return render(request, "usuarios/two_factor_setup.html", context)
+
+@login_required
+@require_POST
+def toggle_ui_mode(request):
+    """
+    Cambia entre UI user/admin guardando request.session['ui_mode'].
+    SOLO si el usuario tiene rol usuario + algún rol admin (o staff/superuser).
+    """
+    user = request.user
+
+    roles_nombres = []
+    try:
+        if hasattr(user, "roles"):
+            roles_nombres = list(user.roles.values_list("nombre", flat=True))
+    except Exception:
+        roles_nombres = []
+
+    roles = {str(r).strip().lower() for r in roles_nombres if r}
+    has_user_role = ("usuario" in roles)
+
+    admin_roles_set = {
+        "admin", "rrhh", "pm", "supervisor", "facturacion",
+        "logistica", "subcontrato", "flota", "prevencion", "bodeguero",
+        "emision_facturacion",
+    }
+    has_admin_role = bool(roles.intersection(admin_roles_set)) or user.is_staff or user.is_superuser
+
+    if not (has_user_role and has_admin_role):
+        messages.error(request, "You do not have permission to switch dashboard mode.")
+        return redirect(request.META.get("HTTP_REFERER") or "dashboard:inicio_tecnico")
+
+    current = (request.session.get("ui_mode") or "user").lower()
+    new_mode = "admin" if current != "admin" else "user"
+
+    request.session["ui_mode"] = new_mode
+    request.session.modified = True
+
+    if new_mode == "admin":
+        messages.success(request, "Switched to Admin mode.")
+        return redirect("dashboard_admin:inicio_admin")
+
+    messages.success(request, "Switched to User mode.")
+    return redirect("dashboard:inicio_tecnico")

@@ -61,7 +61,7 @@
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
 <!-- HEADER SUPERIOR FIJO -->
-<header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
+<header id="app-header" class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
   <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
 
     <!-- Campanita de notificaciones -->
@@ -100,35 +100,56 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
 
       <!-- IZQUIERDA: Logo y nombre -->
-      <div class="flex items-center gap-3">
-        <button onclick="toggleSidebar()"class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
-        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
-        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
-      </div>
+      <div class="flex items-center gap-3 min-w-0">
+  <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
+  <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+  <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
+    HYPERLINK NETWORKS PLATFORM
+  </strong>
+</div>
 
-      <!-- DERECHA: Nombre del usuario y botón de logout -->
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end sm:gap-4 items-start text-sm md:text-base text-right leading-tight">
-        <span class="text-gray-800 font-medium break-words sm:whitespace-nowrap">
-          {{ request.user.get_full_name|default:request.user.username }}
-        </span>
-        <form method="post" action="{% url 'dashboard_admin:logout' %}">
-          {% csrf_token %}
-          <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
-            Log Out
-          </button>
-        </form>
-      </div>
+<div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+  <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
+    {{ request.user.get_full_name|default:request.user.username }}
+  </span>
 
+  <div class="flex items-center gap-2">
+    {% if can_switch_ui_mode %}
+      <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit"
+                class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
+                       hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
+                       whitespace-nowrap transition">
+          {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
+        </button>
+      </form>
+    {% endif %}
+
+    <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
+      {% csrf_token %}
+      <button type="submit"
+              class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
+                     hover:bg-red-50 hover:text-red-700 hover:border-red-700
+                     whitespace-nowrap transition">
+        Log Out
+      </button>
+    </form>
+  </div>
+</div>
     </div>
   </div>
 </header>
 
 <!-- CONTENEDOR PRINCIPAL -->
-<div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar">
+<div class="flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar"
+     style="padding-top: var(--app-header-h, 56px);">
 
   <!-- MENÚ LATERAL -->
   <nav id="side-nav"
-    class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
+  class="bg-gray-800 text-white w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
+  style="top: var(--app-header-h, 56px);">
     <h2 class="text-2xl font-bold mb-8">Menu</h2>
     <ul class="space-y-4 text-base">
       <li>
@@ -424,6 +445,21 @@
       meta.setAttribute('content', window.getCsrfToken() || '');
     }
   })();
+</script>
+<script>
+(function(){
+  function applyHeaderOffset(){
+    const header = document.getElementById('app-header');
+    if(!header) return;
+
+    const h = Math.ceil(header.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--app-header-h', h + 'px');
+  }
+
+  window.addEventListener('load', applyHeaderOffset);
+  window.addEventListener('resize', applyHeaderOffset);
+  window.addEventListener('orientationchange', applyHeaderOffset);
+})();
 </script>
 
 

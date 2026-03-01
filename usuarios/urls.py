@@ -29,6 +29,7 @@ urlpatterns = [
     path('seleccionar-rol/', views.seleccionar_rol, name='seleccionar_rol'),
     path('notificacion/<int:pk>/leer/',
          views.marcar_notificacion_como_leida, name='leer_notificacion'),
+     path("ui-mode/toggle/", views.toggle_ui_mode, name="toggle_ui_mode"),
 
 
 

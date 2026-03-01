@@ -1,71 +1,51 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 {% load static %}
-
 {% load humanize %}
 <html lang="en">
 
 <head>
-
-
   <meta charset="UTF-8">
   <title>{% block title %}Dashboard{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="csrf-token" content="{{ csrf_token }}">
 
-<!-- iOS / Apple Touch Icons -->
-<link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-<link rel="apple-touch-icon" sizes="120x120" href="{% static 'icons/apple-touch-icon-120x120.png' %}">
-<link rel="apple-touch-icon" sizes="180x180" href="{% static 'icons/apple-touch-icon-180x180.png' %}">
+  <!-- iOS / Apple Touch Icons -->
+  <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
+  <link rel="apple-touch-icon" sizes="120x120" href="{% static 'icons/apple-touch-icon-120x120.png' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'icons/apple-touch-icon-180x180.png' %}">
 
-<!-- Favicon clásico -->
-<link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32x32.png' %}">
-<link rel="icon" type="image/png" sizes="16x16" href="{% static 'icons/favicon-16x16.png' %}">
-<link rel="icon" href="{% static 'icons/favicon.ico' %}" sizes="any">
+  <!-- Favicon clásico -->
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{% static 'icons/favicon-16x16.png' %}">
+  <link rel="icon" href="{% static 'icons/favicon.ico' %}" sizes="any">
 
-<!-- PWA (opcional pero recomendado) -->
-<link rel="manifest" href="{% static 'icons/site.webmanifest' %}">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Hyperlink">
-
-
+  <!-- PWA -->
+  <link rel="manifest" href="{% static 'icons/site.webmanifest' %}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Hyperlink">
 
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Hoja de estilos personalizada -->
-<!-- <link rel="stylesheet" href="{% static 'css/styles.css' %}"> -->
-
-
   <style>
-    .rotate-90 {
-      transform: rotate(90deg);
-    }
+    :root { --app-header-h: 56px; }
 
-        /* ===== Layout: sidebar colapsable ===== */
-    .content-wrapper {
-      transition: margin-left 0.2s ease;
-    }
+    .rotate-90 { transform: rotate(90deg); }
+
+    /* ===== Layout: sidebar colapsable ===== */
+    .content-wrapper { transition: margin-left 0.2s ease; }
 
     @media (min-width: 768px) {
-      .content-wrapper.with-sidebar main {
-        margin-left: 18rem; /* equivalente a ml-72 */
-      }
-      .content-wrapper.no-sidebar main {
-        margin-left: 0;
-      }
+      .content-wrapper.with-sidebar main { margin-left: 18rem; }
+      .content-wrapper.no-sidebar main { margin-left: 0; }
     }
 
-    #side-nav {
-      transition: transform 0.2s ease;
-    }
+    #side-nav { transition: transform 0.2s ease; }
 
-    /* En desktop, cuando está colapsado lo movemos a la izquierda */
     @media (min-width: 768px) {
-      #side-nav.collapsed {
-        transform: translateX(-100%);
-      }
+      #side-nav.collapsed { transform: translateX(-100%); }
     }
   </style>
 </head>
@@ -73,7 +53,7 @@
 <body class="bg-gray-100 text-gray-900">
 
 <!-- HEADER FIJO -->
-<header class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
+<header id="app-header" class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
   <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
 
     <!-- Campana de notificaciones -->
@@ -112,121 +92,144 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
 
       <!-- Logo y texto -->
-      <div class="flex items-center gap-3">
-        <button onclick="toggleSidebar()"class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
+      <div class="flex items-center gap-3 min-w-0">
+        <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
         <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
-        <strong class="text-gray-800 text-sm md:text-base whitespace-nowrap">HYPERLINK NETWORKS PLATFORM</strong>
+        <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
+          HYPERLINK NETWORKS PLATFORM
+        </strong>
       </div>
 
-      <!-- Nombre y botón de logout -->
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end sm:gap-4 items-start text-sm md:text-base text-right leading-tight">
-        <span class="text-gray-800 font-medium break-words sm:whitespace-nowrap">
+      <!-- Nombre + Switch + Logout -->
+      <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
           {{ request.user.get_full_name|default:request.user.username }}
         </span>
-        <form method="post" action="{% url 'dashboard_admin:logout' %}">
-          {% csrf_token %}
-          <button type="submit" class="text-red-600 font-semibold hover:text-red-800 whitespace-nowrap">
-            Log Out
-          </button>
-        </form>
-      </div>
-    </div>
 
+        <div class="flex items-center gap-2">
+          {% if can_switch_ui_mode %}
+            <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit"
+                      class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
+                             hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
+                             whitespace-nowrap transition">
+                {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
+              </button>
+            </form>
+          {% endif %}
+
+          <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
+            {% csrf_token %}
+            <button type="submit"
+                    class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
+                           hover:bg-red-50 hover:text-red-700 hover:border-red-700
+                           whitespace-nowrap transition">
+              Log Out
+            </button>
+          </form>
+        </div>
+      </div>
+
+    </div>
   </div>
 </header>
 
+<!-- CONTENEDOR PRINCIPAL -->
+<div class="flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar"
+     style="padding-top: var(--app-header-h, 56px);">
 
-  <!-- CONTENEDOR PRINCIPAL -->
-  <div class="pt-14 flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar">
+  <!-- MENÚ LATERAL -->
+  <nav id="side-nav"
+       class="bg-gray-800 text-white w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
+       style="top: var(--app-header-h, 56px);">
+    <h2 class="text-2xl font-bold mb-8">Menu</h2>
+    <ul class="space-y-4 text-base">
+      <li>
+        <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+      </li>
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
+        <ul class="submenu ml-4 space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">My Assigned Vehicle</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Vehicle Return</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Maintenance</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Reports</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Vehicle Documentation</a></li>
+        </ul>
+      </li>
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
+        <ul class="submenu ml-4 space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">Material Request</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
+          <li><a href="#" class="hover:text-emerald-400">My Assigned Equipment</a></li>
+          <li><a href="#" class="hover:text-emerald-400">My Assigned PPE</a></li>
+        </ul>
+      </li>
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
+        <ul class="submenu ml-4 space-y-1 hidden">
+          <a href="{% url 'operaciones:mis_assignments' %}" class="hover:text-emerald-400">My Assignment</a></li>
+          <li><a href="{% url 'operaciones:produccion_usuario' %}" class="hover:text-emerald-400">Salary & Production</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
+          <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>
+        </ul>
+      </li>
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
+        <ul class="submenu ml-4 space-y-1 hidden">
+          <a href="{% url 'rrhh:my_rate_sheets' %}" class="hover:text-emerald-400">My Rate Sheets</a></li>
+          <li><a href="#" class="hover:text-emerald-400">My Employment Agreement</a></li>
+          <li><a href="#" class="hover:text-emerald-400">My Onboarding Form</a></li>
+          <li><a href="#" class="hover:text-emerald-400">My Documents</a></li>
+          <a href="{% url 'rrhh:register_signature' %}" class="hover:text-emerald-400">My Digital Signature</a></li>
+        </ul>
+      </li>
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontractors <span class="arrow">▶</span></span>
+        <ul class="submenu ml-4 space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
+          <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>
+        </ul>
+      </li>
+    </ul>
 
-    <!-- MENÚ LATERAL -->
-    <nav id="side-nav"
-      class="bg-gray-800 text-white w-72 p-4 fixed top-14 left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0">
-      <h2 class="text-2xl font-bold mb-8">Menu</h2>
-      <ul class="space-y-4 text-base">
-        <li>
-          <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
-        </li>
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden">
-            <li><a href="#" class="hover:text-emerald-400">My Assigned Vehicle</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Vehicle Return</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Maintenance</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Reports</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Vehicle Documentation</a></li>
-          </ul>
-        </li>
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden">
-            <li><a href="#" class="hover:text-emerald-400">Material Request</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
-            <li><a href="#" class="hover:text-emerald-400">My Assigned Equipment</a></li>
-	<li><a href="#" class="hover:text-emerald-400">My Assigned PPE</a></li>
-          </ul>
-        </li>
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden">
-            <a href="{% url 'operaciones:mis_assignments' %}" class="hover:text-emerald-400">My Assignment</a></li>
-            <li><a href="{% url 'operaciones:produccion_usuario' %}" class="hover:text-emerald-400">Salary & Production</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
-            <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>
-          </ul>
-        </li>
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden">
-            <a href="{% url 'rrhh:my_rate_sheets' %}" class="hover:text-emerald-400">My Rate Sheets</a></li>
-            <li><a href="#" class="hover:text-emerald-400">My Employment Agreement</a></li>
-            <li><a href="#" class="hover:text-emerald-400">My Onboarding Form</a></li>
-            <li><a href="#" class="hover:text-emerald-400">My Documents</a></li>
-            <a href="{% url 'rrhh:register_signature' %}" class="hover:text-emerald-400">My Digital Signature</a></li>
-          </ul>
-        </li>
-        <li data-toggle class="group">
-          <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontractors <span class="arrow">▶</span></span>
-          <ul class="submenu ml-4 space-y-1 hidden">
-            <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>
-          </ul>
-        </li>
-      </ul>
-<!-- Pie del menú -->
-<div class="mt-10 text-center text-gray-400 text-xs">
-  <p class="mb-1">Developed by</p>
-  <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-14 mx-auto max-w-[100px] object-contain">
+    <!-- Pie del menú -->
+    <div class="mt-10 text-center text-gray-400 text-xs">
+      <p class="mb-1">Developed by</p>
+      <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-14 mx-auto max-w-[100px] object-contain">
+    </div>
+  </nav>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
+    {% block content %}{% endblock %}
+  </main>
+
 </div>
-    </nav>
 
-    <!-- CONTENIDO PRINCIPAL -->
-    <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
-      {% block content %}{% endblock %}
-    </main>
-
-  </div> <!-- cierre contenedor principal -->
-
-  <!-- Scripts de interacción -->
-  <script>
-    function toggleMenu(el) {
-      const submenu = el.nextElementSibling;
-      const flecha = el.querySelector(".arrow");
-      if (submenu) {
-        const isHidden = submenu.style.display === "none" || submenu.classList.contains("hidden");
-        if (isHidden) {
-          submenu.classList.remove("hidden");
-          submenu.style.display = "block";
-          flecha.classList.add("rotate-90");
-        } else {
-          submenu.classList.add("hidden");
-          submenu.style.display = "none";
-          flecha.classList.remove("rotate-90");
-        }
+<!-- Scripts de interacción -->
+<script>
+  function toggleMenu(el) {
+    const submenu = el.nextElementSibling;
+    const flecha = el.querySelector(".arrow");
+    if (submenu) {
+      const isHidden = submenu.style.display === "none" || submenu.classList.contains("hidden");
+      if (isHidden) {
+        submenu.classList.remove("hidden");
+        submenu.style.display = "block";
+        flecha.classList.add("rotate-90");
+      } else {
+        submenu.classList.add("hidden");
+        submenu.style.display = "none";
+        flecha.classList.remove("rotate-90");
       }
     }
+  }
 
-      // Mostrar/ocultar menú lateral
+  // Mostrar/ocultar menú lateral
   function toggleSidebar() {
     const nav     = document.getElementById('side-nav');
     const wrapper = document.querySelector('.content-wrapper');
@@ -244,64 +247,81 @@
       nav.classList.toggle('-translate-x-full');
     }
   }
-  </script>
+</script>
 
-  <!-- Mensajes emergentes -->
-  {% if messages %}
-  <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
-    {% for message in messages %}
-    <div class="flex items-center justify-between p-4 rounded-md shadow text-white
-                {% if message.tags == 'success' %}bg-green-600
-                {% elif message.tags == 'error' %}bg-red-600
-                {% elif message.tags == 'warning' %}bg-yellow-500
-                {% else %}bg-blue-600{% endif %}">
-      <span>{{ message }}</span>
-      <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
-    </div>
-    {% endfor %}
+<!-- Mensajes emergentes -->
+{% if messages %}
+<div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+  {% for message in messages %}
+  <div class="flex items-center justify-between p-4 rounded-md shadow text-white
+              {% if message.tags == 'success' %}bg-green-600
+              {% elif message.tags == 'error' %}bg-red-600
+              {% elif message.tags == 'warning' %}bg-yellow-500
+              {% else %}bg-blue-600{% endif %}">
+    <span>{{ message }}</span>
+    <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
   </div>
-  <script>
-    setTimeout(() => {
-      const mensajes = document.getElementById('mensajes');
-      if (mensajes) mensajes.remove();
-    }, 5000);
-  </script>
-  {% endif %}
+  {% endfor %}
+</div>
 <script>
-// Marcar notificación como leída y redirigir
-function leerNotificacion(id, urlDestino) {
-  fetch(`/usuarios/notificacion/${id}/leer/`)
-    .then(response => {
-      if (response.ok) {
-        const item = document.getElementById(`notificacion-${id}`);
-        if (item) item.remove();
-        const badge = document.querySelector('.relative .bg-red-500');
-        if (badge) {
-          let count = parseInt(badge.innerText);
-          if (count > 1) {
-            badge.innerText = count - 1;
-          } else {
-            badge.remove();
-          }
-        }
-        window.location.href = urlDestino;
-      }
-    });
-}
+  setTimeout(() => {
+    const mensajes = document.getElementById('mensajes');
+    if (mensajes) mensajes.remove();
+  }, 5000);
+</script>
+{% endif %}
 
-// Mostrar u ocultar el panel de notificaciones
-function toggleNotifications() {
-  const panel = document.getElementById('notification-panel');
-  if (panel) {
-    panel.classList.toggle('hidden');
+<script>
+  // Marcar notificación como leída y redirigir
+  function leerNotificacion(id, urlDestino) {
+    fetch(`/usuarios/notificacion/${id}/leer/`)
+      .then(response => {
+        if (response.ok) {
+          const item = document.getElementById(`notificacion-${id}`);
+          if (item) item.remove();
+          const badge = document.querySelector('.relative .bg-red-500');
+          if (badge) {
+            let count = parseInt(badge.innerText);
+            if (count > 1) {
+              badge.innerText = count - 1;
+            } else {
+              badge.remove();
+            }
+          }
+          window.location.href = urlDestino;
+        }
+      });
   }
-}
+
+  // Mostrar u ocultar el panel de notificaciones
+  function toggleNotifications() {
+    const panel = document.getElementById('notification-panel');
+    if (panel) {
+      panel.classList.toggle('hidden');
+    }
+  }
 </script>
 
 <script src="https://unpkg.com/lucide@latest"></script>
 <script>
   lucide.createIcons();
 </script>
-</body>
 
+<script>
+(function(){
+  function applyHeaderOffset(){
+    const header = document.getElementById('app-header');
+    if(!header) return;
+
+    const h = Math.ceil(header.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--app-header-h', h + 'px');
+  }
+
+  window.addEventListener('load', applyHeaderOffset);
+  window.addEventListener('resize', applyHeaderOffset);
+  window.addEventListener('orientationchange', applyHeaderOffset);
+})();
+</script>
+
+</body>
 </html>
