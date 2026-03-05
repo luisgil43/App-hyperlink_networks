@@ -36,14 +36,14 @@ from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.forms import MovimientoUsuarioForm
 from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
                                 ItemBillingTecnico, SesionBilling,
                                 SesionBillingTecnico)
 from usuarios.decoradores import rol_requerido
 from usuarios.models import ProyectoAsignacion
-
-from facturacion.models import CartolaMovimiento, Proyecto
 
 from .forms import (CartolaAbonoForm, CartolaGastoForm,
                     CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm)
@@ -53,10 +53,6 @@ User = get_user_model()
 
 import re
 
-# ⬇️ agrega junto a tus imports
-from core.decorators import project_object_access_required
-from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
-                              user_has_project_access)
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
@@ -64,6 +60,11 @@ from django.db.models import IntegerField
 from django.db.models.functions import Cast, Substr
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+
+# ⬇️ agrega junto a tus imports
+from core.decorators import project_object_access_required
+from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
+                              user_has_project_access)
 
 from .models import CartolaMovimiento, Proyecto
 
@@ -131,8 +132,18 @@ def listar_cartola(request):
     rut_factura = (request.GET.get('rut_factura') or '').strip()
     estado = (request.GET.get('estado') or '').strip()
 
-    # --- Base queryset
-    movimientos = CartolaMovimiento.objects.all()
+    # --- Base queryset (✅ FIX PERFORMANCE: evita N+1 con select_related)
+    movimientos = (
+        CartolaMovimiento.objects
+        .select_related(
+            "usuario",
+            "proyecto",
+            "tipo",
+            "aprobado_por_supervisor",
+            "aprobado_por_pm",
+            "aprobado_por_finanzas",
+        )
+    )
 
     # Anotar fecha como texto ISO (YYYY-MM-DD...) para poder usar icontains
     movimientos = movimientos.annotate(
@@ -843,11 +854,12 @@ def eliminar_movimiento(request, pk):
 def listar_saldos_usuarios(request):
     from decimal import Decimal
 
-    from core.permissions import filter_queryset_by_assignment_history
     from django.core.paginator import Paginator
     from django.db.models import (Case, DecimalField, ExpressionWrapper, F, Q,
                                   Sum, Value, When)
     from django.db.models.functions import Coalesce
+
+    from core.permissions import filter_queryset_by_assignment_history
 
     from .models import CartolaMovimiento
 
@@ -988,12 +1000,13 @@ def exportar_cartola(request):
     from datetime import datetime, time, timedelta
 
     import xlwt
-    from core.permissions import filter_queryset_by_assignment_history
     from django.db import models
     from django.db.models import Q
     from django.http import HttpResponse
     from django.utils import timezone
     from django.utils.timezone import is_aware
+
+    from core.permissions import filter_queryset_by_assignment_history
 
     from .models import CartolaMovimiento
 
@@ -1484,11 +1497,11 @@ def invoices_list(request):
     from django.core.paginator import Paginator
     from django.db.models import Prefetch, Q
     from django.utils import timezone
+
+    from facturacion.models import Proyecto
     from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
-
-    from facturacion.models import Proyecto
 
     # ---------------- Usuarios privilegiados (historial completo) ----------------
     can_view_legacy_history = (

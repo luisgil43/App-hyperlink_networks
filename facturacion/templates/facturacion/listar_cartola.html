@@ -67,7 +67,7 @@
     background:#f9fafb;
   }
 
-    .excel-col-filtered .excel-header-btn{
+  .excel-col-filtered .excel-header-btn{
     background:#e0f2fe;          /* celestito */
     border-radius:999px;
   }
@@ -107,6 +107,7 @@
     <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
       ⚙️ Columns
     </summary>
+
     <div id="columnToggles" class="absolute left-0 mt-1 w-56 bg-white border rounded-xl shadow-lg p-3 z-10">
       <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
 
@@ -116,49 +117,24 @@
         <span class="font-semibold text-xs">Show all columns</span>
       </label>
 
+      <!-- ✅ índices 0..15 (Actions = 15) -->
       <div class="space-y-1 text-sm">
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="0" checked> <span>User</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="1" checked> <span>Date</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="2" checked> <span>Project</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="3" checked><span>Real consumption date</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="4" checked> <span>Category</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Type</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Remarks</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>Transfer Nº</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Receipt(s)</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Odometer</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Expenses</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Credits</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Status</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="13" checked> <span>Actions</span>
-        </label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="0" checked> <span>User</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="1" checked> <span>Date</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="2" checked> <span>Real consumption date</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="3" checked> <span>Project</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="4" checked> <span>Category</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="5" checked> <span>Type</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="6" checked> <span>Invoice RUT</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="7" checked> <span>Doc type</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="8" checked> <span>Doc number</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="9" checked> <span>Remarks</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="10" checked> <span>Transfer Nº</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="11" checked> <span>Receipt(s)</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="12" checked> <span>Expenses</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="13" checked> <span>Credits</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="14" checked> <span>Status</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="15" checked> <span>Actions</span></label>
       </div>
     </div>
   </details>
@@ -180,82 +156,94 @@
           <!-- 👉 filtros Excel en TODAS las columnas menos Actions -->
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>User</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>User</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Date</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Date</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Project</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Real consumption date</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
-          <th class="p-2 border" data-excel-col>
-  <button type="button" class="excel-header-btn flex items-center gap-1">
-    <span>Real consumption date</span>
-    <span class="excel-arrow text-gray-500">▼</span>
-  </button>
-</th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Category</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Type</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Category</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Remarks</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Type</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Transfer Number</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Invoice RUT</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Receipt(s)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Doc type</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Odometer (km)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Doc number</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn flex items-center gap-1">
+              <span>Remarks</span><span class="excel-arrow text-gray-500">▼</span>
+            </button>
+          </th>
+
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn flex items-center gap-1">
+              <span>Transfer Number</span><span class="excel-arrow text-gray-500">▼</span>
+            </button>
+          </th>
+
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn flex items-center gap-1">
+              <span>Receipt(s)</span><span class="excel-arrow text-gray-500">▼</span>
+            </button>
+          </th>
+
           <th class="p-2 border text-right" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Expenses (USD)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Expenses</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border text-right" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Credits (USD)</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Credits</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
-              <span>Status</span>
-              <span class="excel-arrow text-gray-500">▼</span>
+              <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
+
           <!-- Sin filtro Excel -->
           <th class="p-2 border">Actions</th>
         </tr>
@@ -264,24 +252,70 @@
       <tbody class="text-center">
         {% for mov in pagina %}
         <tr class="border-t" data-mov-id="{{ mov.id }}">
-          <td class="p-2 border">{{ mov.usuario }}</td>
-          <td class="p-2 border"data-excel-value="{{ mov.fecha|date:'d-m-Y' }}">{{ mov.fecha|date:"d-m-Y" }}</td>
-          <td class="p-2 border">{{ mov.proyecto }}</td>
-          <td class="p-2 border"
-    data-excel-value="{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:'d/m/Y' }}{% else %}—{% endif %}">
-  {% if mov.real_consumption_date %}
-    {{ mov.real_consumption_date|date:"d/m/Y" }}
-  {% else %}
-    —
-  {% endif %}
-</td>
-          <td class="p-2 border">{{ mov.tipo.categoria|title }}</td>
-          <td class="p-2 border">{{ mov.tipo }}</td>
-          <td class="p-2 border">{{ mov.observaciones }}</td>
-          <td class="p-2 border">{{ mov.numero_transferencia|default:"—" }}</td>
 
-          <!-- Receipt(s): apilado en Fuel, simple en otros -->
-          <td class="p-2 border">
+          <!-- 0 Usuario -->
+          <td class="p-2 border" data-excel-value="{{ mov.usuario }}">
+            {{ mov.usuario }}
+          </td>
+
+          <!-- 1 Fecha (dd-mm-YYYY) -->
+          <td class="p-2 border" data-excel-value="{{ mov.fecha|date:'d-m-Y' }}">
+            {{ mov.fecha|date:"d-m-Y" }}
+          </td>
+
+          <!-- 2 Fecha real consumo (dd-mm-YYYY o vacío) -->
+          <td class="p-2 border"
+              data-excel-value="{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:'d-m-Y' }}{% else %}{% endif %}">
+            {% if mov.real_consumption_date %}
+              {{ mov.real_consumption_date|date:"d-m-Y" }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <!-- 3 Proyecto -->
+          <td class="p-2 border" data-excel-value="{{ mov.proyecto }}">
+            {{ mov.proyecto }}
+          </td>
+
+          <!-- 4 Categoría -->
+          <td class="p-2 border" data-excel-value="{{ mov.tipo.categoria|title }}">
+            {{ mov.tipo.categoria|title }}
+          </td>
+
+          <!-- 5 Tipo -->
+          <td class="p-2 border" data-excel-value="{{ mov.tipo }}">
+            {{ mov.tipo }}
+          </td>
+
+          <!-- 6 RUT factura -->
+          <td class="p-2 border" data-excel-value="{{ mov.rut_factura|default:'—' }}">
+            {{ mov.rut_factura|default:"—" }}
+          </td>
+
+          <!-- 7 Tipo doc -->
+          <td class="p-2 border" data-excel-value="{{ mov.tipo_doc|default:'—' }}">
+            {{ mov.tipo_doc|default:"—" }}
+          </td>
+
+          <!-- 8 Número doc -->
+          <td class="p-2 border" data-excel-value="{{ mov.numero_doc|default:'—' }}">
+            {{ mov.numero_doc|default:"—" }}
+          </td>
+
+          <!-- 9 Observaciones -->
+          <td class="p-2 border" data-excel-value="{{ mov.observaciones|default:'' }}">
+            {{ mov.observaciones }}
+          </td>
+
+          <!-- 10 Transferencia -->
+          <td class="p-2 border" data-excel-value="{{ mov.numero_transferencia|default:'—' }}">
+            {{ mov.numero_transferencia|default:"—" }}
+          </td>
+
+          <!-- 11 Comprobante (excel = "Ver" o "—") -->
+          <td class="p-2 border"
+              data-excel-value="{% if mov.comprobante %}Ver{% else %}—{% endif %}">
             {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
               <div class="flex flex-col items-center gap-1">
                 {% if mov.comprobante %}
@@ -295,19 +329,23 @@
             {% else %}
               {% if mov.comprobante %}
                 <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-              {% else %} — {% endif %}
+              {% else %}
+                —
+              {% endif %}
             {% endif %}
           </td>
 
-          <!-- Kilometraje -->
-          <td class="p-2 border text-right">
-            {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
+          <!-- 12 Cargos -->
+          <td class="p-2 border text-right" data-excel-value="{{ mov.cargos|default:0|formato_usd }}">
+            {{ mov.cargos|default:0|formato_usd }}
           </td>
 
-          <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
-          <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
+          <!-- 13 Abonos -->
+          <td class="p-2 border text-right" data-excel-value="{{ mov.abonos|default:0|formato_usd }}">
+            {{ mov.abonos|default:0|formato_usd }}
+          </td>
 
-          <!-- 🔹 valor "limpio" para el filtro Excel -->
+          <!-- 14 Status (display) -->
           <td class="p-2 text-sm" data-excel-value="{{ mov.get_status_display }}">
             <div class="flex flex-col gap-1 text-left leading-tight">
               {% if mov.status == 'pendiente_supervisor' %}
@@ -330,7 +368,9 @@
                 <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Credit Approved by User</span>
               {% elif mov.status == 'rechazado_abono_usuario' %}
                 <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Credit Rejected by User</span>
-              {% else %}{{ mov.get_status_display }}{% endif %}
+              {% else %}
+                {{ mov.get_status_display }}
+              {% endif %}
 
               {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
                 <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo" style="word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; max-width: 100%;">
@@ -340,67 +380,69 @@
             </div>
           </td>
 
+          <!-- 15 Actions -->
           <td class="p-2 border">
-  {% if user.is_superuser %}
-    <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-       class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-    <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-       class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+            {% if user.is_superuser %}
+              <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                 class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+              <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                 class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
 
-    {% if mov.tipo.categoria == "abono" and mov.status == 'pendiente_abono_usuario' %}
-      <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-         data-url="{% url 'facturacion:aprobar_abono_como_usuario' mov.id %}">✅ Approve Credit as User</a>
-    {% elif mov.tipo.categoria != "abono" %}
-      {% if mov.status == 'pendiente_supervisor' or mov.status == 'aprobado_supervisor' or mov.status == 'aprobado_pm' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
-    {% endif %}
+              {% if mov.tipo.categoria == "abono" and mov.status == 'pendiente_abono_usuario' %}
+                <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                   data-url="{% url 'facturacion:aprobar_abono_como_usuario' mov.id %}">✅ Approve Credit as User</a>
+              {% elif mov.tipo.categoria != "abono" %}
+                {% if mov.status == 'pendiente_supervisor' or mov.status == 'aprobado_supervisor' or mov.status == 'aprobado_pm' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
+              {% endif %}
 
-  {% else %}
-    {% if mov.tipo.categoria == "abono" %}
-      {% if user.es_facturacion %}
-        {% if mov.status == 'pendiente_abono_usuario' or mov.status == 'rechazado_abono_usuario' %}
-          <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-             class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
-          <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
-             class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
-        {% endif %}
-      {% endif %}
-    {% else %}
-      {% if user.es_supervisor and mov.status == 'pendiente_supervisor' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
+            {% else %}
+              {% if mov.tipo.categoria == "abono" %}
+                {% if user.es_facturacion %}
+                  {% if mov.status == 'pendiente_abono_usuario' or mov.status == 'rechazado_abono_usuario' %}
+                    <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                       class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">✏️ Edit</a>
+                    <a href="{% url 'facturacion:eliminar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+                       class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🗑️ Delete</a>
+                  {% endif %}
+                {% endif %}
+              {% else %}
+                {% if user.es_supervisor and mov.status == 'pendiente_supervisor' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
 
-      {% if user.es_pm and mov.status == 'aprobado_supervisor' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
+                {% if user.es_pm and mov.status == 'aprobado_supervisor' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
 
-      {% if user.es_facturacion and mov.status == 'aprobado_pm' %}
-        <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
-           data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
-        <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
-           class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
-      {% endif %}
-    {% endif %}
-  {% endif %}
-</td>
+                {% if user.es_facturacion and mov.status == 'aprobado_pm' %}
+                  <a href="#" class="js-approve inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200 transition"
+                     data-url="{% url 'facturacion:aprobar_movimiento' mov.id %}">✅ Approve Expense</a>
+                  <a href="#" onclick="abrirModalRechazo({{ mov.id }})"
+                     class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">❌ Reject Expense</a>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          </td>
         </tr>
-       {% empty %}
-<tr data-empty-row="1">
-  <td colspan="14" class="p-4 text-center text-gray-600">
-    No results found for the current filters.
-  </td>
-</tr>
-{% endfor %}
+
+        {% empty %}
+        <tr data-empty-row="1">
+          <td colspan="16" class="p-4 text-center text-gray-600">
+            No results found for the current filters.
+          </td>
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
   </div>
@@ -486,8 +528,6 @@
   const exportLink  = document.getElementById('exportLink');
   let debounceTimer = null, controller = null;
 
-  /* =================== Helpers para guardar / cargar filtros Excel =================== */
-
   function loadExcelFilters(){
     try{
       const key = 'ledgerExcelFilters:' + location.pathname;
@@ -515,7 +555,6 @@
     }catch(_){}
   }
 
-  // 👉 Empuja los filtros Excel al querystring (?excel_filters=...)
   function addExcelFiltersToParams(p){
     if(!p) return p;
     const plain = {};
@@ -532,8 +571,6 @@
     return p;
   }
 
-  /* =================== Excel globals desde el servidor =================== */
-
   function loadExcelGlobalFromZona(){
     try{
       if(!zona) return {};
@@ -544,9 +581,8 @@
     }
   }
 
-  let excelGlobalValues = loadExcelGlobalFromZona(); // 👈 todos los registros (no sólo la página)
+  let excelGlobalValues = loadExcelGlobalFromZona();
 
-  /* ======== Estado filtros tipo Excel ======== */
   const excel = {
     panel: document.getElementById('excelFilterPanel'),
     titleEl: document.getElementById('excelPanelTitle'),
@@ -559,23 +595,16 @@
     headers: [],
     allRows: [],
     distinctValues: {},
-    activeFilters: loadExcelFilters(),   // 👈 recupera filtros guardados
+    activeFilters: loadExcelFilters(),
     currentColIndex: null,
     panelEventsBound: false
   };
 
-  /* ======== Mantener scroll horizontal ======== */
   const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
 
-  function getScrollBox(){
-    return zona.querySelector('.tabla-responsive');
-  }
-  function readSavedX(){
-    return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
-  }
-  function saveX(x){
-    sessionStorage.setItem(SCROLL_KEY, String(x));
-  }
+  function getScrollBox(){ return zona.querySelector('.tabla-responsive'); }
+  function readSavedX(){ return Number(sessionStorage.getItem(SCROLL_KEY) || 0); }
+  function saveX(x){ sessionStorage.setItem(SCROLL_KEY, String(x)); }
   function hookScrollSaver(){
     const box = getScrollBox();
     if(!box) return;
@@ -591,7 +620,6 @@
     requestAnimationFrame(()=>{ box.scrollLeft = x; });
   }
 
-  /* ======== Visibilidad de columnas (localStorage + "Show all") ======== */
   const COL_KEY = 'ledgerCols:' + location.pathname;
 
   function loadColsState(){
@@ -604,11 +632,8 @@
       return {};
     }
   }
-
   function saveColsState(state){
-    try{
-      localStorage.setItem(COL_KEY, JSON.stringify(state));
-    }catch(_){}
+    try{ localStorage.setItem(COL_KEY, JSON.stringify(state)); }catch(_){}
   }
 
   function applyColumnVisibility(){
@@ -643,9 +668,7 @@
         cb.checked = visible;
         if(!visible) allOn = false;
       });
-      if(master){
-        master.checked = allOn;
-      }
+      if(master){ master.checked = allOn; }
     }
   }
 
@@ -696,9 +719,7 @@
     if (!filtrosForm || !zona) return;
     const sel    = zona.querySelector('#cantidad');
     const hidden = filtrosForm.querySelector('input[name="cantidad"]');
-    if (sel && hidden) {
-      hidden.value = sel.value;
-    }
+    if (sel && hidden) hidden.value = sel.value;
   }
 
   function paramsFromFilters(resetPage){
@@ -733,7 +754,6 @@
 
     zona.innerHTML = nuevaZona.innerHTML;
 
-    // actualizar excel_global
     zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
     excelGlobalValues = loadExcelGlobalFromZona();
 
@@ -743,7 +763,7 @@
     engancharColumnToggles();
     initColumnsDropdown();
     engancharFiltros();
-    initExcelFilters();          // reaplica filtros Excel
+    initExcelFilters();
 
     applyColumnVisibility();
     restoreX(prevX);
@@ -754,7 +774,7 @@
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(()=>{
       const p = paramsFromFilters(resetPage);
-      addExcelFiltersToParams(p);              // 👈 incluir filtros Excel
+      addExcelFiltersToParams(p);
       cargarTablaCon(p.toString(), true);
     }, 300);
   }
@@ -777,7 +797,7 @@
         const href = new URL(a.getAttribute('href'), location.href);
         const p = paramsFromFilters(false);
         p.set('page', href.searchParams.get('page') || '1');
-        addExcelFiltersToParams(p);            // 👈 mantener filtros Excel
+        addExcelFiltersToParams(p);
         cargarTablaCon(p.toString(), true);
       });
     });
@@ -789,7 +809,7 @@
     sel.addEventListener('change', ()=>{
       const p = paramsFromFilters(true);
       p.set('cantidad', sel.value);
-      addExcelFiltersToParams(p);              // 👈 mantener filtros Excel
+      addExcelFiltersToParams(p);
       cargarTablaCon(p.toString(), true);
     });
   }
@@ -817,22 +837,15 @@
           const resp = await fetch(url, {
             method: method,
             body: fd,
-            headers: {
-              'X-Requested-With': 'XMLHttpRequest',
-            },
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
           });
 
-          if (!resp.ok) {
-            throw new Error('Error approving movement.');
-          }
+          if (!resp.ok) throw new Error('Error approving movement.');
 
           row.style.transition = 'opacity 0.2s ease';
           row.style.opacity = '0.4';
-          setTimeout(() => {
-            row.remove();
-          }, 200);
+          setTimeout(() => { row.remove(); }, 200);
 
-          // re-aplicar filtros sobre filas restantes de la página
           if (excel.table && excel.tbody){
             excel.allRows = Array.from(excel.tbody.rows);
             excelApplyFilters();
@@ -874,8 +887,6 @@
     await cargarTablaCon(p.toString(), false);
   });
 
-  /* ================== LÓGICA FILTROS TIPO EXCEL ================== */
-
   function excelGetCellValue(td){
     if(!td) return '(Vacías)';
     let text = '';
@@ -888,9 +899,6 @@
     return text || '(Vacías)';
   }
 
-  // construir distinct usando:
-  //  - valores globales del servidor (todos los registros)
-  //  - y como fallback, lo que haya en la página actual
   function excelBuildDistinctValues(){
     excel.distinctValues = {};
 
@@ -917,135 +925,126 @@
       th.classList.toggle('excel-col-filtered', hasFilter);
     });
   }
-function excelApplyFilters(){
-  let visibleCount = 0;
 
-  // 1) Primero ocultamos la fila empty si existe (luego la mostramos si corresponde)
-  const emptyRow = excel.tbody ? excel.tbody.querySelector('tr[data-empty-row="1"]') : null;
-  if (emptyRow) emptyRow.style.display = 'none';
+  function excelApplyFilters(){
+    let visibleCount = 0;
 
-  // 2) Filtrar filas normales
-  excel.allRows.forEach(row => {
-    // Si es la fila empty, no la filtramos acá
-    if (row.dataset && row.dataset.emptyRow === "1") {
-      row.style.display = 'none';
-      return;
-    }
+    const emptyRow = excel.tbody ? excel.tbody.querySelector('tr[data-empty-row="1"]') : null;
+    if (emptyRow) emptyRow.style.display = 'none';
 
-    let visible = true;
-
-    for (const [colIndexStr, values] of Object.entries(excel.activeFilters)) {
-      const idx = parseInt(colIndexStr, 10);
-      if (!values || values.size === 0) continue;
-
-      const cell = row.cells[idx];
-      const text = excelGetCellValue(cell);
-
-      if (!values.has(text)) {
-        visible = false;
-        break;
+    excel.allRows.forEach(row => {
+      if (row.dataset && row.dataset.emptyRow === "1") {
+        row.style.display = 'none';
+        return;
       }
-    }
 
-    row.style.display = visible ? '' : 'none';
-    if (visible) visibleCount++;
-  });
+      let visible = true;
 
-  // 3) Si no quedó ninguna fila visible -> mostramos la fila empty
-  if (emptyRow) {
-    emptyRow.style.display = (visibleCount === 0) ? '' : 'none';
+      for (const [colIndexStr, values] of Object.entries(excel.activeFilters)) {
+        const idx = parseInt(colIndexStr, 10);
+        if (!values || values.size === 0) continue;
+
+        const cell = row.cells[idx];
+        const text = excelGetCellValue(cell);
+
+        if (!values.has(text)) {
+          visible = false;
+          break;
+        }
+      }
+
+      row.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
+    });
+
+    if (emptyRow) emptyRow.style.display = (visibleCount === 0) ? '' : 'none';
+
+    excelUpdateHeaderStates();
+    saveExcelFilters(excel.activeFilters);
   }
 
-  excelUpdateHeaderStates();
-  saveExcelFilters(excel.activeFilters);
-}
-
-  // Clear global (todos los filtros)
   function excelClearAll(){
     excel.activeFilters = {};
     excelApplyFilters();
     if(excel.panel) excel.panel.classList.add('hidden');
   }
 
-function excelFilterOptionList(query){
-  if(!excel.optsBox) return;
+  function excelFilterOptionList(query){
+    if(!excel.optsBox) return;
 
-  const q = query.trim().toLowerCase();
-  let visible = 0;
+    const q = query.trim().toLowerCase();
+    let visible = 0;
 
-  excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
-    const text = lbl.textContent.toLowerCase();
-    const show = text.includes(q);
-    lbl.style.display = show ? '' : 'none';
-    if(show) visible++;
-  });
-
-  // Mensaje "no hay coincidencias"
-  let msg = excel.optsBox.querySelector('[data-no-match="1"]');
-  if(!msg){
-    msg = document.createElement('div');
-    msg.dataset.noMatch = "1";
-    msg.className = "mt-2 text-xs text-gray-500";
-    msg.textContent = "No results found.";
-    excel.optsBox.appendChild(msg);
-  }
-  msg.style.display = (q && visible === 0) ? '' : 'none';
-
-  // Deshabilitar Apply si no hay nada que aplicar
-  if(excel.btnApply){
-    excel.btnApply.disabled = (q && visible === 0);
-    excel.btnApply.classList.toggle('opacity-50', excel.btnApply.disabled);
-    excel.btnApply.classList.toggle('cursor-not-allowed', excel.btnApply.disabled);
-  }
-}
-
- function excelRenderOptions(colIndex){
-  if(!excel.optsBox) return;
-  excel.optsBox.innerHTML = '';
-
-  const valuesSet = excel.distinctValues[colIndex] || new Set();
-  const values = Array.from(valuesSet).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-  const selected = excel.activeFilters[colIndex];
-
-  const allLabel = document.createElement('label');
-  allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
-  const allCb = document.createElement('input');
-  allCb.type = 'checkbox';
-  allCb.dataset.selectAll = '1';
-  allCb.checked = !selected || selected.size === values.length;
-
-  // ✅ Select all: si hay búsqueda activa -> afecta SOLO visibles
-  allCb.addEventListener('change', ()=>{
-    const q = (excel.searchInput?.value || '').trim().toLowerCase();
-    const onlyVisible = !!q;
-
-    const optionLabels = excel.optsBox.querySelectorAll('label[data-option-label]');
-    optionLabels.forEach(lbl=>{
-      if (onlyVisible && lbl.style.display === 'none') return;
-      const cb = lbl.querySelector('input[type="checkbox"][data-value]');
-      if(cb) cb.checked = allCb.checked;
+    excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
+      const text = lbl.textContent.toLowerCase();
+      const show = text.includes(q);
+      lbl.style.display = show ? '' : 'none';
+      if(show) visible++;
     });
-  });
 
-  allLabel.appendChild(allCb);
-  allLabel.appendChild(document.createTextNode(' (Select all)'));
-  excel.optsBox.appendChild(allLabel);
+    let msg = excel.optsBox.querySelector('[data-no-match="1"]');
+    if(!msg){
+      msg = document.createElement('div');
+      msg.dataset.noMatch = "1";
+      msg.className = "mt-2 text-xs text-gray-500";
+      msg.textContent = "No results found.";
+      excel.optsBox.appendChild(msg);
+    }
+    msg.style.display = (q && visible === 0) ? '' : 'none';
 
-  values.forEach(val=>{
-    const label = document.createElement('label');
-    label.className = 'flex items-center gap-1 text-xs mt-0.5';
-    label.dataset.optionLabel = '1';
+    if(excel.btnApply){
+      excel.btnApply.disabled = (q && visible === 0);
+      excel.btnApply.classList.toggle('opacity-50', excel.btnApply.disabled);
+      excel.btnApply.classList.toggle('cursor-not-allowed', excel.btnApply.disabled);
+    }
+  }
 
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.dataset.value = val;
-    cb.checked = !selected || selected.has(val);
+  function excelRenderOptions(colIndex){
+    if(!excel.optsBox) return;
+    excel.optsBox.innerHTML = '';
 
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + val));
-    excel.optsBox.appendChild(label);
-  });
-}
+    const valuesSet = excel.distinctValues[colIndex] || new Set();
+    const values = Array.from(valuesSet).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+    const selected = excel.activeFilters[colIndex];
+
+    const allLabel = document.createElement('label');
+    allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
+    const allCb = document.createElement('input');
+    allCb.type = 'checkbox';
+    allCb.dataset.selectAll = '1';
+    allCb.checked = !selected || selected.size === values.length;
+
+    allCb.addEventListener('change', ()=>{
+      const q = (excel.searchInput?.value || '').trim().toLowerCase();
+      const onlyVisible = !!q;
+
+      const optionLabels = excel.optsBox.querySelectorAll('label[data-option-label]');
+      optionLabels.forEach(lbl=>{
+        if (onlyVisible && lbl.style.display === 'none') return;
+        const cb = lbl.querySelector('input[type="checkbox"][data-value]');
+        if(cb) cb.checked = allCb.checked;
+      });
+    });
+
+    allLabel.appendChild(allCb);
+    allLabel.appendChild(document.createTextNode(' (Select all)'));
+    excel.optsBox.appendChild(allLabel);
+
+    values.forEach(val=>{
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-1 text-xs mt-0.5';
+      label.dataset.optionLabel = '1';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.value = val;
+      cb.checked = !selected || selected.has(val);
+
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' ' + val));
+      excel.optsBox.appendChild(label);
+    });
+  }
 
   function excelOpenForHeader(th){
     if(!excel.panel) return;
@@ -1080,128 +1079,115 @@ function excelFilterOptionList(query){
     excel.searchInput.focus();
   }
 
-function excelBindPanelEventsOnce(){
-  if(excel.panelEventsBound || !excel.panel) return;
+  function excelBindPanelEventsOnce(){
+    if(excel.panelEventsBound || !excel.panel) return;
 
-  excel.searchInput.addEventListener('input', ()=>{
-    excelFilterOptionList(excel.searchInput.value);
-  });
+    excel.searchInput.addEventListener('input', ()=>{
+      excelFilterOptionList(excel.searchInput.value);
+    });
 
-  // ✅ Enter en el search => Apply
-  excel.searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (excel.btnApply && !excel.btnApply.disabled) {
-        excel.btnApply.click();
+    excel.searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (excel.btnApply && !excel.btnApply.disabled) excel.btnApply.click();
       }
+    });
+
+    excel.searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        excel.panel.classList.add('hidden');
+      }
+    });
+
+    if (excel.btnClearAll) {
+      excel.btnClearAll.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (excel.currentColIndex == null) {
+          excel.panel.classList.add('hidden');
+          return;
+        }
+
+        delete excel.activeFilters[excel.currentColIndex];
+
+        excel.searchInput.value = '';
+        excelBuildDistinctValues();
+        excelRenderOptions(excel.currentColIndex);
+        excelFilterOptionList('');
+
+        excelApplyFilters();
+        excel.panel.classList.add('hidden');
+
+        const p = paramsFromFilters(true);
+        addExcelFiltersToParams(p);
+        await cargarTablaCon(p.toString(), true);
+      });
     }
-  });
 
-  // ✅ ESC cierra el panel
-  excel.searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      excel.panel.classList.add('hidden');
-    }
-  });
-
-  // ✅ CLEAR: limpia el filtro SOLO de la columna actual
-  if (excel.btnClearAll) {
-    excel.btnClearAll.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (excel.currentColIndex == null) {
+    excel.btnApply.addEventListener('click', ()=>{
+      if(excel.currentColIndex == null){
         excel.panel.classList.add('hidden');
         return;
       }
 
-      // 1) borrar filtro de esa columna
-      delete excel.activeFilters[excel.currentColIndex];
+      const q = (excel.searchInput?.value || '').trim().toLowerCase();
+      let chosenCheckboxes = [];
 
-      // 2) reset UI del panel (opcional pero recomendado)
-      excel.searchInput.value = '';
-      excelBuildDistinctValues();
-      excelRenderOptions(excel.currentColIndex);
-      excelFilterOptionList('');
+      if(q){
+        const visibleLabels = Array.from(excel.optsBox.querySelectorAll('label[data-option-label]'))
+          .filter(lbl => lbl.style.display !== 'none');
 
-      // 3) aplicar + cerrar
-      excelApplyFilters();
-      excel.panel.classList.add('hidden');
-
-      // 4) recargar tabla con querystring actualizado
-      const p = paramsFromFilters(true);
-      addExcelFiltersToParams(p);
-      await cargarTablaCon(p.toString(), true);
-    });
-  }
-
-  // ✅ APPLY: aplica filtro SOLO de la columna actual
-  excel.btnApply.addEventListener('click', ()=>{
-    if(excel.currentColIndex == null){
-      excel.panel.classList.add('hidden');
-      return;
-    }
-
-    const q = (excel.searchInput?.value || '').trim().toLowerCase();
-
-    // ✅ Si hay búsqueda, aplicamos SOLO las opciones visibles
-    let chosenCheckboxes = [];
-
-    if(q){
-      const visibleLabels = Array.from(excel.optsBox.querySelectorAll('label[data-option-label]'))
-        .filter(lbl => lbl.style.display !== 'none');
-
-      chosenCheckboxes = visibleLabels
-        .map(lbl => lbl.querySelector('input[type="checkbox"][data-value]'))
-        .filter(Boolean);
-    }else{
-      chosenCheckboxes = Array.from(excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]'));
-    }
-
-    const selected = new Set();
-    chosenCheckboxes.forEach(cb=>{
-      if(cb.checked) selected.add(cb.dataset.value);
-    });
-
-    const fullSet = excel.distinctValues[excel.currentColIndex] || new Set();
-
-    if(!q){
-      if(selected.size === 0 || selected.size === fullSet.size){
-        delete excel.activeFilters[excel.currentColIndex];
+        chosenCheckboxes = visibleLabels
+          .map(lbl => lbl.querySelector('input[type="checkbox"][data-value]'))
+          .filter(Boolean);
       }else{
-        excel.activeFilters[excel.currentColIndex] = selected;
+        chosenCheckboxes = Array.from(excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]'));
       }
-    }else{
-      if(selected.size === 0){
-        delete excel.activeFilters[excel.currentColIndex];
-      }else{
-        if(selected.size === fullSet.size){
+
+      const selected = new Set();
+      chosenCheckboxes.forEach(cb=>{
+        if(cb.checked) selected.add(cb.dataset.value);
+      });
+
+      const fullSet = excel.distinctValues[excel.currentColIndex] || new Set();
+
+      if(!q){
+        if(selected.size === 0 || selected.size === fullSet.size){
           delete excel.activeFilters[excel.currentColIndex];
         }else{
           excel.activeFilters[excel.currentColIndex] = selected;
         }
+      }else{
+        if(selected.size === 0){
+          delete excel.activeFilters[excel.currentColIndex];
+        }else{
+          if(selected.size === fullSet.size){
+            delete excel.activeFilters[excel.currentColIndex];
+          }else{
+            excel.activeFilters[excel.currentColIndex] = selected;
+          }
+        }
       }
-    }
 
-    excelApplyFilters();
-    excel.panel.classList.add('hidden');
+      excelApplyFilters();
+      excel.panel.classList.add('hidden');
 
-    const p = paramsFromFilters(true);
-    addExcelFiltersToParams(p);
-    cargarTablaCon(p.toString(), true);
-  });
+      const p = paramsFromFilters(true);
+      addExcelFiltersToParams(p);
+      cargarTablaCon(p.toString(), true);
+    });
 
-  // cerrar panel al hacer clic fuera
-  document.addEventListener('click', (e)=>{
-    if(excel.panel.classList.contains('hidden')) return;
-    if(excel.panel.contains(e.target)) return;
-    if(e.target.closest('.excel-header-btn')) return;
-    excel.panel.classList.add('hidden');
-  });
+    document.addEventListener('click', (e)=>{
+      if(excel.panel.classList.contains('hidden')) return;
+      if(excel.panel.contains(e.target)) return;
+      if(e.target.closest('.excel-header-btn')) return;
+      excel.panel.classList.add('hidden');
+    });
 
-  excel.panelEventsBound = true;
-}
+    excel.panelEventsBound = true;
+  }
 
   function initExcelFilters(){
     excelBindPanelEventsOnce();
@@ -1232,7 +1218,6 @@ function excelBindPanelEventsOnce(){
     });
   }
 
-  // Botón global "❌ Clear filters"
   function engancharClearExcelGlobal(){
     const btn = document.getElementById('btnExcelClearAll');
     if(!btn) return;
@@ -1244,8 +1229,6 @@ function excelBindPanelEventsOnce(){
       cargarTablaCon(p.toString(), true);
     });
   }
-
-  /* ================== Inicial ================== */
 
   engancharPaginacion();
   engancharAprobar();
@@ -1260,5 +1243,6 @@ function excelBindPanelEventsOnce(){
   engancharClearExcelGlobal();
 })();
 </script>
+
 </div>
 {% endblock %}
