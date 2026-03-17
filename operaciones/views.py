@@ -2906,6 +2906,7 @@ def editar_billing(request, sesion_id: int):
         .prefetch_related("desglose_tecnico__tecnico")
         .order_by("id")
     )
+
     ids_tecnicos = list(
         sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
     )
@@ -2914,20 +2915,27 @@ def editar_billing(request, sesion_id: int):
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
-        'id',
+        "id",
     )
 
     # ========= Resolver proyecto seleccionado (para el select "Project") =========
     proyecto_sel = None
 
-    # 1) Primero intentamos con sesion.proyecto (puede ser id numérico o nombre)
+    # ✅ IMPORTANTÍSIMO:
+    # Siempre definimos defaults para que el template JAMÁS quede sin
+    # proyecto_value / proyecto_label (esto evita "resets" raros por undefined).
+    raw_label = (getattr(sesion, "proyecto", None) or getattr(sesion, "proyecto_id", None) or "")
+    raw_label = str(raw_label).strip()
+
+    proyecto_value = raw_label
+    proyecto_label = raw_label
+
+    # 1) Intentar resolver con sesion.proyecto (puede ser id numérico o nombre/código)
     raw = (getattr(sesion, "proyecto", "") or "").strip()
     if raw:
         try:
-            # ¿es un id numérico?
             pid = int(raw)
         except (TypeError, ValueError):
-            # no es número → buscamos por nombre/código
             proyecto_sel = proyectos_qs.filter(
                 Q(nombre__iexact=raw) |
                 Q(codigo__iexact=raw)
@@ -2935,27 +2943,32 @@ def editar_billing(request, sesion_id: int):
         else:
             proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-       # 2) Si aún no encontramos, intentamos con proyecto_id (NB6790, etc.)
-        if not proyecto_sel and sesion.proyecto_id:
-            code = str(sesion.proyecto_id).strip()
+    # 2) Si no se resolvió, intentar con sesion.proyecto_id (NB6790, etc.)
+    if not proyecto_sel and getattr(sesion, "proyecto_id", None):
+        code = str(sesion.proyecto_id).strip()
+
+        if code:
+            # Primero por código exacto; luego por nombre (compatibilidad)
             proyecto_sel = proyectos_qs.filter(
                 Q(codigo__iexact=code) |
+                Q(nombre__iexact=code) |
                 Q(nombre__icontains=code)
             ).first()
 
-         # 3) Normalizar valor y etiqueta para el <select id="project">
-        if proyecto_sel:
-        # Este ES el valor que debe viajar en el <option value="...">
-            proyecto_value = proyecto_sel.id
-        # Lo que mostramos al usuario (nombre del proyecto)
-            proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
-        else:
-        # Fallback para datos viejos por si no encontramos el Proyecto
-            raw_label = (sesion.proyecto or sesion.proyecto_id or "").strip()
-            proyecto_value = raw_label
-            proyecto_label = raw_label   
+            # Además, por si proyecto_id viene numérico como texto
+            if not proyecto_sel:
+                try:
+                    pid2 = int(code)
+                except (TypeError, ValueError):
+                    pid2 = None
+                if pid2 is not None:
+                    proyecto_sel = proyectos_qs.filter(pk=pid2).first()
 
-        
+    # 3) Normalizar value/label para el <select>
+    if proyecto_sel:
+        proyecto_value = str(proyecto_sel.id)  # 👈 importante: string para calzar con <option value="...">
+        proyecto_label = (getattr(proyecto_sel, "nombre", "") or str(proyecto_sel)).strip()
+
     # =========================================================================
 
     return render(request, "operaciones/billing_editar.html", {
@@ -2966,8 +2979,8 @@ def editar_billing(request, sesion_id: int):
         "ids_tecnicos": ids_tecnicos,
         "proyectos": proyectos_qs,
         "proyecto_sel": proyecto_sel,
-        "proyecto_value": proyecto_value,   # 👈
-        "proyecto_label": proyecto_label,   # 👈
+        "proyecto_value": proyecto_value,
+        "proyecto_label": proyecto_label,
     })
 
 
@@ -3352,59 +3365,104 @@ def billing_update_item_qty(request, item_id: int):
     })
 
 
-def _actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, nuevos_ids: list[int]) -> None:
+def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
     """
-    - NO elimina en masa.
-    - Mantiene asignaciones que ya tengan evidencias.
-    - Elimina sólo asignaciones sin evidencias y que ya no estén en la lista.
-    - Actualiza/crea porcentajes según repartir_100 de los ids solicitados.
-      Si tuvimos que conservar un técnico “viejo” por tener fotos, ese conserva su % original.
+    Regla:
+    - Si se agrega/quita técnicos, se REPARTE 100% entre todos los técnicos finales.
+    - Si se intenta quitar un técnico con evidencias, NO se elimina: se conserva y se avisa.
+    - El set final = (nuevos_ids) + (forced_keep por evidencias).
+    Retorna final_ids (en orden).
     """
-    existentes = {
-        ts.tecnico_id: ts for ts in sesion.tecnicos_sesion.select_related("tecnico")}
-    nuevos_ids = [int(x) for x in nuevos_ids]
+    # normalizar ids
+    nuevos_ids = [int(x) for x in (nuevos_ids or []) if str(x).isdigit()]
+    nuevos_set = set(nuevos_ids)
 
-    # 1) Crear/actualizar los solicitados
-    partes_nuevas = repartir_100(len(nuevos_ids)) if nuevos_ids else []
-    for tid, pct in zip(nuevos_ids, partes_nuevas):
-        if tid in existentes:
-            ts = existentes[tid]
+    # existentes
+    existentes = list(sesion.tecnicos_sesion.select_related("tecnico").all())
+    por_tid = {ts.tecnico_id: ts for ts in existentes}
+
+    # forzados por evidencias (no se pueden eliminar)
+    forced_keep = []
+    for ts in existentes:
+        if ts.tecnico_id in nuevos_set:
+            continue
+        if EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists():
+            forced_keep.append(ts.tecnico_id)
+
+    # set final (primero los solicitados, luego los forzados)
+    final_ids = list(dict.fromkeys(nuevos_ids + forced_keep))
+
+    if not final_ids:
+        return []
+
+    # repartir 100 entre todos los finales
+    partes = repartir_100(len(final_ids))
+    partes_dec = []
+    for p in partes:
+        try:
+            partes_dec.append(Decimal(str(p)).quantize(Decimal("0.01")))
+        except Exception:
+            partes_dec.append(Decimal("0.00"))
+
+    # crear/actualizar % (SIEMPRE actualizar)
+    for tid, pct in zip(final_ids, partes_dec):
+        if tid in por_tid:
+            ts = por_tid[tid]
             if ts.porcentaje != pct:
                 ts.porcentaje = pct
                 ts.save(update_fields=["porcentaje"])
         else:
             SesionBillingTecnico.objects.create(
-                sesion=sesion, tecnico_id=tid, porcentaje=pct
+                sesion=sesion,
+                tecnico_id=tid,
+                porcentaje=pct,
             )
 
-    # 2) Eliminar sólo los que NO están en la lista y NO tienen fotos
-    for tid, ts in list(existentes.items()):
-        if tid in nuevos_ids:
+    # borrar los que ya no están y NO tienen evidencias
+    for ts in existentes:
+        if ts.tecnico_id in final_ids:
             continue
-        tiene_fotos = EvidenciaFotoBilling.objects.filter(
-            tecnico_sesion=ts).exists()
-        if tiene_fotos:
-            # Lo conservamos y avisamos (para que el usuario sepa por qué “no se fue”)
-            messages.warning(
-                # tolerante en tareas
-                None if hasattr(messages, "_queued_messages") else sesion,
-                f"No se eliminó a {getattr(ts.tecnico, 'get_full_name', lambda: ts.tecnico.username)()} "
-                "porque ya tiene fotos registradas en esta sesión."
-            )
+
+        # si tiene evidencias, no debería pasar acá porque estaría en forced_keep,
+        # pero lo dejamos por seguridad
+        if EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists():
+            if request is not None:
+                try:
+                    tech_name = ts.tecnico.get_full_name() or ts.tecnico.username
+                except Exception:
+                    tech_name = str(ts.tecnico_id)
+                messages.warning(
+                    request,
+                    f"'{tech_name}' was kept because it has evidences in this billing."
+                )
             continue
+
         ts.delete()
 
+    # avisar por los forzados que intentaron sacar
+    if request is not None:
+        removed_attempts = [tid for tid in forced_keep if tid not in nuevos_set]
+        if removed_attempts:
+            # avisamos 1 vez (no spam)
+            messages.warning(
+                request,
+                "One or more technicians were kept because they already uploaded evidences in this billing."
+            )
+
+    return final_ids
 
 @transaction.atomic
-def _guardar_billing(request, sesion: SesionBilling | None = None):
-    # ======================== Helpers locales ========================= #
+def _guardar_billing(request, sesion=None):
     import json
     import re
 
     WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 
     def money(v) -> Decimal:
-        return Decimal(str(v or "0")).quantize(Decimal("0.01"))
+        try:
+            return Decimal(str(v or "0")).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            return Decimal("0.00")
 
     def meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
         return (PrecioActividadTecnico.objects
@@ -3435,57 +3493,40 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
                    .first())
         return money(val or 0)
 
-    def actualizar_tecnicos_preservando_fotos(sesion: SesionBilling, ids: list[int]):
-        """
-        Crea/actualiza asignaciones preservando evidencias.
-        Mantiene porcentajes existentes; crea faltantes con 100/n.
-        Elimina ausentes solo si no tienen evidencias.
-        """
-        existentes = {x.tecnico_id: x for x in sesion.tecnicos_sesion.all()}
-        pct_default = money(Decimal("100") / Decimal(len(ids))
-                            ) if ids else Decimal("0.00")
-
-        # crear
-        for tid in ids:
-            if tid not in existentes:
-                SesionBillingTecnico.objects.create(
-                    sesion=sesion, tecnico_id=tid, porcentaje=pct_default
-                )
-        # eliminar sin evidencias
-        for tid, obj in list(existentes.items()):
-            if tid not in ids and not obj.evidencias.exists():
-                obj.delete()
-    # =================================================================== #
-
     # ----------------------------- Header ------------------------------ #
     proyecto_id = (request.POST.get("project_id") or "").strip()
     cliente = (request.POST.get("client") or "").strip()
     ciudad = (request.POST.get("city") or "").strip()
     proyecto = (request.POST.get("project") or "").strip()
     oficina = (request.POST.get("office") or "").strip()
-    ids = list(map(int, request.POST.getlist("tech_ids[]")))
+    ids = [int(x) for x in request.POST.getlist("tech_ids[]") if str(x).isdigit()]
 
     direccion_proyecto = (request.POST.get("direccion_proyecto") or "").strip()
-    semana_pago_proyectada = (request.POST.get(
-        "semana_pago_proyectada") or "").strip()
+    semana_pago_proyectada = (request.POST.get("semana_pago_proyectada") or "").strip()
     if semana_pago_proyectada and not WEEK_RE.match(semana_pago_proyectada):
         semana_pago_proyectada = ""
 
     is_direct_discount = request.POST.get("direct_discount") == "1"
 
     # ------------------------- Validaciones UX ------------------------- #
-    def render_with_data(error_msg: str | None = None):
-        # Para no "perder" lo escrito: re-render con datos posteados.
+    def render_with_data(error_msg=None):
         if error_msg:
             messages.error(request, error_msg)
 
-        clientes = (PrecioActividadTecnico.objects
-                    .values_list("cliente", flat=True).distinct().order_by("cliente"))
-        tecnicos = (Usuario.objects
-                    .filter(precioactividadtecnico__isnull=False, is_active=True)
-                    .distinct().order_by("first_name", "last_name", "username"))
+        clientes = (
+            PrecioActividadTecnico.objects
+            .values_list("cliente", flat=True)
+            .distinct()
+            .order_by("cliente")
+        )
 
-        # reconstruir items para el template
+        tecnicos = (
+            Usuario.objects
+            .filter(precioactividadtecnico__isnull=False, is_active=True)
+            .distinct()
+            .order_by("first_name", "last_name", "username")
+        )
+
         items_ctx = []
         for raw in request.POST.getlist("items[]"):
             try:
@@ -3501,7 +3542,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
                 "precio_empresa": "",
                 "subtotal_empresa": "",
                 "subtotal_tecnico": "",
-                "desglose_tecnico": [],  # el front los rehidrata al seleccionar código
+                "desglose_tecnico": [],
             })
 
         sesion_ctx = {
@@ -3545,7 +3586,6 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
             return HttpResponseBadRequest("Cada fila requiere Job Code y Amount.")
         qty = Decimal(str(amt))
         if is_direct_discount and qty > 0:
-            # normalizamos a negativo SIN recargar página
             qty = -qty
         filas.append({"codigo": cod, "cantidad": qty})
 
@@ -3553,7 +3593,10 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     if sesion is None:
         sesion = SesionBilling.objects.create(
             proyecto_id=proyecto_id,
-            cliente=cliente, ciudad=ciudad, proyecto=proyecto, oficina=oficina,
+            cliente=cliente,
+            ciudad=ciudad,
+            proyecto=proyecto,
+            oficina=oficina,
             direccion_proyecto=direccion_proyecto,
             semana_pago_proyectada=semana_pago_proyectada,
             semana_pago_real=semana_pago_proyectada if is_direct_discount else "",
@@ -3572,25 +3615,23 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         sesion.is_direct_discount = is_direct_discount
         sesion.save()
 
-    # ---- Técnicos (SIEMPRE se guardan para asociación/visualización) --- #
-    actualizar_tecnicos_preservando_fotos(sesion, ids)
-    actuales = list(
-        sesion.tecnicos_sesion.values_list(
-            "tecnico_id", "porcentaje").order_by("id")
-    )
-    # si no hay porcentajes (sesión recién creada), igualar 100/n
-    if not actuales:
-        pct = money(Decimal("100") / Decimal(len(ids)))
-        for tid in ids:
-            SesionBillingTecnico.objects.create(
-                sesion=sesion, tecnico_id=tid, porcentaje=pct)
-        actuales = [(tid, pct) for tid in ids]
+    # ✅ Técnicos: SIEMPRE redistribuir al guardar (crear o editar)
+    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
 
-    ids_def = [tid for (tid, _) in actuales]
-    partes_def = [pct for (_, pct) in actuales]
+    # reconstruir mapa de porcentajes (después de redistribución)
+    ts_rows = list(
+        sesion.tecnicos_sesion
+        .filter(tecnico_id__in=final_ids)
+        .values_list("tecnico_id", "porcentaje")
+    )
+    pct_by_tid = {tid: money(pct) for tid, pct in ts_rows}
+
+    ids_def = final_ids
+    partes_def = [pct_by_tid.get(tid, Decimal("0.00")) for tid in ids_def]
 
     # -------------------- Rehacer items y totales ---------------------- #
     sesion.items.all().delete()
+
     total_emp = Decimal("0.00")
     total_tec = Decimal("0.00")
 
@@ -3599,8 +3640,7 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         if not meta:
             return HttpResponseBadRequest(f"Código '{fila['codigo']}' no existe con los filtros.")
 
-        p_emp = precio_empresa(cliente, ciudad, proyecto,
-                               oficina, fila["codigo"])
+        p_emp = precio_empresa(cliente, ciudad, proyecto, oficina, fila["codigo"])
         sub_emp = money(p_emp * fila["cantidad"])
 
         item = ItemBilling.objects.create(
@@ -3616,15 +3656,20 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
         )
 
         sub_tecs = Decimal("0.00")
+
+        # ✅ Desglose técnico usando los porcentajes YA redistribuidos
         for tid, pct in zip(ids_def, partes_def):
-            base = tarifa_tecnico(tid, cliente, ciudad,
-                                  proyecto, oficina, fila["codigo"])
+            base = tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, fila["codigo"])
             efectiva = money(base * (pct / Decimal("100")))
             subtotal = money(efectiva * item.cantidad)
+
             ItemBillingTecnico.objects.create(
-                item=item, tecnico_id=tid,
-                tarifa_base=base, porcentaje=pct,
-                tarifa_efectiva=efectiva, subtotal=subtotal,
+                item=item,
+                tecnico_id=tid,
+                tarifa_base=base,
+                porcentaje=pct,
+                tarifa_efectiva=efectiva,
+                subtotal=subtotal,
             )
             sub_tecs += subtotal
 
@@ -3637,15 +3682,16 @@ def _guardar_billing(request, sesion: SesionBilling | None = None):
     sesion.subtotal_empresa = money(total_emp)
     sesion.subtotal_tecnico = money(total_tec)
     sesion.save(update_fields=[
-                "subtotal_empresa", "subtotal_tecnico", "semana_pago_real", "is_direct_discount"])
-
-    # Nota: para que NO salga en aprobación del técnico:
-    # en la vista/listado de aprobaciones, excluye sesiones con is_direct_discount=True
+        "subtotal_empresa",
+        "subtotal_tecnico",
+        "semana_pago_real",
+        "is_direct_discount",
+    ])
 
     messages.success(
         request,
         "Direct discount saved and linked to the selected technician(s)." if is_direct_discount
-        else "Billing saved successfully (photos preserved)."
+        else "Billing saved successfully."
     )
     return redirect("operaciones:listar_billing")
 

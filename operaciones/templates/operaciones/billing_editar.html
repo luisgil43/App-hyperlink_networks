@@ -70,8 +70,12 @@
         <div>
           <label class="block text-sm font-medium mb-1">City</label>
           <select id="city" name="city" class="w-full border rounded p-2" required>
-            {% if sesion %}<option selected>{{ sesion.ciudad }}</option>{% else %}<option value="" disabled selected>Select…</option>{% endif %}
-          </select>
+  {% if sesion %}
+    <option value="{{ sesion.ciudad }}" selected>{{ sesion.ciudad }}</option>
+  {% else %}
+    <option value="" disabled selected>Select…</option>
+  {% endif %}
+</select>
         </div>
 
  <!-- Project -->
@@ -91,8 +95,12 @@
         <div>
           <label class="block text-sm font-medium mb-1">Office</label>
           <select id="office" name="office" class="w-full border rounded p-2" required>
-            {% if sesion %}<option selected>{{ sesion.oficina }}</option>{% else %}<option value="" disabled selected>Select…</option>{% endif %}
-          </select>
+  {% if sesion %}
+    <option value="{{ sesion.oficina }}" selected>{{ sesion.oficina }}</option>
+  {% else %}
+    <option value="" disabled selected>Select…</option>
+  {% endif %}
+</select>
         </div>
       </div>
 
@@ -278,26 +286,55 @@
   modal.addEventListener('click', (e) => { if (e.target?.getAttribute('data-close') === '1') modal.classList.add('hidden'); });
 
   document.getElementById('btn-apply-tech').onclick = async () => {
-    const checks = [...document.querySelectorAll('.tech-check:checked')];
-    state.techIds = checks.map(c => parseInt(c.value));
-    renderTechSummary();
-    rebuildTechHidden();
+  const checks = [...document.querySelectorAll('.tech-check:checked')];
+  state.techIds = checks.map(c => parseInt(c.value));
+  renderTechSummary();
+  rebuildTechHidden();
 
-    // 👉 Si ya hay Client + City, recargamos proyectos filtrados por técnico
-    if (clientSel.value && citySel.value) {
-      const params = new URLSearchParams({
-        client: clientSel.value || "",
-        city:   citySel.value || "",
-      });
-      state.techIds.forEach(id => params.append("tech_ids[]", id));
+  // ✅ Guardar selección actual antes de recargar combos
+  const prevProject = projectSel.value;
+  const prevOffice  = officeSel.value;
 
-      await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
+  // 👉 Si ya hay Client + City, recargamos proyectos filtrados por técnico
+  if (clientSel.value && citySel.value) {
+    const params = new URLSearchParams({
+      client: clientSel.value || "",
+      city:   citySel.value || "",
+    });
+    state.techIds.forEach(id => params.append("tech_ids[]", id));
+
+    // 1) Recargar proyectos (filtrados por técnicos)
+    await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
+
+    // 2) ¿El proyecto anterior sigue existiendo?
+    const projectStillValid = !![...projectSel.options].find(op => op.value === prevProject);
+
+    if (projectStillValid) {
+      projectSel.value = prevProject;
+
+      // 3) Recargar oficinas para ese proyecto (porque dependen de project)
+      await loadOptions(
+        officeSel,
+        `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
+      );
+
+      // 4) ¿La oficina anterior sigue existiendo?
+      const officeStillValid = !![...officeSel.options].find(op => op.value === prevOffice);
+      if (officeStillValid) {
+        officeSel.value = prevOffice;
+      }
+      // si no es válida, queda en "Select…" (reset correcto)
+    } else {
+      // si el proyecto ya no es válido con estos técnicos, reseteamos office también
       clearSelect(officeSel);
     }
+  }
 
-    modal.classList.add('hidden');
-    recalcAllRows();
-  };
+  modal.classList.add('hidden');
+  recalcAllRows();
+};
+
+
   function renderTechSummary() {
     const span = document.getElementById('tech-summary');
     span.textContent = state.techIds.length ? `${state.techIds.length} technician(s) selected` : 'No technicians selected';
