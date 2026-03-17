@@ -155,6 +155,29 @@
     </div>
   </div>
 
+  {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+
+  {# ✅ URL del endpoint masivo (para el JS) #}
+  <div id="bulk-meta"
+       data-bulk-url="{% url 'operaciones:bulk_delete_evidencias' s.id %}">
+  </div>
+
+  <div class="flex items-center justify-between mb-4 p-3 rounded-lg bg-gray-50 border">
+    <label class="inline-flex items-center gap-2 text-sm text-gray-700 select-none">
+      <input type="checkbox" id="chk-all-photos" class="w-4 h-4">
+      <span>Select all photos</span>
+    </label>
+
+    <button type="button"
+            id="btn-delete-selected"
+            class="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled>
+      Delete selected (<span id="selected-count">0</span>)
+    </button>
+  </div>
+
+{% endif %}
+
   <!-- Bloques por técnico con sus fotos -->
   {% for asig, evs in evidencias_por_asig %}
     <section class="mb-8">
@@ -174,18 +197,22 @@
   {% for ev in evs %}
     <figure class="border rounded p-2 relative">
       {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
-        <button type="button"
-                class="btn-open-delete absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-red-600 text-white text-sm hover:bg-red-700"
-                title="Delete photo"
-                data-action="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}"
-                data-next="{{ request.get_full_path }}">
-          ✕
-        </button>
-      {% else %}
-        <span class="absolute right-2 top-2 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">
-          🔒
-        </span>
-      {% endif %}
+  <div class="absolute right-2 top-2 z-20">
+    <label class="inline-flex items-center gap-2 bg-white/90 border rounded-full px-2 py-1 text-xs text-gray-700 shadow-sm">
+      <input type="checkbox"
+             class="ev-chk w-4 h-4"
+             value="{{ ev.id }}"
+             data-delete-url="{% url 'operaciones:eliminar_evidencia' asig.pk ev.id %}">
+      <span>Select</span>
+    </label>
+  </div>
+{% else %}
+  <div class="absolute right-2 top-2 z-20">
+    <span class="inline-flex items-center gap-2 bg-gray-200/90 border rounded-full px-2 py-1 text-xs text-gray-600">
+      🔒 Locked
+    </span>
+  </div>
+{% endif %}
 
       <div class="relative rounded overflow-hidden bg-black/5">
         {% if ev.lat and ev.lng %}
@@ -321,6 +348,43 @@
     </form>
   </div>
 </div>
+
+{% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+<div id="modal-bulk-delete" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-bulk></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <h3 class="text-lg font-semibold">Delete selected photos?</h3>
+        <p class="mt-1 text-sm text-gray-600">
+          This action cannot be undone. You are about to delete
+          <b><span id="bulk-count">0</span></b> photo(s).
+        </p>
+        <p id="bulk-error" class="mt-2 text-xs text-red-600 hidden"></p>
+      </div>
+    </div>
+
+    <div class="mt-5 flex justify-end gap-2">
+      <button type="button"
+              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200"
+              data-close-bulk>
+        Cancel
+      </button>
+      <button type="button"
+              id="bulk-confirm"
+              class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script>
 function getCookie(name){
@@ -538,4 +602,156 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
 })();
 </script>
 
+{% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+<script>
+(function(){
+  const chkAll = document.getElementById('chk-all-photos');
+  const btnDel = document.getElementById('btn-delete-selected');
+  const selCnt = document.getElementById('selected-count');
+
+  const bulkModal = document.getElementById('modal-bulk-delete');
+  const bulkCount = document.getElementById('bulk-count');
+  const bulkOk    = document.getElementById('bulk-confirm');
+  const bulkErr   = document.getElementById('bulk-error');
+
+  const bulkUrl = document.getElementById('bulk-meta')?.dataset?.bulkUrl || '';
+
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : '';
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  function getChecks(){
+    return Array.from(document.querySelectorAll('input.ev-chk[type="checkbox"]'));
+  }
+  function getSelected(){
+    return getChecks().filter(x => x.checked);
+  }
+
+  function syncUI(){
+    const checks = getChecks();
+    const selected = getSelected();
+    const nSel = selected.length;
+
+    if (selCnt) selCnt.textContent = String(nSel);
+    if (btnDel) btnDel.disabled = (nSel === 0);
+
+    if (chkAll){
+      if (checks.length === 0){
+        chkAll.checked = false;
+        chkAll.indeterminate = false;
+      } else {
+        chkAll.checked = (nSel === checks.length);
+        chkAll.indeterminate = (nSel > 0 && nSel < checks.length);
+      }
+    }
+  }
+
+  function openBulkModal(n){
+    if (!bulkModal) return;
+    if (bulkErr){
+      bulkErr.textContent = '';
+      bulkErr.classList.add('hidden');
+    }
+    if (bulkCount) bulkCount.textContent = String(n || 0);
+    bulkModal.classList.remove('hidden');
+  }
+  function closeBulkModal(){
+    if (!bulkModal) return;
+    bulkModal.classList.add('hidden');
+  }
+
+  document.addEventListener('change', (e)=>{
+    if (e.target?.classList?.contains('ev-chk')) syncUI();
+  });
+
+  chkAll?.addEventListener('change', ()=>{
+    const checks = getChecks();
+    checks.forEach(c => { c.checked = chkAll.checked; });
+    chkAll.indeterminate = false;
+    syncUI();
+  });
+
+  btnDel?.addEventListener('click', ()=>{
+    const n = getSelected().length;
+    if (!n) return;
+    openBulkModal(n);
+  });
+
+  bulkModal?.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-bulk')) closeBulkModal();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape' && bulkModal && !bulkModal.classList.contains('hidden')){
+      closeBulkModal();
+    }
+  });
+
+  bulkOk?.addEventListener('click', async ()=>{
+    const selected = getSelected();
+    if (!selected.length) return;
+
+    if (!bulkUrl){
+      if (bulkErr){
+        bulkErr.textContent = 'Bulk delete URL is missing.';
+        bulkErr.classList.remove('hidden');
+      }
+      return;
+    }
+
+    const ids = selected.map(chk => chk.value);
+
+    bulkOk.disabled = true;
+    const originalText = bulkOk.textContent;
+    bulkOk.textContent = 'Deleting…';
+
+    if (bulkErr){
+      bulkErr.textContent = '';
+      bulkErr.classList.add('hidden');
+    }
+
+    try{
+      const resp = await fetch(bulkUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ ids }),
+        cache: 'no-store',
+      });
+
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      const payload = ct.includes('application/json')
+        ? await resp.json().catch(()=> ({}))
+        : { ok:false, error: await resp.text().catch(()=> '') };
+
+      if (!resp.ok || payload.ok === false){
+        throw new Error(payload.error || ('HTTP ' + resp.status));
+      }
+
+      // listo: recargar para reflejar
+      window.location.reload();
+
+    }catch(err){
+      if (bulkErr){
+        bulkErr.textContent = err.message || 'Delete failed.';
+        bulkErr.classList.remove('hidden');
+      } else {
+        alert(err.message || 'Delete failed.');
+      }
+      bulkOk.disabled = false;
+      bulkOk.textContent = originalText || 'Delete';
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', syncUI);
+  syncUI();
+})();
+</script>
+{% endif %}
 {% endblock %}

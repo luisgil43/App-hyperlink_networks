@@ -2687,6 +2687,18 @@ def listar_billing(request):
             s.proyecto_nombre = proyectos_map.get(key, val)
     # ================================================================
 
+    # ✅ NUEVO: lista filtrada de comentarios por técnico (para template)
+    for s in pagina.object_list:
+        comentarios = []
+        try:
+            for a in s.tecnicos_sesion.all():
+                txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+                if txt:
+                    comentarios.append(a)
+        except Exception:
+            comentarios = []
+        s.comentarios_tecnicos = comentarios
+
     can_edit_real_week = (
         getattr(request.user, "es_pm", False)
         or getattr(request.user, "es_facturacion", False)
@@ -2716,8 +2728,6 @@ def listar_billing(request):
             "qs_keep": qs_keep,
         },
     )
-
-
 
 @login_required
 @require_POST
@@ -3020,349 +3030,6 @@ def reasignar_tecnicos(request, sesion_id: int):
 # ===== Persistencia =====
 
 
-@login_required
-@rol_requerido('admin', 'pm')
-@require_POST
-@transaction.atomic
-def billing_send_to_finance(request):
-    """
-    Envía billings a Finanzas.
-
-    Reglas:
-      - Descuentos directos (is_direct_discount=True):
-          -> finance_status='review_discount', finance_sent_at=now (si es primera vez y no está pagado).
-          -> si ya fue enviado antes: solo actualiza daily/finish_date/nota/updated_at.
-      - No descuentos:
-          -> requieren estado en {'aprobado_supervisor','aprobado_pm','aprobado_finanzas'}.
-          -> si es primera vez: finance_status='sent', finance_sent_at=now.
-          -> si ya está en sent/pending/in_review: solo actualiza daily/finish_date/nota/updated_at.
-
-    Procesa id por id (no aborta el batch completo).
-
-    Permisos:
-      - superuser o usuario_historial: pueden enviar cualquier billing que vean
-        en la lista (sin filtro extra por proyecto).
-      - resto (admin/pm normales): solo pueden enviar billings de proyectos a los que
-        tengan acceso en Project Visibility.
-    """
-    user = request.user
-
-    # === 1) parsear ids + nota + daily + finish_date ===
-    ids, note = [], ""
-    daily_number = ""
-    finish_date_str = ""
-    finish_date = None
-
-    if request.content_type and "application/json" in (request.content_type or ""):
-        import json
-        try:
-            payload = json.loads(request.body.decode("utf-8"))
-            ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
-            note = (payload.get("note") or "").strip()
-            daily_number = (payload.get("daily_number") or "").strip()
-            finish_date_str = (payload.get("finish_date") or "").strip()
-        except Exception:
-            return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
-    else:
-        raw = (request.POST.get("ids") or "").strip()
-        ids = [int(x) for x in raw.split(",") if x.isdigit()]
-        note = (request.POST.get("note") or "").strip()
-        daily_number = (request.POST.get("daily_number") or "").strip()
-        finish_date_str = (request.POST.get("finish_date") or "").strip()
-
-    if not ids:
-        return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
-
-    # Parsear fecha de finalización si viene
-    if finish_date_str:
-        finish_date_str = finish_date_str.strip()
-        finish_date = None
-        parsed_ok = False
-
-        # 1) Intentar formato ISO: YYYY-MM-DD
-        try:
-            finish_date = date.fromisoformat(finish_date_str)
-            parsed_ok = True
-        except ValueError:
-            pass
-
-        # 2) Intentar formato chileno: DD/MM/YYYY
-        if not parsed_ok:
-            try:
-                finish_date = datetime.strptime(finish_date_str, "%d/%m/%Y").date()
-                parsed_ok = True
-            except ValueError:
-                pass
-
-        if not parsed_ok:
-            return JsonResponse(
-                {
-                    "ok": False,
-                    "error": "INVALID_FINISH_DATE",
-                    "message": "Finish date must be in format YYYY-MM-DD or DD/MM/YYYY.",
-                },
-                status=400,
-            )
-
-    allowed_ops = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    now = timezone.now()
-
-    # === 2) misma lógica de VISIBILIDAD que en listar_billing (pero sin visible_filter) ===
-    can_view_legacy_history = bool(
-        user.is_superuser
-        or getattr(user, "es_usuario_historial", False)
-        or getattr(user, "usuario_historial", False)
-    )
-
-    base_qs = (
-        SesionBilling.objects
-        .select_for_update()
-        .filter(id__in=ids)
-        .only(
-            "id",
-            "is_direct_discount",
-            "estado",
-            "finance_status",
-            "finance_sent_at",
-            "finance_updated_at",
-            "finance_note",
-            "finance_daily_number",
-            "finance_finish_date",
-            "proyecto",
-            "proyecto_id",
-            "creado_en",
-        )
-    )
-
-    forbidden_ids = set()
-
-    if not can_view_legacy_history:
-        try:
-            proyectos_user = filter_queryset_by_access(
-                Proyecto.objects.all(),
-                user,
-                "id",
-            )
-        except Exception:
-            proyectos_user = Proyecto.objects.none()
-
-        if proyectos_user.exists():
-            allowed_keys = set()
-            for p in proyectos_user:
-                nombre = (getattr(p, "nombre", "") or "").strip()
-                if nombre:
-                    allowed_keys.add(nombre)
-
-                codigo = getattr(p, "codigo", None)
-                if codigo:
-                    allowed_keys.add(str(codigo).strip())
-
-                allowed_keys.add(str(p.id).strip())
-
-            qs = base_qs.filter(proyecto__in=allowed_keys)
-
-            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
-            asignaciones = []
-            try:
-                if ProyectoAsignacion is not None:
-                    asignaciones = list(
-                        ProyectoAsignacion.objects
-                        .filter(usuario=user, proyecto__in=proyectos_user)
-                        .select_related("proyecto")
-                    )
-            except Exception:
-                asignaciones = []
-
-            if asignaciones:
-                window_q = Q()
-                for a in asignaciones:
-                    p = getattr(a, "proyecto", None)
-                    if not p:
-                        continue
-
-                    keys = set()
-                    nombre = (getattr(p, "nombre", "") or "").strip()
-                    if nombre:
-                        keys.add(nombre)
-                    codigo = getattr(p, "codigo", None)
-                    if codigo:
-                        keys.add(str(codigo).strip())
-                    keys.add(str(p.id).strip())
-
-                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
-                        window_q |= Q(proyecto__in=keys)
-                    else:
-                        window_q |= (Q(proyecto__in=keys) & Q(creado_en__gte=a.start_at))
-
-                if window_q:
-                    qs_ids_allowed = set(qs.filter(window_q).values_list("id", flat=True))
-                    forbidden_ids = set(ids) - qs_ids_allowed
-                    qs = qs.filter(id__in=qs_ids_allowed)
-                else:
-                    forbidden_ids = set(ids)
-                    qs = qs.none()
-        else:
-            qs = SesionBilling.objects.none().select_for_update()
-            forbidden_ids = set(ids)
-    else:
-        qs = base_qs
-
-    updated_ids = []
-    skipped = {}
-
-    # marcar fuera de ventana/proyecto como skipped (sin cambiar estructura)
-    for bid in forbidden_ids:
-        skipped[int(bid)] = "forbidden_project"
-
-    for s in qs:
-        # Nunca tocamos pagos
-        if s.finance_status == "paid":
-            skipped[s.id] = "paid"
-            continue
-
-        base_fields = [
-            "finance_status",
-            "finance_sent_at",
-            "finance_updated_at",
-            "finance_note",
-        ]
-
-        if s.is_direct_discount:
-            # Primera vez: setear estado & sent_at
-            if s.finance_sent_at is None and s.finance_status != "paid":
-                s.finance_status = "review_discount"
-                s.finance_sent_at = now
-
-            # Siempre actualizamos updated_at y nota (si viene)
-            s.finance_updated_at = now
-            if note:
-                prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
-                s.finance_note = (
-                    s.finance_note + "\n" if s.finance_note else ""
-                ) + prefix + note
-
-            s.save(update_fields=base_fields)
-            updated_ids.append(s.id)
-
-        else:
-            # No descuentos: respetamos allowed_ops sobre estado de la sesión
-            if s.estado not in allowed_ops:
-                skipped[s.id] = "invalid_status"
-                continue
-
-            # Primera vez: si aún no está en sent/pending/in_review → marcar como sent
-            if s.finance_status not in ["sent", "pending", "in_review"]:
-                s.finance_status = "sent"
-                s.finance_sent_at = now
-
-            # Siempre actualizamos updated_at y nota
-            s.finance_updated_at = now
-            if note:
-                prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
-                s.finance_note = (
-                    s.finance_note + "\n" if s.finance_note else ""
-                ) + prefix + note
-
-            s.save(update_fields=base_fields)
-            updated_ids.append(s.id)
-
-    # 👇 NUEVO: aseguramos que daily y finish_date se apliquen a TODOS los actualizados
-    if updated_ids and (daily_number or finish_date is not None):
-        bulk_qs = SesionBilling.objects.filter(id__in=updated_ids)
-        update_kwargs = {}
-        if daily_number:
-            update_kwargs["finance_daily_number"] = daily_number
-        if finish_date is not None:
-            update_kwargs["finance_finish_date"] = finish_date
-        if update_kwargs:
-            bulk_qs.update(**update_kwargs)
-
-    payload = {"ok": True, "count": len(updated_ids), "updated_ids": updated_ids}
-    if skipped:
-        payload["skipped"] = skipped
-
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return JsonResponse(payload)
-
-    if updated_ids:
-        messages.success(request, f"Sent to Finance: {len(updated_ids)}.")
-    if skipped:
-        msg = ", ".join([f"#{i}: {r}" for i, r in skipped.items()])
-        messages.warning(request, f"Skipped: {msg}")
-    return redirect("operaciones:listar_billing")
-
-
-@login_required
-@require_POST
-def billing_update_item_qty(request, item_id: int):
-    """
-    Actualiza la cantidad de un ItemBilling y recalcula subtotales
-    SIN cambiar el estado de la SesionBilling.
-    Solo Admin general o superuser.
-    """
-    item = get_object_or_404(
-        ItemBilling.objects.select_related("sesion"), pk=item_id)
-    user = request.user
-
-    is_admin = user.is_superuser or getattr(user, "es_admin_general", False)
-    if not is_admin:
-        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
-
-    # (Opcional) Bloquear si ya está pagado salvo superuser
-    if item.sesion.finance_status == "paid" and not user.is_superuser:
-        return JsonResponse({"ok": False, "error": "paid-locked"}, status=403)
-
-    qty_raw = (request.POST.get("cantidad") or "").strip()
-    try:
-        qty = Decimal(qty_raw)
-    except (InvalidOperation, TypeError):
-        return JsonResponse({"ok": False, "error": "invalid-quantity"}, status=400)
-
-    if qty < 0:
-        return JsonResponse({"ok": False, "error": "negative-quantity"}, status=400)
-
-    old_estado = item.sesion.estado  # ← preservamos
-    sesion = item.sesion
-
-    with transaction.atomic():
-        # 1) Actualizar ítem
-        item.cantidad = qty
-        item.subtotal_empresa = (item.precio_empresa or Decimal("0")) * qty
-
-        # Recalcular desglose técnico del ítem
-        total_tech = Decimal("0")
-        for d in ItemBillingTecnico.objects.filter(item=item).select_related("item"):
-            d.subtotal = (d.tarifa_efectiva or Decimal("0")) * qty
-            d.save(update_fields=["subtotal"])
-            total_tech += d.subtotal
-
-        item.subtotal_tecnico = total_tech
-        item.save(update_fields=["cantidad",
-                  "subtotal_empresa", "subtotal_tecnico"])
-
-        # 2) Recalcular totales de la sesión
-        aggr = sesion.items.aggregate(
-            total_tecnico=Sum("subtotal_tecnico"),
-            total_empresa=Sum("subtotal_empresa"),
-        )
-        sesion.subtotal_tecnico = aggr["total_tecnico"] or Decimal("0")
-        sesion.subtotal_empresa = aggr["total_empresa"] or Decimal("0")
-        # ¡NO cambiamos el estado!
-        sesion.save(update_fields=["subtotal_tecnico", "subtotal_empresa"])
-
-        # Por seguridad, si algo externo tocó el estado, lo forzamos al anterior
-        if sesion.estado != old_estado:
-            SesionBilling.objects.filter(
-                pk=sesion.pk).update(estado=old_estado)
-
-    return JsonResponse({
-        "ok": True,
-        "cantidad": f"{item.cantidad:.2f}",
-        "itemSubtotalEmpresa": f"{item.subtotal_empresa:.2f}",
-        "itemSubtotalTecnico": f"{item.subtotal_tecnico:.2f}",
-        "sesionSubtotalEmpresa": f"{sesion.subtotal_empresa:.2f}",
-        "sesionSubtotalTecnico": f"{sesion.subtotal_tecnico:.2f}",
-    })
 
 
 def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
@@ -7089,3 +6756,170 @@ def billing_merge_excel(request):
     if skipped:
         resp["X-Skipped-Ids"] = ",".join(skipped)
     return resp
+
+import json
+
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import default_storage
+from django.db import transaction
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_POST
+
+from operaciones.models import EvidenciaFotoBilling, SesionBilling
+
+
+@login_required
+@require_POST
+@rol_requerido("supervisor", "admin", "pm")
+def bulk_delete_evidencias(request, sesion_id):
+    """
+    Borra evidencias en MASIVO (1 request) para la vista de supervisor review.
+
+    Payload JSON esperado:
+      { "ids": [1,2,3,...] }
+
+    Reglas:
+      - Solo si la sesión NO está aprobada (aprobado_supervisor / aprobado_pm).
+      - Solo evidencias que pertenezcan a tecnico_sesion__sesion_id = sesion_id.
+      - Borra DB en batch y luego intenta borrar archivos (best-effort).
+      - Optimizado: intenta borrar en lote (S3/Wasabi) para hacerlo MUCHO más rápido.
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # 🔒 Si ya está aprobado, bloqueamos
+    if s.estado in {"aprobado_supervisor", "aprobado_pm"}:
+        return JsonResponse(
+            {"ok": False, "error": "Locked. Approved sessions cannot delete photos."},
+            status=403,
+        )
+
+    # Solo JSON
+    try:
+        raw = request.body.decode("utf-8") if request.body else ""
+        data = json.loads(raw or "{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid JSON body."}, status=400)
+
+    ids = data.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return JsonResponse({"ok": False, "error": "No ids provided."}, status=400)
+
+    # Normalizar ids a int
+    norm_ids = []
+    for x in ids:
+        try:
+            norm_ids.append(int(x))
+        except Exception:
+            continue
+
+    if not norm_ids:
+        return JsonResponse({"ok": False, "error": "No valid ids provided."}, status=400)
+
+    # Query SOLO de esta sesión
+    qs = EvidenciaFotoBilling.objects.filter(
+        id__in=norm_ids,
+        tecnico_sesion__sesion_id=s.id,
+    )
+
+    # ids reales encontrados
+    found = list(qs.values_list("id", flat=True))
+    missing = sorted(list(set(norm_ids) - set(found)))
+
+    # Guardar keys del storage ANTES de borrar rows
+    # (ojo: values_list("imagen") devuelve el name del FileField)
+    files = [f for f in qs.values_list("imagen", flat=True) if f]
+
+    deleted_count = 0
+    file_errors = []
+
+    with transaction.atomic():
+        deleted_count, _ = qs.delete()
+
+    # ===========================
+    # Borrado rápido en lote (S3/Wasabi)
+    # ===========================
+    def _try_bulk_delete_s3(keys):
+        """
+        Intenta usar boto3 delete_objects si el storage lo expone.
+        Retorna True si lo intentó (aunque S3 reporte errores parciales),
+        False si no pudo usar S3 client.
+        """
+        if not keys:
+            return True
+
+        # Muchos storages S3 exponen .bucket / .bucket_name / .connection / .client
+        storage = default_storage
+
+        # Intentar obtener client boto3
+        client = None
+        bucket = None
+
+        # Caso común django-storages S3Boto3Storage:
+        # storage.bucket_name y storage.connection.meta.client
+        try:
+            bucket = getattr(storage, "bucket_name", None) or getattr(storage, "bucket", None)
+        except Exception:
+            bucket = None
+
+        try:
+            conn = getattr(storage, "connection", None)
+            if conn is not None and getattr(conn, "meta", None) is not None:
+                client = conn.meta.client
+        except Exception:
+            client = None
+
+        # Alternativas
+        if client is None:
+            try:
+                client = getattr(storage, "client", None)
+            except Exception:
+                client = None
+
+        # bucket a string
+        if bucket is not None and not isinstance(bucket, str):
+            # algunos storages guardan bucket como objeto; intentamos sacar name
+            bucket = getattr(bucket, "name", None) or str(bucket)
+
+        if not client or not bucket:
+            return False
+
+        # delete_objects soporta hasta 1000 por request
+        try:
+            CHUNK = 1000
+            for i in range(0, len(keys), CHUNK):
+                chunk = keys[i:i + CHUNK]
+                resp = client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": True},
+                )
+                # Si hay errores, S3 los devuelve en "Errors"
+                for err in (resp.get("Errors") or []):
+                    # Key puede venir, Code, Message
+                    k = err.get("Key")
+                    code = err.get("Code")
+                    msg = err.get("Message")
+                    file_errors.append(f"{k or ''} {code or ''} {msg or ''}".strip())
+            return True
+        except Exception as e:
+            file_errors.append(str(e))
+            return True  # lo intentó, pero falló
+
+    tried_s3_bulk = _try_bulk_delete_s3(files)
+
+    # Fallback: borrar uno por uno si no se pudo usar S3 bulk
+    if not tried_s3_bulk:
+        for name in files:
+            try:
+                default_storage.delete(name)  # idempotente: si no existe, idealmente no rompe
+            except Exception as e:
+                file_errors.append(str(e))
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "deleted": deleted_count,
+            "missing": missing,
+            "file_errors": file_errors[:5],  # no spamear
+        }
+    )

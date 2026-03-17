@@ -192,7 +192,10 @@
           <input type="checkbox" class="col-toggle" data-col="15" checked> <span>Real pay week / Direct discount week</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="16" checked> <span>Actions</span>
+  <input type="checkbox" class="col-toggle" data-col="16" checked> <span>Comment</span>
+</label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="17" checked> <span>Actions</span>
         </label>
       </div>
     </div>
@@ -205,7 +208,7 @@
   <table id="billing-table"
          data-columns-table="billing"     
          data-columns-offset="2"          
-         class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]"
+         class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1950px]"
          style="white-space: nowrap;">
     <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
       <tr>
@@ -229,6 +232,7 @@
         <th class="p-2 border text-right">Different</th>
         <th class="p-2 border text-left">Finance Status</th>
         <th class="p-2 border text-left">Real pay week/Direct discount week</th>
+        <th class="p-2 border text-left">Comment</th>
         <th class="p-2 border text-center">Actions</th>
       </tr>
     </thead>
@@ -373,29 +377,43 @@ else %}asignado assigned{% endif %}"
 
           {# --- Real pay week (con candado para roles sin permiso) --- #}
           <td class="p-2 border" data-col="semana-real">
-            <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+  <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
 
-            {% if not can_edit_real_week %}
-              <button type="button"
-                      class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
-                      title="Only PM/Finance/Admin can edit the real pay week.">
-                🔒
-              </button>
-            {% else %}
-              <input type="text"
-                    id="sr-input-{{ s.id }}"
-                    class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
-                    value="{{ s.semana_pago_real|default:'' }}"
-                    placeholder="YYYY-W##" />
-              <button type="button"
-                      class="sr-edit text-xs text-blue-600 underline"
-                      data-id="{{ s.id }}"
-                      data-url="{% url 'operaciones:billing_update_semana' s.id %}">
-                ✏️
-              </button>
-            {% endif %}
-          </td>
+  {% if not can_edit_real_week %}
+    <button type="button"
+            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
+            title="Only PM/Finance/Admin can edit the real pay week.">
+      🔒
+    </button>
+  {% else %}
+    <input type="text"
+          id="sr-input-{{ s.id }}"
+          class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
+          value="{{ s.semana_pago_real|default:'' }}"
+          placeholder="YYYY-W##" />
+    <button type="button"
+            class="sr-edit text-xs text-blue-600 underline"
+            data-id="{{ s.id }}"
+            data-url="{% url 'operaciones:billing_update_semana' s.id %}">
+      ✏️
+    </button>
+  {% endif %}
+</td>
 
+<td class="p-2 border align-top min-w-[380px] max-w-[520px] text-left whitespace-normal break-words"
+    style="white-space: normal;">
+  {% if s.comentarios_tecnicos %}
+    <div class="space-y-1">
+      {% for a in s.comentarios_tecnicos %}
+        <div class="text-xs text-gray-700 whitespace-pre-line break-words">
+          <b>{{ a.tecnico.get_full_name|default:a.tecnico.username }}:</b> {{ a.tecnico_comentario }}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <span class="text-gray-400">—</span>
+  {% endif %}
+</td>
           <!-- Actions -->
           <td class="p-2 border text-center">
             {% if s.estado == "aprobado_supervisor" or s.estado == "aprobado_pm" or s.estado == "aprobado_finanzas" %}
@@ -440,7 +458,7 @@ else %}asignado assigned{% endif %}"
           <td class="border"></td>  <!-- caret -->
           <td class="border"></td>  <!-- checkbox -->
           <!-- 18 cols total -> detail colspan = 16 -->
-          <td class="p-3 border bg-gray-50" colspan="16">
+          <td class="p-3 border bg-gray-50" colspan="17">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -942,6 +960,8 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
+
+
 <!-- Ensure Finance modal open/close + validation -->
 <script>
 (function(){
@@ -1246,139 +1266,6 @@ document.addEventListener('click', function(e){
 </script>
 
 
-<!-- Send to Finance (legacy prompt fallback) -->
-<script>
-(function(){
-  // --- CSRF helpers (meta first, then cookie) ---
-  function getMetaCsrf(){
-    return document.querySelector('meta[name="csrf-token"]')?.content || '';
-  }
-  function getCookie(name){
-    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-    return m ? decodeURIComponent(m[2]) : null;
-  }
-  const csrftoken = getMetaCsrf() || getCookie('csrftoken') || '';
-
-  // --- UI elements ---
-  const actionsBtn   = document.getElementById('btn-actions');
-  const menu         = document.getElementById('menu-actions');
-  const exportForm   = document.getElementById('export-form');
-  const exportIdsInp = document.getElementById('export-ids');
-  const chkAll       = document.getElementById('chk-all');
-
-  function selectedIds(){
-    return Array.from(document.querySelectorAll('.row-chk:checked')).map(x => x.value);
-  }
-
-  function setActionsEnabled(){
-    const any = selectedIds().length > 0;
-    if (actionsBtn) actionsBtn.disabled = !any;
-  }
-
-  // Toggle dropdown
-  actionsBtn?.addEventListener('click', () => {
-    if(actionsBtn.disabled) return;
-    menu.classList.toggle('hidden');
-  });
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e)=>{
-    if(!menu.contains(e.target) && !actionsBtn.contains(e.target)){
-      menu.classList.add('hidden');
-    }
-  });
-
-  // Enable/disable by selection
-  chkAll?.addEventListener('change', setActionsEnabled);
-  document.addEventListener('change', (e)=>{
-    if(e.target.classList.contains('row-chk')) setActionsEnabled();
-  });
-  setActionsEnabled();
-
-  // ---------- Robust sender (JSON-only, handles session/CSRF) ----------
-    async function sendToFinance(ids, note, daily, finishDate){
-    const payload = {
-      ids: ids || [],
-      note: note || "",
-    };
-
-    if (daily) {
-      payload.daily_number = daily;
-    }
-    if (finishDate) {
-      // "2025-12-04" (formato ISO que espera el backend)
-      payload.finish_date = finishDate;
-    }
-
-    const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: JSON.stringify(payload)
-    });
-
-    // If redirected to login, treat as expired session
-    if (resp.redirected || (resp.url && /\/login\//i.test(resp.url))) {
-      throw new Error("Your session has expired. Please sign in again.");
-    }
-
-    // Must be JSON; HTML likely means login/CSRF page
-    const ct = (resp.headers.get("content-type") || "").toLowerCase();
-    if (!ct.includes("application/json")) {
-      const html = await resp.text();
-      if (/csrf/i.test(html)) {
-        throw new Error("Invalid or expired CSRF token. Please refresh the page.");
-      }
-      throw new Error(`Invalid server response (not JSON). HTTP ${resp.status}`);
-    }
-
-    const data = await resp.json();
-    if (!resp.ok || !data || data.ok !== true) {
-      const msg = (data && (data.error || data.detail || data.message)) || `HTTP ${resp.status}`;
-      throw new Error("Could not send to Finance: " + msg);
-    }
-    return data;
-  }
-
-  // Expose for the modern modal flow (your other script calls window.sendToFinance)
-  window.sendToFinance = sendToFinance;
-
-  // ---------- Fallback flow using prompt (kept intact) ----------
-  // NOTE: another handler (modern modal) may call stopImmediatePropagation().
-  // This fallback is harmless and only runs when that handler isn't used.
-  menu.addEventListener('click', async (e)=>{
-    const btn = e.target.closest('button[data-action]');
-    if(!btn) return;
-    menu.classList.add('hidden');
-
-    const ids = selectedIds();
-    if(!ids.length) return;
-
-    const action = btn.getAttribute('data-action');
-    try{
-      if(action === 'export'){
-        exportIdsInp.value = ids.join(',');
-        exportForm.submit();
-      }else if(action === 'send'){
-        const note = prompt("Note for Finance (optional):", "");
-        await sendToFinance(ids, note);
-        location.reload();
-      }else if(action === 'both'){
-        const note = prompt("Note for Finance (optional):", "");
-        await sendToFinance(ids, note);
-        exportIdsInp.value = ids.join(',');
-        exportForm.submit();
-      }
-    }catch(err){
-      alert(err.message || "Unexpected error");
-    }
-  });
-})();
-</script>
 
 <!-- Inline qty edit -->
 <script>
@@ -1512,24 +1399,30 @@ document.addEventListener('click', function(e){
     if(e.key === 'Enter') e.preventDefault();
   });
 
-  async function fetchAndReplace(url){
-    const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
-    const html = await resp.text();
-    const doc  = new DOMParser().parseFromString(html, 'text/html');
+async function fetchAndReplace(url){
+  const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+  const html = await resp.text();
+  const doc  = new DOMParser().parseFromString(html, 'text/html');
 
-    const newTbody = doc.querySelector('#billing-table tbody');
-    const curTbody = table.querySelector('tbody');
-    if (newTbody && curTbody) curTbody.replaceWith(newTbody);
+  const newTbody = doc.querySelector('#billing-table tbody');
+  const curTbody = table.querySelector('tbody');
+  if (newTbody && curTbody) curTbody.replaceWith(newTbody);
 
-    const newPager = doc.getElementById('pager');
-    const curPager = document.getElementById('pager');
-    if (newPager && curPager) curPager.replaceWith(newPager);
+  const newPager = doc.getElementById('pager');
+  const curPager = document.getElementById('pager');
+  if (newPager && curPager) curPager.replaceWith(newPager);
 
-    if (window.applyBillingColumnsVisibility) {
-      window.applyBillingColumnsVisibility();
-    }
+  if (window.applyBillingColumnsVisibility) {
+    window.applyBillingColumnsVisibility();
   }
 
+  // ✅ SOLO ESTO (nuevo)
+  if (window.billingSyncHeaderCheckbox) {
+    window.billingSyncHeaderCheckbox();
+  }
+  if (window.billingRefreshBulkActions) window.billingRefreshBulkActions();
+
+}
   function buildUrlFromForm(){
     const data = new FormData(form);
     const params = new URLSearchParams(data);
@@ -1644,59 +1537,12 @@ document.addEventListener('click', function(e){
     window.hideBusy();
   }
 
+  // ✅ SOLO exponemos la función.
+  // ⚠️ NO agregamos otro menu.addEventListener acá porque ya lo manejas arriba.
   window.mergeExcelReports = mergeExcelReports;
-
-  // Hook del menú (sin cambios)
-  const menu = document.getElementById('menu-actions');
-  menu.addEventListener('click', async (e)=>{
-    const btn = e.target.closest('button[data-action]');
-    if(!btn) return;
-    e.stopImmediatePropagation();
-
-    const action = btn.getAttribute('data-action');
-    const ids = selectedIds();
-    if(!ids.length) return;
-
-    if(action === 'merge_xlsx'){
-      await mergeExcelReports(ids);
-      return;
-    }
-  });
 })();
 </script>
 
-<script>
-  // Si aún no lo tienes en base.html, deja este helper
-  window.getCsrfToken = window.getCsrfToken || function () {
-    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-    if (m) return decodeURIComponent(m[1]);
-    const i = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
-    return i || '';
-  };
-
-  async function saveRealWeek(billingId, weekValue) {
-    const resp = await fetch(`/operaciones/billing/${billingId}/update-semana/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCsrfToken(),
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify({ week: weekValue })
-    });
-
-    if (!resp.ok) {
-      // si 403 → token inválido/expirado
-      const txt = await resp.text().catch(() => '');
-      console.error('Update week failed', resp.status, txt);
-      alert('Invalid or expired CSRF token. Please refresh the page.');
-      return;
-    }
-
-    const data = await resp.json().catch(() => ({}));
-    // TODO: refrescar la celda/row si lo necesitas
-  }
-</script>
 
 <script>
 (function () {
@@ -1894,6 +1740,187 @@ document.addEventListener('click', function(e){
     // Ya cargó el DOM (p.ej. si esta vista se inyecta con AJAX)
     initDatePickers();
   }
+})();
+</script>
+
+
+<script>
+(function(){
+  // Devuelve checkboxes SOLO de filas principales
+  function getRowChecks(){
+    return Array.from(document.querySelectorAll('tr[data-row="main"] input.row-chk'));
+  }
+
+  // Visible = la fila NO está display:none (tu caso de filtros)
+  function isRowVisibleByStyle(chk){
+    const tr = chk?.closest('tr[data-row="main"]');
+    if(!tr) return false;
+    if (tr.style && tr.style.display === 'none') return false;
+    return window.getComputedStyle(tr).display !== 'none';
+  }
+
+  function getVisibleRowChecks(){
+    return getRowChecks().filter(isRowVisibleByStyle);
+  }
+
+  function syncHeader(){
+    const header = document.getElementById('chk-all');
+    if(!header) return;
+
+    const boxes = getVisibleRowChecks();
+    if(!boxes.length){
+      header.checked = false;
+      header.indeterminate = false;
+      return;
+    }
+
+    const checked = boxes.filter(b => b.checked).length;
+    header.checked = (checked === boxes.length);
+    header.indeterminate = (checked > 0 && checked < boxes.length);
+  }
+
+  function refreshBulk(){
+    if (window.billingRefreshBulkActions) window.billingRefreshBulkActions();
+  }
+
+  // ✅ Delegación: funciona aunque reemplaces <tbody> con AJAX
+  document.addEventListener('change', function(e){
+    // 1) Header select all
+    if (e.target && e.target.id === 'chk-all'){
+      const header = e.target;
+
+      // cuando el usuario hace click en el header, siempre debe quedar no-indeterminate
+      header.indeterminate = false;
+
+      const boxes = getVisibleRowChecks();
+
+      // ✅ NO dispares "change" por cada checkbox (eso te rompe el flujo)
+      boxes.forEach(chk => { chk.checked = header.checked; });
+
+      // actualizar UI
+      syncHeader();
+      refreshBulk();
+      return;
+    }
+
+    // 2) Checkbox de fila
+    if (e.target && e.target.classList && e.target.classList.contains('row-chk')){
+      syncHeader();
+      refreshBulk();
+      return;
+    }
+  });
+
+  // Exponer para tu fetchAndReplace()
+  window.billingSyncHeaderCheckbox = function(){
+    syncHeader();
+    refreshBulk();
+  };
+
+  // init
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.billingSyncHeaderCheckbox);
+  } else {
+    window.billingSyncHeaderCheckbox();
+  }
+})();
+</script>
+
+<script>
+(function(){
+  const btn  = document.getElementById('btn-actions');
+  const menu = document.getElementById('menu-actions');
+  const wrap = document.getElementById('bulk-actions');
+
+  function getCheckedIds(){
+    return Array.from(document.querySelectorAll('tr[data-row="main"] input.row-chk:checked'))
+      .map(chk => chk.value);
+  }
+
+  function refreshBulkActions(){
+    const ids = getCheckedIds();
+    const any = ids.length > 0;
+
+    if (btn) btn.disabled = !any;
+
+    // si no hay selección, cierra el menú
+    if (!any && menu) menu.classList.add('hidden');
+  }
+
+  // ✅ Abrir/cerrar menú "Actions" (solo si hay selección)
+  document.addEventListener('click', function(e){
+    const b = e.target.closest('#btn-actions');
+    if(!b) return;
+
+    e.preventDefault();
+    if (b.disabled) return;
+
+    if (menu) menu.classList.toggle('hidden');
+  });
+
+  // ✅ Cerrar menú al click afuera
+  document.addEventListener('click', function(e){
+    if(!menu || menu.classList.contains('hidden')) return;
+    if (wrap && wrap.contains(e.target)) return;
+    menu.classList.add('hidden');
+  });
+
+  // ✅ Cuando cambian los checkboxes (delegación, sirve aunque reemplaces <tbody> por AJAX)
+  document.addEventListener('change', function(e){
+    if (e.target && e.target.classList && e.target.classList.contains('row-chk')){
+      refreshBulkActions();
+    }
+  });
+
+  // Exponer para tu fetchAndReplace()
+  window.billingRefreshBulkActions = refreshBulkActions;
+
+  // init
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', refreshBulkActions);
+  } else {
+    refreshBulkActions();
+  }
+})();
+</script>
+
+<script>
+(function(){
+  // CSRF helper (cookie)
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  // ✅ ESTA ES LA FUNCIÓN QUE TE FALTA
+  window.sendToFinance = async function(ids, note, daily_number, finish_date){
+    const resp = await fetch("{% url 'operaciones:billing_send_finance' %}", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        ids: ids || [],
+        note: note || "",
+        daily_number: daily_number || "",
+        finish_date: finish_date || ""
+      })
+    });
+
+    let data = null;
+    try { data = await resp.json(); } catch(_){}
+
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `HTTP ${resp.status}`;
+      throw new Error(msg);
+    }
+    return data;
+  };
 })();
 </script>
 {% endblock %}

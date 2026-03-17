@@ -246,7 +246,7 @@ urlpatterns = [
     path("sesiones/<int:sesion_id>/plans/readonly/", views_plans.list_plans_readonly, name="list_plans_readonly"),
     path('precios/import/api/tecnicos/', v.api_tecnicos_por_proyecto, name='api_tecnicos_por_proyecto'),
     
-    
+    path("billing/<int:sesion_id>/bulk-delete-evidencias/",views.bulk_delete_evidencias,name="bulk_delete_evidencias",),
 
 
 

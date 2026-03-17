@@ -7,252 +7,402 @@
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
   <h1 class="text-2xl font-bold mb-4">🧾 My Assignments</h1>
 
-<div class="flex justify-start mb-2">
-  <details class="relative">
-    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
-      ⚙️ Columns
-    </summary>
+  <style>
+    /* ===== Excel-like filters (copiado/ajustado desde Cartola) ===== */
+    .excel-header-btn{
+      width:100%;
+      justify-content:center;
+      font-size:0.875rem;
+    }
+    .excel-header-btn .excel-arrow{
+      font-size:0.65rem;
+      margin-left:2px;
+    }
+    .excel-header-btn:hover .excel-arrow{
+      color:#111827;
+    }
 
-    <!-- IMPORTANTE: mismo id que usa el script -->
-    <div id="columnToggles" class="absolute left-0 mt-1 w-56 bg-white border rounded-xl shadow-lg p-3 z-10">
-      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+    .excel-panel{
+      position:fixed;
+      z-index:50;
+      width:260px;
+      background:#fff;
+      border-radius:0.75rem;
+      border:1px solid #d1d5db;
+      box-shadow:0 10px 30px rgba(0,0,0,.15);
+      padding:0.75rem;
+      font-size:0.8rem;
+    }
+    .excel-panel h3{
+      font-weight:600;
+      margin-bottom:0.5rem;
+    }
+    .excel-panel small{
+      font-size:0.7rem;
+      color:#6b7280;
+    }
+    .excel-panel .excel-options{
+      max-height:180px;
+      overflow-y:auto;
+      border:1px solid #e5e7eb;
+      border-radius:0.5rem;
+      padding:0.25rem 0.5rem;
+      margin-top:0.25rem;
+      background:#f9fafb;
+    }
 
-      <!-- Master checkbox -->
-      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
-        <input type="checkbox" id="col-toggle-all" checked>
-        <span class="font-semibold text-xs">Show all columns</span>
-      </label>
+    .excel-col-filtered .excel-header-btn{
+      background:#e0f2fe;
+      border-radius:999px;
+    }
+    .excel-col-filtered .excel-arrow{
+      color:#2563eb !important;
+    }
+  </style>
 
-      <!-- Una línea por columna (0-based, coincide con el <thead>) -->
-      <div class="space-y-1 text-sm">
-        <!-- 0 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="0" checked>
-          <span>Date</span>
+  <div class="flex justify-start mb-2 gap-2">
+    <details class="relative">
+      <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+        ⚙️ Columns
+      </summary>
+
+      <div id="columnToggles" class="absolute left-0 mt-1 w-56 bg-white border rounded-xl shadow-lg p-3 z-10">
+        <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+        <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+          <input type="checkbox" id="col-toggle-all" checked>
+          <span class="font-semibold text-xs">Show all columns</span>
         </label>
 
-        <!-- 1 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="1" checked>
-          <span>Project ID</span>
-        </label>
-
-        <!-- 2 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="2" checked>
-          <span>Project address</span>
-        </label>
-
-        <!-- 3 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="3" checked>
-          <span>Client</span>
-        </label>
-
-        <!-- 4 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="4" checked>
-          <span>City</span>
-        </label>
-
-        <!-- 5 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="5" checked>
-          <span>Project</span>
-        </label>
-
-        <!-- 6 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="6" checked>
-          <span>Office</span>
-        </label>
-
-        <!-- 7 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="7" checked>
-          <span>My Billing</span>
-        </label>
-
-        <!-- 8 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="8" checked>
-          <span>Status</span>
-        </label>
-
-        <!-- 9 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="9" checked>
-          <span>Photo Report</span>
-        </label>
-
-        <!-- 10 -->
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="10" checked>
-          <span>Actions</span>
-        </label>
+        <div class="space-y-1 text-sm">
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="0" checked> <span>Date</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="1" checked> <span>Project ID</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="2" checked> <span>Project address</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="3" checked> <span>Client</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="4" checked> <span>City</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="5" checked> <span>Project</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="6" checked> <span>Office</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="7" checked> <span>My Billing</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="8" checked> <span>Status</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="9" checked> <span>My comment</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="10" checked> <span>Photo Report</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="11" checked> <span>Actions</span></label>
+        </div>
       </div>
-    </div>
-  </details>
-</div>
+    </details>
 
-  <div class="overflow-x-auto">
-    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
-      <thead class="bg-gray-100">
-        <tr>
-          <th class="p-2 text-left">Date</th>
-          <th class="p-2 text-left">Project ID</th>
-          <th class="p-2 text-left">Project address</th>
-          <th class="p-2 text-left">Client</th>
-          <th class="p-2 text-left">City</th>
-          <th class="p-2 text-left">Project</th>
-          <th class="p-2 text-left">Office</th>
-          <th class="p-2 text-right">My Billing</th>
-          <th class="p-2 text-left">Status</th>
-          <th class="p-2 text-center">Photo Report</th>
-          <th class="p-2 text-center">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for a in asignaciones %}
-        <tr class="border-b align-top">
-          <td class="p-2">{{ a.sesion.creado_en|date:"Y-m-d" }}</td>
-          <td class="p-2">{{ a.sesion.proyecto_id }}</td>
-
-          {# --- Project address (mismo comportamiento que listar_billing) --- #}
-          <td class="p-2 align-top max-w-[360px] break-words" style="white-space: normal;">
-            {% if a.sesion.direccion_proyecto %}
-              {% if a.sesion.maps_href == a.sesion.direccion_proyecto %}
-                <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
-              {% else %}
-                <div class="whitespace-normal break-words">{{ a.sesion.direccion_proyecto }}</div>
-                <a href="{{ a.sesion.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
-              {% endif %}
-            {% else %}—{% endif %}
-          </td>
-
-          <td class="p-2">{{ a.sesion.cliente }}</td>
-          <td class="p-2">{{ a.sesion.ciudad }}</td>
-          <td class="p-2">{{ a.proyecto_label }}</td>
-          <td class="p-2">{{ a.sesion.oficina }}</td>
-          <td class="p-2 text-right">${{ a.my_total|floatformat:2 }}</td>
-
-          {# -------- STATUS (badges estilo rendiciones) -------- #}
-          <td class="p-2 text-sm">
-            <div class="flex flex-col gap-1 text-left leading-tight">
-              {% if a.estado == 'asignado' %}
-                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">
-                  ⏳ Pending acceptance
-                </span>
-              {% elif a.estado == 'en_proceso' %}
-                <span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
-                  🚀 In progress
-                </span>
-                <span class="text-xs text-gray-600">
-                  Accepted by: {{ a.tecnico.get_full_name|default:a.tecnico.username }}
-                  {% if a.aceptado_en %} · {{ a.aceptado_en|date:"Y-m-d H:i" }}{% endif %}
-                </span>
-              {% elif a.estado == 'en_revision_supervisor' %}
-                <span class="inline-block bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-medium">
-                  📤 Submitted — supervisor review
-                </span>
-              {% elif a.estado == 'rechazado_supervisor' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                  ❌ Rejected by supervisor
-                </span>
-                {% if a.supervisor_comentario %}
-                  <div class="mt-0.5 text-xs text-red-700 whitespace-pre-wrap break-words">
-                    <strong>Reason:</strong> {{ a.supervisor_comentario }}
-                  </div>
-                {% endif %}
-              {% elif a.estado == 'aprobado_supervisor' %}
-                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                  ✅ Approved by supervisor (pending PM)
-                </span>
-              {% elif a.estado == 'aprobado_pm' %}
-                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                  🏁 Approved by PM
-                </span>
-              {% elif a.estado == 'rechazado_pm' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
-                  ❌ Rejected by PM
-                </span>
-                {% if a.pm_comentario %}
-                  <div class="mt-0.5 text-xs text-red-700 whitespace-pre-wrap break-words">
-                    <strong>Reason:</strong> {{ a.pm_comentario }}
-                  </div>
-                {% endif %}
-              {% else %}
-                <span class="inline-block bg-gray-100 text-gray-800 px-2 py-1 rounded-full font-medium">
-                  —
-                </span>
-              {% endif %}
-
-              {% if a.reintento_habilitado %}
-                <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 w-max">
-                  ♻️ Reupload enabled
-                </span>
-              {% endif %}
-            </div>
-          </td>
-
-          {# -------- PHOTO REPORT (nivel proyecto) -------- #}
-          <td class="p-2 text-center">
-            {% if a.sesion.reporte_fotografico %}
-              <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
-                 href="{{ a.sesion.reporte_fotografico.url }}" target="_blank" rel="noopener">
-                ⬇️ Download
-              </a>
-            {% else %}
-              <span class="text-gray-400">—</span>
-            {% endif %}
-          </td>
-
-          {# -------- ACTIONS -------- #}
-          <td class="p-2 text-center space-x-2">
-            <a href="{% url 'operaciones:detalle_assignment' a.pk %}" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">View</a>
-
-            {% if a.estado == "asignado" %}
-              <button type="button"
-                      class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-                      data-action="{% url 'operaciones:start_assignment' a.pk %}">
-                ✅ Accept & Start
-              </button>
-
-            {% elif a.estado == "en_proceso" %}
-              <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-                 class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-                Upload photos
-              </a>
-              <a href="{% url 'operaciones:finish_assignment' a.pk %}"
-                 class="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">
-                Finish
-              </a>
-
-            {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-              <button type="button"
-                      class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-                      data-action="{% url 'operaciones:start_assignment' a.pk %}">
-                Start
-              </button>
-              <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-                 class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-                Reupload photos
-              </a>
-              <a href="{% url 'operaciones:finish_assignment' a.pk %}"
-                 class="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">
-                Finish
-              </a>
-            {% endif %}
-          </td>
-        </tr>
-      {% empty %}
-        <tr>
-          <td class="p-4 text-center text-gray-500" colspan="12">No assignments yet.</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <button type="button"
+            id="btnExcelClearAll"
+            class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
+      ❌ Clear filters
+    </button>
   </div>
+
+  <div id="zonaTabla" data-excel-global='{{ excel_global_json|safe }}'>
+    <div class="rounded-xl border border-gray-200 overflow-x-auto">
+      <table id="myassign-table"
+             class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-full sm:min-w-[1500px]"
+             style="white-space: nowrap;">
+        <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+          <tr>
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Date</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Project ID</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Project address</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Client</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>City</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Office</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-right" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>My Billing</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-center" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-left" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1" style="justify-content:flex-start;">
+                <span>My comment</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-center" data-excel-col>
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Photo Report</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="p-2 border text-center">
+              Actions
+            </th>
+          </tr>
+        </thead>
+
+        <tbody class="text-left">
+        {% for a in asignaciones %}
+          <tr class="border-t align-top">
+
+            <td class="p-2 border" data-excel-value="{{ a.sesion.creado_en|date:'Y-m-d' }}">
+              {{ a.sesion.creado_en|date:"Y-m-d" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ a.sesion.proyecto_id|default:'' }}">
+              {{ a.sesion.proyecto_id }}
+            </td>
+
+            <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;"
+                data-excel-value="{% if a.sesion.direccion_proyecto %}{% if a.sesion.maps_href == a.sesion.direccion_proyecto %}Address{% else %}{{ a.sesion.direccion_proyecto }}{% endif %}{% else %}{% if a.sesion.maps_href %}Address{% else %}(Vacías){% endif %}{% endif %}">
+              {% if a.sesion.direccion_proyecto %}
+                {% if a.sesion.maps_href == a.sesion.direccion_proyecto %}
+                  <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+                {% else %}
+                  <div class="whitespace-normal break-words">{{ a.sesion.direccion_proyecto }}</div>
+                  <a href="{{ a.sesion.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
+                {% endif %}
+              {% else %}
+                {% if a.sesion.maps_href %}
+                  <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+                {% else %}
+                  —
+                {% endif %}
+              {% endif %}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ a.sesion.cliente|default:'(Vacías)' }}">
+              {{ a.sesion.cliente|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ a.sesion.ciudad|default:'(Vacías)' }}">
+              {{ a.sesion.ciudad|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ a.proyecto_label|default:'(Vacías)' }}">
+              {{ a.proyecto_label|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ a.sesion.oficina|default:'(Vacías)' }}">
+              {{ a.sesion.oficina|default:"—" }}
+            </td>
+
+            <td class="p-2 border text-right" data-excel-value="${{ a.my_total|floatformat:2 }}">
+              ${{ a.my_total|floatformat:2 }}
+            </td>
+
+            <td class="p-2 border text-sm text-center"
+                data-excel-value="{% if a.estado == 'asignado' %}Pending acceptance{% elif a.estado == 'en_proceso' %}In progress{% elif a.estado == 'en_revision_supervisor' %}Submitted — supervisor review{% elif a.estado == 'rechazado_supervisor' %}Rejected by supervisor{% elif a.estado == 'rechazado_pm' %}Rejected by PM{% elif a.estado == 'rechazado_finanzas' %}Rejected by Finance{% else %}{{ a.get_estado_display }}{% endif %}">
+              <div class="flex flex-col gap-1 items-center leading-tight">
+                {% if a.estado == 'asignado' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
+                    ⏳ Pending acceptance
+                  </span>
+
+                {% elif a.estado == 'en_proceso' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                    🚀 In progress
+                  </span>
+
+                  <span class="text-xs text-gray-600 text-center">
+                    Accepted by: {{ a.tecnico.get_full_name|default:a.tecnico.username }}
+                    {% if a.aceptado_en %} · {{ a.aceptado_en|date:"Y-m-d H:i" }}{% endif %}
+                  </span>
+
+                  {% if a.pendientes_aceptar_names %}
+                    <span class="text-xs text-gray-600 text-center">
+                      Waiting for acceptance: {{ a.pendientes_aceptar_names|join:", " }}.
+                    </span>
+                  {% endif %}
+
+                  {% if a.faltantes_global_labels %}
+                    <span class="text-xs text-gray-600 text-center">
+                      Missing required photos: {{ a.faltantes_global_labels|join:", " }}.
+                    </span>
+                  {% endif %}
+
+                {% elif a.estado == 'en_revision_supervisor' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
+                    📤 Submitted — supervisor review
+                  </span>
+
+                {% elif a.estado == 'rechazado_supervisor' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
+                    ❌ Rejected by supervisor
+                  </span>
+
+                {% elif a.estado == 'rechazado_pm' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
+                    ❌ Rejected by PM
+                  </span>
+
+                {% elif a.estado == 'rechazado_finanzas' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
+                    ❌ Rejected by Finance
+                  </span>
+
+                {% else %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">
+                    —
+                  </span>
+                {% endif %}
+
+                {% if a.reintento_habilitado %}
+                  <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                    ♻️ Reupload enabled
+                  </span>
+                {% endif %}
+              </div>
+            </td>
+
+            <td class="p-2 border text-sm min-w-[380px] max-w-[520px]"
+                style="white-space: normal;"
+                data-excel-value="{% if a.tecnico_comentario %}{{ a.tecnico_comentario }}{% else %}(Vacías){% endif %}">
+              {% if a.tecnico_comentario %}
+                <div class="text-gray-700 whitespace-pre-wrap break-words">{{ a.tecnico_comentario }}</div>
+              {% else %}
+                <span class="text-gray-400">—</span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border text-center"
+                data-excel-value="{% if a.sesion.reporte_fotografico %}Download{% else %}(Vacías){% endif %}">
+              {% if a.sesion.reporte_fotografico %}
+                <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
+                   href="{{ a.sesion.reporte_fotografico.url }}" target="_blank" rel="noopener">
+                  ⬇️ Download
+                </a>
+              {% else %}
+                <span class="text-gray-400">—</span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border text-center space-x-2">
+              <a href="{% url 'operaciones:detalle_assignment' a.pk %}" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">View</a>
+
+              {% if a.estado == "asignado" %}
+                <button type="button"
+                        class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                        data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                  ✅ Accept & Start
+                </button>
+
+              {% elif a.estado == "en_proceso" %}
+                <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                   class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                  Upload photos
+                </a>
+
+                <button type="button"
+                        class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                        data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                        {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+                  Finish
+                </button>
+
+              {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+                <button type="button"
+                        class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                        data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                  Start
+                </button>
+
+                <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                   class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                  Reupload photos
+                </a>
+
+                <button type="button"
+                        class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                        data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                        {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+                  Finish
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td class="p-4 border text-center text-gray-500" colspan="12">No assignments yet.</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ===== PAGINACIÓN (LA MISMA QUE TIENES AHORA) ===== #}
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form id="formCantidad" class="flex items-center gap-2" method="get">
+      {# conservar querystring actual (incluye excel_filters) excepto cantidad/page #}
+      {% for k,v in request.GET.items %}
+        {% if k != 'cantidad' and k != 'page' %}
+          <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endif %}
+      {% endfor %}
+
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1" onchange="this.form.submit()">
+        <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
+        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
+        <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+      </select>
+    </form>
+  </div>
+
+  <div class="mt-2 flex justify-center text-sm">
+    <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+  </div>
+
+  <div class="mt-2 flex justify-center gap-2 text-sm">
+    {% if pagina.has_previous %}
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page=1">« First</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.previous_page_number }}">‹ Previous</a>
+    {% endif %}
+    {% if pagina.has_next %}
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.next_page_number }}">Next ›</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.paginator.num_pages }}">Last »</a>
+    {% endif %}
+  </div>
+
 </div>
 
 {# ===== Modal Aceptar & Empezar (POST) ===== #}
@@ -271,37 +421,132 @@
   </div>
 </div>
 
+{# ✅ Modal Finish con comentario (POST) #}
+<div id="modal-finish" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Finish assignment</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      Please enter a comment. This will submit the whole team for supervisor review if validations pass.
+    </p>
+
+    <form id="form-finish" method="post" action="#" class="mt-4">
+      {% csrf_token %}
+      <label class="block text-sm font-medium mb-1">Comment</label>
+      <textarea
+        name="comentario"
+        id="finish-comentario"
+        rows="4"
+        class="w-full border rounded-xl p-2"
+        placeholder="Write your comment..."
+        required
+      ></textarea>
+
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-finish>Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Finish</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ✅ Panel flotante tipo Excel #}
+<div id="excelFilterPanel" class="excel-panel hidden">
+  <h3 id="excelPanelTitle">Column</h3>
+  <small>Filter values</small>
+
+  <div class="mt-2">
+    <input id="excelFilterSearch"
+           type="text"
+           placeholder="Search..."
+           class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
+  </div>
+
+  <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+
+  <div class="mt-3 flex justify-end gap-2">
+    <button type="button"
+            id="excelFilterClearAll"
+            class="px-2 py-1 border rounded-md text-xs">
+      Clear
+    </button>
+    <button type="button"
+            id="excelFilterApply"
+            class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">
+      Apply
+    </button>
+  </div>
+</div>
+
 <script>
 (function(){
-  const modal = document.getElementById('modal-accept');
-  const form  = document.getElementById('form-accept');
+  // ============================
+  // MODAL ACCEPT
+  // ============================
+  const modalAccept = document.getElementById('modal-accept');
+  const formAccept  = document.getElementById('form-accept');
 
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('.btn-accept-start');
     if(!btn) return;
-    form.action = btn.getAttribute('data-action'); // URL de start_assignment
-    modal.classList.remove('hidden');
+    formAccept.action = btn.getAttribute('data-action');
+    modalAccept.classList.remove('hidden');
   });
 
   document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-modal')) {
-      modal.classList.add('hidden');
-    }
+    if (e.target.hasAttribute('data-close-modal')) modalAccept.classList.add('hidden');
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') modalAccept.classList.add('hidden');
+  });
+})();
+</script>
+
+<script>
+(function(){
+  // ============================
+  // MODAL FINISH
+  // ============================
+  const modal = document.getElementById('modal-finish');
+  const form  = document.getElementById('form-finish');
+  const txt   = document.getElementById('finish-comentario');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-finish');
+    if(!btn) return;
+
+    form.action = btn.getAttribute('data-action');
+    if (txt) txt.value = "";
+    modal.classList.remove('hidden');
+    if (txt) setTimeout(()=>txt.focus(), 50);
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-finish')) modal.classList.add('hidden');
   });
 
   document.addEventListener('keydown', (e)=>{
     if (e.key === 'Escape') modal.classList.add('hidden');
   });
+
+  form.addEventListener('submit', (e)=>{
+    const val = (txt?.value || "").trim();
+    if (!val) {
+      e.preventDefault();
+      alert("Please enter a comment to finish.");
+      if (txt) txt.focus();
+    }
+  });
 })();
 </script>
+
 <script>
-/* Mantener el scroll horizontal en "My Assignments" */
+/* Mantener scroll horizontal */
 (function () {
   const KEY = 'myassignScrollX:' + location.pathname;
 
-  // El contenedor con overflow-x del listado
   function getScrollBox() {
-    // es el .overflow-x-auto que envuelve la tabla dentro del wrapper principal
     return document.querySelector('.max-w-7xl .overflow-x-auto') || document.querySelector('.overflow-x-auto');
   }
 
@@ -316,10 +561,8 @@
     const box = getScrollBox();
     if (!box) return;
     const x = readX();
-    // aplicar después del layout
     requestAnimationFrame(() => { box.scrollLeft = x; });
 
-    // ir guardando mientras el usuario se desplaza
     let t = null;
     box.addEventListener('scroll', () => {
       if (t) return;
@@ -332,24 +575,20 @@
     if (box) saveX(box.scrollLeft);
   }
 
-  // Restaurar al cargar y guardar al salir/recargar
   document.addEventListener('DOMContentLoaded', restore);
   window.addEventListener('beforeunload', saveBeforeLeave);
 })();
 </script>
+
 <script>
+/* Column toggles */
 (function () {
-  // Panel de columnas
   const panel = document.getElementById('columnToggles');
   if (!panel) return;
 
-  // Tabla asociada: usa la que tenga data-columns-table
-  const table =
-    document.querySelector('[data-columns-table]') ||
-    document.querySelector('table');
+  const table = document.getElementById('myassign-table') || document.querySelector('table');
   if (!table) return;
 
-  // Clave para recordar las columnas por vista/tabla
   const tableId = table.dataset.columnsTable || location.pathname;
   const STORAGE_KEY = 'cols:' + tableId;
 
@@ -359,28 +598,22 @@
       if (!raw) return {};
       const obj = JSON.parse(raw);
       return obj && typeof obj === 'object' ? obj : {};
-    } catch (e) {
-      return {};
-    }
+    } catch (e) { return {}; }
   }
 
   function saveState(state) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
   function applyVisibility() {
-    const state = loadState(); // {0: true, 1: false, ...}
+    const state = loadState();
 
-    // Encabezados
     const theadCells = table.querySelectorAll('thead tr th');
     theadCells.forEach((th, idx) => {
-      const visible = state[idx] !== false; // por defecto visible
+      const visible = state[idx] !== false;
       th.style.display = visible ? '' : 'none';
     });
 
-    // Celdas
     table.querySelectorAll('tbody tr').forEach((tr) => {
       const tds = tr.querySelectorAll('td');
       tds.forEach((td, idx) => {
@@ -389,7 +622,6 @@
       });
     });
 
-    // Sincronizar checkboxes + master
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
     let allOn = true;
@@ -401,16 +633,13 @@
       if (!visible) allOn = false;
     });
 
-    if (master) {
-      master.checked = allOn;
-    }
+    if (master) master.checked = allOn;
   }
 
   function bindToggles() {
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
 
-    // Individuales
     checks.forEach((cb) => {
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.col || '0', 10);
@@ -421,7 +650,6 @@
       });
     });
 
-    // Master "Show all columns"
     if (master) {
       master.addEventListener('change', () => {
         const val = master.checked;
@@ -439,7 +667,6 @@
     }
   }
 
-  // Cerrar el <details> al hacer clic fuera
   function bindOutsideClickToClose() {
     const details = panel.closest('details');
     if (!details) return;
@@ -451,10 +678,279 @@
     });
   }
 
-  // Inicializar
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
 })();
 </script>
+
+<script>
+/* ✅ Excel filters SERVER-SIDE (como Cartola): aplica filtro => recarga URL con excel_filters y page=1 */
+(function(){
+  const zona = document.getElementById('zonaTabla');
+  if(!zona) return;
+
+  function loadExcelGlobal(){
+    try { return JSON.parse(zona.dataset.excelGlobal || '{}'); } catch(_) { return {}; }
+  }
+  const excelGlobal = loadExcelGlobal();
+
+  const excel = {
+    panel: document.getElementById('excelFilterPanel'),
+    titleEl: document.getElementById('excelPanelTitle'),
+    searchInput: document.getElementById('excelFilterSearch'),
+    optsBox: document.getElementById('excelFilterOptions'),
+    btnApply: document.getElementById('excelFilterApply'),
+    btnClear: document.getElementById('excelFilterClearAll'),
+    headers: Array.from(document.querySelectorAll('#myassign-table thead th')),
+    active: {},
+    currentCol: null
+  };
+
+  const KEY = 'myassignExcelFilters:' + location.pathname;
+
+  function loadFilters(){
+    try{
+      const raw = sessionStorage.getItem(KEY);
+      if(!raw) return {};
+      const obj = JSON.parse(raw) || {};
+      const out = {};
+      Object.entries(obj).forEach(([k, arr]) => out[k] = new Set(arr || []));
+      return out;
+    }catch(_){ return {}; }
+  }
+
+  function saveFilters(active){
+    try{
+      const plain = {};
+      Object.entries(active).forEach(([k, set]) => plain[k] = Array.from(set || []));
+      sessionStorage.setItem(KEY, JSON.stringify(plain));
+    }catch(_){}
+  }
+
+  function buildExcelParam(){
+    const plain = {};
+    Object.entries(excel.active).forEach(([k, set])=>{
+      if(set && set.size) plain[k] = Array.from(set);
+    });
+    return Object.keys(plain).length ? JSON.stringify(plain) : '';
+  }
+
+  function reloadWith(resetPage){
+    const url = new URL(location.href);
+    if(resetPage) url.searchParams.set('page','1');
+
+    const ef = buildExcelParam();
+    if(ef) url.searchParams.set('excel_filters', ef);
+    else url.searchParams.delete('excel_filters');
+
+    // mantener cantidad
+    const cant = document.getElementById('cantidad')?.value;
+    if(cant) url.searchParams.set('cantidad', cant);
+
+    location.href = url.toString();
+  }
+
+  function updateHeaderStates(){
+    excel.headers.forEach((th, idx)=>{
+      if(!th.hasAttribute('data-excel-col')) return;
+      const set = excel.active[idx];
+      th.classList.toggle('excel-col-filtered', !!(set && set.size));
+    });
+  }
+
+  function renderOptions(col){
+    excel.optsBox.innerHTML = '';
+
+    const values = (excelGlobal[String(col)] || []);
+    const selected = excel.active[col];
+
+    const allLabel = document.createElement('label');
+    allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
+    const allCb = document.createElement('input');
+    allCb.type = 'checkbox';
+    allCb.checked = !selected || selected.size === values.length;
+
+    allCb.addEventListener('change', ()=>{
+      const q = (excel.searchInput.value || '').trim().toLowerCase();
+      const onlyVisible = !!q;
+      const optionLabels = excel.optsBox.querySelectorAll('label[data-option-label]');
+      optionLabels.forEach(lbl=>{
+        if(onlyVisible && lbl.style.display === 'none') return;
+        const cb = lbl.querySelector('input[type="checkbox"][data-value]');
+        if(cb) cb.checked = allCb.checked;
+      });
+    });
+
+    allLabel.appendChild(allCb);
+    allLabel.appendChild(document.createTextNode(' (Select all)'));
+    excel.optsBox.appendChild(allLabel);
+
+    values.forEach(val=>{
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-1 text-xs mt-0.5';
+      label.dataset.optionLabel = '1';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.value = val;
+      cb.checked = !selected || selected.has(val);
+
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' ' + val));
+      excel.optsBox.appendChild(label);
+    });
+  }
+
+  function filterOptionList(query){
+    const q = (query || '').trim().toLowerCase();
+    let visible = 0;
+
+    excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
+      const txt = (lbl.textContent || '').toLowerCase();
+      const show = txt.includes(q);
+      lbl.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+
+    let msg = excel.optsBox.querySelector('[data-no-match="1"]');
+    if(!msg){
+      msg = document.createElement('div');
+      msg.dataset.noMatch = "1";
+      msg.className = "mt-2 text-xs text-gray-500";
+      msg.textContent = "No results found.";
+      excel.optsBox.appendChild(msg);
+    }
+    msg.style.display = (q && visible === 0) ? '' : 'none';
+
+    excel.btnApply.disabled = (q && visible === 0);
+    excel.btnApply.classList.toggle('opacity-50', excel.btnApply.disabled);
+    excel.btnApply.classList.toggle('cursor-not-allowed', excel.btnApply.disabled);
+  }
+
+  function openPanel(th, col){
+    excel.currentCol = col;
+    excel.titleEl.textContent = (th.textContent || '').trim().replace('▼','').trim() || 'Column';
+
+    renderOptions(col);
+
+    const rect = th.getBoundingClientRect();
+    const panelWidth  = excel.panel.offsetWidth || 260;
+    const panelHeight = excel.panel.offsetHeight || 220;
+
+    let left = rect.left + (rect.width - panelWidth) / 2;
+    let top  = rect.bottom + 4;
+
+    const minLeft = 8;
+    const maxLeft = window.innerWidth - panelWidth - 8;
+    if(left < minLeft) left = minLeft;
+    if(left > maxLeft) left = maxLeft;
+
+    const maxTop = window.innerHeight - panelHeight - 8;
+    if(top > maxTop) top = maxTop;
+
+    excel.panel.style.left = left + 'px';
+    excel.panel.style.top  = top + 'px';
+
+    excel.panel.classList.remove('hidden');
+    excel.searchInput.value = '';
+    filterOptionList('');
+    excel.searchInput.focus();
+  }
+
+  // Init active from sessionStorage
+  excel.active = loadFilters();
+  updateHeaderStates();
+
+  // Bind headers
+  excel.headers.forEach((th, idx)=>{
+    if(!th.hasAttribute('data-excel-col')) return;
+    const btn = th.querySelector('.excel-header-btn');
+    if(!btn) return;
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openPanel(th, idx);
+    });
+  });
+
+  // Panel events
+  excel.searchInput.addEventListener('input', ()=> filterOptionList(excel.searchInput.value));
+
+  excel.searchInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      if(!excel.btnApply.disabled) excel.btnApply.click();
+    }
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      excel.panel.classList.add('hidden');
+    }
+  });
+
+  excel.btnClear.addEventListener('click', (e)=>{
+    e.preventDefault();
+    if(excel.currentCol == null){
+      excel.panel.classList.add('hidden');
+      return;
+    }
+    delete excel.active[excel.currentCol];
+    saveFilters(excel.active);
+    excel.panel.classList.add('hidden');
+    reloadWith(true);
+  });
+
+  excel.btnApply.addEventListener('click', (e)=>{
+    e.preventDefault();
+    if(excel.currentCol == null){
+      excel.panel.classList.add('hidden');
+      return;
+    }
+
+    const q = (excel.searchInput.value || '').trim().toLowerCase();
+    let checkboxes = [];
+
+    if(q){
+      const visibleLabels = Array.from(excel.optsBox.querySelectorAll('label[data-option-label]'))
+        .filter(lbl => lbl.style.display !== 'none');
+      checkboxes = visibleLabels
+        .map(lbl => lbl.querySelector('input[type="checkbox"][data-value]'))
+        .filter(Boolean);
+    }else{
+      checkboxes = Array.from(excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]'));
+    }
+
+    const selected = new Set();
+    checkboxes.forEach(cb=>{ if(cb.checked) selected.add(cb.dataset.value); });
+
+    const full = new Set(excelGlobal[String(excel.currentCol)] || []);
+
+    if(selected.size === 0 || selected.size === full.size){
+      delete excel.active[excel.currentCol];
+    }else{
+      excel.active[excel.currentCol] = selected;
+    }
+
+    saveFilters(excel.active);
+    excel.panel.classList.add('hidden');
+    reloadWith(true);
+  });
+
+  // close panel outside
+  document.addEventListener('click', (e)=>{
+    if(excel.panel.classList.contains('hidden')) return;
+    if(excel.panel.contains(e.target)) return;
+    if(e.target.closest('.excel-header-btn')) return;
+    excel.panel.classList.add('hidden');
+  });
+
+  // Global clear
+  document.getElementById('btnExcelClearAll')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    excel.active = {};
+    saveFilters(excel.active);
+    reloadWith(true);
+  });
+})();
+</script>
+
 {% endblock %}

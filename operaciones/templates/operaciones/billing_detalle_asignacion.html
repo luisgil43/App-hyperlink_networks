@@ -1,4 +1,3 @@
-{# templates/operaciones/billing_detalle_asignacion.html #}
 {% extends "dashboard/base.html" %}
 {% load humanize %}
 {% block title %}Assignment Detail{% endblock %}
@@ -23,17 +22,20 @@
       </button>
     {% elif a.estado == "en_proceso" %}
       <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
-  Upload photos
-</a>
-      <a href="{% url 'operaciones:finish_assignment' a.pk %}"
-   class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
-  Finish
-</a>
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+        Upload photos
+      </a>
+
+      {# ✅ Finish solo si cumple las mismas condiciones (can_finish) #}
+      <button type="button"
+              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+              {% if not can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+        Finish
+      </button>
     {% endif %}
   </div>
 </div>
-
 
   {# ---- Datos del proyecto (con ubicación y semana proyectada) ---- #}
   <div class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
@@ -49,14 +51,12 @@
       {% with addr=a.sesion.direccion_proyecto|default_if_none:'' %}
       {% with href=a.sesion.maps_href|default_if_none:'' %}
       {% if addr %}
-        {# Si addr parece un link (http/https), no mostramos la URL larga, solo el botón de mapa #}
         {% if 'http' in addr|lower %}
           <a href="{{ addr }}" target="_blank" rel="noopener"
              class="ml-2 inline-flex items-center gap-1 text-blue-600 hover:underline break-all">
             📍 Open map
           </a>
         {% else %}
-          {# Dirección normal: que envuelva bien en móvil #}
           <span class="ml-1 break-words whitespace-pre-line">{{ addr }}</span>
           {% if href %}
             <a href="{{ href }}" target="_blank" rel="noopener"
@@ -128,6 +128,30 @@
   </div>
 </div>
 
+{# ===== Modal para finalizar con comentario (POST) ===== #}
+<div id="modal-finish" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Finish assignment?</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      Please enter a comment to submit this project for supervisor review.
+    </p>
+
+    <form id="form-finish" method="post" action="#" class="mt-4 space-y-3">
+      {% csrf_token %}
+      <textarea name="comentario" id="finish-comentario" rows="4"
+                class="w-full border rounded p-2"
+                placeholder="Write your comment..."
+                required></textarea>
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-finish>Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Finish</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function(){
   const modal = document.getElementById('modal-accept');
@@ -136,7 +160,7 @@
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('.btn-accept-start');
     if(!btn) return;
-    form.action = btn.getAttribute('data-action'); // URL de start_assignment
+    form.action = btn.getAttribute('data-action');
     modal.classList.remove('hidden');
   });
 
@@ -148,6 +172,44 @@
 
   document.addEventListener('keydown', (e)=>{
     if (e.key === 'Escape') modal.classList.add('hidden');
+  });
+})();
+</script>
+
+<script>
+(function(){
+  const modal = document.getElementById('modal-finish');
+  const form  = document.getElementById('form-finish');
+  const txt   = document.getElementById('finish-comentario');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-finish-open');
+    if(!btn) return;
+    if (btn.disabled) return;
+
+    form.action = btn.getAttribute('data-action');
+    if (txt) txt.value = "";
+    modal.classList.remove('hidden');
+    setTimeout(()=>{ try{ txt && txt.focus(); }catch(_){} }, 50);
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-finish')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') modal.classList.add('hidden');
+  });
+
+  form.addEventListener('submit', (e)=>{
+    const v = (txt && txt.value ? txt.value.trim() : "");
+    if (!v) {
+      e.preventDefault();
+      alert("Please enter a comment to finish.");
+      try{ txt && txt.focus(); }catch(_){}
+    }
   });
 })();
 </script>

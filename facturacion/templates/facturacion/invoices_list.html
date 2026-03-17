@@ -218,14 +218,19 @@
         </label>
 
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="19" checked>
-          <span>Pay week / Discount week</span>
-        </label>
+  <input type="checkbox" class="col-toggle" data-col="19" checked>
+  <span>Pay week / Discount week</span>
+</label>
 
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="20" checked>
-          <span>Actions</span>
-        </label>
+<label class="flex items-center gap-2">
+  <input type="checkbox" class="col-toggle" data-col="20" checked>
+  <span>Comment</span>
+</label>
+
+<label class="flex items-center gap-2">
+  <input type="checkbox" class="col-toggle" data-col="21" checked>
+  <span>Actions</span>
+</label>
       </div>
     </div>
   </details>
@@ -259,7 +264,8 @@
     <th class="p-2 border text-right">Difference</th>
     <th class="p-2 border text-left">Finance status</th>
     <th class="p-2 border text-left">Pay week / Discount week</th>
-    <th class="p-2 border text-center">Actions</th>
+<th class="p-2 border text-left">Comment</th>
+<th class="p-2 border text-center">Actions</th>
   </tr>
 </thead>
 
@@ -473,7 +479,20 @@
     <button type="button" class="text-xs text-gray-400 cursor-not-allowed" title="Only PM/Finance/Admin can edit.">🔒</button>
   {% endif %}
 </td>
-
+<td class="p-2 border align-top min-w-[380px] max-w-[520px] text-left whitespace-normal break-words"
+    style="white-space: normal;">
+  {% if s.comentarios_tecnicos %}
+    <div class="space-y-1">
+      {% for a in s.comentarios_tecnicos %}
+        <div class="text-xs text-gray-700 whitespace-pre-line break-words">
+          <b>{{ a.tecnico.get_full_name|default:a.tecnico.username }}:</b> {{ a.tecnico_comentario }}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <span class="text-gray-400">—</span>
+  {% endif %}
+</td>
 
           <!-- Actions -->
       <td class="p-2 border text-center">
@@ -527,7 +546,7 @@
         <tr id="detalle-{{ s.id }}" class="hidden">
           <td class="border"></td>  <!-- caret -->
           <!-- 17 columnas visibles arriba -> colspan = 17 -->
-          <td class="p-3 border bg-gray-50" colspan="21">
+          <td class="p-3 border bg-gray-50" colspan="22">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">

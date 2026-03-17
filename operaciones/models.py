@@ -533,7 +533,7 @@ class SesionBillingTecnico(models.Model):
         null=True, blank=True)        # al dar Start
     finalizado_en = models.DateTimeField(
         null=True, blank=True)      # al Finish
-
+    tecnico_comentario = models.TextField(blank=True, default="")
     supervisor_comentario = models.TextField(blank=True)
     supervisor_revisado_en = models.DateTimeField(null=True, blank=True)
 

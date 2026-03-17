@@ -25,6 +25,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.files import File
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage as storage
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import (Case, Count, DecimalField, Exists, F, FloatField,
                               IntegerField, OuterRef, Prefetch, Q, Subquery,
@@ -38,6 +39,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.html import strip_tags
 from django.utils.http import http_date
 from django.utils.text import slugify
 from django.views.decorators.cache import never_cache
@@ -80,6 +82,10 @@ def storage_file_exists(filefield) -> bool:
 # ============================
 
 
+
+
+
+
 @login_required
 @rol_requerido('usuario', 'admin', 'pm', 'supervisor')
 def mis_assignments(request):
@@ -95,7 +101,7 @@ def mis_assignments(request):
 
     base_qs = (
         SesionBillingTecnico.objects
-        .select_related("sesion")
+        .select_related("sesion", "tecnico")
         .filter(
             tecnico=request.user,
             estado__in=visibles,
@@ -115,7 +121,7 @@ def mis_assignments(request):
 
     dec_field = DecimalField(max_digits=12, decimal_places=2)
 
-    asignaciones = (
+    asignaciones_qs = (
         base_qs
         .annotate(
             my_total=Coalesce(
@@ -135,13 +141,12 @@ def mis_assignments(request):
                 output_field=IntegerField(),
             ),
         )
-        # Orden final: prioridad de estado, luego fecha de creación desc, luego id desc
         .order_by('estado_priority', '-sesion__creado_en', '-id')
     )
 
-    # ================== NUEVO: resolver nombre legible del proyecto ==================
-    asignaciones = list(asignaciones)
+    asignaciones = list(asignaciones_qs)
 
+    # ================== Resolver nombre legible del proyecto ==================
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
@@ -155,10 +160,8 @@ def mis_assignments(request):
 
         if raw:
             try:
-                # Caso nuevo: s.proyecto guarda el PK del Proyecto
                 pid = int(raw)
             except (TypeError, ValueError):
-                # Datos viejos: s.proyecto es texto (nombre/código)
                 proyecto_sel = proyectos_qs.filter(
                     Q(nombre__iexact=raw) |
                     Q(codigo__iexact=raw)
@@ -166,7 +169,6 @@ def mis_assignments(request):
             else:
                 proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-        # Si no encontramos nada con s.proyecto, probamos con s.proyecto_id (NBxxxx, etc.)
         if not proyecto_sel and getattr(s, "proyecto_id", None):
             code = str(s.proyecto_id).strip()
             proyecto_sel = proyectos_qs.filter(
@@ -177,32 +179,275 @@ def mis_assignments(request):
         if proyecto_sel:
             a.proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
         else:
-            # Fallback para sesiones antiguas / casos raros
             a.proyecto_label = (
                 getattr(s, "proyecto", None)
-                or getattr(s, "proyecto_id", "") 
+                or getattr(s, "proyecto_id", "")
                 or ""
             ).strip()
-    # ===============================================================================
+    # ========================================================================
+
+    # ================== can_finish + motivos (faltantes / pendientes) ==================
+    def _norm_title(x: str) -> str:
+        return (x or "").strip().lower()
+
+    # Agrupar por sesión
+    by_session = {}
+    for a in asignaciones:
+        by_session.setdefault(a.sesion_id, []).append(a)
+
+    sesion_ids = list(by_session.keys())
+
+    # 0) sample_map por sesión (nombres bonitos)
+    sample_map_by_sesion = {}
+    qs_sample = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion_id__in=sesion_ids, titulo__isnull=False)
+        .values_list("tecnico_sesion__sesion_id", "titulo")
+    )
+    for sid, t in qs_sample:
+        if not t:
+            continue
+        sample_map_by_sesion.setdefault(sid, {})
+        sample_map_by_sesion[sid][_norm_title(t)] = t
+
+    # 1) títulos obligatorios por sesión
+    req_titles_by_sesion = {}
+    qs_req = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion_id__in=sesion_ids, obligatorio=True)
+        .values_list("tecnico_sesion__sesion_id", "titulo")
+    )
+    for sid, t in qs_req:
+        if t:
+            req_titles_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+
+    # 2) títulos cubiertos por sesión (lock global por equipo)
+    covered_by_sesion = {}
+    qs_cov = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion_id__in=sesion_ids, requisito__isnull=False)
+        .values_list("tecnico_sesion__sesion_id", "requisito__titulo")
+        .distinct()
+    )
+    for sid, t in qs_cov:
+        if t:
+            covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+
+    # 3) pendientes de aceptación por sesión (NOMBRES)
+    pending_accept_names = {sid: [] for sid in sesion_ids}
+    qs_asg = (
+        SesionBillingTecnico.objects
+        .filter(sesion_id__in=sesion_ids)
+        .select_related("tecnico")
+        .only(
+            "sesion_id",
+            "estado",
+            "aceptado_en",
+            "tecnico__username",
+            "tecnico__first_name",
+            "tecnico__last_name",
+        )
+    )
+    for asg in qs_asg:
+        sid = asg.sesion_id
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            pending_accept_names.setdefault(sid, []).append(name)
+
+    # 4) aplicar a cada asignación
+    for a in asignaciones:
+        sid = a.sesion_id
+        required = req_titles_by_sesion.get(sid, set())
+        covered = covered_by_sesion.get(sid, set())
+        faltan_keys = required - covered
+
+        smap = sample_map_by_sesion.get(sid, {})
+        a.faltantes_global_labels = [smap.get(k, k) for k in sorted(faltan_keys)]
+        a.pendientes_aceptar_names = pending_accept_names.get(sid, [])
+
+        a.can_finish = (
+            a.estado == "en_proceso"
+            and not a.faltantes_global_labels
+            and not a.pendientes_aceptar_names
+        )
+    # ==============================================================================
+
+    # ================== Excel filters (server-side) + excel_global_json ==================
+    def _cell_value(a, col_idx: int) -> str:
+        s = a.sesion
+
+        def vac(x):
+            x = (x or "").strip()
+            return x if x else "(Vacías)"
+
+        if col_idx == 0:  # Date
+            return vac(s.creado_en.strftime("%Y-%m-%d"))
+        if col_idx == 1:  # Project ID
+            return vac(getattr(s, "proyecto_id", "") or "")
+        if col_idx == 2:  # Project address
+            addr = (getattr(s, "direccion_proyecto", "") or "").strip()
+            href = (getattr(s, "maps_href", "") or "").strip()
+            if not addr and not href:
+                return "(Vacías)"
+            if addr and href and addr == href:
+                return "Address"
+            return vac(addr)
+        if col_idx == 3:  # Client
+            return vac(getattr(s, "cliente", "") or "")
+        if col_idx == 4:  # City
+            return vac(getattr(s, "ciudad", "") or "")
+        if col_idx == 5:  # Project (label)
+            return vac(getattr(a, "proyecto_label", "") or "")
+        if col_idx == 6:  # Office
+            return vac(getattr(s, "oficina", "") or "")
+        if col_idx == 7:  # My Billing
+            try:
+                val = getattr(a, "my_total", Decimal("0.00")) or Decimal("0.00")
+                return f"${val:.2f}"
+            except Exception:
+                return "$0.00"
+        if col_idx == 8:  # Status (texto)
+            estado = getattr(a, "estado", "") or ""
+            if estado == "asignado":
+                return "Pending acceptance"
+            if estado == "en_proceso":
+                return "In progress"
+            if estado == "en_revision_supervisor":
+                return "Submitted — supervisor review"
+            if estado == "rechazado_supervisor":
+                return "Rejected by supervisor"
+            if estado == "rechazado_pm":
+                return "Rejected by PM"
+            if estado == "rechazado_finanzas":
+                return "Rejected by Finance"
+            return vac(estado)
+        if col_idx == 9:  # My comment
+            return vac(getattr(a, "tecnico_comentario", "") or "")
+        if col_idx == 10:  # Photo Report
+            return "Download" if getattr(s, "reporte_fotografico", None) else "(Vacías)"
+
+        return "(Vacías)"
+
+    # aplicar filtros recibidos
+    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+    active_excel_filters = {}
+    if excel_filters_raw:
+        try:
+            active_excel_filters = json.loads(excel_filters_raw) or {}
+        except Exception:
+            active_excel_filters = {}
+
+    if isinstance(active_excel_filters, dict) and active_excel_filters:
+        filtered = []
+        for a in asignaciones:
+            ok = True
+            for col_str, allowed_list in active_excel_filters.items():
+                try:
+                    col = int(col_str)
+                except Exception:
+                    continue
+                allowed_set = set((allowed_list or []))
+                if not allowed_set:
+                    continue
+                val = _cell_value(a, col)
+                if val not in allowed_set:
+                    ok = False
+                    break
+            if ok:
+                filtered.append(a)
+        asignaciones = filtered
+
+    # excel_global_json: valores distintos por columna (para armar el panel)
+    excel_global = {}
+    MAX_COLS = 11  # 0..10 (Actions no entra)
+    for i in range(MAX_COLS):
+        vals = set()
+        for a in asignaciones:
+            vals.add(_cell_value(a, i))
+        excel_global[str(i)] = sorted(vals, key=lambda x: (x == "(Vacías)", x.lower()))
+
+    excel_global_json = json.dumps(excel_global, ensure_ascii=False)
+
+    # ================== Paginación ==================
+    cantidad = (request.GET.get("cantidad") or "20").strip()
+    try:
+        per_page = int(cantidad)
+    except Exception:
+        per_page = 20
+    if per_page not in (5, 10, 20, 50, 100):
+        per_page = 20
+
+    paginator = Paginator(asignaciones, per_page)
+    page_num = request.GET.get("page") or "1"
+    pagina = paginator.get_page(page_num)
+
+    # querystring base para links (sin "page")
+    qs_keep = request.GET.copy()
+    qs_keep.pop("page", None)
+    base_qs = qs_keep.urlencode()
+    # ================== /Paginación ==================
 
     return render(
         request,
         "operaciones/billing_mis_asignaciones.html",
-        {"asignaciones": asignaciones}
+        {
+            "asignaciones": pagina.object_list,
+            "pagina": pagina,
+            "cantidad": str(per_page),
+            "base_qs": base_qs,
+            "excel_global_json": excel_global_json,
+        }
     )
-
-
 
 @login_required
 @rol_requerido('usuario')
 def detalle_assignment(request, pk):
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
-    items = (ItemBillingTecnico.objects
-             .filter(item__sesion=a.sesion, tecnico=request.user)
-             .select_related("item")
-             .order_by("item__id"))
+
+    items = (
+        ItemBillingTecnico.objects
+        .filter(item__sesion=a.sesion, tecnico=request.user)
+        .select_related("item")
+        .order_by("item__id")
+    )
+
+    # ✅ NUEVO: misma regla de "Finish" que en billing_upload_evidencias
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    s = a.sesion
+
+    required_titles = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, obligatorio=True)
+        .values_list("titulo", flat=True)
+    )
+    required_key_set = {_norm_title(t) for t in required_titles if t}
+
+    taken_titles = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
+        .values_list("requisito__titulo", flat=True)
+        .distinct()
+    )
+    covered_key_set = {_norm_title(t) for t in taken_titles if t}
+
+    missing_keys = required_key_set - covered_key_set
+
+    pendientes_aceptar = []
+    for asg in s.tecnicos_sesion.select_related("tecnico").all():
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(name)
+
+    can_finish = (a.estado == "en_proceso" and not missing_keys and not pendientes_aceptar)
+
     return render(request, "operaciones/billing_detalle_asignacion.html", {
-        "a": a, "items": items
+        "a": a,
+        "items": items,
+        "can_finish": can_finish,  # ✅ para habilitar/deshabilitar Finish aquí también
     })
 
 
@@ -866,10 +1111,21 @@ def finish_assignment(request, pk):
     - Verifica que esos títulos tengan al menos una foto (de cualquiera del equipo).
     - Verifica que todos hayan aceptado (Start).
     - Si todo OK: pasa TODAS las asignaciones y la sesión a 'en_revision_supervisor'.
+    - NUEVO: exige comentario y lo guarda en la asignación del técnico que presiona Finish.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
     if a.estado != "en_proceso":
         messages.error(request, "This assignment is not in progress.")
+        return redirect("operaciones:mis_assignments")
+
+    # ✅ NUEVO (comentario obligatorio desde el modal)
+    if request.method != "POST":
+        messages.error(request, "Comment is required to finish.")
+        return redirect("operaciones:mis_assignments")
+
+    comentario = (request.POST.get("comentario") or "").strip()
+    if not comentario:
+        messages.error(request, "Please enter a comment to finish.")
         return redirect("operaciones:mis_assignments")
 
     def _norm_title(s: str) -> str:
@@ -879,8 +1135,7 @@ def finish_assignment(request, pk):
 
     # --- Recolectar títulos obligatorios por asignación (normalizados)
     asignaciones = list(
-        s.tecnicos_sesion.select_related(
-            "tecnico").prefetch_related("requisitos").all()
+        s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
     )
 
     per_asg_required_sets = []
@@ -900,8 +1155,7 @@ def finish_assignment(request, pk):
         required_key_set = set()
     else:
         # INTERSECCIÓN entre todas las asignaciones: lo común es lo realmente "vigente"
-        required_key_set = set.intersection(
-            *per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
+        required_key_set = set.intersection(*per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
 
     # Map para mostrar nombres con mayúsculas originales
     sample_map = {_norm_title(t): t for t in sample_titles if t}
@@ -918,8 +1172,7 @@ def finish_assignment(request, pk):
     missing_keys = required_key_set - covered_key_set
     if missing_keys:
         pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
-        messages.error(request, "Missing required photos: " +
-                       ", ".join(pretty_missing))
+        messages.error(request, "Missing required photos: " + ", ".join(pretty_missing))
         return redirect("operaciones:upload_evidencias", pk=a.pk)
 
     # --- Validar que todos hayan dado Start
@@ -927,27 +1180,29 @@ def finish_assignment(request, pk):
     for asg in asignaciones:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
-            name = getattr(asg.tecnico, "get_full_name",
-                           lambda: "")() or asg.tecnico.username
+            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
             pendientes_aceptar.append(name)
 
     if pendientes_aceptar:
-        messages.error(request, "Pending acceptance (Start): " +
-                       ", ".join(pendientes_aceptar))
+        messages.error(request, "Pending acceptance (Start): " + ", ".join(pendientes_aceptar))
         return redirect("operaciones:upload_evidencias", pk=a.pk)
 
-    # --- Transición a revisión de supervisor
+    # --- Transición a revisión de supervisor + guardar comentario
     now = timezone.now()
     with transaction.atomic():
+        # ✅ NUEVO: guardar comentario en la asignación que está finalizando
+        a.tecnico_comentario = comentario
+        a.save(update_fields=["tecnico_comentario"])
+
         s.tecnicos_sesion.update(
-            estado="en_revision_supervisor", finalizado_en=now)
+            estado="en_revision_supervisor",
+            finalizado_en=now,
+        )
         s.estado = "en_revision_supervisor"
         s.save(update_fields=["estado"])
 
-    messages.success(
-        request, "Submitted for supervisor review for all assignees.")
+    messages.success(request, "Submitted for supervisor review for all assignees.")
     return redirect("operaciones:mis_assignments")
-
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')

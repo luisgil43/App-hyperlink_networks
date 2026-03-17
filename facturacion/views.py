@@ -1766,6 +1766,20 @@ def invoices_list(request):
     # Adjuntamos etiqueta legible de proyecto (project_label) a cada sesión
     pagina = _attach_project_label(pagina)
 
+    # ✅ NUEVO: armar comentarios_tecnicos (como en Billing)
+    # El template usa: a.tecnico + a.tecnico_comentario
+    try:
+        for s in pagina.object_list:
+            lst = []
+            for st in s.tecnicos_sesion.all():
+                txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+                if txt:
+                    lst.append(st)  # st tiene .tecnico y .tecnico_comentario
+            s.comentarios_tecnicos = lst
+    except Exception:
+        for s in getattr(pagina, "object_list", []):
+            s.comentarios_tecnicos = []
+
     ctx = {
         "pagina": pagina,
         "cantidad": cantidad,
@@ -1787,12 +1801,7 @@ def invoices_list(request):
     }
     return render(request, "facturacion/invoices_list.html", ctx)
 
-from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
-from django.http import HttpResponseForbidden, JsonResponse
-from django.shortcuts import get_object_or_404
-from django.views.decorators.http import require_POST
 
 
 @require_POST
@@ -2033,12 +2042,15 @@ def invoices_export(request):
     from datetime import datetime
     from decimal import Decimal
 
-    from django.db.models import Q
+    from django.db.models import Prefetch, Q
     from django.http import HttpResponse
     from django.utils import timezone
     from openpyxl import Workbook
 
     from facturacion.models import Proyecto
+    from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
+                                    ItemBillingTecnico, SesionBilling,
+                                    SesionBillingTecnico)
 
     user = request.user
     scope = request.GET.get("scope", "open")  # open | all | paid
@@ -2301,6 +2313,18 @@ def invoices_export(request):
             parts.append(f"{name} ({st.porcentaje:.2f}%)")
         return ", ".join(parts)
 
+    # ✅ NUEVO: comentario (como el comentario del técnico)
+    def comments_string(sesion):
+        parts = []
+        for st in sesion.tecnicos_sesion.all():
+            txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+            if not txt:
+                continue
+            tech = getattr(st, "tecnico", None)
+            name = (tech.get_full_name() or tech.username) if tech else "—"
+            parts.append(f"{name}: {txt}")
+        return "\n".join(parts)
+
     # --------- Crear Excel ---------
     wb = Workbook()
     ws = wb.active
@@ -2313,23 +2337,22 @@ def invoices_export(request):
         "Daily Number", "Finish date", "Real Company Billing",
         "Difference", "Finance status", "Finance note",
         "Pay week / Discount week",
+        "Comment",
         "Job Code", "Work Type", "Description", "UOM", "Quantity",
         "Technical Rate", "Company Rate", "Subtotal Technical", "Subtotal Company",
     ]
     ws.append(headers)
 
     for s in qs:
-        status_label = "Direct discount" if getattr(
-            s, "is_direct_discount", False) else status_map.get(s.estado, "Assigned")
+        status_label = "Direct discount" if getattr(s, "is_direct_discount", False) else status_map.get(s.estado, "Assigned")
         finance_label = finance_map.get(s.finance_status, "—")
 
         real_week = s.semana_pago_real or ""
-        disc_week = getattr(s, "discount_week", "") or getattr(
-            s, "semana_descuento", "") or ""
-        pay_or_disc = f"{real_week} / {disc_week}" if (
-            real_week and disc_week) else (real_week or disc_week)
+        disc_week = getattr(s, "discount_week", "") or getattr(s, "semana_descuento", "") or ""
+        pay_or_disc = f"{real_week} / {disc_week}" if (real_week and disc_week) else (real_week or disc_week)
 
         project_label = _resolve_project_label(s)
+        comment_text = comments_string(s)
 
         head_common = [
             _to_excel_dt(s.creado_en),
@@ -2351,6 +2374,7 @@ def invoices_export(request):
             finance_label,
             (s.finance_note or ""),
             pay_or_disc,
+            comment_text,
         ]
 
         items = getattr(s, "items", None).all() if hasattr(s, "items") else []
@@ -2361,12 +2385,11 @@ def invoices_export(request):
         for it in items:
             qty_total = Decimal(str(it.cantidad or 0))
             comp_rate = Decimal(str(it.precio_empresa or 0))
-            desglose = list(getattr(it, "desglose_tecnico", []).all()) if hasattr(
-                it, "desglose_tecnico") else []
+            desglose = list(getattr(it, "desglose_tecnico", []).all()) if hasattr(it, "desglose_tecnico") else []
 
             if desglose:
                 for bd in desglose:
-                    pct = Decimal(str(bd.porcentaje or 0)) / Decimal('100')
+                    pct = Decimal(str(bd.porcentaje or 0)) / Decimal("100")
                     qty_tec = (qty_total * pct)
                     base_rate = Decimal(str(getattr(bd, "tarifa_base", 0) or 0))
                     sub_tec = base_rate * qty_tec
@@ -2386,8 +2409,7 @@ def invoices_export(request):
                     ws.append(row)
             else:
                 sub_tec_item = Decimal(str(it.subtotal_tecnico or 0))
-                sub_comp_item = Decimal(
-                    str(it.subtotal_empresa or (comp_rate * qty_total)))
+                sub_comp_item = Decimal(str(it.subtotal_empresa or (comp_rate * qty_total)))
                 row = head_common + [
                     it.codigo_trabajo or "",
                     it.tipo_trabajo or "",
