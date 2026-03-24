@@ -248,6 +248,10 @@ urlpatterns = [
     
     path("billing/<int:sesion_id>/bulk-delete-evidencias/",views.bulk_delete_evidencias,name="bulk_delete_evidencias",),
 
+    
+    path("billing/<int:sesion_id>/tecnicos/add/", v.billing_add_tecnico, name="billing_add_tecnico"),
+    path("billing/<int:sesion_id>/tecnicos/disponibles/", v.billing_tecnicos_disponibles, name="billing_tecnicos_disponibles"),
 
+     path("billing/<int:sesion_id>/update-creado-en/", v.billing_update_creado_en, name="billing_update_creado_en"),
 
 ]

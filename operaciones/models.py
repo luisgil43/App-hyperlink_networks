@@ -521,6 +521,7 @@ class SesionBillingTecnico(models.Model):
         SesionBilling, on_delete=models.CASCADE, related_name="tecnicos_sesion")
     tecnico = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    is_active = models.BooleanField(default=True, db_index=True)
     porcentaje = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal("100.00"))
     estado = models.CharField(

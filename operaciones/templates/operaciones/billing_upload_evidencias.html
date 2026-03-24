@@ -4,39 +4,43 @@
 {% block content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
-  <div class="flex items-center justify-between">
-  <div class="flex items-center gap-2">
-   <a href="{% url 'operaciones:mis_assignments' %}"
-   class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded">
-  ⬅️ Back
-</a>
+  {# ===== HEADER (RESPONSIVE) ===== #}
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 
-    <h1 class="text-2xl font-bold">📸 Upload Photos — Billing #{{ a.sesion.id }}</h1>
-  </div>
+    <div class="flex items-center gap-2 min-w-0">
+      <a href="{% url 'operaciones:mis_assignments' %}"
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded whitespace-nowrap">
+        ⬅️ Back
+      </a>
 
-  <div class="flex items-center gap-2">
-    <a href="{% url 'operaciones:list_plans_readonly' a.sesion.id %}"
-       class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded">
-      View Maps
-    </a>
+      <h1 class="text-2xl font-bold leading-tight min-w-0">
+        📸 Upload Photos — Billing #{{ a.sesion.id }}
+      </h1>
+    </div>
 
-<a href="{% url 'borelogs:borelog_list_for_billing_user' a.sesion.id %}?back_asig={{ a.pk }}"
-   class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded">
-  Bore Logs
-</a>
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto">
 
-    <form id="finalizar-form" method="post" action="{% url 'operaciones:finish_assignment' a.pk %}">
-      {% csrf_token %}
-      <button id="btn-finalizar" type="submit"
-              {% if not can_finish %}disabled{% endif %}
-              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded"
-              title="All required photos must be uploaded and all assignees must accept (Start).">
+      <a href="{% url 'operaciones:list_plans_readonly' a.sesion.id %}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+        View Maps
+      </a>
+
+      <a href="{% url 'borelogs:borelog_list_for_billing_user' a.sesion.id %}?back_asig={{ a.pk }}"
+         class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+        Bore Logs
+      </a>
+
+      {# ✅ FINISH: MISMO COMPORTAMIENTO QUE EN LIST/DETAIL (modal con comentario) #}
+      <button type="button"
+              id="btn-finalizar"
+              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+              {% if not can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
         Finish
       </button>
-    </form>
-  </div>
-</div>
 
+    </div>
+  </div>
 
   {# Banner dinámico de motivos para deshabilitar Finish #}
   <div id="missing-banner"
@@ -320,6 +324,78 @@
   </div>
 </div>
 
+{# ✅ Modal Finish con comentario (MISMO QUE LIST/DETAIL) #}
+<div id="modal-finish" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Finish assignment</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      Please enter a comment. This will submit the whole team for supervisor review if validations pass.
+    </p>
+
+    <form id="form-finish" method="post" action="#" class="mt-4">
+      {% csrf_token %}
+      <label class="block text-sm font-medium mb-1">Comment</label>
+      <textarea
+        name="comentario"
+        id="finish-comentario"
+        rows="4"
+        class="w-full border rounded-xl p-2"
+        placeholder="Write your comment..."
+        required
+      ></textarea>
+
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-finish>Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Finish</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ============================
+  // FINISH MODAL (igual que list/detail)
+  // ============================
+  const modal = document.getElementById('modal-finish');
+  const form  = document.getElementById('form-finish');
+  const txt   = document.getElementById('finish-comentario');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-finish-open');
+    if(!btn) return;
+    if (btn.disabled) return;
+
+    form.action = btn.getAttribute('data-action') || '';
+    if (txt) txt.value = '';
+    modal.classList.remove('hidden');
+    setTimeout(()=>{ try{ txt && txt.focus(); }catch(_){} }, 50);
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-finish')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  form.addEventListener('submit', (e)=>{
+    const v = (txt && txt.value ? txt.value.trim() : "");
+    if (!v) {
+      e.preventDefault();
+      alert("Please enter a comment to finish.");
+      try{ txt && txt.focus(); }catch(_){}
+    }
+  });
+})();
+</script>
+
 <script>
 (function(){
   // ------------------ Backend-injected vars ------------------
@@ -565,7 +641,6 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       lblGal.classList.toggle('opacity-60', !enabled);
     }
     if (filenameEl){
-      // 🔒 Solo sobre-escribir texto si NO hay archivos seleccionados
       var haveFiles = Array.from(form.querySelectorAll('input[type=file]')).some(function(i){ return i.files && i.files.length; });
       if (!enabled){
         filenameEl.textContent = 'Closed';
@@ -633,10 +708,10 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     if (!btn) return;
     btn.disabled = !enabled;
     if (enabled){
-      btn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded';
+      btn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open';
       btn.removeAttribute('title');
     } else {
-      btn.className = 'bg-indigo-300 text-white px-4 py-2 rounded cursor-not-allowed';
+      btn.className = 'bg-indigo-300 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left cursor-not-allowed btn-finish-open';
       btn.title = 'All required photos must be uploaded and all assignees must accept (Start).';
     }
   };

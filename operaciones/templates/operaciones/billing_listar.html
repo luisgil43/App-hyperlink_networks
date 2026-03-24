@@ -269,7 +269,26 @@ else %}asignado assigned{% endif %}"
           <td class="p-2 border text-center">
             <input type="checkbox" class="row-chk w-4 h-4" value="{{ s.id }}">
           </td>
-          <td class="p-2 border">{{ s.creado_en|date:"Y-m-d H:i" }}</td>
+<td class="p-2 border"
+    data-col="creado-en"
+    data-session-id="{{ s.id }}"
+    data-update-url="{% url 'operaciones:billing_update_creado_en' s.id %}">
+
+  <span class="dt-view" id="dt-view-{{ s.id }}">{{ s.creado_en|date:"Y-m-d H:i" }}</span>
+
+  <input type="text"
+         class="dt-input hidden border rounded px-2 py-1 text-sm w-44"
+         id="dt-input-{{ s.id }}"
+         value="{{ s.creado_en|date:'Y-m-d H:i' }}"
+         autocomplete="off">
+
+  <!-- ✅ lapicito -->
+  <button type="button"
+          class="dt-edit text-xs text-blue-600 underline"
+          data-id="{{ s.id }}">
+    ✏️
+  </button>
+</td>
           <td class="p-2 border">{{ s.proyecto_id }}</td>
 
           <!-- Project address -->
@@ -429,6 +448,12 @@ else %}asignado assigned{% endif %}"
               <div class="flex items-center justify-center gap-3">
                 <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
                 <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
+                <button type="button"
+                class="btn-manage-tech text-emerald-700 hover:underline"
+                data-id="{{ s.id }}"
+                title="Manage technicians for this billing">
+                Add technician
+                </button>
                 <button type="button"
                         class="btn-open-delete text-red-600 hover:underline"
                         data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
@@ -798,6 +823,63 @@ document.addEventListener('click', function(e){
     <p id="busy-sub" class="mt-1 text-sm text-gray-600">Please wait<span id="busy-dots" aria-hidden="true">…</span></p>
   </div>
 </div>
+<!-- ✅ Select Technicians modal (same style as New Billing) -->
+<div id="tech-modal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close="1"></div>
+
+  <div class="relative z-10 max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-semibold">Select Technicians</h3>
+      <button type="button" id="btn-close-tech" class="text-gray-500 hover:text-gray-700">✖</button>
+    </div>
+
+    <!-- (optional) search like your newer modal -->
+    <div class="mb-3">
+      <label class="block text-sm font-medium mb-1">Search technician</label>
+      <input id="tech-search"
+             type="text"
+             class="w-full border rounded p-2"
+             placeholder="Type a name…"
+             autocomplete="off">
+      <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
+        <span id="tech-count">0 selected</span>
+        <button type="button" id="tech-select-all" class="text-blue-600 hover:underline">Select all</button>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto border rounded">
+      <table class="min-w-[600px] w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="p-2 text-left w-24">Select</th>
+            <th class="p-2 text-left">Name</th>
+            <th class="p-2 text-left w-48">Username</th>
+          </tr>
+        </thead>
+
+        <tbody id="tech-tbody">
+          <tr>
+            <td colspan="3" class="p-3 text-center text-gray-500">Loading…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- hidden state -->
+    <input type="hidden" id="tech-session-id" value="">
+
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <button type="button" id="btn-apply-tech"
+              class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+        Apply
+      </button>
+    </div>
+
+    <p id="tech-error" class="mt-2 text-xs text-red-600 hidden"></p>
+  </div>
+</div>
+
+
 
 <!-- JS for Info modal -->
 <script>
@@ -1694,6 +1776,137 @@ async function fetchAndReplace(url){
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
 <script>
+(function(){
+  if (!window.flatpickr) return;
+
+  // CSRF helper (cookie)
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2200);
+  }
+
+  async function saveDatetime(url, value){
+    const form = new FormData();
+    form.append('creado_en', value);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json'
+      },
+      body: form
+    });
+
+    let data = null;
+    try { data = await resp.json(); } catch(_){}
+
+    if(resp.status === 401){
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `Save failed (HTTP ${resp.status})`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function ensurePicker(input, url, sid){
+    if (input._dtPickerReady) return;
+
+    const fp = flatpickr(input, {
+      enableTime: true,
+      time_24hr: false,
+      dateFormat: "Y-m-d H:i",      // backend
+      altInput: true,               // UI bonita
+      altFormat: "F j, Y h:i K",     // English + AM/PM
+      locale: "en",
+      allowInput: true,
+
+      onOpen: function(){
+        // Si quieres seleccionar todo al abrir:
+        try { fp.altInput && fp.altInput.select(); } catch(_){}
+      },
+
+      onClose: async function(selectedDates, dateStr){
+        const v = (dateStr || '').trim();
+        if(!v) return;
+
+        try{
+          const data = await saveDatetime(url, v);
+
+          const view = document.getElementById(`dt-view-${sid}`);
+          if(view) view.textContent = data.display || v;
+
+          // actualizar dataset para filtros
+          const tr = input.closest('tr[data-row="main"]');
+          if(tr) tr.dataset.date = (data.search_value || v).toLowerCase();
+
+          // mantener input.value sincronizado (para revert)
+          input.value = (data.search_value || v);
+
+          toast('Saved.', 'success');
+        }catch(err){
+          toast(err.message || 'Save failed', 'error');
+          // revertir a lo que tenía
+          fp.setDate(input.value, false);
+        }
+      }
+    });
+
+    input._dtPickerReady = true;
+    input._dtFp = fp;
+  }
+
+  function openPickerFromTd(td){
+    const sid = td.getAttribute('data-session-id');
+    const url = td.getAttribute('data-update-url');
+    if(!sid || !url) return;
+
+    const input = document.getElementById(`dt-input-${sid}`);
+    if(!input) return;
+
+    ensurePicker(input, url, sid);
+
+    const fp = input._dtFp;
+    if(fp) fp.open();
+  }
+
+  // ✅ Click en lapicito
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.dt-edit');
+    if(!btn) return;
+
+    const sid = btn.dataset.id;
+    const td = document.querySelector(`td[data-col="creado-en"][data-session-id="${sid}"]`);
+    if(!td) return;
+
+    openPickerFromTd(td);
+  });
+
+  // ✅ Doble click en la celda
+  document.addEventListener('dblclick', function(e){
+    const td = e.target.closest('td[data-col="creado-en"]');
+    if(!td) return;
+    openPickerFromTd(td);
+  });
+
+})();
+</script>
+
+<script>
 (function () {
   function initDatePickers() {
     if (!window.flatpickr) {
@@ -1921,6 +2134,186 @@ async function fetchAndReplace(url){
     }
     return data;
   };
+})();
+</script>
+
+<script>
+(function(){
+  // --- CSRF helper (cookie) ---
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  // --- Modal refs ---
+  const modal      = document.getElementById('tech-modal');
+  const btnClose   = document.getElementById('btn-close-tech');
+  const btnApply   = document.getElementById('btn-apply-tech');
+  const tbody      = document.getElementById('tech-tbody');
+  const sidInput   = document.getElementById('tech-session-id');
+  const searchEl   = document.getElementById('tech-search');
+  const countEl    = document.getElementById('tech-count');
+  const selectAll  = document.getElementById('tech-select-all');
+  const errEl      = document.getElementById('tech-error');
+
+  // ✅ NUEVAS URLs (debes crearlas en urls.py)
+const URL_LIST = "{% url 'operaciones:billing_tecnicos_disponibles' 0 %}".replace('/0/', '/{sid}/');
+const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '/{sid}/');
+
+  function openModal(sessionId){
+    if (!modal) return;
+    sidInput.value = String(sessionId || '');
+    if (errEl){ errEl.textContent=''; errEl.classList.add('hidden'); }
+    if (searchEl) searchEl.value = '';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-gray-500">Loading…</td></tr>`;
+    modal.classList.remove('hidden');
+    loadList(sessionId);
+  }
+
+  function closeModal(){
+    if (!modal) return;
+    modal.classList.add('hidden');
+  }
+
+  // Abrir desde botón en la tabla
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.btn-manage-tech');
+    if(!btn) return;
+    e.preventDefault();
+    openModal(btn.dataset.id);
+  });
+
+  // Cerrar modal
+  btnClose?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e)=>{ if(e.target?.getAttribute('data-close') === '1') closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && modal && !modal.classList.contains('hidden')) closeModal(); });
+
+  function escapeHtml(s){
+    return String(s||'')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function getCheckedCount(){
+    return Array.from(tbody.querySelectorAll('input.tech-check:checked')).length;
+  }
+
+  function syncCount(){
+    if (!countEl) return;
+    const n = getCheckedCount();
+    countEl.textContent = `${n} selected`;
+  }
+
+  function renderRows(rows){
+    if (!tbody) return;
+
+    if(!rows || !rows.length){
+      tbody.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-gray-500">No technicians found.</td></tr>`;
+      syncCount();
+      return;
+    }
+
+    tbody.innerHTML = rows.map(t => `
+      <tr class="border-t tech-row"
+          data-hay="${escapeHtml(((t.name||'') + ' ' + (t.username||'')).toLowerCase())}">
+        <td class="p-2">
+          <input type="checkbox" class="tech-check" value="${t.id}"
+                 ${t.checked ? 'checked' : ''}>
+        </td>
+        <td class="p-2">${escapeHtml(t.name)}</td>
+        <td class="p-2">${escapeHtml(t.username || '')}</td>
+      </tr>
+    `).join('');
+
+    syncCount();
+  }
+
+  async function loadList(sid){
+    try{
+      const url = URL_LIST.replace('{sid}', sid);
+      const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }});
+      const data = await resp.json();
+
+      if(!resp.ok || !data || data.ok !== true){
+        throw new Error((data && (data.error || data.message)) || `HTTP ${resp.status}`);
+      }
+
+      renderRows(data.results || []);
+    }catch(err){
+      if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-gray-500">Error loading technicians.</td></tr>`;
+      if (errEl){ errEl.textContent = err.message || 'Failed to load'; errEl.classList.remove('hidden'); }
+    }
+  }
+
+  // Click checkbox -> actualizar contador
+  tbody?.addEventListener('change', function(e){
+    if(e.target && e.target.classList.contains('tech-check')){
+      syncCount();
+    }
+  });
+
+  // Search (filtra filas ya renderizadas)
+  searchEl?.addEventListener('input', function(){
+    const q = (searchEl.value || '').trim().toLowerCase();
+    Array.from(tbody.querySelectorAll('tr.tech-row')).forEach(tr=>{
+      const hay = (tr.dataset.hay || '');
+      tr.style.display = (!q || hay.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // Select all (solo filas visibles)
+  selectAll?.addEventListener('click', function(){
+    const visibles = Array.from(tbody.querySelectorAll('tr.tech-row')).filter(tr => tr.style.display !== 'none');
+    const boxes = visibles.map(tr => tr.querySelector('input.tech-check')).filter(Boolean);
+
+    // Si todos están checked -> descheck; si no -> check
+    const allChecked = boxes.length && boxes.every(b => b.checked);
+    boxes.forEach(b => b.checked = !allChecked);
+    syncCount();
+  });
+
+  // Apply -> guarda selección completa
+  btnApply?.addEventListener('click', async function(){
+  const sid = (sidInput.value || '').trim();
+  if(!sid) return;
+
+  const ids = Array.from(tbody.querySelectorAll('input.tech-check:checked'))
+    .map(chk => chk.value);
+
+  btnApply.disabled = true;
+
+  try{
+    const url = URL_SET.replace('{sid}', sid);
+
+    const form = new FormData();
+    ids.forEach(id => form.append('tech_ids[]', id));
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: form
+    });
+
+    // tu reasignar_tecnicos hoy responde redirect (HTML), no JSON
+    // así que basta con recargar si fue OK
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    closeModal();
+    location.reload();
+
+  }catch(err){
+    if (errEl){ errEl.textContent = err.message || 'Failed to save'; errEl.classList.remove('hidden'); }
+    btnApply.disabled = false;
+  }
+});
+
 })();
 </script>
 {% endblock %}

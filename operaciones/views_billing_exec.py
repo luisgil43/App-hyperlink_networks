@@ -61,6 +61,9 @@ from .models import (EvidenciaFotoBilling, ItemBillingTecnico,
                      ReporteFotograficoJob, RequisitoFotoBilling,
                      SesionBilling, SesionBillingTecnico)
 
+log = logging.getLogger(__name__)
+
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 register_heif_opener()  # habilita abrir .heic/.heif en Pillow
 # ============================
@@ -77,13 +80,29 @@ def storage_file_exists(filefield) -> bool:
         return False
 
 
+
+
+def _has_ops_role(u):
+    return (
+        getattr(u, "es_pm", False) or
+        getattr(u, "es_facturacion", False) or
+        getattr(u, "es_admin_general", False) or
+        u.is_superuser
+    )
+
 # ============================
 # TÉCNICO
 # ============================
 
+def _is_asig_active(asig) -> bool:
+    # Compat: si no existe el campo, asumimos activo (para no romper)
+    return getattr(asig, "is_active", True) is True
 
-
-
+def _get_my_active_assignment_or_404(request, pk: int):
+    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+    if not _is_asig_active(a):
+        raise Http404()
+    return a
 
 
 @login_required
@@ -109,6 +128,13 @@ def mis_assignments(request):
             sesion__is_direct_discount=False,
         )
     )
+
+    # ✅ NUEVO: mostrar solo asignaciones activas (si existe el campo)
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        base_qs = base_qs.filter(is_active=True)
+    except Exception:
+        pass
 
     # Subquery: total del técnico para cada sesión
     ibt = (
@@ -233,7 +259,7 @@ def mis_assignments(request):
         if t:
             covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
 
-    # 3) pendientes de aceptación por sesión (NOMBRES)
+    # 3) pendientes de aceptación por sesión (NOMBRES) ✅ solo asignaciones activas
     pending_accept_names = {sid: [] for sid in sesion_ids}
     qs_asg = (
         SesionBillingTecnico.objects
@@ -248,6 +274,12 @@ def mis_assignments(request):
             "tecnico__last_name",
         )
     )
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
     for asg in qs_asg:
         sid = asg.sesion_id
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
@@ -405,6 +437,10 @@ def mis_assignments(request):
 def detalle_assignment(request, pk):
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        raise Http404()
+
     items = (
         ItemBillingTecnico.objects
         .filter(item__sesion=a.sesion, tecnico=request.user)
@@ -436,7 +472,15 @@ def detalle_assignment(request, pk):
     missing_keys = required_key_set - covered_key_set
 
     pendientes_aceptar = []
-    for asg in s.tecnicos_sesion.select_related("tecnico").all():
+
+    qs_asg = s.tecnicos_sesion.select_related("tecnico").all()
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    for asg in qs_asg:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
             name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
@@ -461,6 +505,11 @@ def start_assignment(request, pk):
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        messages.error(request, "This assignment is no longer available.")
+        return redirect("operaciones:mis_assignments")
+
     if a.estado not in {"asignado", "rechazado_supervisor"} and not a.reintento_habilitado:
         messages.error(request, "This assignment cannot be started.")
         return redirect("operaciones:mis_assignments")
@@ -477,6 +526,7 @@ def start_assignment(request, pk):
 
     messages.success(request, "Assignment started.")
     return redirect("operaciones:mis_assignments")
+
 
 
 def _to_jpeg_if_needed(uploaded_file):
@@ -571,6 +621,11 @@ def upload_evidencias(request, pk):
     Carga de evidencias con 'lock' por TÍTULO compartido a nivel de sesión.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        messages.error(request, "This assignment is no longer available.")
+        return redirect("operaciones:mis_assignments")
 
     # ---------- helpers ----------
     def _norm_title(s: str) -> str:
@@ -785,7 +840,14 @@ def upload_evidencias(request, pk):
     sample_map = {_norm_title(t): t for t in sample_titles if t}
     faltantes_global = [sample_map.get(k, k) for k in sorted(missing_keys)]
 
-    asignaciones = list(s.tecnicos_sesion.select_related("tecnico").all())
+    qs_asg = s.tecnicos_sesion.select_related("tecnico").all()
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    asignaciones = list(qs_asg)
     pendientes_aceptar = []
     for asg in asignaciones:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
@@ -854,6 +916,11 @@ def upload_evidencias_ajax(request, pk):
     Subida AJAX (una imagen por request) al estilo GZ Services.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        return JsonResponse({"ok": False, "error": "Assignment no longer available."}, status=404)
+
     s = a.sesion
 
     def _boolish(v):
@@ -971,7 +1038,6 @@ def upload_evidencias_ajax(request, pk):
         "max_extra": 1000,
     })
 
-
 @rol_requerido('usuario')
 @login_required
 def fotos_status_json(request, asig_id: int):
@@ -985,6 +1051,11 @@ def fotos_status_json(request, asig_id: int):
     """
     a = get_object_or_404(SesionBillingTecnico,
                           pk=asig_id, tecnico=request.user)
+
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        return JsonResponse({"ok": False, "error": "Assignment no longer available."}, status=404)
+
     s = a.sesion
 
     # ⛳️ MISMO FIX: si el técnico no tiene requisitos aún, clonarlos de la sesión.
@@ -1076,9 +1147,17 @@ def fotos_status_json(request, asig_id: int):
     ).count()
     extras_left = max(0, 1000 - total_extra)
 
-    # ¿Faltan aceptaciones?
+    # ¿Faltan aceptaciones? ✅ solo asignaciones activas
     pendientes_aceptar = []
-    for asg in s.tecnicos_sesion.select_related("tecnico"):
+
+    qs_asg = s.tecnicos_sesion.select_related("tecnico")
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    for asg in qs_asg:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
             nombre = getattr(asg.tecnico, "get_full_name",
@@ -1114,6 +1193,12 @@ def finish_assignment(request, pk):
     - NUEVO: exige comentario y lo guarda en la asignación del técnico que presiona Finish.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        messages.error(request, "This assignment is no longer available.")
+        return redirect("operaciones:mis_assignments")
+
     if a.estado != "en_proceso":
         messages.error(request, "This assignment is not in progress.")
         return redirect("operaciones:mis_assignments")
@@ -1133,10 +1218,20 @@ def finish_assignment(request, pk):
 
     s = a.sesion
 
-    # --- Recolectar títulos obligatorios por asignación (normalizados)
-    asignaciones = list(
-        s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+    # --- Recolectar títulos obligatorios por asignación (normalizados) ✅ solo activas
+    qs_asg = (
+        s.tecnicos_sesion
+        .select_related("tecnico")
+        .prefetch_related("requisitos")
+        .all()
     )
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    asignaciones = list(qs_asg)
 
     per_asg_required_sets = []
     sample_titles = set()  # para nombres bonitos
@@ -2739,6 +2834,10 @@ def eliminar_evidencia(request, pk, evidencia_id):
     a = get_object_or_404(SesionBillingTecnico, pk=pk)
     s = a.sesion
 
+    # ✅ NUEVO: si es el dueño y la asignación está inactiva, NO puede borrar
+    if a.tecnico_id == request.user.id and not _is_asig_active(a):
+        return HttpResponseForbidden("This assignment is no longer available.")
+
     # 🔒 Candado por estado del proyecto: si ya fue aprobado por supervisor o PM, no se permite borrar
     if s.estado in ("aprobado_supervisor", "aprobado_pm"):
         messages.error(
@@ -2786,17 +2885,6 @@ def eliminar_evidencia(request, pk, evidencia_id):
     )
     return redirect(next_url)
 
-
-log = logging.getLogger(__name__)
-
-
-def _has_ops_role(u):
-    return (
-        getattr(u, "es_pm", False) or
-        getattr(u, "es_facturacion", False) or
-        getattr(u, "es_admin_general", False) or
-        u.is_superuser
-    )
 
 
 # views.py

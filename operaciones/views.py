@@ -58,7 +58,7 @@ from django.utils.http import urlencode
 from django.utils.text import slugify
 from django.utils.timezone import is_aware, now
 from django.views.decorators.cache import never_cache
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_POST
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XLImage  # para copiar imágenes
@@ -102,6 +102,8 @@ try:
 except Exception:
     AdjustmentEntry = None
 
+from django.views.decorators.http import require_GET, require_POST
+
 # 👇 nuevo
 from facturacion.models import Proyecto  # ajusta el app si está en otro lado
 
@@ -125,6 +127,48 @@ def _build_receipt_key(user_id: int, filename: str) -> str:
     today = timezone.now()
     # carpeta por usuario y fecha para que quede ordenado
     return f"{base}/{user_id}/{today:%Y/%m/%d}/rcpt_{uuid4().hex}.{ext}"
+
+def _resolve_proyecto_pk_from_sesion(sesion, proyectos_qs=None):
+    """
+    Intenta resolver el PK de Proyecto (facturacion.Proyecto) desde SesionBilling.
+    sesion.proyecto puede ser: id, nombre, código.
+    sesion.proyecto_id suele ser el code/ID PROJECT.
+    """
+    # opcional: limitar a proyectos visibles si pasas proyectos_qs
+    qs = proyectos_qs if proyectos_qs is not None else Proyecto.objects.all()
+
+    raw_proj = (getattr(sesion, "proyecto", "") or "").strip()
+    raw_pid  = (getattr(sesion, "proyecto_id", "") or "").strip()
+
+    # 1) si sesion.proyecto es un id numérico
+    if raw_proj:
+        try:
+            pid = int(raw_proj)
+            p = qs.filter(pk=pid).first()
+            if p:
+                return p.id
+        except (TypeError, ValueError):
+            pass
+
+        # 2) si sesion.proyecto es nombre o código
+        p = qs.filter(Q(nombre__iexact=raw_proj) | Q(codigo__iexact=raw_proj)).first()
+        if p:
+            return p.id
+
+    # 3) fallback: usar sesion.proyecto_id como código o id
+    if raw_pid:
+        p = qs.filter(Q(codigo__iexact=raw_pid) | Q(nombre__iexact=raw_pid)).first()
+        if p:
+            return p.id
+        try:
+            pid2 = int(raw_pid)
+            p2 = qs.filter(pk=pid2).first()
+            if p2:
+                return p2.id
+        except (TypeError, ValueError):
+            pass
+
+    return None
 
 
 @login_required
@@ -2918,7 +2962,7 @@ def editar_billing(request, sesion_id: int):
     )
 
     ids_tecnicos = list(
-        sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
+        sesion.tecnicos_sesion.filter(is_active=True).values_list("tecnico_id", flat=True)
     )
 
     # 🔒 Proyectos visibles para el usuario
@@ -2994,6 +3038,249 @@ def editar_billing(request, sesion_id: int):
     })
 
 
+
+def _money(v) -> Decimal:
+    try:
+        return Decimal(str(v or "0")).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return Decimal("0.00")
+
+
+def _tarifa_tecnico_lookup(tid, sesion, codigo) -> Decimal:
+    """
+    Misma lógica que tu _guardar_billing.tarifa_tecnico(), pero reutilizable aquí.
+    """
+    val = (PrecioActividadTecnico.objects
+           .filter(
+               tecnico_id=tid,
+               cliente=sesion.cliente,
+               ciudad=sesion.ciudad,
+               proyecto=sesion.proyecto,
+               oficina=sesion.oficina,
+               codigo_trabajo=codigo
+           )
+           .values_list("precio_tecnico", flat=True)
+           .first())
+    if val is None:
+        val = (PrecioActividadTecnico.objects
+               .filter(
+                   cliente=sesion.cliente,
+                   ciudad=sesion.ciudad,
+                   proyecto=sesion.proyecto,
+                   oficina=sesion.oficina,
+                   codigo_trabajo=codigo
+               )
+               .values_list("precio_tecnico", flat=True)
+               .first())
+    return _money(val or 0)
+
+
+@transaction.atomic
+def _recalcular_items_sesion(sesion):
+    """
+    ✅ Recalcula:
+      - porcentajes ya vienen actualizados en SesionBillingTecnico
+      - asegura ItemBillingTecnico para todos
+      - recalcula tarifa_base, tarifa_efectiva, subtotal por técnico
+      - recalcula subtotal_tecnico/subtotal_empresa por item
+      - recalcula subtotal_tecnico/subtotal_empresa por sesión
+    ⚠️ No toca evidencias / requisitos.
+    ⚠️ No toca estado (usamos update()).
+    """
+    # técnicos actuales (orden estable)
+    tecnicos = list(
+        SesionBillingTecnico.objects
+        .filter(sesion=sesion)
+        .values_list("tecnico_id", "porcentaje")
+        .order_by("id")
+    )
+    if not tecnicos:
+        return
+
+    pct_by_tid = {tid: _money(pct) for tid, pct in tecnicos}
+    tech_ids = [tid for tid, _ in tecnicos]
+
+    items = list(
+        ItemBilling.objects
+        .filter(sesion=sesion)
+        .prefetch_related("desglose_tecnico")
+        .order_by("id")
+    )
+
+    total_emp = Decimal("0.00")
+    total_tec = Decimal("0.00")
+
+    for it in items:
+        qty = _money(it.cantidad)
+
+        # subtotal empresa siempre: precio_empresa * qty
+        sub_emp = _money((it.precio_empresa or Decimal("0")) * qty)
+
+        # asegurar desglose para todos los técnicos
+        existing = {bd.tecnico_id: bd for bd in it.desglose_tecnico.all()}
+
+        for tid in tech_ids:
+            if tid not in existing:
+                ItemBillingTecnico.objects.create(
+                    item=it,
+                    tecnico_id=tid,
+                    tarifa_base=Decimal("0.00"),
+                    porcentaje=Decimal("0.00"),
+                    tarifa_efectiva=Decimal("0.00"),
+                    subtotal=Decimal("0.00"),
+                )
+
+        # recargar desglose (ya completo)
+        desglose = list(
+            ItemBillingTecnico.objects
+            .filter(item=it)
+            .order_by("id")
+        )
+
+        sub_tecs = Decimal("0.00")
+
+        for bd in desglose:
+            tid = bd.tecnico_id
+            pct = pct_by_tid.get(tid, Decimal("0.00"))
+            base = _tarifa_tecnico_lookup(tid, sesion, it.codigo_trabajo)
+
+            efectiva = _money(base * (pct / Decimal("100")))
+            subtotal = _money(efectiva * qty)
+
+            ItemBillingTecnico.objects.filter(pk=bd.pk).update(
+                tarifa_base=base,
+                porcentaje=pct,
+                tarifa_efectiva=efectiva,
+                subtotal=subtotal,
+            )
+            sub_tecs += subtotal
+
+        # update item (sin llamar save() si prefieres evitar side-effects)
+        ItemBilling.objects.filter(pk=it.pk).update(
+            subtotal_empresa=sub_emp,
+            subtotal_tecnico=sub_tecs,
+        )
+
+        total_emp += sub_emp
+        total_tec += sub_tecs
+
+    # update sesión (sin tocar estado)
+    SesionBilling.objects.filter(pk=sesion.pk).update(
+        subtotal_empresa=_money(total_emp),
+        subtotal_tecnico=_money(total_tec),
+    )
+
+
+
+@login_required
+@rol_requerido("admin", "pm", "supervisor")
+@require_GET
+def billing_tecnicos_disponibles(request, sesion_id: int):
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    cliente = (getattr(sesion, "cliente", "") or "").strip()
+    ciudad  = (getattr(sesion, "ciudad", "") or "").strip()
+    oficina = (getattr(sesion, "oficina", "") or "").strip()
+
+    if not (cliente and ciudad and oficina):
+        return JsonResponse({"ok": True, "results": []})
+
+    # ✅ proyecto FK
+    proyectos_visibles = filter_queryset_by_access(Proyecto.objects.all(), request.user, "id")
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(sesion, proyectos_qs=proyectos_visibles)
+    if not proyecto_pk:
+        return JsonResponse({"ok": True, "results": []})
+
+    existing_ids = set(sesion.tecnicos_sesion.filter(is_active=True).values_list("tecnico_id", flat=True)
+    )
+
+    tecnicos_qs = (
+        Usuario.objects
+        .filter(
+            is_active=True,
+            precioactividadtecnico__cliente=cliente,
+            precioactividadtecnico__ciudad=ciudad,
+            precioactividadtecnico__proyecto_id=proyecto_pk,  # ✅ FK
+            precioactividadtecnico__oficina=oficina,
+        )
+        .distinct()
+        .order_by("first_name", "last_name", "username")
+    )
+
+    results = []
+    for u in tecnicos_qs:
+        results.append({
+            "id": u.id,
+            "name": (u.get_full_name() or u.username or "").strip(),
+            "username": (u.username or "").strip(),
+            "email": (u.email or "").strip(),
+            "checked": u.id in existing_ids,
+            "disabled": u.id in existing_ids,
+        })
+
+    return JsonResponse({"ok": True, "results": results})
+
+
+@login_required
+@rol_requerido("admin", "pm", "supervisor")
+@require_POST
+@transaction.atomic
+def billing_add_tecnico(request, sesion_id: int):
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
+
+    tid = payload.get("tecnico_id")
+    if not tid or not str(tid).isdigit():
+        return JsonResponse({"ok": False, "error": "Missing tecnico_id."}, status=400)
+    tid = int(tid)
+
+    tech = Usuario.objects.filter(pk=tid, is_active=True).first()
+    if not tech:
+        return JsonResponse({"ok": False, "error": "Technician not found."}, status=404)
+
+    if SesionBillingTecnico.objects.filter(sesion=sesion, tecnico_id=tid).exists():
+        return JsonResponse({"ok": False, "error": "Technician already in this billing."}, status=400)
+
+    cliente = (getattr(sesion, "cliente", "") or "").strip()
+    ciudad  = (getattr(sesion, "ciudad", "") or "").strip()
+    oficina = (getattr(sesion, "oficina", "") or "").strip()
+    if not (cliente and ciudad and oficina):
+        return JsonResponse({"ok": False, "error": "SESSION_HEADER_INCOMPLETE"}, status=400)
+
+    proyectos_visibles = filter_queryset_by_access(Proyecto.objects.all(), request.user, "id")
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(sesion, proyectos_qs=proyectos_visibles)
+    if not proyecto_pk:
+        return JsonResponse({"ok": False, "error": "SESSION_PROJECT_UNRESOLVED"}, status=400)
+
+    has_prices = PrecioActividadTecnico.objects.filter(
+        tecnico_id=tid,
+        cliente=cliente,
+        ciudad=ciudad,
+        proyecto_id=proyecto_pk,  # ✅ FK
+        oficina=oficina,
+    ).exists()
+
+    if not has_prices:
+        return JsonResponse({
+            "ok": False,
+            "error": "TECH_NOT_ELIGIBLE_FOR_SESSION",
+            "message": "This technician has no prices for this exact Client/City/Project/Office.",
+        }, status=400)
+
+    current_ids = list(
+        SesionBillingTecnico.objects.filter(sesion=sesion).values_list("tecnico_id", flat=True)
+    )
+    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, current_ids + [tid], request=request)
+
+    # ⚠️ IMPORTANTE: usa SOLO UNA versión de _recalcular_items_sesion (ver punto 2)
+    _recalcular_items_sesion(sesion)
+
+    return JsonResponse({"ok": True, "final_ids": final_ids})
+
 @login_required
 @transaction.atomic
 def eliminar_billing(request, sesion_id: int):
@@ -3001,29 +3288,37 @@ def eliminar_billing(request, sesion_id: int):
     messages.success(request, "Billing deleted.")
     return redirect("operaciones:listar_billing")
 
-
 @login_required
 @transaction.atomic
 def reasignar_tecnicos(request, sesion_id: int):
+    """
+    Safe reassignment:
+    - NO borra asignaciones existentes (porque CASCADE borra requisitos/evidencias).
+    - Actualiza set final de técnicos usando _actualizar_tecnicos_preservando_fotos()
+      (mantiene a los que ya tienen evidencias aunque intenten sacarlos).
+    - Redistribuye porcentajes a 100% entre los técnicos finales.
+    - Recalcula items (tarifas/porcentajes) sin tocar fotos ni requisitos existentes.
+    """
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
     if request.method != "POST":
-        return HttpResponseBadRequest("POST requerido")
+        return HttpResponseBadRequest("POST required")
 
-    ids = list(map(int, request.POST.getlist("tech_ids[]")))
+    ids = [int(x) for x in request.POST.getlist("tech_ids[]") if str(x).isdigit()]
     if not ids:
-        return HttpResponseBadRequest("Seleccione al menos un técnico.")
+        return HttpResponseBadRequest("Select at least one technician.")
 
-    sesion.tecnicos_sesion.all().delete()
-    partes = repartir_100(len(ids))
+    # ✅ CLAVE: NO borrar sesion.tecnicos_sesion.all().delete()
+    # Usar el helper que preserva al que ya tiene evidencias.
+    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
 
-    for tid, pct in zip(ids, partes):
-        SesionBillingTecnico.objects.create(
-            sesion=sesion, tecnico_id=tid, porcentaje=pct
-        )
+    if not final_ids:
+        return HttpResponseBadRequest("No technicians left after applying evidence rules.")
 
+    # ✅ Recalcular items con los nuevos % (esto ya lo tienes y NO borra fotos)
     _recalcular_items_sesion(sesion)
-    messages.success(
-        request, "Technicians reassigned and totals recalculated.")
+
+    messages.success(request, "Technicians reassigned and totals recalculated.")
     return redirect("operaciones:editar_billing", sesion_id=sesion.id)
 
 
@@ -3034,36 +3329,43 @@ def reasignar_tecnicos(request, sesion_id: int):
 
 def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
     """
-    Regla:
-    - Si se agrega/quita técnicos, se REPARTE 100% entre todos los técnicos finales.
-    - Si se intenta quitar un técnico con evidencias, NO se elimina: se conserva y se avisa.
-    - El set final = (nuevos_ids) + (forced_keep por evidencias).
-    Retorna final_ids (en orden).
+    NUEVA REGLA (como acordamos):
+    - Puedes QUITAR un técnico aunque tenga evidencias.
+    - Sus evidencias se mantienen (siguen apuntando a su SesionBillingTecnico).
+    - Pero a nivel "billing" ese técnico queda INACTIVO (si existe is_active)
+      y NO aparece como asignación activa.
+    - Se reparte 100% SOLO entre los técnicos ACTIVOS (los que quedaron en nuevos_ids).
+    - Los técnicos que salen:
+        - si tienen evidencias => NO se eliminan (para no perder fotos), solo se desactivan.
+        - si NO tienen evidencias => se eliminan.
+    - Retorna final_ids_activos (en orden) = los nuevos_ids normalizados.
     """
-    # normalizar ids
+
+    # -----------------------------
+    # 0) Normalizar IDs solicitados
+    # -----------------------------
     nuevos_ids = [int(x) for x in (nuevos_ids or []) if str(x).isdigit()]
+    nuevos_ids = list(dict.fromkeys(nuevos_ids))  # unique preserving order
     nuevos_set = set(nuevos_ids)
 
-    # existentes
+    if not nuevos_ids:
+        return []
+
+    # -----------------------------
+    # 1) Traer existentes
+    # -----------------------------
     existentes = list(sesion.tecnicos_sesion.select_related("tecnico").all())
     por_tid = {ts.tecnico_id: ts for ts in existentes}
 
-    # forzados por evidencias (no se pueden eliminar)
-    forced_keep = []
-    for ts in existentes:
-        if ts.tecnico_id in nuevos_set:
-            continue
-        if EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists():
-            forced_keep.append(ts.tecnico_id)
+    # Helper: ¿modelo tiene is_active?
+    def _has_is_active(obj) -> bool:
+        return hasattr(obj, "is_active")
 
-    # set final (primero los solicitados, luego los forzados)
-    final_ids = list(dict.fromkeys(nuevos_ids + forced_keep))
-
-    if not final_ids:
-        return []
-
-    # repartir 100 entre todos los finales
-    partes = repartir_100(len(final_ids))
+    # -----------------------------
+    # 2) Activar/crear los que quedan
+    #    y repartir 100 SOLO entre ellos
+    # -----------------------------
+    partes = repartir_100(len(nuevos_ids))
     partes_dec = []
     for p in partes:
         try:
@@ -3071,52 +3373,76 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
         except Exception:
             partes_dec.append(Decimal("0.00"))
 
-    # crear/actualizar % (SIEMPRE actualizar)
-    for tid, pct in zip(final_ids, partes_dec):
+    for tid, pct in zip(nuevos_ids, partes_dec):
         if tid in por_tid:
             ts = por_tid[tid]
+            update_fields = []
+
+            # porcentaje
             if ts.porcentaje != pct:
                 ts.porcentaje = pct
-                ts.save(update_fields=["porcentaje"])
+                update_fields.append("porcentaje")
+
+            # si existe is_active => marcar activo
+            if _has_is_active(ts) and getattr(ts, "is_active", True) is not True:
+                ts.is_active = True
+                update_fields.append("is_active")
+
+            if update_fields:
+                ts.save(update_fields=update_fields)
+
         else:
-            SesionBillingTecnico.objects.create(
+            kwargs = dict(
                 sesion=sesion,
                 tecnico_id=tid,
                 porcentaje=pct,
             )
+            # si el modelo tiene is_active, lo creamos activo
+            try:
+                SesionBillingTecnico._meta.get_field("is_active")
+                kwargs["is_active"] = True
+            except Exception:
+                pass
 
-    # borrar los que ya no están y NO tienen evidencias
+            SesionBillingTecnico.objects.create(**kwargs)
+
+    # -----------------------------
+    # 3) Procesar los que "salen"
+    # -----------------------------
     for ts in existentes:
-        if ts.tecnico_id in final_ids:
-            continue
+        if ts.tecnico_id in nuevos_set:
+            continue  # se queda activo (ya lo actualizamos arriba)
 
-        # si tiene evidencias, no debería pasar acá porque estaría en forced_keep,
-        # pero lo dejamos por seguridad
-        if EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists():
+        # ¿Tiene evidencias?
+        has_evs = EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists()
+
+        if has_evs:
+            # NO se borra (mantener fotos). Se desactiva si se puede.
+            if _has_is_active(ts):
+                if getattr(ts, "is_active", True) is not False:
+                    ts.is_active = False
+                    # opcional: setear porcentaje 0 para que no cuente nunca en nada
+                    # (aunque ya NO entra al reparto porque el reparto fue solo nuevos_ids)
+                    ts.porcentaje = Decimal("0.00")
+                    ts.save(update_fields=["is_active", "porcentaje"])
+
+            # Mensaje opcional
             if request is not None:
                 try:
                     tech_name = ts.tecnico.get_full_name() or ts.tecnico.username
                 except Exception:
                     tech_name = str(ts.tecnico_id)
-                messages.warning(
+                messages.info(
                     request,
-                    f"'{tech_name}' was kept because it has evidences in this billing."
+                    f"'{tech_name}' was removed from the billing but their photos were kept."
                 )
-            continue
 
-        ts.delete()
+        else:
+            # No tiene evidencias => sí se elimina
+            ts.delete()
 
-    # avisar por los forzados que intentaron sacar
-    if request is not None:
-        removed_attempts = [tid for tid in forced_keep if tid not in nuevos_set]
-        if removed_attempts:
-            # avisamos 1 vez (no spam)
-            messages.warning(
-                request,
-                "One or more technicians were kept because they already uploaded evidences in this billing."
-            )
-
-    return final_ids
+    # Retornamos los ACTIVOS finales (los solicitados)
+    return nuevos_ids
 
 @transaction.atomic
 def _guardar_billing(request, sesion=None):
@@ -3567,36 +3893,6 @@ def ajax_detalle_codigo(request):
 
 
 ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-
-
-def _recalcular_items_sesion(sesion: SesionBilling):
-    ids = list(sesion.tecnicos_sesion.values_list("tecnico_id", flat=True))
-    partes = list(sesion.tecnicos_sesion.values_list("porcentaje", flat=True))
-    total_tec = Decimal("0.00")
-    for it in sesion.items.all():
-        it.desglose_tecnico.all().delete()
-        sub = Decimal("0.00")
-        for tid, pct in zip(ids, partes):
-            base = _tarifa_tecnico(
-                tid, sesion.cliente, sesion.ciudad, sesion.proyecto, sesion.oficina, it.codigo_trabajo
-            )
-            efectiva = money(base * (pct / Decimal("100")))
-            subtotal = money(efectiva * it.cantidad)
-            ItemBillingTecnico.objects.create(
-                item=it,
-                tecnico_id=tid,
-                tarifa_base=base,
-                porcentaje=pct,
-                tarifa_efectiva=efectiva,
-                subtotal=subtotal,
-            )
-            sub += subtotal
-        it.subtotal_tecnico = sub
-        it.save(update_fields=["subtotal_tecnico"])
-        total_tec += sub
-    sesion.subtotal_tecnico = money(total_tec)
-    sesion.save(update_fields=["subtotal_tecnico"])
-
 
 
 
@@ -6923,3 +7219,47 @@ def bulk_delete_evidencias(request, sesion_id):
             "file_errors": file_errors[:5],  # no spamear
         }
     )
+
+
+@login_required
+@rol_requerido('admin', 'pm', 'supervisor')
+@csrf_protect
+def billing_update_creado_en(request, sesion_id: int):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    raw = (request.POST.get("creado_en") or "").strip()
+    if not raw:
+        return JsonResponse({"ok": False, "error": "Date/time is required."}, status=400)
+
+    # Acepta: "YYYY-MM-DD HH:MM"
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+    except Exception:
+        return JsonResponse(
+            {"ok": False, "error": "Invalid format. Use: YYYY-MM-DD HH:MM"},
+            status=400
+        )
+
+    # Aware en TZ actual
+    try:
+        tz = timezone.get_current_timezone()
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, tz)
+        else:
+            dt = timezone.localtime(dt, tz)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid date/time."}, status=400)
+
+    s.creado_en = dt
+    s.save(update_fields=["creado_en"])
+
+    display = timezone.localtime(s.creado_en).strftime("%Y-%m-%d %H:%M")
+    return JsonResponse({
+        "ok": True,
+        "display": display,
+        "search_value": display,
+    })
