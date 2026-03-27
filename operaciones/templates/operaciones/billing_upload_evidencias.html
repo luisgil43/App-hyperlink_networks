@@ -25,6 +25,16 @@
     display:grid;place-items:center;
     background:rgba(0,0,0,.25);
   }
+
+  /* ✅ FIX badge tapado: permitir wrap */
+  .req-title-wrap{min-width:0;}
+  .req-title-wrap .title-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+  .req-title-wrap .title-text{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .req-title-wrap .req-badge{white-space:nowrap;flex:0 0 auto;}
+
+  /* ✅ FIX imagen fuera del recuadro: forzar layout */
+  .thumb-btn{display:block;width:100%;text-align:left;}
+  .thumb-btn img{display:block;width:100%;height:6rem;object-fit:cover;}
 </style>
 
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
@@ -98,11 +108,13 @@
         <li class="border rounded-2xl p-4">
 
           <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="font-semibold truncate">
-                {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
+            <div class="min-w-0 req-title-wrap">
+              <div class="font-semibold title-row">
+                <span class="title-text">
+                  {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
+                </span>
 
-                <span class="ml-2 text-xs px-2 py-0.5 rounded req-badge
+                <span class="text-xs px-2 py-0.5 rounded req-badge
                              {% if r.id in locked_ids or r.uploaded > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}"
                       data-req="{{ r.id }}"
                       data-state="{% if r.id in locked_ids or r.uploaded > 0 %}done{% else %}pending{% endif %}">
@@ -187,7 +199,7 @@
               {% for ev in evidencias %}
                 {% if ev.requisito_id == r.id %}
                   <button type="button"
-                          class="relative border rounded-xl overflow-hidden group"
+                          class="relative border rounded-xl overflow-hidden group thumb-btn"
                           data-ev-id="{{ ev.id }}"
                           data-preview-url="{{ ev.imagen.url }}"
                           data-preview-label="{{ ev.requisito.titulo|default:r.titulo }}"
@@ -307,7 +319,7 @@
             {% for ev in evidencias %}
               {% if not ev.requisito_id %}
                 <button type="button"
-                        class="relative border rounded-xl overflow-hidden group"
+                        class="relative border rounded-xl overflow-hidden group thumb-btn"
                         data-ev-id="{{ ev.id }}"
                         data-preview-url="{{ ev.imagen.url }}"
                         data-preview-label="{% if ev.titulo_manual %}{{ ev.titulo_manual }}{% else %}Extra{% endif %}"
@@ -439,7 +451,7 @@
 <script>
 (function(){
   // ============================
-  // PREVIEW MODAL (X close)
+  // PREVIEW MODAL (X close) + ✅ evitar visor nativo
   // ============================
   const pv = document.getElementById('pv');
   const pvImg = document.getElementById('pv-img');
@@ -457,26 +469,39 @@
     pvImg.src = '';
   }
 
-  pvClose.addEventListener('click', (e)=>{ e.preventDefault(); closePreview(); });
+  pvClose.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); closePreview(); }, true);
   pv.addEventListener('click', (e)=>{
-    if (e.target && (e.target.hasAttribute('data-pv-close') || e.target.classList.contains('bg'))) closePreview();
-  });
+    if (e.target && (e.target.hasAttribute('data-pv-close') || e.target.classList.contains('bg'))) {
+      e.preventDefault(); e.stopPropagation();
+      closePreview();
+    }
+  }, true);
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && pv.classList.contains('show')) closePreview(); });
 
-  // Delegación: click en miniaturas (pero NO si es botón delete)
+  // ✅ Intercepta taps en IMG para que NO abra visor nativo (iPhone)
   document.addEventListener('click', (e)=>{
     if (e.target.closest('.btn-open-delete')) return;
-    const btn = e.target.closest('button[data-preview-url]');
+
+    const img = e.target.closest && e.target.closest('img');
+    if (img && img.id !== 'pv-img' && img.closest('button[data-preview-url]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const btn = img.closest('button[data-preview-url]');
+      openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
+      return;
+    }
+
+    const btn = e.target.closest && e.target.closest('button[data-preview-url]');
     if (!btn) return;
     e.preventDefault();
+    e.stopPropagation();
     openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
-  });
+  }, true);
 
   // Helpers para insertar thumbs (AJAX + poller)
   window.__appendThumb = function(ev){
     if (!ev || !ev.id || !ev.url) return;
 
-    // evita duplicados
     window.__knownEvIds = window.__knownEvIds || new Set();
     if (window.__knownEvIds.has(ev.id)) return;
     window.__knownEvIds.add(ev.id);
@@ -502,7 +527,7 @@
 
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = "relative border rounded-xl overflow-hidden group";
+    b.className = "relative border rounded-xl overflow-hidden group thumb-btn";
     b.setAttribute('data-ev-id', ev.id);
     b.setAttribute('data-preview-url', ev.url);
     b.setAttribute('data-preview-label', label);
