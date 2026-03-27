@@ -244,10 +244,7 @@
               </div>
               <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
 
-              {# ✅ Dirección automática:
-                 - Si hay lat/lng, mostramos coords + link
-                 - Si NO hay lat/lng pero hay direccion_manual (ej: reverse geocode guardado), mostramos esa.
-              #}
+             
               {% if ev.lat and ev.lng %}
                 <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
                 <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>

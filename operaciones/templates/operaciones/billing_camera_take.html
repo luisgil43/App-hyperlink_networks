@@ -13,7 +13,14 @@
     text-shadow:0 2px 10px rgba(0,0,0,.65);
     padding:0 16px;line-height:1.15;
   }
-  .cam-overlay .line{font-size:18px;}
+  .cam-overlay .line{
+    font-size:18px;
+
+    /* ✅ FIX: permitir wrap y evitar “desborde” visual en pantalla */
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
   @media (min-width:420px){ .cam-overlay .line{font-size:20px;} }
 
   .cam-topbar{
@@ -130,9 +137,7 @@
       {# BOTTOM BAR #}
       <div class="cam-bottom">
         <button type="button" id="btn-cancel" class="cam-cancel">Cancel</button>
-
         <button type="button" id="btn-shot" class="cam-shutter" aria-label="Take photo"></button>
-
         <button type="button" id="btn-thumb" class="cam-thumb" aria-label="Open last photo" disabled>
           <img id="thumb-img" src="" alt="thumbnail" />
         </button>
@@ -157,7 +162,7 @@
       </div>
     </div>
 
-    {# Queue (se mantiene para poder subir varias) #}
+    {# Queue #}
     <div class="mt-4 border rounded-2xl p-3">
       <div class="flex items-center justify-between">
         <div class="text-sm font-semibold">Queue</div>
@@ -217,7 +222,6 @@
   function hide(el){ if(el) el.classList.add('hidden'); }
 
   function isSecureEnough(){
-    // iOS Safari requires HTTPS for getUserMedia
     return window.isSecureContext && location.protocol === 'https:';
   }
 
@@ -258,14 +262,13 @@
   // State
   // ---------------------------
   let stream = null;
+  let clockTimer = null;
 
-  // We keep both: display lines (5 lines) and a compact address to save.
   let lastGeo = {
     lat:null, lng:null, acc:null,
     streetLine:'', cityLine:'', addressForSave:''
   };
 
-  // items: { id, blob, previewUrl, takenISO, lat,lng,acc, addressForSave, status, wasabiKey, ev }
   let items = [];
 
   function updateCounters(){
@@ -277,7 +280,32 @@
   }
 
   // ---------------------------
-  // Geo + reverse geocode (Nominatim)
+  // Date line (✅ FIX: show immediately)
+  // ---------------------------
+  function fmtDateLine(d){
+    try{
+      return new Date(d).toLocaleString(undefined, {
+        year:'numeric', month:'short', day:'2-digit',
+        hour:'numeric', minute:'2-digit', second:'2-digit'
+      });
+    }catch(_){ return d; }
+  }
+
+  function startClock(){
+    stopClock();
+    const tick = ()=>{
+      const nowISO = new Date().toISOString();
+      ovDate.textContent = fmtDateLine(nowISO);
+    };
+    tick();
+    clockTimer = setInterval(tick, 1000);
+  }
+  function stopClock(){
+    if(clockTimer){ clearInterval(clockTimer); clockTimer = null; }
+  }
+
+  // ---------------------------
+  // Geo + reverse geocode
   // ---------------------------
   async function reverseGeocode(lat, lng){
     try{
@@ -306,10 +334,8 @@
     const country = (addr.country || '');
     const countryCode = (addr.country_code ? String(addr.country_code).toUpperCase() : '');
 
-    // 3rd line: street
     const streetLine = street || (j && j.display_name ? String(j.display_name).split(',').slice(0,2).join(', ').trim() : '');
 
-    // 4th line: city + zip + country  (y si viene state, lo metemos)
     const parts = [];
     if (city) parts.push(city);
     if (state) parts.push(state);
@@ -318,8 +344,6 @@
     else if (countryCode) parts.push(countryCode);
 
     const cityLine = parts.join(' ').trim();
-
-    // What we store to backend as "address" (direccion_manual): use display_name (más completo)
     const addressForSave = (j && j.display_name) ? String(j.display_name).slice(0, 255) : (streetLine || '').slice(0, 255);
 
     return { streetLine, cityLine, addressForSave };
@@ -328,6 +352,9 @@
   async function requestGeo(){
     if(!('geolocation' in navigator)){
       geoMini.textContent = '📍 not supported';
+      ovCoords.textContent = '—';
+      ovStreet.textContent = '—';
+      ovCity.textContent = '—';
       return false;
     }
 
@@ -370,17 +397,8 @@
     });
   }
 
-  function fmtDateLine(d){
-    try{
-      return new Date(d).toLocaleString(undefined, {
-        year:'numeric', month:'short', day:'2-digit',
-        hour:'numeric', minute:'2-digit', second:'2-digit'
-      });
-    }catch(_){ return d; }
-  }
-
   // ---------------------------
-  // Camera (NO fallback capture)
+  // Camera
   // ---------------------------
   async function startCamera(){
     hide(banner);
@@ -420,8 +438,39 @@
   }
 
   // ---------------------------
-  // Burn overlay centered into JPEG
+  // ✅ FIX: wrap text in canvas so it never overflows
   // ---------------------------
+  function wrapLines(ctx, text, maxWidth, maxLines){
+    const raw = String(text || '').trim();
+    if(!raw) return [];
+    const words = raw.split(/\s+/);
+    const lines = [];
+    let cur = '';
+
+    for(const w of words){
+      const test = cur ? (cur + ' ' + w) : w;
+      if(ctx.measureText(test).width <= maxWidth){
+        cur = test;
+      }else{
+        if(cur) lines.push(cur);
+        cur = w;
+        if(lines.length >= maxLines - 1) break;
+      }
+    }
+    if(cur && lines.length < maxLines) lines.push(cur);
+
+    // If still too long, ellipsis last line
+    if(words.length && lines.length === maxLines){
+      let last = lines[maxLines - 1] || '';
+      while(last && ctx.measureText(last + '…').width > maxWidth){
+        last = last.slice(0, -1);
+      }
+      lines[maxLines - 1] = last ? (last + '…') : '…';
+    }
+
+    return lines;
+  }
+
   async function burnOverlayToBlob(source, w, h, lines){
     const canvas = document.createElement('canvas');
     canvas.width = w;
@@ -429,24 +478,36 @@
     const ctx = canvas.getContext('2d');
     ctx.drawImage(source, 0, 0, w, h);
 
-    const fontSize = Math.max(20, Math.round(w * 0.040));
-    const gap = Math.round(fontSize * 1.18);
+    const baseFont = Math.max(20, Math.round(w * 0.040));
+    const gap = Math.round(baseFont * 1.18);
 
-    ctx.font = `700 ${fontSize}px Arial`;
+    ctx.font = `700 ${baseFont}px Arial`;
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
-    // shadow (nice & readable)
     ctx.shadowColor = 'rgba(0,0,0,.65)';
     ctx.shadowBlur = 10;
     ctx.shadowOffsetY = 2;
 
     const x = Math.round(w * 0.5);
     let y = Math.round(h * 0.06);
+    const maxWidth = Math.round(w * 0.92);
 
-    for(const t of lines){
-      if(!t) continue;
+    // Date + coords (1 línea cada una)
+    const line1 = wrapLines(ctx, lines[0], maxWidth, 1);
+    const line2 = wrapLines(ctx, lines[1], maxWidth, 1);
+
+    // Street + city (hasta 2 líneas cada una) ✅ aquí estaba el desborde
+    const line3 = wrapLines(ctx, lines[2], maxWidth, 2);
+    const line4 = wrapLines(ctx, lines[3], maxWidth, 2);
+
+    // CP (1 línea)
+    const line5 = wrapLines(ctx, lines[4], maxWidth, 1);
+
+    const all = [...line1, ...line2, ...line3, ...line4, ...line5].filter(Boolean);
+
+    for(const t of all){
       ctx.fillText(t, x, y);
       y += gap;
     }
@@ -457,7 +518,7 @@
   }
 
   // ---------------------------
-  // Take photo (from video)
+  // Take photo
   // ---------------------------
   async function takeShot(){
     if(!video || !video.videoWidth || !video.videoHeight){
@@ -465,7 +526,6 @@
       return;
     }
 
-    // Refresh geo best-effort BEFORE shot
     await requestGeo();
 
     const takenISO = new Date().toISOString();
@@ -479,7 +539,7 @@
     const line4 = (lastGeo.cityLine || '—');
     const line5 = (CP_TEXT || '');
 
-    // update live overlay too (centered)
+    // update live overlay too
     ovDate.textContent = line1;
     ovCoords.textContent = line2;
     ovStreet.textContent = line3;
@@ -509,7 +569,6 @@
       ev: null,
     });
 
-    // thumb
     thumbImg.src = url;
     btnThumb.disabled = false;
 
@@ -522,7 +581,7 @@
   // ---------------------------
   function openPreview(){
     if(!items.length) return;
-    pvImg.src = items[0].previewUrl;   // last taken
+    pvImg.src = items[0].previewUrl;
     pvCount.textContent = `1/${items.length}`;
     pv.classList.add('show');
   }
@@ -537,7 +596,7 @@
   document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && pv.classList.contains('show')) closePreview(); });
 
   // ---------------------------
-  // Queue UI (NO “Status:” text visible)
+  // Queue UI
   // ---------------------------
   function renderQueue(){
     queue.querySelectorAll('[data-qitem]').forEach(n=> n.remove());
@@ -588,47 +647,40 @@
   }
 
   // ---------------------------
-  // Upload pipeline (same as your current)
+  // Upload pipeline
   // ---------------------------
- async function presign(fileBlob, meta){
-  const body = {
-    filename: 'photo.jpg',
-    contentType: 'image/jpeg',
-    sizeBytes: fileBlob.size,
-    folder: FOLDER,
-    meta: {
-      // ✅ mantener solo cosas "seguras" y cortas
-      lat: meta.lat || '',
-      lng: meta.lng || '',
-      taken_at: meta.takenISO || '',
-      project_id: PROJECT_ID,
+  async function presign(fileBlob, meta){
+    const body = {
+      filename: 'photo.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: fileBlob.size,
+      folder: FOLDER,
+      meta: {
+        lat: meta.lat || '',
+        lng: meta.lng || '',
+        taken_at: meta.takenISO || '',
+        project_id: PROJECT_ID,
+      }
+    };
 
-      // ❌ NO mandar address a Wasabi (rompe por policy eq / encoding)
-      // address: meta.addressForSave || '',
+    const resp = await fetch(URL_PRESIGN, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(body)
+    });
 
-      // opcional: si tu backend también mete title en policy eq, mejor no mandarlo:
-      // title: '',
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `Presign failed (HTTP ${resp.status})`);
     }
-  };
-
-  const resp = await fetch(URL_PRESIGN, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': csrftoken,
-      'X-Requested-With': 'XMLHttpRequest',
-      'Accept': 'application/json',
-    },
-    credentials: 'same-origin',
-    body: JSON.stringify(body)
-  });
-
-  if(!resp.ok){
-    const t = await resp.text().catch(()=> '');
-    throw new Error(t || `Presign failed (HTTP ${resp.status})`);
+    return await resp.json();
   }
-  return await resp.json();
-}
 
   async function postToWasabi(url, fields, blob){
     const fd = new FormData();
@@ -676,35 +728,36 @@
     return data.evidencia;
   }
 
-async function uploadAll(){
-  if(!items.length) return;
-  btnUploadAll.disabled = true;
+  async function uploadAll(){
+    if(!items.length) return;
+    btnUploadAll.disabled = true;
 
-  let hadError = false;
+    let hadError = false;
 
-  for(const it of items){
-    if(it.status === 'done') continue;
-    try{
-      const p = await presign(it.blob, it);
-      await postToWasabi(p.url, p.fields, it.blob);
-      await confirmKey(it, p.key);
-      it.status = 'done';
-    }catch(err){
-      hadError = true;
-      toast(err.message || 'Upload failed', 'error');
+    for(const it of items){
+      if(it.status === 'done') continue;
+      try{
+        const p = await presign(it.blob, it);
+        await postToWasabi(p.url, p.fields, it.blob);
+        await confirmKey(it, p.key);
+        it.status = 'done';
+      }catch(err){
+        hadError = true;
+        toast(err.message || 'Upload failed', 'error');
+      }
     }
+
+    btnUploadAll.disabled = false;
+
+    if (hadError) toast('Some photos failed to upload. Please retry.', 'error');
+    else toast('Upload completed.', 'success');
   }
-
-  btnUploadAll.disabled = false;
-
-  if (hadError) toast('Some photos failed to upload. Please retry.', 'error');
-  else toast('Upload completed.', 'success');
-}
 
   // ---------------------------
   // Navigation
   // ---------------------------
   function goBack(){
+    stopClock();
     stopCamera();
     window.location.href = "{% url 'operaciones:upload_evidencias' a.pk %}";
   }
@@ -712,13 +765,9 @@ async function uploadAll(){
   btnCancel.addEventListener('click', goBack);
   btnCloseTop.addEventListener('click', goBack);
 
-  // shutter
   btnShot.addEventListener('click', takeShot);
-
-  // upload
   btnUploadAll.addEventListener('click', uploadAll);
 
-  // enable camera
   btnEnable.addEventListener('click', async ()=>{
     await startCamera();
   });
@@ -730,10 +779,13 @@ async function uploadAll(){
     ovCp.textContent = CP_TEXT || '';
     updateCounters();
 
-    // get geo early
+    // ✅ FIX #1: fecha/hora inmediata (y se va actualizando)
+    startClock();
+
+    // geo early
     await requestGeo();
 
-    // try auto-start camera
+    // auto-start camera
     await startCamera();
   });
 
