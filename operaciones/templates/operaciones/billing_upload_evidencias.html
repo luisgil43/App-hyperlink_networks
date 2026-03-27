@@ -30,7 +30,7 @@
         Bore Logs
       </a>
 
-      {# ✅ FINISH: modal con comentario #}
+      {# ✅ FINISH: MISMO COMPORTAMIENTO QUE EN LIST/DETAIL (modal con comentario) #}
       <button type="button"
               id="btn-finalizar"
               class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
@@ -99,16 +99,12 @@
                 </label>
                 <span class="text-xs text-gray-600 filename" data-empty="No files selected">{% if r.id in locked_ids %}Closed{% else %}No files selected{% endif %}</span>
 
-                <!-- CAMERA (fallback iOS/older browsers: input capture) -->
-                <input id="file-camera-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment"
-                       class="sr-only file-input-camera" {% if r.id in locked_ids %}disabled{% endif %}>
-                <button type="button"
-                        class="px-3 py-2 rounded text-sm trigger-camera
-                               {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}"
-                        data-target="file-camera-{{ r.id }}"
-                        {% if r.id in locked_ids %}disabled{% endif %}>
+                {# ✅ NUEVO TAKE: abre la pantalla camera (no usa galería) #}
+                <a href="{% url 'operaciones:camera_take' a.pk %}?req_id={{ r.id }}"
+                   class="px-3 py-2 rounded text-sm
+                          {% if r.id in locked_ids %}bg-gray-100 text-gray-400 pointer-events-none cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
                   📷 Take
-                </button>
+                </a>
               </div>
 
               <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -119,11 +115,8 @@
               <div class="flex items-center gap-2 mt-2">
                 <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2"
                        {% if r.id in locked_ids %}disabled{% endif %}>
-                <button type="button"
-                        class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm"
-                        {% if r.id in locked_ids %}disabled{% endif %}>
-                  Grant Location
-                </button>
+                <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm"
+                        {% if r.id in locked_ids %}disabled{% endif %}>Grant Location</button>
               </div>
 
               <button type="submit" class="mt-2 px-3 py-1 rounded
@@ -150,17 +143,16 @@
           <input type="hidden" name="acc">
           <input type="hidden" name="client_taken_at">
 
-          {# Para proyectos especiales: seguimos guardando direccion_manual, pero SE AUTO-RELLENA desde GPS (no input manual) #}
-          <input type="hidden" name="direccion_manual" value="">
-          <input type="hidden" name="titulo_manual" value="">
-
           <div class="flex items-center gap-2">
             <input id="file-gallery-extra" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
             <label for="file-gallery-extra" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
             <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
 
-            <input id="file-camera-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
-            <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-extra">📷 Take</button>
+            {# ✅ NUEVO TAKE EXTRA: abre camera_take sin req_id #}
+            <a href="{% url 'operaciones:camera_take' a.pk %}"
+               class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm">
+              📷 Take
+            </a>
           </div>
 
           <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -168,23 +160,33 @@
             <span class="time-status">🕒 —</span>
           </div>
 
-          {# UI de address auto (best-effort). No hay input manual. #}
+       
           {% if is_proyecto_especial %}
-          <div class="mt-2 text-xs text-gray-600">
-            <div class="flex items-center gap-2">
-              <span class="font-medium">📍 Address:</span>
-              <span class="addr-status text-gray-500">Waiting for location…</span>
+          <div class="grid md:grid-cols-2 gap-3 mt-3">
+            <div>
+              <label for="titulo_manual" class="block text-sm font-semibold text-gray-700">
+                Title (optional for Extra)
+              </label>
+              <input
+                type="text"
+                name="titulo_manual"
+                id="titulo_manual"
+                class="w-full border rounded-lg p-2"
+                placeholder="Write a title (optional)"
+              />
             </div>
 
-            <div class="mt-2">
-              <label class="block text-sm font-semibold text-gray-700">Title (optional)</label>
-              <input type="text"
-                     name="titulo_manual_ui"
-                     class="w-full border rounded-lg p-2"
-                     placeholder="Write a title for this photo (optional)">
-              <p class="mt-1 text-xs text-gray-500">
-                If left blank, it will be saved as “Extra”.
-              </p>
+            <div>
+              <label for="direccion_manual" class="block text-sm font-semibold text-gray-700">
+                Address (auto, optional override)
+              </label>
+              <input
+                type="text"
+                name="direccion_manual"
+                id="direccion_manual"
+                class="w-full border rounded-lg p-2"
+                placeholder="Auto from GPS (optional override)"
+              />
             </div>
           </div>
           {% endif %}
@@ -242,16 +244,16 @@
               </div>
               <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
 
-              {% if is_proyecto_especial and not ev.requisito_id %}
+              {# ✅ Dirección automática:
+                 - Si hay lat/lng, mostramos coords + link
+                 - Si NO hay lat/lng pero hay direccion_manual (ej: reverse geocode guardado), mostramos esa.
+              #}
+              {% if ev.lat and ev.lng %}
+                <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
+                <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
+              {% else %}
                 {% if ev.direccion_manual %}
                   <div>📍 {{ ev.direccion_manual }}</div>
-                {% else %}
-                  <div class="text-gray-400">📍 No address</div>
-                {% endif %}
-              {% else %}
-                {% if ev.lat and ev.lng %}
-                  <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
-                  <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
                 {% else %}
                   <div class="text-gray-400">📍 No GPS</div>
                 {% endif %}
@@ -272,11 +274,11 @@
 
 {# --- Location consent modal --- #}
 <div id="geo-consent" class="fixed inset-0 hidden z-50">
-  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
   <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
     <h3 class="text-lg font-semibold">Allow location with photos?</h3>
     <p class="mt-2 text-sm text-gray-600">
-      We attach your GPS coordinates to each photo. This helps validate work at the correct site.
+      We attach your location (GPS) to each photo for supervision and quality control. This helps validate work at the correct site.
     </p>
     <div class="mt-4 flex justify-end gap-2">
       <button type="button" class="btn-consent-deny px-4 py-2 rounded bg-gray-100 hover:bg-gray-200">Not now</button>
@@ -320,7 +322,7 @@
   </div>
 </div>
 
-{# ✅ Modal Finish con comentario #}
+{# ✅ Modal Finish con comentario (MISMO QUE LIST/DETAIL) #}
 <div id="modal-finish" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-finish></div>
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
@@ -352,7 +354,7 @@
 <script>
 (function(){
   // ============================
-  // FINISH MODAL
+  // FINISH MODAL (igual que list/detail)
   // ============================
   const modal = document.getElementById('modal-finish');
   const form  = document.getElementById('form-finish');
@@ -401,125 +403,19 @@
   window.PROJECT_ID             = "{{ project_id|escapejs }}";
   window.CURRENT_USER_NAME      = "{{ current_user_name|escapejs }}";
 
-  // ------------------ Small toast helper (uses only DOM) ------------------
-  function toast(msg, kind){
-    try {
-      const div = document.createElement('div');
-      div.className =
-        "fixed left-1/2 -translate-x-1/2 top-4 z-[9999] max-w-[92vw] " +
-        "px-4 py-3 rounded-xl shadow text-white text-sm " +
-        (kind === 'error' ? "bg-red-600" : kind === 'ok' ? "bg-green-600" : "bg-gray-800");
-      div.textContent = msg;
-      document.body.appendChild(div);
-      setTimeout(()=>{ div.style.opacity="0"; div.style.transition="opacity 250ms"; }, 2800);
-      setTimeout(()=>{ div.remove(); }, 3200);
-    } catch(_) {}
-  }
-
-  // ============================
-  // GEO (global cache + reverse geocode best-effort)
-  // ============================
   const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
   const CONSENT_KEY = "photo_loc_consent";
   const getConsent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } };
   const setConsent = (v) => { try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} };
 
-  // Cache
-  window.__GEO_CACHE = window.__GEO_CACHE || null;   // {lat,lng,acc,taken}
-  window.__ADDR_CACHE = window.__ADDR_CACHE || "";  // human address best-effort
-
   // Modal geo
-  const geoModal = document.getElementById('geo-consent');
-  const btnAllow = geoModal.querySelector('.btn-consent-allow');
-  const btnDeny  = geoModal.querySelector('.btn-consent-deny');
-  const openGeoModal  = () => geoModal.classList.remove('hidden');
-  const closeGeoModal = () => geoModal.classList.add('hidden');
+  const modal = document.getElementById('geo-consent');
+  const btnAllow = modal.querySelector('.btn-consent-allow');
+  const btnDeny  = modal.querySelector('.btn-consent-deny');
+  const openModal  = () => modal.classList.remove('hidden');
+  const closeModal = () => modal.classList.add('hidden');
 
-  function setAllGpsLabels(text){
-    document.querySelectorAll('.geo-upload-form .gps-status').forEach(el=>{ el.textContent = text; });
-    const addrEl = document.querySelector('.geo-upload-form[data-extra="1"] .addr-status');
-    if (addrEl) addrEl.textContent = text;
-  }
-
-  function setAllAddr(text){
-    window.__ADDR_CACHE = text || "";
-    const addrEl = document.querySelector('.geo-upload-form[data-extra="1"] .addr-status');
-    if (addrEl) addrEl.textContent = text ? text : "No address";
-  }
-
-  async function reverseGeocode(lat, lng){
-    // Best-effort reverse geocode (OpenStreetMap Nominatim). If it fails, we just keep coords.
-    // NOTE: If you prefer NO external calls, remove this function and the call below.
-    try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store',
-      });
-      if (!res.ok) return "";
-      const j = await res.json().catch(()=>null);
-      const name = (j && (j.display_name || "")) ? String(j.display_name) : "";
-      return name;
-    } catch(_) {
-      return "";
-    }
-  }
-
-  async function ensureGeo(force){
-    const consent = getConsent();
-    if (consent !== 'granted') {
-      // If user denied before, don’t spam prompts. Still stamp time.
-      if (!force) return null;
-    }
-
-    if (!('geolocation' in navigator)){
-      if (force) toast("Geolocation not supported on this device.", "error");
-      return null;
-    }
-
-    // If we already have a fresh cache, reuse it (30s)
-    if (!force && window.__GEO_CACHE && window.__GEO_CACHE.taken) {
-      const age = Date.now() - new Date(window.__GEO_CACHE.taken).getTime();
-      if (age < 30000) return window.__GEO_CACHE;
-    }
-
-    setAllGpsLabels("📍 Getting location…");
-
-    return new Promise((resolve)=>{
-      navigator.geolocation.getCurrentPosition(
-        async (pos)=>{
-          const c = (pos && pos.coords) || {};
-          const lat = (typeof c.latitude === 'number') ? c.latitude : null;
-          const lng = (typeof c.longitude === 'number') ? c.longitude : null;
-          const acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
-          const taken = new Date().toISOString();
-
-          if (lat == null || lng == null) {
-            setAllGpsLabels("📍 Location unavailable");
-            resolve(null);
-            return;
-          }
-
-          window.__GEO_CACHE = { lat, lng, acc, taken };
-          setAllGpsLabels(`📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}${acc ? " (±"+Math.round(acc)+"m)" : ""}`);
-
-          // Reverse geocode (best-effort)
-          const addr = await reverseGeocode(lat, lng);
-          if (addr) setAllAddr(addr);
-          resolve(window.__GEO_CACHE);
-        },
-        ()=>{
-          setAllGpsLabels("📍 Permission denied or unavailable");
-          if (force) toast("Location permission denied. Photos will upload without GPS.", "error");
-          resolve(null);
-        },
-        GEO_OPTS
-      );
-    });
-  }
-
-  function stampGeoIntoForm(form){
+  async function captureGeo(form){
     const latEl   = form.querySelector('input[name="lat"]');
     const lngEl   = form.querySelector('input[name="lng"]');
     const accEl   = form.querySelector('input[name="acc"]');
@@ -527,79 +423,51 @@
     const gpsStatus  = form.querySelector('.gps-status');
     const timeStatus = form.querySelector('.time-status');
 
-    const now = new Date();
-    if (takenEl) takenEl.value = now.toISOString();
-    if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
-
-    const g = window.__GEO_CACHE;
-    if (g && typeof g.lat === 'number' && typeof g.lng === 'number') {
-      if (latEl) latEl.value = g.lat.toFixed(6);
-      if (lngEl) lngEl.value = g.lng.toFixed(6);
-      if (accEl) accEl.value = (g.acc != null) ? Number(g.acc).toFixed(2) : "";
-      if (gpsStatus) gpsStatus.textContent =
-        `📍 ${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}${g.acc ? " (±"+Math.round(g.acc)+"m)" : ""}`;
+    function setTimeNow(){
+      const now = new Date();
+      if (takenEl) takenEl.value = now.toISOString();
+      if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
     }
+    function setGps(text){ if (gpsStatus) gpsStatus.textContent = text; }
+
+    if (!('geolocation' in navigator)){
+      setTimeNow(); setGps("📍 Geolocation not supported");
+      throw new Error("Geolocation not supported");
+    }
+
+    setGps("📍 Getting location…");
+    return new Promise((resolve, reject)=>{
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>{
+          const { latitude, longitude, accuracy } = (pos && pos.coords) || {};
+          if (latEl) latEl.value = (latitude ?? "").toFixed ? latitude.toFixed(6) : "";
+          if (lngEl) lngEl.value = (longitude ?? "").toFixed ? longitude.toFixed(6) : "";
+          if (accEl) accEl.value = (accuracy ?? 0).toFixed ? accuracy.toFixed(2) : "";
+          setTimeNow();
+          if (latEl.value && lngEl.value){
+            setGps(`📍 ${latEl.value}, ${lngEl.value}${accEl.value ? " (±"+accEl.value+"m)" : ""}`);
+            resolve(true);
+          } else {
+            setGps("📍 Location unavailable");
+            reject(new Error("Location unavailable"));
+          }
+        },
+        (err)=>{
+          setTimeNow();
+          setGps("📍 Location denied/unavailable");
+          reject(err || new Error("Location denied"));
+        },
+        GEO_OPTS
+      );
+    });
   }
 
-  // Expose for uploader
-  window.__stampGeoIntoForm = async function(form){
-    // Always stamp time
-    stampGeoIntoForm(form);
-    // If no geo cache yet, try silently (no force prompt)
-    if (!window.__GEO_CACHE) await ensureGeo(false);
-    stampGeoIntoForm(form);
+  document.addEventListener('DOMContentLoaded', ()=>{ if (!getConsent()) openModal(); });
+  btnAllow.addEventListener('click', ()=>{ setConsent('granted'); closeModal(); });
+  btnDeny.addEventListener('click', ()=>{ setConsent('denied'); closeModal(); });
 
-    // For extra form: also stamp auto address into direccion_manual, and title (optional)
-    if (form && form.getAttribute('data-extra') === '1') {
-      const addrHidden = form.querySelector('input[name="direccion_manual"]');
-      if (addrHidden) addrHidden.value = (window.__ADDR_CACHE || "").slice(0, 255);
-
-      const titleUi = form.querySelector('input[name="titulo_manual_ui"]');
-      const titleHidden = form.querySelector('input[name="titulo_manual"]');
-      const title = (titleUi && titleUi.value ? titleUi.value.trim() : "");
-      if (titleHidden) titleHidden.value = title.slice(0, 200);
-    }
-
-    return !!(window.__GEO_CACHE && typeof window.__GEO_CACHE.lat === 'number' && typeof window.__GEO_CACHE.lng === 'number');
-  };
-
-  // Open modal on first visit, and request geo when they allow
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    const c = getConsent();
-    if (!c) {
-      openGeoModal();
-      return;
-    }
-    if (c === 'granted') {
-      await ensureGeo(false);
-      document.querySelectorAll('.geo-upload-form').forEach(f=>{ stampGeoIntoForm(f); });
-    } else {
-      // denied
-      setAllGpsLabels("📍 Location permission not granted");
-      setAllAddr("No address");
-    }
-  });
-
-  btnAllow.addEventListener('click', async ()=>{
-    setConsent('granted');
-    closeGeoModal();
-    await ensureGeo(true);
-    document.querySelectorAll('.geo-upload-form').forEach(f=>{ stampGeoIntoForm(f); });
-  });
-
-  btnDeny.addEventListener('click', ()=>{
-    setConsent('denied');
-    closeGeoModal();
-    setAllGpsLabels("📍 Location permission not granted");
-    setAllAddr("No address");
-  });
-
-  // ============================
-  // Per-form UI wiring (no duplicate document handlers per form)
-  // ============================
   document.querySelectorAll('.geo-upload-form').forEach(form=>{
     const fileInputGallery = form.querySelector('.file-input');
-    const fileInputCam     = form.querySelector('.file-input-camera');
     const filenameEl       = form.querySelector('.filename');
 
     if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
@@ -612,47 +480,27 @@
                                 : n===1 ? fileInputGallery.files[0].name
                                         : `${n} files selected`;
         }
-        await ensureGeo(false);
-        stampGeoIntoForm(form);
-      });
-    }
-
-    if (fileInputCam){
-      fileInputCam.addEventListener('change', async ()=>{
-        await ensureGeo(false);
-        stampGeoIntoForm(form);
+        try { await captureGeo(form); } catch(_) {}
       });
     }
 
     const btnGrant = form.querySelector('.grant-location');
     if (btnGrant){
       btnGrant.addEventListener('click', async ()=>{
-        await ensureGeo(true);
-        stampGeoIntoForm(form);
+        try { await captureGeo(form); } catch(_) {}
       });
     }
+
+    // ❌ NO ponemos handler submit aquí para no interferir con el uploader AJAX.
   });
 
-  // Global camera trigger (single handler)
-  document.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.trigger-camera');
-    if(!btn) return;
-    if (btn.disabled) return;
-    const id = btn.getAttribute('data-target');
-    const inputCam = document.getElementById(id);
-    if(inputCam) inputCam.click();
-  });
-
-  // ============================
-  // Delete modal (kept; do NOT remove delete restriction)
-  // ============================
+  // Delete modal
   const delModal   = document.getElementById('modal-delete');
   const delForm    = document.getElementById('delete-form');
   const delThumb   = document.getElementById('delete-thumb');
   const delLabelEl = document.getElementById('delete-label');
   function openDelete(){ delModal.classList.remove('hidden'); }
   function closeDelete(){ delModal.classList.add('hidden'); }
-
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('.btn-open-delete');
     if(!btn) return;
@@ -661,10 +509,8 @@
     delLabelEl.textContent = btn.getAttribute('data-label') || '—';
     openDelete();
   });
-
   document.addEventListener('click', (e)=>{ if (e.target.hasAttribute('data-close-modal')) closeDelete(); });
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeDelete(); });
-
   delForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const action = delForm.getAttribute('action');
@@ -674,14 +520,58 @@
       const res = await fetch(action, { method: 'POST', body: fd, cache: 'no-store' });
       if (res.ok || (res.status>=300 && res.status<400)) { window.location.reload(); return; }
       alert('Could not delete the photo. Try again.');
-    } catch {
-      alert('Could not delete the photo. Try again.');
-    } finally {
-      closeDelete();
-    }
+    } catch { alert('Could not delete the photo. Try again.'); }
+    finally { closeDelete(); }
   });
-
 })();
+</script>
+
+<script>
+/* Passive geo helper for AJAX (best-effort) */
+window.__stampGeoIntoForm = async function(form){
+  const latEl   = form.querySelector('input[name="lat"]');
+  const lngEl   = form.querySelector('input[name="lng"]');
+  const accEl   = form.querySelector('input[name="acc"]');
+  const takenEl = form.querySelector('input[name="client_taken_at"]');
+  const gpsStatus  = form.querySelector('.gps-status');
+  const timeStatus = form.querySelector('.time-status');
+
+  const now = new Date();
+  if (takenEl && !takenEl.value) takenEl.value = now.toISOString();
+  if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
+
+  if (latEl?.value && lngEl?.value) return true;
+
+  if (!('geolocation' in navigator)) {
+    if (gpsStatus) gpsStatus.textContent = "📍 Geolocation not supported";
+    return false;
+  }
+  if (gpsStatus) gpsStatus.textContent = "📍 Trying to get location…";
+
+  return new Promise(resolve=>{
+    navigator.geolocation.getCurrentPosition(
+      (pos)=>{
+        const c = pos.coords||{};
+        if (latEl) latEl.value = isFinite(c.latitude) ? c.latitude : '';
+        if (lngEl) lngEl.value = isFinite(c.longitude)? c.longitude: '';
+        if (accEl) accEl.value = isFinite(c.accuracy) ? c.accuracy : '';
+        if (latEl.value && lngEl.value) {
+          if (gpsStatus) gpsStatus.textContent =
+            `📍 ${Number(latEl.value).toFixed(6)}, ${Number(lngEl.value).toFixed(6)}${accEl.value ? " (±"+Math.round(accEl.value)+"m)" : ""}`;
+          resolve(true);
+        } else {
+          if (gpsStatus) gpsStatus.textContent = "📍 Location unavailable";
+          resolve(false);
+        }
+      },
+      ()=>{
+        if (gpsStatus) gpsStatus.textContent = "📍 Permission denied or unavailable";
+        resolve(false);
+      },
+      { enableHighAccuracy:true, maximumAge:0, timeout:12000 }
+    );
+  });
+};
 </script>
 
 <script>
@@ -716,14 +606,12 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
 
     var gallery = document.getElementById('file-gallery-' + reqId);
     var lblGal  = li ? li.querySelector('label[for="file-gallery-' + reqId + '"]') : null;
-    var cam     = document.getElementById('file-camera-' + reqId);
-    var btnCam  = li ? li.querySelector('.trigger-camera[data-target="file-camera-' + reqId + '"]') : null;
     var btnLoc  = li ? li.querySelector('.grant-location') : null;
     var nota    = li ? li.querySelector('input[name="nota"]') : null;
     var submit  = form ? (form.querySelector('button[type="submit"], button:not([type])')) : null;
     var filenameEl = form ? form.querySelector('.filename') : null;
 
-    [gallery, cam, btnCam, btnLoc, nota, submit].forEach(function(el){
+    [gallery, btnLoc, nota, submit].forEach(function(el){
       if (!el) return;
       el.disabled = !enabled;
       el.classList.toggle('cursor-not-allowed', !enabled);
@@ -837,7 +725,7 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     const isExtra = !ev.req_id;
     const gps = (ev.lat && ev.lng)
       ? `📍 ${Number(ev.lat).toFixed(5)}, ${Number(ev.lng).toFixed(5)}${ev.acc ? " (±"+Math.round(ev.acc)+"m)" : ""}`
-      : (extraAddressText ? `📍 ${extraAddressText}` : '📍 No GPS');
+      : (extraAddressText ? `📍 ${extraAddressText}` : (ev.address ? `📍 ${ev.address}` : '📍 No GPS'));
 
     const delBtn = (window.CAN_DELETE && window.DELETE_URL_TPL)
       ? `<button type="button"
@@ -876,8 +764,13 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
   async function bestEffortGps(form){
     if (window.__stampGeoIntoForm) {
       const ok = await window.__stampGeoIntoForm(form);
-      return ok;
+      if (ok) return true;
     }
+    const lbl = form.querySelector('.gps-status');
+    if (lbl) lbl.textContent = '📍 Trying to get location…';
+    const takenEl = form.querySelector('input[name="client_taken_at"]');
+    if (takenEl && !takenEl.value) takenEl.value = new Date().toISOString();
+    if (lbl) lbl.textContent = '📍 No GPS (will upload without coordinates)';
     return false;
   }
 
@@ -911,10 +804,8 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     const taken = form.querySelector('input[name="client_taken_at"]')?.value || new Date().toISOString();
     const nota  = form.querySelector('input[name="nota"]')?.value || "";
     const reqId = form.querySelector('input[name="req_id"]')?.value || "";
-
-    // Special extra (auto)
-    const titulo_manual = (form.querySelector('input[name="titulo_manual"]')?.value || "").trim();
-    const direccion_manual = (form.querySelector('input[name="direccion_manual"]')?.value || "").trim();
+    const titulo_manual    = form.querySelector('input[name="titulo_manual"]')?.value || "";
+    const direccion_manual = form.querySelector('input[name="direccion_manual"]')?.value || "";
 
     const fd = new FormData();
     const csrf = (form.querySelector('[name=csrfmiddlewaretoken]')||{}).value;
@@ -926,7 +817,6 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     if (lng) fd.append('lng', lng);
     if (acc) fd.append('acc', acc);
     if (taken) fd.append('client_taken_at', taken);
-
     if (titulo_manual) fd.append('titulo_manual', titulo_manual);
     if (direccion_manual) fd.append('direccion_manual', direccion_manual);
 
@@ -948,7 +838,6 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
           if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
             bar.style.width = '100%';
             status.textContent = 'Done';
-
             addEvidenceCard(data.evidencia, (!reqId && direccion_manual) ? direccion_manual : '');
             if (reqId) incMyCount(reqId);
 
@@ -957,12 +846,15 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
               const extraForm = document.querySelector('.geo-upload-form.ajax-uploader[data-extra="1"]');
               if (extraForm) {
                 const enabled = data.extras_left > 0;
-                extraForm.querySelectorAll('input[type=file],input[name=titulo_manual_ui],input[name=nota],button').forEach(el => el.disabled = !enabled);
+                extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
                 const fn = extraForm.querySelector('.filename');
                 const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
                 if (fn) {
-                  if (!enabled) fn.textContent = 'Closed';
-                  else if (!haveFiles) fn.textContent = fn.dataset.empty || 'No files selected';
+                  if (!enabled) {
+                    fn.textContent = 'Closed';
+                  } else if (!haveFiles) {
+                    fn.textContent = fn.dataset.empty || 'No files selected';
+                  }
                 }
                 const gps = extraForm.querySelector('.gps-status');
                 if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';
@@ -970,6 +862,7 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
             }
 
             if (typeof window.__refreshFotosStatus === 'function') window.__refreshFotosStatus();
+
             setTimeout(()=> item.remove(), 350);
           } else {
             status.textContent = (data && data.error) ? data.error : `Error ${xhr.status}`;
@@ -1012,23 +905,17 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       let files = [];
       fileInputs.forEach(inp=>{ if (inp.files && inp.files.length) files.push(...inp.files); });
       if (!files.length) { alert('Please select at least one image.'); return; }
-
       for (const f of files) { await uploadOne(form, f); }
-
       fileInputs.forEach(inp=> inp.value = '');
       if (filenameEl) filenameEl.textContent = filenameEl.dataset.empty || 'No files selected';
       const gpsStatus  = form.querySelector('.gps-status'); if (gpsStatus) gpsStatus.textContent = '📍 Awaiting location…';
       const timeStatus = form.querySelector('.time-status'); if (timeStatus) timeStatus.textContent = '🕒 —';
-
       ['lat','lng','acc','client_taken_at'].forEach(nm => {
         const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
       });
-
-      // Extra UI title reset (if exists)
-      const t = form.querySelector('input[name="titulo_manual_ui"]'); if (t) t.value = '';
-      const th = form.querySelector('input[name="titulo_manual"]'); if (th) th.value = '';
-      // Keep direccion_manual cached (auto) - no reset needed
-      const n = form.querySelector('input[name="nota"]'); if (n) n.value = '';
+      ['titulo_manual','direccion_manual','nota'].forEach(nm => {
+        const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
+      });
     });
   });
 
@@ -1036,7 +923,7 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
 </script>
 
 <script>
-/* Status polling (fotos_status_json) */
+/* Status polling (fotos_status_json) — updates badges, Finish, Missing, and appends new evidences */
 (function(){
   const host = document.getElementById('js-urls');
   const STATUS_URL = host ? host.dataset.statusUrl : '';
@@ -1059,7 +946,7 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
         const extraForm = document.querySelector('.geo-upload-form.ajax-uploader[data-extra="1"]');
         if (extraForm) {
           const enabled = j.extras_left > 0;
-          extraForm.querySelectorAll('input[type=file],input[name=titulo_manual_ui],input[name=nota],button').forEach(el => el.disabled = !enabled);
+          extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
           const fn = extraForm.querySelector('.filename');
           const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
           if (fn) {
@@ -1084,4 +971,5 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
   window.__refreshFotosStatus = tick;
 })();
 </script>
+
 {% endblock %}

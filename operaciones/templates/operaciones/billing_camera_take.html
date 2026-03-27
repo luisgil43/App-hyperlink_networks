@@ -4,18 +4,30 @@
 {% block content %}
 
 <style>
-  /* Fullscreen-ish camera layout inside dashboard */
-  .cam-wrap{max-width:520px;margin:0 auto;}
+  .cam-wrap{max-width:560px;margin:0 auto;}
   .cam-stage{position:relative;border-radius:28px;overflow:hidden;background:#000;}
-  .cam-video{width:100%;height:68vh;max-height:720px;object-fit:cover;display:block;}
+  .cam-video{width:100%;height:72vh;max-height:760px;object-fit:cover;display:block;}
   .cam-overlay{
     position:absolute;left:0;right:0;top:18px;z-index:5;
     text-align:center;color:#fff;font-weight:700;
     text-shadow:0 2px 10px rgba(0,0,0,.65);
-    padding:0 14px;line-height:1.15;
+    padding:0 16px;line-height:1.15;
   }
-  .cam-overlay .line{font-size:20px;}
-  @media (max-width:420px){ .cam-overlay .line{font-size:18px;} }
+  .cam-overlay .line{font-size:18px;}
+  @media (min-width:420px){ .cam-overlay .line{font-size:20px;} }
+
+  .cam-topbar{
+    position:absolute;left:0;right:0;top:0;z-index:7;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 14px;
+    background:linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,0));
+    color:#fff;
+    text-shadow:0 2px 10px rgba(0,0,0,.65);
+  }
+  .cam-x{font-size:22px;line-height:1;font-weight:800;opacity:.95;}
+  .cam-count{font-size:18px;font-weight:800;opacity:.95;}
+  .cam-top-right{font-size:12px;opacity:.95; text-align:right;}
+
   .cam-bottom{
     position:absolute;left:0;right:0;bottom:0;z-index:6;
     display:flex;align-items:center;justify-content:space-between;
@@ -24,36 +36,28 @@
   }
   .cam-cancel{color:#fff;font-size:16px;font-weight:600;opacity:.95;}
   .cam-shutter{
-    width:74px;height:74px;border-radius:999px;
+    width:76px;height:76px;border-radius:999px;
     border:4px solid rgba(255,255,255,.95);
-    background:rgba(255,255,255,.15);
+    background:rgba(255,255,255,.12);
     display:grid;place-items:center;
   }
   .cam-shutter::after{
-    content:"";width:58px;height:58px;border-radius:999px;
+    content:"";width:60px;height:60px;border-radius:999px;
     border:2px solid rgba(255,255,255,.95);
     background:transparent;
     display:block;
   }
   .cam-thumb{
-    width:52px;height:52px;border-radius:10px;overflow:hidden;
+    width:54px;height:54px;border-radius:12px;overflow:hidden;
     border:2px solid rgba(255,255,255,.85);
-    background:rgba(255,255,255,.15);
+    background:rgba(255,255,255,.10);
+    padding:0;
   }
   .cam-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
-  .cam-topbar{
-    position:absolute;left:0;right:0;top:0;z-index:7;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:14px 14px;
-    background:linear-gradient(to bottom, rgba(0,0,0,.5), rgba(0,0,0,0));
-    color:#fff;
-    text-shadow:0 2px 10px rgba(0,0,0,.65);
-  }
-  .cam-x{font-size:22px;line-height:1;font-weight:800;opacity:.95;}
-  .cam-count{font-size:18px;font-weight:800;opacity:.95;}
-  .cam-hint{max-width:520px;margin:12px auto 0;color:#6b7280;font-size:12px;}
-  .cam-banner{max-width:520px;margin:10px auto 0;}
-  .cam-banner .box{border-radius:16px;padding:10px 12px;font-size:13px;}
+
+  .cam-panel{max-width:560px;margin:12px auto 0;}
+  .cam-panel .box{border-radius:16px;padding:10px 12px;font-size:13px;}
+
   /* Fullscreen preview modal */
   .pv{position:fixed;inset:0;z-index:9999;display:none;}
   .pv.show{display:block;}
@@ -71,53 +75,100 @@
   .pv .btn{font-size:22px;line-height:1;opacity:.95;}
 </style>
 
-<div class="cam-wrap">
-  <div class="cam-stage shadow">
+<div class="max-w-5xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
 
-    {# TOP BAR like iPhone camera (X + 0/3) #}
-    <div class="cam-topbar">
-      <button type="button" id="btn-close-top" class="cam-x" aria-label="Close">✕</button>
-      <div class="cam-count" id="cam-count">0/3</div>
-      <div style="width:22px;height:22px;"></div>
+  <div class="flex items-center justify-between gap-3">
+    <div class="min-w-0">
+      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+         class="inline-flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded">
+        ⬅️ Back
+      </a>
+      <h1 class="mt-3 text-xl sm:text-2xl font-bold leading-tight truncate">
+        📷 Take Photo — {{ req_title }}
+      </h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Billing #{{ a.sesion.id }} · {{ project_id }} · {{ cp_text }}
+      </p>
     </div>
 
-    {# OVERLAY centered (5 lines) #}
-    <div class="cam-overlay" id="overlay">
-      <div class="line" id="ov-date">—</div>
-      <div class="line" id="ov-coords">—</div>
-      <div class="line" id="ov-street">—</div>
-      <div class="line" id="ov-city">—</div>
-      <div class="line" id="ov-cp">{{ cp_text }}</div>
-    </div>
-
-    {# VIDEO #}
-    <video id="video" class="cam-video" playsinline autoplay muted></video>
-
-    {# BOTTOM BAR like iPhone camera (Cancel + shutter + thumb) #}
-    <div class="cam-bottom">
-      <button type="button" id="btn-cancel" class="cam-cancel">Cancel</button>
-
-      <button type="button" id="btn-shot" class="cam-shutter" aria-label="Take photo"></button>
-
-      <button type="button" id="btn-thumb" class="cam-thumb" aria-label="Open last photo" disabled>
-        <img id="thumb-img" src="" alt="thumbnail" />
+    <div class="flex flex-col items-end gap-2">
+      <button id="btn-upload-all"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled>
+        Direct upload to Wasabi
       </button>
-    </div>
-
-    {# Fallback capture if getUserMedia not available #}
-    <input id="fallback-file" type="file" accept="image/*" capture="environment" class="hidden">
-  </div>
-
-  <div class="cam-banner">
-    <div id="banner" class="box hidden bg-red-50 text-red-800">
-      Camera not available. Please allow camera permission (and on iPhone you must use HTTPS).
-      We will open the fallback camera instead.
+      <div class="text-xs text-gray-500">
+        {% if req_id %}Requirement{% else %}Extra{% endif %}
+      </div>
     </div>
   </div>
 
-  <p class="cam-hint">
-    We do NOT save to your gallery. Photo is captured in-app. Location is requested automatically.
-  </p>
+  <div class="cam-wrap mt-4">
+    <div class="cam-stage shadow">
+
+      {# TOP BAR #}
+      <div class="cam-topbar">
+        <button type="button" id="btn-close-top" class="cam-x" aria-label="Close">✕</button>
+        <div class="cam-count" id="cam-count">0</div>
+        <div class="cam-top-right">
+          <div id="geo-mini">📍 …</div>
+        </div>
+      </div>
+
+      {# OVERLAY (5 lines, centered) #}
+      <div class="cam-overlay" id="overlay">
+        <div class="line" id="ov-date">—</div>
+        <div class="line" id="ov-coords">—</div>
+        <div class="line" id="ov-street">—</div>
+        <div class="line" id="ov-city">—</div>
+        <div class="line" id="ov-cp">{{ cp_text }}</div>
+      </div>
+
+      {# VIDEO #}
+      <video id="video" class="cam-video" playsinline autoplay muted></video>
+
+      {# BOTTOM BAR #}
+      <div class="cam-bottom">
+        <button type="button" id="btn-cancel" class="cam-cancel">Cancel</button>
+
+        <button type="button" id="btn-shot" class="cam-shutter" aria-label="Take photo"></button>
+
+        <button type="button" id="btn-thumb" class="cam-thumb" aria-label="Open last photo" disabled>
+          <img id="thumb-img" src="" alt="thumbnail" />
+        </button>
+      </div>
+
+    </div>
+
+    <div class="cam-panel">
+      <div id="banner" class="box hidden bg-red-50 text-red-800">
+        Camera not available. iPhone requires HTTPS + permission. Please open on the secure site and allow camera access.
+      </div>
+
+      <div id="enable-box" class="box hidden bg-gray-50 text-gray-800 mt-2">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-sm">
+            Tap “Enable Camera” to allow access (needed once).
+          </div>
+          <button id="btn-enable" type="button" class="px-3 py-2 rounded bg-gray-900 text-white hover:bg-black text-sm">
+            Enable Camera
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {# Queue (se mantiene para poder subir varias) #}
+    <div class="mt-4 border rounded-2xl p-3">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">Queue</div>
+        <div class="text-xs text-gray-500" id="queue-count">0 photos</div>
+      </div>
+      <div id="queue" class="mt-3 space-y-3 max-h-[360px] overflow-auto pr-1">
+        <div class="text-sm text-gray-500" id="queue-empty">No photos yet.</div>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 {# FULLSCREEN PREVIEW MODAL #}
@@ -138,9 +189,37 @@
   // ---------------------------
   // Backend vars
   // ---------------------------
-  const MAX_PHOTOS = 3; // shows 0/3 like iPhone
-  const CP_TEXT = "{{ cp_text|escapejs }}";
-  const BACK_URL = "{% url 'operaciones:upload_evidencias' a.pk %}";
+  const ASIG_ID    = {{ a.pk }};
+  const REQ_ID     = "{{ req_id }}";
+  const PROJECT_ID = "{{ project_id|escapejs }}";
+  const CP_TEXT    = "{{ cp_text|escapejs }}";
+  const FOLDER     = "{{ direct_uploads_folder|escapejs }}";
+
+  const URL_PRESIGN = "{% url 'operaciones:presign_wasabi' %}";
+  const URL_CONFIRM = "{% url 'operaciones:camera_create_evidence_from_key' 0 %}".replace('/0/', `/${ASIG_ID}/`);
+
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-[9999]`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2500);
+  }
+
+  function show(el){ if(el) el.classList.remove('hidden'); }
+  function hide(el){ if(el) el.classList.add('hidden'); }
+
+  function isSecureEnough(){
+    // iOS Safari requires HTTPS for getUserMedia
+    return window.isSecureContext && location.protocol === 'https:';
+  }
 
   // ---------------------------
   // Elements
@@ -152,9 +231,7 @@
   const btnThumb = document.getElementById('btn-thumb');
   const thumbImg = document.getElementById('thumb-img');
   const camCount = document.getElementById('cam-count');
-
-  const banner = document.getElementById('banner');
-  const fallback = document.getElementById('fallback-file');
+  const geoMini = document.getElementById('geo-mini');
 
   const ovDate = document.getElementById('ov-date');
   const ovCoords = document.getElementById('ov-coords');
@@ -162,6 +239,16 @@
   const ovCity = document.getElementById('ov-city');
   const ovCp = document.getElementById('ov-cp');
 
+  const banner = document.getElementById('banner');
+  const enableBox = document.getElementById('enable-box');
+  const btnEnable = document.getElementById('btn-enable');
+
+  const btnUploadAll = document.getElementById('btn-upload-all');
+  const queue = document.getElementById('queue');
+  const queueEmpty = document.getElementById('queue-empty');
+  const queueCount = document.getElementById('queue-count');
+
+  // Preview modal
   const pv = document.getElementById('pv');
   const pvImg = document.getElementById('pv-img');
   const pvClose = document.getElementById('pv-close');
@@ -171,84 +258,31 @@
   // State
   // ---------------------------
   let stream = null;
-  let lastGeo = { lat:null, lng:null, acc:null, street:'', cityLine:'' };
-  let photos = []; // { url, takenISO } newest last
-  let currentPreviewIdx = 0;
 
-  function showBanner(msg){
-    banner.textContent = msg;
-    banner.classList.remove('hidden');
+  // We keep both: display lines (5 lines) and a compact address to save.
+  let lastGeo = {
+    lat:null, lng:null, acc:null,
+    streetLine:'', cityLine:'', addressForSave:''
+  };
+
+  // items: { id, blob, previewUrl, takenISO, lat,lng,acc, addressForSave, status, wasabiKey, ev }
+  let items = [];
+
+  function updateCounters(){
+    camCount.textContent = String(items.length);
+    queueCount.textContent = `${items.length} photo${items.length===1?'':'s'}`;
+    btnUploadAll.disabled = (items.length === 0);
+    if(items.length === 0) queueEmpty.classList.remove('hidden');
+    else queueEmpty.classList.add('hidden');
   }
-  function hideBanner(){
-    banner.classList.add('hidden');
-  }
-
-  function fmtDateLine(d){
-    // "mar 21, 2026, 3:12:34 p.m." close enough (locale controlled by device)
-    try{
-      return new Date(d).toLocaleString(undefined, {
-        year:'numeric', month:'short', day:'2-digit',
-        hour:'numeric', minute:'2-digit', second:'2-digit'
-      });
-    }catch(_){ return d; }
-  }
-
-  function setCount(){
-    camCount.textContent = `${photos.length}/${MAX_PHOTOS}`;
-  }
-
-  function openPreview(idx){
-    if(!photos.length) return;
-    currentPreviewIdx = Math.max(0, Math.min(idx, photos.length - 1));
-    pvImg.src = photos[currentPreviewIdx].url;
-    pvCount.textContent = `${currentPreviewIdx + 1}/${photos.length}`;
-    pv.classList.add('show');
-  }
-  function closePreview(){
-    pv.classList.remove('show');
-  }
-
-  // Tap anywhere on thumbnail -> open last photo fullscreen
-  btnThumb.addEventListener('click', ()=>{
-    if(btnThumb.disabled) return;
-    openPreview(photos.length - 1);
-  });
-
-  pvClose.addEventListener('click', closePreview);
-  pv.addEventListener('click', (e)=>{
-    if(e.target.classList.contains('bg')) closePreview();
-  });
-  document.addEventListener('keydown', (e)=>{
-    if(e.key === 'Escape' && pv.classList.contains('show')) closePreview();
-  });
-
-  // Simple swipe to browse photos (left/right)
-  let touchX = null;
-  pv.addEventListener('touchstart', (e)=>{
-    touchX = (e.touches && e.touches[0] && e.touches[0].clientX) || null;
-  }, {passive:true});
-  pv.addEventListener('touchend', (e)=>{
-    if(touchX == null) return;
-    const endX = (e.changedTouches && e.changedTouches[0] && e.changedTouches[0].clientX) || null;
-    if(endX == null) return;
-    const dx = endX - touchX;
-    touchX = null;
-    if(Math.abs(dx) < 40) return;
-    if(dx < 0) { // next
-      openPreview(Math.min(currentPreviewIdx + 1, photos.length - 1));
-    } else { // prev
-      openPreview(Math.max(currentPreviewIdx - 1, 0));
-    }
-  }, {passive:true});
 
   // ---------------------------
-  // Geo: request on load (automatic)
+  // Geo + reverse geocode (Nominatim)
   // ---------------------------
   async function reverseGeocode(lat, lng){
-    // Nominatim: best effort. If you later want Google, replace here.
     try{
       const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
-      const resp = await fetch(url, { headers: { 'Accept': 'application/json' }});
+      const resp = await fetch(url, { headers: { 'Accept': 'application/json' }, cache:'no-store' });
       if(!resp.ok) return null;
       return await resp.json();
     }catch(_){
@@ -269,29 +303,31 @@
     const city = pickCity(addr);
     const state = addr.state || '';
     const postcode = addr.postcode || '';
-    const country = (addr.country_code ? addr.country_code.toUpperCase() : (addr.country || ''));
+    const country = (addr.country || '');
+    const countryCode = (addr.country_code ? String(addr.country_code).toUpperCase() : '');
 
-    // Your requested 4th line: "Cedar Bluff AL 35959" + country
-    // We'll format: "<city> <state_abbrev_or_state> <postcode> <COUNTRY>"
-    // If state is long, we keep it; if you want abbreviation only, we'd need mapping.
-    const cityLineParts = [];
-    if(city) cityLineParts.push(city);
-    if(state) cityLineParts.push(state);
-    if(postcode) cityLineParts.push(postcode);
-    if(country) cityLineParts.push(country);
+    // 3rd line: street
+    const streetLine = street || (j && j.display_name ? String(j.display_name).split(',').slice(0,2).join(', ').trim() : '');
 
-    return {
-      streetLine: street || (j && j.display_name ? j.display_name : ''),
-      cityLine: cityLineParts.join(' ')
-    };
+    // 4th line: city + zip + country  (y si viene state, lo metemos)
+    const parts = [];
+    if (city) parts.push(city);
+    if (state) parts.push(state);
+    if (postcode) parts.push(postcode);
+    if (country) parts.push(country);
+    else if (countryCode) parts.push(countryCode);
+
+    const cityLine = parts.join(' ').trim();
+
+    // What we store to backend as "address" (direccion_manual): use display_name (más completo)
+    const addressForSave = (j && j.display_name) ? String(j.display_name).slice(0, 255) : (streetLine || '').slice(0, 255);
+
+    return { streetLine, cityLine, addressForSave };
   }
 
   async function requestGeo(){
     if(!('geolocation' in navigator)){
-      // still show placeholder lines
-      ovCoords.textContent = '—';
-      ovStreet.textContent = '—';
-      ovCity.textContent = '—';
+      geoMini.textContent = '📍 not supported';
       return false;
     }
 
@@ -303,23 +339,29 @@
         lastGeo.acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
 
         if(lastGeo.lat != null && lastGeo.lng != null){
-          const accTxt = (lastGeo.acc != null) ? ` ±${Number(lastGeo.acc).toFixed(2)}m` : '';
-          ovCoords.textContent = `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${accTxt}`;
+          const accTxt = (lastGeo.acc != null) ? ` ±${Math.round(lastGeo.acc)}m` : '';
+          const coordsLine = `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${accTxt}`;
+          ovCoords.textContent = coordsLine;
+          geoMini.textContent = `📍 ${coordsLine}`;
 
           const j = await reverseGeocode(lastGeo.lat, lastGeo.lng);
           const lines = buildLinesFromNominatim(j);
-          lastGeo.street = lines.streetLine || '—';
+          lastGeo.streetLine = lines.streetLine || '—';
           lastGeo.cityLine = lines.cityLine || '—';
-          ovStreet.textContent = lastGeo.street || '—';
+          lastGeo.addressForSave = lines.addressForSave || '';
+
+          ovStreet.textContent = lastGeo.streetLine || '—';
           ovCity.textContent = lastGeo.cityLine || '—';
-        }else{
+        } else {
+          geoMini.textContent = '📍 unavailable';
           ovCoords.textContent = '—';
           ovStreet.textContent = '—';
           ovCity.textContent = '—';
         }
+
         resolve(true);
       }, ()=>{
-        // denied/unavailable
+        geoMini.textContent = '📍 denied';
         ovCoords.textContent = '—';
         ovStreet.textContent = '—';
         ovCity.textContent = '—';
@@ -328,27 +370,29 @@
     });
   }
 
-  // ---------------------------
-  // Camera: auto-start on load
-  // ---------------------------
-  function isSecureEnough(){
-    // iOS Safari needs HTTPS for getUserMedia
-    return window.isSecureContext && location.protocol === 'https:';
+  function fmtDateLine(d){
+    try{
+      return new Date(d).toLocaleString(undefined, {
+        year:'numeric', month:'short', day:'2-digit',
+        hour:'numeric', minute:'2-digit', second:'2-digit'
+      });
+    }catch(_){ return d; }
   }
 
+  // ---------------------------
+  // Camera (NO fallback capture)
+  // ---------------------------
   async function startCamera(){
-    hideBanner();
+    hide(banner);
 
-    // If no getUserMedia, jump to fallback
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      showBanner('Camera API not available. Opening fallback camera…');
-      fallback.click();
+    if(!isSecureEnough()){
+      show(banner);
+      show(enableBox);
       return false;
     }
-    // On iPhone, if not HTTPS, getUserMedia will fail
-    if(!isSecureEnough()){
-      showBanner('iPhone requires HTTPS for live camera. Opening fallback camera…');
-      fallback.click();
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      show(banner);
+      show(enableBox);
       return false;
     }
 
@@ -358,26 +402,25 @@
         audio: false
       });
       video.srcObject = stream;
+      hide(enableBox);
       return true;
-    }catch(err){
-      showBanner('Camera not available. Please allow camera permission. Opening fallback camera…');
-      fallback.click();
+    }catch(_){
+      show(banner);
+      show(enableBox);
       return false;
     }
   }
 
   function stopCamera(){
     try{
-      if(stream){
-        stream.getTracks().forEach(t=> t.stop());
-      }
+      if(stream) stream.getTracks().forEach(t=>t.stop());
     }catch(_){}
     stream = null;
     video.srcObject = null;
   }
 
   // ---------------------------
-  // Capture frame + burn overlay exactly as you asked
+  // Burn overlay centered into JPEG
   // ---------------------------
   async function burnOverlayToBlob(source, w, h, lines){
     const canvas = document.createElement('canvas');
@@ -386,19 +429,21 @@
     const ctx = canvas.getContext('2d');
     ctx.drawImage(source, 0, 0, w, h);
 
-    // Text style: white + shadow, centered
-    const fontSize = Math.max(22, Math.round(w * 0.042));
+    const fontSize = Math.max(20, Math.round(w * 0.040));
+    const gap = Math.round(fontSize * 1.18);
+
     ctx.font = `700 ${fontSize}px Arial`;
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
+
+    // shadow (nice & readable)
     ctx.shadowColor = 'rgba(0,0,0,.65)';
     ctx.shadowBlur = 10;
     ctx.shadowOffsetY = 2;
 
     const x = Math.round(w * 0.5);
     let y = Math.round(h * 0.06);
-    const gap = Math.round(fontSize * 1.15);
 
     for(const t of lines){
       if(!t) continue;
@@ -411,121 +456,274 @@
     });
   }
 
-  async function takeShotFromVideo(){
-    if(photos.length >= MAX_PHOTOS) return;
-
-    // Always refresh geo “best effort” before shot
-    await requestGeo();
-
-    const takenISO = new Date().toISOString();
-    ovDate.textContent = fmtDateLine(takenISO);
-
-    const line1 = fmtDateLine(takenISO);
-    const line2 = (lastGeo.lat != null && lastGeo.lng != null)
-      ? `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${lastGeo.acc != null ? ` ±${Number(lastGeo.acc).toFixed(2)}m` : ''}`
-      : '—';
-    const line3 = (lastGeo.street || '—');
-    const line4 = (lastGeo.cityLine || '—');
-    const line5 = (CP_TEXT || '');
-
-    if(!video.videoWidth || !video.videoHeight){
-      // If video not ready, fallback
-      fallback.click();
+  // ---------------------------
+  // Take photo (from video)
+  // ---------------------------
+  async function takeShot(){
+    if(!video || !video.videoWidth || !video.videoHeight){
+      toast('Camera not ready.', 'error');
       return;
     }
 
-    const blob = await burnOverlayToBlob(video, video.videoWidth, video.videoHeight, [line1, line2, line3, line4, line5]);
-    if(!blob) return;
-
-    const url = URL.createObjectURL(blob);
-
-    photos.push({ url, takenISO });
-
-    // Update thumb (small bottom-right)
-    thumbImg.src = url;
-    btnThumb.disabled = false;
-
-    // Update count top-right
-    setCount();
-
-    // If reached max, disable shutter
-    if(photos.length >= MAX_PHOTOS){
-      btnShot.disabled = true;
-      btnShot.style.opacity = '0.55';
-    }
-  }
-
-  async function takeShotFallbackFile(file){
-    if(!file) return;
-    if(photos.length >= MAX_PHOTOS) return;
-
+    // Refresh geo best-effort BEFORE shot
     await requestGeo();
 
     const takenISO = new Date().toISOString();
-    ovDate.textContent = fmtDateLine(takenISO);
-
-    const bmp = await createImageBitmap(file).catch(()=>null);
-    if(!bmp) return;
-
     const line1 = fmtDateLine(takenISO);
+
     const line2 = (lastGeo.lat != null && lastGeo.lng != null)
-      ? `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${lastGeo.acc != null ? ` ±${Number(lastGeo.acc).toFixed(2)}m` : ''}`
+      ? `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${lastGeo.acc != null ? ` ±${Math.round(lastGeo.acc)}m` : ''}`
       : '—';
-    const line3 = (lastGeo.street || '—');
+
+    const line3 = (lastGeo.streetLine || '—');
     const line4 = (lastGeo.cityLine || '—');
     const line5 = (CP_TEXT || '');
 
-    const blob = await burnOverlayToBlob(bmp, bmp.width, bmp.height, [line1, line2, line3, line4, line5]);
-    if(!blob) return;
+    // update live overlay too (centered)
+    ovDate.textContent = line1;
+    ovCoords.textContent = line2;
+    ovStreet.textContent = line3;
+    ovCity.textContent = line4;
+    ovCp.textContent = line5;
+
+    const blob = await burnOverlayToBlob(video, video.videoWidth, video.videoHeight, [line1,line2,line3,line4,line5]);
+    if(!blob){
+      toast('Could not create image.', 'error');
+      return;
+    }
 
     const url = URL.createObjectURL(blob);
+    const id = 'q_' + Math.random().toString(16).slice(2);
 
-    photos.push({ url, takenISO });
+    items.unshift({
+      id,
+      blob,
+      previewUrl: url,
+      takenISO,
+      lat: lastGeo.lat,
+      lng: lastGeo.lng,
+      acc: lastGeo.acc,
+      addressForSave: lastGeo.addressForSave || '',
+      status: 'queued',
+      wasabiKey: '',
+      ev: null,
+    });
 
+    // thumb
     thumbImg.src = url;
     btnThumb.disabled = false;
-    setCount();
 
-    if(photos.length >= MAX_PHOTOS){
-      btnShot.disabled = true;
-      btnShot.style.opacity = '0.55';
+    renderQueue();
+    updateCounters();
+  }
+
+  // ---------------------------
+  // Preview modal
+  // ---------------------------
+  function openPreview(){
+    if(!items.length) return;
+    pvImg.src = items[0].previewUrl;   // last taken
+    pvCount.textContent = `1/${items.length}`;
+    pv.classList.add('show');
+  }
+  function closePreview(){ pv.classList.remove('show'); }
+
+  btnThumb.addEventListener('click', ()=>{
+    if(btnThumb.disabled) return;
+    openPreview();
+  });
+  pvClose.addEventListener('click', closePreview);
+  pv.addEventListener('click', (e)=>{ if(e.target.classList.contains('bg')) closePreview(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && pv.classList.contains('show')) closePreview(); });
+
+  // ---------------------------
+  // Queue UI (NO “Status:” text visible)
+  // ---------------------------
+  function renderQueue(){
+    queue.querySelectorAll('[data-qitem]').forEach(n=> n.remove());
+
+    for(const it of items){
+      const row = document.createElement('div');
+      row.setAttribute('data-qitem', it.id);
+      row.className = "border rounded-xl p-2 flex gap-3 items-start";
+
+      row.innerHTML = `
+        <img src="${it.previewUrl}" class="w-24 h-24 object-cover rounded border" alt="preview">
+        <div class="flex-1 min-w-0">
+          <div class="text-xs text-gray-600">🕒 ${fmtDateLine(it.takenISO)}</div>
+          <div class="text-xs text-gray-600">📍 ${it.lat && it.lng ? (it.lat.toFixed(6)+', '+it.lng.toFixed(6)) : '—'}</div>
+          <div class="text-xs text-gray-600 line-clamp-2">🏷️ ${it.addressForSave ? it.addressForSave : '—'}</div>
+          <div class="mt-2 flex gap-2">
+            <button type="button" data-act="remove" class="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs">Remove</button>
+          </div>
+        </div>
+      `;
+
+      row.addEventListener('click', (e)=>{
+        const btn = e.target.closest('button[data-act="remove"]');
+        if(!btn) return;
+        e.preventDefault();
+        removeItem(it.id);
+      });
+
+      queue.appendChild(row);
+    }
+  }
+
+  function removeItem(id){
+    const idx = items.findIndex(x=>x.id === id);
+    if(idx >= 0){
+      try{ URL.revokeObjectURL(items[idx].previewUrl); }catch(_){}
+      items.splice(idx,1);
+      renderQueue();
+      updateCounters();
+      if(items.length){
+        thumbImg.src = items[0].previewUrl;
+        btnThumb.disabled = false;
+      }else{
+        thumbImg.src = '';
+        btnThumb.disabled = true;
+      }
     }
   }
 
   // ---------------------------
-  // Buttons behavior
+  // Upload pipeline (same as your current)
+  // ---------------------------
+  async function presign(fileBlob, meta){
+    const body = {
+      filename: 'photo.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: fileBlob.size,
+      folder: FOLDER,
+      meta: {
+        lat: meta.lat || '',
+        lng: meta.lng || '',
+        taken_at: meta.takenISO || '',
+        project_id: PROJECT_ID,
+        address: meta.addressForSave || '',
+        title: '',
+      }
+    };
+
+    const resp = await fetch(URL_PRESIGN, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(body)
+    });
+
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `Presign failed (HTTP ${resp.status})`);
+    }
+    return await resp.json();
+  }
+
+  async function postToWasabi(url, fields, blob){
+    const fd = new FormData();
+    Object.keys(fields || {}).forEach(k => fd.append(k, fields[k]));
+    fd.append('file', blob);
+
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `Wasabi upload failed (HTTP ${resp.status})`);
+    }
+    return true;
+  }
+
+  async function confirmKey(it, key){
+    const payload = {
+      key,
+      req_id: REQ_ID ? parseInt(REQ_ID,10) : null,
+      nota: '',
+      lat: it.lat ? it.lat.toFixed(6) : '',
+      lng: it.lng ? it.lng.toFixed(6) : '',
+      acc: it.acc ? String(it.acc) : '',
+      client_taken_at: it.takenISO,
+      address: it.addressForSave || '',
+    };
+
+    const resp = await fetch(URL_CONFIRM, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+
+    let data = null;
+    try{ data = await resp.json(); }catch(_){}
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `Confirm failed (HTTP ${resp.status})`;
+      throw new Error(msg);
+    }
+    return data.evidencia;
+  }
+
+  async function uploadAll(){
+    if(!items.length) return;
+    btnUploadAll.disabled = true;
+
+    for(const it of items){
+      if(it.status === 'done') continue;
+      try{
+        const p = await presign(it.blob, it);
+        await postToWasabi(p.url, p.fields, it.blob);
+        await confirmKey(it, p.key);
+        it.status = 'done';
+      }catch(err){
+        toast(err.message || 'Upload failed', 'error');
+      }
+    }
+
+    btnUploadAll.disabled = false;
+    toast('Upload completed.', 'success');
+  }
+
+  // ---------------------------
+  // Navigation
   // ---------------------------
   function goBack(){
-    // Stop camera tracks and return to upload screen
     stopCamera();
-    window.location.href = BACK_URL;
+    window.location.href = "{% url 'operaciones:upload_evidencias' a.pk %}";
   }
 
   btnCancel.addEventListener('click', goBack);
   btnCloseTop.addEventListener('click', goBack);
 
-  btnShot.addEventListener('click', async ()=>{
-    await takeShotFromVideo();
-  });
+  // shutter
+  btnShot.addEventListener('click', takeShot);
 
-  // If camera API fails, fallback capture opens; this is still “camera-like” on iPhone
-  fallback.addEventListener('change', async ()=>{
-    const f = fallback.files && fallback.files[0];
-    fallback.value = '';
-    await takeShotFallbackFile(f);
+  // upload
+  btnUploadAll.addEventListener('click', uploadAll);
+
+  // enable camera
+  btnEnable.addEventListener('click', async ()=>{
+    await startCamera();
   });
 
   // ---------------------------
   // Init
   // ---------------------------
   document.addEventListener('DOMContentLoaded', async ()=>{
-    ovCp.textContent = CP_TEXT || 'CP-';
-    setCount();
+    ovCp.textContent = CP_TEXT || '';
+    updateCounters();
 
-    // Auto-request geo when entering (as you asked)
+    // get geo early
     await requestGeo();
 
-    // Auto start camera, no Start/Stop buttons
+    // try auto-start camera
     await startCamera();
   });
 
