@@ -2,6 +2,31 @@
 {% extends "dashboard/base.html" %}
 {% block title %}Upload Photos{% endblock %}
 {% block content %}
+
+<style>
+  /* Fullscreen preview modal */
+  .pv{position:fixed;inset:0;z-index:9999;display:none;}
+  .pv.show{display:block;}
+  .pv .bg{position:absolute;inset:0;background:rgba(0,0,0,.92);}
+  .pv .img{position:absolute;inset:0;display:grid;place-items:center;}
+  .pv img{max-width:100vw;max-height:100vh;object-fit:contain;}
+
+  .pv .top{
+    position:absolute;left:0;right:0;top:0;z-index:2;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 14px;color:#fff;
+    background:linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,0));
+    text-shadow:0 2px 10px rgba(0,0,0,.65);
+    font-weight:800;
+  }
+  .pv .btn{
+    font-size:26px;line-height:1;opacity:.95;
+    width:44px;height:44px;border-radius:999px;
+    display:grid;place-items:center;
+    background:rgba(0,0,0,.25);
+  }
+</style>
+
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
 
   {# ===== HEADER (RESPONSIVE) ===== #}
@@ -54,14 +79,27 @@
     {% endif %}
   </div>
 
-  <div class="grid md:grid-cols-2 gap-6 mt-4">
-    <div>
-      <h2 class="font-semibold mb-2">Requirements</h2>
-      <ul class="space-y-2">
-        {% for r in requisitos %}
-          <li class="border rounded p-3">
-            <div class="flex items-center justify-between">
-              <div class="font-medium">
+  {# JS hooks (necesario para delete + status poller) #}
+  <div id="js-urls"
+       data-delete-url-template="{% url 'operaciones:eliminar_evidencia' a.pk 0 %}"
+       data-status-url="{% url 'operaciones:fotos_status_json' a.pk %}">
+  </div>
+  <script>
+    window.CAN_DELETE = {{ can_delete|yesno:"true,false" }};
+    window.DELETE_URL_TPL = document.getElementById('js-urls')?.dataset?.deleteUrlTemplate || '';
+    window.deleteUrlFor   = (id) => (window.DELETE_URL_TPL || '').replace(/\/0(\/|$)/, `/${id}$1`);
+  </script>
+
+  <div class="mt-5">
+    <h2 class="font-semibold mb-3">Requirements</h2>
+
+    <ul class="space-y-3">
+      {% for r in requisitos %}
+        <li class="border rounded-2xl p-4">
+
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-semibold truncate">
                 {{ r.orden }}. {{ r.titulo }} {% if r.obligatorio %}<span class="text-red-600">*</span>{% endif %}
 
                 <span class="ml-2 text-xs px-2 py-0.5 rounded req-badge
@@ -71,69 +109,127 @@
                   {% if r.id in locked_ids or r.uploaded > 0 %}Done{% else %}Pending{% endif %}
                 </span>
               </div>
-              <div class="text-xs text-gray-500 req-count" data-req="{{ r.id }}">
-                {{ r.uploaded }} uploaded (you)
-              </div>
+
+              {% if r.descripcion %}
+                <div class="text-sm text-gray-600 mt-1">{{ r.descripcion }}</div>
+              {% endif %}
             </div>
 
-            <div class="text-sm text-gray-600">{{ r.descripcion }}</div>
+            <div class="text-xs text-gray-500 req-count whitespace-nowrap" data-req="{{ r.id }}">
+              {{ r.uploaded }} uploaded (you)
+            </div>
+          </div>
 
-            <form method="post" enctype="multipart/form-data" class="mt-2 geo-upload-form ajax-uploader">
-              {% csrf_token %}
-              <input type="hidden" name="req_id" value="{{ r.id }}">
+          <form method="post" enctype="multipart/form-data" class="mt-3 geo-upload-form ajax-uploader">
+            {% csrf_token %}
+            <input type="hidden" name="req_id" value="{{ r.id }}">
 
-              <!-- HIDDEN META -->
-              <input type="hidden" name="lat">
-              <input type="hidden" name="lng">
-              <input type="hidden" name="acc">
-              <input type="hidden" name="client_taken_at">
+            <!-- HIDDEN META -->
+            <input type="hidden" name="lat">
+            <input type="hidden" name="lng">
+            <input type="hidden" name="acc">
+            <input type="hidden" name="client_taken_at">
 
-              <div class="flex items-center gap-2">
-                <!-- GALLERY -->
-                <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple
-                       class="sr-only file-input" {% if r.id in locked_ids %}disabled{% endif %}>
-                <label for="file-gallery-{{ r.id }}"
-                       class="px-3 py-2 rounded text-sm cursor-pointer
-                              {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
-                  📁 Choose files
-                </label>
-                <span class="text-xs text-gray-600 filename" data-empty="No files selected">{% if r.id in locked_ids %}Closed{% else %}No files selected{% endif %}</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple
+                     class="sr-only file-input" {% if r.id in locked_ids %}disabled{% endif %}>
+              <label for="file-gallery-{{ r.id }}"
+                     class="px-3 py-2 rounded text-sm cursor-pointer
+                            {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
+                📁 Choose files
+              </label>
 
-                {# ✅ NUEVO TAKE: abre la pantalla camera (no usa galería) #}
-                <a href="{% url 'operaciones:camera_take' a.pk %}?req_id={{ r.id }}"
-                   class="px-3 py-2 rounded text-sm
-                          {% if r.id in locked_ids %}bg-gray-100 text-gray-400 pointer-events-none cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
-                  📷 Take
-                </a>
-              </div>
+              <span class="text-xs text-gray-600 filename" data-empty="No files selected">
+                {% if r.id in locked_ids %}Closed{% else %}No files selected{% endif %}
+              </span>
 
-              <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
-                <span class="gps-status">{% if r.id in locked_ids %}📍 Closed{% else %}📍 Awaiting location…{% endif %}</span>
-                <span class="time-status">🕒 —</span>
-              </div>
+              <a href="{% url 'operaciones:camera_take' a.pk %}?req_id={{ r.id }}"
+                 class="px-3 py-2 rounded text-sm
+                        {% if r.id in locked_ids %}bg-gray-100 text-gray-400 pointer-events-none cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
+                📷 Take
+              </a>
+            </div>
 
-              <div class="flex items-center gap-2 mt-2">
-                <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2"
-                       {% if r.id in locked_ids %}disabled{% endif %}>
-                <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm"
-                        {% if r.id in locked_ids %}disabled{% endif %}>Grant Location</button>
-              </div>
+            <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
+              <span class="gps-status">{% if r.id in locked_ids %}📍 Closed{% else %}📍 Awaiting location…{% endif %}</span>
+              <span class="time-status">🕒 —</span>
+            </div>
 
-              <button type="submit" class="mt-2 px-3 py-1 rounded
-                             {% if r.id in locked_ids %}bg-gray-300 text-white cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}"
+            <div class="flex items-center gap-2 mt-2">
+              <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2"
+                     {% if r.id in locked_ids %}disabled{% endif %}>
+              <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm"
                       {% if r.id in locked_ids %}disabled{% endif %}>
-                Upload
+                Grant Location
               </button>
+            </div>
 
-              <!-- Queue holder (AJAX progress items) -->
-              <div class="mt-2 space-y-2 upload-queue"></div>
-            </form>
-          </li>
-        {% endfor %}
-      </ul>
+            <button type="submit"
+                    class="mt-2 px-3 py-2 rounded text-sm
+                           {% if r.id in locked_ids %}bg-gray-300 text-white cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}"
+                    {% if r.id in locked_ids %}disabled{% endif %}>
+              Upload
+            </button>
 
-      <div class="mt-6">
-        <h3 class="font-semibold mb-2">Extra Photos</h3>
+            <!-- Queue holder (AJAX progress items) -->
+            <div class="mt-2 space-y-2 upload-queue"></div>
+          </form>
+
+          {# ===== THUMB GRID for this requirement ===== #}
+          <div class="mt-4">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-semibold text-gray-700">Photos</div>
+              <div class="text-xs text-gray-400">Tap a photo to preview</div>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2 req-photos"
+                 data-req-photos="{{ r.id }}">
+              {% for ev in evidencias %}
+                {% if ev.requisito_id == r.id %}
+                  <button type="button"
+                          class="relative border rounded-xl overflow-hidden group"
+                          data-ev-id="{{ ev.id }}"
+                          data-preview-url="{{ ev.imagen.url }}"
+                          data-preview-label="{{ ev.requisito.titulo|default:r.titulo }}"
+                          aria-label="Open photo">
+                    {% if can_delete %}
+                      <span class="absolute top-1 right-1 z-10">
+                        <button type="button"
+                                class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+                                data-delete-url="{% url 'operaciones:eliminar_evidencia' a.pk ev.id %}"
+                                data-label="{{ ev.requisito.titulo|default:r.titulo }}"
+                                data-img="{{ ev.imagen.url }}"
+                                title="Delete photo">✕</button>
+                      </span>
+                    {% else %}
+                      <span class="absolute top-1 right-1 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">🔒</span>
+                    {% endif %}
+
+                    <img src="{{ ev.imagen.url }}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+                    <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
+                      {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}
+                    </span>
+                  </button>
+                {% endif %}
+              {% endfor %}
+            </div>
+
+            <div class="text-xs text-gray-400 mt-2 req-empty"
+                 data-req-empty="{{ r.id }}"
+                 {% for ev in evidencias %}{% if ev.requisito_id == r.id %}style="display:none"{% endif %}{% endfor %}>
+              No photos yet.
+            </div>
+          </div>
+
+        </li>
+      {% endfor %}
+    </ul>
+
+    {# ===================== EXTRA ===================== #}
+    <div class="mt-8 border-t pt-6">
+      <h3 class="font-semibold mb-2">Extra Photos</h3>
+
+      <div class="border rounded-2xl p-4">
         <form method="post" enctype="multipart/form-data" class="geo-upload-form ajax-uploader" data-extra="1">
           {% csrf_token %}
 
@@ -143,12 +239,14 @@
           <input type="hidden" name="acc">
           <input type="hidden" name="client_taken_at">
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <input id="file-gallery-extra" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
-            <label for="file-gallery-extra" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
+            <label for="file-gallery-extra"
+                   class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">
+              📁 Choose files
+            </label>
             <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
 
-            {# ✅ NUEVO TAKE EXTRA: abre camera_take sin req_id #}
             <a href="{% url 'operaciones:camera_take' a.pk %}"
                class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm">
               📷 Take
@@ -160,112 +258,102 @@
             <span class="time-status">🕒 —</span>
           </div>
 
-       
           {% if is_proyecto_especial %}
-          <div class="grid md:grid-cols-2 gap-3 mt-3">
-            <div>
-              <label for="titulo_manual" class="block text-sm font-semibold text-gray-700">
-                Title (optional for Extra)
-              </label>
-              <input
-                type="text"
-                name="titulo_manual"
-                id="titulo_manual"
-                class="w-full border rounded-lg p-2"
-                placeholder="Write a title (optional)"
-              />
-            </div>
+            <div class="grid md:grid-cols-2 gap-3 mt-3">
+              <div>
+                <label for="titulo_manual" class="block text-sm font-semibold text-gray-700">
+                  Title (optional for Extra)
+                </label>
+                <input type="text" name="titulo_manual" id="titulo_manual"
+                       class="w-full border rounded-lg p-2"
+                       placeholder="Write a title (optional)" />
+              </div>
 
-            <div>
-              <label for="direccion_manual" class="block text-sm font-semibold text-gray-700">
-                Address (auto, optional override)
-              </label>
-              <input
-                type="text"
-                name="direccion_manual"
-                id="direccion_manual"
-                class="w-full border rounded-lg p-2"
-                placeholder="Auto from GPS (optional override)"
-              />
+              <div>
+                <label for="direccion_manual" class="block text-sm font-semibold text-gray-700">
+                  Address (auto, optional override)
+                </label>
+                <input type="text" name="direccion_manual" id="direccion_manual"
+                       class="w-full border rounded-lg p-2"
+                       placeholder="Auto from GPS (optional override)" />
+              </div>
             </div>
-          </div>
           {% endif %}
 
           <div class="flex items-center gap-2 mt-2">
             <input type="text" name="nota" placeholder="Note (optional)" class="w-full border rounded p-2">
-            <button type="button" class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">Grant Location</button>
+            <button type="button"
+                    class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">
+              Grant Location
+            </button>
           </div>
 
-          <button type="submit" class="mt-2 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-900">Upload</button>
+          <button type="submit" class="mt-2 bg-gray-800 text-white px-3 py-2 rounded hover:bg-gray-900 text-sm">
+            Upload
+          </button>
 
           <!-- Queue holder (AJAX progress items) -->
           <div class="mt-2 space-y-2 upload-queue"></div>
         </form>
+
+        {# ===== EXTRA THUMB GRID ===== #}
+        <div class="mt-4">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-semibold text-gray-700">Photos</div>
+            <div class="text-xs text-gray-400">Tap a photo to preview</div>
+          </div>
+
+          <div class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2" id="extra-photos">
+            {% for ev in evidencias %}
+              {% if not ev.requisito_id %}
+                <button type="button"
+                        class="relative border rounded-xl overflow-hidden group"
+                        data-ev-id="{{ ev.id }}"
+                        data-preview-url="{{ ev.imagen.url }}"
+                        data-preview-label="{% if ev.titulo_manual %}{{ ev.titulo_manual }}{% else %}Extra{% endif %}"
+                        aria-label="Open photo">
+                  {% if can_delete %}
+                    <span class="absolute top-1 right-1 z-10">
+                      <button type="button"
+                              class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+                              data-delete-url="{% url 'operaciones:eliminar_evidencia' a.pk ev.id %}"
+                              data-label="{% if ev.titulo_manual %}{{ ev.titulo_manual }}{% else %}Extra{% endif %}"
+                              data-img="{{ ev.imagen.url }}"
+                              title="Delete photo">✕</button>
+                    </span>
+                  {% else %}
+                    <span class="absolute top-1 right-1 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">🔒</span>
+                  {% endif %}
+
+                  <img src="{{ ev.imagen.url }}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+                  <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
+                    {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}
+                  </span>
+                </button>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          <div class="text-xs text-gray-400 mt-2" id="extra-empty"
+               {% for ev in evidencias %}{% if not ev.requisito_id %}style="display:none"{% endif %}{% endfor %}>
+            No photos yet.
+          </div>
+        </div>
       </div>
     </div>
+  </div>
+</div>
 
-    <div>
-      <h2 class="font-semibold mb-2">Uploaded</h2>
-
-      <!-- JS hooks -->
-      <div id="js-urls"
-           data-delete-url-template="{% url 'operaciones:eliminar_evidencia' a.pk 0 %}"
-           data-status-url="{% url 'operaciones:fotos_status_json' a.pk %}">
-      </div>
-      <script>
-        // Global flags for delete permissions
-        window.CAN_DELETE = {{ can_delete|yesno:"true,false" }};
-        window.DELETE_URL_TPL = document.getElementById('js-urls')?.dataset?.deleteUrlTemplate || '';
-        window.deleteUrlFor   = (id) => (window.DELETE_URL_TPL || '').replace(/\/0(\/|$)/, `/${id}$1`);
-      </script>
-
-      <div class="grid grid-cols-2 gap-3 max-h-[600px] overflow-auto">
-        {% for ev in evidencias %}
-          <figure class="border rounded p-2 relative"
-                  data-ev-id="{{ ev.id }}"
-                  {% if ev.requisito_id %}data-req="{{ ev.requisito.id }}"{% endif %}>
-            {% if can_delete %}
-              <button type="button"
-                      class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-red-600 text-white text-sm hover:bg-red-700 btn-open-delete"
-                      data-delete-url="{% url 'operaciones:eliminar_evidencia' a.pk ev.id %}"
-                      data-label="{{ ev.requisito.titulo|default:ev.titulo_manual|default:'Extra' }}"
-                      data-img="{{ ev.imagen.url }}"
-                      title="Delete photo">✕</button>
-            {% else %}
-              <span class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">🔒</span>
-            {% endif %}
-
-            <img src="{{ ev.imagen.url }}" class="w-full h-32 object-cover rounded" loading="lazy" alt="photo">
-            <figcaption class="text-xs mt-1 space-y-0.5">
-              <div class="font-medium">
-                {% if ev.requisito %}{{ ev.requisito.titulo }}
-                {% elif ev.titulo_manual %}{{ ev.titulo_manual }}
-                {% else %}Extra{% endif %}
-              </div>
-              <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
-
-             
-              {% if ev.lat and ev.lng %}
-                <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
-                <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
-              {% else %}
-                {% if ev.direccion_manual %}
-                  <div>📍 {{ ev.direccion_manual }}</div>
-                {% else %}
-                  <div class="text-gray-400">📍 No GPS</div>
-                {% endif %}
-              {% endif %}
-
-              {% if ev.nota %}
-                <div class="text-gray-600">{{ ev.nota }}</div>
-              {% endif %}
-            </figcaption>
-          </figure>
-        {% empty %}
-          <div class="text-gray-500" data-empty>No photos yet.</div>
-        {% endfor %}
-      </div>
-    </div>
+{# ✅ Fullscreen Preview modal (con X) #}
+<div id="pv" class="pv" role="dialog" aria-modal="true">
+  <div class="bg" data-pv-close></div>
+  <div class="top">
+    <button type="button" id="pv-close" class="btn" aria-label="Close">✕</button>
+    <div id="pv-label" class="text-sm font-semibold truncate max-w-[70vw]">Photo</div>
+    <div style="width:44px;height:44px;"></div>
+  </div>
+  <div class="img">
+    <img id="pv-img" src="" alt="preview">
   </div>
 </div>
 
@@ -351,6 +439,100 @@
 <script>
 (function(){
   // ============================
+  // PREVIEW MODAL (X close)
+  // ============================
+  const pv = document.getElementById('pv');
+  const pvImg = document.getElementById('pv-img');
+  const pvClose = document.getElementById('pv-close');
+  const pvLabel = document.getElementById('pv-label');
+
+  function openPreview(url, label){
+    if (!url) return;
+    pvImg.src = url;
+    if (pvLabel) pvLabel.textContent = label || 'Photo';
+    pv.classList.add('show');
+  }
+  function closePreview(){
+    pv.classList.remove('show');
+    pvImg.src = '';
+  }
+
+  pvClose.addEventListener('click', (e)=>{ e.preventDefault(); closePreview(); });
+  pv.addEventListener('click', (e)=>{
+    if (e.target && (e.target.hasAttribute('data-pv-close') || e.target.classList.contains('bg'))) closePreview();
+  });
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && pv.classList.contains('show')) closePreview(); });
+
+  // Delegación: click en miniaturas (pero NO si es botón delete)
+  document.addEventListener('click', (e)=>{
+    if (e.target.closest('.btn-open-delete')) return;
+    const btn = e.target.closest('button[data-preview-url]');
+    if (!btn) return;
+    e.preventDefault();
+    openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
+  });
+
+  // Helpers para insertar thumbs (AJAX + poller)
+  window.__appendThumb = function(ev){
+    if (!ev || !ev.id || !ev.url) return;
+
+    // evita duplicados
+    window.__knownEvIds = window.__knownEvIds || new Set();
+    if (window.__knownEvIds.has(ev.id)) return;
+    window.__knownEvIds.add(ev.id);
+    window.__maxEvId = Math.max(window.__maxEvId || 0, ev.id);
+
+    const isReq = !!ev.req_id;
+    const grid = isReq
+      ? document.querySelector(`.req-photos[data-req-photos="${ev.req_id}"]`)
+      : document.getElementById('extra-photos');
+
+    if (!grid) return;
+
+    if (isReq){
+      const empty = document.querySelector(`.req-empty[data-req-empty="${ev.req_id}"]`);
+      if (empty) empty.style.display = 'none';
+    } else {
+      const empty = document.getElementById('extra-empty');
+      if (empty) empty.style.display = 'none';
+    }
+
+    const label = ev.titulo || (isReq ? 'Photo' : 'Extra');
+    const dateText = ev.fecha || '';
+
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = "relative border rounded-xl overflow-hidden group";
+    b.setAttribute('data-ev-id', ev.id);
+    b.setAttribute('data-preview-url', ev.url);
+    b.setAttribute('data-preview-label', label);
+
+    const canDelete = !!window.CAN_DELETE && !!window.DELETE_URL_TPL;
+    const delBtn = canDelete
+      ? `<span class="absolute top-1 right-1 z-10">
+           <button type="button"
+                   class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+                   data-delete-url="${window.deleteUrlFor(ev.id)}"
+                   data-label="${label.replace(/"/g,'&quot;')}"
+                   data-img="${ev.url}"
+                   title="Delete photo">✕</button>
+         </span>`
+      : `<span class="absolute top-1 right-1 z-10 w-7 h-7 rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">🔒</span>`;
+
+    b.innerHTML = `
+      ${delBtn}
+      <img src="${ev.url}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+      ${dateText ? `<span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">${dateText}</span>` : ``}
+    `;
+
+    grid.prepend(b);
+  };
+})();
+</script>
+
+<script>
+(function(){
+  // ============================
   // FINISH MODAL (igual que list/detail)
   // ============================
   const modal = document.getElementById('modal-finish');
@@ -369,15 +551,11 @@
   });
 
   document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-finish')) {
-      modal.classList.add('hidden');
-    }
+    if (e.target.hasAttribute('data-close-finish')) modal.classList.add('hidden');
   });
 
   document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
-      modal.classList.add('hidden');
-    }
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) modal.classList.add('hidden');
   });
 
   form.addEventListener('submit', (e)=>{
@@ -487,8 +665,6 @@
         try { await captureGeo(form); } catch(_) {}
       });
     }
-
-    // ❌ NO ponemos handler submit aquí para no interferir con el uploader AJAX.
   });
 
   // Delete modal
@@ -496,18 +672,25 @@
   const delForm    = document.getElementById('delete-form');
   const delThumb   = document.getElementById('delete-thumb');
   const delLabelEl = document.getElementById('delete-label');
+
   function openDelete(){ delModal.classList.remove('hidden'); }
   function closeDelete(){ delModal.classList.add('hidden'); }
+
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('.btn-open-delete');
     if(!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
     delForm.action = btn.getAttribute('data-delete-url');
     delThumb.src   = btn.getAttribute('data-img') || '';
     delLabelEl.textContent = btn.getAttribute('data-label') || '—';
     openDelete();
   });
+
   document.addEventListener('click', (e)=>{ if (e.target.hasAttribute('data-close-modal')) closeDelete(); });
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeDelete(); });
+
   delForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const action = delForm.getAttribute('action');
@@ -701,52 +884,19 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
 (() => {
   const UPLOAD_URL = "{% url 'operaciones:fotos_upload_ajax' a.pk %}";
 
+  // init known IDs desde thumbs existentes
   window.__knownEvIds = new Set(
-    Array.from(document.querySelectorAll('figure[data-ev-id]'))
-         .map(f => parseInt(f.getAttribute('data-ev-id'),10))
+    Array.from(document.querySelectorAll('[data-ev-id]'))
+         .map(n => parseInt(n.getAttribute('data-ev-id'),10))
          .filter(Number.isFinite)
   );
   window.__maxEvId = window.__knownEvIds.size
     ? Math.max(...Array.from(window.__knownEvIds))
     : 0;
 
-  function addEvidenceCard(ev, extraAddressText){
-    if (window.__knownEvIds.has(ev.id)) return;
-    window.__knownEvIds.add(ev.id);
-    window.__maxEvId = Math.max(window.__maxEvId, ev.id);
-
-    const grid = document.querySelector('.grid.grid-cols-2.gap-3');
-    if (!grid) return;
-    const empty = grid.querySelector('[data-empty]'); if (empty) empty.remove();
-
-    const isExtra = !ev.req_id;
-    const gps = (ev.lat && ev.lng)
-      ? `📍 ${Number(ev.lat).toFixed(5)}, ${Number(ev.lng).toFixed(5)}${ev.acc ? " (±"+Math.round(ev.acc)+"m)" : ""}`
-      : (extraAddressText ? `📍 ${extraAddressText}` : (ev.address ? `📍 ${ev.address}` : '📍 No GPS'));
-
-    const delBtn = (window.CAN_DELETE && window.DELETE_URL_TPL)
-      ? `<button type="button"
-                 class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-red-600 text-white text-sm hover:bg-red-700 btn-open-delete"
-                 data-delete-url="\${window.deleteUrlFor(ev.id)}"
-                 data-label="\${ev.titulo || (isExtra ? 'Extra' : 'Photo')}"
-                 data-img="\${ev.url}"
-                 title="Delete photo">✕</button>`
-      : `<span class="absolute right-2 top-2 z-10 w-7 h-7 leading-none rounded-full bg-gray-300 text-white text-sm grid place-items-center" title="Locked">🔒</span>`;
-
-    const fig = document.createElement('figure');
-    fig.className = "border rounded p-2 relative";
-    fig.setAttribute('data-ev-id', ev.id);
-    if (ev.req_id) fig.setAttribute('data-req', ev.req_id);
-    fig.innerHTML = `
-      ${delBtn}
-      <img src="${ev.url}" class="w-full h-32 object-cover rounded" loading="lazy" alt="photo">
-      <figcaption class="text-xs mt-1 space-y-0.5">
-        <div class="font-medium">${ev.titulo || (isExtra ? 'Extra' : 'Photo')}</div>
-        <div>🕒 ${ev.fecha}</div>
-        <div>${gps}</div>
-      </figcaption>
-    `;
-    grid.appendChild(fig);
+  // compat: el poller llama addEvidenceCard(ev)
+  function addEvidenceCard(ev){
+    if (window.__appendThumb) window.__appendThumb(ev);
   }
   window.addEvidenceCard = addEvidenceCard;
 
@@ -835,7 +985,8 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
           if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
             bar.style.width = '100%';
             status.textContent = 'Done';
-            addEvidenceCard(data.evidencia, (!reqId && direccion_manual) ? direccion_manual : '');
+
+            if (data.evidencia && window.addEvidenceCard) window.addEvidenceCard(data.evidencia);
             if (reqId) incMyCount(reqId);
 
             if (typeof data.extras_left === 'number') {
@@ -847,11 +998,8 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
                 const fn = extraForm.querySelector('.filename');
                 const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
                 if (fn) {
-                  if (!enabled) {
-                    fn.textContent = 'Closed';
-                  } else if (!haveFiles) {
-                    fn.textContent = fn.dataset.empty || 'No files selected';
-                  }
+                  if (!enabled) fn.textContent = 'Closed';
+                  else if (!haveFiles) fn.textContent = fn.dataset.empty || 'No files selected';
                 }
                 const gps = extraForm.querySelector('.gps-status');
                 if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';
@@ -859,7 +1007,6 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
             }
 
             if (typeof window.__refreshFotosStatus === 'function') window.__refreshFotosStatus();
-
             setTimeout(()=> item.remove(), 350);
           } else {
             status.textContent = (data && data.error) ? data.error : `Error ${xhr.status}`;

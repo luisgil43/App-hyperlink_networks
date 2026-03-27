@@ -99,16 +99,12 @@
                 </label>
                 <span class="text-xs text-gray-600 filename" data-empty="No files selected">{% if r.id in locked_ids %}Closed{% else %}No files selected{% endif %}</span>
 
-                <!-- CAMERA -->
-                <input id="file-camera-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" capture="environment"
-                       class="sr-only file-input-camera" {% if r.id in locked_ids %}disabled{% endif %}>
-                <button type="button"
-                        class="px-3 py-2 rounded text-sm
-                               {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %} trigger-camera"
-                        data-target="file-camera-{{ r.id }}"
-                        {% if r.id in locked_ids %}disabled{% endif %}>
+                {# ✅ NUEVO TAKE: abre la pantalla camera (no usa galería) #}
+                <a href="{% url 'operaciones:camera_take' a.pk %}?req_id={{ r.id }}"
+                   class="px-3 py-2 rounded text-sm
+                          {% if r.id in locked_ids %}bg-gray-100 text-gray-400 pointer-events-none cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
                   📷 Take
-                </button>
+                </a>
               </div>
 
               <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -152,8 +148,11 @@
             <label for="file-gallery-extra" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">📁 Choose files</label>
             <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
 
-            <input id="file-camera-extra" type="file" name="imagenes[]" accept="image/*" capture="environment" class="sr-only file-input-camera">
-            <button type="button" class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm trigger-camera" data-target="file-camera-extra">📷 Take</button>
+            {# ✅ NUEVO TAKE EXTRA: abre camera_take sin req_id #}
+            <a href="{% url 'operaciones:camera_take' a.pk %}"
+               class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm">
+              📷 Take
+            </a>
           </div>
 
           <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
@@ -161,33 +160,32 @@
             <span class="time-status">🕒 —</span>
           </div>
 
+       
           {% if is_proyecto_especial %}
           <div class="grid md:grid-cols-2 gap-3 mt-3">
             <div>
               <label for="titulo_manual" class="block text-sm font-semibold text-gray-700">
-                Title (required for Extra)
+                Title (optional for Extra)
               </label>
               <input
                 type="text"
                 name="titulo_manual"
                 id="titulo_manual"
                 class="w-full border rounded-lg p-2"
-                placeholder="Write a title for this photo"
-                required
+                placeholder="Write a title (optional)"
               />
             </div>
 
             <div>
               <label for="direccion_manual" class="block text-sm font-semibold text-gray-700">
-                Address (required for Extra)
+                Address (auto, optional override)
               </label>
               <input
                 type="text"
                 name="direccion_manual"
                 id="direccion_manual"
                 class="w-full border rounded-lg p-2"
-                placeholder="Street, city…"
-                required
+                placeholder="Auto from GPS (optional override)"
               />
             </div>
           </div>
@@ -246,16 +244,13 @@
               </div>
               <div>🕒 {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}</div>
 
-              {% if is_proyecto_especial and not ev.requisito_id %}
+             
+              {% if ev.lat and ev.lng %}
+                <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
+                <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
+              {% else %}
                 {% if ev.direccion_manual %}
                   <div>📍 {{ ev.direccion_manual }}</div>
-                {% else %}
-                  <div class="text-gray-400">📍 No address</div>
-                {% endif %}
-              {% else %}
-                {% if ev.lat and ev.lng %}
-                  <div>📍 {{ ev.lat }}, {{ ev.lng }}{% if ev.gps_accuracy_m %} (±{{ ev.gps_accuracy_m }}m){% endif %}</div>
-                  <a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="https://maps.google.com/?q={{ ev.lat }},{{ ev.lng }}">Open in Maps</a>
                 {% else %}
                   <div class="text-gray-400">📍 No GPS</div>
                 {% endif %}
@@ -470,19 +465,9 @@
 
   document.querySelectorAll('.geo-upload-form').forEach(form=>{
     const fileInputGallery = form.querySelector('.file-input');
-    const fileInputCam     = form.querySelector('.file-input-camera');
     const filenameEl       = form.querySelector('.filename');
 
     if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
-
-    document.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.trigger-camera');
-      if(!btn) return;
-      if(btn.closest('form') !== form) return;
-      const id = btn.getAttribute('data-target');
-      const inputCam = document.getElementById(id);
-      if(inputCam) inputCam.click();
-    });
 
     if (fileInputGallery){
       fileInputGallery.addEventListener('change', async ()=>{
@@ -492,11 +477,6 @@
                                 : n===1 ? fileInputGallery.files[0].name
                                         : `${n} files selected`;
         }
-        try { await captureGeo(form); } catch(_) {}
-      });
-    }
-    if (fileInputCam){
-      fileInputCam.addEventListener('change', async ()=>{
         try { await captureGeo(form); } catch(_) {}
       });
     }
@@ -623,14 +603,12 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
 
     var gallery = document.getElementById('file-gallery-' + reqId);
     var lblGal  = li ? li.querySelector('label[for="file-gallery-' + reqId + '"]') : null;
-    var cam     = document.getElementById('file-camera-' + reqId);
-    var btnCam  = li ? li.querySelector('.trigger-camera[data-target="file-camera-' + reqId + '"]') : null;
     var btnLoc  = li ? li.querySelector('.grant-location') : null;
     var nota    = li ? li.querySelector('input[name="nota"]') : null;
     var submit  = form ? (form.querySelector('button[type="submit"], button:not([type])')) : null;
     var filenameEl = form ? form.querySelector('.filename') : null;
 
-    [gallery, cam, btnCam, btnLoc, nota, submit].forEach(function(el){
+    [gallery, btnLoc, nota, submit].forEach(function(el){
       if (!el) return;
       el.disabled = !enabled;
       el.classList.toggle('cursor-not-allowed', !enabled);
@@ -744,7 +722,7 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     const isExtra = !ev.req_id;
     const gps = (ev.lat && ev.lng)
       ? `📍 ${Number(ev.lat).toFixed(5)}, ${Number(ev.lng).toFixed(5)}${ev.acc ? " (±"+Math.round(ev.acc)+"m)" : ""}`
-      : (extraAddressText ? `📍 ${extraAddressText}` : '📍 No GPS');
+      : (extraAddressText ? `📍 ${extraAddressText}` : (ev.address ? `📍 ${ev.address}` : '📍 No GPS'));
 
     const delBtn = (window.CAN_DELETE && window.DELETE_URL_TPL)
       ? `<button type="button"
@@ -990,4 +968,5 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
   window.__refreshFotosStatus = tick;
 })();
 </script>
+
 {% endblock %}

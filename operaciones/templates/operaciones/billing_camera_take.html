@@ -127,7 +127,6 @@
 
   <div class="cam-wrap mt-4">
 
-    {# ✅ Requerimiento visible arriba (por si se le olvida) #}
     <div class="mb-3">
       <div class="text-sm font-semibold text-gray-800">
         Requirement:
@@ -183,7 +182,6 @@
       </div>
     </div>
 
-    {# ✅ Nota como en billing_upload_evidencias (aquí) #}
     <div class="up-wrap">
       <div class="up-box bg-gray-50 text-gray-800">
         <label for="note-input" class="block text-sm font-semibold text-gray-700">Note (optional)</label>
@@ -192,7 +190,6 @@
                   class="mt-2 w-full border rounded-xl p-2"
                   placeholder="Write a note (optional)"></textarea>
 
-        {# ✅ Upload abajo también #}
         <div class="mt-3 flex justify-end">
           <button id="btn-upload-bottom"
                   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
@@ -201,7 +198,6 @@
           </button>
         </div>
 
-        {# ✅ Barra global de progreso (visual) #}
         <div id="upload-progress" class="mt-3 hidden">
           <div class="text-xs text-gray-600 flex items-center justify-between">
             <span id="upload-status-text">Uploading…</span>
@@ -326,33 +322,33 @@
   let clockTimer = null;
   let uploading = false;
 
+  // ✅ GPS caliente (watchPosition)
+  let geoWatchId = null;
+  let lastGeocodeAt = 0;
+  let geocodeTimer = null;
+
   let lastGeo = {
     lat:null, lng:null, acc:null,
     streetLine:'', cityLine:'', addressForSave:''
   };
 
+  // ✅ canvas reutilizable (más rápido)
+  let snapCanvas = null;
+  let snapCtx = null;
+
   // items: newest first
-  // { id, blob, previewUrl, takenISO, lat,lng,acc, addressForSave, nota, status, progress }
   let items = [];
 
   // Preview index (0 = newest)
   let pvIndex = 0;
   let touchX0 = null;
 
-  function setUploadButtonsEnabled(enabled){
-    const v = !!enabled;
-    btnUploadTop.disabled = !v;
-    btnUploadBottom.disabled = !v;
-  }
-
   function setUploadingState(isOn){
     uploading = !!isOn;
 
-    // lock both upload buttons
     btnUploadTop.disabled = uploading || (items.length === 0);
     btnUploadBottom.disabled = uploading || (items.length === 0);
 
-    // lock shutter? no, solo evitamos doble upload
     btnUploadTop.classList.toggle('opacity-60', uploading);
     btnUploadBottom.classList.toggle('opacity-60', uploading);
 
@@ -366,7 +362,6 @@
     } else {
       btnUploadTop.textContent = 'Upload';
       btnUploadBottom.textContent = 'Upload';
-      // (no escondemos el progreso inmediatamente; se esconde al finalizar ok/err)
     }
   }
 
@@ -377,13 +372,11 @@
     if(items.length === 0) queueEmpty.classList.remove('hidden');
     else queueEmpty.classList.add('hidden');
 
-    // enable upload buttons only if not uploading
     if (!uploading){
       btnUploadTop.disabled = (items.length === 0);
       btnUploadBottom.disabled = (items.length === 0);
     }
 
-    // Requirement => solo 1 foto => deshabilitar shutter si ya hay una
     if (IS_REQUIREMENT){
       const locked = items.length >= 1;
       btnShot.disabled = locked;
@@ -420,7 +413,7 @@
   }
 
   // ---------------------------
-  // Geo + reverse geocode
+  // Geo + reverse geocode (background)
   // ---------------------------
   async function reverseGeocode(lat, lng){
     try{
@@ -463,66 +456,81 @@
     return { streetLine, cityLine, addressForSave };
   }
 
-  async function requestGeo(){
-    if(!('geolocation' in navigator)){
-      geoMini.textContent = '📍 not supported';
+  function setGeoTexts(){
+    if (lastGeo.lat != null && lastGeo.lng != null){
+      const accTxt = (lastGeo.acc != null) ? ` ±${Math.round(lastGeo.acc)}m` : '';
+      const coordsLine = `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${accTxt}`;
+      ovCoords.textContent = coordsLine;
+      geoMini.textContent = `📍 ${coordsLine}`;
+    } else {
       ovCoords.textContent = '—';
-      ovStreet.textContent = '—';
-      ovCity.textContent = '—';
-      return false;
+      geoMini.textContent = '📍 …';
     }
 
-    return new Promise(resolve=>{
-      navigator.geolocation.getCurrentPosition(async (pos)=>{
-        const c = pos.coords || {};
-        lastGeo.lat = (typeof c.latitude === 'number') ? c.latitude : null;
-        lastGeo.lng = (typeof c.longitude === 'number') ? c.longitude : null;
-        lastGeo.acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
+    ovStreet.textContent = lastGeo.streetLine ? lastGeo.streetLine : '—';
+    ovCity.textContent = lastGeo.cityLine ? lastGeo.cityLine : '—';
+  }
 
-        if(lastGeo.lat != null && lastGeo.lng != null){
-          const accTxt = (lastGeo.acc != null) ? ` ±${Math.round(lastGeo.acc)}m` : '';
-          const coordsLine = `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${accTxt}`;
-          ovCoords.textContent = coordsLine;
-          geoMini.textContent = `📍 ${coordsLine}`;
+  function scheduleReverseGeocode(){
+    if (geocodeTimer) clearTimeout(geocodeTimer);
+    geocodeTimer = setTimeout(async ()=>{
+      geocodeTimer = null;
 
-          const j = await reverseGeocode(lastGeo.lat, lastGeo.lng);
-          const lines = buildLinesFromNominatim(j);
-          lastGeo.streetLine = lines.streetLine || '—';
-          lastGeo.cityLine = lines.cityLine || '—';
-          lastGeo.addressForSave = lines.addressForSave || '';
+      if (lastGeo.lat == null || lastGeo.lng == null) return;
 
-          ovStreet.textContent = lastGeo.streetLine || '—';
-          ovCity.textContent = lastGeo.cityLine || '—';
-        } else {
-          geoMini.textContent = '📍 unavailable';
-          ovCoords.textContent = '—';
-          ovStreet.textContent = '—';
-          ovCity.textContent = '—';
-        }
+      // throttle: máximo 1 reverse geocode cada ~4s
+      const now = Date.now();
+      if (now - lastGeocodeAt < 4000) return;
+      lastGeocodeAt = now;
 
-        resolve(true);
-      }, (err)=>{
-        // ✅ PRO: distinguir denied/unavailable/timeout
-        const code = err && err.code;
-        if (code === 1) geoMini.textContent = '📍 denied';
-        else if (code === 2) geoMini.textContent = '📍 unavailable';
-        else if (code === 3) geoMini.textContent = '📍 timeout';
-        else geoMini.textContent = '📍 error';
+      const j = await reverseGeocode(lastGeo.lat, lastGeo.lng);
+      const lines = buildLinesFromNominatim(j);
+      lastGeo.streetLine = lines.streetLine || '';
+      lastGeo.cityLine = lines.cityLine || '';
+      lastGeo.addressForSave = lines.addressForSave || '';
+      setGeoTexts();
+    }, 650); // debounce
+  }
 
-        // ✅ PRO: reset lastGeo (evitar quemar coords viejas)
-        lastGeo.lat = null;
-        lastGeo.lng = null;
-        lastGeo.acc = null;
-        lastGeo.streetLine = '';
-        lastGeo.cityLine = '';
-        lastGeo.addressForSave = '';
+  function startGeoWatch(){
+    stopGeoWatch();
 
-        ovCoords.textContent = '—';
-        ovStreet.textContent = '—';
-        ovCity.textContent = '—';
-        resolve(false);
-      }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
-    });
+    if(!('geolocation' in navigator)){
+      geoMini.textContent = '📍 not supported';
+      return;
+    }
+
+    geoWatchId = navigator.geolocation.watchPosition((pos)=>{
+      const c = pos.coords || {};
+      lastGeo.lat = (typeof c.latitude === 'number') ? c.latitude : null;
+      lastGeo.lng = (typeof c.longitude === 'number') ? c.longitude : null;
+      lastGeo.acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
+
+      // Actualiza coords al tiro (instantáneo)
+      setGeoTexts();
+
+      // Address en background (debounce + throttle)
+      scheduleReverseGeocode();
+
+    }, (err)=>{
+      const code = err && err.code;
+      if (code === 1) geoMini.textContent = '📍 denied';
+      else if (code === 2) geoMini.textContent = '📍 unavailable';
+      else if (code === 3) geoMini.textContent = '📍 timeout';
+      else geoMini.textContent = '📍 error';
+
+      lastGeo.lat = null; lastGeo.lng = null; lastGeo.acc = null;
+      lastGeo.streetLine = ''; lastGeo.cityLine = ''; lastGeo.addressForSave = '';
+      setGeoTexts();
+    }, { enableHighAccuracy:true, maximumAge:15000, timeout:12000 });
+  }
+
+  function stopGeoWatch(){
+    try{
+      if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
+    }catch(_){}
+    geoWatchId = null;
+    if (geocodeTimer) { clearTimeout(geocodeTimer); geocodeTimer = null; }
   }
 
   // ---------------------------
@@ -544,7 +552,12 @@
 
     try{
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          // ✅ hint para que el navegador priorice fluidez (no siempre lo respeta)
+          width: { ideal: 1920 },
+          height:{ ideal: 1080 }
+        },
         audio: false
       });
       video.srcObject = stream;
@@ -587,66 +600,78 @@
     return lines.slice(0, maxLines);
   }
 
-  async function burnOverlayToBlob(source, w, h, lines){
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(source, 0, 0, w, h);
+  async function burnOverlayToBlobFromVideo(w, h, lines){
+    // ✅ reutiliza canvas/contexto (más rápido)
+    if (!snapCanvas){
+      snapCanvas = document.createElement('canvas');
+      snapCtx = snapCanvas.getContext('2d');
+    }
+    if (snapCanvas.width !== w) snapCanvas.width = w;
+    if (snapCanvas.height !== h) snapCanvas.height = h;
+
+    // frame actual
+    snapCtx.drawImage(video, 0, 0, w, h);
 
     const baseFont = Math.max(20, Math.round(w * 0.040));
     const gap = Math.round(baseFont * 1.18);
 
-    ctx.font = `700 ${baseFont}px Arial`;
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
+    snapCtx.font = `700 ${baseFont}px Arial`;
+    snapCtx.fillStyle = '#fff';
+    snapCtx.textAlign = 'center';
+    snapCtx.textBaseline = 'top';
 
-    ctx.shadowColor = 'rgba(0,0,0,.65)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 2;
+    snapCtx.shadowColor = 'rgba(0,0,0,.65)';
+    snapCtx.shadowBlur = 10;
+    snapCtx.shadowOffsetY = 2;
 
     const x = Math.round(w * 0.5);
     let y = Math.round(h * 0.06);
     const maxWidth = Math.round(w * 0.92);
 
-    const l1 = wrapLinesNoEllipsis(ctx, lines[0], maxWidth, 1);
-    const l2 = wrapLinesNoEllipsis(ctx, lines[1], maxWidth, 1);
-    const l3 = wrapLinesNoEllipsis(ctx, lines[2], maxWidth, 2);
-    const l4 = wrapLinesNoEllipsis(ctx, lines[3], maxWidth, 2);
-    const l5 = wrapLinesNoEllipsis(ctx, lines[4], maxWidth, 1);
+    const l1 = wrapLinesNoEllipsis(snapCtx, lines[0], maxWidth, 1);
+    const l2 = wrapLinesNoEllipsis(snapCtx, lines[1], maxWidth, 1);
+    const l3 = wrapLinesNoEllipsis(snapCtx, lines[2], maxWidth, 2);
+    const l4 = wrapLinesNoEllipsis(snapCtx, lines[3], maxWidth, 2);
+    const l5 = wrapLinesNoEllipsis(snapCtx, lines[4], maxWidth, 1);
 
     const all = [...l1, ...l2, ...l3, ...l4, ...l5].filter(Boolean);
     for(const t of all){
-      ctx.fillText(t, x, y);
+      snapCtx.fillText(t, x, y);
       y += gap;
     }
 
     return new Promise(resolve=>{
-      canvas.toBlob((blob)=>resolve(blob), 'image/jpeg', 0.92);
+      snapCanvas.toBlob((blob)=>resolve(blob), 'image/jpeg', 0.92);
     });
   }
 
   // ---------------------------
-  // Take photo
+  // Take photo (INSTANT)
   // ---------------------------
+  let taking = false;
+
   async function takeShot(){
+    if (taking) return;
+
     if(!video || !video.videoWidth || !video.videoHeight){
       toast('Camera not ready.', 'error');
       return;
     }
 
-    // Requirement: solo 1 foto, debe remover para otra
     if (IS_REQUIREMENT && items.length >= 1){
       toast('Only one photo is allowed for this requirement. Remove it to take another.', 'error');
       return;
     }
 
-    await requestGeo();
+    // ✅ instant feedback: bloquear el shutter solo durante la captura
+    taking = true;
+    const prevDisabled = btnShot.disabled;
+    btnShot.disabled = true;
 
     const takenISO = new Date().toISOString();
     const line1 = fmtDateLine(takenISO);
 
+    // ✅ USA CACHE (NO await GPS). Si todavía no hay geo, cae en "—"
     const line2 = (lastGeo.lat != null && lastGeo.lng != null)
       ? `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${lastGeo.acc != null ? ` ±${Math.round(lastGeo.acc)}m` : ''}`
       : '—';
@@ -655,19 +680,24 @@
     const line4 = (lastGeo.cityLine || '—');
     const line5 = (CP_TEXT || '');
 
-    // update live overlay too
+    // overlay live
     ovDate.textContent = line1;
     ovCoords.textContent = line2;
     ovStreet.textContent = line3;
     ovCity.textContent = line4;
     ovCp.textContent = line5;
 
-    const blob = await burnOverlayToBlob(
-      video,
+    // ✅ captura rápida (canvas reutilizable)
+    const blob = await burnOverlayToBlobFromVideo(
       video.videoWidth,
       video.videoHeight,
       [line1,line2,line3,line4,line5]
     );
+
+    taking = false;
+    // re-habilita según regla requirement
+    btnShot.disabled = prevDisabled; // luego updateCounters ajusta si corresponde
+
     if(!blob){
       toast('Could not create image.', 'error');
       return;
@@ -676,7 +706,6 @@
     const url = URL.createObjectURL(blob);
     const id = 'q_' + Math.random().toString(16).slice(2);
 
-    // ✅ Nota se toma "al momento" de la foto
     const notaNow = (noteInput && noteInput.value ? noteInput.value.trim() : "");
 
     items.unshift({
@@ -712,7 +741,7 @@
   }
   function openPreview(){
     if(!items.length) return;
-    showPreviewAt(0); // newest
+    showPreviewAt(0);
   }
   function closePreview(){ pv.classList.remove('show'); }
 
@@ -827,7 +856,6 @@
   function removeItem(id){
     const idx = items.findIndex(x=>x.id === id);
     if(idx >= 0){
-      // si está subiendo, no dejamos remover
       if (uploading){
         toast('Upload in progress. Please wait.', 'error');
         return;
@@ -847,7 +875,7 @@
   }
 
   // ---------------------------
-  // Upload pipeline (con barra + bloqueo)
+  // Upload pipeline (igual)
   // ---------------------------
   async function presign(fileBlob, meta){
     const body = {
@@ -913,7 +941,6 @@
     const payload = {
       key,
       req_id: IS_REQUIREMENT ? parseInt(REQ_ID,10) : null,
-      // ✅ Nota: se manda al backend desde aquí (como en upload_evidencias)
       nota: (it.nota || ''),
       lat: it.lat ? it.lat.toFixed(6) : '',
       lng: it.lng ? it.lng.toFixed(6) : '',
@@ -973,14 +1000,11 @@
 
         await postToWasabiXHR(p.url, p.fields, it.blob, (pct)=>{
           it.progress = pct;
-          // actualizar barra global con promedio simple
-          // (no exacto por bytes, pero visualmente perfecto)
           const avgPct = Math.round(
             (items.reduce((acc,x)=> acc + (x.status==='done' ? 100 : (x.progress||0)), 0)) / total
           );
           uploadBar.style.width = avgPct + '%';
           uploadPct.textContent = avgPct + '%';
-
           renderQueue();
         });
 
@@ -1005,7 +1029,6 @@
     }
 
     if (hadError){
-      // mantener visible la barra, pero liberar botones para retry
       btnUploadTop.textContent = 'Upload';
       btnUploadBottom.textContent = 'Upload';
       uploading = false;
@@ -1020,8 +1043,6 @@
     uploadBar.style.width = '100%';
 
     toast('Upload completed.', 'success');
-
-    // cerrar pantalla y volver a requisitos
     setTimeout(()=>{ window.location.href = URL_BACK; }, 350);
   }
 
@@ -1031,6 +1052,7 @@
   function goBack(){
     stopClock();
     stopCamera();
+    stopGeoWatch();
     window.location.href = URL_BACK;
   }
 
@@ -1052,14 +1074,16 @@
     ovCp.textContent = CP_TEXT || '';
     updateCounters();
 
-    // fecha/hora inmediata sin segundos
     startClock();
 
-    // geo early
-    await requestGeo();
+    // ✅ inicia GPS caliente en background (instant para take)
+    startGeoWatch();
 
     // auto-start camera
     await startCamera();
+
+    // set textos geo con lo que haya
+    setGeoTexts();
   });
 
 })();
