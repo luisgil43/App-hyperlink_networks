@@ -338,6 +338,7 @@
 
   // items: newest first
   let items = [];
+  window.items = items; // ✅ FIX: expone items para el handler iPhone
 
   // Preview index (0 = newest)
   let pvIndex = 0;
@@ -478,7 +479,6 @@
 
       if (lastGeo.lat == null || lastGeo.lng == null) return;
 
-      // throttle: máximo 1 reverse geocode cada ~4s
       const now = Date.now();
       if (now - lastGeocodeAt < 4000) return;
       lastGeocodeAt = now;
@@ -489,7 +489,7 @@
       lastGeo.cityLine = lines.cityLine || '';
       lastGeo.addressForSave = lines.addressForSave || '';
       setGeoTexts();
-    }, 650); // debounce
+    }, 650);
   }
 
   function startGeoWatch(){
@@ -506,10 +506,7 @@
       lastGeo.lng = (typeof c.longitude === 'number') ? c.longitude : null;
       lastGeo.acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
 
-      // Actualiza coords al tiro (instantáneo)
       setGeoTexts();
-
-      // Address en background (debounce + throttle)
       scheduleReverseGeocode();
 
     }, (err)=>{
@@ -554,7 +551,6 @@
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          // ✅ hint para que el navegador priorice fluidez (no siempre lo respeta)
           width: { ideal: 1920 },
           height:{ ideal: 1080 }
         },
@@ -601,7 +597,6 @@
   }
 
   async function burnOverlayToBlobFromVideo(w, h, lines){
-    // ✅ reutiliza canvas/contexto (más rápido)
     if (!snapCanvas){
       snapCanvas = document.createElement('canvas');
       snapCtx = snapCanvas.getContext('2d');
@@ -609,7 +604,6 @@
     if (snapCanvas.width !== w) snapCanvas.width = w;
     if (snapCanvas.height !== h) snapCanvas.height = h;
 
-    // frame actual
     snapCtx.drawImage(video, 0, 0, w, h);
 
     const baseFont = Math.max(20, Math.round(w * 0.040));
@@ -663,7 +657,6 @@
       return;
     }
 
-    // ✅ instant feedback: bloquear el shutter solo durante la captura
     taking = true;
     const prevDisabled = btnShot.disabled;
     btnShot.disabled = true;
@@ -671,7 +664,6 @@
     const takenISO = new Date().toISOString();
     const line1 = fmtDateLine(takenISO);
 
-    // ✅ USA CACHE (NO await GPS). Si todavía no hay geo, cae en "—"
     const line2 = (lastGeo.lat != null && lastGeo.lng != null)
       ? `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${lastGeo.acc != null ? ` ±${Math.round(lastGeo.acc)}m` : ''}`
       : '—';
@@ -680,14 +672,12 @@
     const line4 = (lastGeo.cityLine || '—');
     const line5 = (CP_TEXT || '');
 
-    // overlay live
     ovDate.textContent = line1;
     ovCoords.textContent = line2;
     ovStreet.textContent = line3;
     ovCity.textContent = line4;
     ovCp.textContent = line5;
 
-    // ✅ captura rápida (canvas reutilizable)
     const blob = await burnOverlayToBlobFromVideo(
       video.videoWidth,
       video.videoHeight,
@@ -695,8 +685,7 @@
     );
 
     taking = false;
-    // re-habilita según regla requirement
-    btnShot.disabled = prevDisabled; // luego updateCounters ajusta si corresponde
+    btnShot.disabled = prevDisabled;
 
     if(!blob){
       toast('Could not create image.', 'error');
@@ -721,6 +710,7 @@
       status: 'queued',
       progress: 0,
     });
+    window.items = items; // ✅ FIX: mantener referencia global actualizada
 
     thumbImg.src = url;
     btnThumb.disabled = false;
@@ -743,7 +733,10 @@
     if(!items.length) return;
     showPreviewAt(0);
   }
-  function closePreview(){ pv.classList.remove('show'); }
+  function closePreview(){
+    pv.classList.remove('show');
+    pvImg.src = '';
+  }
 
   btnThumb.addEventListener('click', ()=>{
     if(btnThumb.disabled) return;
@@ -862,6 +855,7 @@
       }
       try{ URL.revokeObjectURL(items[idx].previewUrl); }catch(_){}
       items.splice(idx,1);
+      window.items = items; // ✅ FIX: mantener referencia global actualizada
       renderQueue();
       updateCounters();
       if(items.length){
@@ -1076,17 +1070,93 @@
 
     startClock();
 
-    // ✅ inicia GPS caliente en background (instant para take)
     startGeoWatch();
 
-    // auto-start camera
     await startCamera();
 
-    // set textos geo con lo que haya
     setGeoTexts();
   });
 
 })();
+</script>
+
+<script>
+  // ✅ FIX iPhone: evitar visor nativo / navegación al tocar imágenes y asegurar X para cerrar
+  (function(){
+    const pv = document.getElementById('pv');
+    const pvImg = document.getElementById('pv-img');
+    const pvClose = document.getElementById('pv-close');
+
+    function closePreview(){
+      if (!pv) return;
+      pv.classList.remove('show');
+      if (pvImg) pvImg.src = '';
+    }
+
+    // 1) X siempre cierra
+    if (pvClose) {
+      pvClose.addEventListener('click', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        closePreview();
+      }, true);
+    }
+
+    // 2) tap en fondo negro cierra
+    if (pv) {
+      pv.addEventListener('click', function(e){
+        const t = e.target;
+        if (t && t.classList && t.classList.contains('bg')) {
+          e.preventDefault();
+          e.stopPropagation();
+          closePreview();
+        }
+      }, true);
+    }
+
+    // 3) tap en imagen grande NO navega
+    if (pvImg) {
+      pvImg.addEventListener('click', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }, true);
+    }
+
+    // 4) interceptar taps en imágenes del queue/thumb para que siempre abra el modal (no visor nativo)
+    document.addEventListener('click', function(e){
+      const img = e.target && e.target.closest ? e.target.closest('img') : null;
+      if (!img) return;
+
+      const isOurPreview =
+        img.id === 'thumb-img' ||
+        img.id === 'pv-img' ||
+        (img.closest && img.closest('#queue')) ||
+        (img.closest && img.closest('.cam-thumb'));
+
+      if (!isOurPreview) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // thumb => abre última
+      if (img.id === 'thumb-img') {
+        if (typeof openPreview === 'function') openPreview();
+        return false;
+      }
+
+      // img dentro del queue => abre índice
+      const row = img.closest('[data-qitem]');
+      if (row) {
+        const qid = row.getAttribute('data-qitem');
+        const idx = (window.items && window.items.findIndex) ? window.items.findIndex(x=>x.id===qid) : -1;
+        if (typeof showPreviewAt === 'function') showPreviewAt(idx >= 0 ? idx : 0);
+        return false;
+      }
+
+      return false;
+    }, true);
+  })();
 </script>
 
 {% endblock %}
