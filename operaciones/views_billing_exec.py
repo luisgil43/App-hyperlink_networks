@@ -1330,7 +1330,7 @@ def _build_key(folder: str, filename: str) -> str:
         base = _safe_prefix().rstrip("/") + "/evidencia/"
     return f"{base.rstrip('/')}/{uuid.uuid4().hex}.{ext}"
 
-
+"""
 @login_required
 @require_POST
 def presign_wasabi(request):
@@ -1409,7 +1409,78 @@ def presign_wasabi(request):
     )
     presigned["url"] = f"{settings.WASABI_ENDPOINT_URL.rstrip('/')}/{bucket}"
 
+    return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})"""
+
+@login_required
+@require_POST
+def presign_wasabi(request):
+    if not getattr(settings, "DIRECT_UPLOADS_ENABLED", False):
+        return HttpResponseBadRequest("Direct uploads disabled.")
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON.")
+
+    filename = (data.get("filename") or "").strip()
+    content_type = (data.get("contentType") or "").strip()
+    size_bytes = int(data.get("sizeBytes") or 0)
+    folder = (data.get("folder") or "").strip()
+
+    if not filename or content_type not in ALLOWED_MIME:
+        return HttpResponseBadRequest("Invalid file type.")
+
+    max_bytes = int(getattr(settings, "DIRECT_UPLOADS_MAX_MB", 15)) * 1024 * 1024
+    if size_bytes <= 0 or size_bytes > max_bytes:
+        return HttpResponseBadRequest("File too large.")
+
+    key = _build_key(folder, filename)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=getattr(settings, "WASABI_ENDPOINT_URL", "https://s3.us-east-1.wasabisys.com"),
+        region_name=getattr(settings, "WASABI_REGION_NAME", "us-east-1"),
+        aws_access_key_id=getattr(settings, "WASABI_ACCESS_KEY_ID"),
+        aws_secret_access_key=getattr(settings, "WASABI_SECRET_ACCESS_KEY"),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        verify=getattr(settings, "AWS_S3_VERIFY", True),
+    )
+
+    bucket = getattr(settings, "WASABI_BUCKET_NAME")
+
+    # ✅ IMPORTANTE:
+    # No enviamos x-amz-meta-* en el POST presignado porque Wasabi es sensible
+    # a los "eq" estrictos en policy (PolicyConditionFailed).
+    # Los metadatos reales (lat/lng/taken_at/address/title) los guardas en tu DB via confirmKey().
+    fields = {
+        "acl": "private",
+        "Content-Type": content_type,
+        "success_action_status": "201",
+    }
+
+    conditions = [
+        {"bucket": bucket},
+        # Permitimos el prefijo del folder (no forzamos el key exacto)
+        ["starts-with", "$key", key.rsplit("/", 1)[0] + "/"],
+        {"acl": "private"},
+        {"Content-Type": content_type},
+        {"success_action_status": "201"},
+        ["content-length-range", 1, max_bytes],
+    ]
+
+    presigned = s3.generate_presigned_post(
+        Bucket=bucket,
+        Key=key,
+        Fields=fields,
+        Conditions=conditions,
+        ExpiresIn=300,
+    )
+
+    # Fuerza URL path-style
+    presigned["url"] = f"{settings.WASABI_ENDPOINT_URL.rstrip('/')}/{bucket}"
+
     return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})
+
 
 
 SAFE_EVIDENCE_PREFIX = getattr(

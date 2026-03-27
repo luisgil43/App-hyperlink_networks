@@ -590,40 +590,45 @@
   // ---------------------------
   // Upload pipeline (same as your current)
   // ---------------------------
-  async function presign(fileBlob, meta){
-    const body = {
-      filename: 'photo.jpg',
-      contentType: 'image/jpeg',
-      sizeBytes: fileBlob.size,
-      folder: FOLDER,
-      meta: {
-        lat: meta.lat || '',
-        lng: meta.lng || '',
-        taken_at: meta.takenISO || '',
-        project_id: PROJECT_ID,
-        address: meta.addressForSave || '',
-        title: '',
-      }
-    };
+ async function presign(fileBlob, meta){
+  const body = {
+    filename: 'photo.jpg',
+    contentType: 'image/jpeg',
+    sizeBytes: fileBlob.size,
+    folder: FOLDER,
+    meta: {
+      // ✅ mantener solo cosas "seguras" y cortas
+      lat: meta.lat || '',
+      lng: meta.lng || '',
+      taken_at: meta.takenISO || '',
+      project_id: PROJECT_ID,
 
-    const resp = await fetch(URL_PRESIGN, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken,
-        'X-Requested-With': 'XMLHttpRequest',
-        'Accept': 'application/json',
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify(body)
-    });
+      // ❌ NO mandar address a Wasabi (rompe por policy eq / encoding)
+      // address: meta.addressForSave || '',
 
-    if(!resp.ok){
-      const t = await resp.text().catch(()=> '');
-      throw new Error(t || `Presign failed (HTTP ${resp.status})`);
+      // opcional: si tu backend también mete title en policy eq, mejor no mandarlo:
+      // title: '',
     }
-    return await resp.json();
+  };
+
+  const resp = await fetch(URL_PRESIGN, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrftoken,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json',
+    },
+    credentials: 'same-origin',
+    body: JSON.stringify(body)
+  });
+
+  if(!resp.ok){
+    const t = await resp.text().catch(()=> '');
+    throw new Error(t || `Presign failed (HTTP ${resp.status})`);
   }
+  return await resp.json();
+}
 
   async function postToWasabi(url, fields, blob){
     const fd = new FormData();
@@ -671,25 +676,30 @@
     return data.evidencia;
   }
 
-  async function uploadAll(){
-    if(!items.length) return;
-    btnUploadAll.disabled = true;
+async function uploadAll(){
+  if(!items.length) return;
+  btnUploadAll.disabled = true;
 
-    for(const it of items){
-      if(it.status === 'done') continue;
-      try{
-        const p = await presign(it.blob, it);
-        await postToWasabi(p.url, p.fields, it.blob);
-        await confirmKey(it, p.key);
-        it.status = 'done';
-      }catch(err){
-        toast(err.message || 'Upload failed', 'error');
-      }
+  let hadError = false;
+
+  for(const it of items){
+    if(it.status === 'done') continue;
+    try{
+      const p = await presign(it.blob, it);
+      await postToWasabi(p.url, p.fields, it.blob);
+      await confirmKey(it, p.key);
+      it.status = 'done';
+    }catch(err){
+      hadError = true;
+      toast(err.message || 'Upload failed', 'error');
     }
-
-    btnUploadAll.disabled = false;
-    toast('Upload completed.', 'success');
   }
+
+  btnUploadAll.disabled = false;
+
+  if (hadError) toast('Some photos failed to upload. Please retry.', 'error');
+  else toast('Upload completed.', 'success');
+}
 
   // ---------------------------
   // Navigation
