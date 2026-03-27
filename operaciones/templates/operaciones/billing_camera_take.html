@@ -1,0 +1,697 @@
+{# templates/operaciones/billing_camera_take.html #}
+{% extends "dashboard/base.html" %}
+{% block title %}Take Photo{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex items-center justify-between gap-3">
+    <div class="min-w-0">
+      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+         class="inline-flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded">
+        ⬅️ Back
+      </a>
+      <h1 class="mt-3 text-xl sm:text-2xl font-bold leading-tight truncate">
+        📷 Take Photo — {{ req_title }}
+      </h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Billing #{{ a.sesion.id }} · {{ project_id }} · {{ cp_text }}
+      </p>
+    </div>
+
+    <div class="flex flex-col items-end gap-2">
+      <button id="btn-upload-all"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled>
+        Direct upload to Wasabi
+      </button>
+      <div class="text-xs text-gray-500">
+        {% if req_id %}Requirement{% else %}Extra{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div id="banner-https" class="mt-4 hidden p-3 rounded bg-red-50 text-red-800 text-sm">
+    Camera not available here. iPhone requires <b>HTTPS</b> for live camera access.
+    Open this site on HTTPS (or as a PWA with HTTPS).
+  </div>
+
+  <div class="mt-4 grid lg:grid-cols-2 gap-4">
+
+    <!-- LEFT: Camera -->
+    <div class="border rounded-2xl p-3">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">Camera</div>
+        <div class="text-xs text-gray-500" id="geo-status">📍 Getting location…</div>
+      </div>
+
+      <div class="mt-3 rounded-xl overflow-hidden bg-black">
+        <video id="video" playsinline autoplay class="w-full h-[360px] object-cover"></video>
+      </div>
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button id="btn-start" class="bg-gray-900 text-white px-4 py-2 rounded">Start camera</button>
+        <button id="btn-stop" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded" disabled>Stop</button>
+        <button id="btn-shot" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded" disabled>Take photo</button>
+
+        <!-- Fallback input capture (si no hay getUserMedia) -->
+        <input id="fallback-file" type="file" accept="image/*" capture="environment" class="hidden">
+        <button id="btn-fallback" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded hidden">
+          Use fallback camera
+        </button>
+      </div>
+
+      <p class="text-xs text-gray-500 mt-2">
+        We do NOT save to your gallery. Photos are queued here and uploaded when you press “Direct upload to Wasabi”.
+      </p>
+
+      <div class="mt-3 text-xs text-gray-600 space-y-1">
+        <div id="meta-date">🕒 —</div>
+        <div id="meta-coords">📍 —</div>
+        <div id="meta-addr">🏷️ —</div>
+        <div id="meta-state">📌 {{ estado|default:"—" }}</div>
+        <div id="meta-cp">🧩 {{ cp_text }}</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Queue -->
+    <div class="border rounded-2xl p-3">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">Preview queue</div>
+        <div class="text-xs text-gray-500" id="queue-count">0 photos</div>
+      </div>
+
+      <div id="queue" class="mt-3 space-y-3 max-h-[540px] overflow-auto pr-1">
+        <div class="text-sm text-gray-500" id="queue-empty">No photos yet.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------------------------
+  // Backend vars
+  // ---------------------------
+  const ASIG_ID   = {{ a.pk }};
+  const REQ_ID    = "{{ req_id }}";
+  const PROJECT_ID = "{{ project_id|escapejs }}";
+  const ESTADO    = "{{ estado|default:''|escapejs }}";
+  const CP_TEXT   = "{{ cp_text|escapejs }}";
+  const FOLDER    = "{{ direct_uploads_folder|escapejs }}";
+
+  const URL_PRESIGN = "{% url 'operaciones:presign_wasabi' %}";
+  const URL_CONFIRM = "{% url 'operaciones:camera_create_evidence_from_key' 0 %}".replace('/0/', `/${ASIG_ID}/`);
+
+  // ---------------------------
+  // Helpers
+  // ---------------------------
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-[9999]`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2500);
+  }
+
+  function isSecureContextEnough(){
+    // iOS Safari requires HTTPS for getUserMedia.
+    return window.isSecureContext && location.protocol === 'https:';
+  }
+
+  // Reverse geocode (free Nominatim). Puedes reemplazar por Google con API key después.
+  async function reverseGeocode(lat, lng){
+    try{
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
+      const resp = await fetch(url, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if(!resp.ok) return '';
+      const j = await resp.json();
+      return (j && (j.display_name || '')) || '';
+    }catch(_){
+      return '';
+    }
+  }
+
+  // Draw overlay exactly like you requested:
+  // Fecha -> coordenadas -> direccion -> estado -> CP-
+  function drawOverlayToBlob(imgOrVideo, meta){
+    const canvas = document.createElement('canvas');
+    const w = meta.width;
+    const h = meta.height;
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgOrVideo, 0, 0, w, h);
+
+    // overlay style (blanco con sombra, arriba)
+    ctx.font = `${Math.round(w*0.055)}px Arial`;
+    ctx.fillStyle = 'white';
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = Math.max(4, Math.round(w*0.004));
+    ctx.textBaseline = 'top';
+
+    const pad = Math.round(w * 0.05);
+    let y = Math.round(h * 0.06);
+
+    const lines = [
+      meta.dateLine || '',
+      meta.coordLine || '',
+      meta.addrLine || '',
+      meta.stateLine || '',
+      meta.cpLine || '',
+    ].filter(Boolean);
+
+    for(const line of lines){
+      ctx.strokeText(line, pad, y);
+      ctx.fillText(line, pad, y);
+      y += Math.round(w * 0.075);
+    }
+
+    return new Promise(resolve=>{
+      canvas.toBlob((blob)=>{
+        resolve(blob);
+      }, 'image/jpeg', 0.9);
+    });
+  }
+
+  // ---------------------------
+  // State
+  // ---------------------------
+  const video = document.getElementById('video');
+  const btnStart = document.getElementById('btn-start');
+  const btnStop  = document.getElementById('btn-stop');
+  const btnShot  = document.getElementById('btn-shot');
+  const btnUploadAll = document.getElementById('btn-upload-all');
+
+  const geoStatus = document.getElementById('geo-status');
+  const bannerHttps = document.getElementById('banner-https');
+
+  const metaDate = document.getElementById('meta-date');
+  const metaCoords = document.getElementById('meta-coords');
+  const metaAddr = document.getElementById('meta-addr');
+  const metaState = document.getElementById('meta-state');
+  const metaCp = document.getElementById('meta-cp');
+
+  const queue = document.getElementById('queue');
+  const queueEmpty = document.getElementById('queue-empty');
+  const queueCount = document.getElementById('queue-count');
+
+  const fallbackFile = document.getElementById('fallback-file');
+  const btnFallback  = document.getElementById('btn-fallback');
+
+  let stream = null;
+  let lastGeo = { lat:null, lng:null, acc:null, address:'' };
+
+  // queue items: { id, blob, previewUrl, takenISO, lat,lng,acc,address, status }
+  let items = [];
+
+  function updateQueueUI(){
+    queueCount.textContent = `${items.length} photo${items.length===1?'':'s'}`;
+    if(items.length === 0){
+      queueEmpty.classList.remove('hidden');
+      btnUploadAll.disabled = true;
+      return;
+    }
+    queueEmpty.classList.add('hidden');
+    btnUploadAll.disabled = false;
+  }
+
+  async function requestGeo(){
+    if(!('geolocation' in navigator)){
+      geoStatus.textContent = '📍 Geolocation not supported';
+      return;
+    }
+    geoStatus.textContent = '📍 Getting location…';
+
+    return new Promise(resolve=>{
+      navigator.geolocation.getCurrentPosition(async (pos)=>{
+        const c = pos.coords || {};
+        lastGeo.lat = (typeof c.latitude === 'number') ? c.latitude : null;
+        lastGeo.lng = (typeof c.longitude === 'number') ? c.longitude : null;
+        lastGeo.acc = (typeof c.accuracy === 'number') ? c.accuracy : null;
+
+        const coordsTxt = (lastGeo.lat && lastGeo.lng)
+          ? `${lastGeo.lat.toFixed(6)}, ${lastGeo.lng.toFixed(6)}${lastGeo.acc ? ` (±${Math.round(lastGeo.acc)}m)` : ''}`
+          : '—';
+
+        metaCoords.textContent = `📍 ${coordsTxt}`;
+        geoStatus.textContent = (lastGeo.lat && lastGeo.lng) ? `📍 ${coordsTxt}` : '📍 Location unavailable';
+
+        // Dirección automática
+        if(lastGeo.lat && lastGeo.lng){
+          const addr = await reverseGeocode(lastGeo.lat, lastGeo.lng);
+          lastGeo.address = addr || '';
+          metaAddr.textContent = lastGeo.address ? `🏷️ ${lastGeo.address}` : '🏷️ —';
+        }else{
+          lastGeo.address = '';
+          metaAddr.textContent = '🏷️ —';
+        }
+
+        resolve(true);
+      }, ()=>{
+        geoStatus.textContent = '📍 Permission denied or unavailable';
+        resolve(false);
+      }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
+    });
+  }
+
+  function nowISO(){
+    return new Date().toISOString();
+  }
+
+  function formatDateLine(d){
+    // similar to your sample: "mar 21, 2026, 3:12:34 p.m."
+    try{
+      return new Date(d).toLocaleString(undefined, {
+        year:'numeric', month:'short', day:'2-digit',
+        hour:'numeric', minute:'2-digit', second:'2-digit'
+      });
+    }catch(_){
+      return d;
+    }
+  }
+
+  function coordLine(){
+    if(lastGeo.lat && lastGeo.lng){
+      const accTxt = lastGeo.acc ? ` ±${(lastGeo.acc/1).toFixed(2)}m` : '';
+      return `${lastGeo.lat.toFixed(6)},${lastGeo.lng.toFixed(6)}${accTxt}`;
+    }
+    return '—';
+  }
+
+  function addrLine(){
+    return lastGeo.address || '—';
+  }
+
+  function estadoLine(){
+    return ESTADO || '—';
+  }
+
+  function cpLine(){
+    return CP_TEXT || 'CP-—';
+  }
+
+  // ---------------------------
+  // Camera start/stop
+  // ---------------------------
+  async function startCamera(){
+    // iPhone: getUserMedia requiere HTTPS
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      // Fallback
+      bannerHttps.classList.remove('hidden');
+      btnFallback.classList.remove('hidden');
+      toast('Camera API not available. Use fallback or open on HTTPS.', 'error');
+      return;
+    }
+
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      video.srcObject = stream;
+
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      btnShot.disabled = false;
+
+      toast('Camera started.', 'success');
+    }catch(err){
+      toast('Camera not available. Please allow camera permission.', 'error');
+    }
+  }
+
+  function stopCamera(){
+    if(stream){
+      stream.getTracks().forEach(t=> t.stop());
+      stream = null;
+    }
+    video.srcObject = null;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    btnShot.disabled = true;
+  }
+
+  // ---------------------------
+  // Take photo (video frame) -> overlay -> queue
+  // ---------------------------
+  async function takeShotFromVideo(){
+    if(!video || !video.videoWidth || !video.videoHeight){
+      toast('Camera not ready.', 'error');
+      return;
+    }
+
+    // ensure geo is fresh
+    await requestGeo();
+
+    const takenISO = nowISO();
+    metaDate.textContent = `🕒 ${formatDateLine(takenISO)}`;
+    metaState.textContent = `📌 ${estadoLine()}`;
+    metaCp.textContent = `🧩 ${cpLine()}`;
+
+    // draw overlay onto jpeg blob
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = video.videoWidth;
+    tempCanvas.height = video.videoHeight;
+
+    const blob = await drawOverlayToBlob(video, {
+      width: video.videoWidth,
+      height: video.videoHeight,
+      dateLine: formatDateLine(takenISO),
+      coordLine: coordLine(),
+      addrLine: addrLine(),
+      stateLine: estadoLine(),
+      cpLine: cpLine(),
+    });
+
+    if(!blob){
+      toast('Could not create image.', 'error');
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+
+    const id = 'q_' + Math.random().toString(16).slice(2);
+    items.unshift({
+      id,
+      blob,
+      previewUrl: url,
+      takenISO,
+      lat: lastGeo.lat,
+      lng: lastGeo.lng,
+      acc: lastGeo.acc,
+      address: lastGeo.address || '',
+      status: 'queued',
+      wasabiKey: '',
+      ev: null,
+    });
+
+    renderQueue();
+    updateQueueUI();
+  }
+
+  // Fallback take (file input capture) - still no gallery browsing if capture triggers camera
+  async function takeShotFallback(file){
+    if(!file) return;
+
+    await requestGeo();
+    const takenISO = nowISO();
+
+    // load image to draw overlay
+    const bmp = await createImageBitmap(file).catch(()=>null);
+    if(!bmp){
+      toast('Invalid image.', 'error');
+      return;
+    }
+
+    const blob = await drawOverlayToBlob(bmp, {
+      width: bmp.width,
+      height: bmp.height,
+      dateLine: formatDateLine(takenISO),
+      coordLine: coordLine(),
+      addrLine: addrLine(),
+      stateLine: estadoLine(),
+      cpLine: cpLine(),
+    });
+
+    if(!blob){
+      toast('Could not process image.', 'error');
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const id = 'q_' + Math.random().toString(16).slice(2);
+    items.unshift({
+      id,
+      blob,
+      previewUrl: url,
+      takenISO,
+      lat: lastGeo.lat,
+      lng: lastGeo.lng,
+      acc: lastGeo.acc,
+      address: lastGeo.address || '',
+      status: 'queued',
+      wasabiKey: '',
+      ev: null,
+    });
+
+    renderQueue();
+    updateQueueUI();
+  }
+
+  // ---------------------------
+  // Queue rendering
+  // ---------------------------
+  function renderQueue(){
+    // clear all except empty
+    queue.querySelectorAll('[data-qitem]').forEach(n=> n.remove());
+
+    for(const it of items){
+      const row = document.createElement('div');
+      row.setAttribute('data-qitem', it.id);
+      row.className = "border rounded-xl p-2 flex gap-3 items-start";
+
+      const statusColor =
+        it.status === 'done' ? 'text-green-700'
+        : it.status === 'uploading' ? 'text-blue-700'
+        : it.status === 'error' ? 'text-red-700'
+        : 'text-gray-700';
+
+      row.innerHTML = `
+        <img src="${it.previewUrl}" class="w-24 h-24 object-cover rounded border" alt="preview">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold truncate">${REQ_ID ? 'Requirement' : 'Extra'} • ${REQ_ID ? '' : ''}</div>
+          <div class="text-xs text-gray-600 mt-1">🕒 ${formatDateLine(it.takenISO)}</div>
+          <div class="text-xs text-gray-600">📍 ${it.lat && it.lng ? (it.lat.toFixed(6)+', '+it.lng.toFixed(6)) : '—'}</div>
+          <div class="text-xs text-gray-600 line-clamp-2">🏷️ ${it.address ? it.address : '—'}</div>
+          <div class="text-xs mt-1 ${statusColor}">Status: ${it.status}</div>
+
+          <div class="mt-2 flex gap-2">
+            <button type="button" data-act="remove" class="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs">Remove</button>
+          </div>
+        </div>
+      `;
+
+      row.addEventListener('click', (e)=>{
+        const btn = e.target.closest('button[data-act="remove"]');
+        if(!btn) return;
+        e.preventDefault();
+        removeItem(it.id);
+      });
+
+      queue.appendChild(row);
+    }
+  }
+
+  function removeItem(id){
+    const idx = items.findIndex(x=>x.id === id);
+    if(idx >= 0){
+      try{ URL.revokeObjectURL(items[idx].previewUrl); }catch(_){}
+      items.splice(idx,1);
+      renderQueue();
+      updateQueueUI();
+    }
+  }
+
+  // ---------------------------
+  // Upload pipeline:
+  // 1) presign_wasabi
+  // 2) POST to Wasabi
+  // 3) confirm to Django (create evidence from key)
+  // ---------------------------
+  async function presign(fileBlob, meta){
+    const body = {
+      filename: 'photo.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: fileBlob.size,
+      folder: FOLDER,
+      meta: {
+        lat: meta.lat || '',
+        lng: meta.lng || '',
+        taken_at: meta.takenISO || '',
+        project_id: PROJECT_ID,
+        technician: '',
+        address: meta.address || '',
+        title: '',
+      }
+    };
+
+    const resp = await fetch(URL_PRESIGN, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(body)
+    });
+
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `Presign failed (HTTP ${resp.status})`);
+    }
+    return await resp.json();
+  }
+
+  async function postToWasabi(url, fields, blob){
+    const fd = new FormData();
+    Object.keys(fields || {}).forEach(k => fd.append(k, fields[k]));
+    fd.append('file', blob);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: fd
+    });
+
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `Wasabi upload failed (HTTP ${resp.status})`);
+    }
+    return true;
+  }
+
+  async function confirmKey(it, key){
+    const payload = {
+      key,
+      req_id: REQ_ID ? parseInt(REQ_ID,10) : null,
+      nota: '',
+      lat: it.lat ? it.lat.toFixed(6) : '',
+      lng: it.lng ? it.lng.toFixed(6) : '',
+      acc: it.acc ? String(it.acc) : '',
+      client_taken_at: it.takenISO,
+      address: it.address || '',
+    };
+
+    const resp = await fetch(URL_CONFIRM, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+
+    let data = null;
+    try{ data = await resp.json(); }catch(_){}
+
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `Confirm failed (HTTP ${resp.status})`;
+      throw new Error(msg);
+    }
+    return data.evidencia;
+  }
+
+  async function uploadAll(){
+    if(!items.length) return;
+
+    btnUploadAll.disabled = true;
+
+    for(const it of items){
+      if(it.status === 'done') continue;
+      try{
+        it.status = 'uploading';
+        renderQueue();
+
+        const p = await presign(it.blob, it);
+        const url = p.url;
+        const fields = p.fields;
+        const key = p.key;
+
+        await postToWasabi(url, fields, it.blob);
+
+        const ev = await confirmKey(it, key);
+        it.status = 'done';
+        it.ev = ev;
+        it.wasabiKey = key;
+        renderQueue();
+
+      }catch(err){
+        it.status = 'error';
+        renderQueue();
+        toast(err.message || 'Upload failed', 'error');
+      }
+    }
+
+    btnUploadAll.disabled = false;
+
+    // Cuando todo está subido: volver a upload_evidencias y que el poller agregue tarjetas
+    // (si quieres, puedes auto-redirect)
+    toast('Upload completed.', 'success');
+  }
+
+  // ---------------------------
+  // Bind
+  // ---------------------------
+  btnStart.addEventListener('click', async ()=>{
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      bannerHttps.classList.remove('hidden');
+      btnFallback.classList.remove('hidden');
+      toast('Camera API not available. Use fallback or open on HTTPS.', 'error');
+      return;
+    }
+
+    // show https requirement if not secure
+    if(!isSecureContextEnough()){
+      bannerHttps.classList.remove('hidden');
+      toast('On iPhone you must use HTTPS for live camera.', 'error');
+      // allow user still to try; but likely fails
+    }else{
+      bannerHttps.classList.add('hidden');
+    }
+
+    await startCamera();
+  });
+
+  btnStop.addEventListener('click', ()=>{
+    stopCamera();
+  });
+
+  btnShot.addEventListener('click', async ()=>{
+    await takeShotFromVideo();
+  });
+
+  btnUploadAll.addEventListener('click', async ()=>{
+    await uploadAll();
+  });
+
+  btnFallback.addEventListener('click', ()=>{
+    fallbackFile.click();
+  });
+
+  fallbackFile.addEventListener('change', async ()=>{
+    const f = fallbackFile.files && fallbackFile.files[0];
+    fallbackFile.value = '';
+    await takeShotFallback(f);
+  });
+
+  // Init geo on load
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    metaState.textContent = `📌 ${estadoLine()}`;
+    metaCp.textContent = `🧩 ${cpLine()}`;
+    await requestGeo();
+
+    // If no mediaDevices at all, show fallback immediately
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      bannerHttps.classList.remove('hidden');
+      btnFallback.classList.remove('hidden');
+    }
+  });
+
+})();
+</script>
+{% endblock %}
