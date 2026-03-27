@@ -32,8 +32,9 @@
   .req-title-wrap .title-text{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .req-title-wrap .req-badge{white-space:nowrap;flex:0 0 auto;}
 
-  /* ✅ FIX imagen fuera del recuadro: forzar layout */
-  .thumb-btn{display:block;width:100%;text-align:left;}
+  /* ✅ FIX imagen fuera del recuadro (iOS/Safari): NO anidar <button> dentro de <button>.
+     Usamos un contenedor clickable que NO es button y forzamos que el IMG se quede dentro. */
+  .thumb-btn{display:block;width:100%;text-align:left;position:relative;overflow:hidden;border-radius:12px;}
   .thumb-btn img{display:block;width:100%;height:6rem;object-fit:cover;}
 </style>
 
@@ -198,12 +199,14 @@
                  data-req-photos="{{ r.id }}">
               {% for ev in evidencias %}
                 {% if ev.requisito_id == r.id %}
-                  <button type="button"
-                          class="relative border rounded-xl overflow-hidden group thumb-btn"
-                          data-ev-id="{{ ev.id }}"
-                          data-preview-url="{{ ev.imagen.url }}"
-                          data-preview-label="{{ ev.requisito.titulo|default:r.titulo }}"
-                          aria-label="Open photo">
+                  {# ✅ IMPORTANTE: NO usar <button> contenedor (evita bug iOS por button anidado).
+                     Contenedor clickable con data-preview-* #}
+                  <div role="button" tabindex="0"
+                       class="relative border rounded-xl overflow-hidden group thumb-btn cursor-pointer"
+                       data-ev-id="{{ ev.id }}"
+                       data-preview-url="{{ ev.imagen.url }}"
+                       data-preview-label="{{ ev.requisito.titulo|default:r.titulo }}"
+                       aria-label="Open photo">
                     {% if can_delete %}
                       <span class="absolute top-1 right-1 z-10">
                         <button type="button"
@@ -221,7 +224,7 @@
                     <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
                       {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}
                     </span>
-                  </button>
+                  </div>
                 {% endif %}
               {% endfor %}
             </div>
@@ -318,12 +321,13 @@
           <div class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2" id="extra-photos">
             {% for ev in evidencias %}
               {% if not ev.requisito_id %}
-                <button type="button"
-                        class="relative border rounded-xl overflow-hidden group thumb-btn"
-                        data-ev-id="{{ ev.id }}"
-                        data-preview-url="{{ ev.imagen.url }}"
-                        data-preview-label="{% if ev.titulo_manual %}{{ ev.titulo_manual }}{% else %}Extra{% endif %}"
-                        aria-label="Open photo">
+                {# ✅ Contenedor clickable NO button (evita visor nativo / layout roto en iOS) #}
+                <div role="button" tabindex="0"
+                     class="relative border rounded-xl overflow-hidden group thumb-btn cursor-pointer"
+                     data-ev-id="{{ ev.id }}"
+                     data-preview-url="{{ ev.imagen.url }}"
+                     data-preview-label="{% if ev.titulo_manual %}{{ ev.titulo_manual }}{% else %}Extra{% endif %}"
+                     aria-label="Open photo">
                   {% if can_delete %}
                     <span class="absolute top-1 right-1 z-10">
                       <button type="button"
@@ -341,7 +345,7 @@
                   <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
                     {% if ev.client_taken_at %}{{ ev.client_taken_at|date:"Y-m-d H:i" }}{% else %}{{ ev.tomada_en|date:"Y-m-d H:i" }}{% endif %}
                   </span>
-                </button>
+                </div>
               {% endif %}
             {% endfor %}
           </div>
@@ -478,24 +482,15 @@
   }, true);
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && pv.classList.contains('show')) closePreview(); });
 
-  // ✅ Intercepta taps en IMG para que NO abra visor nativo (iPhone)
+  // ✅ Delegación: click en miniaturas (pero NO si es botón delete)
+  //    Nota: ahora las thumbs son <div ... data-preview-url>, no <button>
   document.addEventListener('click', (e)=>{
     if (e.target.closest('.btn-open-delete')) return;
-
-    const img = e.target.closest && e.target.closest('img');
-    if (img && img.id !== 'pv-img' && img.closest('button[data-preview-url]')) {
-      e.preventDefault();
-      e.stopPropagation();
-      const btn = img.closest('button[data-preview-url]');
-      openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
-      return;
-    }
-
-    const btn = e.target.closest && e.target.closest('button[data-preview-url]');
-    if (!btn) return;
+    const box = e.target.closest && e.target.closest('[data-preview-url]');
+    if (!box) return;
     e.preventDefault();
     e.stopPropagation();
-    openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
+    openPreview(box.getAttribute('data-preview-url'), box.getAttribute('data-preview-label'));
   }, true);
 
   // Helpers para insertar thumbs (AJAX + poller)
@@ -525,9 +520,11 @@
     const label = ev.titulo || (isReq ? 'Photo' : 'Extra');
     const dateText = ev.fecha || '';
 
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = "relative border rounded-xl overflow-hidden group thumb-btn";
+    // ✅ NO button contenedor (para iOS/Safari)
+    const b = document.createElement('div');
+    b.setAttribute('role', 'button');
+    b.setAttribute('tabindex', '0');
+    b.className = "relative border rounded-xl overflow-hidden group thumb-btn cursor-pointer";
     b.setAttribute('data-ev-id', ev.id);
     b.setAttribute('data-preview-url', ev.url);
     b.setAttribute('data-preview-label', label);
