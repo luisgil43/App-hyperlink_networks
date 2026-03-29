@@ -425,7 +425,8 @@ document.addEventListener('click', function(e){
       url = location.pathname + '?' + p.toString();
     }
     history.replaceState(null, '', url);
-    const html = await fetch(url, { headers:{'X-Requested-With':'fetch'} }).then(r=>r.text());
+
+    const html = await fetch(url, { headers: { 'X-Requested-With': 'fetch' } }).then(r => r.text());
     const doc  = new DOMParser().parseFromString(html, 'text/html');
     const nuevo = doc.querySelector('#prod-wrap');
     const viejo = document.querySelector('#prod-wrap');
@@ -433,62 +434,97 @@ document.addEventListener('click', function(e){
   }
 
   let t = null;
-  function schedule(){ clearTimeout(t); t = setTimeout(()=>refreshProd(paramsFromFilters()), 450); }
+  function schedule() {
+    clearTimeout(t);
+    t = setTimeout(() => refreshProd(paramsFromFilters()), 450);
+  }
 
-  document.querySelectorAll('#filters input[type="text"]').forEach(el=>{
-    el.addEventListener('input',  schedule);
+  // Auto-aplicar filtros (inputs)
+  document.querySelectorAll('#filters input[type="text"]').forEach(el => {
+    el.addEventListener('input', schedule);
     el.addEventListener('change', schedule);
   });
 
-  document.addEventListener('change', (e)=>{
+  // Cambio de cantidad
+  document.addEventListener('change', (e) => {
     if (e.target && e.target.id === 'cantidad') {
-      const p = paramsFromFilters(); p.set('page','1'); refreshProd(p);
+      const p = paramsFromFilters();
+      p.set('page', '1');
+      refreshProd(p);
     }
   });
 
-  document.addEventListener('click', (e)=>{
+  // Enlaces paginación
+  document.addEventListener('click', (e) => {
     const a = e.target.closest('a[data-pagelink]');
     if (!a) return;
     e.preventDefault();
     refreshProd(a.getAttribute('href'));
   });
 
-  // --- Delete modal + POST ---
+  // ---------------------------
+  // Delete modal (FIX: delegated handlers)
+  // ---------------------------
   function getCSRF(){
     const m = document.cookie.match(/csrftoken=([^;]+)/);
     return m ? m[1] : '';
   }
+
   let toDelete = null;
-  document.addEventListener('click', (e)=>{
+
+  // Abrir modal
+  document.addEventListener('click', (e) => {
     const btn = e.target.closest('.btn-del-adj');
-    if(!btn) return;
+    if (!btn) return;
+
+    e.preventDefault();
     toDelete = btn.getAttribute('data-adjid');
-    document.getElementById('modal-del').classList.remove('hidden');
-    document.getElementById('modal-del').classList.add('flex');
+
+    const modal = document.getElementById('modal-del');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
   });
-  document.getElementById('btn-cancel-del').addEventListener('click', ()=>{
-    toDelete = null;
-    document.getElementById('modal-del').classList.add('hidden');
-    document.getElementById('modal-del').classList.remove('flex');
-  });
-  document.getElementById('btn-confirm-del').addEventListener('click', async ()=>{
-    if(!toDelete) return;
-    try{
-      const resp = await fetch("{% url 'operaciones:adjustment_delete' %}", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCSRF(),
-          "X-Requested-With": "fetch"
-        },
-        body: JSON.stringify({ id: toDelete })
-      });
-      // cerrar modal y refrescar
-      document.getElementById('btn-cancel-del').click();
-      await refreshProd(location.search || '?{{ filters_qs }}');
-    } catch(err){
-      console.error(err);
-      document.getElementById('btn-cancel-del').click();
+
+  // Cancel / Delete (delegado para que no se rompa con AJAX)
+  document.addEventListener('click', async (e) => {
+    const cancelBtn  = e.target.closest('#btn-cancel-del');
+    const confirmBtn = e.target.closest('#btn-confirm-del');
+    if (!cancelBtn && !confirmBtn) return;
+
+    e.preventDefault();
+
+    const modal = document.getElementById('modal-del');
+
+    // Cancel
+    if (cancelBtn) {
+      toDelete = null;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      return;
+    }
+
+    // Confirm delete
+    if (confirmBtn) {
+      if (!toDelete) return;
+
+      try {
+        await fetch("{% url 'operaciones:adjustment_delete' %}", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRF(),
+            "X-Requested-With": "fetch"
+          },
+          body: JSON.stringify({ id: toDelete })
+        });
+      } catch (err) {
+        console.error(err);
+      } finally {
+        toDelete = null;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        await refreshProd(location.search || '?{{ filters_qs }}');
+      }
     }
   });
 </script>
