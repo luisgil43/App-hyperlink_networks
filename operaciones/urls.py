@@ -148,6 +148,7 @@ urlpatterns = [
     path("billing/<int:sesion_id>/update-creado-en/", v.billing_update_creado_en, name="billing_update_creado_en"),
 
     # ✅ NUEVO: Cámara + confirmación
-    path("billing/my/<int:asig_id>/camera/", cam.camera_take, name="camera_take"),
-    path("billing/my/<int:asig_id>/camera/confirm/", cam.camera_create_evidence_from_key, name="camera_create_evidence_from_key"),
+    path("camera/take/<int:asig_id>/", cam.camera_take, name="billing_camera_take"),
+    path("camera/create-evidence-from-key/<int:asig_id>/", cam.camera_create_evidence_from_key, name="camera_create_evidence_from_key"),
+    path("camera/requirements-status/<int:asig_id>/", cam.camera_requirements_status, name="camera_requirements_status"),
 ]
