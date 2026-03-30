@@ -1,13 +1,14 @@
 # operaciones/views_billing_camera.py
 
+from __future__ import annotations
+
 import json
 import re
 from datetime import datetime
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import (Http404, HttpResponseBadRequest,
-                         HttpResponseForbidden, JsonResponse)
+from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
@@ -18,8 +19,6 @@ from usuarios.decoradores import rol_requerido
 from .models import (EvidenciaFotoBilling, RequisitoFotoBilling,
                      SesionBillingTecnico)
 
-# Reutilizamos helpers existentes en tu views_billing_exec.py
-# (presign_wasabi ya existe como endpoint)
 SAFE_PREFIX = getattr(settings, "DIRECT_UPLOADS_SAFE_PREFIX", "operaciones/reporte_fotografico/").rstrip("/") + "/"
 
 
@@ -28,17 +27,12 @@ def _is_asig_active(asig) -> bool:
 
 
 def _cp_from_project_id(project_id: str) -> str:
-    """
-    En tu ejemplo: 0161AA_12_CP11235 -> CP-11235
-    Si no matchea, devolvemos CP-<last_digits> o CP-<project_id>
-    """
     s = (project_id or "").strip()
     m = re.search(r"(CP[-_ ]?\d+)", s, re.IGNORECASE)
     if m:
         val = m.group(1).upper().replace("_", "").replace(" ", "").replace("CP", "")
         val = val.replace("-", "")
         return f"CP-{val}"
-    # fallback a últimos dígitos si existen
     m2 = re.search(r"(\d{3,})$", s)
     if m2:
         return f"CP-{m2.group(1)}"
@@ -47,6 +41,40 @@ def _cp_from_project_id(project_id: str) -> str:
 
 def _safe_wasabi_key(key: str) -> bool:
     return isinstance(key, str) and key.startswith(SAFE_PREFIX) and ".." not in key and not key.startswith("/")
+
+
+def _norm_title(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+def _team_locked_titles_for_session(asig: SesionBillingTecnico) -> set[str]:
+    taken_titles = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=asig.sesion, requisito__isnull=False)
+        .values_list("requisito__titulo", flat=True)
+    )
+    return {_norm_title(t) for t in taken_titles if t}
+
+
+def _pending_reqs_for_asig(asig: SesionBillingTecnico) -> list[RequisitoFotoBilling]:
+    """
+    Pendientes = requisitos de esta asignación que aún NO están cubiertos por el equipo
+    (lock por título compartido).
+    """
+    locked_set = _team_locked_titles_for_session(asig)
+
+    qs = (
+        RequisitoFotoBilling.objects
+        .filter(tecnico_sesion=asig)
+        .order_by("orden", "id")
+    )
+
+    out: list[RequisitoFotoBilling] = []
+    for r in qs:
+        if _norm_title(r.titulo) in locked_set:
+            continue
+        out.append(r)
+    return out
 
 
 def _create_evidencia_from_key(
@@ -89,33 +117,29 @@ def camera_take(request, asig_id: int):
     if not _is_asig_active(a):
         raise Http404()
 
-    # Regla de subir: igual que en upload_evidencias_ajax
     puede_subir = (a.estado == "en_proceso") or (a.estado == "rechazado_supervisor" and a.reintento_habilitado)
     if not puede_subir:
-        # Mantenemos coherencia: no dejar tomar fotos si no puede subir
         return HttpResponseForbidden("This assignment is not open for uploads.")
 
+    # Pendientes (para dropdown)
+    pending_reqs = _pending_reqs_for_asig(a)
+
+    # req_id actual (si viene en query) pero SOLO si está pendiente.
     req_id = (request.GET.get("req_id") or "").strip() or None
     req = None
+
     if req_id:
-        req = get_object_or_404(RequisitoFotoBilling, pk=req_id, tecnico_sesion=a)
+        # Si el req_id no está en pendientes, lo forzamos a Extra (para no mostrar completados/locked)
+        req = next((x for x in pending_reqs if str(x.id) == str(req_id)), None)
+        if not req:
+            req_id = None
 
-        # lock por título compartido (si ya está cubierto por el equipo)
-        def _norm_title(s: str) -> str:
-            return (s or "").strip().lower()
+    # Si no vino req_id y hay pendientes, por defecto mostramos el primero pendiente.
+    if not req_id and pending_reqs:
+        req = pending_reqs[0]
+        req_id = str(req.id)
 
-        shared_key = _norm_title(req.titulo)
-        taken_titles = (
-            EvidenciaFotoBilling.objects
-            .filter(tecnico_sesion__sesion=a.sesion, requisito__isnull=False)
-            .values_list("requisito__titulo", flat=True)
-        )
-        locked_set = {_norm_title(t) for t in taken_titles if t}
-        if shared_key in locked_set:
-            # ya está cubierto por el equipo
-            return HttpResponseForbidden("This requirement is already covered by the team.")
-
-    # Folder directo a Wasabi (igual que tu upload_evidencias)
+    # Folder directo a Wasabi
     proj_id = (a.sesion.proyecto_id or "project").strip()
     proj_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", proj_id).strip("-").lower() or "project"
     sess_tag = f"{proj_slug}-{a.sesion_id}"
@@ -129,15 +153,49 @@ def camera_take(request, asig_id: int):
     ctx = {
         "a": a,
         "req": req,
-        "req_id": req.id if req else "",
-        "req_title": req.titulo if req else "Extra Photo",
+        "req_id": (req.id if req else ""),
+        "req_title": (req.titulo if req else "Extra Photo"),
         "direct_uploads_folder": direct_uploads_folder,
         "project_id": a.sesion.proyecto_id,
-        "estado": a.sesion.estado,  # estado del proyecto
+        "estado": a.sesion.estado,
         "cp_text": _cp_from_project_id(a.sesion.proyecto_id),
-        "can_delete": puede_subir,  # por consistencia UI
+        "can_delete": puede_subir,
+
+        # ✅ NUEVO: dropdown (Extra + pendientes)
+        "req_options": [{"id": r.id, "title": r.titulo} for r in pending_reqs],
+        "selected_req_id": (req.id if req else ""),
     }
     return render(request, "operaciones/billing_camera_take.html", ctx)
+
+
+@login_required
+@rol_requerido("usuario")
+@require_GET
+def camera_requirements_status(request, asig_id: int):
+    """
+    Devuelve JSON con:
+    - pendientes (solo los que NO están cubiertos por el equipo)
+    - next_req_id (primero pendiente) o null
+    """
+    a = get_object_or_404(SesionBillingTecnico, pk=asig_id, tecnico=request.user)
+    if not _is_asig_active(a):
+        return JsonResponse({"ok": False, "error": "Assignment no longer available."}, status=404)
+
+    puede_subir = (a.estado == "en_proceso") or (a.estado == "rechazado_supervisor" and a.reintento_habilitado)
+    if not puede_subir:
+        return JsonResponse({"ok": False, "error": "Assignment not open for uploads."}, status=403)
+
+    pending_reqs = _pending_reqs_for_asig(a)
+    next_req_id = pending_reqs[0].id if pending_reqs else None
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "pending": [{"id": r.id, "title": r.titulo} for r in pending_reqs],
+            "next_req_id": next_req_id,
+        },
+        status=200,
+    )
 
 
 @login_required
@@ -156,7 +214,7 @@ def camera_create_evidence_from_key(request, asig_id: int):
         "lng": "...",
         "acc": "...",
         "client_taken_at": "ISO",
-        "address": "...."   (auto)
+        "address": "...."
       }
     """
     a = get_object_or_404(SesionBillingTecnico, pk=asig_id, tecnico=request.user)
@@ -198,23 +256,13 @@ def camera_create_evidence_from_key(request, asig_id: int):
     if req_id:
         req = get_object_or_404(RequisitoFotoBilling, pk=int(req_id), tecnico_sesion=a)
 
-        def _norm_title(s: str) -> str:
-            return (s or "").strip().lower()
-
-        shared_key = _norm_title(req.titulo)
-        taken_titles = (
-            EvidenciaFotoBilling.objects
-            .filter(tecnico_sesion__sesion=a.sesion, requisito__isnull=False)
-            .values_list("requisito__titulo", flat=True)
-        )
-        locked_set = {_norm_title(t) for t in taken_titles if t}
-        if shared_key in locked_set:
+        locked_set = _team_locked_titles_for_session(a)
+        if _norm_title(req.titulo) in locked_set:
             return JsonResponse(
                 {"ok": False, "error": "This requirement is already covered by the team."},
                 status=409
             )
 
-    # Crear evidencia apuntando al key ya subido (sin re-subir bytes)
     ev = _create_evidencia_from_key(
         asig=a,
         req_id=req_id,
@@ -224,7 +272,6 @@ def camera_create_evidence_from_key(request, asig_id: int):
         lng=lng,
         acc=acc,
         taken_dt=taken_dt,
-        # Para tu caso: dirección automática => la guardamos aquí
         titulo_manual="",
         direccion_manual=address,
     )

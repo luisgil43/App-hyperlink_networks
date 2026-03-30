@@ -71,7 +71,6 @@
   .cam-panel{max-width:560px;margin:12px auto 0;}
   .cam-panel .box{border-radius:16px;padding:10px 12px;font-size:13px;}
 
-  /* Fullscreen preview modal */
   .pv{position:fixed;inset:0;z-index:9999;display:none;}
   .pv.show{display:block;}
   .pv .bg{position:absolute;inset:0;background:#000;}
@@ -93,7 +92,6 @@
     background:rgba(0,0,0,.25);
   }
 
-  /* Upload progress */
   .up-wrap{max-width:560px;margin:10px auto 0;}
   .up-box{border-radius:16px;padding:10px 12px;}
 </style>
@@ -105,8 +103,8 @@
          class="inline-flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded">
         ⬅️ Back
       </a>
-      <h1 class="mt-3 text-xl sm:text-2xl font-bold leading-tight truncate">
-        📷 Take Photo — {{ req_title }}
+      <h1 class="mt-3 text-xl sm:text-2xl font-bold leading-tight truncate" id="title-h1">
+        📷 Take Photo — <span id="title-req">{{ req_title }}</span>
       </h1>
       <p class="text-sm text-gray-600 mt-1">
         Billing #{{ a.sesion.id }} · {{ project_id }} · {{ cp_text }}
@@ -119,7 +117,7 @@
               disabled>
         Upload
       </button>
-      <div class="text-xs text-gray-500">
+      <div class="text-xs text-gray-500" id="mode-label">
         {% if req_id %}Requirement{% else %}Extra{% endif %}
       </div>
     </div>
@@ -127,12 +125,28 @@
 
   <div class="cam-wrap mt-4">
 
+    <!-- ✅ Selector requisito/extra -->
+    <div class="mb-3">
+      <label class="block text-xs text-gray-500 mb-1">Photo target</label>
+      <select id="req-select" class="w-full border rounded-xl p-2 text-sm">
+        <option value="">Extra</option>
+        {% for r in req_options %}
+          <option value="{{ r.id }}" {% if selected_req_id == r.id %}selected{% endif %}>
+            {{ r.title }}
+          </option>
+        {% endfor %}
+      </select>
+      <div class="text-xs text-gray-500 mt-1">
+        Completed requirements disappear automatically.
+      </div>
+    </div>
+
     <div class="mb-3">
       <div class="text-sm font-semibold text-gray-800">
         Requirement:
-        <span class="font-bold">{{ req_title }}</span>
+        <span class="font-bold" id="req-title-line">{{ req_title }}</span>
       </div>
-      <div class="text-xs text-gray-500 mt-0.5">
+      <div class="text-xs text-gray-500 mt-0.5" id="req-help">
         {% if req_id %}Only one photo is allowed for this requirement.{% else %}You can take multiple extra photos.{% endif %}
       </div>
     </div>
@@ -211,7 +225,7 @@
     </div>
 
     <div class="mt-4 border rounded-2xl p-3">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-content-between">
         <div class="text-sm font-semibold">Queue</div>
         <div class="text-xs text-gray-500" id="queue-count">0 photos</div>
       </div>
@@ -241,14 +255,13 @@
   // Backend vars
   // ---------------------------
   const ASIG_ID    = {{ a.pk }};
-  const REQ_ID     = "{{ req_id }}";
   const PROJECT_ID = "{{ project_id|escapejs }}";
   const CP_TEXT    = "{{ cp_text|escapejs }}";
   const FOLDER     = "{{ direct_uploads_folder|escapejs }}";
-  const IS_REQUIREMENT = !!(REQ_ID && String(REQ_ID).trim().length);
 
   const URL_PRESIGN = "{% url 'operaciones:presign_wasabi' %}";
   const URL_CONFIRM = "{% url 'operaciones:camera_create_evidence_from_key' 0 %}".replace('/0/', `/${ASIG_ID}/`);
+  const URL_STATUS  = "{% url 'operaciones:camera_requirements_status' 0 %}".replace('/0/', `/${ASIG_ID}/`);
   const URL_BACK    = "{% url 'operaciones:upload_evidencias' a.pk %}";
 
   function getCookie(name){
@@ -303,17 +316,22 @@
 
   const noteInput = document.getElementById('note-input');
 
-  // Upload progress
   const uploadProgWrap = document.getElementById('upload-progress');
   const uploadBar = document.getElementById('upload-bar');
   const uploadPct = document.getElementById('upload-status-pct');
   const uploadText = document.getElementById('upload-status-text');
 
-  // Preview modal
   const pv = document.getElementById('pv');
   const pvImg = document.getElementById('pv-img');
   const pvClose = document.getElementById('pv-close');
   const pvCount = document.getElementById('pv-count');
+
+  // ✅ UI para requisito actual
+  const reqSelect = document.getElementById('req-select');
+  const titleReq = document.getElementById('title-req');
+  const reqTitleLine = document.getElementById('req-title-line');
+  const reqHelp = document.getElementById('req-help');
+  const modeLabel = document.getElementById('mode-label');
 
   // ---------------------------
   // State
@@ -322,7 +340,6 @@
   let clockTimer = null;
   let uploading = false;
 
-  // ✅ GPS caliente (watchPosition)
   let geoWatchId = null;
   let lastGeocodeAt = 0;
   let geocodeTimer = null;
@@ -332,17 +349,23 @@
     streetLine:'', cityLine:'', addressForSave:''
   };
 
-  // ✅ canvas reutilizable (más rápido)
   let snapCanvas = null;
   let snapCtx = null;
 
-  // items: newest first
   let items = [];
-  window.items = items; // ✅ FIX: expone items para el handler iPhone
+  window.items = items;
 
-  // Preview index (0 = newest)
   let pvIndex = 0;
   let touchX0 = null;
+
+  // ✅ selección dinámica ("" => Extra)
+  function currentReqId(){
+    const v = (reqSelect && reqSelect.value != null) ? String(reqSelect.value) : "";
+    return v.trim() ? v.trim() : "";
+  }
+  function isRequirementMode(){
+    return !!currentReqId();
+  }
 
   function setUploadingState(isOn){
     uploading = !!isOn;
@@ -366,6 +389,26 @@
     }
   }
 
+  function updateRequirementUI(){
+    const rid = currentReqId();
+    const opt = rid ? reqSelect.querySelector(`option[value="${CSS.escape(rid)}"]`) : null;
+    const label = rid && opt ? (opt.textContent || '').trim() : 'Extra Photo';
+
+    titleReq.textContent = label;
+    reqTitleLine.textContent = label;
+
+    if (rid){
+      reqHelp.textContent = "Only one photo is allowed for this requirement.";
+      modeLabel.textContent = "Requirement";
+    } else {
+      reqHelp.textContent = "You can take multiple extra photos.";
+      modeLabel.textContent = "Extra";
+    }
+
+    // si estamos en requirement y ya hay 1 foto en cola, bloquear shutter
+    updateCounters();
+  }
+
   function updateCounters(){
     camCount.textContent = String(items.length);
     queueCount.textContent = `${items.length} photo${items.length===1?'':'s'}`;
@@ -378,7 +421,8 @@
       btnUploadBottom.disabled = (items.length === 0);
     }
 
-    if (IS_REQUIREMENT){
+    // ✅ regla: requirement => máximo 1 foto en cola
+    if (isRequirementMode()){
       const locked = items.length >= 1;
       btnShot.disabled = locked;
       btnShot.setAttribute('aria-disabled', locked ? 'true' : 'false');
@@ -386,6 +430,29 @@
       btnShot.disabled = false;
       btnShot.setAttribute('aria-disabled', 'false');
     }
+  }
+
+  function clearQueue(){
+    try{
+      for(const it of items){
+        try{ URL.revokeObjectURL(it.previewUrl); }catch(_){}
+      }
+    }catch(_){}
+    items = [];
+    window.items = items;
+
+    thumbImg.src = '';
+    btnThumb.disabled = true;
+
+    renderQueue();
+    updateCounters();
+
+    // reset global progress UI
+    uploadText.textContent = 'Uploading…';
+    uploadPct.textContent = '0%';
+    uploadBar.style.width = '0%';
+    uploadProgWrap.classList.add('hidden');
+    setUploadingState(false);
   }
 
   // ---------------------------
@@ -414,7 +481,7 @@
   }
 
   // ---------------------------
-  // Geo + reverse geocode (background)
+  // Geo + reverse geocode
   // ---------------------------
   async function reverseGeocode(lat, lng){
     try{
@@ -573,7 +640,7 @@
   }
 
   // ---------------------------
-  // Burn overlay into JPEG (NO ellipsis ever)
+  // Burn overlay into JPEG
   // ---------------------------
   function wrapLinesNoEllipsis(ctx, text, maxWidth, maxLines){
     const raw = String(text || '').trim();
@@ -640,7 +707,7 @@
   }
 
   // ---------------------------
-  // Take photo (INSTANT)
+  // Take photo
   // ---------------------------
   let taking = false;
 
@@ -652,7 +719,7 @@
       return;
     }
 
-    if (IS_REQUIREMENT && items.length >= 1){
+    if (isRequirementMode() && items.length >= 1){
       toast('Only one photo is allowed for this requirement. Remove it to take another.', 'error');
       return;
     }
@@ -710,7 +777,7 @@
       status: 'queued',
       progress: 0,
     });
-    window.items = items; // ✅ FIX: mantener referencia global actualizada
+    window.items = items;
 
     thumbImg.src = url;
     btnThumb.disabled = false;
@@ -720,7 +787,7 @@
   }
 
   // ---------------------------
-  // Preview modal (X close + swipe left/right)
+  // Preview modal
   // ---------------------------
   function showPreviewAt(index){
     if(!items.length) return;
@@ -774,7 +841,7 @@
   });
 
   // ---------------------------
-  // Queue UI (incluye nota + barra progreso por item)
+  // Queue UI
   // ---------------------------
   function renderQueue(){
     queue.querySelectorAll('[data-qitem]').forEach(n=> n.remove());
@@ -855,7 +922,7 @@
       }
       try{ URL.revokeObjectURL(items[idx].previewUrl); }catch(_){}
       items.splice(idx,1);
-      window.items = items; // ✅ FIX: mantener referencia global actualizada
+      window.items = items;
       renderQueue();
       updateCounters();
       if(items.length){
@@ -869,7 +936,44 @@
   }
 
   // ---------------------------
-  // Upload pipeline (igual)
+  // Requirements status (JSON) + dropdown refresh
+  // ---------------------------
+  async function fetchReqStatus(){
+    const resp = await fetch(URL_STATUS, {
+      method: 'GET',
+      headers: { 'Accept':'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if(!resp.ok) throw new Error(`Status failed (${resp.status})`);
+    return await resp.json();
+  }
+
+  function rebuildReqSelect(pending, desiredValue){
+    const keep = (typeof desiredValue === 'string') ? desiredValue : '';
+
+    // reconstruimos opciones: Extra + pendientes
+    reqSelect.innerHTML = '';
+    const optExtra = document.createElement('option');
+    optExtra.value = '';
+    optExtra.textContent = 'Extra';
+    reqSelect.appendChild(optExtra);
+
+    for(const r of (pending || [])){
+      const o = document.createElement('option');
+      o.value = String(r.id);
+      o.textContent = String(r.title || '').trim() || `Requirement #${r.id}`;
+      reqSelect.appendChild(o);
+    }
+
+    // set value si existe, si no => Extra
+    const exists = !!(keep && reqSelect.querySelector(`option[value="${CSS.escape(keep)}"]`));
+    reqSelect.value = exists ? keep : '';
+    updateRequirementUI();
+  }
+
+  // ---------------------------
+  // Upload pipeline
   // ---------------------------
   async function presign(fileBlob, meta){
     const body = {
@@ -932,9 +1036,11 @@
   }
 
   async function confirmKey(it, key){
+    const rid = currentReqId();
+
     const payload = {
       key,
-      req_id: IS_REQUIREMENT ? parseInt(REQ_ID,10) : null,
+      req_id: rid ? parseInt(rid,10) : null,
       nota: (it.nota || ''),
       lat: it.lat ? it.lat.toFixed(6) : '',
       lng: it.lng ? it.lng.toFixed(6) : '',
@@ -974,6 +1080,9 @@
   async function uploadAll(){
     if(uploading) return;
     if(!items.length) return;
+
+    const startedAsRequirement = isRequirementMode();
+    const startedReqId = currentReqId();
 
     setUploadingState(true);
 
@@ -1023,21 +1132,36 @@
     }
 
     if (hadError){
+      uploading = false;
       btnUploadTop.textContent = 'Upload';
       btnUploadBottom.textContent = 'Upload';
-      uploading = false;
       btnUploadTop.disabled = (items.length === 0);
       btnUploadBottom.disabled = (items.length === 0);
       toast('Some photos failed to upload. Please retry.', 'error');
       return;
     }
 
-    uploadText.textContent = 'Upload completed.';
-    uploadPct.textContent = '100%';
-    uploadBar.style.width = '100%';
-
     toast('Upload completed.', 'success');
-    setTimeout(()=>{ window.location.href = URL_BACK; }, 350);
+
+    // ✅ importante: limpiar cola y seguir en cámara
+    clearQueue();
+
+    // ✅ recalcular pendientes y saltar si era requisito
+    try{
+      const st = await fetchReqStatus();
+      if(st && st.ok === true){
+        if (startedAsRequirement && startedReqId){
+          // saltar al siguiente pendiente (o Extra si no hay)
+          const nextId = st.next_req_id ? String(st.next_req_id) : '';
+          rebuildReqSelect(st.pending || [], nextId);
+        } else {
+          // era Extra: seguimos en Extra, pero refrescamos la lista de pendientes igual
+          rebuildReqSelect(st.pending || [], '');
+        }
+      }
+    }catch(_){
+      // si falla, no rompemos el flujo
+    }
   }
 
   // ---------------------------
@@ -1061,20 +1185,48 @@
     await startCamera();
   });
 
+  // ✅ cambiar requisito desde dropdown (solo si no hay cola)
+  reqSelect.addEventListener('change', ()=>{
+    if (uploading){
+      toast('Upload in progress. Please wait.', 'error');
+      // revert no fácil; dejamos igual, pero no rompemos
+      return;
+    }
+    if (items.length > 0){
+      toast('Please upload or remove queued photos before changing the requirement.', 'error');
+      // revertimos a lo anterior: si no, se mezclan fotos con requisito distinto
+      // (guardamos el valor en dataset)
+      const prev = reqSelect.getAttribute('data-prev') || '';
+      reqSelect.value = prev;
+      return;
+    }
+    reqSelect.setAttribute('data-prev', reqSelect.value || '');
+    updateRequirementUI();
+  });
+
   // ---------------------------
   // Init
   // ---------------------------
   document.addEventListener('DOMContentLoaded', async ()=>{
     ovCp.textContent = CP_TEXT || '';
+    reqSelect.setAttribute('data-prev', reqSelect.value || '');
+    updateRequirementUI();
     updateCounters();
 
     startClock();
-
     startGeoWatch();
-
     await startCamera();
-
     setGeoTexts();
+
+    // opcional: refrescar lista al cargar (sin recargar)
+    try{
+      const st = await fetchReqStatus();
+      if(st && st.ok === true){
+        // mantiene selección inicial si existe; si no existe, deja Extra
+        const initial = currentReqId();
+        rebuildReqSelect(st.pending || [], initial);
+      }
+    }catch(_){}
   });
 
 })();
@@ -1093,7 +1245,6 @@
       if (pvImg) pvImg.src = '';
     }
 
-    // 1) X siempre cierra
     if (pvClose) {
       pvClose.addEventListener('click', function(e){
         e.preventDefault();
@@ -1102,7 +1253,6 @@
       }, true);
     }
 
-    // 2) tap en fondo negro cierra
     if (pv) {
       pv.addEventListener('click', function(e){
         const t = e.target;
@@ -1114,7 +1264,6 @@
       }, true);
     }
 
-    // 3) tap en imagen grande NO navega
     if (pvImg) {
       pvImg.addEventListener('click', function(e){
         e.preventDefault();
@@ -1123,7 +1272,6 @@
       }, true);
     }
 
-    // 4) interceptar taps en imágenes del queue/thumb para que siempre abra el modal (no visor nativo)
     document.addEventListener('click', function(e){
       const img = e.target && e.target.closest ? e.target.closest('img') : null;
       if (!img) return;
@@ -1139,13 +1287,11 @@
       e.preventDefault();
       e.stopPropagation();
 
-      // thumb => abre última
       if (img.id === 'thumb-img') {
         if (typeof openPreview === 'function') openPreview();
         return false;
       }
 
-      // img dentro del queue => abre índice
       const row = img.closest('[data-qitem]');
       if (row) {
         const qid = row.getAttribute('data-qitem');
