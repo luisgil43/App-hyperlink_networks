@@ -91,7 +91,8 @@ from .forms import (ImportarPreciosForm, PaymentApproveForm,  # <-- TUS FORMS
 from .models import PrecioActividadTecnico  # <-- TU MODELO DE PRECIOS
 from .models import SesionBilling  # ajusta a tu ruta real
 from .models import (AdjustmentEntry, EvidenciaFotoBilling, ItemBilling,
-                     ItemBillingTecnico, SesionBillingTecnico, WeeklyPayment)
+                     ItemBillingTecnico, RequisitoFotoBilling,
+                     SesionBillingTecnico, WeeklyPayment)
 from .services.weekly import \
     materialize_week_for_payments  # crea/actualiza solo la semana indicada
 from .services.weekly import \
@@ -7263,3 +7264,8 @@ def billing_update_creado_en(request, sesion_id: int):
         "display": display,
         "search_value": display,
     })
+
+
+
+
+

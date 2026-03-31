@@ -76,7 +76,8 @@ urlpatterns = [
     path("billing/<int:sesion_id>/requisitos/import/", b.import_requirements_page, name="import_requirements_page",),
     path("billing/<int:sesion_id>/requisitos/import/template/<str:ext>/", b.download_requirements_template, name="download_requirements_template",),
     path("billing/<int:sesion_id>/requisitos/import/process/", b.importar_requisitos, name="importar_requisitos",),
-
+    path("billing/<int:sesion_id>/requisitos/import/confirm/",b.confirmar_importar_requisitos,name="confirmar_importar_requisitos",),
+    
     path("direct-uploads/presign/", b.presign_wasabi, name="presign_wasabi"),
     path("billing/export/", views.exportar_billing_excel, name="billing_export"),
 
@@ -151,7 +152,13 @@ urlpatterns = [
     path("billing/my/<int:asig_id>/camera/", cam.camera_take, name="camera_take"),
     path("billing/my/<int:asig_id>/camera/confirm/", cam.camera_create_evidence_from_key, name="camera_create_evidence_from_key"),
     path("camera/take/<int:asig_id>/", cam.camera_take, name="billing_camera_take"),
-    path("camera/create-evidence-from-key/<int:asig_id>/", cam.camera_create_evidence_from_key, name="camera_create_evidence_from_key"),
     path("camera/requirements-status/<int:asig_id>/", cam.camera_requirements_status, name="camera_requirements_status"),
+
+    
+    path("billing/bulk-requisitos/import/preview/", b.bulk_importar_requisitos_preview, name="bulk_importar_requisitos_preview"),
+    path("billing/bulk-requisitos/import/confirm/", b.bulk_confirmar_importar_requisitos, name="bulk_confirmar_importar_requisitos"),
+    
 ]
+
+
 

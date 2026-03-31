@@ -2479,10 +2479,86 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 # ============================
 
 
-# operaciones/views_billing_exec.py
 
 
-# ...
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+@require_POST
+def confirmar_importar_requisitos(request, sesion_id):
+    """
+    CONFIRM:
+    - Lee preview desde session
+    - Crea SOLO requisitos nuevos en TODAS las asignaciones
+    - NO modifica los existentes (por tu regla)
+    """
+    from django.contrib import messages
+    from django.db import transaction
+    from django.shortcuts import get_object_or_404, redirect
+    from django.utils.text import slugify
+
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    payload = request.session.get("req_import_preview") or {}
+    if not payload or payload.get("sesion_id") != s.id:
+        messages.error(request, "No preview data to confirm. Please re-upload the file.")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    to_create = payload.get("to_create") or []
+    if not isinstance(to_create, list) or not to_create:
+        messages.info(request, "Nothing to create.")
+        request.session.pop("req_import_preview", None)
+        return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
+
+    try:
+        with transaction.atomic():
+            asignaciones = list(
+                s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+            )
+
+            created_total = 0
+
+            for a in asignaciones:
+                existentes_por_slug = {
+                    slugify((r.titulo or "").strip()): r
+                    for r in a.requisitos.all()
+                }
+
+                for r in to_create:
+                    name = (r.get("name") or "").strip()
+                    if not name:
+                        continue
+                    key = slugify(name)
+                    if not key:
+                        continue
+                    if key in existentes_por_slug:
+                        continue  # seguridad extra
+
+                    try:
+                        order = int(r.get("order"))
+                    except Exception:
+                        order = len(existentes_por_slug)
+
+                    mandatory = bool(r.get("mandatory", True))
+
+                    RequisitoFotoBilling.objects.create(
+                        tecnico_sesion=a,
+                        titulo=name,
+                        descripcion="",
+                        obligatorio=mandatory,
+                        orden=order,
+                    )
+                    created_total += 1
+
+        messages.success(
+            request,
+            f"Created {created_total} new requirement(s). Existing identical requirements were kept unchanged."
+        )
+    except Exception as e:
+        messages.error(request, f"Could not apply imported requirements: {e}")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    request.session.pop("req_import_preview", None)
+    return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
 
 
 @login_required
@@ -2704,11 +2780,26 @@ def download_requirements_template(request, sesion_id, ext):
 @require_POST
 def importar_requisitos(request, sesion_id):
     """
-    Importa requisitos (CSV/XLSX) y los sincroniza con TODAS las asignaciones:
-      - Crea los nuevos.
-      - Actualiza order/mandatory/nombre de los que hagan match por slug del nombre.
-      - NO borra nada (para no romper estados), a menos que luego el usuario los quite en la pantalla y guarde.
+    PREVIEW (sin escribir DB):
+    - Parse CSV/XLSX
+    - Detecta duplicados dentro del archivo (por slug) y reporta:
+        * file row duplicada
+        * nombre duplicado
+        * file row original que está duplicando
+    - Detecta duplicados contra requisitos existentes (por slug) y reporta:
+        * file row entrante
+        * existing row number (1..N) del listado actual del billing (orden/id)
+    - Guarda preview en session
+    - Renderiza pantalla preview para confirmar
     """
+    import csv
+    import io
+
+    from django.contrib import messages
+    from django.shortcuts import get_object_or_404, redirect, render
+    from django.utils.text import slugify
+    from openpyxl import load_workbook
+
     s = get_object_or_404(SesionBilling, pk=sesion_id)
     f = request.FILES.get("file")
 
@@ -2716,41 +2807,64 @@ def importar_requisitos(request, sesion_id):
         messages.error(request, "Please select a CSV or XLSX file.")
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-    ext = (f.name.rsplit(".", 1)[-1] or "").lower()
-    normalized = []  # [(order, name, mandatory)]
+    filename = (getattr(f, "name", "") or "").strip()
+    ext = (filename.rsplit(".", 1)[-1] or "").lower()
 
+    def _to_bool(v, default=True):
+        if v is None or v == "":
+            return default
+        t = str(v).strip().lower()
+        return t in ("1", "true", "yes", "y", "si", "sí")
+
+    normalized = []   # [{'order':int,'name':str,'mandatory':bool,'slug':str,'row':int}]
+    warnings = []
+    errors = []
+
+    # ---------------- PARSEO ----------------
     try:
         if ext == "csv":
             raw = f.read().decode("utf-8", errors="ignore")
-            lines = raw.splitlines()
-            if not lines:
+            if not raw.strip():
                 messages.warning(request, "The file is empty.")
                 return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-            header_line = lines[0].lower()
-            if "name" in header_line:
+            lines = raw.splitlines()
+            header_line = (lines[0].lower() if lines else "")
+            has_header = "name" in header_line
+
+            if has_header:
                 reader = csv.DictReader(io.StringIO(raw))
-                for row in reader:
+                for idx, row in enumerate(reader, start=2):  # header is row 1
                     name = (row.get("name") or "").strip()
                     if not name:
                         continue
                     try:
-                        order = int(row.get("order")) if row.get(
-                            "order") not in (None, "") else len(normalized)
+                        order = int(row.get("order")) if (row.get("order") not in (None, "")) else len(normalized)
                     except Exception:
                         order = len(normalized)
-                    mval = str(row.get("mandatory") or "1").strip().lower()
-                    mandatory = mval in ("1", "true", "yes", "y")
-                    normalized.append((order, name, mandatory))
+                    mandatory = _to_bool(row.get("mandatory"), default=True)
+                    normalized.append({
+                        "order": order,
+                        "name": name,
+                        "mandatory": mandatory,
+                        "slug": slugify(name),
+                        "row": idx,   # ✅ file row number
+                    })
             else:
-                reader = csv.reader(lines)
-                for row in reader:
+                reader = csv.reader(io.StringIO(raw))
+                for idx, row in enumerate(reader, start=1):
                     if not row:
                         continue
                     name = (row[0] or "").strip()
                     if not name:
                         continue
-                    normalized.append((len(normalized), name, True))
+                    normalized.append({
+                        "order": len(normalized),
+                        "name": name,
+                        "mandatory": True,
+                        "slug": slugify(name),
+                        "row": idx,   # ✅ file row number
+                    })
 
         elif ext in ("xlsx", "xls"):
             wb = load_workbook(f, data_only=True)
@@ -2760,22 +2874,20 @@ def importar_requisitos(request, sesion_id):
                 messages.warning(request, "The spreadsheet is empty.")
                 return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-            header = [str(x).strip().lower()
-                      if x is not None else "" for x in rows[0]]
-            headered = "name" in header
-            start = 1 if headered else 0
+            header = [str(x).strip().lower() if x is not None else "" for x in rows[0]]
+            has_header = "name" in header
+            start = 1 if has_header else 0
 
-            if headered:
+            if has_header:
                 i_name = header.index("name")
                 i_order = header.index("order") if "order" in header else None
-                i_mand = header.index(
-                    "mandatory") if "mandatory" in header else None
+                i_mand = header.index("mandatory") if "mandatory" in header else None
 
-                for r in rows[start:]:
-                    name = (str(r[i_name]) if i_name < len(r)
-                            and r[i_name] is not None else "").strip()
+                for ridx, r in enumerate(rows[start:], start=2):  # header is row 1
+                    name = (str(r[i_name]) if i_name < len(r) and r[i_name] is not None else "").strip()
                     if not name:
                         continue
+
                     if i_order is not None and i_order < len(r) and r[i_order] not in (None, ""):
                         try:
                             order = int(r[i_order])
@@ -2783,23 +2895,35 @@ def importar_requisitos(request, sesion_id):
                             order = len(normalized)
                     else:
                         order = len(normalized)
-                    if i_mand is not None and i_mand < len(r) and r[i_mand] not in (None, ""):
-                        mval = str(r[i_mand]).strip().lower()
-                        mandatory = mval in ("1", "true", "yes", "y")
+
+                    if i_mand is not None and i_mand < len(r):
+                        mandatory = _to_bool(r[i_mand], default=True)
                     else:
                         mandatory = True
-                    normalized.append((order, name, mandatory))
+
+                    normalized.append({
+                        "order": order,
+                        "name": name,
+                        "mandatory": mandatory,
+                        "slug": slugify(name),
+                        "row": ridx,  # ✅ file row number
+                    })
             else:
-                for r in rows:
+                for ridx, r in enumerate(rows, start=1):
                     if not r:
                         continue
                     name = (str(r[0]) if r[0] is not None else "").strip()
                     if not name:
                         continue
-                    normalized.append((len(normalized), name, True))
+                    normalized.append({
+                        "order": len(normalized),
+                        "name": name,
+                        "mandatory": True,
+                        "slug": slugify(name),
+                        "row": ridx,  # ✅ file row number
+                    })
         else:
-            messages.error(
-                request, "Unsupported file type. Use .csv or .xlsx.")
+            messages.error(request, "Unsupported file type. Use .csv or .xlsx.")
             return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
     except Exception as e:
@@ -2810,38 +2934,499 @@ def importar_requisitos(request, sesion_id):
         messages.warning(request, "No valid rows found in the file.")
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-    # --- Sincroniza por slug de nombre
+    # --------- Dedup dentro del archivo por slug (con referencia a la fila original) ----------
+    seen = {}  # slug -> {"row": int, "name": str}
+    cleaned = []
+    file_duplicates = []  # para tabla opcional
+
+    for r in normalized:
+        slug = r.get("slug") or ""
+        rownum = r.get("row")
+        nm = (r.get("name") or "").strip()
+
+        if not slug:
+            errors.append(f"Row {rownum}: invalid name.")
+            continue
+
+        if slug in seen:
+            first = seen[slug]
+            warnings.append(
+                f"Row {rownum}: duplicated name in file — '{nm}' — duplicates row {first['row']} ('{first['name']}')."
+            )
+            file_duplicates.append({
+                "row": rownum,
+                "name": nm,
+                "dup_of_row": first["row"],
+                "dup_of_name": first["name"],
+                "slug": slug,
+            })
+            continue
+
+        seen[slug] = {"row": rownum, "name": nm}
+        cleaned.append(r)
+
+    normalized = cleaned
+
+    if not normalized and not errors:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    # --------- EXISTENTES (canónico = primera asignación) + row number visual (1..N) ----------
+    asignaciones = list(
+        s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+    )
+
+    existing_by_slug = {}  # slug -> {"req": obj, "row_num": int}
+    if asignaciones:
+        canonical_qs = asignaciones[0].requisitos.order_by("orden", "id")
+        for idx, req in enumerate(canonical_qs, start=1):
+            key = slugify((req.titulo or "").strip())
+            if key and key not in existing_by_slug:
+                existing_by_slug[key] = {"req": req, "row_num": idx}
+
+    duplicates = []
+    to_create = []
+
+    for r in normalized:
+        ex_info = existing_by_slug.get(r["slug"])
+        if ex_info:
+            ex = ex_info["req"]
+            duplicates.append({
+                "incoming_row": r.get("row"),                 # ✅ file row
+                "existing_row_num": ex_info.get("row_num"),   # ✅ row in current billing list (1..N)
+                "name": r["name"],
+                "slug": r["slug"],
+                "existing_order": getattr(ex, "orden", 0),
+                "existing_mandatory": bool(getattr(ex, "obligatorio", True)),
+                "incoming_order": r["order"],
+                "incoming_mandatory": r["mandatory"],
+            })
+        else:
+            to_create.append({
+                "row": r.get("row"),          # ✅ file row
+                "name": r["name"],
+                "slug": r["slug"],
+                "order": r["order"],
+                "mandatory": r["mandatory"],
+            })
+
+    request.session["req_import_preview"] = {
+        "sesion_id": s.id,
+        "source_filename": filename,
+        "to_create": to_create,
+        "duplicates": duplicates,
+        "file_duplicates": file_duplicates,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+    return render(
+        request,
+        "operaciones/preview_import_requirements.html",
+        {
+            "sesion": s,
+            "source_filename": filename,
+            "duplicates": duplicates,
+            "to_create": to_create,
+            "file_duplicates": file_duplicates,
+            "warnings": warnings,
+            "errors": errors,
+        },
+    )
+
+
+
+
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+@require_POST
+def bulk_importar_requisitos_preview(request):
+    """
+    BULK PREVIEW (sin escribir DB):
+    - Recibe ids (seleccionados) + file
+    - Filtra sesiones por estado permitido: asignado/en_proceso/en_revision_supervisor
+      (NO aprobado supervisor/pm)
+    - Parsea el archivo una sola vez (igual que importar_requisitos)
+    - Para cada sesión elegible:
+        * detecta duplicados vs requisitos existentes (canonical = primera asignación)
+        * arma to_create / duplicates
+    - Guarda preview en session y renderiza template de preview (reutiliza preview_import_requirements.html)
+    """
+    ids_raw = (request.POST.get("ids") or "").strip()
+    f = request.FILES.get("file")
+
+    if not ids_raw:
+        messages.error(request, "Please select at least one billing.")
+        return redirect("operaciones:listar_billing")
+
+    if not f:
+        messages.error(request, "Please select a CSV or XLSX file.")
+        return redirect("operaciones:listar_billing")
+
+    # -------- Parse ids --------
+    ids = []
+    for x in ids_raw.split(","):
+        x = (x or "").strip()
+        if not x:
+            continue
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+
+    if not ids:
+        messages.error(request, "Invalid selection.")
+        return redirect("operaciones:listar_billing")
+
+    # -------- Helpers parse (MISMO comportamiento que importar_requisitos) --------
+    filename = (getattr(f, "name", "") or "").strip()
+    ext = (filename.rsplit(".", 1)[-1] or "").lower()
+
+    def _to_bool(v, default=True):
+        if v is None or v == "":
+            return default
+        t = str(v).strip().lower()
+        return t in ("1", "true", "yes", "y", "si", "sí")
+
+    normalized = []   # [{'order':int,'name':str,'mandatory':bool,'slug':str,'row':int}]
+    warnings = []
+    errors = []
+
+    # ---------------- PARSEO ----------------
+    try:
+        if ext == "csv":
+            raw = f.read().decode("utf-8", errors="ignore")
+            if not raw.strip():
+                messages.warning(request, "The file is empty.")
+                return redirect("operaciones:listar_billing")
+
+            lines = raw.splitlines()
+            header_line = (lines[0].lower() if lines else "")
+            has_header = "name" in header_line
+
+            if has_header:
+                reader = csv.DictReader(io.StringIO(raw))
+                for idx, row in enumerate(reader, start=2):  # header row is 1
+                    name = (row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        order = int(row.get("order")) if (row.get("order") not in (None, "")) else len(normalized)
+                    except Exception:
+                        order = len(normalized)
+                    mandatory = _to_bool(row.get("mandatory"), default=True)
+                    normalized.append({
+                        "order": order,
+                        "name": name,
+                        "mandatory": mandatory,
+                        "slug": slugify(name),
+                        "row": idx,
+                    })
+            else:
+                reader = csv.reader(io.StringIO(raw))
+                for idx, row in enumerate(reader, start=1):
+                    if not row:
+                        continue
+                    name = (row[0] or "").strip()
+                    if not name:
+                        continue
+                    normalized.append({
+                        "order": len(normalized),
+                        "name": name,
+                        "mandatory": True,
+                        "slug": slugify(name),
+                        "row": idx,
+                    })
+
+        elif ext in ("xlsx", "xls"):
+            wb = load_workbook(f, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                messages.warning(request, "The spreadsheet is empty.")
+                return redirect("operaciones:listar_billing")
+
+            header = [str(x).strip().lower() if x is not None else "" for x in rows[0]]
+            has_header = "name" in header
+            start = 1 if has_header else 0
+
+            if has_header:
+                i_name = header.index("name")
+                i_order = header.index("order") if "order" in header else None
+                i_mand = header.index("mandatory") if "mandatory" in header else None
+
+                for ridx, r in enumerate(rows[start:], start=2):  # header row is 1
+                    name = (str(r[i_name]) if i_name < len(r) and r[i_name] is not None else "").strip()
+                    if not name:
+                        continue
+
+                    if i_order is not None and i_order < len(r) and r[i_order] not in (None, ""):
+                        try:
+                            order = int(r[i_order])
+                        except Exception:
+                            order = len(normalized)
+                    else:
+                        order = len(normalized)
+
+                    if i_mand is not None and i_mand < len(r):
+                        mandatory = _to_bool(r[i_mand], default=True)
+                    else:
+                        mandatory = True
+
+                    normalized.append({
+                        "order": order,
+                        "name": name,
+                        "mandatory": mandatory,
+                        "slug": slugify(name),
+                        "row": ridx,
+                    })
+            else:
+                for ridx, r in enumerate(rows, start=1):
+                    if not r:
+                        continue
+                    name = (str(r[0]) if r[0] is not None else "").strip()
+                    if not name:
+                        continue
+                    normalized.append({
+                        "order": len(normalized),
+                        "name": name,
+                        "mandatory": True,
+                        "slug": slugify(name),
+                        "row": ridx,
+                    })
+        else:
+            messages.error(request, "Unsupported file type. Use .csv or .xlsx.")
+            return redirect("operaciones:listar_billing")
+
+    except Exception as e:
+        messages.error(request, f"Could not parse the file: {e}")
+        return redirect("operaciones:listar_billing")
+
+    if not normalized:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:listar_billing")
+
+    # --------- Dedup dentro del archivo (igual que tu lógica mejorada) --------
+    seen = {}  # slug -> {"row": int, "name": str}
+    cleaned = []
+    file_duplicates = []
+
+    for r in normalized:
+        slug = r.get("slug") or ""
+        rownum = r.get("row")
+        nm = (r.get("name") or "").strip()
+
+        if not slug:
+            errors.append(f"Row {rownum}: invalid name.")
+            continue
+
+        if slug in seen:
+            first = seen[slug]
+            warnings.append(
+                f"Row {rownum}: duplicated name in file — '{nm}' — duplicates row {first['row']} ('{first['name']}')."
+            )
+            file_duplicates.append({
+                "row": rownum,
+                "name": nm,
+                "dup_of_row": first["row"],
+                "dup_of_name": first["name"],
+                "slug": slug,
+            })
+            continue
+
+        seen[slug] = {"row": rownum, "name": nm}
+        cleaned.append(r)
+
+    normalized = cleaned
+
+    if not normalized and not errors:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:listar_billing")
+
+    # -------- Cargar sesiones + filtrar por estado permitido --------
+    sesiones = list(SesionBilling.objects.filter(id__in=ids).order_by("-creado_en"))
+
+    allowed_states = {"asignado", "en_proceso", "en_revision_supervisor"}
+    blocked_states = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}  # por seguridad
+
+    eligible = []
+    skipped = []
+
+    for s in sesiones:
+        est = (getattr(s, "estado", "") or "").strip()
+        if est in blocked_states:
+            skipped.append({"id": s.id, "proyecto_id": s.proyecto_id, "estado": est, "reason": "Already approved."})
+            continue
+        if est not in allowed_states:
+            skipped.append({"id": s.id, "proyecto_id": s.proyecto_id, "estado": est, "reason": "Status not allowed."})
+            continue
+        eligible.append(s)
+
+    if not eligible:
+        messages.error(request, "None of the selected billings can receive requirements (status not allowed or already approved).")
+        return redirect("operaciones:listar_billing")
+
+    # -------- Por sesión: duplicates vs existentes + to_create --------
+    bulk_preview = []
+    total_create = 0
+    total_dup = 0
+
+    for s in eligible:
+        asignaciones = list(
+            s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+        )
+
+        existing_by_slug = {}  # slug -> {"row_num":int,"name":str,"orden":int,"obligatorio":bool}
+        if asignaciones:
+            canonical_qs = asignaciones[0].requisitos.order_by("orden", "id")
+            for idx, req in enumerate(canonical_qs, start=1):
+                key = slugify((req.titulo or "").strip())
+                if key and key not in existing_by_slug:
+                    existing_by_slug[key] = {
+                        "row_num": idx,
+                        "name": (req.titulo or "").strip(),
+                        "orden": getattr(req, "orden", 0),
+                        "obligatorio": bool(getattr(req, "obligatorio", True)),
+                    }
+
+        duplicates = []
+        to_create = []
+
+        for r in normalized:
+            ex = existing_by_slug.get(r["slug"])
+            if ex:
+                duplicates.append({
+                    "incoming_row": r.get("row"),
+                    "existing_row_num": ex["row_num"],
+                    "name": r["name"],
+                    "existing_name": ex["name"],
+                    "existing_order": ex["orden"],
+                    "existing_mandatory": ex["obligatorio"],
+                    "incoming_order": r["order"],
+                    "incoming_mandatory": r["mandatory"],
+                })
+            else:
+                to_create.append({
+                    "row": r.get("row"),
+                    "name": r["name"],
+                    "order": r["order"],
+                    "mandatory": r["mandatory"],
+                    "slug": r["slug"],
+                })
+
+        total_create += len(to_create)
+        total_dup += len(duplicates)
+
+        bulk_preview.append({
+            "sesion_id": s.id,
+            "proyecto_id": s.proyecto_id,
+            "estado": getattr(s, "estado", ""),
+            "to_create": to_create,
+            "duplicates": duplicates,
+        })
+
+    # -------- Guardar preview en session --------
+    request.session["bulk_req_import_preview"] = {
+        "source_filename": filename,
+        "eligible_ids": [s.id for s in eligible],
+        "skipped": skipped,
+        "file_duplicates": file_duplicates,
+        "warnings": warnings,
+        "errors": errors,
+        "bulk_preview": bulk_preview,
+    }
+
+    # ✅ IMPORTANTE: reutilizamos el template que ya existe (preview_import_requirements.html)
+    return render(
+        request,
+        "operaciones/preview_import_requirements.html",
+        {
+            "is_bulk": True,
+            "source_filename": filename,
+            "skipped": skipped,
+            "file_duplicates": file_duplicates,
+            "warnings": warnings,
+            "errors": errors,
+            "bulk_preview": bulk_preview,
+            "total_create": total_create,
+            "total_duplicates": total_dup,
+        },
+    )
+
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+@require_POST
+def bulk_confirmar_importar_requisitos(request):
+    """
+    BULK CONFIRM:
+    - Lee preview desde session
+    - Para cada sesión elegible:
+        crea SOLO requisitos nuevos en TODAS las asignaciones
+        NO modifica existentes
+    - Bloquea si alguna sesión cambió a estado no permitido entre preview y confirm
+    """
+    payload = request.session.get("bulk_req_import_preview") or {}
+    bulk_preview = payload.get("bulk_preview") or []
+
+    if not bulk_preview:
+        messages.error(request, "No preview data to confirm. Please re-upload the file.")
+        return redirect("operaciones:listar_billing")
+
+    allowed_states = {"asignado", "en_proceso", "en_revision_supervisor"}
+    blocked_states = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    created_total = 0
+    affected_sessions = 0
+    blocked_now = []
+
     try:
         with transaction.atomic():
-            asignaciones = list(
-                s.tecnicos_sesion.select_related(
-                    "tecnico").prefetch_related("requisitos").all()
-            )
-            for a in asignaciones:
-                existentes_por_slug = {
-                    slugify((r.titulo or "").strip()): r
-                    for r in a.requisitos.all()
-                }
-                for order, name, mandatory in normalized:
-                    key = slugify(name)
-                    r = existentes_por_slug.get(key)
-                    if r:
-                        # UPDATE de orden/mandatory/nombre (conserva estado/fotos)
-                        changed = False
-                        if r.titulo != name:
-                            r.titulo = name
-                            changed = True
-                        if r.orden != order:
-                            r.orden = order
-                            changed = True
-                        if r.obligatorio != mandatory:
-                            r.obligatorio = mandatory
-                            changed = True
-                        if changed:
-                            r.save(update_fields=[
-                                   "titulo", "orden", "obligatorio"])
-                    else:
-                        # CREATE (nuevo => Pending)
+            for block in bulk_preview:
+                sesion_id = block.get("sesion_id")
+                to_create = block.get("to_create") or []
+
+                if not sesion_id or not isinstance(to_create, list):
+                    continue
+
+                s = get_object_or_404(SesionBilling, pk=int(sesion_id))
+                est = (getattr(s, "estado", "") or "").strip()
+
+                if est in blocked_states or est not in allowed_states:
+                    blocked_now.append({
+                        "id": s.id,
+                        "proyecto_id": s.proyecto_id,
+                        "estado": est,
+                    })
+                    continue
+
+                asignaciones = list(
+                    s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+                )
+
+                for a in asignaciones:
+                    existentes_por_slug = {
+                        slugify((r.titulo or "").strip()): True
+                        for r in a.requisitos.all()
+                    }
+
+                    for r in to_create:
+                        name = (r.get("name") or "").strip()
+                        if not name:
+                            continue
+                        key = slugify(name)
+                        if not key:
+                            continue
+                        if key in existentes_por_slug:
+                            continue
+
+                        try:
+                            order = int(r.get("order"))
+                        except Exception:
+                            order = len(existentes_por_slug)
+
+                        mandatory = bool(r.get("mandatory", True))
+
                         RequisitoFotoBilling.objects.create(
                             tecnico_sesion=a,
                             titulo=name,
@@ -2849,17 +3434,29 @@ def importar_requisitos(request, sesion_id):
                             obligatorio=mandatory,
                             orden=order,
                         )
+                        created_total += 1
+                        existentes_por_slug[key] = True
 
-        messages.success(
-            request,
-            f"Imported {len(normalized)} requirements and synced them with all assignees (without deleting existing ones)."
-        )
-        return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
+                affected_sessions += 1
 
     except Exception as e:
-        messages.error(request, f"Could not apply imported requirements: {e}")
-        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+        messages.error(request, f"Could not apply bulk requirements: {e}")
+        return redirect("operaciones:listar_billing")
+    finally:
+        request.session.pop("bulk_req_import_preview", None)
 
+    if blocked_now:
+        messages.warning(
+            request,
+            f"Created {created_total} requirements. Some billings were skipped because their status changed."
+        )
+    else:
+        messages.success(
+            request,
+            f"Created {created_total} new requirement(s) across {affected_sessions} billing(s). Existing identical requirements were kept unchanged."
+        )
+
+    return redirect("operaciones:listar_billing")
 
 # ============================
 # PM — Aprobación/Rechazo PROYECTO

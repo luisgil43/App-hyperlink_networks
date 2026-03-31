@@ -1,0 +1,313 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Preview Requirements{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex items-start justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-2xl font-bold">👀 Preview — Requirements import</h1>
+      <div class="text-sm text-gray-600 mt-1">
+        {% if is_bulk %}
+          Bulk import · File: <span class="font-medium">{{ source_filename|default:"(unknown)" }}</span>
+        {% else %}
+          Billing #{{ sesion.id }} · File: <span class="font-medium">{{ source_filename|default:"(unknown)" }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Back #}
+    {% if is_bulk %}
+      <a href="{% url 'operaciones:listar_billing' %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        ← Back
+      </a>
+    {% else %}
+      <a href="{% url 'operaciones:import_requirements_page' sesion.id %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        ← Back
+      </a>
+    {% endif %}
+  </div>
+
+  {% if warnings %}
+    <div class="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-xl p-4 mb-5">
+      <div class="font-semibold mb-1">Notes</div>
+      <ul class="list-disc pl-5 text-sm space-y-1">
+        {% for w in warnings %}
+          <li>{{ w }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if errors %}
+    <div class="bg-red-50 border border-red-200 text-red-900 rounded-xl p-4 mb-5">
+      <div class="font-semibold mb-2">Errors</div>
+      <ul class="list-disc pl-5 text-sm space-y-1">
+        {% for e in errors %}
+          <li>{{ e }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+
+  {% if is_bulk %}
+
+    {% if skipped %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-6">
+        <div class="font-semibold mb-1">Skipped billings</div>
+        <div class="text-sm text-amber-900/80 mb-2">
+          These billings were skipped due to status restrictions.
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-amber-900/70">
+              <tr class="border-b">
+                <th class="text-left py-2 pr-3">Billing ID</th>
+                <th class="text-left py-2 pr-3">Project ID</th>
+                <th class="text-left py-2 pr-3">Status</th>
+                <th class="text-left py-2">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for x in skipped %}
+                <tr class="border-b last:border-b-0">
+                  <td class="py-2 pr-3 font-medium">#{{ x.id }}</td>
+                  <td class="py-2 pr-3">{{ x.proyecto_id|default:"—" }}</td>
+                  <td class="py-2 pr-3">{{ x.estado|default:"—" }}</td>
+                  <td class="py-2">{{ x.reason|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+    {# Loop each selected billing preview #}
+    {% for block in bulk_preview %}
+      <div class="border rounded-2xl p-4 mb-6">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm text-gray-600">Billing</div>
+            <div class="text-lg font-semibold">#{{ block.sesion_id }} · Project ID: {{ block.proyecto_id|default:"—" }}</div>
+          </div>
+          <div class="text-sm text-gray-600">
+            Status: <span class="font-medium">{{ block.estado }}</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+
+          <!-- DUPLICATES -->
+          <div class="border rounded-2xl overflow-hidden">
+            <div class="bg-gray-50 px-4 py-3 flex items-center justify-between">
+              <div class="font-semibold">Already exists (will NOT be replaced)</div>
+              <div class="text-sm text-gray-600">{{ block.duplicates|length }} item(s)</div>
+            </div>
+
+            <div class="p-4">
+              {% if block.duplicates %}
+                <div class="overflow-x-auto">
+                  <table class="min-w-full text-sm">
+                    <thead class="text-gray-600">
+                      <tr class="border-b">
+                        <th class="text-left py-2 pr-3">Name</th>
+                        <th class="text-left py-2 pr-3">Existing order</th>
+                        <th class="text-left py-2 pr-3">Existing mandatory</th>
+                        <th class="text-left py-2 pr-3">Incoming order</th>
+                        <th class="text-left py-2">Incoming mandatory</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for r in block.duplicates %}
+                        <tr class="border-b last:border-b-0">
+                          <td class="py-2 pr-3 font-medium">{{ r.name }}</td>
+                          <td class="py-2 pr-3">{{ r.existing_order }}</td>
+                          <td class="py-2 pr-3">{% if r.existing_mandatory %}Yes{% else %}No{% endif %}</td>
+                          <td class="py-2 pr-3">{{ r.incoming_order }}</td>
+                          <td class="py-2">{% if r.incoming_mandatory %}Yes{% else %}No{% endif %}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="text-sm text-gray-600">No duplicates found.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- NEW -->
+          <div class="border rounded-2xl overflow-hidden">
+            <div class="bg-green-50 px-4 py-3 flex items-center justify-between">
+              <div class="font-semibold text-green-900">New requirements (will be created)</div>
+              <div class="text-sm text-green-900/70">{{ block.to_create|length }} item(s)</div>
+            </div>
+
+            <div class="p-4">
+              {% if block.to_create %}
+                <div class="overflow-x-auto">
+                  <table class="min-w-full text-sm">
+                    <thead class="text-gray-600">
+                      <tr class="border-b">
+                        <th class="text-left py-2 pr-3">Name</th>
+                        <th class="text-left py-2 pr-3">Order</th>
+                        <th class="text-left py-2">Mandatory</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for r in block.to_create %}
+                        <tr class="border-b last:border-b-0">
+                          <td class="py-2 pr-3 font-medium">{{ r.name }}</td>
+                          <td class="py-2 pr-3">{{ r.order }}</td>
+                          <td class="py-2">{% if r.mandatory %}Yes{% else %}No{% endif %}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="text-sm text-gray-600">Nothing to create.</div>
+              {% endif %}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="flex flex-col sm:flex-row gap-3 justify-end mt-6">
+      <a href="{% url 'operaciones:listar_billing' %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        Cancel
+      </a>
+
+      {% if not errors %}
+        <form method="post" action="{% url 'operaciones:bulk_confirmar_importar_requisitos' %}">
+          {% csrf_token %}
+          <button type="submit"
+                  class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full shadow">
+            Confirm create
+          </button>
+        </form>
+      {% else %}
+        <button type="button" disabled
+                class="bg-gray-300 text-white px-5 py-2 rounded-full cursor-not-allowed">
+          Confirm create
+        </button>
+      {% endif %}
+    </div>
+
+ 
+  {% else %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- DUPLICATES -->
+      <div class="border rounded-2xl overflow-hidden">
+        <div class="bg-gray-50 px-4 py-3 flex items-center justify-between">
+          <div class="font-semibold">Already exists (will NOT be replaced)</div>
+          <div class="text-sm text-gray-600">{{ duplicates|length }} item(s)</div>
+        </div>
+
+        <div class="p-4">
+          {% if duplicates %}
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm">
+                <thead class="text-gray-600">
+                  <tr class="border-b">
+                    <th class="text-left py-2 pr-3">Name</th>
+                    <th class="text-left py-2 pr-3">Existing order</th>
+                    <th class="text-left py-2 pr-3">Existing mandatory</th>
+                    <th class="text-left py-2 pr-3">Incoming order</th>
+                    <th class="text-left py-2">Incoming mandatory</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in duplicates %}
+                    <tr class="border-b last:border-b-0">
+                      <td class="py-2 pr-3 font-medium">{{ r.name }}</td>
+                      <td class="py-2 pr-3">{{ r.existing_order }}</td>
+                      <td class="py-2 pr-3">{% if r.existing_mandatory %}Yes{% else %}No{% endif %}</td>
+                      <td class="py-2 pr-3">{{ r.incoming_order }}</td>
+                      <td class="py-2">{% if r.incoming_mandatory %}Yes{% else %}No{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <p class="text-xs text-gray-500 mt-3">
+              Duplicates are detected by normalized name. Existing requirements remain unchanged.
+            </p>
+          {% else %}
+            <div class="text-sm text-gray-600">No duplicates found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- NEW -->
+      <div class="border rounded-2xl overflow-hidden">
+        <div class="bg-green-50 px-4 py-3 flex items-center justify-between">
+          <div class="font-semibold text-green-900">New requirements (will be created)</div>
+          <div class="text-sm text-green-900/70">{{ to_create|length }} item(s)</div>
+        </div>
+
+        <div class="p-4">
+          {% if to_create %}
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm">
+                <thead class="text-gray-600">
+                  <tr class="border-b">
+                    <th class="text-left py-2 pr-3">Name</th>
+                    <th class="text-left py-2 pr-3">Order</th>
+                    <th class="text-left py-2">Mandatory</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in to_create %}
+                    <tr class="border-b last:border-b-0">
+                      <td class="py-2 pr-3 font-medium">{{ r.name }}</td>
+                      <td class="py-2 pr-3">{{ r.order }}</td>
+                      <td class="py-2">{% if r.mandatory %}Yes{% else %}No{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-sm text-gray-600">Nothing to create.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-3 justify-end mt-6">
+      <a href="{% url 'operaciones:configurar_requisitos' sesion.id %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        Cancel
+      </a>
+
+      {% if to_create and not errors %}
+        <form method="post" action="{% url 'operaciones:confirmar_importar_requisitos' sesion.id %}">
+          {% csrf_token %}
+          <button type="submit"
+                  class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full shadow">
+            Confirm create ({{ to_create|length }})
+          </button>
+        </form>
+      {% else %}
+        <button type="button" disabled
+                class="bg-gray-300 text-white px-5 py-2 rounded-full cursor-not-allowed">
+          Confirm create
+        </button>
+      {% endif %}
+    </div>
+
+  {% endif %}
+
+</div>
+{% endblock %}
