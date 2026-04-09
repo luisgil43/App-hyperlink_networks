@@ -157,6 +157,7 @@ urlpatterns = [
     
     path("billing/bulk-requisitos/import/preview/", b.bulk_importar_requisitos_preview, name="bulk_importar_requisitos_preview"),
     path("billing/bulk-requisitos/import/confirm/", b.bulk_confirmar_importar_requisitos, name="bulk_confirmar_importar_requisitos"),
+    path('odometer/validate/', v.validar_odometro_ajax, name='validar_odometro_ajax'),
     
 ]
 

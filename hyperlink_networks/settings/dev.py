@@ -1,4 +1,4 @@
-#setting_dev
+# setting_dev
 
 import os
 from datetime import date
@@ -40,10 +40,11 @@ SECURE_SSL_REDIRECT = False
 
 # 2FA
 TWO_FACTOR_ENFORCE_DATE = date(2026, 10, 28)
-# Email simulado en consola (no se envían)
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 
 # ==============================
 # Storage: Wasabi también en desarrollo
 # ==============================
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+

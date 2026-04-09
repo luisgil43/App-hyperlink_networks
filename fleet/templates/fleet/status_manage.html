@@ -1,0 +1,231 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Fleet • Statuses{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="w-full flex justify-center">
+  <div class="w-full max-w-5xl">
+
+    <!-- FORM -->
+    <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+      <div class="flex items-center justify-between gap-3 mb-4">
+        <h2 class="text-2xl font-bold text-gray-800">
+          {% if editing_status %}✏️ Edit status{% else %}⚙️ Create status{% endif %}
+        </h2>
+
+        {% if editing_status %}
+          <a href="{% url 'fleet:status_manage' %}"
+             class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50">
+            Cancel editing
+          </a>
+        {% endif %}
+      </div>
+
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="p-3 rounded-lg bg-red-100 text-red-800 text-sm">
+            {{ form.non_field_errors }}
+          </div>
+        {% endif %}
+
+        <!-- Name -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">{{ form.name.label }}</label>
+          {{ form.name }}
+          {% if form.name.help_text %}
+            <p class="text-xs text-gray-500 mt-1">{{ form.name.help_text }}</p>
+          {% endif %}
+          {% if form.name.errors %}
+            <div class="text-xs text-red-600 mt-1">{{ form.name.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Color -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">{{ form.color.label }}</label>
+          {{ form.color }}
+          <p class="text-xs text-gray-500 mt-1">
+            Tip: use <b>green</b>, <b>yellow</b>, <b>red</b>, <b>gray</b> (or any label you want).
+          </p>
+          {% if form.color.errors %}
+            <div class="text-xs text-red-600 mt-1">{{ form.color.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Active -->
+        <div class="flex items-center gap-2 pt-2">
+          {{ form.is_active }}
+          <label class="text-sm font-semibold text-gray-700">{{ form.is_active.label }}</label>
+        </div>
+        {% if form.is_active.errors %}
+          <div class="text-xs text-red-600 mt-1">{{ form.is_active.errors }}</div>
+        {% endif %}
+
+        <div class="flex justify-end gap-2 pt-2">
+          <a href="{% url 'fleet:vehicles_list' %}"
+             class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50">
+            Back to vehicles
+          </a>
+
+          <button type="submit"
+                  class="px-4 py-2 rounded-full text-sm bg-gray-900 text-white hover:bg-gray-800">
+            {% if editing_status %}Save{% else %}Create{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- LIST -->
+    <div class="bg-white shadow mt-6 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+      <div class="flex items-center justify-between gap-3 mb-4">
+        <h3 class="text-xl font-bold text-gray-800">📌 Status list</h3>
+        <span class="text-sm text-gray-500">Total: {{ statuses|length }}</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[820px]">
+          <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+            <tr>
+              <th class="p-2 border text-center">Code</th>
+              <th class="p-2 border text-center">Name</th>
+              <th class="p-2 border text-center">Color</th>
+              <th class="p-2 border text-center">State</th>
+              <th class="p-2 border text-center">Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for st in statuses %}
+              <tr class="border-t {% if editing_status and editing_status.id == st.id %}bg-yellow-50{% endif %}">
+                <td class="p-2 border text-center">#{{ st.id }}</td>
+
+                <td class="p-2 border font-semibold">{{ st.name }}</td>
+
+                <td class="p-2 border text-center">
+                  <span class="px-2 py-1 rounded-full text-xs font-semibold
+                    {% if st.color == 'green' %}bg-green-100 text-green-800
+                    {% elif st.color == 'red' %}bg-red-100 text-red-800
+                    {% elif st.color == 'yellow' %}bg-yellow-100 text-yellow-800
+                    {% elif st.color == 'gray' %}bg-gray-100 text-gray-800
+                    {% else %}bg-blue-100 text-blue-800{% endif %}">
+                    {{ st.color|default:"blue" }}
+                  </span>
+                </td>
+
+                <td class="p-2 border text-center">
+                  {% if st.is_active %}
+                    <span class="text-green-700 font-semibold">Active</span>
+                  {% else %}
+                    <span class="text-gray-500 font-semibold">Inactive</span>
+                  {% endif %}
+                </td>
+
+                <td class="p-2 border text-center align-middle">
+                  <div class="flex items-center justify-center gap-2 flex-wrap">
+
+                    <!-- Edit -->
+                    <a href="{% url 'fleet:status_edit' st.id %}"
+                       class="px-3 py-1 text-xs rounded-full bg-gray-100 hover:bg-gray-200">
+                      ✏️ Edit
+                    </a>
+
+                    <!-- Toggle -->
+                    <form method="post" action="{% url 'fleet:status_toggle' st.id %}">
+                      {% csrf_token %}
+                      {% if st.is_active %}
+                        <button type="submit"
+                                class="px-3 py-1 text-xs rounded-full bg-red-600 text-white hover:bg-red-700">
+                          Disable
+                        </button>
+                      {% else %}
+                        <button type="submit"
+                                class="px-3 py-1 text-xs rounded-full bg-green-600 text-white hover:bg-green-700">
+                          Enable
+                        </button>
+                      {% endif %}
+                    </form>
+
+                    <!-- Delete (modal) -->
+                    <button type="button"
+                            class="px-3 py-1 text-xs rounded-full bg-gray-900 text-white hover:bg-black"
+                            onclick="openDeleteStatusModal('{{ st.id }}', '{{ st.name|escapejs }}')">
+                      🗑 Delete
+                    </button>
+
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="p-6 text-center text-gray-500">
+                  No statuses created yet.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ✅ DELETE MODAL -->
+<div id="deleteStatusModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/50" onclick="closeDeleteStatusModal()"></div>
+
+  <div class="relative bg-white w-[92%] max-w-md mx-auto mt-28 rounded-2xl shadow-xl p-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-2">Delete status</h3>
+    <p class="text-sm text-gray-600 mb-4">
+      Are you sure you want to delete <span id="deleteStatusLabel" class="font-semibold"></span>?
+      <br>
+      <span class="text-xs text-gray-500">If vehicles are using it, the system may block deletion.</span>
+    </p>
+
+    <form id="deleteStatusForm" method="post">
+      {% csrf_token %}
+      <div class="flex justify-end gap-2">
+        <button type="button"
+                onclick="closeDeleteStatusModal()"
+                class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50">
+          Cancel
+        </button>
+        <button type="submit"
+                class="px-4 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700">
+          Yes, delete
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Tailwind style for inputs
+  document.querySelectorAll('input, select, textarea').forEach(el=>{
+    if (el.type === 'checkbox') {
+      el.classList.add('h-5','w-5','rounded','border-gray-300');
+    } else {
+      el.classList.add('w-full','border','rounded-xl','px-3','py-2','text-sm');
+    }
+  });
+
+  function openDeleteStatusModal(id, name){
+    const modal = document.getElementById("deleteStatusModal");
+    const label = document.getElementById("deleteStatusLabel");
+    const form  = document.getElementById("deleteStatusForm");
+
+    label.textContent = name;
+    form.action = "{% url 'fleet:status_delete' 0 %}".replace("/0/", "/" + id + "/");
+
+    modal.classList.remove("hidden");
+  }
+
+  function closeDeleteStatusModal(){
+    document.getElementById("deleteStatusModal").classList.add("hidden");
+  }
+</script>
+
+{% endblock %}

@@ -1,3 +1,4 @@
+{# templates/operaciones/mis_rendiciones.html #}
 {% extends "dashboard/base.html" %}
 {% load humanize %}
 {% load widget_tweaks %}
@@ -9,17 +10,18 @@
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-  <!-- Header -->
-<div class="flex flex-col sm:flex-row items-start gap-2 mb-4">
-  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
-    🧾 My Expense Reports
-  </h2>
 
-  <a href="{% url 'operaciones:exportar_mis_rendiciones' %}"
-     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
-    📥 Export to Excel
-  </a>
-</div>
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row items-start gap-2 mb-4">
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+      🧾 My Expense Reports
+    </h2>
+
+    <a href="{% url 'operaciones:exportar_mis_rendiciones' %}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      📥 Export to Excel
+    </a>
+  </div>
 
   <!-- Balance cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -56,266 +58,336 @@
     </div>
     {% endif %}
 
-<form method="post" enctype="multipart/form-data"
-      class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="formRendicion">
-  {% csrf_token %}
+    <form method="post" enctype="multipart/form-data"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="formRendicion">
+      {% csrf_token %}
 
-  <!-- Fila 1 -->
-  <div>
-    <label class="block text-sm font-medium text-gray-700">Project:</label>
-    {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
-  </div>
-  <div>
-  <label class="block text-sm font-medium text-gray-700">Real consumption date:</label>
-  {{ form.real_consumption_date|add_class:"w-full border rounded-xl px-3 py-2" }}
-  </div>
-  <div>
-    <label class="block text-sm font-medium text-gray-700">Type:</label>
-    {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
-  </div>
-  
-  <!-- Fila 2 -->
-  <div>
-    <label class="block text-sm font-medium text-gray-700">Amount (USD):</label>
-    {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
-  </div>
+      <!-- Row 1 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Project:</label>
+        {{ form.proyecto|add_class:"w-full border rounded-xl px-3 py-2" }}
+      </div>
 
-  <!-- Fila 3: Remarks a lo ancho -->
-   <div>
-    <label class="block text-sm font-medium text-gray-700">Remarks:</label>
-    {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Real consumption date:</label>
+        {{ form.real_consumption_date|add_class:"w-full border rounded-xl px-3 py-2" }}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Type:</label>
+        {{ form.tipo|add_class:"w-full border rounded-xl px-3 py-2" }}
+      </div>
+
+      <!-- Service dropdown (only when Type = Service) -->
+      <div id="bloque-service-type" class="hidden">
+        <label class="block text-sm font-medium text-gray-700">Service:</label>
+        {{ form.service_type_obj|add_class:"w-full border rounded-xl px-3 py-2" }}
+        {% if form.service_type_obj.errors %}
+          <p class="text-xs text-red-600 mt-1">{{ form.service_type_obj.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+
+      <!-- ✅ Vehicle assigned (only when Type = Service) -->
+      <div id="bloque-vehicle" class="hidden">
+        <label class="block text-sm font-medium text-gray-700">Vehicle assigned:</label>
+        {{ form.vehicle|add_class:"w-full border rounded-xl px-3 py-2" }}
+        <p id="veh_current_odo" class="text-xs text-gray-500 mt-1 hidden"></p>
+        {% if form.vehicle.errors %}
+          <p class="text-xs text-red-600 mt-1">{{ form.vehicle.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+
+      <!-- ✅ Service time (only when Type = Service) -->
+      <div id="bloque-service-time" class="hidden">
+        <label class="block text-sm font-medium text-gray-700">Service time:</label>
+        {{ form.service_time|add_class:"w-full border rounded-xl px-3 py-2" }}
+        {% if form.service_time.errors %}
+          <p class="text-xs text-red-600 mt-1">{{ form.service_time.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Row 2 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Amount (USD):</label>
+        {{ form.cargos|add_class:"w-full border rounded-xl px-3 py-2" }}
+      </div>
+
+      <!-- Row 3 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Remarks:</label>
+        {{ form.observaciones|add_class:"w-full border rounded-xl px-3 py-2" }}
+      </div>
+
+      <!-- ✅ Odometer (miles) for ANY Service -->
+      <div id="bloque-service-odo" class="hidden">
+        <label class="block text-sm font-medium text-gray-700">Odometer (miles):</label>
+        {{ form.kilometraje|add_class:"w-full border rounded-xl px-3 py-2" }}
+        <p id="km_inline_error" class="text-xs text-red-600 mt-1 hidden"></p>
+      </div>
+
+      <!-- Receipt -->
+      <div class="sm:col-span-2">
+        <label class="block text-sm font-medium text-gray-700">Receipt:</label>
+        <div class="flex gap-2">
+          <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+            📷 Take Photo
+            <input type="file" id="comprobante_foto" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
+          </label>
+          <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
+            📄 Upload File
+            <input type="file" id="comprobante_archivo" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
+          </label>
+          <span class="hidden">{{ form.comprobante }}</span>
+        </div>
+        <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block">
+          {% if wasabi_key %}File already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
+        </span>
+        <img id="preview_comprobante" alt="Receipt preview" class="mt-2 max-h-40 rounded shadow hidden" />
+      </div>
+
+      <!-- ✅ Odometer photo: required for ANY Service -->
+      <div id="bloque-odo-foto" class="sm:col-span-2 hidden">
+        <label class="block text-sm font-medium text-gray-700">Odometer photo (dashboard):</label>
+        <label for="id_foto_tablero"
+               class="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full shadow cursor-pointer w-fit">
+          📷 Take Photo
+        </label>
+        {{ form.foto_tablero|attr:"id:id_foto_tablero"|attr:"accept:image/*"|attr:"capture:environment"|add_class:"hidden" }}
+        <span id="nombre_foto_tablero" class="text-sm text-gray-600 italic mt-1 block">
+          {% if wasabi_key_foto_tablero %}Photo already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
+        </span>
+        <img id="preview_tablero" alt="Odometer preview" class="mt-2 max-h-40 rounded shadow hidden" />
+      </div>
+
+      <!-- Hidden keys -->
+      <input type="hidden" name="wasabi_key" id="wasabi_key" value="{{ wasabi_key|default_if_none:'' }}">
+      <input type="hidden" name="wasabi_key_foto_tablero" id="wasabi_key_foto_tablero" value="{{ wasabi_key_foto_tablero|default_if_none:'' }}">
+
+      <!-- Button -->
+      <div class="sm:col-span-2">
+        <button id="btnSaveRendicion" type="submit"
+          class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow disabled:opacity-50 disabled:cursor-not-allowed">
+          Save Expense Report
+        </button>
+      </div>
+    </form>
   </div>
-
-  <!-- Odometer km (se muestra/oculta con JS cuando es Fuel) -->
-  <div id="bloque-fuel-km" class="">
-    <label class="block text-sm font-medium text-gray-700">Odometer (km):</label>
-    {{ form.kilometraje|add_class:"w-full border rounded-xl px-3 py-2" }}
-  </div>
-
-
-  <!-- Fila 4: Receipt (debajo de Remarks, ancho completo) -->
-  <div class="sm:col-span-2">
-    <label class="block text-sm font-medium text-gray-700">Receipt:</label>
-    <div class="flex gap-2">
-      <label class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-        📷 Take Photo
-        <input type="file" id="comprobante_foto" name="comprobante_foto" accept="image/*" capture="environment" class="hidden" />
-      </label>
-      <label class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full shadow cursor-pointer">
-        📄 Upload File
-        <input type="file" id="comprobante_archivo" name="comprobante_archivo" accept="application/pdf,image/*" class="hidden" />
-      </label>
-      <span class="hidden">{{ form.comprobante }}</span>
-    </div>
-    <span id="nombre_comprobante" class="text-sm text-gray-600 italic mt-1 block">
-      {% if wasabi_key %}File already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
-    </span>
-    <img id="preview_comprobante" alt="Receipt preview" class="mt-2 max-h-40 rounded shadow hidden" />
-  </div>
-
-  <!-- Fila 5: Odometer photo (debajo de Receipt, ancho completo) -->
-  <div id="bloque-fuel-foto" class="sm:col-span-2">
-    <label class="block text-sm font-medium text-gray-700">Odometer photo (dashboard):</label>
-    <label for="id_foto_tablero"
-           class="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full shadow cursor-pointer w-fit">
-      📷 Take Photo
-    </label>
-    {{ form.foto_tablero|attr:"id:id_foto_tablero"|attr:"accept:image/*"|attr:"capture:environment"|add_class:"hidden" }}
-    <span id="nombre_foto_tablero" class="text-sm text-gray-600 italic mt-1 block">
-      {% if wasabi_key_foto_tablero %}Photo already uploaded. It will be saved when the form is valid.{% else %}No file selected{% endif %}
-    </span>
-    <img id="preview_tablero" alt="Odometer preview" class="mt-2 max-h-40 rounded shadow hidden" />
-  </div>
-
-  <!-- Hidden keys -->
-  <input type="hidden" name="wasabi_key" id="wasabi_key" value="{{ wasabi_key|default_if_none:'' }}">
-  <input type="hidden" name="wasabi_key_foto_tablero" id="wasabi_key_foto_tablero" value="{{ wasabi_key_foto_tablero|default_if_none:'' }}">
-
-  <!-- Botón -->
-  <div class="sm:col-span-2">
-    <button type="submit" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full shadow">
-      Save Expense Report
-    </button>
-  </div>
-</form>
-  </div>
-
 
   <div class="flex justify-start mb-2">
-  <details class="relative">
-    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
-      ⚙️ Columns
-    </summary>
+    <details class="relative">
+      <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+        ⚙️ Columns
+      </summary>
 
-    <div id="columnToggles" class="absolute left-0 mt-1 w-64 bg-white border rounded-xl shadow-lg p-3 z-10">
-      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+      <div id="columnToggles" class="absolute left-0 mt-1 w-72 bg-white border rounded-xl shadow-lg p-3 z-10">
+        <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
 
-      <!-- Master checkbox -->
-      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
-        <input type="checkbox" id="col-toggle-all" checked>
-        <span class="font-semibold text-xs">Show all columns</span>
-      </label>
+        <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+          <input type="checkbox" id="col-toggle-all" checked>
+          <span class="font-semibold text-xs">Show all columns</span>
+        </label>
 
-      <!-- Índices 0..10 en el MISMO orden del <thead> -->
-      <div class="space-y-1 text-sm">
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="0" checked>
-          <span>Date</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="1" checked>
-          <span>Project</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="2" checked>
-          <span>Real consumption date</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="3" checked>
-          <span>Type</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="4" checked>
-          <span>Expenses (USD)</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="5" checked>
-          <span>Credits (USD)</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="6" checked>
-          <span>Remarks</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="7" checked>
-          <span>Receipt</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="8" checked>
-          <span>Odometer (km)</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="9" checked>
-          <span>Status</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="10" checked>
-          <span>Actions</span>
-        </label>
+        <div class="space-y-1 text-sm">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="0" checked>
+            <span>Date</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="1" checked>
+            <span>Project</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="2" checked>
+            <span>Real consumption date</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="3" checked>
+            <span>Type</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="4" checked>
+            <span>Vehicle</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="5" checked>
+            <span>Service date/time</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="6" checked>
+            <span>Expenses (USD)</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="7" checked>
+            <span>Credits (USD)</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="8" checked>
+            <span>Remarks</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="9" checked>
+            <span>Receipt</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="10" checked>
+            <span>Odometer (miles)</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="11" checked>
+            <span>Status</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="col-toggle" data-col="12" checked>
+            <span>Actions</span>
+          </label>
+        </div>
       </div>
-    </div>
-  </details>
-</div>
+    </details>
+  </div>
 
-  <!-- Tabla -->
+  <!-- Table -->
   <div class="overflow-x-auto">
-    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1300px]" style="white-space: nowrap;" data-columns-table="my-expense-reports">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
           <th class="p-2 border">Date</th>
           <th class="p-2 border">Project</th>
           <th class="p-2 border">Real consumption date</th>
           <th class="p-2 border">Type</th>
+          <th class="p-2 border">Vehicle</th>
+          <th class="p-2 border">Service date/time</th>
           <th class="p-2 border text-right">Expenses (USD)</th>
           <th class="p-2 border text-right">Credits (USD)</th>
           <th class="p-2 border">Remarks</th>
           <th class="p-2 border">Receipt</th>
-          <th class="p-2 border">Odometer (km)</th> <!-- 👈 NUEVO -->
+          <th class="p-2 border">Odometer (miles)</th>
           <th class="p-2 border">Status</th>
           <th class="p-2 border">Actions</th>
         </tr>
       </thead>
-      <tbody class="text-center">
-        {% for mov in pagina %}
-        <tr class="border-t">
-          <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
-          <td class="p-2 border">{{ mov.proyecto }}</td>
-          <td class="p-2 border">{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:"d/m/Y" }}{% else %}—{% endif %}</td>
-          <td class="p-2 border">{{ mov.tipo }}</td>
-          <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
-          <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
-          <td class="p-2 border">{{ mov.observaciones }}</td>
-          <td class="p-2 border">
-            {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
-              <div class="flex flex-col items-center gap-1">
-                {% if mov.comprobante %}
-                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
-                {% endif %}
-                {% if mov.foto_tablero %}
-                  <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
-                {% endif %}
-                {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
-              </div>
-            {% else %}
-              {% if mov.comprobante %}
-                <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-              {% else %} — {% endif %}
-            {% endif %}
-          </td>
-          <td class="p-2 border text-right">
-            {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
-          </td>
-          <!-- Status translation (igual a tu código) -->
-          <td class="p-2 text-sm">
-            <div class="flex flex-col gap-1 text-left leading-tight">
-              {% if mov.status == 'pendiente_supervisor' %}
-                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending Supervisor Approval</span>
-              {% elif mov.status == 'aprobado_supervisor' %}
-                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ⏳ Pending PM Approval</span>
-              {% elif mov.status == 'rechazado_supervisor' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Supervisor</span>
-              {% elif mov.status == 'aprobado_pm' %}
-                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ⏳ Pending Finance Approval</span>
-              {% elif mov.status == 'rechazado_pm' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by PM</span>
-              {% elif mov.status == 'aprobado_finanzas' %}
-                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ✅ Finance: {{ mov.aprobado_por_finanzas.get_full_name }}</span>
-              {% elif mov.status == 'rechazado_finanzas' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Finance</span>
-              {% elif mov.status == 'pendiente_abono_usuario' %}
-                <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending User Approval</span>
-              {% elif mov.status == 'aprobado_abono_usuario' %}
-                <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Credit Approved by User</span>
-              {% elif mov.status == 'rechazado_abono_usuario' %}
-                <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Credit Rejected by User</span>
-              {% else %}
-                {{ mov.get_status_display }}
-              {% endif %}
-              {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
-                <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo">
-                  <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
-                </div>
-              {% endif %}
-            </div>
-          </td>
 
-          <!-- Actions -->
-          <td class="p-2 border text-center">
-            {% if mov.tipo and mov.tipo.categoria == 'abono' %}
-              {% if mov.status == 'pendiente_abono_usuario' %}
-                <a href="{% url 'operaciones:aprobar_abono' mov.id %}"
-                   class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">✅ Approve</a>
-                <button onclick="abrirModalRechazo({{ mov.id }})"
-                        class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">❌ Reject</button>
-              {% endif %}
-            {% else %}
-              {% if mov.status == 'pendiente_supervisor' or mov.status == 'rechazado_supervisor' or mov.status == 'rechazado_pm' or mov.status == 'rechazado_finanzas' %}
-                <a href="{% url 'operaciones:editar_rendicion' mov.id %}"
-                   class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">✏️ Edit</a>
-                <a href="{% url 'operaciones:eliminar_rendicion' mov.id %}"
-                   class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">🗑️ Delete</a>
-              {% endif %}
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="11" class="p-4 text-center text-gray-500">You have no expense reports registered.</td></tr>
-        {% endfor %}
-      </tbody>
+      <tbody class="text-center">
+  {% for mov in pagina %}
+  <tr class="border-t">
+    <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
+    <td class="p-2 border">{{ mov.proyecto }}</td>
+    <td class="p-2 border">
+      {% if mov.real_consumption_date %}
+        {{ mov.real_consumption_date|date:"d/m/Y" }}
+      {% else %}
+        —
+      {% endif %}
+    </td>
+
+    <td class="p-2 border">
+      {% if mov.tipo and mov.tipo.nombre|lower|slice:":7" == "service" %}
+        Service{% if mov.service_type_obj %} - {{ mov.service_type_obj.name }}{% endif %}
+      {% else %}
+        {{ mov.tipo }}
+      {% endif %}
+    </td>
+<td class="p-2 border">
+  {% if mov.vehicle %}
+    {{ mov.vehicle.patente }}
+  {% else %}
+    —
+  {% endif %}
+</td>
+
+<td class="p-2 border">
+  {% if mov.service_date %}
+    {{ mov.service_date|date:"d/m/Y" }}
+    {% if mov.service_time %}
+      <br><span class="text-xs text-gray-500">{{ mov.service_time|time:"H:i" }}</span>
+    {% endif %}
+  {% else %}
+    —
+  {% endif %}
+</td>
+
+    <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
+    <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
+    <td class="p-2 border">{{ mov.observaciones }}</td>
+
+    <td class="p-2 border">
+      <div class="flex flex-col items-center gap-1">
+        {% if mov.comprobante %}
+          <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
+        {% endif %}
+        {% if mov.tipo and mov.tipo.nombre|lower|slice:":7" == "service" %}
+          {% if mov.foto_tablero %}
+            <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
+          {% endif %}
+        {% endif %}
+        {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
+      </div>
+    </td>
+
+    <td class="p-2 border text-right">
+      {% if mov.kilometraje %}{{ mov.kilometraje|intcomma }}{% else %}—{% endif %}
+    </td>
+
+    <td class="p-2 text-sm">
+      <div class="flex flex-col gap-1 text-left leading-tight">
+        {% if mov.status == 'pendiente_supervisor' %}
+          <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending Supervisor Approval</span>
+        {% elif mov.status == 'aprobado_supervisor' %}
+          <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ⏳ Pending PM Approval</span>
+        {% elif mov.status == 'rechazado_supervisor' %}
+          <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Supervisor</span>
+        {% elif mov.status == 'aprobado_pm' %}
+          <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ⏳ Pending Finance Approval</span>
+        {% elif mov.status == 'rechazado_pm' %}
+          <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by PM</span>
+        {% elif mov.status == 'aprobado_finanzas' %}
+          <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Supervisor: {{ mov.aprobado_por_supervisor.get_full_name }} <br> ✅ PM: {{ mov.aprobado_por_pm.get_full_name }} <br> ✅ Finance: {{ mov.aprobado_por_finanzas.get_full_name }}</span>
+        {% elif mov.status == 'rechazado_finanzas' %}
+          <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Rejected by Finance</span>
+        {% elif mov.status == 'pendiente_abono_usuario' %}
+          <span class="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-medium">⏳ Pending User Approval</span>
+        {% elif mov.status == 'aprobado_abono_usuario' %}
+          <span class="inline-block bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">✅ Credit Approved by User</span>
+        {% elif mov.status == 'rechazado_abono_usuario' %}
+          <span class="inline-block bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">❌ Credit Rejected by User</span>
+        {% else %}
+          {{ mov.get_status_display }}
+        {% endif %}
+
+        {% if 'rechazado' in mov.status and mov.motivo_rechazo %}
+          <div class="mt-1 text-xs text-red-700 whitespace-pre-wrap break-words editable-motivo">
+            <strong>Reason:</strong> <span class="motivo-text">{{ mov.motivo_rechazo }}</span>
+          </div>
+        {% endif %}
+      </div>
+    </td>
+
+    <td class="p-2 border text-center">
+      {% if mov.tipo and mov.tipo.categoria == 'abono' %}
+        {% if mov.status == 'pendiente_abono_usuario' %}
+          <a href="{% url 'operaciones:aprobar_abono' mov.id %}"
+             class="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-green-200">✅ Approve</a>
+          <button onclick="abrirModalRechazo({{ mov.id }})"
+                  class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">❌ Reject</button>
+        {% endif %}
+      {% else %}
+        {% if mov.status == 'pendiente_supervisor' or mov.status == 'rechazado_supervisor' or mov.status == 'rechazado_pm' or mov.status == 'rechazado_finanzas' %}
+          <a href="{% url 'operaciones:editar_rendicion' mov.id %}"
+             class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200">✏️ Edit</a>
+          <a href="{% url 'operaciones:eliminar_rendicion' mov.id %}"
+             class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200">🗑️ Delete</a>
+        {% endif %}
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}
+  <tr>
+    <td colspan="13" class="p-4 text-center text-gray-500">You have no expense reports registered.</td>
+  </tr>
+  {% endfor %}
+</tbody>
     </table>
   </div>
 
-  <!-- Modal rechazo (como tenías) -->
   <div id="modalRechazo" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
     <div class="bg-white p-6 rounded-lg shadow-lg w-96">
       <h2 class="text-lg font-bold mb-4">Reject Credit</h2>
@@ -330,7 +402,6 @@
     </div>
   </div>
 
-  <!-- Pagination (igual a tu código) -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form method="get" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -363,7 +434,6 @@
   </div>
 </div>
 
-<!-- Scripts -->
 <script>
 function abrirModalRechazo(id) {
   document.getElementById('formRechazo').action = `/operaciones/rechazar_abono/${id}/`;
@@ -406,7 +476,7 @@ document.addEventListener("DOMContentLoaded", function () {
       reader.onload = (e) => showImg(previewComprobante, e.target.result);
       reader.readAsDataURL(file);
     } else {
-      hideImg(previewComprobante); // pdf u otro
+      hideImg(previewComprobante);
       nombreComprobante.textContent += file.type === "application/pdf" ? " (PDF)" : " (Preview not available)";
     }
   }
@@ -423,12 +493,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Eventos de cambio
   if (inputFoto)    inputFoto.addEventListener("change", () => showReceiptPreview(inputFoto.files[0]));
   if (inputArchivo) inputArchivo.addEventListener("change", () => showReceiptPreview(inputArchivo.files[0]));
   if (odoInput)     odoInput.addEventListener("change", () => showOdoPreview(odoInput.files[0]));
 
-  // Al cargar la página (GET después del redirect), asegurar que NO queden rotos
   const hadWasabiComp = "{{ wasabi_key|default_if_none:'' }}" !== "";
   const hadWasabiOdo  = "{{ wasabi_key_foto_tablero|default_if_none:'' }}" !== "";
   if (!hadWasabiComp) hideImg(previewComprobante);
@@ -436,308 +504,97 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 </script>
 
-
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const selectTipo = document.getElementById("id_tipo");
-  const fuelKm     = document.getElementById("bloque-fuel-km");
-  const fuelFoto   = document.getElementById("bloque-fuel-foto");
+  const selectTipo   = document.getElementById("id_tipo");
 
-  function esFuel() {
-    const opt = selectTipo?.selectedOptions?.[0];
-    const txt = (opt ? opt.textContent : "").trim().toLowerCase();
-    return txt === "fuel";
+  const serviceBlock = document.getElementById("bloque-service-type");
+  const vehicleBlock = document.getElementById("bloque-vehicle");
+  const timeBlock    = document.getElementById("bloque-service-time");
+
+  const odoBlock     = document.getElementById("bloque-service-odo");
+  const odoFotoBlock = document.getElementById("bloque-odo-foto");
+
+  const svcSelect = document.getElementById("id_service_type_obj");
+  const vehSelect = document.getElementById("id_vehicle");
+  const timeInput = document.getElementById("id_service_time");
+
+  function textLower(selectEl) {
+    const opt = selectEl?.selectedOptions?.[0];
+    return (opt ? opt.textContent : "").trim().toLowerCase();
   }
 
-  function toggleFuel() {
-    const show = esFuel();
-    if (fuelKm)   fuelKm.classList.toggle("hidden", !show);
-    if (fuelFoto) fuelFoto.classList.toggle("hidden", !show);
+  function isServiceTypeSelected() {
+    const t = textLower(selectTipo);
+    return t.startsWith("service");
+  }
 
-    // required dinámico
+  function setCurrentTimeIfEmpty() {
+    if (!timeInput) return;
+    if ((timeInput.value || "").trim()) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    timeInput.value = `${hh}:${mm}`;
+  }
+
+  function toggleUI() {
+    const showService = isServiceTypeSelected();
+
+    if (serviceBlock) serviceBlock.classList.toggle("hidden", !showService);
+    if (vehicleBlock) vehicleBlock.classList.toggle("hidden", !showService);
+    if (timeBlock)    timeBlock.classList.toggle("hidden", !showService);
+
+    if (odoFotoBlock) odoFotoBlock.classList.toggle("hidden", !showService);
+    if (odoBlock)     odoBlock.classList.toggle("hidden", !showService);
+
     const km   = document.getElementById("id_kilometraje");
     const foto = document.getElementById("id_foto_tablero");
-    if (km)   km.required = show;
-    if (foto) foto.required = show;
+
+    if (svcSelect) {
+      svcSelect.required = showService;
+      svcSelect.disabled = !showService;
+      if (!showService) svcSelect.value = "";
+    }
+
+    if (vehSelect) {
+      vehSelect.required = showService;
+      vehSelect.disabled = !showService;
+      if (!showService) vehSelect.value = "";
+    }
+
+    if (timeInput) {
+      timeInput.required = showService;
+      timeInput.disabled = !showService;
+      if (!showService) timeInput.value = "";
+    }
+
+    if (km) {
+      km.required = showService;
+      km.disabled = !showService;
+      if (!showService) km.value = "";
+    }
+
+    if (foto) {
+      foto.required = showService;
+      foto.disabled = !showService;
+    }
+
+    if (showService) setCurrentTimeIfEmpty();
   }
 
-  if (selectTipo) {
-    selectTipo.addEventListener("change", toggleFuel);
-    toggleFuel(); // estado inicial
-  }
+  if (selectTipo) selectTipo.addEventListener("change", toggleUI);
+  if (svcSelect)  svcSelect.addEventListener("change", toggleUI);
+
+  toggleUI();
 });
 </script>
 
-<script>
-// ======== Multipart Upload (S3-compatible) + compresión opcional ========
-
-const ENDPOINTS = {
-  create: "{% url 'operaciones:multipart_create' %}",
-  sign: "{% url 'operaciones:multipart_sign_part' %}",
-  complete: "{% url 'operaciones:multipart_complete' %}",
-  abort: "{% url 'operaciones:multipart_abort' %}",
-};
-
-const MAX_MB = {{ receipt_max_mb|default:25 }};
-const CSRF = (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || "";
-
-function api(url, payload) {
-  return fetch(url, {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
-    body: JSON.stringify(payload)
-  }).then(async r => {
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  });
-}
-
-// (Opcional) compresión cliente con fallback si no hay createImageBitmap
-async function compressImageIfNeeded(file, maxDim=1600, quality=0.8) {
-  if (!file || !file.type || !file.type.startsWith("image/")) return file;
-
-  const toCanvasBlob = (img) => new Promise(resolve => {
-    const canvas = document.createElement("canvas");
-    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-    canvas.width = Math.round(img.width * scale);
-    canvas.height = Math.round(img.height * scale);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(resolve, "image/jpeg", quality);
-  });
-
-  // try createImageBitmap, fallback to Image()
-  try {
-    if (window.createImageBitmap) {
-      const bmp = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
-      canvas.width = Math.round(bmp.width * scale);
-      canvas.height = Math.round(bmp.height * scale);
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", quality));
-      const name = file.name.replace(/\.(heic|heif|png)$/i, ".jpg");
-      return new File([blob], name, {type: "image/jpeg"});
-    }
-  } catch (_) { /* fallback abajo */ }
-
-  // Fallback con <img>
-  const dataURL = await new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result);
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-  const img = await new Promise((resolve, reject) => {
-    const im = new Image();
-    im.onload = () => resolve(im);
-    im.onerror = reject;
-    im.src = dataURL;
-  });
-  const blob = await toCanvasBlob(img);
-  const name = file.name.replace(/\.(heic|heif|png)$/i, ".jpg");
-  return new File([blob], name, {type: "image/jpeg"});
-}
-
-// Subida multipart (divide en partes y sube en paralelo)
-async function multipartUpload(file, onProgress) {
-  // 1) create
-  const create = await api(ENDPOINTS.create, {
-    filename: file.name,
-    contentType: file.type || "application/octet-stream"
-  });
-  const { uploadId, key } = create;
-
-  // config de multipart
-  const CHUNK_SIZE = 6 * 1024 * 1024; // 6 MB
-  const CONCURRENCY = 4;              // 4 partes a la vez
-  const totalParts = Math.ceil(file.size / CHUNK_SIZE);
-
-  let nextPart = 1;
-  let uploadedParts = 0; // para progreso aproximado
-  let aborted = false;
-  const parts = [];
-
-  async function uploadPart(partNumber) {
-    const start = (partNumber - 1) * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, file.size);
-    const blob = file.slice(start, end);
-
-    // 2) firmar parte
-    const { url } = await api(ENDPOINTS.sign, { key, uploadId, partNumber });
-
-    // 3) PUT de la parte al presigned URL
-   const resp = await fetch(url, {
-  method: "PUT",
-  body: blob
-});
-    if (!resp.ok) throw new Error(`Part ${partNumber} failed: ` + resp.status);
-
-    const etag = resp.headers.get("ETag") || resp.headers.get("etag") || "";
-    parts.push({ ETag: etag.replace(/^W\//, ""), PartNumber: partNumber });
-
-    uploadedParts++;
-    if (onProgress) onProgress(Math.round(uploadedParts * 100 / totalParts));
-  }
-
-  // Pool de concurrencia
-  const workers = Array.from({length: Math.min(CONCURRENCY, totalParts)}).map(async () => {
-    while (!aborted) {
-      const p = nextPart++;
-      if (p > totalParts) break;
-      try {
-        await uploadPart(p);
-      } catch (e) {
-        aborted = true;
-        await api(ENDPOINTS.abort, { key, uploadId }).catch(() => {});
-        throw e;
-      }
-    }
-  });
-
-  await Promise.all(workers);
-
-  // 4) complete
-  await api(ENDPOINTS.complete, {
-    key,
-    uploadId,
-    parts: parts.sort((a,b) => a.PartNumber - b.PartNumber)
-  });
-
-  return key;
-}
-
-// Hook del form
-document.getElementById("formRendicion").addEventListener("submit", async (e) => {
-  const form = e.currentTarget;
-  const keyInputComp = document.getElementById('wasabi_key');
-  const keyInputOdo  = document.getElementById('wasabi_key_foto_tablero');
-
-  const fCompFoto = document.getElementById('comprobante_foto')?.files?.[0] || null;
-  const fCompArch = document.getElementById('comprobante_archivo')?.files?.[0] || null;
-  const fComprobante = fCompFoto || fCompArch || null;
-  const fOdom = document.getElementById('id_foto_tablero')?.files?.[0] || null;
-
-  const alreadyComp = !!keyInputComp.value;
-  const alreadyOdo  = !!keyInputOdo.value;
-
-  if ((alreadyComp || !fComprobante) && (alreadyOdo || !fOdom)) return;
-
-  const tooBig = (f) => f && f.size > MAX_MB * 1024 * 1024;
-  if (tooBig(fComprobante) || tooBig(fOdom)) {
-    e.preventDefault();
-    alert(`File too large. Max ${MAX_MB}MB.`);
-    return;
-  }
-
-  e.preventDefault();
-
-  // indicador simple (opcional)
-  const submitBtn = form.querySelector('button[type="submit"]');
-  const prevLabel = submitBtn ? submitBtn.textContent : "";
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Uploading..."; }
-
-  try {
-    // Compresión opcional
-    const compPromise = alreadyComp || !fComprobante ? Promise.resolve(null)
-      : compressImageIfNeeded(fComprobante);
-    const odoPromise = alreadyOdo || !fOdom ? Promise.resolve(null)
-      : compressImageIfNeeded(fOdom);
-
-    const [compFile, odoFile] = await Promise.all([compPromise, odoPromise]);
-
-    // Subir en paralelo ambos (cada uno multipart)
-    const upComp = alreadyComp || !compFile ? Promise.resolve("") :
-      multipartUpload(compFile, p => { /* console.log('receipt', p) */ });
-
-    const upOdo  = alreadyOdo || !odoFile ? Promise.resolve("") :
-      multipartUpload(odoFile, p => { /* console.log('odometer', p) */ });
-
-    const [keyComp, keyOdo] = await Promise.all([upComp, upOdo]);
-
-    if (keyComp) keyInputComp.value = keyComp;
-    if (keyOdo)  keyInputOdo.value  = keyOdo;
-
-    // limpiar inputs/preview para que Django no re-suban
-    const nf = document.getElementById('nombre_comprobante');
-    const nt = document.getElementById('nombre_foto_tablero');
-    const pc = document.getElementById('preview_comprobante');
-    const pt = document.getElementById('preview_tablero');
-
-    if (keyComp) {
-      if (nf) nf.textContent = "File uploaded. It will be saved when the form is valid.";
-      const a = document.getElementById('comprobante_archivo');
-      const f = document.getElementById('comprobante_foto');
-      if (a) a.value = "";
-      if (f) f.value = "";
-      if (pc) { pc.src = ""; pc.classList.add("hidden"); pc.style.display = "none"; }
-    }
-    if (keyOdo) {
-      if (nt) nt.textContent = "Photo uploaded. It will be saved when the form is valid.";
-      const o = document.getElementById('id_foto_tablero');
-      if (o) o.value = "";
-      if (pt) { pt.src = ""; pt.classList.add("hidden"); pt.style.display = "none"; }
-    }
-
-    form.submit();
-  } catch (err) {
-    console.error(err);
-    alert("Upload error. Please check your connection and try again.");
-    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevLabel; }
-  }
-});
-</script>
-
-<script>
-/* Mantener el scroll horizontal en "My Expense Reports" */
-(function () {
-  const KEY = 'myexpensesScrollX:' + location.pathname;
-
-  // El contenedor con overflow-x que envuelve la tabla
-  function getScrollBox() {
-    // busca el primer .overflow-x-auto dentro del contenedor principal
-    return document.querySelector('.max-w-6xl .overflow-x-auto') || document.querySelector('.overflow-x-auto');
-  }
-
-  function saveX(x) {
-    try { sessionStorage.setItem(KEY, String(x)); } catch (_) {}
-  }
-  function readX() {
-    try { return Number(sessionStorage.getItem(KEY) || 0); } catch (_) { return 0; }
-  }
-
-  function restore() {
-    const box = getScrollBox();
-    if (!box) return;
-    const x = readX();
-    // aplicar tras el layout para que no lo pise el navegador
-    requestAnimationFrame(() => { box.scrollLeft = x; });
-
-    // ir guardando mientras el usuario se desplaza
-    let t = null;
-    box.addEventListener('scroll', () => {
-      if (t) return;
-      t = setTimeout(() => { t = null; saveX(box.scrollLeft); }, 120);
-    }, { passive: true });
-  }
-
-  function saveBeforeLeave() {
-    const box = getScrollBox();
-    if (box) saveX(box.scrollLeft);
-  }
-
-  // Restaurar al cargar y guardar al salir/recargar
-  document.addEventListener('DOMContentLoaded', restore);
-  window.addEventListener('beforeunload', saveBeforeLeave);
-})();
-</script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const el = document.getElementById("id_real_consumption_date");
   if (!el) return;
 
-  // Si viene vacío, setear HOY en formato ISO
   if (!el.value) {
     const t = new Date();
     const yyyy = t.getFullYear();
@@ -747,16 +604,12 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   flatpickr(el, {
-    // lo que se manda a Django
     dateFormat: "Y-m-d",
-
-    // lo que ve el usuario
     altInput: true,
-    altFormat: "d/m/Y",   // ✅ 26/12/2025
-
+    altFormat: "d/m/Y",
     defaultDate: el.value,
     disableMobile: true,
-    locale: { firstDayOfWeek: 1 } // opcional: lunes primero (más “Europa/Chile”)
+    locale: { firstDayOfWeek: 1 }
   });
 });
 </script>
@@ -796,7 +649,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const theadCells = table.querySelectorAll('thead tr th');
     theadCells.forEach((th, idx) => {
-      const visible = state[idx] !== false; // default visible
+      const visible = state[idx] !== false;
       th.style.display = visible ? '' : 'none';
     });
 
@@ -868,4 +721,264 @@ document.addEventListener("DOMContentLoaded", function () {
 })();
 </script>
 
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const kmInput   = document.getElementById("id_kilometraje");
+  const tipoSel   = document.getElementById("id_tipo");
+  const svcSel    = document.getElementById("id_service_type_obj");
+  const vehSel    = document.getElementById("id_vehicle");
+  const timeSel   = document.getElementById("id_service_time");
+  const dateSel   = document.getElementById("id_real_consumption_date");
+
+  const errEl     = document.getElementById("km_inline_error");
+  const hintEl    = document.getElementById("veh_current_odo");
+
+  if (!kmInput || !errEl) return;
+
+  const CSRF = (document.querySelector('[name=csrfmiddlewaretoken]')?.value || "");
+
+  function textLower(selectEl) {
+    const opt = selectEl?.selectedOptions?.[0];
+    return (opt ? opt.textContent : "").trim().toLowerCase();
+  }
+
+  function isServiceSelected() {
+    const t = textLower(tipoSel);
+    return t.startsWith("service");
+  }
+
+  function showErr(msg) {
+    if (!msg) {
+      errEl.textContent = "";
+      errEl.classList.add("hidden");
+      kmInput.classList.remove("border-red-500");
+      return;
+    }
+    errEl.textContent = msg;
+    errEl.classList.remove("hidden");
+    kmInput.classList.add("border-red-500");
+  }
+
+  function showHint(text) {
+    if (!hintEl) return;
+    if (!text) {
+      hintEl.textContent = "";
+      hintEl.classList.add("hidden");
+      return;
+    }
+    hintEl.textContent = text;
+    hintEl.classList.remove("hidden");
+  }
+
+  async function validateOdometerVsTimeline() {
+    if (!isServiceSelected()) {
+      showErr("");
+      kmInput.setCustomValidity("");
+      showHint("");
+      return true;
+    }
+
+    const vehicleId = (vehSel?.value || "").trim();
+    const kmVal = (kmInput.value || "").trim();
+    const dateVal = (dateSel?.value || "").trim();
+    const timeVal = (timeSel?.value || "").trim();
+
+    if (!vehicleId) {
+      showErr("");
+      kmInput.setCustomValidity("");
+      showHint("");
+      return true;
+    }
+
+    try {
+      const resp = await fetch("{% url 'operaciones:validar_odometro_ajax' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": CSRF
+        },
+        body: JSON.stringify({
+          vehicle_id: vehicleId,
+          kilometraje: kmVal,
+          real_consumption_date: dateVal,
+          service_time: timeVal
+        })
+      });
+
+      if (!resp.ok) {
+  const t = await resp.text().catch(()=> "");
+  showErr(`Odometer validation failed (${resp.status}).`);
+  kmInput.setCustomValidity("invalid");
+  return false;
+}
+
+      const data = await resp.json();
+
+      if (data && typeof data.current_odometer !== "undefined" && data.current_odometer !== null) {
+        showHint(`Current vehicle odometer: ${Number(data.current_odometer).toLocaleString()} miles`);
+      } else {
+        showHint("");
+      }
+
+      if (data && data.ok === false) {
+        const msg = data.message || "Invalid odometer.";
+        showErr(msg);
+        kmInput.setCustomValidity(msg);
+        return false;
+      }
+
+      showErr("");
+      kmInput.setCustomValidity("");
+      return true;
+
+    } catch (e) {
+      showErr("Could not validate odometer right now. Please try again.");
+      kmInput.setCustomValidity("invalid");
+      return false;
+    }
+  }
+
+  let t = null;
+  function scheduleValidate() {
+    if (!isServiceSelected()) {
+      showErr("");
+      kmInput.setCustomValidity("");
+      showHint("");
+      return;
+    }
+    if (t) clearTimeout(t);
+    t = setTimeout(() => { validateOdometerVsTimeline(); }, 350);
+  }
+
+  kmInput.addEventListener("input", scheduleValidate);
+  kmInput.addEventListener("blur", validateOdometerVsTimeline);
+
+  if (vehSel) vehSel.addEventListener("change", scheduleValidate);
+  if (dateSel) dateSel.addEventListener("change", scheduleValidate);
+  if (timeSel) timeSel.addEventListener("change", scheduleValidate);
+
+  if (tipoSel) tipoSel.addEventListener("change", () => { showErr(""); kmInput.setCustomValidity(""); showHint(""); });
+  if (svcSel)  svcSel.addEventListener("change", () => { showErr(""); kmInput.setCustomValidity(""); showHint(""); });
+
+  const form = document.getElementById("formRendicion");
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      const ok = await validateOdometerVsTimeline();
+      if (!ok) {
+        e.preventDefault();
+        try { kmInput.reportValidity(); } catch (_) {}
+      }
+    }, true);
+  }
+
+  // first run
+  scheduleValidate();
+});
+</script>
+
+<script>
+/* Mantener el scroll horizontal en "My Expense Reports" */
+(function () {
+  const KEY = 'myexpensesScrollX:' + location.pathname;
+
+  function getScrollBox() {
+    return document.querySelector('.max-w-6xl .overflow-x-auto') || document.querySelector('.overflow-x-auto');
+  }
+
+  function saveX(x) {
+    try { sessionStorage.setItem(KEY, String(x)); } catch (_) {}
+  }
+  function readX() {
+    try { return Number(sessionStorage.getItem(KEY) || 0); } catch (_) { return 0; }
+  }
+
+  function restore() {
+    const box = getScrollBox();
+    if (!box) return;
+    const x = readX();
+    requestAnimationFrame(() => { box.scrollLeft = x; });
+
+    let t = null;
+    box.addEventListener('scroll', () => {
+      if (t) return;
+      t = setTimeout(() => { t = null; saveX(box.scrollLeft); }, 120);
+    }, { passive: true });
+  }
+
+  function saveBeforeLeave() {
+    const box = getScrollBox();
+    if (box) saveX(box.scrollLeft);
+  }
+
+  document.addEventListener('DOMContentLoaded', restore);
+  window.addEventListener('beforeunload', saveBeforeLeave);
+})();
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("formRendicion");
+  const btn  = document.getElementById("btnSaveRendicion");
+  if (!form || !btn) return;
+
+  let locked = false;
+  const originalText = btn.textContent;
+
+  function lockButton() {
+    locked = true;
+    btn.disabled = true;
+    btn.classList.add("opacity-50", "cursor-not-allowed");
+    btn.textContent = "Saving...";
+  }
+
+  function unlockButton() {
+    locked = false;
+    btn.disabled = false;
+    btn.classList.remove("opacity-50", "cursor-not-allowed");
+    btn.textContent = originalText;
+  }
+
+  btn.addEventListener("click", function (e) {
+    if (locked) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  });
+
+  form.addEventListener("submit", function (e) {
+    if (locked) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    lockButton();
+
+    setTimeout(() => {
+      if (e.defaultPrevented) unlockButton();
+    }, 0);
+  }, true);
+
+  form.addEventListener("invalid", function () {
+    unlockButton();
+  }, true);
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const timeEl = document.getElementById("id_service_time");
+  if (!timeEl) return;
+
+  // Flatpickr time picker 24h fijo
+  flatpickr(timeEl, {
+    enableTime: true,
+    noCalendar: true,
+    dateFormat: "H:i",     // valor enviado: 20:08
+    time_24hr: true,       // UI 24h
+    disableMobile: true,
+  });
+});
+</script>
 {% endblock %}

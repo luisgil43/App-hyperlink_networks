@@ -6,21 +6,22 @@ import dj_database_url
 from django.urls import reverse_lazy
 from dotenv import load_dotenv
 
-load_dotenv()
-
 # ==============================
 # BASE CONFIG
 # ==============================
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# Cargar variables de entorno:
+# 1) .env (base)  2) .env.local (override en DEV)
+load_dotenv(BASE_DIR / ".env", override=False)
+load_dotenv(BASE_DIR / ".env.local", override=True)
 
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() == "true"
 
 if DEBUG:
-    SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-key')  # solo dev
+    SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-key")
 else:
-    SECRET_KEY = os.environ['DJANGO_SECRET_KEY']  # obliga env en prod
+    SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
 
 ALLOWED_HOSTS = [
@@ -209,6 +210,20 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # ==============================
+# CRON
+# ==============================
+
+
+PLANIX_LOGO_URL = os.getenv(
+    "PLANIX_LOGO_URL",
+    "https://res.cloudinary.com/dm6gqg4fb/image/upload/v1751574704/planixb_a4lorr.jpg",
+)
+
+# Tokens cron
+FLOTA_CRON_TOKEN = os.environ.get("FLOTA_CRON_TOKEN", "")
+CRON_GENERAL_TOKEN = os.environ.get("CRON_GENERAL_TOKEN", "")
+
+# ==============================
 # AUTH & LOGIN
 # ==============================
 AUTH_USER_MODEL = 'usuarios.CustomUser'
@@ -271,21 +286,21 @@ WASABI_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY
 # ==============================
 # EMAIL (SMTP)
 # ==============================
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'mail.grupogzs.com')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 465))
-EMAIL_USE_TLS = False
-EMAIL_USE_SSL = True
-# EMAIL (SMTP)
-if DEBUG:
-    EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'dev@example.com')
-    EMAIL_HOST_PASSWORD = os.getenv(
-        'EMAIL_HOST_PASSWORD', 'dev-password')  # placeholder sin valor real
-else:
-    EMAIL_HOST_USER = os.environ['EMAIL_HOST_USER']          # obliga env
-    EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']  # obliga env
+import os
 
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+)
+
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "mail.grupogzs.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 465))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "False").strip().lower() == "true"
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "True").strip().lower() == "true"
+
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 # ==============================
 # 2FA
 # ==============================

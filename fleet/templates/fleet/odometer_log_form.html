@@ -1,3 +1,4 @@
+{# templates/fleet/odometer_log_form.html #}
 {% extends "dashboard_admin/base.html" %}
 
 {% block title %}New Odometer Entry{% endblock %}
@@ -17,7 +18,7 @@
     </a>
   </div>
 
-  <form method="post" enctype="multipart/form-data" class="space-y-6" novalidate>
+  <form method="post" class="space-y-6" novalidate>
     {% csrf_token %}
 
     {% if form.non_field_errors %}
@@ -37,15 +38,16 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Date <span class="text-red-500">*</span></label>
-          {{ form.date }}
-          {% if form.date.errors %}<p class="mt-1 text-xs text-red-600">{{ form.date.errors|striptags }}</p>{% endif %}
+          {{ form.event_at }}
+          {% if form.event_at.errors %}<p class="mt-1 text-xs text-red-600">{{ form.event_at.errors|striptags }}</p>{% endif %}
+          <p class="text-xs text-gray-500 mt-1">Local time (24h).</p>
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Odometer <span class="text-red-500">*</span></label>
           {{ form.odometer }}
           {% if form.odometer.errors %}<p class="mt-1 text-xs text-red-600">{{ form.odometer.errors|striptags }}</p>{% endif %}
-          <p class="text-xs text-gray-500 mt-1">Enter the reading in the vehicle unit (miles/km).</p>
+          <p class="text-xs text-gray-500 mt-1">Enter the reading in <strong>miles</strong>.</p>
         </div>
 
         <div>
@@ -58,13 +60,6 @@
           <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
           {{ form.notes }}
           {% if form.notes.errors %}<p class="mt-1 text-xs text-red-600">{{ form.notes.errors|striptags }}</p>{% endif %}
-        </div>
-
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Odometer photo (optional)</label>
-          {{ form.odometer_photo }}
-          {% if form.odometer_photo.errors %}<p class="mt-1 text-xs text-red-600">{{ form.odometer_photo.errors|striptags }}</p>{% endif %}
-          <p class="text-xs text-gray-500 mt-1">Stored securely in Wasabi.</p>
         </div>
 
       </div>
@@ -87,7 +82,7 @@
 </div>
 
 <style>
-  select, input[type="text"], input[type="number"], input[type="date"], textarea, input[type="file"] {
+  select, input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], textarea {
     width: 100%;
     border: 1px solid #d1d5db;
     border-radius: 0.75rem;

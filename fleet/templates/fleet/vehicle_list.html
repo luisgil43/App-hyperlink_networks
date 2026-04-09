@@ -1,0 +1,787 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block title %}Fleet • Vehicles{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+<style>
+  .tabla-responsive{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table{ white-space:nowrap; min-width:1350px; }
+
+  .excel-header-btn{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:.35rem;
+    font-size:.875rem;
+    font-weight:600;
+  }
+  .excel-header-btn .excel-arrow{ font-size:.65rem; opacity:.7; }
+  .excel-col-filtered .excel-header-btn{
+    background:#e0f2fe;
+    border-radius:999px;
+    padding:.15rem .5rem;
+  }
+  .excel-col-filtered .excel-arrow{ color:#2563eb !important; opacity:1; }
+
+.excel-panel{
+  position:fixed;
+  z-index:9999;   /* <-- sube esto */
+  width:270px;
+  background:#fff;
+  border-radius:0.75rem;
+  border:1px solid #d1d5db;
+  box-shadow:0 10px 30px rgba(0,0,0,.15);
+  padding:0.75rem;
+  font-size:0.8rem;
+}
+  .excel-panel h3{ font-weight:700; margin-bottom:.35rem; color:#111827; }
+  .excel-panel small{ font-size:.72rem; color:#6b7280; }
+  .excel-panel .excel-options{
+    max-height:190px;
+    overflow-y:auto;
+    border:1px solid #e5e7eb;
+    border-radius:0.5rem;
+    padding:0.35rem 0.5rem;
+    margin-top:0.35rem;
+    background:#f9fafb;
+  }
+</style>
+
+<!-- ✅ HEADER -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+  <div>
+    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🚚 Fleet • Vehicles</h2>
+    <p class="text-gray-500 text-sm">USA units: Odometer is shown in <b>miles</b>.</p>
+  </div>
+
+  <div class="flex flex-wrap gap-2">
+    <a href="{% url 'fleet:vehicle_create' %}"
+       class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ➕ New vehicle
+    </a>
+
+    <a href="{% url 'fleet:status_manage' %}"
+       class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full text-sm shadow">
+      ⚙️ Statuses
+    </a>
+
+    <a href="{% url 'fleet:notification_list' %}"
+       class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 inline-flex items-center gap-2">
+      🔔 <span>Notifications</span>
+    </a>
+
+    <a href="{% url 'fleet:assignments_list' %}"
+       class="bg-white hover:bg-gray-50 text-gray-900 px-4 py-2 rounded-full text-sm shadow border">
+      👤 Assignments
+    </a>
+  </div>
+</div>
+
+<!-- Column toggles -->
+<div class="flex justify-start mb-2">
+  <details class="relative">
+    <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+      ⚙️ Columns
+    </summary>
+
+    <div id="columnToggles" class="absolute left-0 mt-1 w-64 bg-white border rounded-xl shadow-lg p-3 z-10">
+      <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+      <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+        <input type="checkbox" id="col-toggle-all" checked>
+        <span class="font-semibold text-xs">Show all</span>
+      </label>
+
+      <div class="space-y-1 text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="0" checked><span>Plate</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="1" checked><span>VIN</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="2" checked><span>Make</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="3" checked><span>Model</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="4" checked><span>Year</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="5" checked><span>Odometer (miles)</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="6" checked><span>Assigned to</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="7" checked><span>Last movement</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="8" checked><span>Status</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="9" checked><span>Actions</span></label>
+      </div>
+    </div>
+  </details>
+</div>
+
+<div class="flex justify-start mb-2 gap-2 items-center">
+  <button type="button"
+          id="btnExcelClearAll"
+          class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
+    ❌ Clear filters
+  </button>
+</div>
+
+<div id="vehicleZone">
+  <div class="tabla-responsive overflow-x-auto border border-gray-200 rounded-2xl">
+    <table id="tabla-vehiculos" class="w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700 font-semibold text-center">
+        <tr>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Plate</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>VIN</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Make</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Model</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Year</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Odometer (miles)</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Assigned to</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Last movement</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border" data-excel-col>
+            <button type="button" class="excel-header-btn"><span>Status</span><span class="excel-arrow">▼</span></button>
+          </th>
+          <th class="p-2 border">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody class="text-center" id="vehTbody">
+        {% for v in page.object_list %}
+          <tr class="border-t hover:bg-gray-50">
+
+            <td class="p-2 border font-semibold" data-excel-value="{{ v.patente|default:'—' }}">
+              {{ v.patente|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.vin|default:'—' }}">
+              {% if v.vin %}{{ v.vin }}{% else %}<span class="text-gray-400">—</span>{% endif %}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.marca|default:'—' }}">
+              {{ v.marca|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.modelo|default:'—' }}">
+              {{ v.modelo|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.anio|default:'—' }}">
+              {{ v.anio|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.kilometraje_actual|default:0 }}">
+              {{ v.kilometraje_actual|default:0|intcomma }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.assigned_to_label|default:'—' }}">
+              {{ v.assigned_to_label|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{{ v.last_movement_label|default:'—' }}">
+              {{ v.last_movement_label|default:"—" }}
+            </td>
+
+            <td class="p-2 border" data-excel-value="{% if v.status %}{{ v.status.name }}{% else %}—{% endif %}">
+              {% if v.status %}
+                <span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">
+                  {{ v.status.name }}
+                </span>
+              {% else %}
+                <span class="text-gray-400">—</span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border whitespace-nowrap">
+              <a href="{% url 'fleet:vehicle_edit' v.id %}"
+                 class="inline-flex items-center px-3 py-1.5 rounded-full text-xs bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Edit
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr data-empty-row="1">
+            <td colspan="10" class="p-6 text-center text-gray-500">No vehicles found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ✅ Pagination / Show (estilo invoices) -->
+  <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+    <form id="formCantidad" class="flex items-center gap-2" onsubmit="return false;">
+      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+        <option value="10"  {% if cantidad == '10' %}selected{% endif %}>10</option>
+        <option value="20"  {% if cantidad == '20' %}selected{% endif %}>20</option>
+        <option value="50"  {% if cantidad == '50' %}selected{% endif %}>50</option>
+        <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+        <option value="todos" {% if cantidad == 'todos' %}selected{% endif %}>All</option>
+      </select>
+    </form>
+
+    {% if page.paginator.num_pages > 0 %}
+      <div class="text-sm text-gray-500">
+        Page {{ page.number }} of {{ page.paginator.num_pages }} • {{ page.paginator.count }} vehicles
+      </div>
+    {% endif %}
+  </div>
+
+  {% if page.paginator.num_pages > 1 and cantidad != 'todos' %}
+    <div class="mt-2 flex justify-center gap-2 text-sm">
+      {% if page.has_previous %}
+        <a href="?page=1{% if base_qs %}&{{ base_qs }}{% endif %}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+        <a href="?page={{ page.previous_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+      {% endif %}
+      {% if page.has_next %}
+        <a href="?page={{ page.next_page_number }}{% if base_qs %}&{{ base_qs }}{% endif %}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+        <a href="?page={{ page.paginator.num_pages }}{% if base_qs %}&{{ base_qs }}{% endif %}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<!-- Excel panel -->
+<div id="excelFilterPanel" class="excel-panel hidden">
+  <h3 id="excelPanelTitle">Column</h3>
+  <small>Filter values</small>
+
+  <div class="mt-2">
+    <input id="excelFilterSearch" type="text" placeholder="Search..."
+           class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
+  </div>
+
+  <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+
+  <div class="mt-3 flex justify-end gap-2">
+    <button type="button" id="excelFilterClearCol" class="px-2 py-1 border rounded-md text-xs">Clear</button>
+    <button type="button" id="excelFilterApply" class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">Apply</button>
+  </div>
+</div>
+
+<script>
+/* ===== 1) Column toggles (localStorage) ===== */
+(function () {
+  const panel = document.getElementById('columnToggles');
+  if (!panel) return;
+
+  const STORAGE_KEY = 'cols:fleet:vehicles_list';
+
+  function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } }
+  function saveState(state) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(_) {} }
+  function getTable(){ return document.getElementById('tabla-vehiculos'); }
+
+  function applyVisibility() {
+    const table = getTable();
+    if(!table) return;
+
+    const state = loadState();
+
+    const theadCells = table.querySelectorAll('thead tr th');
+    theadCells.forEach((th, idx) => {
+      const visible = state[idx] !== false;
+      th.style.display = visible ? '' : 'none';
+    });
+
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const tds = tr.querySelectorAll('td');
+      tds.forEach((td, idx) => {
+        const visible = state[idx] !== false;
+        td.style.display = visible ? '' : 'none';
+      });
+    });
+
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+    let allOn = true;
+
+    checks.forEach(cb => {
+      const idx = parseInt(cb.dataset.col || '0', 10);
+      const visible = state[idx] !== false;
+      cb.checked = visible;
+      if (!visible) allOn = false;
+    });
+
+    if (master) master.checked = allOn;
+  }
+
+  function bindToggles() {
+    const checks = panel.querySelectorAll('.col-toggle');
+    const master = panel.querySelector('#col-toggle-all');
+
+    checks.forEach(cb => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        const state = loadState();
+        state[idx] = cb.checked;
+        saveState(state);
+        applyVisibility();
+      });
+    });
+
+    if (master) {
+      master.addEventListener('change', () => {
+        const val = master.checked;
+        const state = loadState();
+        checks.forEach(cb => {
+          const idx = parseInt(cb.dataset.col || '0', 10);
+          cb.checked = val;
+          state[idx] = val;
+        });
+        saveState(state);
+        applyVisibility();
+      });
+    }
+  }
+
+  function bindOutsideClickToClose() {
+    const details = panel.closest('details');
+    if (!details) return;
+    document.addEventListener('click', (e) => {
+      if (!details.open) return;
+      if (details.contains(e.target)) return;
+      details.open = false;
+    });
+  }
+
+  bindToggles();
+  bindOutsideClickToClose();
+  applyVisibility();
+
+  window.reApplyFleetVehicleColumns = applyVisibility;
+})();
+</script>
+
+<script>
+/* ===== 2) Excel Filters (SERVER-side via xfilters in URL) ===== */
+(function(){
+  function readUrlFilters(){
+    try{
+      const params = new URLSearchParams(location.search);
+      const raw = params.get('xfilters');
+      if(!raw) return {};
+      const obj = JSON.parse(raw);
+      const out = {};
+      Object.entries(obj || {}).forEach(([k, arr]) => out[k] = new Set(arr || []));
+      return out;
+    }catch(_){ return {}; }
+  }
+
+  function writeUrlFilters(active){
+    const plain = {};
+    Object.entries(active).forEach(([k, set]) => plain[k] = Array.from(set || []));
+    return JSON.stringify(plain);
+  }
+
+  const excel = {
+    panel: document.getElementById('excelFilterPanel'),
+    titleEl: document.getElementById('excelPanelTitle'),
+    searchInput: document.getElementById('excelFilterSearch'),
+    optsBox: document.getElementById('excelFilterOptions'),
+    btnApply: document.getElementById('excelFilterApply'),
+    btnClearCol: document.getElementById('excelFilterClearCol'),
+    btnClearAllTop: document.getElementById('btnExcelClearAll'),
+
+    table: null,
+    tbody: null,
+    headers: [],
+    allRows: [],
+    distinctValues: {},
+    activeFilters: readUrlFilters(),
+    currentColIndex: null,
+    bound: false,
+  };
+
+  function getCellValue(td){
+    if(!td) return '(Blanks)';
+    if(td.dataset && td.dataset.excelValue){
+      const t = (td.dataset.excelValue || '').trim();
+      return t || '(Blanks)';
+    }
+    const text = (td.textContent || '').trim();
+    return text || '(Blanks)';
+  }
+
+  function buildDistinctValues(){
+    excel.distinctValues = {};
+    excel.allRows.forEach(row=>{
+      Array.from(row.cells).forEach((td, idx)=>{
+        if(!excel.distinctValues[idx]) excel.distinctValues[idx] = new Set();
+        excel.distinctValues[idx].add(getCellValue(td));
+      });
+    });
+  }
+
+  function updateHeaderStates(){
+    excel.headers.forEach((th, idx)=>{
+      if(!th.hasAttribute('data-excel-col')) return;
+      const has = !!(excel.activeFilters[idx] && excel.activeFilters[idx].size > 0);
+      th.classList.toggle('excel-col-filtered', has);
+    });
+  }
+
+  function setFiltersAndReload(){
+    const raw = writeUrlFilters(excel.activeFilters);
+    if (typeof window.refreshFleetVehicleList === 'function'){
+      window.refreshFleetVehicleList({ page: '1', xfilters: raw });
+      return;
+    }
+    const url = new URL(location.href);
+    url.searchParams.set('page','1');
+    url.searchParams.set('xfilters', raw);
+    location.href = url.toString();
+  }
+
+  function filterOptionList(query){
+    const q = query.trim().toLowerCase();
+    let visible = 0;
+
+    excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
+      const text = lbl.textContent.toLowerCase();
+      const show = text.includes(q);
+      lbl.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+
+    let msg = excel.optsBox.querySelector('[data-no-match="1"]');
+    if(!msg){
+      msg = document.createElement('div');
+      msg.dataset.noMatch = "1";
+      msg.className = "mt-2 text-xs text-gray-500";
+      msg.textContent = "No matches.";
+      excel.optsBox.appendChild(msg);
+    }
+    msg.style.display = (q && visible === 0) ? '' : 'none';
+
+    excel.btnApply.disabled = (q && visible === 0);
+    excel.btnApply.classList.toggle('opacity-50', excel.btnApply.disabled);
+    excel.btnApply.classList.toggle('cursor-not-allowed', excel.btnApply.disabled);
+  }
+
+  function renderOptions(colIndex){
+    excel.optsBox.innerHTML = '';
+
+    const set = excel.distinctValues[colIndex] || new Set();
+    const values = Array.from(set).sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
+    const selected = excel.activeFilters[colIndex];
+
+    const allLabel = document.createElement('label');
+    allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
+    const allCb = document.createElement('input');
+    allCb.type = 'checkbox';
+    allCb.dataset.selectAll = '1';
+    allCb.checked = !selected || selected.size === values.length;
+
+    allCb.addEventListener('change', ()=>{
+      const q = (excel.searchInput.value || '').trim().toLowerCase();
+      const onlyVisible = !!q;
+      const optionLabels = excel.optsBox.querySelectorAll('label[data-option-label]');
+      optionLabels.forEach(lbl=>{
+        if(onlyVisible && lbl.style.display === 'none') return;
+        const cb = lbl.querySelector('input[type="checkbox"][data-value]');
+        if(cb) cb.checked = allCb.checked;
+      });
+    });
+
+    allLabel.appendChild(allCb);
+    allLabel.appendChild(document.createTextNode(' (Select all)'));
+    excel.optsBox.appendChild(allLabel);
+
+    values.forEach(val=>{
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-1 text-xs mt-0.5';
+      label.dataset.optionLabel = '1';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.value = val;
+      cb.checked = !selected || selected.has(val);
+
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' ' + val));
+      excel.optsBox.appendChild(label);
+    });
+  }
+function openPanelForHeader(th){
+  excel.currentColIndex = parseInt(th.dataset.excelIndex, 10);
+  excel.titleEl.textContent = th.innerText.trim();
+
+  buildDistinctValues();
+  renderOptions(excel.currentColIndex);
+
+  // Mostrar panel "invisible" para medirlo
+  excel.panel.classList.remove('hidden');
+  excel.panel.style.visibility = 'hidden';
+  excel.panel.style.left = '0px';
+  excel.panel.style.top = '0px';
+
+  const rect = th.getBoundingClientRect();
+  const panelWidth  = excel.panel.offsetWidth  || 270;
+  const panelHeight = excel.panel.offsetHeight || 240;
+  const gap = 6;
+
+  // Preferir abajo, pero si no cabe -> arriba
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+
+  let top;
+  if (spaceBelow >= panelHeight + gap) {
+    top = rect.bottom + gap;
+  } else if (spaceAbove >= panelHeight + gap) {
+    top = rect.top - panelHeight - gap;
+  } else {
+    top = (spaceBelow >= spaceAbove)
+      ? (window.innerHeight - panelHeight - 8)
+      : 8;
+  }
+
+  // Centrado horizontal
+  let left = rect.left + (rect.width - panelWidth) / 2;
+
+  // ✅ Sidebar guard: NO dejar que el panel caiga debajo del nav
+  let sidebarMinLeft = 8;
+  const sideNav = document.getElementById('side-nav');
+  if (sideNav) {
+    const r = sideNav.getBoundingClientRect();
+    // si el sidebar está visible en pantalla (derecha > 0 y ancho razonable)
+    if (r.right > 50 && r.width > 50) {
+      sidebarMinLeft = Math.max(sidebarMinLeft, r.right + 8);
+    }
+  }
+
+  // Clamp dentro del viewport (considerando sidebar)
+  const minLeft = sidebarMinLeft;
+  const maxLeft = window.innerWidth - panelWidth - 8;
+  left = Math.max(minLeft, Math.min(maxLeft, left));
+
+  const minTop = 8;
+  const maxTop = window.innerHeight - panelHeight - 8;
+  top = Math.max(minTop, Math.min(maxTop, top));
+
+  excel.panel.style.left = `${left}px`;
+  excel.panel.style.top  = `${top}px`;
+  excel.panel.style.visibility = 'visible';
+
+  excel.searchInput.value = '';
+  filterOptionList('');
+  excel.searchInput.focus();
+}
+
+  function bindOnce(){
+    if(excel.bound) return;
+
+    excel.searchInput.addEventListener('input', ()=> filterOptionList(excel.searchInput.value));
+    excel.searchInput.addEventListener('keydown', (e)=>{
+      if(e.key === 'Escape'){ e.preventDefault(); excel.panel.classList.add('hidden'); }
+      if(e.key === 'Enter'){ e.preventDefault(); if(!excel.btnApply.disabled) excel.btnApply.click(); }
+    });
+
+    excel.btnClearCol.addEventListener('click', (e)=>{
+      e.preventDefault();
+      if(excel.currentColIndex == null){ excel.panel.classList.add('hidden'); return; }
+      delete excel.activeFilters[excel.currentColIndex];
+      excel.panel.classList.add('hidden');
+      setFiltersAndReload();
+    });
+
+    excel.btnApply.addEventListener('click', ()=>{
+      if(excel.currentColIndex == null){ excel.panel.classList.add('hidden'); return; }
+
+      const q = (excel.searchInput.value || '').trim().toLowerCase();
+      let chosen = [];
+
+      if(q){
+        chosen = Array.from(excel.optsBox.querySelectorAll('label[data-option-label]'))
+          .filter(lbl => lbl.style.display !== 'none')
+          .map(lbl => lbl.querySelector('input[type="checkbox"][data-value]'))
+          .filter(Boolean);
+      }else{
+        chosen = Array.from(excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]'));
+      }
+
+      const selected = new Set();
+      chosen.forEach(cb=>{ if(cb.checked) selected.add(cb.dataset.value); });
+
+      const fullSet = excel.distinctValues[excel.currentColIndex] || new Set();
+
+      if(!q){
+        if(selected.size === 0 || selected.size === fullSet.size){
+          delete excel.activeFilters[excel.currentColIndex];
+        }else{
+          excel.activeFilters[excel.currentColIndex] = selected;
+        }
+      }else{
+        if(selected.size === 0){
+          delete excel.activeFilters[excel.currentColIndex];
+        }else{
+          if(selected.size === fullSet.size){
+            delete excel.activeFilters[excel.currentColIndex];
+          }else{
+            excel.activeFilters[excel.currentColIndex] = selected;
+          }
+        }
+      }
+
+      excel.panel.classList.add('hidden');
+      setFiltersAndReload();
+    });
+
+    document.addEventListener('click', (e)=>{
+      if(excel.panel.classList.contains('hidden')) return;
+      if(excel.panel.contains(e.target)) return;
+      if(e.target.closest('.excel-header-btn')) return;
+      excel.panel.classList.add('hidden');
+    });
+
+    if(excel.btnClearAllTop){
+      excel.btnClearAllTop.addEventListener('click', (e)=>{
+        e.preventDefault();
+        excel.activeFilters = {};
+        excel.panel.classList.add('hidden');
+
+        if (typeof window.refreshFleetVehicleList === 'function'){
+          window.refreshFleetVehicleList({ page: '1', xfilters: '' });
+          return;
+        }
+        const url = new URL(location.href);
+        url.searchParams.set('page','1');
+        url.searchParams.delete('xfilters');
+        location.href = url.toString();
+      });
+    }
+
+    excel.bound = true;
+  }
+
+  function initExcel(){
+    bindOnce();
+
+    const table = document.getElementById('tabla-vehiculos');
+    if(!table) return;
+
+    excel.table = table;
+    excel.tbody = document.getElementById('vehTbody') || table.querySelector('tbody');
+    excel.headers = Array.from(table.querySelectorAll('thead th'));
+    excel.allRows = Array.from(excel.tbody.querySelectorAll('tr'));
+
+    buildDistinctValues();
+    updateHeaderStates();
+
+    excel.headers.forEach((th, idx)=>{
+      if(th.hasAttribute('data-excel-col')){
+        th.dataset.excelIndex = idx;
+        const btn = th.querySelector('.excel-header-btn');
+        if(btn){
+          btn.addEventListener('click', (ev)=>{
+            ev.stopPropagation();
+            openPanelForHeader(th);
+          });
+        }
+      }
+    });
+  }
+
+  window.initExcelFiltersFleet = initExcel;
+  initExcel();
+})();
+</script>
+
+<script>
+/* ===== 3) AJAX pagination + Show selector ===== */
+(function () {
+  let zone = document.getElementById('vehicleZone');
+  if (!zone) return;
+
+  async function refreshList(extraParams = {}) {
+    const params = new URLSearchParams(location.search);
+
+    Object.entries(extraParams).forEach(([k, v]) => {
+      if(v === null || v === undefined || v === ''){
+        params.delete(k);
+      }else{
+        params.set(k, v);
+      }
+    });
+
+    const url = `${location.pathname}?${params.toString()}`;
+
+    try{
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 12000);
+
+      const res = await fetch(url, { headers: { 'X-Requested-With': 'fetch' }, signal: ctrl.signal });
+      clearTimeout(t);
+
+      if(!res.ok){
+        location.href = url;
+        return;
+      }
+
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const newZone = doc.querySelector('#vehicleZone');
+
+      if (!newZone) {
+        location.href = url;
+        return;
+      }
+
+      zone.replaceWith(newZone);
+      zone = document.getElementById('vehicleZone');
+
+      wirePagination(zone);
+      wireShowSelector(zone);
+
+      if (window.reApplyFleetVehicleColumns) window.reApplyFleetVehicleColumns();
+      if (window.initExcelFiltersFleet) window.initExcelFiltersFleet();
+
+      history.replaceState(null, '', url);
+    }catch(_){
+      location.href = url;
+    }
+  }
+
+  function wirePagination(scope) {
+    (scope || document).querySelectorAll('a[href*="page="]').forEach(a => {
+      if(a.__vehPageBound) return;
+      a.__vehPageBound = true;
+
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const u = new URL(a.href, location.href);
+        const page = u.searchParams.get('page') || '1';
+        refreshList({ page });
+      });
+    });
+  }
+
+  function wireShowSelector(scope){
+    const sel = (scope || document).querySelector('#cantidad');
+    if(!sel || sel.__boundCantidad) return;
+    sel.__boundCantidad = true;
+
+    sel.addEventListener('change', ()=>{
+      refreshList({ cantidad: sel.value, page: '1' });
+    });
+  }
+
+  wirePagination(zone);
+  wireShowSelector(zone);
+
+  window.refreshFleetVehicleList = refreshList;
+})();
+</script>
+
+</div>
+{% endblock %}

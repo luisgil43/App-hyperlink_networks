@@ -232,7 +232,7 @@
       {% endif %}
 
 <!-- SECCIÓN: Fleet -->
-{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor %}
+{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
 <li class="group">
   <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
        onclick="toggleMenu(this)">
@@ -261,15 +261,13 @@
       </a>
     </li>
 
-    <!-- placeholders (próximas fases) -->
-    <li><a href="#" class="opacity-60 cursor-not-allowed">Services (soon)</a></li>
-    <li><a href="#" class="opacity-60 cursor-not-allowed">Documents (soon)</a></li>
+    
+   <li>
+  <a href="{% url 'fleet:service_list' %}" class="hover:text-emerald-400">
+    Services
+  </a>
+</li>
 
-    <li class="pt-1">
-      <a href="{% url 'notifications:center' %}" class="hover:text-emerald-400">
-        Notifications
-      </a>
-    </li>
   </ul>
 </li>
 {% endif %}

@@ -33,7 +33,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import FieldError
+from django.core.exceptions import FieldError, ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.storage import default_storage as storage
 from django.core.paginator import Paginator
@@ -76,6 +76,7 @@ from core.decorators import project_object_access_required
 from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
 from facturacion.models import CartolaMovimiento, Proyecto
+from fleet.models import VehicleOdometerEvent, VehicleService
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
 from operaciones.models import AdjustmentEntry  # <-- IMPORTA EL MODELO
 from operaciones.models import ItemBillingTecnico, SesionBilling, WeeklyPayment
@@ -108,8 +109,7 @@ from django.views.decorators.http import require_GET, require_POST
 # 👇 nuevo
 from facturacion.models import Proyecto  # ajusta el app si está en otro lado
 
-  # type: ignore
-
+# type: ignore
 
 
 WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
@@ -239,152 +239,511 @@ def verificar_archivo_wasabi(ruta):
         return False
 
 
+# ==========================================================
+# Helpers Odometer (miles) - declaración inmediata + aprobación posterior
+# ==========================================================
+
+# operaciones/views.py  (solo lo nuevo + mis_rendiciones completa + validar_odometro_vehicle_ajax)
+
+# views.py (o donde la tengas)
+
+import json
+
+from django.contrib.auth.decorators import login_required
+from django.db.models import Q
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+
+# ✅ fleet
+try:
+    from fleet.models import Vehicle, VehicleService
+except Exception:  # pragma: no cover
+    Vehicle = None
+    VehicleService = None
+
+
+def _normalizar_odometro(valor):
+    """
+    Convierte odómetro (miles) a int.
+    Acepta: 1200, "1,200", "1.200", "1200 mi", "1200 miles"
+    """
+    if valor in (None, ""):
+        return None
+    try:
+        s = str(valor).strip()
+        s = s.replace(",", "").replace(" ", "")
+        s = "".join(ch for ch in s if (ch.isdigit() or ch == "."))
+        if not s:
+            return None
+        v = int(float(s))
+        return v if v >= 0 else None
+    except Exception:
+        return None
+
+
+from django.db.models import Q
+
+
+def _validar_odometro_vecinos(vehicle_id, service_date, service_time, odo_nuevo):
+    """
+    Vecinos en la línea de tiempo:
+    - vecino anterior (estrictamente antes): odo_nuevo >= odo_anterior
+    - vecino posterior (estrictamente después): odo_nuevo <= odo_posterior
+    """
+    if VehicleService is None:
+        return True, None
+
+    if not vehicle_id or service_date is None or service_time is None or odo_nuevo is None:
+        return True, None
+
+    qs = (
+        VehicleService.objects
+        .filter(vehicle_id=vehicle_id)
+        .exclude(kilometraje_declarado__isnull=True)
+        .exclude(service_date__isnull=True)
+        .exclude(service_time__isnull=True)
+    )
+
+    # ✅ vecino anterior: estrictamente antes (NO <=)
+    anterior = (
+        qs.filter(
+            Q(service_date__lt=service_date) |
+            Q(service_date=service_date, service_time__lt=service_time)
+        )
+        .order_by("-service_date", "-service_time", "-id")
+        .first()
+    )
+
+    if anterior and anterior.kilometraje_declarado is not None:
+        km_anterior = int(anterior.kilometraje_declarado)
+        if odo_nuevo < km_anterior:
+            return False, (
+                f"The odometer ({odo_nuevo} miles) cannot be lower than the previous "
+                f"record ({km_anterior} miles) on {anterior.service_date.strftime('%d/%m/%Y')} "
+                f"at {anterior.service_time.strftime('%H:%M')}."
+            )
+
+    # ✅ vecino posterior: estrictamente después (NO >=)
+    posterior = (
+        qs.filter(
+            Q(service_date__gt=service_date) |
+            Q(service_date=service_date, service_time__gt=service_time)
+        )
+        .order_by("service_date", "service_time", "id")
+        .first()
+    )
+
+    if posterior and posterior.kilometraje_declarado is not None:
+        km_posterior = int(posterior.kilometraje_declarado)
+        if odo_nuevo > km_posterior:
+            return False, (
+                f"The odometer ({odo_nuevo} miles) cannot be greater than a later "
+                f"record ({km_posterior} miles) on {posterior.service_date.strftime('%d/%m/%Y')} "
+                f"at {posterior.service_time.strftime('%H:%M')}."
+            )
+
+    return True, None
+
 @login_required
-@rol_requerido('usuario')
+@require_POST
+def validar_odometro_ajax(request):
+    """
+    Validación en línea del odómetro (miles) para Services:
+    - regla por vecinos (fecha real + hora) en VehicleService
+    - devuelve current_odometer del vehículo para mostrarlo en UI
+
+    Espera JSON:
+      {
+        "vehicle_id": "123",
+        "kilometraje": "900",
+        "real_consumption_date": "2026-04-06",
+        "service_time": "14:03"
+      }
+    """
+    if Vehicle is None:
+        return JsonResponse({"ok": True, "current_odometer": None})
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    vehicle_id_raw = (data.get("vehicle_id") or "").strip()
+    km_raw = data.get("kilometraje")
+    date_raw = (data.get("real_consumption_date") or "").strip()
+    time_raw = (data.get("service_time") or "").strip()
+
+    if not vehicle_id_raw:
+        return JsonResponse({"ok": True, "current_odometer": None})
+
+    try:
+        vehicle_id = int(vehicle_id_raw)
+    except Exception:
+        return JsonResponse({"ok": False, "message": "Invalid vehicle."})
+
+    v = Vehicle.objects.filter(pk=vehicle_id).only("id", "kilometraje_actual").first()
+    if not v:
+        return JsonResponse({"ok": False, "message": "Vehicle not found."})
+
+    try:
+        current_odo = int(getattr(v, "kilometraje_actual", 0) or 0)
+    except Exception:
+        current_odo = 0
+
+    # Si aún no hay km ingresado, igual devolvemos el current_odo para el hint
+    odo_nuevo = _normalizar_odometro(km_raw)
+    if odo_nuevo is None or not date_raw or not time_raw:
+        return JsonResponse({"ok": True, "current_odometer": current_odo})
+
+    # Parse date/time
+    try:
+        service_date = timezone.datetime.strptime(date_raw, "%Y-%m-%d").date()
+    except Exception:
+        return JsonResponse({"ok": False, "message": "Invalid date."})
+
+    try:
+        service_time = timezone.datetime.strptime(time_raw, "%H:%M").time()
+    except Exception:
+        return JsonResponse({"ok": False, "message": "Invalid time."})
+
+    # no future (client-side hint)
+    now_local = timezone.localtime(timezone.now())
+    if service_date > now_local.date():
+        return JsonResponse({"ok": False, "message": "You cannot register a Service with a future date.", "current_odometer": current_odo})
+    if service_date == now_local.date() and service_time > now_local.time().replace(second=0, microsecond=0):
+        return JsonResponse({"ok": False, "message": "You cannot register a Service with a future time.", "current_odometer": current_odo})
+
+    # neighbors validation
+    ok, msg = _validar_odometro_vecinos(vehicle_id, service_date, service_time, odo_nuevo)
+    if not ok:
+        return JsonResponse({"ok": False, "message": msg, "current_odometer": current_odo})
+
+    return JsonResponse({"ok": True, "current_odometer": current_odo})
+
+import time
+
+from django.conf import settings
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.db.models import Sum
+from django.shortcuts import redirect, render
+from django.utils import timezone
+
+from facturacion.models import CartolaMovimiento
+
+from .forms import MovimientoUsuarioForm
+
+# ✅ fleet (solo para crear VehicleService)
+try:
+    from fleet.models import VehicleService
+except Exception:  # pragma: no cover
+    VehicleService = None
+
+
+@login_required
+@rol_requerido("usuario")
 def mis_rendiciones(request):
     user = request.user
 
     # --- Query + paginación ---
-    cantidad_str = request.GET.get('cantidad', '10')
+    cantidad_str = request.GET.get("cantidad", "10")
     try:
-        per_page = 1000000 if cantidad_str == 'todos' else int(cantidad_str)
+        per_page = 1000000 if cantidad_str == "todos" else int(cantidad_str)
     except (TypeError, ValueError):
         per_page = 10
-        cantidad_str = '10'
+        cantidad_str = "10"
 
-    movimientos_qs = CartolaMovimiento.objects.filter(usuario=user).order_by('-fecha')
+    movimientos_qs = (
+        CartolaMovimiento.objects.filter(usuario=user)
+        .select_related(
+            "proyecto",
+            "tipo",
+            "service_type_obj",
+            "vehicle",
+            "aprobado_por_supervisor",
+            "aprobado_por_pm",
+            "aprobado_por_finanzas",
+        )
+        .order_by("-fecha")
+    )
+
     paginator = Paginator(movimientos_qs, per_page)
-    pagina = paginator.get_page(request.GET.get('page'))
+    pagina = paginator.get_page(request.GET.get("page"))
 
     # --- Saldos ---
     saldo_disponible = (
-        (movimientos_qs.filter(tipo__categoria="abono", status="aprobado_abono_usuario")
-         .aggregate(total=Sum('abonos'))['total'] or 0)
-        -
-        (movimientos_qs.exclude(tipo__categoria="abono")
-         .filter(status="aprobado_finanzas")
-         .aggregate(total=Sum('cargos'))['total'] or 0)
+        movimientos_qs.filter(
+            tipo__categoria="abono", status="aprobado_abono_usuario"
+        ).aggregate(total=Sum("abonos"))["total"]
+        or 0
+    ) - (
+        movimientos_qs.exclude(tipo__categoria="abono")
+        .filter(status="aprobado_finanzas")
+        .aggregate(total=Sum("cargos"))["total"]
+        or 0
     )
-    saldo_pendiente = movimientos_qs.filter(tipo__categoria="abono") \
-        .exclude(status="aprobado_abono_usuario") \
-        .aggregate(total=Sum('abonos'))['total'] or 0
-    saldo_rendido = movimientos_qs.exclude(tipo__categoria="abono") \
-        .exclude(status="aprobado_finanzas") \
-        .aggregate(total=Sum('cargos'))['total'] or 0
+    saldo_pendiente = (
+        movimientos_qs.filter(tipo__categoria="abono")
+        .exclude(status="aprobado_abono_usuario")
+        .aggregate(total=Sum("abonos"))["total"]
+        or 0
+    )
+    saldo_rendido = (
+        movimientos_qs.exclude(tipo__categoria="abono")
+        .exclude(status="aprobado_finanzas")
+        .aggregate(total=Sum("cargos"))["total"]
+        or 0
+    )
 
     # === claves presign (si vienen de un intento anterior fallido) ===
-    wasabi_key_post = (request.POST.get('wasabi_key') or '').strip()
-    wasabi_key_odo_post = (request.POST.get('wasabi_key_foto_tablero') or '').strip()
+    wasabi_key_post = (request.POST.get("wasabi_key") or "").strip()
+    wasabi_key_odo_post = (request.POST.get("wasabi_key_foto_tablero") or "").strip()
 
     # 🔒 proyectos permitidos para ESTE usuario
     allowed_ids = projects_ids_for_user(user)
 
-    if request.method == 'POST':
-        form = MovimientoUsuarioForm(request.POST, request.FILES)
+    if request.method == "POST":
+        form = MovimientoUsuarioForm(request.POST, request.FILES, user=request.user)
 
-        # 🔒 Limitar el combo de proyectos del form (si existe) al usuario actual
-        if hasattr(form, 'fields') and 'proyecto' in form.fields:
-            form.fields['proyecto'].queryset = form.fields['proyecto'].queryset.filter(id__in=allowed_ids).order_by('nombre')
+        # 🔒 Limitar proyectos del combo
+        if hasattr(form, "fields") and "proyecto" in form.fields:
+            form.fields["proyecto"].queryset = (
+                form.fields["proyecto"]
+                .queryset.filter(id__in=allowed_ids)
+                .order_by("nombre")
+            )
 
         if form.is_valid():
-            mov: CartolaMovimiento = form.save(commit=False)
-            mov.usuario = user
-            mov.fecha = timezone.now()
-            mov.status = 'pendiente_abono_usuario' if (
-                mov.tipo and mov.tipo.categoria == "abono") else 'pendiente_supervisor'
+            cd = form.cleaned_data
 
-            # 🔒 Validación servidor: el proyecto elegido debe estar asignado al usuario
-            proj = form.cleaned_data.get('proyecto')
-            if not proj or proj.id not in allowed_ids:
-                form.add_error('proyecto', "No estás asignado a ese proyecto.")
+            tipo = cd.get("tipo")
+            tipo_nombre = (
+                (getattr(tipo, "nombre", "") or str(tipo or "")).strip().lower()
+            )
+            es_service = tipo_nombre.startswith("service")
+
+            try:
+                with transaction.atomic():
+                    mov: CartolaMovimiento = form.save(commit=False)
+                    mov.usuario = user
+                    mov.fecha = timezone.now()
+                    mov.status = (
+                        "pendiente_abono_usuario"
+                        if (mov.tipo and mov.tipo.categoria == "abono")
+                        else "pendiente_supervisor"
+                    )
+
+                    # 🔒 Validación servidor: proyecto permitido
+                    proj = cd.get("proyecto")
+                    if not proj or proj.id not in allowed_ids:
+                        form.add_error(
+                            "proyecto", "You are not assigned to that project."
+                        )
+                        raise ValidationError("Project not allowed.")
+
+                    # ====== recibo (comprobante) ======
+                    if wasabi_key_post:
+                        mov.comprobante.name = wasabi_key_post
+                    else:
+                        mov.comprobante = cd.get("comprobante") or mov.comprobante
+
+                    # ====== foto tablero (odómetro) ======
+                    if wasabi_key_odo_post:
+                        mov.foto_tablero.name = wasabi_key_odo_post
+                    else:
+                        mov.foto_tablero = cd.get("foto_tablero") or mov.foto_tablero
+
+                    # ====== odómetro (miles) ======
+                    mov.kilometraje = cd.get("kilometraje")
+
+                    # ✅ NUEVO: guardar Service fields EN CARTOLA (para mostrar directo en tabla)
+                    if es_service:
+                        mov.vehicle = cd.get("vehicle")
+                        mov.service_date = cd.get("real_consumption_date")
+                        mov.service_time = cd.get("service_time")
+                    else:
+                        mov.vehicle = None
+                        mov.service_date = None
+                        mov.service_time = None
+
+                    # Guardar rendición
+                    mov.save()
+
+                    # ✅ Si es Service: crear VehicleService (fleet) también
+                    if es_service and VehicleService is not None:
+                        v = cd.get("vehicle")
+                        st = cd.get("service_type_obj")
+                        service_time = cd.get("service_time")
+                        real_date = cd.get("real_consumption_date")
+                        odo_nuevo = cd.get("kilometraje")
+                        amount = cd.get("cargos") or 0
+                        notes = (cd.get("observaciones") or "").strip()
+
+                        VehicleService.objects.create(
+                            vehicle=v,
+                            service_type_obj=st,
+                            service_type="otro",
+                            title=f"Expense Report #{mov.pk}",
+                            service_date=real_date or timezone.localdate(),
+                            service_time=service_time,
+                            kilometraje_declarado=(
+                                odo_nuevo if odo_nuevo is not None else None
+                            ),
+                            monto=amount,
+                            notes=notes,
+                        )
+
+                        # ✅✅ IMPORTANTE:
+                        # VehicleService.save() YA creó el VehicleOdometerEvent via vehicle.update_kilometraje(...)
+                        # Aquí SOLO lo actualizamos para ponerle project (y marker), sin crear otro.
+                        try:
+                            if (
+                                VehicleOdometerEvent is not None
+                                and v
+                                and odo_nuevo is not None
+                            ):
+                                odo_int = int(odo_nuevo)
+
+                                # event_at consistente con service_date + time
+                                if real_date and service_time:
+                                    dt_naive = timezone.datetime.combine(
+                                        real_date, service_time
+                                    )
+                                    event_at = timezone.make_aware(
+                                        dt_naive, timezone.get_current_timezone()
+                                    )
+                                else:
+                                    event_at = timezone.now()
+
+                                marker = f"CartolaMovimiento#{mov.pk}"
+
+                                ev = (
+                                    VehicleOdometerEvent.objects.filter(
+                                        vehicle=v, odometer=odo_int, source="service"
+                                    )
+                                    .order_by("-event_at", "-id")
+                                    .first()
+                                )
+
+                                if ev:
+                                    changed = []
+
+                                    if ev.project_id is None and mov.proyecto_id:
+                                        ev.project = mov.proyecto
+                                        changed.append("project")
+
+                                    if ev.event_at != event_at:
+                                        ev.event_at = event_at
+                                        changed.append("event_at")
+
+                                    # agrega marker a notes solo si no está
+                                    if marker and marker not in (ev.notes or ""):
+                                        ev.notes = (ev.notes or "").strip()
+                                        ev.notes = (
+                                            f"{ev.notes} [{marker}]".strip()
+                                            if ev.notes
+                                            else f"[{marker}]"
+                                        )
+                                        changed.append("notes")
+
+                                    if changed:
+                                        ev.save(update_fields=changed)
+                        except Exception:
+                            pass
+
+                # Verificación opcional en Wasabi cuando hubo subida directa
+                if wasabi_key_post:
+                    for _ in range(3):
+                        if verificar_archivo_wasabi(mov.comprobante.name):
+                            break
+                        time.sleep(1)
+                    else:
+                        mov.delete()
+                        messages.error(
+                            request, "Error uploading the receipt. Please try again."
+                        )
+                        return redirect("operaciones:mis_rendiciones")
+
+                if wasabi_key_odo_post:
+                    for _ in range(3):
+                        if verificar_archivo_wasabi(mov.foto_tablero.name):
+                            break
+                        time.sleep(1)
+                    else:
+                        mov.delete()
+                        messages.error(
+                            request,
+                            "Error uploading the odometer photo. Please try again.",
+                        )
+                        return redirect("operaciones:mis_rendiciones")
+
+                messages.success(request, "Expense report registered successfully.")
+                return redirect("operaciones:mis_rendiciones")
+
+            except Exception:
                 ctx = {
-                    'pagina': pagina,
-                    'cantidad': cantidad_str,
-                    'saldo_disponible': saldo_disponible,
-                    'saldo_pendiente': saldo_pendiente,
-                    'saldo_rendido': saldo_rendido,
-                    'form': form,
-                    'direct_uploads_receipts_enabled': True,
-                    'receipt_max_mb': int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)),
-                    'wasabi_key': wasabi_key_post,
-                    'wasabi_key_foto_tablero': wasabi_key_odo_post,
+                    "pagina": pagina,
+                    "cantidad": cantidad_str,
+                    "saldo_disponible": saldo_disponible,
+                    "saldo_pendiente": saldo_pendiente,
+                    "saldo_rendido": saldo_rendido,
+                    "form": form,
+                    "direct_uploads_receipts_enabled": True,
+                    "receipt_max_mb": int(
+                        getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)
+                    ),
+                    "wasabi_key": wasabi_key_post,
+                    "wasabi_key_foto_tablero": wasabi_key_odo_post,
                 }
-                return render(request, 'operaciones/mis_rendiciones.html', ctx)
+                return render(request, "operaciones/mis_rendiciones.html", ctx)
 
-            # ====== recibo (comprobante) ======
-            if wasabi_key_post:
-                mov.comprobante.name = wasabi_key_post  # subida directa
-            else:
-                mov.comprobante = form.cleaned_data.get('comprobante') or mov.comprobante
-
-            # ====== foto tablero (odómetro) ======
-            if wasabi_key_odo_post:
-                mov.foto_tablero.name = wasabi_key_odo_post
-            else:
-                mov.foto_tablero = form.cleaned_data.get('foto_tablero') or mov.foto_tablero
-
-            # ====== kilometraje ======
-            mov.kilometraje = form.cleaned_data.get('kilometraje')
-
-            mov.save()
-
-            # Verificación opcional en Wasabi cuando hubo subida directa
-            import time
-            if wasabi_key_post:
-                for _ in range(3):
-                    if verificar_archivo_wasabi(mov.comprobante.name):
-                        break
-                    time.sleep(1)
-                else:
-                    mov.delete()
-                    messages.error(request, "Error uploading the receipt. Please try again.")
-                    return redirect('operaciones:mis_rendiciones')
-
-            if wasabi_key_odo_post:
-                for _ in range(3):
-                    if verificar_archivo_wasabi(mov.foto_tablero.name):
-                        break
-                    time.sleep(1)
-                else:
-                    mov.delete()
-                    messages.error(request, "Error uploading the odometer photo. Please try again.")
-                    return redirect('operaciones:mis_rendiciones')
-
-            messages.success(request, "Expense report registered successfully.")
-            return redirect('operaciones:mis_rendiciones')
-
-        # ---> Form inválido: re-render conservando claves para NO re-subir
+        # form inválido
         ctx = {
-            'pagina': pagina,
-            'cantidad': cantidad_str,
-            'saldo_disponible': saldo_disponible,
-            'saldo_pendiente': saldo_pendiente,
-            'saldo_rendido': saldo_rendido,
-            'form': form,
-            'direct_uploads_receipts_enabled': True,
-            'receipt_max_mb': int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)),
-            'wasabi_key': wasabi_key_post,
-            'wasabi_key_foto_tablero': wasabi_key_odo_post,
+            "pagina": pagina,
+            "cantidad": cantidad_str,
+            "saldo_disponible": saldo_disponible,
+            "saldo_pendiente": saldo_pendiente,
+            "saldo_rendido": saldo_rendido,
+            "form": form,
+            "direct_uploads_receipts_enabled": True,
+            "receipt_max_mb": int(
+                getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)
+            ),
+            "wasabi_key": wasabi_key_post,
+            "wasabi_key_foto_tablero": wasabi_key_odo_post,
         }
-        return render(request, 'operaciones/mis_rendiciones.html', ctx)
+        return render(request, "operaciones/mis_rendiciones.html", ctx)
 
-    # GET: instanciar form y limitar queryset de proyectos
-    form = MovimientoUsuarioForm()
-    if hasattr(form, 'fields') and 'proyecto' in form.fields:
-        form.fields['proyecto'].queryset = form.fields['proyecto'].queryset.filter(id__in=allowed_ids).order_by('nombre')
+    # GET
+    form = MovimientoUsuarioForm(user=request.user)
+    if hasattr(form, "fields") and "proyecto" in form.fields:
+        form.fields["proyecto"].queryset = (
+            form.fields["proyecto"]
+            .queryset.filter(id__in=allowed_ids)
+            .order_by("nombre")
+        )
 
-    return render(request, 'operaciones/mis_rendiciones.html', {
-        'pagina': pagina,
-        'cantidad': cantidad_str,
-        'saldo_disponible': saldo_disponible,
-        'saldo_pendiente': saldo_pendiente,
-        'saldo_rendido': saldo_rendido,
-        'form': form,
-        'direct_uploads_receipts_enabled': True,
-        'receipt_max_mb': int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)),
-        'wasabi_key': '',
-        'wasabi_key_foto_tablero': '',
-    })
+    return render(
+        request,
+        "operaciones/mis_rendiciones.html",
+        {
+            "pagina": pagina,
+            "cantidad": cantidad_str,
+            "saldo_disponible": saldo_disponible,
+            "saldo_pendiente": saldo_pendiente,
+            "saldo_rendido": saldo_rendido,
+            "form": form,
+            "direct_uploads_receipts_enabled": True,
+            "receipt_max_mb": int(
+                getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25)
+            ),
+            "wasabi_key": "",
+            "wasabi_key_foto_tablero": "",
+        },
+    )
 
 
 # Cerca de donde defines MULTIPART_EXPIRES_SECONDS
@@ -401,11 +760,8 @@ RECEIPT_ALLOWED_MIME = set(getattr(
         "image/heic", "image/heif",
     }
 ))
-
 # (Opcional) compatibilidad si en otro punto quedó el nombre viejo
 ALLOWED_MIME = RECEIPT_ALLOWED_MIME
-
-
 
 
 @login_required
@@ -573,7 +929,6 @@ def rechazar_abono(request, pk):
         mov.save()
         messages.error(request, "Deposit rejected and sent to Finance for review.")
     return redirect('operaciones:mis_rendiciones')
-
 
 
 @login_required
@@ -854,8 +1209,6 @@ def vista_rendiciones(request):
         'estado_choices': estado_choices,
         'base_qs': base_qs,
     })
-
-
 
 
 @login_required
@@ -1644,7 +1997,7 @@ def importar_precios(request):
     except Exception as e:
         messages.error(request, f"Error during import: {str(e)}")
         return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
-    
+
 
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm')
@@ -1759,8 +2112,8 @@ def confirmar_importar_precios(request):
     except Exception as e:
         messages.error(request, f"An error occurred during the import: {str(e)}")
         return redirect('operaciones:importar_precios')
-    
-    
+
+
 # ---------- CRUD EDIT/DELETE ----------
 
 
@@ -2176,8 +2529,6 @@ def exportar_billing_excel(request):
         )
 
     return _xlsx_response(wb)
-
-
 
 
 def _norm(txt: str) -> str:
@@ -3039,7 +3390,6 @@ def editar_billing(request, sesion_id: int):
     })
 
 
-
 def _money(v) -> Decimal:
     try:
         return Decimal(str(v or "0")).quantize(Decimal("0.01"))
@@ -3170,7 +3520,6 @@ def _recalcular_items_sesion(sesion):
         subtotal_empresa=_money(total_emp),
         subtotal_tecnico=_money(total_tec),
     )
-
 
 
 @login_required
@@ -3324,8 +3673,6 @@ def reasignar_tecnicos(request, sesion_id: int):
 
 
 # ===== Persistencia =====
-
-
 
 
 def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
@@ -3690,8 +4037,6 @@ def _guardar_billing(request, sesion=None):
     return redirect("operaciones:listar_billing")
 
 
-
-
 # ===== Búsquedas / AJAX =====
 def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
     q = PrecioActividadTecnico.objects.filter(
@@ -3894,8 +4239,6 @@ def ajax_detalle_codigo(request):
 
 
 ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-
-
 
 
 @login_required
@@ -5356,7 +5699,6 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
     return {"updated": updated, "deleted": deleted, "created": created}
 
 # ================================ ADMIN / PM ================================ #
-
 
 
 # ...
@@ -7266,6 +7608,45 @@ def billing_update_creado_en(request, sesion_id: int):
     })
 
 
+@login_required
+@rol_requerido('admin', 'pm', 'supervisor')
+@csrf_protect
+def billing_update_creado_en(request, sesion_id: int):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
 
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
 
+    raw = (request.POST.get("creado_en") or "").strip()
+    if not raw:
+        return JsonResponse({"ok": False, "error": "Date/time is required."}, status=400)
 
+    # Acepta: "YYYY-MM-DD HH:MM"
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+    except Exception:
+        return JsonResponse(
+            {"ok": False, "error": "Invalid format. Use: YYYY-MM-DD HH:MM"},
+            status=400
+        )
+
+    # Aware en TZ actual
+    try:
+        tz = timezone.get_current_timezone()
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, tz)
+        else:
+            dt = timezone.localtime(dt, tz)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid date/time."}, status=400)
+
+    s.creado_en = dt
+    s.save(update_fields=["creado_en"])
+
+    display = timezone.localtime(s.creado_en).strftime("%Y-%m-%d %H:%M")
+    return JsonResponse({
+        "ok": True,
+        "display": display,
+        "search_value": display,
+    })

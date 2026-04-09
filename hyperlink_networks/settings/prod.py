@@ -1,4 +1,4 @@
-#setting_prod
+# setting_prod
 
 import os
 from datetime import date
@@ -66,6 +66,7 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
+
 # 2FA
 TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)  # fecha para producción
 
@@ -98,6 +99,9 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_HSTS_SECONDS = 31536000
 SECURE_SSL_REDIRECT = True
+
+
+
 
 # Logs informativos para verificar en consola que todo esté correcto
 print("🧪 En producción:")
