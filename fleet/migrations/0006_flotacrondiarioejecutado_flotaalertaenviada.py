@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fleet', '0005_vehicle_vin'),
+        ("fleet", "0007_ensure_vehicleservicetype_table"),
     ]
 
     operations = [
