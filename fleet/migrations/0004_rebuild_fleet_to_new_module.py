@@ -12,21 +12,24 @@ from django.conf import settings
 from django.db import migrations, models
 
 
-def drop_fleet_leftovers(apps, schema_editor):
+def drop_fleet_tables_if_exist(apps, schema_editor):
     """
-    En Render ya quedaron algunas tablas creadas por intentos previos,
-    pero sin estar marcadas como migración aplicada.
-    Esto evita DuplicateTable en deploy.
+    En Render quedaron tablas a medias por deploys fallidos.
+    Aquí dejamos la migración idempotente:
+    - Si existen, se borran
+    - Si no existen, no falla
     """
     vendor = schema_editor.connection.vendor
 
-    # Tablas "nuevas" del módulo fleet actual
     tables = [
-        "fleet_vehiclenotificationconfig",  # <- la que te está rompiendo
+        # Legacy (enero)
+        "fleet_vehicleodometerlog",
+        "fleet_vehicleassignment",
+        "fleet_vehicle",
+        # Nuevas (abril)
+        "fleet_vehiclenotificationconfig",
         "fleet_sequence",
         "fleet_vehiclestatus",
-        "fleet_vehicle",
-        "fleet_vehicleassignment",
         "fleet_vehicleodometerevent",
         "fleet_vehicleservicetype",
         "fleet_vehicleservice",
@@ -41,7 +44,6 @@ def drop_fleet_leftovers(apps, schema_editor):
         for t in tables:
             schema_editor.execute(f"DROP TABLE IF EXISTS {t};")
     else:
-        # Si cambias motor algún día, no rompas el deploy
         return
 
 
@@ -55,18 +57,23 @@ class Migration(migrations.Migration):
 
     operations = [
         # ==========================================================
-        # 0) Limpieza defensiva (por tablas fantasma en Render)
+        # 0) Limpieza defensiva (NO FALLA si no existen)
         # ==========================================================
-        migrations.RunPython(drop_fleet_leftovers, migrations.RunPython.noop),
+        migrations.RunPython(drop_fleet_tables_if_exist, migrations.RunPython.noop),
         # ==========================================================
-        # 1) BORRAR Fleet antiguo (solo tablas de fleet que existen en el state)
-        #    (OJO: esto remueve modelos del state y dropea sus tablas)
+        # 0.1) Quitar del STATE los modelos legacy (sin tocar DB)
+        #      (Porque ya hicimos DROP IF EXISTS arriba)
         # ==========================================================
-        migrations.DeleteModel(name="VehicleOdometerLog"),
-        migrations.DeleteModel(name="VehicleAssignment"),
-        migrations.DeleteModel(name="Vehicle"),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.DeleteModel(name="VehicleOdometerLog"),
+                migrations.DeleteModel(name="VehicleAssignment"),
+                migrations.DeleteModel(name="Vehicle"),
+            ],
+        ),
         # ==========================================================
-        # 2) Sequence
+        # 1) Sequence
         # ==========================================================
         migrations.CreateModel(
             name="Sequence",
@@ -85,7 +92,7 @@ class Migration(migrations.Migration):
             ],
         ),
         # ==========================================================
-        # 3) VehicleStatus
+        # 2) VehicleStatus
         # ==========================================================
         migrations.CreateModel(
             name="VehicleStatus",
@@ -106,7 +113,7 @@ class Migration(migrations.Migration):
             options={"ordering": ["name"]},
         ),
         # ==========================================================
-        # 4) Vehicle (nuevo)
+        # 3) Vehicle (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="Vehicle",
@@ -154,7 +161,7 @@ class Migration(migrations.Migration):
             options={"ordering": ["patente"]},
         ),
         # ==========================================================
-        # 5) VehicleAssignment (nuevo)
+        # 4) VehicleAssignment (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="VehicleAssignment",
@@ -199,7 +206,7 @@ class Migration(migrations.Migration):
             ),
         ),
         # ==========================================================
-        # 6) VehicleOdometerEvent (nuevo)
+        # 5) VehicleOdometerEvent (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="VehicleOdometerEvent",
@@ -265,7 +272,7 @@ class Migration(migrations.Migration):
             options={"ordering": ["-event_at", "-id"]},
         ),
         # ==========================================================
-        # 7) VehicleServiceType (nuevo)
+        # 6) VehicleServiceType (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="VehicleServiceType",
@@ -328,7 +335,7 @@ class Migration(migrations.Migration):
             options={"ordering": ["name"]},
         ),
         # ==========================================================
-        # 8) VehicleService (nuevo)
+        # 7) VehicleService (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="VehicleService",
@@ -409,7 +416,7 @@ class Migration(migrations.Migration):
             options={"ordering": ["-service_date", "-id"]},
         ),
         # ==========================================================
-        # 9) VehicleNotificationConfig (nuevo)
+        # 8) VehicleNotificationConfig (nuevo)
         # ==========================================================
         migrations.CreateModel(
             name="VehicleNotificationConfig",
@@ -439,7 +446,7 @@ class Migration(migrations.Migration):
             ],
         ),
         # ==========================================================
-        # 10) FlotaCronDiarioEjecutado
+        # 9) FlotaCronDiarioEjecutado
         # ==========================================================
         migrations.CreateModel(
             name="FlotaCronDiarioEjecutado",
@@ -464,7 +471,7 @@ class Migration(migrations.Migration):
             ),
         ),
         # ==========================================================
-        # 11) FlotaAlertaEnviada
+        # 10) FlotaAlertaEnviada
         # ==========================================================
         migrations.CreateModel(
             name="FlotaAlertaEnviada",
