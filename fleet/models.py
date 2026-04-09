@@ -56,7 +56,10 @@ class Vehicle(models.Model):
     patente = models.CharField(max_length=32, unique=True)
 
     # ✅ NUEVO: VIN (USA)
-    vin = models.CharField(max_length=17, unique=True, db_index=True)
+    # vin = models.CharField(max_length=17, unique=True, db_index=True)
+    vin = models.CharField(
+        max_length=17, unique=True, db_index=True, null=True, blank=True
+    )
 
     marca = models.CharField(max_length=80, blank=True, default="")
     modelo = models.CharField(max_length=80, blank=True, default="")
