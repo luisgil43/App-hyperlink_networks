@@ -16,6 +16,15 @@ WasabiStorageClass = import_string(settings.DEFAULT_FILE_STORAGE)
 wasabi_storage = WasabiStorageClass()
 
 
+def upload_to_odometer_photo(instance, filename: str) -> str:
+    """
+    Compatibilidad con migración antigua 0003_vehicleodometerlog.py
+    (cuando existía VehicleOdometerLog y usaba upload_to=fleet.models.upload_to_odometer_photo)
+    """
+    # ruta simple y estable
+    return f"fleet/odometer_photos/{timezone.now():%Y/%m}/{filename}"
+
+
 class Sequence(models.Model):
     """
     Correlativos no reutilizables (para códigos de servicios, etc.)

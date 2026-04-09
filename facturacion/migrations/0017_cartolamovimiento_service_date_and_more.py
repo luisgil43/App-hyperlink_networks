@@ -7,29 +7,49 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('facturacion', '0016_cartolamovimiento_service_type_obj'),
-        ('fleet', '0002_vehiclenotificationconfig'),
+        ("facturacion", "0016_cartolamovimiento_service_type_obj"),
+        ("fleet", "0004_rebuild_fleet_to_new_module"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='cartolamovimiento',
-            name='service_date',
-            field=models.DateField(blank=True, help_text='Date when the service/fuel was performed (local date).', null=True, verbose_name='Service date'),
+            model_name="cartolamovimiento",
+            name="service_date",
+            field=models.DateField(
+                blank=True,
+                help_text="Date when the service/fuel was performed (local date).",
+                null=True,
+                verbose_name="Service date",
+            ),
         ),
         migrations.AddField(
-            model_name='cartolamovimiento',
-            name='service_time',
-            field=models.TimeField(blank=True, help_text='Time when the service/fuel was performed (local time).', null=True, verbose_name='Service time'),
+            model_name="cartolamovimiento",
+            name="service_time",
+            field=models.TimeField(
+                blank=True,
+                help_text="Time when the service/fuel was performed (local time).",
+                null=True,
+                verbose_name="Service time",
+            ),
         ),
         migrations.AddField(
-            model_name='cartolamovimiento',
-            name='vehicle',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='cartola_movimientos', to='fleet.vehicle'),
+            model_name="cartolamovimiento",
+            name="vehicle",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="cartola_movimientos",
+                to="fleet.vehicle",
+            ),
         ),
         migrations.AlterField(
-            model_name='cartolamovimiento',
-            name='kilometraje',
-            field=models.PositiveIntegerField(blank=True, help_text='Vehicle odometer (miles)', null=True),
+            model_name="cartolamovimiento",
+            name="kilometraje",
+            field=models.PositiveIntegerField(
+                blank=True,
+                help_text="Vehicle odometer (miles)",
+                null=True,
+            ),
         ),
     ]

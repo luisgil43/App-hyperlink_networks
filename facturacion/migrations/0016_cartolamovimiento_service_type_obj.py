@@ -7,14 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('facturacion', '0015_fix_real_consumption_date_nullable'),
-        ('fleet', '0002_vehiclenotificationconfig'),
+        ("facturacion", "0015_fix_real_consumption_date_nullable"),
+        ("fleet", "0004_rebuild_fleet_to_new_module"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='cartolamovimiento',
-            name='service_type_obj',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='cartola_movimientos', to='fleet.vehicleservicetype'),
+            model_name="cartolamovimiento",
+            name="service_type_obj",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="cartola_movimientos",
+                to="fleet.vehicleservicetype",
+            ),
         ),
     ]
