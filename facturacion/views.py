@@ -586,6 +586,41 @@ def eliminar_tipo(request, pk):
     return redirect('facturacion:crear_tipo')
 
 
+@login_required
+@rol_requerido("admin")
+@require_POST
+def toggle_tipo(request, pk):
+    """
+    Activa/Desactiva un TipoGasto usando is_active.
+    - POST only
+    - Si es AJAX: devuelve html del tbody actualizado
+    - Si no: redirect a crear_tipo
+    """
+    tipo = get_object_or_404(TipoGasto, pk=pk)
+    tipo.is_active = not tipo.is_active
+    tipo.save(update_fields=["is_active"])
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        tipos = TipoGasto.objects.all().order_by("-id")
+        html = render_to_string(
+            "facturacion/partials/tipo_gasto_table.html",
+            {"tipos": tipos},
+            request=request,
+        )
+        return JsonResponse(
+            {
+                "success": True,
+                "html": html,
+                "is_active": tipo.is_active,
+                "msg": f'Expense type "{tipo.nombre}" {"activated" if tipo.is_active else "deactivated"} successfully.',
+            }
+        )
+
+    messages.success(
+        request,
+        f'Expense type "{tipo.nombre}" {"activated" if tipo.is_active else "deactivated"} successfully.',
+    )
+    return redirect("facturacion:crear_tipo")
 
 
 @login_required
@@ -607,7 +642,6 @@ def crear_proyecto(request):
         'proyectos': proyectos,
         'next_code': next_code if request.method != 'POST' else None,
     })
-
 
 
 # Editar
@@ -1327,16 +1361,6 @@ def _can_edit_real_week(user) -> bool:
         return True
 
 
-
-
-
-
-
-
-
-
-
-
 def _limit_invoices_by_assignment_and_history(qs, user):
     """
     Lógica de historial igual que en producción admin, usando ProyectoAsignacion:
@@ -1800,8 +1824,6 @@ def invoices_list(request):
         "f_client": f_client,
     }
     return render(request, "facturacion/invoices_list.html", ctx)
-
-
 
 
 @require_POST

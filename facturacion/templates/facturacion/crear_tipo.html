@@ -40,28 +40,65 @@
           <th class="p-2 border">ID</th>
           <th class="p-2 border">Name</th>
           <th class="p-2 border">Category</th>
+          <th class="p-2 border text-center">Active</th>
           <th class="p-2 border">Actions</th>
         </tr>
       </thead>
+
       <tbody id="tiposBody">
         {% for tipo in tipos %}
         <tr class="border-t">
           <td class="p-2 border text-center">{{ tipo.id }}</td>
           <td class="p-2 border text-center">{{ tipo.nombre }}</td>
           <td class="p-2 border text-center">{{ tipo.get_categoria_display }}</td>
+
           <td class="p-2 border text-center">
-            <a href="{% url 'facturacion:editar_tipo' tipo.id %}" class="text-blue-600 hover:underline">✏️ Edit</a> |
-            <button type="button" 
-                    class="text-red-600 hover:underline delete-btn" 
-                    data-url="{% url 'facturacion:eliminar_tipo' tipo.id %}" 
-                    data-nombre="{{ tipo.nombre }}">
+            {% if tipo.is_active %}
+              <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                ✅ Active
+              </span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-gray-200 text-gray-700">
+                ⛔ Inactive
+              </span>
+            {% endif %}
+          </td>
+
+          <td class="p-2 border text-center">
+            <div class="flex items-center justify-center gap-2 flex-wrap">
+              <a href="{% url 'facturacion:editar_tipo' tipo.id %}" class="text-blue-600 hover:underline">
+                ✏️ Edit
+              </a>
+
+              <span class="text-gray-400">|</span>
+
+              <!-- Botón activar/desactivar -->
+              <form method="post" action="{% url 'facturacion:toggle_tipo' tipo.id %}" class="inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="{% if tipo.is_active %}text-amber-600{% else %}text-green-600{% endif %} hover:underline">
+                  {% if tipo.is_active %}
+                    🔒 Deactivate
+                  {% else %}
+                    🔓 Activate
+                  {% endif %}
+                </button>
+              </form>
+
+              <span class="text-gray-400">|</span>
+
+              <button type="button"
+                      class="text-red-600 hover:underline delete-btn"
+                      data-url="{% url 'facturacion:eliminar_tipo' tipo.id %}"
+                      data-nombre="{{ tipo.nombre }}">
                 🗑️ Delete
-            </button>
+              </button>
+            </div>
           </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="4" class="p-4 text-center text-gray-500">No expense types created.</td>
+          <td colspan="5" class="p-4 text-center text-gray-500">No expense types created.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -73,12 +110,19 @@
 <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
   <div class="bg-white rounded-xl p-6 max-w-md w-full shadow-lg">
     <h3 class="text-xl font-bold mb-4">Delete Expense Type</h3>
-    <p class="mb-4 text-gray-700">Are you sure you want to delete the type <span id="deleteNombre" class="font-semibold"></span>?</p>
+    <p class="mb-4 text-gray-700">
+      Are you sure you want to delete the type
+      <span id="deleteNombre" class="font-semibold"></span>?
+    </p>
     <div class="flex justify-end gap-3">
-      <button type="button" id="cancelDelete" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">Cancel</button>
+      <button type="button" id="cancelDelete" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-xl">
+        Cancel
+      </button>
       <form id="deleteForm" method="post">
         {% csrf_token %}
-        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl">Delete</button>
+        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl">
+          Delete
+        </button>
       </form>
     </div>
   </div>

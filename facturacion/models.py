@@ -64,12 +64,21 @@ class Proyecto(models.Model):
 
 class TipoGasto(models.Model):
     nombre = models.CharField(max_length=255)
-    categoria = models.CharField(max_length=50, choices=[
-        ('costo', 'Cost'),
-        ('inversion', 'Investment'),
-        ('gasto', 'Expense'),
-        ('abono', 'Deposit'),
-    ])
+    categoria = models.CharField(
+        max_length=50,
+        choices=[
+            ("costo", "Cost"),
+            ("inversion", "Investment"),
+            ("gasto", "Expense"),
+            ("abono", "Deposit"),
+        ],
+    )
+
+    # ✅ NEW: controls whether this type can be selected in expense reports
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ["nombre"]
 
     def __str__(self):
         return self.nombre

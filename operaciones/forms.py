@@ -11,7 +11,7 @@ from django.forms import ModelMultipleChoiceField
 # ✅ NUEVO
 from django.utils import timezone
 
-from facturacion.models import CartolaMovimiento
+from facturacion.models import CartolaMovimiento, TipoGasto
 from usuarios.models import CustomUser, Rol
 
 from .models import PrecioActividadTecnico, SesionBilling, WeeklyPayment
@@ -283,6 +283,27 @@ class MovimientoUsuarioForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         is_edit = bool(getattr(self.instance, "pk", None))
+
+        # ✅ FIX: mostrar solo tipos activos en rendiciones
+        if "tipo" in self.fields:
+            qs = TipoGasto.objects.filter(is_active=True).order_by("nombre")
+
+            # si estoy editando y el movimiento tiene un tipo inactivo,
+            # lo agrego igual para que el form no falle y se pueda ver/guardar
+            try:
+                current_tipo_id = getattr(self.instance, "tipo_id", None)
+                if current_tipo_id:
+                    current_tipo = TipoGasto.objects.filter(pk=current_tipo_id).first()
+                    if current_tipo and not getattr(current_tipo, "is_active", True):
+                        qs = (
+                            TipoGasto.objects.filter(pk=current_tipo_id)
+                            .union(qs)
+                            .order_by("nombre")
+                        )
+            except Exception:
+                pass
+
+            self.fields["tipo"].queryset = qs
 
         if not is_edit and not self.initial.get("real_consumption_date"):
             self.initial["real_consumption_date"] = timezone.localdate()
