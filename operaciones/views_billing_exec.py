@@ -108,6 +108,23 @@ def _get_my_active_assignment_or_404(request, pk: int):
 @login_required
 @rol_requerido('usuario', 'admin', 'pm', 'supervisor')
 def mis_assignments(request):
+    import json
+    from decimal import Decimal
+
+    from django.core.paginator import Paginator
+    from django.db.models import (Case, DecimalField, IntegerField, OuterRef,
+                                  Q, Subquery, Sum, Value, When)
+    from django.db.models.functions import Coalesce
+
+    # modelos cable
+    try:
+        from cable_installation.models import (CableAssignmentRequirement,
+                                               CableEvidence, CableRequirement)
+    except Exception:
+        CableAssignmentRequirement = None
+        CableEvidence = None
+        CableRequirement = None
+
     # Estados visibles (se excluyen todos los aprobados)
     visibles = [
         'asignado',
@@ -124,19 +141,18 @@ def mis_assignments(request):
         .filter(
             tecnico=request.user,
             estado__in=visibles,
-            # ⬇️ NO mostrar "Direct Discount" como asignación
             sesion__is_direct_discount=False,
         )
     )
 
-    # ✅ NUEVO: mostrar solo asignaciones activas (si existe el campo)
+    # solo activas si existe el campo
     try:
         SesionBillingTecnico._meta.get_field("is_active")
         base_qs = base_qs.filter(is_active=True)
     except Exception:
         pass
 
-    # Subquery: total del técnico para cada sesión
+    # total del técnico para cada sesión
     ibt = (
         ItemBillingTecnico.objects
         .filter(item__sesion=OuterRef("sesion_id"), tecnico=request.user)
@@ -155,7 +171,6 @@ def mis_assignments(request):
                 Value(Decimal("0.00"), output_field=dec_field),
                 output_field=dec_field
             ),
-            # Prioridad de estado para ordenar
             estado_priority=Case(
                 When(estado='asignado',               then=Value(1)),
                 When(estado='en_proceso',             then=Value(2)),
@@ -212,54 +227,20 @@ def mis_assignments(request):
             ).strip()
     # ========================================================================
 
-    # ================== can_finish + motivos (faltantes / pendientes) ==================
+    # ================== can_finish + motivos ==================
     def _norm_title(x: str) -> str:
         return (x or "").strip().lower()
 
-    # Agrupar por sesión
+    def _cable_label(req):
+        return f"PK {req.sequence_no} - {req.handhole}"
+
     by_session = {}
     for a in asignaciones:
         by_session.setdefault(a.sesion_id, []).append(a)
 
     sesion_ids = list(by_session.keys())
 
-    # 0) sample_map por sesión (nombres bonitos)
-    sample_map_by_sesion = {}
-    qs_sample = (
-        RequisitoFotoBilling.objects
-        .filter(tecnico_sesion__sesion_id__in=sesion_ids, titulo__isnull=False)
-        .values_list("tecnico_sesion__sesion_id", "titulo")
-    )
-    for sid, t in qs_sample:
-        if not t:
-            continue
-        sample_map_by_sesion.setdefault(sid, {})
-        sample_map_by_sesion[sid][_norm_title(t)] = t
-
-    # 1) títulos obligatorios por sesión
-    req_titles_by_sesion = {}
-    qs_req = (
-        RequisitoFotoBilling.objects
-        .filter(tecnico_sesion__sesion_id__in=sesion_ids, obligatorio=True)
-        .values_list("tecnico_sesion__sesion_id", "titulo")
-    )
-    for sid, t in qs_req:
-        if t:
-            req_titles_by_sesion.setdefault(sid, set()).add(_norm_title(t))
-
-    # 2) títulos cubiertos por sesión (lock global por equipo)
-    covered_by_sesion = {}
-    qs_cov = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion_id__in=sesion_ids, requisito__isnull=False)
-        .values_list("tecnico_sesion__sesion_id", "requisito__titulo")
-        .distinct()
-    )
-    for sid, t in qs_cov:
-        if t:
-            covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
-
-    # 3) pendientes de aceptación por sesión (NOMBRES) ✅ solo asignaciones activas
+    # 1) pendientes de aceptación por sesión
     pending_accept_names = {sid: [] for sid in sesion_ids}
     qs_asg = (
         SesionBillingTecnico.objects
@@ -287,15 +268,104 @@ def mis_assignments(request):
             name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
             pending_accept_names.setdefault(sid, []).append(name)
 
-    # 4) aplicar a cada asignación
+    # separar sesiones cable / no cable
+    cable_session_ids = [a.sesion_id for a in asignaciones if getattr(a.sesion, "is_cable_installation", False)]
+    normal_session_ids = [a.sesion_id for a in asignaciones if not getattr(a.sesion, "is_cable_installation", False)]
+
+    # ---------- flujo normal ----------
+    sample_map_by_sesion = {}
+    req_titles_by_sesion = {}
+    covered_by_sesion = {}
+
+    if normal_session_ids:
+        qs_sample = (
+            RequisitoFotoBilling.objects
+            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, titulo__isnull=False)
+            .values_list("tecnico_sesion__sesion_id", "titulo")
+        )
+        for sid, t in qs_sample:
+            if not t:
+                continue
+            sample_map_by_sesion.setdefault(sid, {})
+            sample_map_by_sesion[sid][_norm_title(t)] = t
+
+        qs_req = (
+            RequisitoFotoBilling.objects
+            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, obligatorio=True)
+            .values_list("tecnico_sesion__sesion_id", "titulo")
+        )
+        for sid, t in qs_req:
+            if t:
+                req_titles_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+
+        qs_cov = (
+            EvidenciaFotoBilling.objects
+            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, requisito__isnull=False)
+            .values_list("tecnico_sesion__sesion_id", "requisito__titulo")
+            .distinct()
+        )
+        for sid, t in qs_cov:
+            if t:
+                covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+
+    # ---------- flujo cable ----------
+    cable_missing_by_sesion = {}
+
+    if cable_session_ids and CableRequirement and CableAssignmentRequirement and CableEvidence:
+        requirements_by_session = {}
+        qs_cable_req = (
+            CableRequirement.objects
+            .filter(billing_id__in=cable_session_ids, required=True)
+            .order_by("billing_id", "order", "sequence_no", "id")
+        )
+        for req in qs_cable_req:
+            requirements_by_session.setdefault(req.billing_id, []).append(req)
+
+        measured_req_ids = set(
+            CableRequirement.objects
+            .filter(
+                billing_id__in=cable_session_ids,
+                start_ft__isnull=False,
+                end_ft__isnull=False,
+            )
+            .values_list("id", flat=True)
+        )
+
+        evidence_req_ids = set(
+            CableEvidence.objects
+            .filter(
+                assignment_requirement__requirement__billing_id__in=cable_session_ids
+            )
+            .values_list("assignment_requirement__requirement_id", flat=True)
+            .distinct()
+        )
+
+        for sid, reqs in requirements_by_session.items():
+            faltantes = []
+            for req in reqs:
+                missing_parts = []
+                if req.id not in measured_req_ids:
+                    missing_parts.append("measurement")
+                if req.id not in evidence_req_ids:
+                    missing_parts.append("photo")
+                if missing_parts:
+                    faltantes.append(f"{_cable_label(req)} ({', '.join(missing_parts)})")
+            cable_missing_by_sesion[sid] = faltantes
+
+    # aplicar a cada asignación
     for a in asignaciones:
         sid = a.sesion_id
-        required = req_titles_by_sesion.get(sid, set())
-        covered = covered_by_sesion.get(sid, set())
-        faltan_keys = required - covered
 
-        smap = sample_map_by_sesion.get(sid, {})
-        a.faltantes_global_labels = [smap.get(k, k) for k in sorted(faltan_keys)]
+        if getattr(a.sesion, "is_cable_installation", False):
+            a.faltantes_global_labels = cable_missing_by_sesion.get(sid, [])
+        else:
+            required = req_titles_by_sesion.get(sid, set())
+            covered = covered_by_sesion.get(sid, set())
+            faltan_keys = required - covered
+
+            smap = sample_map_by_sesion.get(sid, {})
+            a.faltantes_global_labels = [smap.get(k, k) for k in sorted(faltan_keys)]
+
         a.pendientes_aceptar_names = pending_accept_names.get(sid, [])
 
         a.can_finish = (
@@ -305,7 +375,7 @@ def mis_assignments(request):
         )
     # ==============================================================================
 
-    # ================== Excel filters (server-side) + excel_global_json ==================
+    # ================== Excel filters ==================
     def _cell_value(a, col_idx: int) -> str:
         s = a.sesion
 
@@ -313,11 +383,11 @@ def mis_assignments(request):
             x = (x or "").strip()
             return x if x else "(Vacías)"
 
-        if col_idx == 0:  # Date
+        if col_idx == 0:
             return vac(s.creado_en.strftime("%Y-%m-%d"))
-        if col_idx == 1:  # Project ID
+        if col_idx == 1:
             return vac(getattr(s, "proyecto_id", "") or "")
-        if col_idx == 2:  # Project address
+        if col_idx == 2:
             addr = (getattr(s, "direccion_proyecto", "") or "").strip()
             href = (getattr(s, "maps_href", "") or "").strip()
             if not addr and not href:
@@ -325,21 +395,21 @@ def mis_assignments(request):
             if addr and href and addr == href:
                 return "Address"
             return vac(addr)
-        if col_idx == 3:  # Client
+        if col_idx == 3:
             return vac(getattr(s, "cliente", "") or "")
-        if col_idx == 4:  # City
+        if col_idx == 4:
             return vac(getattr(s, "ciudad", "") or "")
-        if col_idx == 5:  # Project (label)
+        if col_idx == 5:
             return vac(getattr(a, "proyecto_label", "") or "")
-        if col_idx == 6:  # Office
+        if col_idx == 6:
             return vac(getattr(s, "oficina", "") or "")
-        if col_idx == 7:  # My Billing
+        if col_idx == 7:
             try:
                 val = getattr(a, "my_total", Decimal("0.00")) or Decimal("0.00")
                 return f"${val:.2f}"
             except Exception:
                 return "$0.00"
-        if col_idx == 8:  # Status (texto)
+        if col_idx == 8:
             estado = getattr(a, "estado", "") or ""
             if estado == "asignado":
                 return "Pending acceptance"
@@ -354,14 +424,15 @@ def mis_assignments(request):
             if estado == "rechazado_finanzas":
                 return "Rejected by Finance"
             return vac(estado)
-        if col_idx == 9:  # My comment
+        if col_idx == 9:
             return vac(getattr(a, "tecnico_comentario", "") or "")
-        if col_idx == 10:  # Photo Report
+        if col_idx == 10:
+            if getattr(s, "is_cable_installation", False):
+                return "Cable report"
             return "Download" if getattr(s, "reporte_fotografico", None) else "(Vacías)"
 
         return "(Vacías)"
 
-    # aplicar filtros recibidos
     excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
     active_excel_filters = {}
     if excel_filters_raw:
@@ -390,9 +461,8 @@ def mis_assignments(request):
                 filtered.append(a)
         asignaciones = filtered
 
-    # excel_global_json: valores distintos por columna (para armar el panel)
     excel_global = {}
-    MAX_COLS = 11  # 0..10 (Actions no entra)
+    MAX_COLS = 11
     for i in range(MAX_COLS):
         vals = set()
         for a in asignaciones:
@@ -414,11 +484,9 @@ def mis_assignments(request):
     page_num = request.GET.get("page") or "1"
     pagina = paginator.get_page(page_num)
 
-    # querystring base para links (sin "page")
     qs_keep = request.GET.copy()
     qs_keep.pop("page", None)
     base_qs = qs_keep.urlencode()
-    # ================== /Paginación ==================
 
     return render(
         request,
@@ -431,6 +499,7 @@ def mis_assignments(request):
             "excel_global_json": excel_global_json,
         }
     )
+
 
 @login_required
 @rol_requerido('usuario')

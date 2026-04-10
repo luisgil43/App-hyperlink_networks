@@ -1,0 +1,117 @@
+from django.urls import path
+
+from . import views
+from . import views_camera_user as cam
+from . import views_revision_admin as ad
+from . import views_revision_user as us
+
+app_name = "cable_installation"
+
+urlpatterns = [
+    path(
+        "billing/<int:billing_id>/requirements/",
+        views.configure_requirements,
+        name="configure_requirements",
+    ),
+    path(
+        "billing/<int:billing_id>/review/",
+        ad.review_requirements,
+        name="review_requirements",
+    ),
+    path(
+        "billing/<int:billing_id>/export-measurements/",
+        views.export_measurements_excel,
+        name="export_measurements_excel",
+    ),
+    path(
+        "billing/<int:billing_id>/approve-project/",
+        ad.approve_project_review,
+        name="approve_project_review",
+    ),
+    path(
+        "billing/<int:billing_id>/reject-project/",
+        ad.reject_project_review,
+        name="reject_project_review",
+    ),
+    path(
+        "assignment/<int:assignment_id>/requirements/",
+        us.technician_requirements,
+        name="technician_requirements",
+    ),
+    path(
+        "assignment/<int:assignment_id>/status/",
+        us.technician_requirements_status_json,
+        name="technician_requirements_status_json",
+    ),
+    path(
+        "assignment/<int:assignment_id>/upload-ajax/",
+        us.upload_requirement_evidence_ajax,
+        name="upload_requirement_evidence_ajax",
+    ),
+    path(
+        "assignment-row/<int:row_id>/update/",
+        us.update_assignment_requirement,
+        name="update_assignment_requirement",
+    ),
+    path(
+        "evidence/<int:evidence_id>/delete/",
+        us.delete_own_evidence,
+        name="delete_own_evidence",
+    ),
+    path(
+        "review-row/<int:row_id>/update/",
+        ad.reviewer_update_requirement,
+        name="reviewer_update_requirement",
+    ),
+    path(
+        "review-shared/<int:requirement_id>/update/",
+        ad.reviewer_update_shared_requirement,
+        name="reviewer_update_shared_requirement",
+    ),
+    path(
+        "evidence/<int:evidence_id>/approve/",
+        ad.approve_evidence,
+        name="approve_evidence",
+    ),
+    path(
+        "evidence/<int:evidence_id>/reject/",
+        ad.reject_evidence,
+        name="reject_evidence",
+    ),
+    path(
+        "billing/<int:billing_id>/evidences/bulk-approve/",
+        ad.bulk_approve_evidences,
+        name="bulk_approve_evidences",
+    ),
+    path(
+        "<int:billing_id>/requirements/import/",
+        views.import_requirements_page,
+        name="import_requirements_page",
+    ),
+    path(
+        "<int:billing_id>/requirements/template/<str:ext>/",
+        views.download_requirements_template,
+        name="download_requirements_template",
+    ),
+    path(
+        "<int:billing_id>/requirements/import/preview/",
+        views.import_requirements_preview,
+        name="import_requirements_preview",
+    ),
+    path(
+        "<int:billing_id>/requirements/import/confirm/",
+        views.confirm_import_requirements,
+        name="confirm_import_requirements",
+    ),
+    path("assignment/<int:asig_id>/camera/take/", cam.camera_take, name="camera_take"),
+    path(
+        "assignment/<int:asig_id>/camera/status/",
+        cam.camera_requirements_status,
+        name="camera_requirements_status",
+    ),
+    path(
+        "assignment/<int:asig_id>/camera/create-from-key/",
+        cam.camera_create_evidence_from_key,
+        name="camera_create_evidence_from_key",
+    ),
+]

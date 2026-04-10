@@ -1,4 +1,3 @@
-{# templates/operaciones/billing_mis_asignaciones.html #}
 {% extends "dashboard/base.html" %}
 {% load humanize %}
 {% block title %}My Assignments{% endblock %}
@@ -8,7 +7,6 @@
   <h1 class="text-2xl font-bold mb-4">🧾 My Assignments</h1>
 
   <style>
-    /* ===== Excel-like filters (copiado/ajustado desde Cartola) ===== */
     .excel-header-btn{
       width:100%;
       justify-content:center;
@@ -105,82 +103,24 @@
              style="white-space: nowrap;">
         <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
           <tr>
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Date</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Project ID</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Project address</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Client</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>City</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Office</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-right" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>My Billing</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-center" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-left" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1" style="justify-content:flex-start;">
-                <span>My comment</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-center" data-excel-col>
-              <button type="button" class="excel-header-btn flex items-center gap-1">
-                <span>Photo Report</span><span class="excel-arrow text-gray-500">▼</span>
-              </button>
-            </th>
-
-            <th class="p-2 border text-center">
-              Actions
-            </th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Date</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Project ID</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Project address</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Client</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>City</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Project</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Office</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-right" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>My Billing</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-center" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Status</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1" style="justify-content:flex-start;"><span>My comment</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-center" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Photo Report</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-center">Actions</th>
           </tr>
         </thead>
 
         <tbody class="text-left">
         {% for a in asignaciones %}
           <tr class="border-t align-top">
-
             <td class="p-2 border" data-excel-value="{{ a.sesion.creado_en|date:'Y-m-d' }}">
               {{ a.sesion.creado_en|date:"Y-m-d" }}
             </td>
@@ -324,10 +264,17 @@
                 </button>
 
               {% elif a.estado == "en_proceso" %}
-                <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-                   class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-                  Upload photos
-                </a>
+                {% if a.sesion.is_cable_installation %}
+                  <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Cable report
+                  </a>
+                {% else %}
+                  <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Upload photos
+                  </a>
+                {% endif %}
 
                 <button type="button"
                         class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
@@ -343,10 +290,17 @@
                   Start
                 </button>
 
-                <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-                   class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-                  Reupload photos
-                </a>
+                {% if a.sesion.is_cable_installation %}
+                  <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Reupload cable report
+                  </a>
+                {% else %}
+                  <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Reupload photos
+                  </a>
+                {% endif %}
 
                 <button type="button"
                         class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
@@ -367,10 +321,8 @@
     </div>
   </div>
 
-  {# ===== PAGINACIÓN (LA MISMA QUE TIENES AHORA) ===== #}
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form id="formCantidad" class="flex items-center gap-2" method="get">
-      {# conservar querystring actual (incluye excel_filters) excepto cantidad/page #}
       {% for k,v in request.GET.items %}
         {% if k != 'cantidad' and k != 'page' %}
           <input type="hidden" name="{{ k }}" value="{{ v }}">
@@ -402,10 +354,8 @@
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.paginator.num_pages }}">Last »</a>
     {% endif %}
   </div>
-
 </div>
 
-{# ===== Modal Aceptar & Empezar (POST) ===== #}
 <div id="modal-accept" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
@@ -421,7 +371,6 @@
   </div>
 </div>
 
-{# ✅ Modal Finish con comentario (POST) #}
 <div id="modal-finish" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-finish></div>
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
@@ -450,7 +399,6 @@
   </div>
 </div>
 
-{# ✅ Panel flotante tipo Excel #}
 <div id="excelFilterPanel" class="excel-panel hidden">
   <h3 id="excelPanelTitle">Column</h3>
   <small>Filter values</small>
@@ -480,9 +428,6 @@
 
 <script>
 (function(){
-  // ============================
-  // MODAL ACCEPT
-  // ============================
   const modalAccept = document.getElementById('modal-accept');
   const formAccept  = document.getElementById('form-accept');
 
@@ -505,9 +450,6 @@
 
 <script>
 (function(){
-  // ============================
-  // MODAL FINISH
-  // ============================
   const modal = document.getElementById('modal-finish');
   const form  = document.getElementById('form-finish');
   const txt   = document.getElementById('finish-comentario');
@@ -542,7 +484,6 @@
 </script>
 
 <script>
-/* Mantener scroll horizontal */
 (function () {
   const KEY = 'myassignScrollX:' + location.pathname;
 
@@ -581,7 +522,6 @@
 </script>
 
 <script>
-/* Column toggles */
 (function () {
   const panel = document.getElementById('columnToggles');
   if (!panel) return;
@@ -685,7 +625,6 @@
 </script>
 
 <script>
-/* ✅ Excel filters SERVER-SIDE (como Cartola): aplica filtro => recarga URL con excel_filters y page=1 */
 (function(){
   const zona = document.getElementById('zonaTabla');
   if(!zona) return;
@@ -744,7 +683,6 @@
     if(ef) url.searchParams.set('excel_filters', ef);
     else url.searchParams.delete('excel_filters');
 
-    // mantener cantidad
     const cant = document.getElementById('cantidad')?.value;
     if(cant) url.searchParams.set('cantidad', cant);
 
@@ -858,11 +796,9 @@
     excel.searchInput.focus();
   }
 
-  // Init active from sessionStorage
   excel.active = loadFilters();
   updateHeaderStates();
 
-  // Bind headers
   excel.headers.forEach((th, idx)=>{
     if(!th.hasAttribute('data-excel-col')) return;
     const btn = th.querySelector('.excel-header-btn');
@@ -873,7 +809,6 @@
     });
   });
 
-  // Panel events
   excel.searchInput.addEventListener('input', ()=> filterOptionList(excel.searchInput.value));
 
   excel.searchInput.addEventListener('keydown', (e)=>{
@@ -935,7 +870,6 @@
     reloadWith(true);
   });
 
-  // close panel outside
   document.addEventListener('click', (e)=>{
     if(excel.panel.classList.contains('hidden')) return;
     if(excel.panel.contains(e.target)) return;
@@ -943,7 +877,6 @@
     excel.panel.classList.add('hidden');
   });
 
-  // Global clear
   document.getElementById('btnExcelClearAll')?.addEventListener('click', (e)=>{
     e.preventDefault();
     excel.active = {};

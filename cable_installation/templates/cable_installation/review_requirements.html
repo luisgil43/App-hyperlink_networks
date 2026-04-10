@@ -1,0 +1,488 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Cable Review{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        🧵 Cable Review — Billing #{{ billing.id }}
+      </h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Project ID: {{ billing.proyecto_id }} · Client: {{ billing.cliente }} · City: {{ billing.ciudad }}
+      </p>
+      <div class="mt-2 text-sm">
+        <span class="font-semibold text-gray-700">Project status:</span>
+        {% if billing.estado == "aprobado_supervisor" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
+        {% elif billing.estado == "rechazado_supervisor" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">Rejected by supervisor</span>
+        {% elif billing.estado == "aprobado_pm" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
+        {% elif billing.estado == "en_revision_supervisor" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">In supervisor review</span>
+        {% elif billing.estado == "en_proceso" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">In progress</span>
+        {% else %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">{{ billing_status_label }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="{% url 'operaciones:listar_billing' %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        ← Back
+      </a>
+      <a href="{% url 'cable_installation:configure_requirements' billing.id %}"
+         class="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white">
+        Configure Requirements
+      </a>
+      <a href="{% url 'cable_installation:export_measurements_excel' billing.id %}"
+         class="px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
+        Export Excel
+      </a>
+
+      {% if can_review_project %}
+      <form method="post"
+            action="{% url 'cable_installation:approve_project_review' billing.id %}"
+            class="inline">
+        {% csrf_token %}
+        <button type="submit"
+                class="px-4 py-2 rounded-full bg-green-600 hover:bg-green-700 text-white">
+          Approve Project
+        </button>
+      </form>
+
+      <button type="button"
+              id="btn-reject-project"
+              class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white">
+        Reject Project
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="mb-4 flex items-center justify-between gap-3 bg-gray-50 border rounded-2xl px-4 py-3">
+    <div class="text-sm text-gray-700">
+      Review the shared measurement once per handhole, then review the technician statuses and photos.
+    </div>
+    <button type="button"
+            id="btn-bulk-approve"
+            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled>
+      Approve selected photos
+    </button>
+  </div>
+
+  {% for block in grouped_requirements %}
+  <div class="border rounded-2xl mb-6 overflow-hidden">
+    <div class="bg-gray-50 px-4 py-3 border-b">
+      <div class="flex flex-wrap items-center gap-4">
+        <div><b>PK:</b> {{ block.requirement.sequence_no }}</div>
+        <div><b>Handhole:</b> {{ block.requirement.handhole }}</div>
+        <div><b>Planned reserve:</b> {{ block.requirement.planned_reserve_ft }} ft</div>
+        <div><b>Required:</b> {% if block.requirement.required %}Yes{% else %}No{% endif %}</div>
+        {% if block.requirement.warning %}
+        <div class="text-amber-700"><b>Warning:</b> {{ block.requirement.warning }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="p-4 border-b bg-white">
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-start">
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">Shared Start ft</label>
+          <input type="number"
+                 step="0.01"
+                 class="shared-start border rounded-xl px-3 py-2 w-full"
+                 value="{{ block.requirement.start_ft|default:'' }}"
+                 data-requirement-id="{{ block.requirement.id }}">
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">Shared End ft</label>
+          <input type="number"
+                 step="0.01"
+                 class="shared-end border rounded-xl px-3 py-2 w-full"
+                 value="{{ block.requirement.end_ft|default:'' }}"
+                 data-requirement-id="{{ block.requirement.id }}">
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">Installed ft</label>
+          <div id="installed-req-{{ block.requirement.id }}"
+               class="border rounded-xl px-3 py-2 bg-gray-50 min-h-[42px]">
+            {{ block.requirement.installed_ft }}
+          </div>
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="text-xs text-gray-500 block mb-1">Measurement review</label>
+          {% if block.requirement.measurement_warning_text %}
+          <div id="warn-req-{{ block.requirement.id }}"
+               class="border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm min-h-[42px]">
+            {{ block.requirement.measurement_warning_text }}
+          </div>
+          {% else %}
+          <div id="warn-req-{{ block.requirement.id }}"
+               class="border rounded-xl px-3 py-2 bg-gray-50 text-gray-400 text-sm min-h-[42px]">
+            No measurement warning.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="mt-3 flex justify-end">
+        <button type="button"
+                class="btn-save-shared px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                data-requirement-id="{{ block.requirement.id }}">
+          Save shared measurement
+        </button>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto border-b">
+      <table class="w-full min-w-[900px] text-sm">
+        <thead class="bg-white border-b">
+          <tr>
+            <th class="p-2 text-left">Technician</th>
+            <th class="p-2 text-left">Status</th>
+            <th class="p-2 text-left">Note</th>
+            <th class="p-2 text-left">Supervisor note</th>
+            <th class="p-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in block.rows %}
+          <tr class="border-b align-top">
+            <td class="p-2">
+              {{ row.assignment.tecnico.get_full_name|default:row.assignment.tecnico.username }}
+            </td>
+            <td class="p-2">
+              <select class="rv-status border rounded px-2 py-1 w-full" data-row-id="{{ row.id }}">
+                {% for value, label in row.STATUS_CHOICES %}
+                <option value="{{ value }}" {% if row.status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="p-2">
+              <textarea class="rv-note border rounded px-2 py-1 w-full"
+                        rows="2"
+                        data-row-id="{{ row.id }}">{{ row.note }}</textarea>
+            </td>
+            <td class="p-2">
+              <textarea class="rv-supervisor-note border rounded px-2 py-1 w-full"
+                        rows="2"
+                        data-row-id="{{ row.id }}">{{ row.supervisor_note }}</textarea>
+            </td>
+            <td class="p-2">
+              <button type="button"
+                      class="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 btn-save-row"
+                      data-row-id="{{ row.id }}">
+                Save technician row
+              </button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="5" class="p-3 text-center text-gray-500">No technician rows.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="p-4 bg-gray-50">
+      <div class="font-semibold text-gray-800 mb-3">Requirement photos</div>
+
+      {% if block.evidences %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {% for ev in block.evidences %}
+        <div class="border rounded-2xl p-3 bg-white">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <label class="inline-flex items-center gap-2 text-xs text-gray-600">
+              <input type="checkbox"
+                     class="ev-check w-4 h-4"
+                     value="{{ ev.id }}"
+                     {% if ev.review_status == 'approved' %}disabled{% endif %}>
+              <span>Select</span>
+            </label>
+
+            <div class="text-xs text-gray-500">
+              {{ ev.uploader_name }}
+            </div>
+          </div>
+
+          <a href="{{ ev.image.url }}" target="_blank" rel="noopener" class="block">
+            <img src="{{ ev.image.url }}"
+                 class="w-full h-56 object-cover rounded-xl border"
+                 alt="photo">
+          </a>
+
+          <div class="mt-2 text-xs text-gray-600">
+            Taken: {{ ev.taken_at|date:"Y-m-d H:i" }}
+          </div>
+
+          <div class="mt-1 text-xs">
+            Status:
+            {% if ev.review_status == 'approved' %}
+              <span class="text-green-700 font-semibold">Approved</span>
+            {% elif ev.review_status == 'rejected' %}
+              <span class="text-red-700 font-semibold">Rejected</span>
+            {% else %}
+              <span class="text-amber-700 font-semibold">Pending</span>
+            {% endif %}
+          </div>
+
+          {% if ev.note %}
+          <div class="mt-1 text-xs text-gray-600">
+            Technician note: {{ ev.note }}
+          </div>
+          {% endif %}
+
+          {% if ev.review_comment %}
+          <div class="mt-1 text-xs text-red-700">
+            Review comment: {{ ev.review_comment }}
+          </div>
+          {% endif %}
+
+          <div class="mt-3 flex gap-2">
+            <button type="button"
+                    class="btn-approve-ev px-3 py-1 rounded bg-green-600 text-white text-xs"
+                    data-id="{{ ev.id }}">
+              Approve
+            </button>
+            <button type="button"
+                    class="btn-reject-ev px-3 py-1 rounded bg-red-600 text-white text-xs"
+                    data-id="{{ ev.id }}">
+              Reject
+            </button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="text-sm text-gray-500">No photos uploaded for this requirement yet.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<form id="reject-project-form"
+      method="post"
+      action="{% url 'cable_installation:reject_project_review' billing.id %}"
+      class="hidden">
+  {% csrf_token %}
+  <input type="hidden" name="comment" id="reject-project-comment">
+</form>
+
+<script>
+function getCookie(name){
+  const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+  return m ? decodeURIComponent(m[2]) : null;
+}
+const csrftoken = getCookie('csrftoken') || '';
+
+function syncBulkApproveButton(){
+  const checked = document.querySelectorAll('.ev-check:checked').length;
+  const btn = document.getElementById('btn-bulk-approve');
+  if(btn){
+    btn.disabled = checked === 0;
+  }
+}
+
+async function saveSharedRequirement(requirementId){
+  const start = document.querySelector('.shared-start[data-requirement-id="' + requirementId + '"]')?.value || '';
+  const end = document.querySelector('.shared-end[data-requirement-id="' + requirementId + '"]')?.value || '';
+
+  const body = new FormData();
+  body.append('start_ft', start);
+  body.append('end_ft', end);
+
+  let resp = await fetch(
+    "{% url 'cable_installation:reviewer_update_shared_requirement' 0 %}".replace('/0/', '/' + requirementId + '/'),
+    {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    }
+  );
+
+  let data = await resp.json();
+
+  if(resp.status === 409 && data.requires_confirmation){
+    const ok = confirm(data.error + "\n\nDo you want to save this value anyway?");
+    if(!ok) return;
+
+    const confirmBody = new FormData();
+    confirmBody.append('start_ft', start);
+    confirmBody.append('end_ft', end);
+    confirmBody.append('override_confirmed', '1');
+
+    resp = await fetch(
+      "{% url 'cable_installation:reviewer_update_shared_requirement' 0 %}".replace('/0/', '/' + requirementId + '/'),
+      {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+        body: confirmBody
+      }
+    );
+    data = await resp.json();
+  }
+
+  if(!resp.ok || !data.ok){
+    alert(data.error || 'Save failed');
+    return;
+  }
+
+  document.getElementById('installed-req-' + requirementId).textContent = data.requirement.installed_ft;
+
+  const warn = document.getElementById('warn-req-' + requirementId);
+  if(warn){
+    if(data.requirement.warning_text){
+      warn.textContent = data.requirement.warning_text;
+      warn.className = 'border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm min-h-[42px]';
+    }else{
+      warn.textContent = 'No measurement warning.';
+      warn.className = 'border rounded-xl px-3 py-2 bg-gray-50 text-gray-400 text-sm min-h-[42px]';
+    }
+  }
+
+  alert('Shared measurement saved.');
+}
+
+async function saveReviewRow(rowId){
+  const status = document.querySelector('.rv-status[data-row-id="' + rowId + '"]')?.value || '';
+  const note = document.querySelector('.rv-note[data-row-id="' + rowId + '"]')?.value || '';
+  const supervisorNote = document.querySelector('.rv-supervisor-note[data-row-id="' + rowId + '"]')?.value || '';
+
+  const body = new FormData();
+  body.append('status', status);
+  body.append('note', note);
+  body.append('supervisor_note', supervisorNote);
+
+  const resp = await fetch(
+    "{% url 'cable_installation:reviewer_update_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
+    {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    }
+  );
+
+  const data = await resp.json();
+  if(!resp.ok || !data.ok){
+    alert(data.error || 'Save failed');
+    return;
+  }
+
+  alert('Technician row saved.');
+}
+
+document.addEventListener('change', function(e){
+  if(e.target.classList.contains('ev-check')){
+    syncBulkApproveButton();
+  }
+});
+
+document.addEventListener('click', async function(e){
+  const saveSharedBtn = e.target.closest('.btn-save-shared');
+  if(saveSharedBtn){
+    await saveSharedRequirement(saveSharedBtn.dataset.requirementId);
+    return;
+  }
+
+  const saveBtn = e.target.closest('.btn-save-row');
+  if(saveBtn){
+    await saveReviewRow(saveBtn.dataset.rowId);
+    return;
+  }
+
+  const approveBtn = e.target.closest('.btn-approve-ev');
+  if(approveBtn){
+    const id = approveBtn.dataset.id;
+    const body = new FormData();
+    const resp = await fetch("{% url 'cable_installation:approve_evidence' 0 %}".replace('/0/', '/' + id + '/'), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    });
+    const data = await resp.json();
+    if(!resp.ok || !data.ok){
+      alert(data.error || 'Approve failed');
+      return;
+    }
+    location.reload();
+    return;
+  }
+
+  const rejectBtn = e.target.closest('.btn-reject-ev');
+  if(rejectBtn){
+    const id = rejectBtn.dataset.id;
+    const comment = prompt('Why are you rejecting this photo?');
+    if(comment === null) return;
+    if(!comment.trim()){
+      alert('Comment is required.');
+      return;
+    }
+
+    const body = new FormData();
+    body.append('comment', comment.trim());
+
+    const resp = await fetch("{% url 'cable_installation:reject_evidence' 0 %}".replace('/0/', '/' + id + '/'), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    });
+    const data = await resp.json();
+    if(!resp.ok || !data.ok){
+      alert(data.error || 'Reject failed');
+      return;
+    }
+    location.reload();
+    return;
+  }
+
+  const bulkBtn = e.target.closest('#btn-bulk-approve');
+  if(bulkBtn){
+    const ids = Array.from(document.querySelectorAll('.ev-check:checked')).map(el => el.value);
+    if(!ids.length){
+      alert('Select at least one photo.');
+      return;
+    }
+
+    const body = new FormData();
+    ids.forEach(id => body.append('ids[]', id));
+
+    const resp = await fetch("{% url 'cable_installation:bulk_approve_evidences' billing.id %}", {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    });
+    const data = await resp.json();
+    if(!resp.ok || !data.ok){
+      alert(data.error || 'Bulk approve failed');
+      return;
+    }
+    location.reload();
+    return;
+  }
+
+  const rejectProjectBtn = e.target.closest('#btn-reject-project');
+  if(rejectProjectBtn){
+    const comment = prompt('Why are you rejecting this project?');
+    if(comment === null) return;
+    if(!comment.trim()){
+      alert('Comment is required.');
+      return;
+    }
+    document.getElementById('reject-project-comment').value = comment.trim();
+    document.getElementById('reject-project-form').submit();
+  }
+});
+
+syncBulkApproveButton();
+</script>
+{% endblock %}

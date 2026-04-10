@@ -1,0 +1,1247 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Cable Upload Photos{% endblock %}
+{% block content %}
+
+<style>
+  .pv{position:fixed;inset:0;z-index:2147483647;display:none;}
+  .pv.show{display:block;}
+  .pv .bg{position:absolute;inset:0;background:rgba(0,0,0,.92);}
+  .pv .img{position:absolute;inset:0;display:grid;place-items:center;}
+  .pv img{max-width:100vw;max-height:100vh;object-fit:contain;}
+  .pv .top{
+    position:fixed;left:0;right:0;top:0;z-index:2147483647;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 14px;color:#fff;
+    background:linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,0));
+    text-shadow:0 2px 10px rgba(0,0,0,.65);
+    font-weight:800;
+  }
+  .pv .btn{
+    font-size:26px;line-height:1;opacity:.95;
+    width:44px;height:44px;border-radius:999px;
+    display:grid;place-items:center;
+    background:rgba(0,0,0,.25);
+  }
+  .thumb-btn{display:block;width:100%;text-align:left;}
+  .thumb-btn img{display:block;width:100%;height:6rem;object-fit:cover;}
+  .btn-open-delete{cursor:pointer;user-select:none;}
+
+  .take-btn[disabled]{
+    opacity:.55;
+    cursor:not-allowed;
+    pointer-events:none;
+  }
+
+  .soft-box{
+    border:1px solid rgb(229 231 235);
+    border-radius:1rem;
+    padding:.75rem;
+    background:#fafafa;
+  }
+</style>
+
+<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div class="flex items-center gap-2 min-w-0">
+      <a href="{% url 'operaciones:mis_assignments' %}"
+         class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded whitespace-nowrap">
+        ⬅️ Back
+      </a>
+
+      <h1 class="text-2xl font-bold leading-tight min-w-0">
+        🧵 Cable Installation — Billing #{{ a.sesion.id }}
+      </h1>
+    </div>
+
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto">
+      <button type="button"
+              id="btn-finalizar"
+              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+              {% if not can_finish %}disabled title="All required handholes must have measurements and required photos, and all assignees must accept (Start)."{% endif %}>
+        Finish
+      </button>
+    </div>
+  </div>
+
+  <div id="missing-banner"
+       class="mt-3 p-3 rounded bg-yellow-50 text-yellow-800 text-sm {% if not faltantes_global and not pendientes_aceptar %}hidden{% endif %}">
+    {% if pendientes_aceptar %}
+      Waiting for acceptance: {{ pendientes_aceptar|join:", " }}.
+    {% endif %}
+    {% if faltantes_global %}
+      {% if pendientes_aceptar %}<br>{% endif %}
+      Missing required data: {{ faltantes_global|join:", " }}.
+    {% endif %}
+  </div>
+
+  <div id="js-urls"
+       data-status-url="{% url 'cable_installation:technician_requirements_status_json' a.pk %}"
+       data-upload-url="{% url 'cable_installation:upload_requirement_evidence_ajax' a.pk %}"
+       data-camera-base="{% url 'cable_installation:camera_take' a.pk %}">
+  </div>
+
+  <script>
+    window.DELETE_URL_TPL = "{% url 'cable_installation:delete_own_evidence' 0 %}";
+    window.deleteUrlFor = (id) => (window.DELETE_URL_TPL || '').replace(/\/0\/$/, `/${id}/`);
+  </script>
+
+  <div class="mt-5">
+    <h2 class="font-semibold mb-3">Handholes</h2>
+
+    <ul class="space-y-3">
+      {% for block in blocks %}
+      <li class="border rounded-2xl p-4" data-row-wrap="{{ block.row.id }}" data-req-id="{{ block.requirement.id }}">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-semibold flex flex-wrap items-center gap-2">
+              <span>PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}</span>
+              <span class="text-xs px-2 py-0.5 rounded req-badge
+                           {% if block.is_done %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}"
+                    data-req="{{ block.requirement.id }}"
+                    data-state="{% if block.is_done %}done{% else %}pending{% endif %}">
+                {% if block.is_done %}Done{% else %}Pending{% endif %}
+              </span>
+            </div>
+
+            {% if block.requirement.warning %}
+            <div class="text-sm text-amber-700 mt-1">
+              Warning: {{ block.requirement.warning }}
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="text-xs text-gray-500 req-count whitespace-nowrap" data-req="{{ block.requirement.id }}">
+            {{ block.uploaded }} uploaded (you)
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+
+          <div class="soft-box">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Shared Start ft</label>
+            <input type="number"
+                   step="0.01"
+                   class="tech-start w-full border rounded p-2"
+                   data-row-id="{{ block.row.id }}"
+                   value="{{ block.requirement.start_ft|default:'' }}"
+                   placeholder="Enter start ft">
+
+            <div class="mt-2 flex justify-end">
+              <button type="button"
+                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+                      data-row-id="{{ block.row.id }}"
+                      data-req-id="{{ block.requirement.id }}"
+                      data-shot="start_cable">
+                📷 Take
+              </button>
+            </div>
+          </div>
+
+          <div class="soft-box">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Reserve ft</label>
+            <input type="number"
+                   step="0.01"
+                   class="tech-reserve w-full border rounded p-2"
+                   data-row-id="{{ block.row.id }}"
+                   value="{% if block.row.reserve_ft %}{{ block.row.reserve_ft }}{% elif block.requirement.planned_reserve_ft %}{{ block.requirement.planned_reserve_ft }}{% else %}{% endif %}"
+                   data-planned-reserve="{{ block.requirement.planned_reserve_ft|default:'0' }}"
+                   placeholder="Enter reserve ft">
+
+            <div class="mt-2 text-xs text-gray-600">
+              Planned reserve: <span class="planned-reserve-label" data-row-id="{{ block.row.id }}">{{ block.requirement.planned_reserve_ft|default:"0.00" }}</span> ft
+            </div>
+          </div>
+
+          <div class="soft-box">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Shared End ft</label>
+            <input type="number"
+                   step="0.01"
+                   class="tech-end w-full border rounded p-2"
+                   data-row-id="{{ block.row.id }}"
+                   value="{{ block.requirement.end_ft|default:'' }}"
+                   placeholder="Enter end ft">
+
+            <div id="end-help-{{ block.row.id }}"
+                 class="mt-2 text-xs text-gray-600">
+              Suggested end ft: —
+            </div>
+
+            <div id="end-warning-{{ block.row.id }}"
+                 class="mt-2 hidden border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+            </div>
+
+            <div id="end-confirm-wrap-{{ block.row.id }}" class="mt-2 hidden">
+              <label class="inline-flex items-center gap-2 text-sm text-amber-800">
+                <input type="checkbox"
+                       class="end-confirm-checkbox"
+                       data-row-id="{{ block.row.id }}">
+                Confirm different end ft
+              </label>
+            </div>
+
+            <div class="mt-2 flex justify-end">
+              <button type="button"
+                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+                      data-row-id="{{ block.row.id }}"
+                      data-req-id="{{ block.requirement.id }}"
+                      data-shot="end_cable">
+                📷 Take
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="soft-box">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Installed ft</label>
+            <div id="installed-{{ block.row.id }}" class="w-full border rounded p-2 bg-gray-50 min-h-[42px]">
+              {{ block.requirement.installed_ft }}
+            </div>
+          </div>
+
+          <div class="soft-box">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Handhole / Camera photo</label>
+            <div class="flex justify-end">
+              <button type="button"
+                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+                      data-row-id="{{ block.row.id }}"
+                      data-req-id="{{ block.requirement.id }}"
+                      data-shot="handhole">
+                📷 Take
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Requirement note</label>
+          <textarea class="tech-note w-full border rounded p-2"
+                    rows="2"
+                    data-row-id="{{ block.row.id }}"
+                    placeholder="Write a note (optional)">{{ block.row.note }}</textarea>
+        </div>
+
+        <div class="mt-3">
+          {% if block.requirement.measurement_warning_text %}
+          <div id="warn-{{ block.row.id }}"
+               class="border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+            {{ block.requirement.measurement_warning_text }}
+          </div>
+          {% else %}
+          <div id="warn-{{ block.row.id }}"
+               class="border rounded-xl px-3 py-2 bg-gray-50 text-gray-400 text-sm">
+            No measurement warning.
+          </div>
+          {% endif %}
+        </div>
+
+        <form class="mt-4 geo-upload-form ajax-uploader">
+          {% csrf_token %}
+          <input type="hidden" name="req_id" value="{{ block.requirement.id }}">
+          <input type="hidden" name="row_id" value="{{ block.row.id }}">
+
+          <input type="hidden" name="lat">
+          <input type="hidden" name="lng">
+          <input type="hidden" name="acc">
+          <input type="hidden" name="client_taken_at">
+
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="file-gallery-{{ block.requirement.id }}"
+                   type="file"
+                   name="imagenes[]"
+                   accept="image/*"
+                   multiple
+                   class="sr-only file-input">
+
+            <label for="file-gallery-{{ block.requirement.id }}"
+                   class="px-3 py-2 rounded text-sm cursor-pointer bg-gray-100 hover:bg-gray-200">
+              📁 Choose files
+            </label>
+
+            <span class="text-xs text-gray-600 filename" data-empty="No files selected">
+              No files selected
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
+            <span class="gps-status">📍 Awaiting location…</span>
+            <span class="time-status">🕒 —</span>
+          </div>
+
+          <div class="flex items-center gap-2 mt-2">
+            <input type="text" name="nota" placeholder="Photo note (optional)" class="w-full border rounded p-2">
+            <button type="button"
+                    class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">
+              Grant Location
+            </button>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button"
+                    class="btn-save-tech px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                    data-row-id="{{ block.row.id }}">
+              Save measurement
+            </button>
+
+            <button type="submit"
+                    class="px-4 py-2 rounded bg-gray-800 text-white hover:bg-gray-900">
+              Upload
+            </button>
+          </div>
+
+          <div class="mt-2 space-y-2 upload-queue"></div>
+        </form>
+
+        <div class="mt-4">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-semibold text-gray-700">Photos</div>
+            <div class="text-xs text-gray-400">Tap a photo to preview</div>
+          </div>
+
+          <div class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2 req-photos"
+               data-req-photos="{{ block.requirement.id }}">
+            {% for ev in block.evidences %}
+            <button type="button"
+                    class="relative border rounded-xl overflow-hidden group thumb-btn"
+                    data-ev-id="{{ ev.id }}"
+                    data-preview-url="{{ ev.image.url }}"
+                    data-preview-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+                    aria-label="Open photo">
+              {% if ev.assignment_requirement.assignment_id == a.id %}
+              <span class="absolute top-1 right-1 z-10">
+                <span
+                  class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+                  role="button"
+                  tabindex="0"
+                  data-delete-url="{% url 'cable_installation:delete_own_evidence' ev.id %}"
+                  data-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+                  data-img="{{ ev.image.url }}"
+                  title="Delete photo">✕</span>
+              </span>
+              {% endif %}
+
+              <img src="{{ ev.image.url }}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+
+              <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
+                {{ ev.taken_at|date:"Y-m-d H:i" }}
+              </span>
+            </button>
+            {% endfor %}
+          </div>
+
+          <div class="text-xs text-gray-400 mt-2 req-empty"
+               data-req-empty="{{ block.requirement.id }}"
+               {% if block.evidences %}style="display:none"{% endif %}>
+            No photos yet.
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div id="pv" class="pv" role="dialog" aria-modal="true">
+  <div class="bg" data-pv-close></div>
+  <div class="top">
+    <button type="button" id="pv-close" class="btn" aria-label="Close">✕</button>
+    <div id="pv-label" class="text-sm font-semibold truncate max-w-[70vw]">Photo</div>
+    <div style="width:44px;height:44px;"></div>
+  </div>
+  <div class="img">
+    <img id="pv-img" src="" alt="preview">
+  </div>
+</div>
+
+<div id="geo-consent" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <h3 class="text-lg font-semibold">Allow location with photos?</h3>
+    <p class="mt-2 text-sm text-gray-600">
+      We attach your location (GPS) to each photo for supervision and quality control.
+    </p>
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button" class="btn-consent-deny px-4 py-2 rounded bg-gray-100 hover:bg-gray-200">Not now</button>
+      <button type="button" class="btn-consent-allow px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Allow</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-delete" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <h3 class="text-lg font-semibold">Delete photo?</h3>
+        <p class="mt-1 text-sm text-gray-600">
+          This action cannot be undone.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 flex items-center gap-3">
+      <img id="delete-thumb" src="" alt="photo preview" class="w-20 h-20 object-cover rounded border">
+      <div class="text-sm">
+        <div class="text-gray-600">Label</div>
+        <div id="delete-label" class="font-medium">—</div>
+      </div>
+    </div>
+
+    <form id="delete-form" method="post" action="#" class="mt-5 flex justify-end gap-2">
+      {% csrf_token %}
+      <button type="button" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div id="modal-finish" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+    <h3 class="text-lg font-semibold">Finish assignment</h3>
+    <p class="mt-1 text-sm text-gray-600">
+      Please enter a comment. This will submit the whole team for supervisor review if validations pass.
+    </p>
+
+    <form id="form-finish" method="post" action="#" class="mt-4">
+      {% csrf_token %}
+      <label class="block text-sm font-medium mb-1">Comment</label>
+      <textarea
+        name="comentario"
+        id="finish-comentario"
+        rows="4"
+        class="w-full border rounded-xl p-2"
+        placeholder="Write your comment..."
+        required
+      ></textarea>
+
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-finish>Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Finish</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const pv = document.getElementById('pv');
+  const pvImg = document.getElementById('pv-img');
+  const pvClose = document.getElementById('pv-close');
+  const pvLabel = document.getElementById('pv-label');
+
+  function openPreview(url, label){
+    if (!url) return;
+    pvImg.src = url;
+    if (pvLabel) pvLabel.textContent = label || 'Photo';
+    pv.classList.add('show');
+  }
+  function closePreview(){
+    pv.classList.remove('show');
+    pvImg.src = '';
+  }
+
+  window.__closeCablePreview = closePreview;
+
+  pvClose.addEventListener('click', (e)=>{ e.preventDefault(); closePreview(); });
+  pv.addEventListener('click', (e)=>{
+    if (e.target && (e.target.hasAttribute('data-pv-close') || e.target.classList.contains('bg'))) closePreview();
+  });
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && pv.classList.contains('show')) closePreview(); });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.closest('.btn-open-delete')) return;
+    const btn = e.target.closest('button[data-preview-url]');
+    if (!btn) return;
+    e.preventDefault();
+    openPreview(btn.getAttribute('data-preview-url'), btn.getAttribute('data-preview-label'));
+  });
+
+  window.__appendThumb = function(ev){
+    if (!ev || !ev.id || !ev.url) return;
+
+    window.__knownEvIds = window.__knownEvIds || new Set();
+    if (window.__knownEvIds.has(ev.id)) return;
+    window.__knownEvIds.add(ev.id);
+    window.__maxEvId = Math.max(window.__maxEvId || 0, ev.id);
+
+    const grid = document.querySelector(`.req-photos[data-req-photos="${ev.req_id}"]`);
+    if (!grid) return;
+
+    const empty = document.querySelector(`.req-empty[data-req-empty="${ev.req_id}"]`);
+    if (empty) empty.style.display = 'none';
+
+    const label = ev.titulo || 'Photo';
+
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = "relative border rounded-xl overflow-hidden group thumb-btn";
+    b.setAttribute('data-ev-id', ev.id);
+    b.setAttribute('data-preview-url', ev.url);
+    b.setAttribute('data-preview-label', label);
+
+    const delBtn = ev.can_delete
+      ? `<span class="absolute top-1 right-1 z-10">
+           <span
+             class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+             role="button"
+             tabindex="0"
+             data-delete-url="${window.deleteUrlFor(ev.id)}"
+             data-label="${String(label).replace(/"/g,'&quot;')}"
+             data-img="${ev.url}"
+             title="Delete photo">✕</span>
+         </span>`
+      : ``;
+
+    b.innerHTML = `
+      ${delBtn}
+      <img src="${ev.url}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+      ${ev.fecha ? `<span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">${ev.fecha}</span>` : ``}
+    `;
+
+    grid.prepend(b);
+  };
+})();
+</script>
+
+<script>
+(function(){
+  const modal = document.getElementById('modal-finish');
+  const form  = document.getElementById('form-finish');
+  const txt   = document.getElementById('finish-comentario');
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-finish-open');
+    if(!btn) return;
+    if (btn.disabled) return;
+
+    form.action = btn.getAttribute('data-action') || '';
+    if (txt) txt.value = '';
+    modal.classList.remove('hidden');
+    setTimeout(()=>{ try{ txt && txt.focus(); }catch(_){} }, 50);
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.hasAttribute('data-close-finish')) modal.classList.add('hidden');
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) modal.classList.add('hidden');
+  });
+
+  form.addEventListener('submit', (e)=>{
+    const v = (txt && txt.value ? txt.value.trim() : "");
+    if (!v) {
+      e.preventDefault();
+      alert("Please enter a comment to finish.");
+      try{ txt && txt.focus(); }catch(_){}
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
+  const CONSENT_KEY = "cable_photo_loc_consent";
+  const getConsent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } };
+  const setConsent = (v) => { try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} };
+
+  const modal = document.getElementById('geo-consent');
+  const btnAllow = modal.querySelector('.btn-consent-allow');
+  const btnDeny  = modal.querySelector('.btn-consent-deny');
+  const openModal  = () => modal.classList.remove('hidden');
+  const closeModal = () => modal.classList.add('hidden');
+
+  async function captureGeo(form){
+    const latEl   = form.querySelector('input[name="lat"]');
+    const lngEl   = form.querySelector('input[name="lng"]');
+    const accEl   = form.querySelector('input[name="acc"]');
+    const takenEl = form.querySelector('input[name="client_taken_at"]');
+    const gpsStatus  = form.querySelector('.gps-status');
+    const timeStatus = form.querySelector('.time-status');
+
+    function setTimeNow(){
+      const now = new Date();
+      if (takenEl) takenEl.value = now.toISOString();
+      if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
+    }
+    function setGps(text){ if (gpsStatus) gpsStatus.textContent = text; }
+
+    if (!('geolocation' in navigator)){
+      setTimeNow(); setGps("📍 Geolocation not supported");
+      return false;
+    }
+
+    setGps("📍 Getting location…");
+    return new Promise((resolve)=>{
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>{
+          const { latitude, longitude, accuracy } = (pos && pos.coords) || {};
+          if (latEl) latEl.value = (latitude ?? "").toFixed ? latitude.toFixed(6) : "";
+          if (lngEl) lngEl.value = (longitude ?? "").toFixed ? longitude.toFixed(6) : "";
+          if (accEl) accEl.value = (accuracy ?? 0).toFixed ? accuracy.toFixed(2) : "";
+          setTimeNow();
+          if (latEl.value && lngEl.value){
+            setGps(`📍 ${latEl.value}, ${lngEl.value}${accEl.value ? " (±"+accEl.value+"m)" : ""}`);
+            resolve(true);
+          } else {
+            setGps("📍 Location unavailable");
+            resolve(false);
+          }
+        },
+        ()=>{
+          setTimeNow();
+          setGps("📍 Location denied/unavailable");
+          resolve(false);
+        },
+        GEO_OPTS
+      );
+    });
+  }
+
+  window.__captureCableGeo = captureGeo;
+
+  document.addEventListener('DOMContentLoaded', ()=>{ if (!getConsent()) openModal(); });
+  btnAllow.addEventListener('click', ()=>{ setConsent('granted'); closeModal(); });
+  btnDeny.addEventListener('click', ()=>{ setConsent('denied'); closeModal(); });
+
+  document.querySelectorAll('.geo-upload-form').forEach(form=>{
+    const fileInputGallery = form.querySelector('.file-input');
+    const filenameEl       = form.querySelector('.filename');
+
+    if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
+
+    if (fileInputGallery){
+      fileInputGallery.addEventListener('change', async ()=>{
+        const n = fileInputGallery.files ? fileInputGallery.files.length : 0;
+        if (filenameEl){
+          filenameEl.textContent = n===0 ? (filenameEl.dataset.empty || 'No files selected')
+                                : n===1 ? fileInputGallery.files[0].name
+                                        : `${n} files selected`;
+        }
+        try { await captureGeo(form); } catch(_) {}
+      });
+    }
+
+    const btnGrant = form.querySelector('.grant-location');
+    if (btnGrant){
+      btnGrant.addEventListener('click', async ()=>{
+        try { await captureGeo(form); } catch(_) {}
+      });
+    }
+  });
+
+  const delModal   = document.getElementById('modal-delete');
+  const delForm    = document.getElementById('delete-form');
+  const delThumb   = document.getElementById('delete-thumb');
+  const delLabelEl = document.getElementById('delete-label');
+
+  function openDelete(){ delModal.classList.remove('hidden'); }
+  function closeDelete(){ delModal.classList.add('hidden'); }
+
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.btn-open-delete');
+    if(!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    delForm.action = btn.getAttribute('data-delete-url');
+    delThumb.src   = btn.getAttribute('data-img') || '';
+    delLabelEl.textContent = btn.getAttribute('data-label') || '—';
+    openDelete();
+  });
+
+  document.addEventListener('click', (e)=>{ if (e.target.hasAttribute('data-close-modal')) closeDelete(); });
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeDelete(); });
+
+  delForm.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const action = delForm.getAttribute('action');
+    if (!action) return;
+    try {
+      const fd = new FormData(delForm);
+      const res = await fetch(action, { method: 'POST', body: fd, cache: 'no-store' });
+      const data = await res.json();
+      if (res.ok && data.ok) { window.location.reload(); return; }
+      alert(data.error || 'Could not delete the photo.');
+    } catch {
+      alert('Could not delete the photo.');
+    } finally {
+      closeDelete();
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  function toNum(v){
+    if (v === null || v === undefined || v === '') return null;
+    const n = parseFloat(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  }
+
+  function fmt2(v){
+    if (v === null || v === undefined || v === '') return '';
+    const n = Number(v);
+    return isFinite(n) ? n.toFixed(2) : '';
+  }
+
+  function getRowWrap(rowId){
+    return document.querySelector(`[data-row-wrap="${rowId}"]`);
+  }
+
+  function getStartInput(rowId){
+    return document.querySelector(`.tech-start[data-row-id="${rowId}"]`);
+  }
+
+  function getReserveInput(rowId){
+    return document.querySelector(`.tech-reserve[data-row-id="${rowId}"]`);
+  }
+
+  function getEndInput(rowId){
+    return document.querySelector(`.tech-end[data-row-id="${rowId}"]`);
+  }
+
+  function getNoteInput(rowId){
+    return document.querySelector(`.tech-note[data-row-id="${rowId}"]`);
+  }
+
+  function getConfirmCheckbox(rowId){
+    return document.querySelector(`.end-confirm-checkbox[data-row-id="${rowId}"]`);
+  }
+
+  function getSuggestedEnd(rowId){
+    const start = toNum(getStartInput(rowId)?.value);
+    const reserve = toNum(getReserveInput(rowId)?.value);
+
+    if (start === null || reserve === null) return null;
+
+    // regla actual asumida: end = start - reserve
+    return Number((start - reserve).toFixed(2));
+  }
+
+  function recomputeMeasurementUI(rowId){
+    const startEl = getStartInput(rowId);
+    const reserveEl = getReserveInput(rowId);
+    const endEl = getEndInput(rowId);
+    const installedEl = document.getElementById(`installed-${rowId}`);
+    const endHelpEl = document.getElementById(`end-help-${rowId}`);
+    const endWarnEl = document.getElementById(`end-warning-${rowId}`);
+    const endConfirmWrap = document.getElementById(`end-confirm-wrap-${rowId}`);
+    const confirmCb = getConfirmCheckbox(rowId);
+
+    if (!startEl || !reserveEl || !endEl) return;
+
+    const start = toNum(startEl.value);
+    const reserve = toNum(reserveEl.value);
+    const end = toNum(endEl.value);
+    const suggestedEnd = getSuggestedEnd(rowId);
+
+    if (endHelpEl){
+      if (suggestedEnd === null){
+        endHelpEl.textContent = 'Suggested end ft: —';
+      } else {
+        endHelpEl.textContent = `Suggested end ft based on start and reserve: ${fmt2(suggestedEnd)} ft`;
+      }
+    }
+
+    if (installedEl){
+      if (start !== null && end !== null){
+        installedEl.textContent = fmt2(Math.abs(start - end));
+      } else {
+        installedEl.textContent = '—';
+      }
+    }
+
+    const hasMismatch = (
+      suggestedEnd !== null &&
+      end !== null &&
+      Math.abs(end - suggestedEnd) > 0.009
+    );
+
+    if (hasMismatch){
+      if (!confirmCb?.checked){
+        if (endWarnEl){
+          endWarnEl.classList.remove('hidden');
+          endWarnEl.textContent = `Based on Shared Start ft and Reserve ft, the suggested Shared End ft is ${fmt2(suggestedEnd)} ft, but you entered ${fmt2(end)} ft. Confirm if this is correct.`;
+        }
+        if (endConfirmWrap) endConfirmWrap.classList.remove('hidden');
+      } else {
+        if (endWarnEl){
+          endWarnEl.classList.add('hidden');
+          endWarnEl.textContent = '';
+        }
+        if (endConfirmWrap) endConfirmWrap.classList.remove('hidden');
+      }
+    } else {
+      if (endWarnEl){
+        endWarnEl.classList.add('hidden');
+        endWarnEl.textContent = '';
+      }
+      if (endConfirmWrap) endConfirmWrap.classList.add('hidden');
+      if (confirmCb) confirmCb.checked = false;
+    }
+
+    // Take buttons
+    const rowWrap = getRowWrap(rowId);
+    if (rowWrap){
+      const btnStart = rowWrap.querySelector('.take-shot[data-shot="start_cable"]');
+      const btnEnd = rowWrap.querySelector('.take-shot[data-shot="end_cable"]');
+      const btnHandhole = rowWrap.querySelector('.take-shot[data-shot="handhole"]');
+
+      if (btnStart) btnStart.disabled = (start === null);
+      if (btnEnd) btnEnd.disabled = (end === null);
+      if (btnHandhole) btnHandhole.disabled = false;
+    }
+  }
+
+  function buildTakeUrl(rowId, reqId, shot){
+    const base = document.getElementById('js-urls')?.dataset?.cameraBase || '';
+    const start = getStartInput(rowId)?.value || '';
+    const reserve = getReserveInput(rowId)?.value || '';
+    const end = getEndInput(rowId)?.value || '';
+    const note = getNoteInput(rowId)?.value || '';
+
+    const qs = new URLSearchParams();
+    if (reqId) qs.set('req_id', reqId);
+    if (rowId) qs.set('row_id', rowId);
+    if (shot) qs.set('shot', shot);
+    if (start) qs.set('start_ft', start);
+    if (reserve) qs.set('reserve_ft', reserve);
+    if (end) qs.set('end_ft', end);
+    if (note) qs.set('note', note);
+
+    return `${base}?${qs.toString()}`;
+  }
+
+  window.__recomputeCableMeasurementUI = recomputeMeasurementUI;
+
+  document.addEventListener('input', function(e){
+    const rowId = e.target?.dataset?.rowId;
+    if (!rowId) return;
+
+    if (
+      e.target.classList.contains('tech-start') ||
+      e.target.classList.contains('tech-reserve') ||
+      e.target.classList.contains('tech-end')
+    ){
+      const cb = getConfirmCheckbox(rowId);
+      if (cb && e.target.classList.contains('tech-end')) {
+        cb.checked = false;
+      }
+      recomputeMeasurementUI(rowId);
+    }
+  });
+
+  document.addEventListener('change', function(e){
+    if (e.target.classList.contains('end-confirm-checkbox')){
+      recomputeMeasurementUI(e.target.dataset.rowId);
+    }
+  });
+
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.take-shot');
+    if (!btn) return;
+
+    const rowId = btn.dataset.rowId;
+    const reqId = btn.dataset.reqId;
+    const shot = btn.dataset.shot;
+
+    if (btn.disabled) return;
+
+    const start = toNum(getStartInput(rowId)?.value);
+    const end = toNum(getEndInput(rowId)?.value);
+
+    if (shot === 'start_cable' && start === null){
+      alert('Please enter Shared Start ft first.');
+      return;
+    }
+    if (shot === 'end_cable' && end === null){
+      alert('Please enter Shared End ft first.');
+      return;
+    }
+
+    window.location.href = buildTakeUrl(rowId, reqId, shot);
+  });
+
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('[data-row-wrap]').forEach(function(row){
+      const rowId = row.getAttribute('data-row-wrap');
+      recomputeMeasurementUI(rowId);
+    });
+  });
+})();
+</script>
+
+<script>
+async function saveTechRow(rowId){
+  const start = document.querySelector('.tech-start[data-row-id="' + rowId + '"]')?.value || '';
+  const reserve = document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]')?.value || '';
+  const end = document.querySelector('.tech-end[data-row-id="' + rowId + '"]')?.value || '';
+  const note = document.querySelector('.tech-note[data-row-id="' + rowId + '"]')?.value || '';
+  const endConfirmed = document.querySelector('.end-confirm-checkbox[data-row-id="' + rowId + '"]')?.checked ? '1' : '';
+
+  const body = new FormData();
+  body.append('start_ft', start);
+  body.append('reserve_ft', reserve);
+  body.append('end_ft', end);
+  body.append('note', note);
+  if (endConfirmed) body.append('override_confirmed', '1');
+
+  let resp = await fetch(
+    "{% url 'cable_installation:update_assignment_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
+    {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    }
+  );
+
+  let data = await resp.json();
+
+  if(resp.status === 409 && data.requires_confirmation){
+    const ok = confirm(data.error + "\n\nDo you want to save this value anyway?");
+    if(!ok) return false;
+
+    const confirmBody = new FormData();
+    confirmBody.append('start_ft', start);
+    confirmBody.append('reserve_ft', reserve);
+    confirmBody.append('end_ft', end);
+    confirmBody.append('note', note);
+    confirmBody.append('override_confirmed', '1');
+
+    resp = await fetch(
+      "{% url 'cable_installation:update_assignment_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
+      {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: confirmBody
+      }
+    );
+    data = await resp.json();
+  }
+
+  if(!resp.ok || !data.ok){
+    alert(data.error || 'Save failed');
+    return false;
+  }
+
+  const installedEl = document.getElementById('installed-' + rowId);
+  if (installedEl && data.requirement && typeof data.requirement.installed_ft !== 'undefined'){
+    installedEl.textContent = data.requirement.installed_ft;
+  }
+
+  const warn = document.getElementById('warn-' + rowId);
+  if(warn){
+    if(data.requirement && data.requirement.warning_text){
+      warn.textContent = data.requirement.warning_text;
+      warn.className = 'border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm';
+    }else{
+      warn.textContent = 'No measurement warning.';
+      warn.className = 'border rounded-xl px-3 py-2 bg-gray-50 text-gray-400 text-sm';
+    }
+  }
+
+  if (data.requirement && typeof data.requirement.start_ft !== 'undefined') {
+    const startEl = document.querySelector('.tech-start[data-row-id="' + rowId + '"]');
+    if (startEl && data.requirement.start_ft !== null) startEl.value = data.requirement.start_ft;
+  }
+
+  if (data.requirement && typeof data.requirement.reserve_ft !== 'undefined') {
+    const reserveEl = document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]');
+    if (reserveEl && data.requirement.reserve_ft !== null) reserveEl.value = data.requirement.reserve_ft;
+  }
+
+  if (data.requirement && typeof data.requirement.end_ft !== 'undefined') {
+    const endEl = document.querySelector('.tech-end[data-row-id="' + rowId + '"]');
+    if (endEl && data.requirement.end_ft !== null) endEl.value = data.requirement.end_ft;
+  }
+
+  if (typeof window.__recomputeCableMeasurementUI === 'function'){
+    window.__recomputeCableMeasurementUI(rowId);
+  }
+
+  return true;
+}
+
+document.addEventListener('click', async function(e){
+  const btn = e.target.closest('.btn-save-tech');
+  if(!btn) return;
+  await saveTechRow(btn.dataset.rowId);
+});
+</script>
+
+<script>
+async function resizeImage(file, maxSide=1600, quality=0.85) {
+  if (file && file.size <= 1_000_000) return file;
+  if (!/^image\/(jpeg|jpg|png|webp|heic|heif)$/i.test(file.type)) return file;
+  const bmp = await createImageBitmap(file).catch(()=>null);
+  if (!bmp) return file;
+  const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  if (scale === 1) return file;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = Math.round(bmp.width*scale);
+  canvas.height = Math.round(bmp.height*scale);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+  const safeName = (file.name || 'photo').replace(/\.(heic|heif|png|webp)$/i, '.jpg');
+  return new File([blob], safeName, {type: 'image/jpeg'});
+}
+</script>
+
+<script>
+(() => {
+  const UPLOAD_URL = document.getElementById('js-urls')?.dataset?.uploadUrl || '';
+  const STATUS_URL = document.getElementById('js-urls')?.dataset?.statusUrl || '';
+
+  window.__knownEvIds = new Set(
+    Array.from(document.querySelectorAll('[data-ev-id]'))
+         .map(n => parseInt(n.getAttribute('data-ev-id'),10))
+         .filter(Number.isFinite)
+  );
+  window.__maxEvId = window.__knownEvIds.size
+    ? Math.max(...Array.from(window.__knownEvIds))
+    : 0;
+
+  function incMyCount(reqId){
+    if (!reqId) return;
+    const el = document.querySelector(`.req-count[data-req="${reqId}"]`);
+    if (!el) return;
+    const m = (el.textContent.match(/\d+/) || [0])[0];
+    el.textContent = `${parseInt(m,10)+1} uploaded (you)`;
+  }
+
+  async function ensureGeo(form){
+    if (typeof window.__captureCableGeo === 'function'){
+      try { await window.__captureCableGeo(form); } catch(_) {}
+    }
+  }
+
+  async function uploadOne(form, file){
+    const queueBox = form.querySelector('.upload-queue') || form;
+    const item = document.createElement('div');
+    item.className = "border rounded p-2 relative";
+    item.innerHTML = `
+      <div class="text-xs mb-1 truncate">${file.name}</div>
+      <div class="w-full h-2 bg-gray-100 rounded overflow-hidden">
+        <div class="h-2 bg-blue-600" style="width:0%"></div>
+      </div>
+      <div class="flex items-center justify-between mt-1 text-xs text-gray-600">
+        <span class="status">Preparing…</span>
+        <button class="cancel text-red-600" type="button">Cancel</button>
+      </div>`;
+    queueBox.prepend(item);
+
+    const bar = item.querySelector('.bg-blue-600');
+    const status = item.querySelector('.status');
+    const cancelBtn = item.querySelector('.cancel');
+
+    status.textContent = 'Optimizing…';
+    const small = await resizeImage(file).catch(()=>file);
+
+    await ensureGeo(form);
+
+    const reqId = form.querySelector('input[name="req_id"]')?.value || "";
+    const note  = form.querySelector('input[name="nota"]')?.value || "";
+    const lat   = form.querySelector('input[name="lat"]')?.value || "";
+    const lng   = form.querySelector('input[name="lng"]')?.value || "";
+    const acc   = form.querySelector('input[name="acc"]')?.value || "";
+    const taken = form.querySelector('input[name="client_taken_at"]')?.value || new Date().toISOString();
+
+    const fd = new FormData(form);
+    fd.delete('imagenes[]');
+    fd.append('imagen', small);
+    if (reqId) fd.set('req_id', reqId);
+    if (note) fd.set('nota', note);
+    if (lat) fd.set('lat', lat);
+    if (lng) fd.set('lng', lng);
+    if (acc) fd.set('acc', acc);
+    if (taken) fd.set('client_taken_at', taken);
+
+    const xhr = new XMLHttpRequest();
+    item._xhr = xhr;
+
+    return new Promise((resolve)=>{
+      xhr.upload.addEventListener('progress', (e)=>{
+        if (!e.lengthComputable) return;
+        const pct = Math.round((e.loaded/e.total)*100);
+        bar.style.width = pct + '%';
+        status.textContent = `Uploading… ${pct}%`;
+      });
+      xhr.onreadystatechange = ()=>{
+        if (xhr.readyState !== 4) return;
+        cancelBtn.disabled = true;
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+            bar.style.width = '100%';
+            status.textContent = 'Done';
+
+            if (data.evidencia && window.__appendThumb) window.__appendThumb(data.evidencia);
+            if (reqId) incMyCount(reqId);
+            if (typeof window.__refreshCableStatus === 'function') window.__refreshCableStatus();
+
+            setTimeout(()=> item.remove(), 350);
+          } else {
+            status.textContent = (data && data.error) ? data.error : `Error ${xhr.status}`;
+            item.classList.add('bg-red-50');
+          }
+        } catch {
+          status.textContent = `Error ${xhr.status}`;
+          item.classList.add('bg-red-50');
+        }
+        resolve();
+      };
+      cancelBtn.addEventListener('click', ()=>{
+        if (item._xhr) item._xhr.abort();
+        status.textContent = 'Canceled';
+        item.classList.add('opacity-60');
+        setTimeout(()=> item.remove(), 250);
+      });
+      xhr.open('POST', UPLOAD_URL, true);
+      xhr.send(fd);
+    });
+  }
+
+  document.querySelectorAll('form.ajax-uploader').forEach(form=>{
+    const fileInputs = form.querySelectorAll('input[type=file][name="imagenes[]"]');
+    const filenameEl = form.querySelector('.filename');
+
+    fileInputs.forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const n = inp.files ? inp.files.length : 0;
+        if (!filenameEl) return;
+        filenameEl.textContent =
+          n===0 ? (filenameEl.dataset.empty || 'No files selected')
+        : n===1 ? inp.files[0].name
+                : `${n} files selected`;
+      });
+    });
+
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+
+      const rowId = form.querySelector('input[name="row_id"]')?.value || '';
+      if (rowId) {
+        const ok = await saveTechRow(rowId);
+        if (!ok) return;
+      }
+
+      let files = [];
+      fileInputs.forEach(inp=>{ if (inp.files && inp.files.length) files.push(...inp.files); });
+      if (!files.length) { alert('Please select at least one image.'); return; }
+
+      for (const f of files) { await uploadOne(form, f); }
+
+      fileInputs.forEach(inp=> inp.value = '');
+      if (filenameEl) filenameEl.textContent = filenameEl.dataset.empty || 'No files selected';
+
+      const gpsStatus  = form.querySelector('.gps-status'); if (gpsStatus) gpsStatus.textContent = '📍 Awaiting location…';
+      const timeStatus = form.querySelector('.time-status'); if (timeStatus) timeStatus.textContent = '🕒 —';
+
+      ['lat','lng','acc','client_taken_at'].forEach(nm => {
+        const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
+      });
+
+      const noteEl = form.querySelector('input[name="nota"]');
+      if (noteEl) noteEl.value = '';
+    });
+  });
+
+  function updateReqFromServer(list){
+    if (!Array.isArray(list)) return;
+    list.forEach(function(r){
+      const badge = document.querySelector('.req-badge[data-req="' + r.id + '"]');
+      const nowState  = r.global_done ? 'done' : 'pending';
+      if (badge){
+        badge.setAttribute('data-state', nowState);
+        if (nowState === 'done'){
+          badge.textContent = 'Done';
+          badge.classList.remove('bg-red-100','text-red-800');
+          badge.classList.add('bg-green-100','text-green-800');
+        } else {
+          badge.textContent = 'Pending';
+          badge.classList.remove('bg-green-100','text-green-800');
+          badge.classList.add('bg-red-100','text-red-800');
+        }
+      }
+      const cnt = document.querySelector('.req-count[data-req="' + r.id + '"]');
+      if (cnt) cnt.textContent = (r.my_count||0) + ' uploaded (you)';
+    });
+  }
+
+  function updateMissingBanner(faltantes, pendientes){
+    const el = document.getElementById('missing-banner');
+    if (!el) return;
+
+    let html = '';
+    if (Array.isArray(pendientes) && pendientes.length) {
+      html += `Waiting for acceptance: ${pendientes.join(', ')}.`;
+    }
+    if (Array.isArray(faltantes) && faltantes.length) {
+      if (html) html += '<br>';
+      html += `Missing required data: ${faltantes.join(', ')}.`;
+    }
+
+    if (html) {
+      el.classList.remove('hidden');
+      el.innerHTML = html;
+    } else {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+    }
+  }
+
+  function setFinishEnabled(enabled){
+    const btn = document.getElementById('btn-finalizar');
+    if (!btn) return;
+    btn.disabled = !enabled;
+    if (enabled){
+      btn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open';
+      btn.removeAttribute('title');
+    } else {
+      btn.className = 'bg-indigo-300 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left cursor-not-allowed btn-finish-open';
+      btn.title = 'All required handholes must have measurements and required photos, and all assignees must accept (Start).';
+    }
+  }
+
+  async function tick(){
+    if (!STATUS_URL) return;
+    try {
+      const url = STATUS_URL + (STATUS_URL.includes('?') ? '&' : '?') + 'after=' + (window.__maxEvId||0) + '&_ts=' + Date.now();
+      const res = await fetch(url, {cache:'no-store'});
+      if (!res.ok) return;
+      const j = await res.json();
+      if (!j || !j.ok) return;
+
+      updateReqFromServer(j.requisitos || []);
+      updateMissingBanner(j.faltantes_global || [], j.pendientes_aceptar || []);
+      setFinishEnabled(!!j.can_finish);
+
+      if (Array.isArray(j.evidencias_nuevas) && j.evidencias_nuevas.length) {
+        j.evidencias_nuevas.forEach(ev => { if (window.__appendThumb) window.__appendThumb(ev); });
+        const maxNew = Math.max(...j.evidencias_nuevas.map(x=>x.id));
+        window.__maxEvId = Math.max(window.__maxEvId||0, maxNew);
+      }
+    } catch(_) {}
+  }
+
+  document.addEventListener('DOMContentLoaded', tick);
+  setInterval(tick, 8000);
+  window.__refreshCableStatus = tick;
+})();
+</script>
+
+{% endblock %}

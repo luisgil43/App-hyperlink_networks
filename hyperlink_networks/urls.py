@@ -105,7 +105,17 @@ urlpatterns = [
         name="favicon_root",
     ),
     path("borelogs/", include("borelogs.urls")),
-    path("cron/",include(("notifications.urls", "notifications"), namespace="cron_general"),),
+    path(
+        "cron/",
+        include(("notifications.urls", "notifications"), namespace="cron_general"),
+    ),
+    path(
+        "cable-installation/",
+        include(
+            ("cable_installation.urls", "cable_installation"),
+            namespace="cable_installation",
+        ),
+    ),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)

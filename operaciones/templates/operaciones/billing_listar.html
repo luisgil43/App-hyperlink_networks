@@ -449,7 +449,11 @@ else %}asignado assigned{% endif %}"
             {% else %}
               <div class="flex items-center justify-center gap-3">
                 <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
-                <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
+{% if s.is_cable_installation %}
+  <a class="text-purple-700 hover:underline" href="{% url 'cable_installation:configure_requirements' s.id %}">Requirements</a>
+{% else %}
+  <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
+{% endif %}
                 <button type="button"
                 class="btn-manage-tech text-emerald-700 hover:underline"
                 data-id="{{ s.id }}"
@@ -562,9 +566,15 @@ else %}asignado assigned{% endif %}"
             <div class="mt-6">
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
-                <a href="{% url 'operaciones:configurar_requisitos' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
-                  Configure Requirements
-                </a>
+{% if s.is_cable_installation %}
+  <a href="{% url 'cable_installation:configure_requirements' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+    Configure Requirements
+  </a>
+{% else %}
+  <a href="{% url 'operaciones:configurar_requisitos' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+    Configure Requirements
+  </a>
+{% endif %}
               </div>
               <div class="overflow-x-auto rounded border">
                 <table class="min-w-[900px] w-full text-xs">

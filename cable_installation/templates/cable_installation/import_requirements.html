@@ -1,0 +1,96 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Import Requirements{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold">📥 Import Requirements — Billing #{{ billing.id }}</h1>
+  </div>
+
+  <div class="bg-gray-50 border rounded-xl p-4 mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <div class="font-semibold">Download template</div>
+        <p class="text-sm text-gray-600">
+          Columns:
+          <code>handhole</code>,
+          <code>planned_reserve_ft</code>,
+          <code>required</code>,
+          <code>warning</code>,
+          <code>order</code>
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <a href="{% url 'cable_installation:download_requirements_template' billing.id 'csv' %}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">
+          CSV
+        </a>
+        <a href="{% url 'cable_installation:download_requirements_template' billing.id 'xlsx' %}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">
+          XLSX
+        </a>
+      </div>
+    </div>
+
+    <div class="mt-4 text-sm text-gray-700">
+      <div class="font-medium mb-1">CSV sample:</div>
+      <pre class="bg-white border rounded p-3 overflow-auto text-xs">handhole,planned_reserve_ft,required,warning,order
+1000-044,30,Yes,,0
+1000-044-1,20,YES,,1
+1000-044-2,10,si,Low clearance,2
+1000-044-3,0,No,,3</pre>
+    </div>
+  </div>
+
+  <form method="post"
+        action="{% url 'cable_installation:import_requirements_preview' billing.id %}"
+        enctype="multipart/form-data"
+        class="space-y-4">
+    {% csrf_token %}
+
+    <div>
+      <label class="block font-semibold mb-1">Select file (.csv or .xlsx)</label>
+
+      <div class="flex items-center gap-3">
+        <input id="import-file" type="file" name="file" accept=".csv,.xlsx" class="hidden" required>
+
+        <button type="button" id="import-trigger"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+          Choose file
+        </button>
+
+        <span id="file-chosen" class="text-sm text-gray-600">No file selected</span>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2">
+      <a href="{% url 'cable_installation:configure_requirements' billing.id %}"
+         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        ← Back
+      </a>
+
+      <button type="submit"
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+        Preview
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const input = document.getElementById('import-file');
+  const trigger = document.getElementById('import-trigger');
+  const label = document.getElementById('file-chosen');
+
+  if (trigger && input) {
+    trigger.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      label.textContent = (input.files && input.files.length)
+        ? input.files[0].name
+        : 'No file selected';
+    });
+  }
+})();
+</script>
+{% endblock %}

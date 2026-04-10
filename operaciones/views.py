@@ -3881,6 +3881,7 @@ def _guardar_billing(request, sesion=None):
         semana_pago_proyectada = ""
 
     is_direct_discount = request.POST.get("direct_discount") == "1"
+    is_cable_installation = request.POST.get("is_cable_installation") == "1"
 
     # ✅ NUEVO: payment mode
     tech_payment_mode = (
@@ -3935,6 +3936,7 @@ def _guardar_billing(request, sesion=None):
             "direccion_proyecto": direccion_proyecto,
             "semana_pago_proyectada": semana_pago_proyectada,
             "is_direct_discount": is_direct_discount,
+            "is_cable_installation": is_cable_installation,
             "tech_payment_mode": tech_payment_mode,
         }
 
@@ -3987,6 +3989,7 @@ def _guardar_billing(request, sesion=None):
             semana_pago_proyectada=semana_pago_proyectada,
             semana_pago_real=semana_pago_proyectada if is_direct_discount else "",
             is_direct_discount=is_direct_discount,
+            is_cable_installation=is_cable_installation,
             tech_payment_mode=tech_payment_mode,
         )
     else:
@@ -4000,6 +4003,7 @@ def _guardar_billing(request, sesion=None):
         if is_direct_discount:
             sesion.semana_pago_real = semana_pago_proyectada
         sesion.is_direct_discount = is_direct_discount
+        sesion.is_cable_installation = is_cable_installation
         sesion.tech_payment_mode = tech_payment_mode
         sesion.save()
 
@@ -4085,6 +4089,7 @@ def _guardar_billing(request, sesion=None):
             "subtotal_tecnico",
             "semana_pago_real",
             "is_direct_discount",
+            "is_cable_installation",
             "tech_payment_mode",
         ]
     )
@@ -7703,3 +7708,24 @@ def billing_update_creado_en(request, sesion_id: int):
         "display": display,
         "search_value": display,
     })
+
+
+@login_required
+@rol_requerido("usuario")
+def upload_evidencias_dispatch(request, pk):
+    a = get_object_or_404(
+        SesionBillingTecnico.objects.select_related("sesion", "tecnico"),
+        pk=pk,
+    )
+
+    if a.tecnico_id != request.user.id:
+        return HttpResponseForbidden(
+            "You do not have permission to access this assignment."
+        )
+
+    if getattr(a.sesion, "is_cable_installation", False):
+        return redirect(
+            "cable_installation:technician_requirements", assignment_id=a.pk
+        )
+
+    return redirect("operaciones:upload_evidencias", pk=a.pk)

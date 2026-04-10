@@ -137,6 +137,25 @@
       </div>
     </div>
 
+
+          <!-- Cable Installation -->
+      <div class="md:col-span-3">
+        <label class="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            name="is_cable_installation"
+            id="is_cable_installation"
+            value="1"
+            class="h-4 w-4 rounded border-gray-300"
+            {% if sesion and sesion.is_cable_installation %}checked{% endif %}
+          >
+          <span class="text-sm font-medium">Cable installation workflow</span>
+        </label>
+        <p class="mt-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+          If enabled, the Requirements button will open the Cable Installation module for this billing.
+        </p>
+      </div>
+
     <!-- Items Table -->
     <div class="mt-6">
       <div class="flex items-center justify-between mb-2">

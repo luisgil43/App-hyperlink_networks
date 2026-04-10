@@ -115,6 +115,11 @@ class SesionBilling(models.Model):
 
     # ----- Descuentos directos -----
     is_direct_discount = models.BooleanField(default=False, db_index=True)
+    is_cable_installation = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, Requirements will use the Cable Installation workflow.",
+    )
     origin_session = models.ForeignKey(
         "self",
         null=True,
@@ -254,6 +259,7 @@ class SesionBilling(models.Model):
             models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
             models.Index(fields=["estado"]),
             models.Index(fields=["is_direct_discount"]),
+            models.Index(fields=["is_cable_installation"]),
             models.Index(fields=["is_split_child"]),
             models.Index(fields=["tech_payment_mode"]),  # ✅ nuevo
         ]
