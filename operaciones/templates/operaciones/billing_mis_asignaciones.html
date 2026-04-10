@@ -193,7 +193,7 @@
 
                   {% if a.faltantes_global_labels %}
                     <span class="text-xs text-gray-600 text-center">
-                      Missing required photos: {{ a.faltantes_global_labels|join:", " }}.
+                      Missing required data: {{ a.faltantes_global_labels|join:", " }}.
                     </span>
                   {% endif %}
 
@@ -201,6 +201,12 @@
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
                     📤 Submitted — supervisor review
                   </span>
+
+                  {% if a.sesion.is_cable_installation and a.has_cable_rejected_photo %}
+                    <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-red-100 text-red-800">
+                      ❌ Rejected cable photo detected
+                    </span>
+                  {% endif %}
 
                 {% elif a.estado == 'rechazado_supervisor' %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
@@ -233,10 +239,18 @@
 
             <td class="p-2 border text-sm min-w-[380px] max-w-[520px]"
                 style="white-space: normal;"
-                data-excel-value="{% if a.tecnico_comentario %}{{ a.tecnico_comentario }}{% else %}(Vacías){% endif %}">
+                data-excel-value="{% if a.tecnico_comentario and a.cable_rejection_comment %}{{ a.tecnico_comentario }} | Review: {{ a.cable_rejection_comment }}{% elif a.cable_rejection_comment %}{{ a.cable_rejection_comment }}{% elif a.tecnico_comentario %}{{ a.tecnico_comentario }}{% else %}(Vacías){% endif %}">
               {% if a.tecnico_comentario %}
                 <div class="text-gray-700 whitespace-pre-wrap break-words">{{ a.tecnico_comentario }}</div>
-              {% else %}
+              {% endif %}
+
+              {% if a.sesion.is_cable_installation and a.cable_rejection_comment %}
+                <div class="mt-1 text-red-700 whitespace-pre-wrap break-words">
+                  <strong>Review:</strong> {{ a.cable_rejection_comment }}
+                </div>
+              {% endif %}
+
+              {% if not a.tecnico_comentario and not a.cable_rejection_comment %}
                 <span class="text-gray-400">—</span>
               {% endif %}
             </td>
@@ -263,51 +277,64 @@
                   ✅ Accept & Start
                 </button>
 
-              {% elif a.estado == "en_proceso" %}
-                {% if a.sesion.is_cable_installation %}
+              {% elif a.sesion.is_cable_installation %}
+                {% if a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+                  <button type="button"
+                          class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                          data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                    Start
+                  </button>
+                {% endif %}
+
+                {% if a.can_open_cable_report %}
                   <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
                      class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
                     Cable report
                   </a>
-                {% else %}
+                {% endif %}
+
+                {% if a.estado == "en_proceso" or a.estado == "en_revision_supervisor" or a.estado == "rechazado_supervisor" %}
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
+                    Finish
+                  </button>
+                {% endif %}
+
+              {% else %}
+                {% if a.estado == "en_proceso" %}
                   <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
                      class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
                     Upload photos
                   </a>
-                {% endif %}
 
-                <button type="button"
-                        class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-                        data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-                        {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
-                  Finish
-                </button>
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+                    Finish
+                  </button>
 
-              {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-                <button type="button"
-                        class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-                        data-action="{% url 'operaciones:start_assignment' a.pk %}">
-                  Start
-                </button>
+                {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+                  <button type="button"
+                          class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                          data-action="{% url 'operaciones:start_assignment' a.pk %}">
+                    Start
+                  </button>
 
-                {% if a.sesion.is_cable_installation %}
-                  <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
-                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-                    Reupload cable report
-                  </a>
-                {% else %}
                   <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
                      class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
                     Reupload photos
                   </a>
-                {% endif %}
 
-                <button type="button"
-                        class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-                        data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-                        {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
-                  Finish
-                </button>
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+                    Finish
+                  </button>
+                {% endif %}
               {% endif %}
             </td>
           </tr>

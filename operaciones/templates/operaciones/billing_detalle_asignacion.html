@@ -5,39 +5,70 @@
 {% block content %}
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
-  <h1 class="text-2xl font-bold leading-tight min-w-0">
-    Assignment #{{ a.id }} — {{ a.get_estado_display }}
-  </h1>
+    <h1 class="text-2xl font-bold leading-tight min-w-0">
+      Assignment #{{ a.id }} — {{ a.get_estado_display }}
+    </h1>
 
-  <div class="flex flex-wrap gap-2 w-full sm:w-auto">
-    <button type="button"
-            class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap"
-            onclick="window.history.back()">⬅️ Back</button>
-
-    {% if a.estado == "asignado" or a.reintento_habilitado %}
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto">
       <button type="button"
-              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap btn-accept-start"
-              data-action="{% url 'operaciones:start_assignment' a.pk %}">
-        Start
-      </button>
-    {% elif a.estado == "en_proceso" %}
-      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
-        Upload photos
-      </a>
+              class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap"
+              onclick="window.history.back()">⬅️ Back</button>
 
-      {# ✅ Finish solo si cumple las mismas condiciones (can_finish) #}
-      <button type="button"
-              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
-              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-              {% if not can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
-        Finish
-      </button>
-    {% endif %}
+      {% if a.estado == "asignado" or a.reintento_habilitado %}
+        <button type="button"
+                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap btn-accept-start"
+                data-action="{% url 'operaciones:start_assignment' a.pk %}">
+          Start
+        </button>
+      {% endif %}
+
+      {% if a.sesion.is_cable_installation %}
+        {% if can_open_cable_report %}
+          <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+            Cable report
+          </a>
+        {% endif %}
+
+        {% if a.estado == "en_proceso" or a.estado == "en_revision_supervisor" or a.estado == "rechazado_supervisor" %}
+          <button type="button"
+                  class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+                  data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                  {% if not can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
+            Finish
+          </button>
+        {% endif %}
+      {% else %}
+        {% if a.estado == "en_proceso" %}
+          <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+            Upload photos
+          </a>
+
+          <button type="button"
+                  class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+                  data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                  {% if not can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+            Finish
+          </button>
+
+        {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+          <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+            Reupload photos
+          </a>
+
+          <button type="button"
+                  class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+                  data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                  {% if not can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
+            Finish
+          </button>
+        {% endif %}
+      {% endif %}
+    </div>
   </div>
-</div>
 
-  {# ---- Datos del proyecto (con ubicación y semana proyectada) ---- #}
   <div class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
     <div><strong>Project ID:</strong> {{ a.sesion.proyecto_id }}</div>
     <div><strong>Client:</strong> {{ a.sesion.cliente }}</div>
@@ -45,7 +76,12 @@
     <div><strong>Project:</strong> {{ a.sesion.proyecto }}</div>
     <div><strong>Office:</strong> {{ a.sesion.oficina }}</div>
 
-    {# === Location con manejo de URL o dirección larga === #}
+    {% if a.sesion.is_cable_installation and cable_rejection_comment %}
+      <div class="mb-4 border rounded-xl px-3 py-2 bg-red-50 text-red-800 text-sm">
+        <strong>Review comment:</strong> {{ cable_rejection_comment }}
+      </div>
+    {% endif %}
+
     <div class="sm:col-span-2 min-w-0">
       <strong>Location:</strong>
       {% with addr=a.sesion.direccion_proyecto|default_if_none:'' %}
@@ -112,7 +148,6 @@
   </div>
 </div>
 
-{# ===== Modal para aceptar (POST) ===== #}
 <div id="modal-accept" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
@@ -128,7 +163,6 @@
   </div>
 </div>
 
-{# ===== Modal para finalizar con comentario (POST) ===== #}
 <div id="modal-finish" class="fixed inset-0 hidden z-50">
   <div class="absolute inset-0 bg-black/40" data-close-finish></div>
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">

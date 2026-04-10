@@ -1,4 +1,3 @@
-
 import csv
 import hashlib
 import io
@@ -50,6 +49,7 @@ from openpyxl import Workbook
 from PIL import ExifTags, Image, ImageFile
 from pillow_heif import register_heif_opener
 
+from cable_installation.models import CableAssignmentRequirement, CableEvidence
 from core.decorators import project_object_access_required
 from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
@@ -80,8 +80,6 @@ def storage_file_exists(filefield) -> bool:
         return False
 
 
-
-
 def _has_ops_role(u):
     return (
         getattr(u, "es_pm", False) or
@@ -105,8 +103,147 @@ def _get_my_active_assignment_or_404(request, pk: int):
     return a
 
 
+def _cable_required_shots():
+    return [
+        CableEvidence.SHOT_START_CABLE,
+        CableEvidence.SHOT_END_CABLE,
+        CableEvidence.SHOT_HANDHOLE,
+    ]
+
+
+def _cable_assignment_rows(assignment):
+    return list(
+        CableAssignmentRequirement.objects.filter(assignment=assignment)
+        .select_related("requirement", "assignment")
+        .order_by("requirement__order", "requirement__sequence_no", "id")
+    )
+
+
+def _cable_present_shots_for_row(row):
+    return set(
+        CableEvidence.objects.filter(assignment_requirement=row)
+        .exclude(shot_type="")
+        .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+        .values_list("shot_type", flat=True)
+        .distinct()
+    )
+
+
+def _cable_row_has_rejected_photo(row):
+    return CableEvidence.objects.filter(
+        assignment_requirement=row,
+        review_status=CableEvidence.REVIEW_REJECTED,
+    ).exists()
+
+
+def _cable_row_latest_rejection_comment(row):
+    ev = (
+        CableEvidence.objects.filter(
+            assignment_requirement=row,
+            review_status=CableEvidence.REVIEW_REJECTED,
+        )
+        .exclude(review_comment="")
+        .order_by("-reviewed_at", "-id")
+        .first()
+    )
+    return ev.review_comment if ev else ""
+
+
+def _cable_row_is_complete(row):
+    req = row.requirement
+
+    if req.start_ft is None:
+        return False
+    if req.planned_reserve_ft is None:
+        return False
+    if req.end_ft is None:
+        return False
+    if _cable_row_has_rejected_photo(row):
+        return False
+
+    present = _cable_present_shots_for_row(row)
+    missing = [shot for shot in _cable_required_shots() if shot not in present]
+    return len(missing) == 0
+
+
+def _cable_assignment_missing_labels(assignment):
+    labels = []
+    rows = _cable_assignment_rows(assignment)
+    row_by_req = {row.requirement_id: row for row in rows}
+
+    requirements = assignment.sesion.cable_requirements.filter(required=True).order_by(
+        "order", "sequence_no", "id"
+    )
+
+    for req in requirements:
+        row = row_by_req.get(req.id)
+
+        missing = []
+
+        if req.start_ft is None or req.planned_reserve_ft is None or req.end_ft is None:
+            missing.append("measurement")
+
+        if not row:
+            missing.append("photos")
+        else:
+            present = _cable_present_shots_for_row(row)
+            pending = [shot for shot in _cable_required_shots() if shot not in present]
+            if pending:
+                missing.append("photos")
+            if _cable_row_has_rejected_photo(row):
+                missing.append("review")
+
+        if missing:
+            labels.append(f"PK {req.sequence_no} - {req.handhole} ({', '.join(missing)})")
+
+    return labels
+
+
+def _cable_assignment_has_rejected_photo(assignment):
+    return CableEvidence.objects.filter(
+        assignment_requirement__assignment=assignment,
+        review_status=CableEvidence.REVIEW_REJECTED,
+    ).exists()
+
+
+def _cable_assignment_latest_rejection_comment(assignment):
+    ev = (
+        CableEvidence.objects.filter(
+            assignment_requirement__assignment=assignment,
+            review_status=CableEvidence.REVIEW_REJECTED,
+        )
+        .exclude(review_comment="")
+        .order_by("-reviewed_at", "-id")
+        .first()
+    )
+    return ev.review_comment if ev else ""
+
+
+def _cable_assignment_can_finish(assignment):
+    pendientes = []
+
+    qs_asg = assignment.sesion.tecnicos_sesion.select_related("tecnico").all()
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    for asg in qs_asg:
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = (
+                getattr(asg.tecnico, "get_full_name", lambda: "")()
+                or asg.tecnico.username
+            )
+            pendientes.append(name)
+
+    faltantes = _cable_assignment_missing_labels(assignment)
+    return not pendientes and not faltantes
+
+
 @login_required
-@rol_requerido('usuario', 'admin', 'pm', 'supervisor')
+@rol_requerido("usuario", "admin", "pm", "supervisor")
 def mis_assignments(request):
     import json
     from decimal import Decimal
@@ -116,7 +253,6 @@ def mis_assignments(request):
                                   Q, Subquery, Sum, Value, When)
     from django.db.models.functions import Coalesce
 
-    # modelos cable
     try:
         from cable_installation.models import (CableAssignmentRequirement,
                                                CableEvidence, CableRequirement)
@@ -125,37 +261,31 @@ def mis_assignments(request):
         CableEvidence = None
         CableRequirement = None
 
-    # Estados visibles (se excluyen todos los aprobados)
     visibles = [
-        'asignado',
-        'en_proceso',
-        'en_revision_supervisor',
-        'rechazado_supervisor',
-        'rechazado_pm',
-        'rechazado_finanzas',
+        "asignado",
+        "en_proceso",
+        "en_revision_supervisor",
+        "rechazado_supervisor",
+        "rechazado_pm",
+        "rechazado_finanzas",
     ]
 
-    base_qs = (
-        SesionBillingTecnico.objects
-        .select_related("sesion", "tecnico")
-        .filter(
-            tecnico=request.user,
-            estado__in=visibles,
-            sesion__is_direct_discount=False,
-        )
+    base_qs = SesionBillingTecnico.objects.select_related("sesion", "tecnico").filter(
+        tecnico=request.user,
+        estado__in=visibles,
+        sesion__is_direct_discount=False,
     )
 
-    # solo activas si existe el campo
     try:
         SesionBillingTecnico._meta.get_field("is_active")
         base_qs = base_qs.filter(is_active=True)
     except Exception:
         pass
 
-    # total del técnico para cada sesión
     ibt = (
-        ItemBillingTecnico.objects
-        .filter(item__sesion=OuterRef("sesion_id"), tecnico=request.user)
+        ItemBillingTecnico.objects.filter(
+            item__sesion=OuterRef("sesion_id"), tecnico=request.user
+        )
         .values("tecnico")
         .annotate(total=Sum("subtotal"))
         .values("total")
@@ -163,35 +293,30 @@ def mis_assignments(request):
 
     dec_field = DecimalField(max_digits=12, decimal_places=2)
 
-    asignaciones_qs = (
-        base_qs
-        .annotate(
-            my_total=Coalesce(
-                Subquery(ibt, output_field=dec_field),
-                Value(Decimal("0.00"), output_field=dec_field),
-                output_field=dec_field
-            ),
-            estado_priority=Case(
-                When(estado='asignado',               then=Value(1)),
-                When(estado='en_proceso',             then=Value(2)),
-                When(estado='en_revision_supervisor', then=Value(3)),
-                When(estado='rechazado_supervisor',   then=Value(4)),
-                When(estado='rechazado_pm',           then=Value(5)),
-                When(estado='rechazado_finanzas',     then=Value(6)),
-                default=Value(999),
-                output_field=IntegerField(),
-            ),
-        )
-        .order_by('estado_priority', '-sesion__creado_en', '-id')
-    )
+    asignaciones_qs = base_qs.annotate(
+        my_total=Coalesce(
+            Subquery(ibt, output_field=dec_field),
+            Value(Decimal("0.00"), output_field=dec_field),
+            output_field=dec_field,
+        ),
+        estado_priority=Case(
+            When(estado="asignado", then=Value(1)),
+            When(estado="en_proceso", then=Value(2)),
+            When(estado="en_revision_supervisor", then=Value(3)),
+            When(estado="rechazado_supervisor", then=Value(4)),
+            When(estado="rechazado_pm", then=Value(5)),
+            When(estado="rechazado_finanzas", then=Value(6)),
+            default=Value(999),
+            output_field=IntegerField(),
+        ),
+    ).order_by("estado_priority", "-sesion__creado_en", "-id")
 
     asignaciones = list(asignaciones_qs)
 
-    # ================== Resolver nombre legible del proyecto ==================
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
-        'id',
+        "id",
     )
 
     for a in asignaciones:
@@ -204,8 +329,7 @@ def mis_assignments(request):
                 pid = int(raw)
             except (TypeError, ValueError):
                 proyecto_sel = proyectos_qs.filter(
-                    Q(nombre__iexact=raw) |
-                    Q(codigo__iexact=raw)
+                    Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
                 ).first()
             else:
                 proyecto_sel = proyectos_qs.filter(pk=pid).first()
@@ -213,21 +337,16 @@ def mis_assignments(request):
         if not proyecto_sel and getattr(s, "proyecto_id", None):
             code = str(s.proyecto_id).strip()
             proyecto_sel = proyectos_qs.filter(
-                Q(codigo__iexact=code) |
-                Q(nombre__icontains=code)
+                Q(codigo__iexact=code) | Q(nombre__icontains=code)
             ).first()
 
         if proyecto_sel:
             a.proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
         else:
             a.proyecto_label = (
-                getattr(s, "proyecto", None)
-                or getattr(s, "proyecto_id", "")
-                or ""
+                getattr(s, "proyecto", None) or getattr(s, "proyecto_id", "") or ""
             ).strip()
-    # ========================================================================
 
-    # ================== can_finish + motivos ==================
     def _norm_title(x: str) -> str:
         return (x or "").strip().lower()
 
@@ -240,11 +359,9 @@ def mis_assignments(request):
 
     sesion_ids = list(by_session.keys())
 
-    # 1) pendientes de aceptación por sesión
     pending_accept_names = {sid: [] for sid in sesion_ids}
     qs_asg = (
-        SesionBillingTecnico.objects
-        .filter(sesion_id__in=sesion_ids)
+        SesionBillingTecnico.objects.filter(sesion_id__in=sesion_ids)
         .select_related("tecnico")
         .only(
             "sesion_id",
@@ -265,42 +382,49 @@ def mis_assignments(request):
         sid = asg.sesion_id
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
-            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            name = (
+                getattr(asg.tecnico, "get_full_name", lambda: "")()
+                or asg.tecnico.username
+            )
             pending_accept_names.setdefault(sid, []).append(name)
 
-    # separar sesiones cable / no cable
-    cable_session_ids = [a.sesion_id for a in asignaciones if getattr(a.sesion, "is_cable_installation", False)]
-    normal_session_ids = [a.sesion_id for a in asignaciones if not getattr(a.sesion, "is_cable_installation", False)]
+    cable_session_ids = [
+        a.sesion_id
+        for a in asignaciones
+        if getattr(a.sesion, "is_cable_installation", False)
+    ]
+    normal_session_ids = [
+        a.sesion_id
+        for a in asignaciones
+        if not getattr(a.sesion, "is_cable_installation", False)
+    ]
 
-    # ---------- flujo normal ----------
     sample_map_by_sesion = {}
     req_titles_by_sesion = {}
     covered_by_sesion = {}
 
     if normal_session_ids:
-        qs_sample = (
-            RequisitoFotoBilling.objects
-            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, titulo__isnull=False)
-            .values_list("tecnico_sesion__sesion_id", "titulo")
-        )
+        qs_sample = RequisitoFotoBilling.objects.filter(
+            tecnico_sesion__sesion_id__in=normal_session_ids, titulo__isnull=False
+        ).values_list("tecnico_sesion__sesion_id", "titulo")
         for sid, t in qs_sample:
             if not t:
                 continue
             sample_map_by_sesion.setdefault(sid, {})
             sample_map_by_sesion[sid][_norm_title(t)] = t
 
-        qs_req = (
-            RequisitoFotoBilling.objects
-            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, obligatorio=True)
-            .values_list("tecnico_sesion__sesion_id", "titulo")
-        )
+        qs_req = RequisitoFotoBilling.objects.filter(
+            tecnico_sesion__sesion_id__in=normal_session_ids, obligatorio=True
+        ).values_list("tecnico_sesion__sesion_id", "titulo")
         for sid, t in qs_req:
             if t:
                 req_titles_by_sesion.setdefault(sid, set()).add(_norm_title(t))
 
         qs_cov = (
-            EvidenciaFotoBilling.objects
-            .filter(tecnico_sesion__sesion_id__in=normal_session_ids, requisito__isnull=False)
+            EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion_id__in=normal_session_ids,
+                requisito__isnull=False,
+            )
             .values_list("tecnico_sesion__sesion_id", "requisito__titulo")
             .distinct()
         )
@@ -308,56 +432,141 @@ def mis_assignments(request):
             if t:
                 covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
 
-    # ---------- flujo cable ----------
     cable_missing_by_sesion = {}
+    cable_has_rejected_by_sesion = {}
+    cable_rejection_comment_by_sesion = {}
 
-    if cable_session_ids and CableRequirement and CableAssignmentRequirement and CableEvidence:
+    if (
+        cable_session_ids
+        and CableRequirement
+        and CableAssignmentRequirement
+        and CableEvidence
+    ):
         requirements_by_session = {}
-        qs_cable_req = (
-            CableRequirement.objects
-            .filter(billing_id__in=cable_session_ids, required=True)
-            .order_by("billing_id", "order", "sequence_no", "id")
-        )
+        qs_cable_req = CableRequirement.objects.filter(
+            billing_id__in=cable_session_ids, required=True
+        ).order_by("billing_id", "order", "sequence_no", "id")
         for req in qs_cable_req:
             requirements_by_session.setdefault(req.billing_id, []).append(req)
 
-        measured_req_ids = set(
-            CableRequirement.objects
-            .filter(
-                billing_id__in=cable_session_ids,
-                start_ft__isnull=False,
-                end_ft__isnull=False,
+        rows_by_session = {}
+        qs_rows = (
+            CableAssignmentRequirement.objects.filter(
+                assignment__sesion_id__in=cable_session_ids
             )
-            .values_list("id", flat=True)
+            .select_related("requirement", "assignment")
+            .order_by(
+                "assignment__sesion_id",
+                "requirement__order",
+                "requirement__sequence_no",
+                "id",
+            )
         )
-
-        evidence_req_ids = set(
-            CableEvidence.objects
-            .filter(
-                assignment_requirement__requirement__billing_id__in=cable_session_ids
+        for row in qs_rows:
+            rows_by_session.setdefault(row.assignment.sesion_id, {})
+            rows_by_session[row.assignment.sesion_id].setdefault(
+                row.requirement_id, row
             )
-            .values_list("assignment_requirement__requirement_id", flat=True)
+
+        present_shots_by_row = {}
+        qs_present = (
+            CableEvidence.objects.filter(
+                assignment_requirement__assignment__sesion_id__in=cable_session_ids
+            )
+            .exclude(shot_type="")
+            .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+            .values_list("assignment_requirement_id", "shot_type")
             .distinct()
         )
+        for row_id, shot_type in qs_present:
+            present_shots_by_row.setdefault(row_id, set()).add(shot_type)
+
+        rejected_comments_qs = (
+            CableEvidence.objects.filter(
+                assignment_requirement__assignment__sesion_id__in=cable_session_ids,
+                review_status=CableEvidence.REVIEW_REJECTED,
+            )
+            .exclude(review_comment="")
+            .select_related(
+                "assignment_requirement", "assignment_requirement__assignment"
+            )
+            .order_by(
+                "assignment_requirement__assignment__sesion_id", "-reviewed_at", "-id"
+            )
+        )
+
+        rejected_comments_map = {}
+        for ev in rejected_comments_qs:
+            sid = ev.assignment_requirement.assignment.sesion_id
+            if sid not in rejected_comments_map:
+                rejected_comments_map[sid] = ev.review_comment
+
+        rejected_exists_qs = (
+            CableEvidence.objects.filter(
+                assignment_requirement__assignment__sesion_id__in=cable_session_ids,
+                review_status=CableEvidence.REVIEW_REJECTED,
+            )
+            .values_list("assignment_requirement__assignment__sesion_id", flat=True)
+            .distinct()
+        )
+        rejected_session_ids = set(rejected_exists_qs)
+
+        required_shots = [
+            CableEvidence.SHOT_START_CABLE,
+            CableEvidence.SHOT_END_CABLE,
+            CableEvidence.SHOT_HANDHOLE,
+        ]
 
         for sid, reqs in requirements_by_session.items():
             faltantes = []
-            for req in reqs:
-                missing_parts = []
-                if req.id not in measured_req_ids:
-                    missing_parts.append("measurement")
-                if req.id not in evidence_req_ids:
-                    missing_parts.append("photo")
-                if missing_parts:
-                    faltantes.append(f"{_cable_label(req)} ({', '.join(missing_parts)})")
-            cable_missing_by_sesion[sid] = faltantes
+            row_map = rows_by_session.get(sid, {})
 
-    # aplicar a cada asignación
+            for req in reqs:
+                missing = []
+
+                if (
+                    req.start_ft is None
+                    or req.planned_reserve_ft is None
+                    or req.end_ft is None
+                ):
+                    missing.append("measurement")
+
+                row = row_map.get(req.id)
+                if not row:
+                    missing.append("photos")
+                else:
+                    present = present_shots_by_row.get(row.id, set())
+                    pending = [shot for shot in required_shots if shot not in present]
+                    if pending:
+                        missing.append("photos")
+
+                    row_has_rejected = CableEvidence.objects.filter(
+                        assignment_requirement=row,
+                        review_status=CableEvidence.REVIEW_REJECTED,
+                    ).exists()
+                    if row_has_rejected:
+                        missing.append("review")
+
+                if missing:
+                    faltantes.append(f"{_cable_label(req)} ({', '.join(missing)})")
+
+            cable_missing_by_sesion[sid] = faltantes
+            cable_has_rejected_by_sesion[sid] = sid in rejected_session_ids
+            cable_rejection_comment_by_sesion[sid] = rejected_comments_map.get(sid, "")
+
     for a in asignaciones:
         sid = a.sesion_id
 
         if getattr(a.sesion, "is_cable_installation", False):
             a.faltantes_global_labels = cable_missing_by_sesion.get(sid, [])
+            a.has_cable_rejected_photo = cable_has_rejected_by_sesion.get(sid, False)
+            a.cable_rejection_comment = cable_rejection_comment_by_sesion.get(sid, "")
+            a.can_open_cable_report = (
+                a.estado
+                in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+                or getattr(a, "reintento_habilitado", False)
+                or a.has_cable_rejected_photo
+            )
         else:
             required = req_titles_by_sesion.get(sid, set())
             covered = covered_by_sesion.get(sid, set())
@@ -365,17 +574,26 @@ def mis_assignments(request):
 
             smap = sample_map_by_sesion.get(sid, {})
             a.faltantes_global_labels = [smap.get(k, k) for k in sorted(faltan_keys)]
+            a.has_cable_rejected_photo = False
+            a.cable_rejection_comment = ""
+            a.can_open_cable_report = False
 
         a.pendientes_aceptar_names = pending_accept_names.get(sid, [])
 
-        a.can_finish = (
-            a.estado == "en_proceso"
-            and not a.faltantes_global_labels
-            and not a.pendientes_aceptar_names
-        )
-    # ==============================================================================
+        if getattr(a.sesion, "is_cable_installation", False):
+            a.can_finish = (
+                a.estado
+                in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+                and not a.faltantes_global_labels
+                and not a.pendientes_aceptar_names
+            )
+        else:
+            a.can_finish = (
+                a.estado == "en_proceso"
+                and not a.faltantes_global_labels
+                and not a.pendientes_aceptar_names
+            )
 
-    # ================== Excel filters ==================
     def _cell_value(a, col_idx: int) -> str:
         s = a.sesion
 
@@ -425,7 +643,16 @@ def mis_assignments(request):
                 return "Rejected by Finance"
             return vac(estado)
         if col_idx == 9:
-            return vac(getattr(a, "tecnico_comentario", "") or "")
+            comentario = getattr(a, "tecnico_comentario", "") or ""
+            if getattr(a, "sesion", None) and getattr(
+                a.sesion, "is_cable_installation", False
+            ):
+                rechazo = getattr(a, "cable_rejection_comment", "") or ""
+                if comentario and rechazo:
+                    return f"{comentario} | Review: {rechazo}"
+                if rechazo:
+                    return rechazo
+            return vac(comentario)
         if col_idx == 10:
             if getattr(s, "is_cable_installation", False):
                 return "Cable report"
@@ -471,7 +698,6 @@ def mis_assignments(request):
 
     excel_global_json = json.dumps(excel_global, ensure_ascii=False)
 
-    # ================== Paginación ==================
     cantidad = (request.GET.get("cantidad") or "20").strip()
     try:
         per_page = int(cantidad)
@@ -497,51 +723,27 @@ def mis_assignments(request):
             "cantidad": str(per_page),
             "base_qs": base_qs,
             "excel_global_json": excel_global_json,
-        }
+        },
     )
 
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 def detalle_assignment(request, pk):
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
-    # ✅ NUEVO: bloquear si la asignación está inactiva
     if not _is_asig_active(a):
         raise Http404()
 
     items = (
-        ItemBillingTecnico.objects
-        .filter(item__sesion=a.sesion, tecnico=request.user)
+        ItemBillingTecnico.objects.filter(item__sesion=a.sesion, tecnico=request.user)
         .select_related("item")
         .order_by("item__id")
     )
 
-    # ✅ NUEVO: misma regla de "Finish" que en billing_upload_evidencias
-    def _norm_title(s: str) -> str:
-        return (s or "").strip().lower()
-
     s = a.sesion
 
-    required_titles = (
-        RequisitoFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, obligatorio=True)
-        .values_list("titulo", flat=True)
-    )
-    required_key_set = {_norm_title(t) for t in required_titles if t}
-
-    taken_titles = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
-        .values_list("requisito__titulo", flat=True)
-        .distinct()
-    )
-    covered_key_set = {_norm_title(t) for t in taken_titles if t}
-
-    missing_keys = required_key_set - covered_key_set
-
     pendientes_aceptar = []
-
     qs_asg = s.tecnicos_sesion.select_related("tecnico").all()
     try:
         SesionBillingTecnico._meta.get_field("is_active")
@@ -552,16 +754,165 @@ def detalle_assignment(request, pk):
     for asg in qs_asg:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
         if not accepted:
-            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            name = (
+                getattr(asg.tecnico, "get_full_name", lambda: "")()
+                or asg.tecnico.username
+            )
             pendientes_aceptar.append(name)
 
-    can_finish = (a.estado == "en_proceso" and not missing_keys and not pendientes_aceptar)
+    if getattr(s, "is_cable_installation", False):
+        try:
+            from cable_installation.models import (CableAssignmentRequirement,
+                                                   CableEvidence,
+                                                   CableRequirement)
+        except Exception:
+            CableAssignmentRequirement = None
+            CableEvidence = None
+            CableRequirement = None
 
-    return render(request, "operaciones/billing_detalle_asignacion.html", {
-        "a": a,
-        "items": items,
-        "can_finish": can_finish,  # ✅ para habilitar/deshabilitar Finish aquí también
-    })
+        cable_missing_labels = []
+        has_cable_rejected_photo = False
+        cable_rejection_comment = ""
+        can_open_cable_report = False
+
+        if CableAssignmentRequirement and CableEvidence and CableRequirement:
+            rows = list(
+                CableAssignmentRequirement.objects.filter(assignment=a)
+                .select_related("requirement", "assignment")
+                .order_by("requirement__order", "requirement__sequence_no", "id")
+            )
+            row_by_req = {row.requirement_id: row for row in rows}
+
+            requirements = list(
+                s.cable_requirements.filter(required=True).order_by(
+                    "order", "sequence_no", "id"
+                )
+            )
+
+            for req in requirements:
+                row = row_by_req.get(req.id)
+                missing = []
+
+                if (
+                    req.start_ft is None
+                    or req.planned_reserve_ft is None
+                    or req.end_ft is None
+                ):
+                    missing.append("measurement")
+
+                if not row:
+                    missing.append("photos")
+                else:
+                    present = set(
+                        CableEvidence.objects.filter(assignment_requirement=row)
+                        .exclude(shot_type="")
+                        .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+                        .values_list("shot_type", flat=True)
+                        .distinct()
+                    )
+
+                    required_shots = [
+                        CableEvidence.SHOT_START_CABLE,
+                        CableEvidence.SHOT_END_CABLE,
+                        CableEvidence.SHOT_HANDHOLE,
+                    ]
+                    pending = [shot for shot in required_shots if shot not in present]
+                    if pending:
+                        missing.append("photos")
+
+                    row_has_rejected = CableEvidence.objects.filter(
+                        assignment_requirement=row,
+                        review_status=CableEvidence.REVIEW_REJECTED,
+                    ).exists()
+                    if row_has_rejected:
+                        missing.append("review")
+
+                if missing:
+                    cable_missing_labels.append(
+                        f"PK {req.sequence_no} - {req.handhole} ({', '.join(missing)})"
+                    )
+
+            rejected_ev = (
+                CableEvidence.objects.filter(
+                    assignment_requirement__assignment=a,
+                    review_status=CableEvidence.REVIEW_REJECTED,
+                )
+                .exclude(review_comment="")
+                .order_by("-reviewed_at", "-id")
+                .first()
+            )
+            if rejected_ev:
+                has_cable_rejected_photo = True
+                cable_rejection_comment = rejected_ev.review_comment or ""
+            else:
+                has_cable_rejected_photo = CableEvidence.objects.filter(
+                    assignment_requirement__assignment=a,
+                    review_status=CableEvidence.REVIEW_REJECTED,
+                ).exists()
+
+            can_open_cable_report = (
+                a.estado
+                in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+                or getattr(a, "reintento_habilitado", False)
+                or has_cable_rejected_photo
+            )
+
+        can_finish = (
+            a.estado in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+            and not cable_missing_labels
+            and not pendientes_aceptar
+        )
+
+        return render(
+            request,
+            "operaciones/billing_detalle_asignacion.html",
+            {
+                "a": a,
+                "items": items,
+                "can_finish": can_finish,
+                "cable_missing_labels": cable_missing_labels,
+                "has_cable_rejected_photo": has_cable_rejected_photo,
+                "cable_rejection_comment": cable_rejection_comment,
+                "can_open_cable_report": can_open_cable_report,
+            },
+        )
+
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    required_titles = RequisitoFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s, obligatorio=True
+    ).values_list("titulo", flat=True)
+    required_key_set = {_norm_title(t) for t in required_titles if t}
+
+    taken_titles = (
+        EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s, requisito__isnull=False
+        )
+        .values_list("requisito__titulo", flat=True)
+        .distinct()
+    )
+    covered_key_set = {_norm_title(t) for t in taken_titles if t}
+
+    missing_keys = required_key_set - covered_key_set
+
+    can_finish = (
+        a.estado == "en_proceso" and not missing_keys and not pendientes_aceptar
+    )
+
+    return render(
+        request,
+        "operaciones/billing_detalle_asignacion.html",
+        {
+            "a": a,
+            "items": items,
+            "can_finish": can_finish,
+            "cable_missing_labels": [],
+            "has_cable_rejected_photo": False,
+            "cable_rejection_comment": "",
+            "can_open_cable_report": False,
+        },
+    )
 
 
 @login_required
@@ -595,7 +946,6 @@ def start_assignment(request, pk):
 
     messages.success(request, "Assignment started.")
     return redirect("operaciones:mis_assignments")
-
 
 
 def _to_jpeg_if_needed(uploaded_file):
@@ -1549,7 +1899,6 @@ def presign_wasabi(request):
     presigned["url"] = f"{settings.WASABI_ENDPOINT_URL.rstrip('/')}/{bucket}"
 
     return JsonResponse({"url": presigned["url"], "fields": presigned["fields"], "key": key})
-
 
 
 SAFE_EVIDENCE_PREFIX = getattr(
@@ -2548,8 +2897,6 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
 # ============================
 
 
-
-
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 @require_POST
@@ -3104,9 +3451,6 @@ def importar_requisitos(request, sesion_id):
     )
 
 
-
-
-
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 @require_POST
@@ -3621,7 +3965,6 @@ def eliminar_evidencia(request, pk, evidencia_id):
         or (reverse("operaciones:upload_evidencias", args=[a.pk]) if is_owner else reverse("operaciones:revisar_sesion", args=[s.pk]))
     )
     return redirect(next_url)
-
 
 
 # views.py
