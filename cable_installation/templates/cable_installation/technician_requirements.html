@@ -23,10 +23,12 @@
     background:rgba(0,0,0,.25);
   }
   .thumb-btn{display:block;width:100%;text-align:left;}
-  .thumb-btn img{display:block;width:100%;height:6rem;object-fit:cover;}
+  .thumb-btn img{display:block;width:100%;height:10rem;object-fit:cover;}
   .btn-open-delete{cursor:pointer;user-select:none;}
 
-  .take-btn[disabled]{
+  .take-btn[disabled],
+  .btn-save-tech[disabled],
+  .field-lock[disabled]{
     opacity:.55;
     cursor:not-allowed;
     pointer-events:none;
@@ -38,6 +40,27 @@
     padding:.75rem;
     background:#fafafa;
   }
+
+  .photo-card{
+    border:1px solid rgb(229 231 235);
+    border-radius:1rem;
+    overflow:hidden;
+    background:#fff;
+  }
+
+  .status-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:.2rem .55rem;
+    border-radius:9999px;
+    font-size:.75rem;
+    font-weight:700;
+    line-height:1;
+  }
+  .status-chip.pending{background:#FEF3C7;color:#92400E;}
+  .status-chip.approved{background:#DCFCE7;color:#166534;}
+  .status-chip.rejected{background:#FEE2E2;color:#991B1B;}
 </style>
 
 <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
@@ -92,7 +115,10 @@
 
     <ul class="space-y-3">
       {% for block in blocks %}
-      <li class="border rounded-2xl p-4" data-row-wrap="{{ block.row.id }}" data-req-id="{{ block.requirement.id }}">
+      <li class="border rounded-2xl p-4"
+          data-row-wrap="{{ block.row.id }}"
+          data-req-id="{{ block.requirement.id }}"
+          data-is-done="{% if block.is_done %}1{% else %}0{% endif %}">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="font-semibold flex flex-wrap items-center gap-2">
@@ -110,6 +136,23 @@
               Warning: {{ block.requirement.warning }}
             </div>
             {% endif %}
+
+            {% if block.supervisor_note %}
+            <div class="mt-2 border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+              <strong>Requirement observation:</strong> {{ block.supervisor_note }}
+            </div>
+            {% endif %}
+
+            {% if block.rejection_comments %}
+            <div class="mt-2 border rounded-xl px-3 py-2 bg-red-50 text-red-800 text-sm">
+              <strong>Rejected items:</strong>
+              <ul class="mt-1 list-disc pl-5">
+                {% for item in block.rejection_comments %}
+                  <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
           </div>
 
           <div class="text-xs text-gray-500 req-count whitespace-nowrap" data-req="{{ block.requirement.id }}">
@@ -123,17 +166,20 @@
             <label class="block text-sm font-semibold text-gray-700 mb-1">Shared Start ft</label>
             <input type="number"
                    step="0.01"
-                   class="tech-start w-full border rounded p-2"
+                   min="0"
+                   class="tech-start field-lock w-full border rounded p-2"
                    data-row-id="{{ block.row.id }}"
                    value="{{ block.requirement.start_ft|default:'' }}"
-                   placeholder="Enter start ft">
+                   placeholder="Enter start ft"
+                   {% if block.is_done %}disabled{% endif %}>
 
             <div class="mt-2 flex justify-end">
               <button type="button"
                       class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
                       data-row-id="{{ block.row.id }}"
                       data-req-id="{{ block.requirement.id }}"
-                      data-shot="start_cable">
+                      data-shot="start_cable"
+                      {% if block.is_done %}disabled{% endif %}>
                 📷 Take
               </button>
             </div>
@@ -143,14 +189,25 @@
             <label class="block text-sm font-semibold text-gray-700 mb-1">Reserve ft</label>
             <input type="number"
                    step="0.01"
-                   class="tech-reserve w-full border rounded p-2"
+                   min="0"
+                   class="tech-reserve field-lock w-full border rounded p-2"
                    data-row-id="{{ block.row.id }}"
                    value="{% if block.row.reserve_ft %}{{ block.row.reserve_ft }}{% elif block.requirement.planned_reserve_ft %}{{ block.requirement.planned_reserve_ft }}{% else %}{% endif %}"
                    data-planned-reserve="{{ block.requirement.planned_reserve_ft|default:'0' }}"
-                   placeholder="Enter reserve ft">
+                   placeholder="Enter reserve ft"
+                   {% if block.is_done %}disabled{% endif %}>
 
             <div class="mt-2 text-xs text-gray-600">
               Planned reserve: <span class="planned-reserve-label" data-row-id="{{ block.row.id }}">{{ block.requirement.planned_reserve_ft|default:"0.00" }}</span> ft
+            </div>
+
+            <div class="mt-3 flex justify-end">
+              <button type="button"
+                      class="btn-save-tech px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                      data-row-id="{{ block.row.id }}"
+                      {% if block.is_done %}disabled{% endif %}>
+                Save measurement
+              </button>
             </div>
           </div>
 
@@ -158,10 +215,12 @@
             <label class="block text-sm font-semibold text-gray-700 mb-1">Shared End ft</label>
             <input type="number"
                    step="0.01"
-                   class="tech-end w-full border rounded p-2"
+                   min="0"
+                   class="tech-end field-lock w-full border rounded p-2"
                    data-row-id="{{ block.row.id }}"
                    value="{{ block.requirement.end_ft|default:'' }}"
-                   placeholder="Enter end ft">
+                   placeholder="Enter end ft"
+                   {% if block.is_done %}disabled{% endif %}>
 
             <div id="end-help-{{ block.row.id }}"
                  class="mt-2 text-xs text-gray-600">
@@ -169,14 +228,17 @@
             </div>
 
             <div id="end-warning-{{ block.row.id }}"
-                 class="mt-2 hidden border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+                 class="mt-2 {% if block.requirement.measurement_warning_text %}{% else %}hidden{% endif %} border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+              {% if block.requirement.measurement_warning_text %}{{ block.requirement.measurement_warning_text }}{% endif %}
             </div>
 
-            <div id="end-confirm-wrap-{{ block.row.id }}" class="mt-2 hidden">
+            <div id="end-confirm-wrap-{{ block.row.id }}" class="mt-2 {% if block.requirement.measurement_warning_text %}{% else %}hidden{% endif %}">
               <label class="inline-flex items-center gap-2 text-sm text-amber-800">
                 <input type="checkbox"
                        class="end-confirm-checkbox"
-                       data-row-id="{{ block.row.id }}">
+                       data-row-id="{{ block.row.id }}"
+                       {% if block.requirement.end_ft_overridden %}checked{% endif %}
+                       {% if block.is_done %}disabled{% endif %}>
                 Confirm different end ft
               </label>
             </div>
@@ -186,7 +248,8 @@
                       class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
                       data-row-id="{{ block.row.id }}"
                       data-req-id="{{ block.requirement.id }}"
-                      data-shot="end_cable">
+                      data-shot="end_cable"
+                      {% if block.is_done %}disabled{% endif %}>
                 📷 Take
               </button>
             </div>
@@ -208,7 +271,8 @@
                       class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
                       data-row-id="{{ block.row.id }}"
                       data-req-id="{{ block.requirement.id }}"
-                      data-shot="handhole">
+                      data-shot="handhole"
+                      {% if block.is_done %}disabled{% endif %}>
                 📷 Take
               </button>
             </div>
@@ -217,10 +281,11 @@
 
         <div class="mt-3">
           <label class="block text-sm font-semibold text-gray-700 mb-1">Requirement note</label>
-          <textarea class="tech-note w-full border rounded p-2"
+          <textarea class="tech-note field-lock w-full border rounded p-2"
                     rows="2"
                     data-row-id="{{ block.row.id }}"
-                    placeholder="Write a note (optional)">{{ block.row.note }}</textarea>
+                    placeholder="Write a note (optional)"
+                    {% if block.is_done %}disabled{% endif %}>{{ block.row.note }}</textarea>
         </div>
 
         <div class="mt-3">
@@ -237,97 +302,81 @@
           {% endif %}
         </div>
 
-        <form class="mt-4 geo-upload-form ajax-uploader">
-          {% csrf_token %}
-          <input type="hidden" name="req_id" value="{{ block.requirement.id }}">
-          <input type="hidden" name="row_id" value="{{ block.row.id }}">
-
-          <input type="hidden" name="lat">
-          <input type="hidden" name="lng">
-          <input type="hidden" name="acc">
-          <input type="hidden" name="client_taken_at">
-
-          <div class="flex flex-wrap items-center gap-2">
-            <input id="file-gallery-{{ block.requirement.id }}"
-                   type="file"
-                   name="imagenes[]"
-                   accept="image/*"
-                   multiple
-                   class="sr-only file-input">
-
-            <label for="file-gallery-{{ block.requirement.id }}"
-                   class="px-3 py-2 rounded text-sm cursor-pointer bg-gray-100 hover:bg-gray-200">
-              📁 Choose files
-            </label>
-
-            <span class="text-xs text-gray-600 filename" data-empty="No files selected">
-              No files selected
-            </span>
-          </div>
-
-          <div class="flex items-center justify-between mt-2 text-xs text-gray-600">
-            <span class="gps-status">📍 Awaiting location…</span>
-            <span class="time-status">🕒 —</span>
-          </div>
-
-          <div class="flex items-center gap-2 mt-2">
-            <input type="text" name="nota" placeholder="Photo note (optional)" class="w-full border rounded p-2">
-            <button type="button"
-                    class="grant-location px-3 py-2 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm">
-              Grant Location
-            </button>
-          </div>
-
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button"
-                    class="btn-save-tech px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-                    data-row-id="{{ block.row.id }}">
-              Save measurement
-            </button>
-
-            <button type="submit"
-                    class="px-4 py-2 rounded bg-gray-800 text-white hover:bg-gray-900">
-              Upload
-            </button>
-          </div>
-
-          <div class="mt-2 space-y-2 upload-queue"></div>
-        </form>
-
         <div class="mt-4">
           <div class="flex items-center justify-between">
             <div class="text-xs font-semibold text-gray-700">Photos</div>
             <div class="text-xs text-gray-400">Tap a photo to preview</div>
           </div>
 
-          <div class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2 req-photos"
+          <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 req-photos"
                data-req-photos="{{ block.requirement.id }}">
             {% for ev in block.evidences %}
-            <button type="button"
-                    class="relative border rounded-xl overflow-hidden group thumb-btn"
-                    data-ev-id="{{ ev.id }}"
-                    data-preview-url="{{ ev.image.url }}"
-                    data-preview-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
-                    aria-label="Open photo">
-              {% if ev.assignment_requirement.assignment_id == a.id %}
-              <span class="absolute top-1 right-1 z-10">
-                <span
-                  class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
-                  role="button"
-                  tabindex="0"
-                  data-delete-url="{% url 'cable_installation:delete_own_evidence' ev.id %}"
-                  data-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
-                  data-img="{{ ev.image.url }}"
-                  title="Delete photo">✕</span>
-              </span>
-              {% endif %}
+            <div class="photo-card" data-ev-id="{{ ev.id }}">
+              <button type="button"
+                      class="relative w-full text-left thumb-btn"
+                      data-preview-url="{{ ev.image.url }}"
+                      data-preview-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+                      aria-label="Open photo">
 
-              <img src="{{ ev.image.url }}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
+                {% if ev.assignment_requirement.assignment_id == a.id %}
+                <span class="absolute top-2 right-2 z-10">
+                  <span
+                    class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+                    role="button"
+                    tabindex="0"
+                    data-delete-url="{% url 'cable_installation:delete_own_evidence' ev.id %}"
+                    data-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+                    data-img="{{ ev.image.url }}"
+                    title="Delete photo">✕</span>
+                </span>
+                {% endif %}
 
-              <span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">
-                {{ ev.taken_at|date:"Y-m-d H:i" }}
-              </span>
-            </button>
+                <img src="{{ ev.image.url }}" class="w-full h-40 object-cover" loading="lazy" alt="photo">
+              </button>
+
+              <div class="p-3 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs font-semibold text-gray-700">
+                    {% if ev.shot_type == 'start_cable' %}
+                      Start cable photo
+                    {% elif ev.shot_type == 'end_cable' %}
+                      End cable photo
+                    {% elif ev.shot_type == 'handhole' %}
+                      Handhole / Camera photo
+                    {% else %}
+                      Photo
+                    {% endif %}
+                  </div>
+
+                  <span class="status-chip
+                    {% if ev.review_status == 'approved' %}approved{% elif ev.review_status == 'rejected' %}rejected{% else %}pending{% endif %}">
+                    {% if ev.review_status == 'approved' %}
+                      Approved
+                    {% elif ev.review_status == 'rejected' %}
+                      Rejected
+                    {% else %}
+                      Pending
+                    {% endif %}
+                  </span>
+                </div>
+
+                <div class="text-xs text-gray-500">
+                  {{ ev.taken_at|date:"Y-m-d H:i" }}
+                </div>
+
+                {% if ev.note %}
+                <div class="text-xs text-gray-600">
+                  <strong>Note:</strong> {{ ev.note }}
+                </div>
+                {% endif %}
+
+                {% if ev.review_comment %}
+                <div class="text-xs {% if ev.review_status == 'rejected' %}text-red-700{% else %}text-gray-600{% endif %}">
+                  <strong>Review:</strong> {{ ev.review_comment }}
+                </div>
+                {% endif %}
+              </div>
+            </div>
             {% endfor %}
           </div>
 
@@ -467,47 +516,7 @@
 
   window.__appendThumb = function(ev){
     if (!ev || !ev.id || !ev.url) return;
-
-    window.__knownEvIds = window.__knownEvIds || new Set();
-    if (window.__knownEvIds.has(ev.id)) return;
-    window.__knownEvIds.add(ev.id);
-    window.__maxEvId = Math.max(window.__maxEvId || 0, ev.id);
-
-    const grid = document.querySelector(`.req-photos[data-req-photos="${ev.req_id}"]`);
-    if (!grid) return;
-
-    const empty = document.querySelector(`.req-empty[data-req-empty="${ev.req_id}"]`);
-    if (empty) empty.style.display = 'none';
-
-    const label = ev.titulo || 'Photo';
-
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = "relative border rounded-xl overflow-hidden group thumb-btn";
-    b.setAttribute('data-ev-id', ev.id);
-    b.setAttribute('data-preview-url', ev.url);
-    b.setAttribute('data-preview-label', label);
-
-    const delBtn = ev.can_delete
-      ? `<span class="absolute top-1 right-1 z-10">
-           <span
-             class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
-             role="button"
-             tabindex="0"
-             data-delete-url="${window.deleteUrlFor(ev.id)}"
-             data-label="${String(label).replace(/"/g,'&quot;')}"
-             data-img="${ev.url}"
-             title="Delete photo">✕</span>
-         </span>`
-      : ``;
-
-    b.innerHTML = `
-      ${delBtn}
-      <img src="${ev.url}" class="w-full h-24 object-cover" loading="lazy" alt="photo">
-      ${ev.fecha ? `<span class="absolute inset-x-0 bottom-0 text-[10px] text-white bg-black/50 px-1 py-0.5 truncate">${ev.fecha}</span>` : ``}
-    `;
-
-    grid.prepend(b);
+    window.location.reload();
   };
 })();
 </script>
@@ -550,96 +559,6 @@
 
 <script>
 (function(){
-  const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
-  const CONSENT_KEY = "cable_photo_loc_consent";
-  const getConsent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch(e){ return null; } };
-  const setConsent = (v) => { try { localStorage.setItem(CONSENT_KEY, v); } catch(e){} };
-
-  const modal = document.getElementById('geo-consent');
-  const btnAllow = modal.querySelector('.btn-consent-allow');
-  const btnDeny  = modal.querySelector('.btn-consent-deny');
-  const openModal  = () => modal.classList.remove('hidden');
-  const closeModal = () => modal.classList.add('hidden');
-
-  async function captureGeo(form){
-    const latEl   = form.querySelector('input[name="lat"]');
-    const lngEl   = form.querySelector('input[name="lng"]');
-    const accEl   = form.querySelector('input[name="acc"]');
-    const takenEl = form.querySelector('input[name="client_taken_at"]');
-    const gpsStatus  = form.querySelector('.gps-status');
-    const timeStatus = form.querySelector('.time-status');
-
-    function setTimeNow(){
-      const now = new Date();
-      if (takenEl) takenEl.value = now.toISOString();
-      if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
-    }
-    function setGps(text){ if (gpsStatus) gpsStatus.textContent = text; }
-
-    if (!('geolocation' in navigator)){
-      setTimeNow(); setGps("📍 Geolocation not supported");
-      return false;
-    }
-
-    setGps("📍 Getting location…");
-    return new Promise((resolve)=>{
-      navigator.geolocation.getCurrentPosition(
-        (pos)=>{
-          const { latitude, longitude, accuracy } = (pos && pos.coords) || {};
-          if (latEl) latEl.value = (latitude ?? "").toFixed ? latitude.toFixed(6) : "";
-          if (lngEl) lngEl.value = (longitude ?? "").toFixed ? longitude.toFixed(6) : "";
-          if (accEl) accEl.value = (accuracy ?? 0).toFixed ? accuracy.toFixed(2) : "";
-          setTimeNow();
-          if (latEl.value && lngEl.value){
-            setGps(`📍 ${latEl.value}, ${lngEl.value}${accEl.value ? " (±"+accEl.value+"m)" : ""}`);
-            resolve(true);
-          } else {
-            setGps("📍 Location unavailable");
-            resolve(false);
-          }
-        },
-        ()=>{
-          setTimeNow();
-          setGps("📍 Location denied/unavailable");
-          resolve(false);
-        },
-        GEO_OPTS
-      );
-    });
-  }
-
-  window.__captureCableGeo = captureGeo;
-
-  document.addEventListener('DOMContentLoaded', ()=>{ if (!getConsent()) openModal(); });
-  btnAllow.addEventListener('click', ()=>{ setConsent('granted'); closeModal(); });
-  btnDeny.addEventListener('click', ()=>{ setConsent('denied'); closeModal(); });
-
-  document.querySelectorAll('.geo-upload-form').forEach(form=>{
-    const fileInputGallery = form.querySelector('.file-input');
-    const filenameEl       = form.querySelector('.filename');
-
-    if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
-
-    if (fileInputGallery){
-      fileInputGallery.addEventListener('change', async ()=>{
-        const n = fileInputGallery.files ? fileInputGallery.files.length : 0;
-        if (filenameEl){
-          filenameEl.textContent = n===0 ? (filenameEl.dataset.empty || 'No files selected')
-                                : n===1 ? fileInputGallery.files[0].name
-                                        : `${n} files selected`;
-        }
-        try { await captureGeo(form); } catch(_) {}
-      });
-    }
-
-    const btnGrant = form.querySelector('.grant-location');
-    if (btnGrant){
-      btnGrant.addEventListener('click', async ()=>{
-        try { await captureGeo(form); } catch(_) {}
-      });
-    }
-  });
-
   const delModal   = document.getElementById('modal-delete');
   const delForm    = document.getElementById('delete-form');
   const delThumb   = document.getElementById('delete-thumb');
@@ -701,23 +620,28 @@
   }
 
   function getStartInput(rowId){
-    return document.querySelector(`.tech-start[data-row-id="${rowId}"]`);
+    return document.querySelector('.tech-start[data-row-id="' + rowId + '"]');
   }
 
   function getReserveInput(rowId){
-    return document.querySelector(`.tech-reserve[data-row-id="${rowId}"]`);
+    return document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]');
   }
 
   function getEndInput(rowId){
-    return document.querySelector(`.tech-end[data-row-id="${rowId}"]`);
+    return document.querySelector('.tech-end[data-row-id="' + rowId + '"]');
   }
 
   function getNoteInput(rowId){
-    return document.querySelector(`.tech-note[data-row-id="${rowId}"]`);
+    return document.querySelector('.tech-note[data-row-id="' + rowId + '"]');
   }
 
   function getConfirmCheckbox(rowId){
-    return document.querySelector(`.end-confirm-checkbox[data-row-id="${rowId}"]`);
+    return document.querySelector('.end-confirm-checkbox[data-row-id="' + rowId + '"]');
+  }
+
+  function rowIsDone(rowId){
+    const wrap = getRowWrap(rowId);
+    return wrap && wrap.dataset.isDone === '1';
   }
 
   function getSuggestedEnd(rowId){
@@ -725,8 +649,6 @@
     const reserve = toNum(getReserveInput(rowId)?.value);
 
     if (start === null || reserve === null) return null;
-
-    // regla actual asumida: end = start - reserve
     return Number((start - reserve).toFixed(2));
   }
 
@@ -739,6 +661,7 @@
     const endWarnEl = document.getElementById(`end-warning-${rowId}`);
     const endConfirmWrap = document.getElementById(`end-confirm-wrap-${rowId}`);
     const confirmCb = getConfirmCheckbox(rowId);
+    const done = rowIsDone(rowId);
 
     if (!startEl || !reserveEl || !endEl) return;
 
@@ -789,15 +712,21 @@
         endWarnEl.textContent = '';
       }
       if (endConfirmWrap) endConfirmWrap.classList.add('hidden');
-      if (confirmCb) confirmCb.checked = false;
+      if (confirmCb && !done) confirmCb.checked = false;
     }
 
-    // Take buttons
     const rowWrap = getRowWrap(rowId);
     if (rowWrap){
       const btnStart = rowWrap.querySelector('.take-shot[data-shot="start_cable"]');
       const btnEnd = rowWrap.querySelector('.take-shot[data-shot="end_cable"]');
       const btnHandhole = rowWrap.querySelector('.take-shot[data-shot="handhole"]');
+
+      if (done){
+        if (btnStart) btnStart.disabled = true;
+        if (btnEnd) btnEnd.disabled = true;
+        if (btnHandhole) btnHandhole.disabled = true;
+        return;
+      }
 
       if (btnStart) btnStart.disabled = (start === null);
       if (btnEnd) btnEnd.disabled = (end === null);
@@ -835,8 +764,11 @@
       e.target.classList.contains('tech-reserve') ||
       e.target.classList.contains('tech-end')
     ){
+      if (toNum(e.target.value) !== null && toNum(e.target.value) < 0){
+        e.target.value = '';
+      }
       const cb = getConfirmCheckbox(rowId);
-      if (cb && e.target.classList.contains('tech-end')) {
+      if (cb && e.target.classList.contains('tech-end') && !rowIsDone(rowId)) {
         cb.checked = false;
       }
       recomputeMeasurementUI(rowId);
@@ -857,18 +789,33 @@
     const reqId = btn.dataset.reqId;
     const shot = btn.dataset.shot;
 
-    if (btn.disabled) return;
+    if (btn.disabled || rowIsDone(rowId)) return;
 
     const start = toNum(getStartInput(rowId)?.value);
+    const reserve = toNum(getReserveInput(rowId)?.value);
     const end = toNum(getEndInput(rowId)?.value);
+    const confirmCb = getConfirmCheckbox(rowId);
 
     if (shot === 'start_cable' && start === null){
       alert('Please enter Shared Start ft first.');
       return;
     }
-    if (shot === 'end_cable' && end === null){
-      alert('Please enter Shared End ft first.');
-      return;
+
+    if (shot === 'end_cable'){
+      if (end === null){
+        alert('Please enter Shared End ft first.');
+        return;
+      }
+      const suggested = getSuggestedEnd(rowId);
+      const mismatch = (
+        suggested !== null &&
+        end !== null &&
+        Math.abs(end - suggested) > 0.009
+      );
+      if (mismatch && !confirmCb?.checked){
+        alert('Please confirm the different Shared End ft value first.');
+        return;
+      }
     }
 
     window.location.href = buildTakeUrl(rowId, reqId, shot);
@@ -884,12 +831,41 @@
 </script>
 
 <script>
+function getCookie(name){
+  const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+  return m ? decodeURIComponent(m[2]) : null;
+}
+
+function getCsrfToken(){
+  const domToken =
+    document.querySelector('#delete-form input[name="csrfmiddlewaretoken"]')?.value ||
+    document.querySelector('#form-finish input[name="csrfmiddlewaretoken"]')?.value ||
+    document.querySelector('input[name="csrfmiddlewaretoken"]')?.value ||
+    '';
+  return domToken || getCookie('csrftoken') || '';
+}
+
+async function readJsonSafe(resp){
+  try {
+    return await resp.json();
+  } catch (_) {
+    return null;
+  }
+}
+
 async function saveTechRow(rowId){
+  const rowWrap = document.querySelector('[data-row-wrap="' + rowId + '"]');
+  if (rowWrap && rowWrap.dataset.isDone === '1') {
+    alert('This requirement is locked. Delete a photo to reopen it.');
+    return false;
+  }
+
   const start = document.querySelector('.tech-start[data-row-id="' + rowId + '"]')?.value || '';
   const reserve = document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]')?.value || '';
   const end = document.querySelector('.tech-end[data-row-id="' + rowId + '"]')?.value || '';
   const note = document.querySelector('.tech-note[data-row-id="' + rowId + '"]')?.value || '';
   const endConfirmed = document.querySelector('.end-confirm-checkbox[data-row-id="' + rowId + '"]')?.checked ? '1' : '';
+  const csrftoken = getCsrfToken();
 
   const body = new FormData();
   body.append('start_ft', start);
@@ -902,14 +878,24 @@ async function saveTechRow(rowId){
     "{% url 'cable_installation:update_assignment_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
     {
       method: 'POST',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrftoken,
+        'Accept': 'application/json',
+      },
+      credentials: 'same-origin',
       body
     }
   );
 
-  let data = await resp.json();
+  let data = await readJsonSafe(resp);
 
-  if(resp.status === 409 && data.requires_confirmation){
+  if (!data && !resp.ok) {
+    alert('Save failed. The server did not return valid JSON.');
+    return false;
+  }
+
+  if(resp.status === 409 && data && data.requires_confirmation){
     const ok = confirm(data.error + "\n\nDo you want to save this value anyway?");
     if(!ok) return false;
 
@@ -924,21 +910,26 @@ async function saveTechRow(rowId){
       "{% url 'cable_installation:update_assignment_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
       {
         method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrftoken,
+          'Accept': 'application/json',
+        },
+        credentials: 'same-origin',
         body: confirmBody
       }
     );
-    data = await resp.json();
+    data = await readJsonSafe(resp);
   }
 
-  if(!resp.ok || !data.ok){
-    alert(data.error || 'Save failed');
+  if(!resp.ok || !data || !data.ok){
+    alert((data && data.error) || 'Save failed');
     return false;
   }
 
   const installedEl = document.getElementById('installed-' + rowId);
   if (installedEl && data.requirement && typeof data.requirement.installed_ft !== 'undefined'){
-    installedEl.textContent = data.requirement.installed_ft;
+    installedEl.textContent = data.requirement.installed_ft || '—';
   }
 
   const warn = document.getElementById('warn-' + rowId);
@@ -954,17 +945,36 @@ async function saveTechRow(rowId){
 
   if (data.requirement && typeof data.requirement.start_ft !== 'undefined') {
     const startEl = document.querySelector('.tech-start[data-row-id="' + rowId + '"]');
-    if (startEl && data.requirement.start_ft !== null) startEl.value = data.requirement.start_ft;
+    if (startEl) startEl.value = data.requirement.start_ft || '';
   }
 
   if (data.requirement && typeof data.requirement.reserve_ft !== 'undefined') {
     const reserveEl = document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]');
-    if (reserveEl && data.requirement.reserve_ft !== null) reserveEl.value = data.requirement.reserve_ft;
+    if (reserveEl) reserveEl.value = data.requirement.reserve_ft || '';
   }
 
   if (data.requirement && typeof data.requirement.end_ft !== 'undefined') {
     const endEl = document.querySelector('.tech-end[data-row-id="' + rowId + '"]');
-    if (endEl && data.requirement.end_ft !== null) endEl.value = data.requirement.end_ft;
+    if (endEl) endEl.value = data.requirement.end_ft || '';
+  }
+
+  if (data.row && typeof data.row.is_complete !== 'undefined' && rowWrap){
+    rowWrap.dataset.isDone = data.row.is_complete ? '1' : '0';
+  }
+
+  const badge = document.querySelector('.req-badge[data-req="' + (rowWrap?.dataset.reqId || '') + '"]');
+  if (badge && data.row && typeof data.row.is_complete !== 'undefined'){
+    if (data.row.is_complete){
+      badge.textContent = 'Done';
+      badge.classList.remove('bg-red-100','text-red-800');
+      badge.classList.add('bg-green-100','text-green-800');
+      badge.setAttribute('data-state', 'done');
+    } else {
+      badge.textContent = 'Pending';
+      badge.classList.remove('bg-green-100','text-green-800');
+      badge.classList.add('bg-red-100','text-red-800');
+      badge.setAttribute('data-state', 'pending');
+    }
   }
 
   if (typeof window.__recomputeCableMeasurementUI === 'function'){
@@ -977,33 +987,13 @@ async function saveTechRow(rowId){
 document.addEventListener('click', async function(e){
   const btn = e.target.closest('.btn-save-tech');
   if(!btn) return;
+  if (btn.disabled) return;
   await saveTechRow(btn.dataset.rowId);
 });
 </script>
 
 <script>
-async function resizeImage(file, maxSide=1600, quality=0.85) {
-  if (file && file.size <= 1_000_000) return file;
-  if (!/^image\/(jpeg|jpg|png|webp|heic|heif)$/i.test(file.type)) return file;
-  const bmp = await createImageBitmap(file).catch(()=>null);
-  if (!bmp) return file;
-  const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
-  if (scale === 1) return file;
-
-  const canvas = document.createElement('canvas');
-  canvas.width  = Math.round(bmp.width*scale);
-  canvas.height = Math.round(bmp.height*scale);
-  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
-  const safeName = (file.name || 'photo').replace(/\.(heic|heif|png|webp)$/i, '.jpg');
-  return new File([blob], safeName, {type: 'image/jpeg'});
-}
-</script>
-
-<script>
 (() => {
-  const UPLOAD_URL = document.getElementById('js-urls')?.dataset?.uploadUrl || '';
   const STATUS_URL = document.getElementById('js-urls')?.dataset?.statusUrl || '';
 
   window.__knownEvIds = new Set(
@@ -1015,156 +1005,17 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     ? Math.max(...Array.from(window.__knownEvIds))
     : 0;
 
-  function incMyCount(reqId){
-    if (!reqId) return;
-    const el = document.querySelector(`.req-count[data-req="${reqId}"]`);
-    if (!el) return;
-    const m = (el.textContent.match(/\d+/) || [0])[0];
-    el.textContent = `${parseInt(m,10)+1} uploaded (you)`;
-  }
-
-  async function ensureGeo(form){
-    if (typeof window.__captureCableGeo === 'function'){
-      try { await window.__captureCableGeo(form); } catch(_) {}
-    }
-  }
-
-  async function uploadOne(form, file){
-    const queueBox = form.querySelector('.upload-queue') || form;
-    const item = document.createElement('div');
-    item.className = "border rounded p-2 relative";
-    item.innerHTML = `
-      <div class="text-xs mb-1 truncate">${file.name}</div>
-      <div class="w-full h-2 bg-gray-100 rounded overflow-hidden">
-        <div class="h-2 bg-blue-600" style="width:0%"></div>
-      </div>
-      <div class="flex items-center justify-between mt-1 text-xs text-gray-600">
-        <span class="status">Preparing…</span>
-        <button class="cancel text-red-600" type="button">Cancel</button>
-      </div>`;
-    queueBox.prepend(item);
-
-    const bar = item.querySelector('.bg-blue-600');
-    const status = item.querySelector('.status');
-    const cancelBtn = item.querySelector('.cancel');
-
-    status.textContent = 'Optimizing…';
-    const small = await resizeImage(file).catch(()=>file);
-
-    await ensureGeo(form);
-
-    const reqId = form.querySelector('input[name="req_id"]')?.value || "";
-    const note  = form.querySelector('input[name="nota"]')?.value || "";
-    const lat   = form.querySelector('input[name="lat"]')?.value || "";
-    const lng   = form.querySelector('input[name="lng"]')?.value || "";
-    const acc   = form.querySelector('input[name="acc"]')?.value || "";
-    const taken = form.querySelector('input[name="client_taken_at"]')?.value || new Date().toISOString();
-
-    const fd = new FormData(form);
-    fd.delete('imagenes[]');
-    fd.append('imagen', small);
-    if (reqId) fd.set('req_id', reqId);
-    if (note) fd.set('nota', note);
-    if (lat) fd.set('lat', lat);
-    if (lng) fd.set('lng', lng);
-    if (acc) fd.set('acc', acc);
-    if (taken) fd.set('client_taken_at', taken);
-
-    const xhr = new XMLHttpRequest();
-    item._xhr = xhr;
-
-    return new Promise((resolve)=>{
-      xhr.upload.addEventListener('progress', (e)=>{
-        if (!e.lengthComputable) return;
-        const pct = Math.round((e.loaded/e.total)*100);
-        bar.style.width = pct + '%';
-        status.textContent = `Uploading… ${pct}%`;
-      });
-      xhr.onreadystatechange = ()=>{
-        if (xhr.readyState !== 4) return;
-        cancelBtn.disabled = true;
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
-            bar.style.width = '100%';
-            status.textContent = 'Done';
-
-            if (data.evidencia && window.__appendThumb) window.__appendThumb(data.evidencia);
-            if (reqId) incMyCount(reqId);
-            if (typeof window.__refreshCableStatus === 'function') window.__refreshCableStatus();
-
-            setTimeout(()=> item.remove(), 350);
-          } else {
-            status.textContent = (data && data.error) ? data.error : `Error ${xhr.status}`;
-            item.classList.add('bg-red-50');
-          }
-        } catch {
-          status.textContent = `Error ${xhr.status}`;
-          item.classList.add('bg-red-50');
-        }
-        resolve();
-      };
-      cancelBtn.addEventListener('click', ()=>{
-        if (item._xhr) item._xhr.abort();
-        status.textContent = 'Canceled';
-        item.classList.add('opacity-60');
-        setTimeout(()=> item.remove(), 250);
-      });
-      xhr.open('POST', UPLOAD_URL, true);
-      xhr.send(fd);
-    });
-  }
-
-  document.querySelectorAll('form.ajax-uploader').forEach(form=>{
-    const fileInputs = form.querySelectorAll('input[type=file][name="imagenes[]"]');
-    const filenameEl = form.querySelector('.filename');
-
-    fileInputs.forEach(inp=>{
-      inp.addEventListener('change', ()=>{
-        const n = inp.files ? inp.files.length : 0;
-        if (!filenameEl) return;
-        filenameEl.textContent =
-          n===0 ? (filenameEl.dataset.empty || 'No files selected')
-        : n===1 ? inp.files[0].name
-                : `${n} files selected`;
-      });
-    });
-
-    form.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-
-      const rowId = form.querySelector('input[name="row_id"]')?.value || '';
-      if (rowId) {
-        const ok = await saveTechRow(rowId);
-        if (!ok) return;
-      }
-
-      let files = [];
-      fileInputs.forEach(inp=>{ if (inp.files && inp.files.length) files.push(...inp.files); });
-      if (!files.length) { alert('Please select at least one image.'); return; }
-
-      for (const f of files) { await uploadOne(form, f); }
-
-      fileInputs.forEach(inp=> inp.value = '');
-      if (filenameEl) filenameEl.textContent = filenameEl.dataset.empty || 'No files selected';
-
-      const gpsStatus  = form.querySelector('.gps-status'); if (gpsStatus) gpsStatus.textContent = '📍 Awaiting location…';
-      const timeStatus = form.querySelector('.time-status'); if (timeStatus) timeStatus.textContent = '🕒 —';
-
-      ['lat','lng','acc','client_taken_at'].forEach(nm => {
-        const el = form.querySelector(`input[name="${nm}"]`); if (el) el.value = '';
-      });
-
-      const noteEl = form.querySelector('input[name="nota"]');
-      if (noteEl) noteEl.value = '';
-    });
-  });
-
   function updateReqFromServer(list){
     if (!Array.isArray(list)) return;
     list.forEach(function(r){
       const badge = document.querySelector('.req-badge[data-req="' + r.id + '"]');
-      const nowState  = r.global_done ? 'done' : 'pending';
+      const rowWrap = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
+      const nowState = r.global_done ? 'done' : 'pending';
+
+      if (rowWrap){
+        rowWrap.dataset.isDone = r.global_done ? '1' : '0';
+      }
+
       if (badge){
         badge.setAttribute('data-state', nowState);
         if (nowState === 'done'){
@@ -1177,8 +1028,32 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
           badge.classList.add('bg-red-100','text-red-800');
         }
       }
+
       const cnt = document.querySelector('.req-count[data-req="' + r.id + '"]');
       if (cnt) cnt.textContent = (r.my_count||0) + ' uploaded (you)';
+
+      const startEl = document.querySelector('.tech-start[data-row-id="' + r.row_id + '"]');
+      const reserveEl = document.querySelector('.tech-reserve[data-row-id="' + r.row_id + '"]');
+      const endEl = document.querySelector('.tech-end[data-row-id="' + r.row_id + '"]');
+      const noteEl = document.querySelector('.tech-note[data-row-id="' + r.row_id + '"]');
+      const saveBtn = document.querySelector('.btn-save-tech[data-row-id="' + r.row_id + '"]');
+      const cb = document.querySelector('.end-confirm-checkbox[data-row-id="' + r.row_id + '"]');
+
+      [startEl, reserveEl, endEl, noteEl, saveBtn, cb].forEach(el => {
+        if (!el) return;
+        el.disabled = !!r.global_done;
+      });
+
+      const rowWrapNode = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
+      if (rowWrapNode){
+        rowWrapNode.querySelectorAll('.take-shot').forEach(btn => {
+          btn.disabled = !!r.global_done;
+        });
+      }
+
+      if (typeof window.__recomputeCableMeasurementUI === 'function'){
+        window.__recomputeCableMeasurementUI(r.row_id);
+      }
     });
   }
 
@@ -1229,12 +1104,6 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       updateReqFromServer(j.requisitos || []);
       updateMissingBanner(j.faltantes_global || [], j.pendientes_aceptar || []);
       setFinishEnabled(!!j.can_finish);
-
-      if (Array.isArray(j.evidencias_nuevas) && j.evidencias_nuevas.length) {
-        j.evidencias_nuevas.forEach(ev => { if (window.__appendThumb) window.__appendThumb(ev); });
-        const maxNew = Math.max(...j.evidencias_nuevas.map(x=>x.id));
-        window.__maxEvId = Math.max(window.__maxEvId||0, maxNew);
-      }
     } catch(_) {}
   }
 

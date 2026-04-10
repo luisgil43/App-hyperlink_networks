@@ -74,12 +74,10 @@ class CableRequirementForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Si viene desde instancia bool, convertirlo para el select yes/no
         current_required = getattr(self.instance, "required", True)
         if "required" not in self.initial:
             self.initial["required"] = "yes" if current_required else "no"
 
-        # Mostrar 30 y no 30.00
         reserve = getattr(self.instance, "planned_reserve_ft", None)
         if reserve is not None and "planned_reserve_ft" not in self.initial:
             reserve = Decimal(reserve)
@@ -140,7 +138,12 @@ class CableRequirementImportRowForm(forms.Form):
 
     def clean_planned_reserve_ft(self):
         raw = self.cleaned_data.get("planned_reserve_ft")
-        return _clean_decimal_or_zero(raw)
+        value = _clean_decimal_or_zero(raw)
+
+        if value < 0:
+            raise forms.ValidationError("Reserve cannot be negative.")
+
+        return value
 
     def clean_required(self):
         raw = self.cleaned_data.get("required")
