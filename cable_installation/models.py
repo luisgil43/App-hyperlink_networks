@@ -332,6 +332,16 @@ class CableEvidence(models.Model):
         (REVIEW_REJECTED, "Rejected"),
     ]
 
+    SHOT_START_CABLE = "start_cable"
+    SHOT_END_CABLE = "end_cable"
+    SHOT_HANDHOLE = "handhole"
+
+    SHOT_TYPE_CHOICES = [
+        (SHOT_START_CABLE, "Start cable"),
+        (SHOT_END_CABLE, "End cable"),
+        (SHOT_HANDHOLE, "Handhole"),
+    ]
+
     assignment_requirement = models.ForeignKey(
         CableAssignmentRequirement,
         on_delete=models.CASCADE,
@@ -350,6 +360,14 @@ class CableEvidence(models.Model):
     lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     gps_accuracy_m = models.DecimalField(
         max_digits=7, decimal_places=2, null=True, blank=True
+    )
+
+    shot_type = models.CharField(
+        max_length=20,
+        choices=SHOT_TYPE_CHOICES,
+        blank=True,
+        default="",
+        db_index=True,
     )
 
     review_status = models.CharField(
@@ -374,6 +392,7 @@ class CableEvidence(models.Model):
         ordering = ("id",)
         indexes = [
             models.Index(fields=["assignment_requirement", "review_status"]),
+            models.Index(fields=["assignment_requirement", "shot_type"]),
         ]
 
     def __str__(self):

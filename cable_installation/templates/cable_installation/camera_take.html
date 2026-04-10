@@ -139,10 +139,13 @@
     <div class="mb-3">
       <label class="block text-xs text-gray-500 mb-1">Photo type</label>
       <select id="shot-select" class="w-full border rounded-xl p-2 text-sm">
-        <option value="start_cable" {% if shot_type == 'start_cable' %}selected{% endif %}>Start cable photo</option>
-        <option value="end_cable" {% if shot_type == 'end_cable' %}selected{% endif %}>End cable photo</option>
-        <option value="handhole" {% if shot_type == 'handhole' %}selected{% endif %}>Handhole photo</option>
+        {% for s in shot_options %}
+          <option value="{{ s.value }}" {% if shot_type == s.value %}selected{% endif %}>{{ s.label }}</option>
+        {% endfor %}
       </select>
+      <div class="text-xs text-gray-500 mt-1">
+        Taken photo types disappear automatically.
+      </div>
     </div>
 
     <div class="mb-3">
@@ -186,11 +189,12 @@
       </div>
 
       <div id="cam-end-help" class="mt-3 text-xs text-gray-600">
-        Suggested Shared End ft: —
+        Suggested Shared End ft: {% if expected_end_text %}{{ expected_end_text }}{% else %}—{% endif %}
       </div>
 
       <div id="cam-end-warning"
-           class="mt-2 hidden border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+           class="mt-2 {% if measurement_warning_text %}block{% else %}hidden{% endif %} border rounded-xl px-3 py-2 bg-amber-50 text-amber-800 text-sm">
+        {{ measurement_warning_text }}
       </div>
 
       <div id="cam-end-confirm-wrap" class="mt-2 hidden">
@@ -405,23 +409,27 @@
   let touchX0 = null;
   let taking = false;
 
+  const SHOT_LABELS = {
+    start_cable: 'Start cable photo',
+    end_cable: 'End cable photo',
+    handhole: 'Handhole photo',
+  };
+
   function currentRowId(){
     const v = rowSelect ? String(rowSelect.value || '') : '';
     return v.trim();
   }
 
   function currentShotType(){
-    const v = shotSelect ? String(shotSelect.value || 'handhole') : 'handhole';
-    return v.trim() || 'handhole';
+    const v = shotSelect ? String(shotSelect.value || 'start_cable') : 'start_cable';
+    return v.trim() || 'start_cable';
   }
 
   function currentTargetLabel(){
     const opt = rowSelect ? rowSelect.options[rowSelect.selectedIndex] : null;
     const base = opt ? (opt.textContent || '').trim() : 'Handhole';
-
-    if (currentShotType() === 'start_cable') return `${base} · Start Cable`;
-    if (currentShotType() === 'end_cable') return `${base} · End Cable`;
-    return `${base} · Handhole`;
+    const shot = currentShotType();
+    return `${base} · ${SHOT_LABELS[shot] || shot}`;
   }
 
   function toNum(v){
@@ -813,8 +821,25 @@
       return;
     }
 
+    if (!currentShotType()){
+      toast('Please select a photo type.', 'error');
+      return;
+    }
+
     if (items.length >= 1){
       toast('Only one photo is allowed in the queue at a time for this requirement.', 'error');
+      return;
+    }
+
+    const suggested = suggestedEndValue();
+    const endVal = toNum(endFtInput?.value);
+    const mismatch = (
+      suggested !== null &&
+      endVal !== null &&
+      Math.abs(endVal - suggested) > 0.009
+    );
+    if (mismatch && !endConfirm.checked){
+      toast('Please confirm the different Shared End ft value.', 'error');
       return;
     }
 
@@ -964,11 +989,7 @@
 
       const gpsTxt = (it.lat && it.lng) ? (it.lat.toFixed(6) + ', ' + it.lng.toFixed(6)) : '—';
       const noteTxt = (it.note || '').trim();
-      const targetTxt = it.shotType === 'start_cable'
-        ? 'Start cable'
-        : it.shotType === 'end_cable'
-          ? 'End cable'
-          : 'Handhole';
+      const targetTxt = SHOT_LABELS[it.shotType] || it.shotType;
 
       row.innerHTML = `
         <img src="${it.previewUrl}" class="w-24 h-24 object-cover rounded border" alt="preview">
@@ -1066,6 +1087,25 @@
     updateTargetUI();
   }
 
+  function rebuildShotSelect(pendingShotsByRow, desiredShotType){
+    const rowId = currentRowId();
+    const shots = (pendingShotsByRow && pendingShotsByRow[rowId]) ? pendingShotsByRow[rowId] : [];
+
+    shotSelect.innerHTML = '';
+    for (const shot of shots){
+      const o = document.createElement('option');
+      o.value = shot;
+      o.textContent = SHOT_LABELS[shot] || shot;
+      shotSelect.appendChild(o);
+    }
+
+    const exists = !!(desiredShotType && shotSelect.querySelector(`option[value="${CSS.escape(desiredShotType)}"]`));
+    if (exists) shotSelect.value = desiredShotType;
+    else if (shotSelect.options.length) shotSelect.value = shotSelect.options[0].value;
+
+    updateTargetUI();
+  }
+
   async function presign(fileBlob, meta){
     const body = {
       filename: 'photo.jpg',
@@ -1136,7 +1176,6 @@
       lng: it.lng ? it.lng.toFixed(6) : '',
       acc: it.acc ? String(it.acc) : '',
       client_taken_at: it.takenISO,
-      address: it.addressForSave || '',
       shot_type: it.shotType,
       start_ft: it.startFt || '',
       reserve_ft: it.reserveFt || '',
@@ -1179,6 +1218,7 @@
     if(!items.length) return;
 
     const startedRowId = currentRowId();
+    const startedShotType = currentShotType();
 
     setUploadingState(true);
 
@@ -1247,8 +1287,9 @@
     try{
       const st = await fetchReqStatus();
       if(st && st.ok === true){
-        const nextId = st.next_row_id ? String(st.next_row_id) : '';
-        rebuildRowSelect(st.pending || [], nextId || startedRowId || '');
+        const nextRowId = st.next_row_id ? String(st.next_row_id) : '';
+        rebuildRowSelect(st.pending || [], nextRowId || startedRowId || '');
+        rebuildShotSelect(st.pending_shots_by_row || {}, startedShotType || st.next_shot_type || '');
       }
     }catch(_){}
   }
@@ -1267,7 +1308,7 @@
   btnUploadBottom.addEventListener('click', uploadAll);
   btnEnable.addEventListener('click', async ()=>{ await startCamera(); });
 
-  rowSelect?.addEventListener('change', ()=>{
+  rowSelect?.addEventListener('change', async ()=>{
     if (uploading){
       toast('Upload in progress. Please wait.', 'error');
       return;
@@ -1276,6 +1317,13 @@
       toast('Please upload or remove queued photo before changing the handhole.', 'error');
       return;
     }
+
+    try{
+      const st = await fetchReqStatus();
+      if(st && st.ok === true){
+        rebuildShotSelect(st.pending_shots_by_row || {}, '');
+      }
+    }catch(_){}
     updateTargetUI();
   });
 
@@ -1318,6 +1366,7 @@
       const st = await fetchReqStatus();
       if(st && st.ok === true){
         rebuildRowSelect(st.pending || [], currentRowId());
+        rebuildShotSelect(st.pending_shots_by_row || {}, currentShotType() || st.next_shot_type || '');
       }
     }catch(_){}
   });

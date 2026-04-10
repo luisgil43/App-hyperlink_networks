@@ -7,7 +7,6 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count
 from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -65,19 +64,6 @@ def _parse_decimal(value):
         return None
 
 
-def _pending_rows_for_assignment(a: SesionBillingTecnico):
-    """
-    Pendientes = filas del técnico que aún no están completed.
-    """
-    return (
-        CableAssignmentRequirement.objects.select_related("requirement", "assignment")
-        .annotate(ev_count=Count("evidences"))
-        .filter(assignment=a)
-        .exclude(status=CableAssignmentRequirement.STATUS_COMPLETED)
-        .order_by("requirement__order", "requirement__sequence_no", "id")
-    )
-
-
 def _build_direct_upload_folder(a: SesionBillingTecnico) -> str:
     billing = a.sesion
 
@@ -110,69 +96,75 @@ def _row_label(row: CableAssignmentRequirement) -> str:
 
 def _row_target_title(row: CableAssignmentRequirement | None, shot: str) -> str:
     if not row:
-        return "Extra Photo"
+        return "Requirement"
 
     base = _row_label(row)
 
-    if shot == "start_cable":
+    if shot == CableEvidence.SHOT_START_CABLE:
         return f"{base} · Start Cable"
-    if shot == "end_cable":
+    if shot == CableEvidence.SHOT_END_CABLE:
         return f"{base} · End Cable"
-    if shot == "handhole":
+    if shot == CableEvidence.SHOT_HANDHOLE:
         return f"{base} · Handhole"
 
     return base
 
 
 def _expected_end_text(req) -> str:
-    if req.start_ft is None:
+    if not req or req.start_ft is None:
         return ""
 
     reserve = req.planned_reserve_ft or Decimal("0.00")
-    low = req.start_ft - reserve
-    high = req.start_ft + reserve
-    return f"{low} or {high}"
+    expected = req.start_ft - reserve
+    return str(expected)
 
 
-def _create_evidence_from_key(
-    row: CableAssignmentRequirement,
-    key: str,
-    note: str,
-    lat,
-    lng,
-    acc,
-    taken_dt,
-):
-    ev = CableEvidence(
-        assignment_requirement=row,
-        note=note or "",
-        lat=lat or None,
-        lng=lng or None,
-        gps_accuracy_m=acc or None,
-        taken_at=taken_dt or timezone.now(),
+def _required_shots():
+    return [
+        CableEvidence.SHOT_START_CABLE,
+        CableEvidence.SHOT_END_CABLE,
+        CableEvidence.SHOT_HANDHOLE,
+    ]
+
+
+def _shot_label(shot_type: str) -> str:
+    if shot_type == CableEvidence.SHOT_START_CABLE:
+        return "Start cable photo"
+    if shot_type == CableEvidence.SHOT_END_CABLE:
+        return "End cable photo"
+    if shot_type == CableEvidence.SHOT_HANDHOLE:
+        return "Handhole photo"
+    return shot_type
+
+
+def _present_shots_for_row(row: CableAssignmentRequirement) -> set[str]:
+    return set(
+        CableEvidence.objects.filter(assignment_requirement=row)
+        .exclude(shot_type="")
+        .values_list("shot_type", flat=True)
+        .distinct()
     )
-    ev.image.name = key.strip()
-    ev.save()
-    return ev
+
+
+def _pending_shots_for_row(row: CableAssignmentRequirement) -> list[str]:
+    present = _present_shots_for_row(row)
+    return [shot for shot in _required_shots() if shot not in present]
+
+
+def _row_is_complete(row: CableAssignmentRequirement) -> bool:
+    req = row.requirement
+    pending_shots = _pending_shots_for_row(row)
+
+    return (
+        req.start_ft is not None
+        and req.planned_reserve_ft is not None
+        and req.end_ft is not None
+        and len(pending_shots) == 0
+    )
 
 
 def _refresh_row_status(row: CableAssignmentRequirement):
-    """
-    Con el modelo actual NO existe shot_type en CableEvidence,
-    así que la validación posible es:
-    - start_ft cargado
-    - end_ft cargado
-    - note opcional
-    - al menos 3 fotos totales del row
-      (start cable / end cable / handhole)
-    """
-    req = row.requirement
-    photos_count = row.evidences.count()
-
-    is_complete = (
-        req.start_ft is not None and req.end_ft is not None and photos_count >= 3
-    )
-
+    is_complete = _row_is_complete(row)
     new_status = (
         CableAssignmentRequirement.STATUS_COMPLETED
         if is_complete
@@ -186,20 +178,49 @@ def _refresh_row_status(row: CableAssignmentRequirement):
     return is_complete
 
 
+def _pending_rows_for_assignment(a: SesionBillingTecnico):
+    rows = (
+        CableAssignmentRequirement.objects.select_related("requirement", "assignment")
+        .filter(assignment=a)
+        .order_by("requirement__order", "requirement__sequence_no", "id")
+    )
+
+    out = []
+    for row in rows:
+        _refresh_row_status(row)
+        if row.status != CableAssignmentRequirement.STATUS_COMPLETED:
+            out.append(row)
+    return out
+
+
+def _create_evidence_from_key(
+    row: CableAssignmentRequirement,
+    key: str,
+    note: str,
+    lat,
+    lng,
+    acc,
+    taken_dt,
+    shot_type: str,
+):
+    ev = CableEvidence(
+        assignment_requirement=row,
+        note=note or "",
+        lat=lat or None,
+        lng=lng or None,
+        gps_accuracy_m=acc or None,
+        taken_at=taken_dt or timezone.now(),
+        shot_type=shot_type or "",
+    )
+    ev.image.name = key.strip()
+    ev.save()
+    return ev
+
+
 @login_required
 @rol_requerido("usuario")
 @require_GET
 def camera_take(request, asig_id: int):
-    """
-    Cámara para cable_installation.
-    Entra con:
-      ?row_id=
-      ?shot=start_cable|end_cable|handhole
-      ?start_ft=
-      ?reserve_ft=
-      ?end_ft=
-      ?note=
-    """
     a = get_object_or_404(SesionBillingTecnico, pk=asig_id, tecnico=request.user)
 
     if not _is_asig_active(a):
@@ -209,7 +230,7 @@ def camera_take(request, asig_id: int):
         return HttpResponseForbidden("This assignment is not open for uploads.")
 
     row_id = (request.GET.get("row_id") or "").strip()
-    shot = (request.GET.get("shot") or "").strip() or "handhole"
+    shot = (request.GET.get("shot") or "").strip() or CableEvidence.SHOT_START_CABLE
 
     row = None
     if row_id:
@@ -226,9 +247,15 @@ def camera_take(request, asig_id: int):
     if not row and pending_rows:
         row = pending_rows[0]
 
+    if row:
+        pending_shots = _pending_shots_for_row(row)
+        if shot not in pending_shots:
+            shot = pending_shots[0] if pending_shots else CableEvidence.SHOT_START_CABLE
+    else:
+        pending_shots = _required_shots()
+
     selected_row_id = row.id if row else ""
     row_title = _row_target_title(row, shot)
-
     current_req = row.requirement if row else None
 
     ctx = {
@@ -250,7 +277,7 @@ def camera_take(request, asig_id: int):
             for r in pending_rows
         ],
         "selected_row_id": selected_row_id,
-        # valores precargados para seguir editando dentro de cámara
+        "shot_options": [{"value": s, "label": _shot_label(s)} for s in pending_shots],
         "start_ft": (
             (request.GET.get("start_ft") or "").strip()
             or (
@@ -303,6 +330,13 @@ def camera_requirements_status(request, asig_id: int):
     pending_rows = list(_pending_rows_for_assignment(a))
     next_row_id = pending_rows[0].id if pending_rows else None
 
+    pending_shots_by_row = {str(r.id): _pending_shots_for_row(r) for r in pending_rows}
+
+    next_shot_type = None
+    if pending_rows:
+        first_pending_shots = pending_shots_by_row.get(str(pending_rows[0].id), [])
+        next_shot_type = first_pending_shots[0] if first_pending_shots else None
+
     return JsonResponse(
         {
             "ok": True,
@@ -314,6 +348,15 @@ def camera_requirements_status(request, asig_id: int):
                 for r in pending_rows
             ],
             "next_row_id": next_row_id,
+            "next_shot_type": next_shot_type,
+            "pending_shots_by_row": pending_shots_by_row,
+            "shot_labels": {
+                CableEvidence.SHOT_START_CABLE: _shot_label(
+                    CableEvidence.SHOT_START_CABLE
+                ),
+                CableEvidence.SHOT_END_CABLE: _shot_label(CableEvidence.SHOT_END_CABLE),
+                CableEvidence.SHOT_HANDHOLE: _shot_label(CableEvidence.SHOT_HANDHOLE),
+            },
         },
         status=200,
     )
@@ -324,10 +367,6 @@ def camera_requirements_status(request, asig_id: int):
 @require_POST
 @csrf_protect
 def camera_create_evidence_from_key(request, asig_id: int):
-    """
-    Confirma foto subida a Wasabi y crea CableEvidence.
-    También guarda start/reserve/end/note sin salir de cámara.
-    """
     a = get_object_or_404(SesionBillingTecnico, pk=asig_id, tecnico=request.user)
 
     if not _is_asig_active(a):
@@ -366,6 +405,22 @@ def camera_create_evidence_from_key(request, asig_id: int):
     note = (payload.get("note") or "").strip()
     shot_type = (payload.get("shot_type") or "").strip()
 
+    if shot_type not in _required_shots():
+        return JsonResponse({"ok": False, "error": "Invalid shot_type."}, status=400)
+
+    already_taken = CableEvidence.objects.filter(
+        assignment_requirement=row,
+        shot_type=shot_type,
+    ).exists()
+    if already_taken:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "This photo type is already uploaded for this handhole.",
+            },
+            status=409,
+        )
+
     lat = payload.get("lat") or None
     lng = payload.get("lng") or None
     acc = payload.get("acc") or None
@@ -381,7 +436,6 @@ def camera_create_evidence_from_key(request, asig_id: int):
         except Exception:
             taken_dt = None
 
-    # guardar medición compartida desde cámara
     start_ft = _parse_decimal(payload.get("start_ft"))
     reserve_ft = _parse_decimal(payload.get("reserve_ft"))
     end_ft = _parse_decimal(payload.get("end_ft"))
@@ -419,6 +473,7 @@ def camera_create_evidence_from_key(request, asig_id: int):
         lng=lng,
         acc=acc,
         taken_dt=taken_dt,
+        shot_type=shot_type,
     )
 
     is_complete = _refresh_row_status(row)
@@ -446,6 +501,7 @@ def camera_create_evidence_from_key(request, asig_id: int):
                 "req_id": row.requirement_id,
                 "row_id": row.id,
                 "can_delete": True,
+                "shot_type": ev.shot_type,
             },
             "row": {
                 "id": row.id,
@@ -464,6 +520,7 @@ def camera_create_evidence_from_key(request, asig_id: int):
                 "expected_end_text": _expected_end_text(req),
                 "warning_text": req.measurement_warning_text or "",
                 "is_complete": is_complete,
+                "pending_shots": _pending_shots_for_row(row),
             },
         }
     )
