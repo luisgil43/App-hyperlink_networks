@@ -1009,6 +1009,7 @@ document.addEventListener('click', async function(e){
 
   function updateReqFromServer(list){
     if (!Array.isArray(list)) return;
+
     list.forEach(function(r){
       const badge = document.querySelector('.req-badge[data-req="' + r.id + '"]');
       const rowWrap = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
@@ -1032,7 +1033,7 @@ document.addEventListener('click', async function(e){
       }
 
       const cnt = document.querySelector('.req-count[data-req="' + r.id + '"]');
-      if (cnt) cnt.textContent = (r.my_count||0) + ' uploaded (you)';
+      if (cnt) cnt.textContent = (r.my_count || 0) + ' uploaded (you)';
 
       const startEl = document.querySelector('.tech-start[data-row-id="' + r.row_id + '"]');
       const reserveEl = document.querySelector('.tech-reserve[data-row-id="' + r.row_id + '"]');
@@ -1048,9 +1049,24 @@ document.addEventListener('click', async function(e){
 
       const rowWrapNode = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
       if (rowWrapNode){
-        rowWrapNode.querySelectorAll('.take-shot').forEach(btn => {
-          btn.disabled = !!r.global_done;
-        });
+        const btnStart = rowWrapNode.querySelector('.take-shot[data-shot="start_cable"]');
+        const btnEnd = rowWrapNode.querySelector('.take-shot[data-shot="end_cable"]');
+        const btnHandhole = rowWrapNode.querySelector('.take-shot[data-shot="handhole"]');
+
+        if (btnStart){
+          btnStart.dataset.forceDisabled = r.can_take_start ? '0' : '1';
+          btnStart.disabled = !!r.global_done || !r.can_take_start;
+        }
+
+        if (btnEnd){
+          btnEnd.dataset.forceDisabled = r.can_take_end ? '0' : '1';
+          btnEnd.disabled = !!r.global_done || !r.can_take_end;
+        }
+
+        if (btnHandhole){
+          btnHandhole.dataset.forceDisabled = r.can_take_handhole ? '0' : '1';
+          btnHandhole.disabled = !!r.global_done || !r.can_take_handhole;
+        }
       }
 
       if (typeof window.__recomputeCableMeasurementUI === 'function'){

@@ -62,22 +62,19 @@ def _row_allowed_shots(row):
     assignment = row.assignment
     estado = (assignment.estado or "").strip()
 
+    if estado not in {"en_proceso", "en_revision_supervisor", "rechazado_supervisor"}:
+        return set()
+
     rejected_shots = _row_rejected_shots(row)
     non_rejected_shots = _row_non_rejected_shots(row)
 
     allowed = set()
 
-    if estado == "en_proceso":
-        for shot in _required_shots():
-            if shot in rejected_shots:
-                allowed.add(shot)
-            elif shot not in non_rejected_shots:
-                allowed.add(shot)
-        return allowed
-
-    if estado in {"en_revision_supervisor", "rechazado_supervisor"}:
-        if getattr(assignment, "reintento_habilitado", False) or rejected_shots:
-            return set(rejected_shots)
+    for shot in _required_shots():
+        if shot in rejected_shots:
+            allowed.add(shot)
+        elif shot not in non_rejected_shots:
+            allowed.add(shot)
 
     return allowed
 
@@ -787,7 +784,7 @@ def technician_requirements_status_json(request, assignment_id):
     requisitos = []
     own_rows = (
         CableAssignmentRequirement.objects.filter(assignment=assignment)
-        .select_related("requirement")
+        .select_related("requirement", "assignment")
         .order_by("requirement__order", "requirement__sequence_no", "id")
     )
 
@@ -799,6 +796,7 @@ def technician_requirements_status_json(request, assignment_id):
         my_count = CableEvidence.objects.filter(assignment_requirement=row).count()
         pending_shots = _pending_shots_for_row(row)
         rejected = _row_has_rejected_photo(row)
+        allowed_shots = _row_allowed_shots(row)
 
         requisitos.append(
             {
@@ -821,6 +819,9 @@ def technician_requirements_status_json(request, assignment_id):
                     "" if req.installed_ft is None else str(req.installed_ft)
                 ),
                 "warning_text": req.measurement_warning_text or "",
+                "can_take_start": CableEvidence.SHOT_START_CABLE in allowed_shots,
+                "can_take_end": CableEvidence.SHOT_END_CABLE in allowed_shots,
+                "can_take_handhole": CableEvidence.SHOT_HANDHOLE in allowed_shots,
             }
         )
 
@@ -856,7 +857,7 @@ def technician_requirements_status_json(request, assignment_id):
                 "review_comment": ev.review_comment,
                 "shot_type": ev.shot_type,
                 "shot_label": _shot_label(ev.shot_type),
-                "can_delete": ev.assignment_requirement.assignment_id == assignment.id,
+                "can_delete": ev.review_status == CableEvidence.REVIEW_REJECTED,
             }
         )
 

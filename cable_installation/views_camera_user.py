@@ -76,7 +76,8 @@ def _is_asig_active(asig) -> bool:
 
 
 def _can_upload(a: SesionBillingTecnico) -> bool:
-    return a.estado in ["en_proceso", "rechazado_supervisor"]
+    estado = (a.estado or "").strip()
+    return estado in {"en_proceso", "en_revision_supervisor", "rechazado_supervisor"}
 
 
 def _parse_decimal(value):
@@ -166,6 +167,7 @@ def _present_shots_for_row(row: CableAssignmentRequirement) -> set[str]:
     return set(
         CableEvidence.objects.filter(assignment_requirement=row)
         .exclude(shot_type="")
+        .exclude(review_status=CableEvidence.REVIEW_REJECTED)
         .values_list("shot_type", flat=True)
         .distinct()
     )
@@ -176,15 +178,24 @@ def _pending_shots_for_row(row: CableAssignmentRequirement) -> list[str]:
     return [shot for shot in _required_shots() if shot not in present]
 
 
+def _row_has_rejected_photo(row: CableAssignmentRequirement) -> bool:
+    return CableEvidence.objects.filter(
+        assignment_requirement=row,
+        review_status=CableEvidence.REVIEW_REJECTED,
+    ).exists()
+
+
 def _row_is_complete(row: CableAssignmentRequirement) -> bool:
     req = row.requirement
     pending_shots = _pending_shots_for_row(row)
+    has_rejected = _row_has_rejected_photo(row)
 
     return (
         req.start_ft is not None
         and req.planned_reserve_ft is not None
         and req.end_ft is not None
         and len(pending_shots) == 0
+        and not has_rejected
     )
 
 
@@ -442,10 +453,24 @@ def camera_create_evidence_from_key(request, asig_id: int):
     if shot_type not in _required_shots():
         return JsonResponse({"ok": False, "error": "Invalid shot_type."}, status=400)
 
-    already_taken = CableEvidence.objects.filter(
-        assignment_requirement=row,
-        shot_type=shot_type,
-    ).exists()
+    allowed_shots = _row_allowed_shots(row)
+    if shot_type not in allowed_shots:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": f"{_shot_label(shot_type)} is not available for upload right now.",
+            },
+            status=403,
+        )
+
+    already_taken = (
+        CableEvidence.objects.filter(
+            assignment_requirement=row,
+            shot_type=shot_type,
+        )
+        .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+        .exists()
+    )
     if already_taken:
         return JsonResponse(
             {
@@ -463,10 +488,10 @@ def camera_create_evidence_from_key(request, asig_id: int):
     taken_dt = None
     if taken:
         try:
-            taken_dt = timezone.make_aware(
-                datetime.fromisoformat(taken.replace("Z", "+00:00"))
-            )
-            taken_dt = timezone.localtime(taken_dt)
+            dt = datetime.fromisoformat(taken.replace("Z", "+00:00"))
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+            taken_dt = timezone.localtime(dt)
         except Exception:
             taken_dt = None
 
@@ -534,7 +559,7 @@ def camera_create_evidence_from_key(request, asig_id: int):
                 ),
                 "req_id": row.requirement_id,
                 "row_id": row.id,
-                "can_delete": True,
+                "can_delete": ev.review_status == CableEvidence.REVIEW_REJECTED,
                 "shot_type": ev.shot_type,
             },
             "row": {
