@@ -136,6 +136,19 @@ class SesionBilling(models.Model):
     )
     split_comment = models.CharField(max_length=255, blank=True, default="")
 
+    # ✅ NUEVO: Payment mode técnicos
+    TECH_PAYMENT_MODE = [
+        ("split", "Split (percentage)"),
+        ("full", "Full quantity per technician"),
+    ]
+    tech_payment_mode = models.CharField(
+        max_length=10,
+        choices=TECH_PAYMENT_MODE,
+        default="split",
+        db_index=True,
+        help_text="How technician amounts are computed. split = uses %; full = each tech uses full qty.",
+    )
+
     # ----- Identificación del proyecto -----
     proyecto_id = models.CharField(max_length=64)
     cliente = models.CharField(max_length=120)
@@ -154,10 +167,9 @@ class SesionBilling(models.Model):
         "Projected pay week (ISO)",
         max_length=10,
         blank=True,
-        default="",  # e.g., 2025-W33
+        default="",
     )
 
-    # Proyectos especiales (permite título/dirección manual en evidencias)
     proyecto_especial = models.BooleanField(
         default=False,
         help_text=(
@@ -200,7 +212,6 @@ class SesionBilling(models.Model):
         blank=True,
     )
 
-    # Semana del descuento (si aplica)
     discount_week = models.CharField(
         "Discount week (ISO)",
         max_length=10,
@@ -208,7 +219,6 @@ class SesionBilling(models.Model):
         default="",
     )
 
-    # Semana real de pago (operaciones)
     semana_pago_real = models.CharField(
         "Real pay week (ISO)",
         max_length=10,
@@ -226,9 +236,15 @@ class SesionBilling(models.Model):
     finance_note = models.TextField(blank=True, default="")
     finance_sent_at = models.DateTimeField(null=True, blank=True)
     finance_updated_at = models.DateTimeField(auto_now=True)
-    finance_daily_number = models.CharField("Daily Number", max_length=50, blank=True, default="")
-    finance_finish_date = models.DateField("Finance finish date",null=True,blank=True,help_text="End date.",)
-    
+    finance_daily_number = models.CharField(
+        "Daily Number", max_length=50, blank=True, default=""
+    )
+    finance_finish_date = models.DateField(
+        "Finance finish date",
+        null=True,
+        blank=True,
+        help_text="End date.",
+    )
     # ====================================================================== #
 
     class Meta:
@@ -239,27 +255,17 @@ class SesionBilling(models.Model):
             models.Index(fields=["estado"]),
             models.Index(fields=["is_direct_discount"]),
             models.Index(fields=["is_split_child"]),
+            models.Index(fields=["tech_payment_mode"]),  # ✅ nuevo
         ]
 
-    # ---------------------- SYNC con facturacion.Proyecto ----------------- #
     def sync_from_proyecto_codigo(self):
-        """
-        Actualiza cliente/ciudad/proyecto/oficina usando facturacion.Proyecto.
-        Ahora es tolerante:
-          - Si self.proyecto_id trae el código (13_977), busca por codigo.
-          - Si self.proyecto_id o self.proyecto traen un número (1), intenta
-            resolver por PK y normaliza a codigo/nombre.
-        """
         from facturacion.models import Proyecto
 
         codigo = (self.proyecto_id or "").strip()
 
-        # Si no tenemos código, pero 'proyecto' parece un PK numérico,
-        # lo usamos como punto de partida.
         if not codigo and (self.proyecto or "").strip().isdigit():
             codigo = self.proyecto.strip()
 
-        # Si no hay nada, limpiamos y salimos
         if not codigo:
             self.cliente = ""
             self.ciudad = ""
@@ -268,35 +274,28 @@ class SesionBilling(models.Model):
             return
 
         p = None
-
-        # 1) Intentar primero por codigo (como antes)
         try:
             p = Proyecto.objects.get(codigo__iexact=codigo)
         except Proyecto.DoesNotExist:
             p = None
 
-        # 2) Si no existe por codigo y el "codigo" es numérico, probar como PK
         if p is None and codigo.isdigit():
             try:
                 p = Proyecto.objects.get(pk=int(codigo))
             except Proyecto.DoesNotExist:
                 p = None
 
-        # Si aún así no encontramos nada, no tocamos los campos
         if p is None:
             return
 
-        # Normalizamos SIEMPRE a los datos reales del proyecto
-        self.proyecto_id = p.codigo          # siempre el código real (13_977, etc.)
+        self.proyecto_id = p.codigo
         self.cliente = p.mandante
         self.ciudad = p.ciudad
-        self.proyecto = p.nombre             # lo que verás en pantalla, ya NO "1"
+        self.proyecto = p.nombre
         self.oficina = p.oficina
 
-    # ---------------------- Helpers / business rules ---------------------- #
     @property
     def diferencia(self):
-        """subtotal_empresa - real_company_billing (None si no hay real)."""
         if self.real_company_billing is None:
             return None
         return (self.subtotal_empresa or Decimal("0.00")) - self.real_company_billing
@@ -308,7 +307,6 @@ class SesionBilling(models.Model):
 
     @property
     def maps_href(self) -> str:
-        """Devuelve la URL de maps a partir de 'direccion_proyecto'."""
         val = (self.direccion_proyecto or "").strip()
         if not val:
             return ""
@@ -323,10 +321,10 @@ class SesionBilling(models.Model):
         return f"Billing #{self.id} - {self.cliente} / {self.proyecto_id}"
 
     def recomputar_estado_desde_asignaciones(self, save: bool = True) -> str:
-        """
-        Recalcula el estado operativo desde las asignaciones (técnicos).
-        Prioridad: en_revision_supervisor > en_proceso > aprob/rechazos > asignado.
-        """
+        # NUEVO: si es descuento directo, no tocar el estado
+        if self.is_direct_discount:
+            return self.estado
+
         estados = list(self.tecnicos_sesion.values_list("estado", flat=True))
         nuevo = "asignado"
         if estados:
@@ -349,39 +347,32 @@ class SesionBilling(models.Model):
                 self.save(update_fields=["estado"])
         return self.estado
 
-    # ===== Nuevos helpers para el flujo de descuento ===== #
     @property
     def can_mark_discount_applied(self) -> bool:
-        """Se usa en la UI: muestra el botón 'Discount applied'."""
         return self.is_direct_discount and self.finance_status == "review_discount"
 
     def mark_discount_applied(self, note: str = ""):
-        """Transición explícita a 'discount_applied'."""
         self.finance_status = "discount_applied"
         if note:
             self.finance_note = note
             self.save(
-                update_fields=[
-                    "finance_status",
-                    "finance_note",
-                    "finance_updated_at",
-                ]
+                update_fields=["finance_status", "finance_note", "finance_updated_at"]
             )
         else:
             self.save(update_fields=["finance_status", "finance_updated_at"])
 
-    # Forzar estado inicial correcto para descuentos directos
     def save(self, *args, **kwargs):
-        # 1) Sincronizar datos de proyecto a partir del código
         self.sync_from_proyecto_codigo()
 
-        # 2) Lógica de finanzas para descuentos directos:
-        #    si es descuento directo y aún no tiene estado “real” de finanzas,
-        #    lo dejamos en review_discount para que aparezca en el scope correcto.
         if self.is_direct_discount and self.finance_status in ("none", "", "sent"):
             self.finance_status = "review_discount"
 
+        # ✅ normalizar payment mode
+        if self.tech_payment_mode not in ("split", "full"):
+            self.tech_payment_mode = "split"
+
         super().save(*args, **kwargs)
+
 
 # ======================= Job de Reporte Fotográfico =======================
 

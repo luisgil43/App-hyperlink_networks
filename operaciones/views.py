@@ -3125,12 +3125,13 @@ def listar_billing(request):
         },
     )
 
+
 @login_required
 @require_POST
 def billing_item_update_qty(request, item_id: int):
-    # Solo admin
-    is_admin = bool(getattr(request.user, "es_admin_general",
-                    False) or request.user.is_superuser)
+    is_admin = bool(
+        getattr(request.user, "es_admin_general", False) or request.user.is_superuser
+    )
     if not is_admin:
         return HttpResponseForbidden("Solo admin puede editar cantidades en línea.")
 
@@ -3146,90 +3147,108 @@ def billing_item_update_qty(request, item_id: int):
         return HttpResponseBadRequest("Payload inválido.")
 
     try:
-        item = ItemBilling.objects.select_related(
-            "sesion").prefetch_related("desglose_tecnico").get(pk=item_id)
+        item = (
+            ItemBilling.objects.select_related("sesion")
+            .prefetch_related("desglose_tecnico")
+            .get(pk=item_id)
+        )
     except ItemBilling.DoesNotExist:
         return HttpResponseBadRequest("Item no existe.")
 
-    sesion = item.sesion  # SesionBilling
+    sesion = item.sesion
 
-    # Si NO quieres permitir edición cuando la sesión está "paid", descomenta:
-    # if sesion.finance_status == "paid":
-    #     return HttpResponseForbidden("No se puede editar un billing pagado.")
+    payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
+    if payment_mode not in ("split", "full"):
+        payment_mode = "split"
+
+    def _money(v) -> Decimal:
+        try:
+            return Decimal(str(v or "0")).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal("0.00")
 
     with transaction.atomic():
-        # Recalcular subtotales del item
-        # subtotal_empresa = precio_empresa * cantidad
-        subtotal_empresa = (item.precio_empresa or Decimal("0")) * cantidad
+        subtotal_empresa = _money((item.precio_empresa or Decimal("0")) * cantidad)
 
-        # subtotal_tecnico: si hay desglose_tecnico -> sum(tarifa_efectiva * cantidad)
-        # si tu modelo ya lo calcula con una propiedad/método, úsalo en su lugar.
         subtotal_tecnico = Decimal("0")
         for bd in item.desglose_tecnico.all():
-            # tarifa_efectiva usualmente es tarifa_base * (porcentaje/100)
-            tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
-            if tarifa_efectiva is None:
-                base = Decimal(bd.tarifa_base or 0)
-                pct = Decimal(bd.porcentaje or 0) / Decimal("100")
-                tarifa_efectiva = base * pct
-            subtotal_tecnico += (tarifa_efectiva or Decimal("0")) * cantidad
+            base = _money(getattr(bd, "tarifa_base", 0) or 0)
+            pct = _money(getattr(bd, "porcentaje", 0) or 0)
 
-        # ⚠️ Evitar save() si tienes señales que tocan 'estado':
+            if payment_mode == "full":
+                tarifa_efectiva = _money(base)
+            else:
+                tarifa_efectiva = _money(base * (pct / Decimal("100")))
+
+            sub = _money(tarifa_efectiva * cantidad)
+
+            ItemBillingTecnico.objects.filter(pk=bd.pk).update(
+                tarifa_efectiva=tarifa_efectiva,
+                subtotal=sub,
+            )
+
+            subtotal_tecnico += sub
+
         ItemBilling.objects.filter(pk=item.pk).update(
             cantidad=cantidad,
             subtotal_empresa=subtotal_empresa,
             subtotal_tecnico=subtotal_tecnico,
         )
 
-        # Recalcular totales de la sesión (sin tocar estado)
-        # Vuelve a leer items de la sesión con lock opcional
-        items_qs = ItemBilling.objects.select_related(None).filter(sesion=sesion).only(
+        items_qs = ItemBilling.objects.filter(sesion=sesion).only(
             "subtotal_tecnico", "subtotal_empresa"
         )
-        total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))[
-            "s"] or Decimal("0")
-        total_empresa = items_qs.aggregate(s=Sum("subtotal_empresa"))[
-            "s"] or Decimal("0")
-
-        # No modificar 'estado' NI 'finance_status'
-        SesionBilling.objects.filter(pk=sesion.pk).update(
-            subtotal_tecnico=total_tecnico,
-            subtotal_empresa=total_empresa,
-            # real_company_billing: no lo tocamos
+        total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))["s"] or Decimal(
+            "0"
+        )
+        total_empresa = items_qs.aggregate(s=Sum("subtotal_empresa"))["s"] or Decimal(
+            "0"
         )
 
-        # Preparar diferencia para la respuesta
+        SesionBilling.objects.filter(pk=sesion.pk).update(
+            subtotal_tecnico=_money(total_tecnico),
+            subtotal_empresa=_money(total_empresa),
+        )
+
         sesion_refrescada = SesionBilling.objects.only(
             "id", "subtotal_tecnico", "subtotal_empresa", "real_company_billing"
         ).get(pk=sesion.pk)
+
         diff_text = "—"
         if sesion_refrescada.real_company_billing is not None:
-            diff = sesion_refrescada.real_company_billing - sesion_refrescada.subtotal_empresa
+            diff = (
+                sesion_refrescada.real_company_billing
+                - sesion_refrescada.subtotal_empresa
+            )
             if diff < 0:
                 diff_text = f"<span class='font-semibold text-red-600'>- ${abs(diff):.2f}</span>"
             elif diff > 0:
-                diff_text = f"<span class='font-semibold text-green-600'>+ ${diff:.2f}</span>"
+                diff_text = (
+                    f"<span class='font-semibold text-green-600'>+ ${diff:.2f}</span>"
+                )
             else:
                 diff_text = "<span class='text-gray-700'>$0.00</span>"
 
-    return JsonResponse({
-        "ok": True,
-        "item_id": item.pk,
-        "cantidad": float(cantidad),
-        "subtotal_tecnico": float(subtotal_tecnico),
-        "subtotal_empresa": float(subtotal_empresa),
-        "parent": {
-            "id": sesion_refrescada.pk,
-            "subtotal_tecnico": float(sesion_refrescada.subtotal_tecnico or 0),
-            "subtotal_empresa": float(sesion_refrescada.subtotal_empresa or 0),
-            "real_company_billing": (
-                float(sesion_refrescada.real_company_billing)
-                if sesion_refrescada.real_company_billing is not None
-                else None
-            ),
-            "diferencia_text": diff_text,
+    return JsonResponse(
+        {
+            "ok": True,
+            "item_id": item.pk,
+            "cantidad": float(cantidad),
+            "subtotal_tecnico": float(subtotal_tecnico),
+            "subtotal_empresa": float(subtotal_empresa),
+            "parent": {
+                "id": sesion_refrescada.pk,
+                "subtotal_tecnico": float(sesion_refrescada.subtotal_tecnico or 0),
+                "subtotal_empresa": float(sesion_refrescada.subtotal_empresa or 0),
+                "real_company_billing": (
+                    float(sesion_refrescada.real_company_billing)
+                    if sesion_refrescada.real_company_billing is not None
+                    else None
+                ),
+                "diferencia_text": diff_text,
+            },
         }
-    })
+    )
 
 
 # ===== Crear / Editar =====
@@ -3432,28 +3451,35 @@ def _recalcular_items_sesion(sesion):
     ✅ Recalcula:
       - porcentajes ya vienen actualizados en SesionBillingTecnico
       - asegura ItemBillingTecnico para todos
-      - recalcula tarifa_base, tarifa_efectiva, subtotal por técnico
+      - recalcula tarifa_base, tarifa_efectiva, subtotal por técnico (según payment mode)
       - recalcula subtotal_tecnico/subtotal_empresa por item
       - recalcula subtotal_tecnico/subtotal_empresa por sesión
     ⚠️ No toca evidencias / requisitos.
     ⚠️ No toca estado (usamos update()).
     """
-    # técnicos actuales (orden estable)
     tecnicos = list(
-        SesionBillingTecnico.objects
-        .filter(sesion=sesion)
+        SesionBillingTecnico.objects.filter(sesion=sesion)
         .values_list("tecnico_id", "porcentaje")
         .order_by("id")
     )
     if not tecnicos:
         return
 
+    def _money(v) -> Decimal:
+        try:
+            return Decimal(str(v or "0")).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal("0.00")
+
     pct_by_tid = {tid: _money(pct) for tid, pct in tecnicos}
     tech_ids = [tid for tid, _ in tecnicos]
 
+    payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
+    if payment_mode not in ("split", "full"):
+        payment_mode = "split"
+
     items = list(
-        ItemBilling.objects
-        .filter(sesion=sesion)
+        ItemBilling.objects.filter(sesion=sesion)
         .prefetch_related("desglose_tecnico")
         .order_by("id")
     )
@@ -3464,12 +3490,9 @@ def _recalcular_items_sesion(sesion):
     for it in items:
         qty = _money(it.cantidad)
 
-        # subtotal empresa siempre: precio_empresa * qty
         sub_emp = _money((it.precio_empresa or Decimal("0")) * qty)
 
-        # asegurar desglose para todos los técnicos
         existing = {bd.tecnico_id: bd for bd in it.desglose_tecnico.all()}
-
         for tid in tech_ids:
             if tid not in existing:
                 ItemBillingTecnico.objects.create(
@@ -3481,21 +3504,21 @@ def _recalcular_items_sesion(sesion):
                     subtotal=Decimal("0.00"),
                 )
 
-        # recargar desglose (ya completo)
-        desglose = list(
-            ItemBillingTecnico.objects
-            .filter(item=it)
-            .order_by("id")
-        )
+        desglose = list(ItemBillingTecnico.objects.filter(item=it).order_by("id"))
 
         sub_tecs = Decimal("0.00")
 
         for bd in desglose:
             tid = bd.tecnico_id
             pct = pct_by_tid.get(tid, Decimal("0.00"))
+
             base = _tarifa_tecnico_lookup(tid, sesion, it.codigo_trabajo)
 
-            efectiva = _money(base * (pct / Decimal("100")))
+            if payment_mode == "full":
+                efectiva = _money(base)
+            else:
+                efectiva = _money(base * (pct / Decimal("100")))
+
             subtotal = _money(efectiva * qty)
 
             ItemBillingTecnico.objects.filter(pk=bd.pk).update(
@@ -3506,7 +3529,6 @@ def _recalcular_items_sesion(sesion):
             )
             sub_tecs += subtotal
 
-        # update item (sin llamar save() si prefieres evitar side-effects)
         ItemBilling.objects.filter(pk=it.pk).update(
             subtotal_empresa=sub_emp,
             subtotal_tecnico=sub_tecs,
@@ -3515,7 +3537,6 @@ def _recalcular_items_sesion(sesion):
         total_emp += sub_emp
         total_tec += sub_tecs
 
-    # update sesión (sin tocar estado)
     SesionBilling.objects.filter(pk=sesion.pk).update(
         subtotal_empresa=_money(total_emp),
         subtotal_tecnico=_money(total_tec),
@@ -3677,61 +3698,56 @@ def reasignar_tecnicos(request, sesion_id: int):
 
 def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
     """
-    NUEVA REGLA (como acordamos):
+    Regla:
     - Puedes QUITAR un técnico aunque tenga evidencias.
-    - Sus evidencias se mantienen (siguen apuntando a su SesionBillingTecnico).
-    - Pero a nivel "billing" ese técnico queda INACTIVO (si existe is_active)
-      y NO aparece como asignación activa.
-    - Se reparte 100% SOLO entre los técnicos ACTIVOS (los que quedaron en nuevos_ids).
-    - Los técnicos que salen:
-        - si tienen evidencias => NO se eliminan (para no perder fotos), solo se desactivan.
-        - si NO tienen evidencias => se eliminan.
-    - Retorna final_ids_activos (en orden) = los nuevos_ids normalizados.
+    - Sus evidencias se mantienen.
+    - Si el técnico sale y tiene evidencias, se deja INACTIVO (si existe is_active).
+    - Si no tiene evidencias, se elimina.
+    - En modo:
+        * split -> reparte 100% entre técnicos activos
+        * full  -> cada técnico activo queda con 100%
+    - Retorna final_ids_activos en orden.
     """
 
-    # -----------------------------
-    # 0) Normalizar IDs solicitados
-    # -----------------------------
     nuevos_ids = [int(x) for x in (nuevos_ids or []) if str(x).isdigit()]
-    nuevos_ids = list(dict.fromkeys(nuevos_ids))  # unique preserving order
+    nuevos_ids = list(dict.fromkeys(nuevos_ids))
     nuevos_set = set(nuevos_ids)
 
     if not nuevos_ids:
         return []
 
-    # -----------------------------
-    # 1) Traer existentes
-    # -----------------------------
     existentes = list(sesion.tecnicos_sesion.select_related("tecnico").all())
     por_tid = {ts.tecnico_id: ts for ts in existentes}
 
-    # Helper: ¿modelo tiene is_active?
     def _has_is_active(obj) -> bool:
         return hasattr(obj, "is_active")
 
-    # -----------------------------
-    # 2) Activar/crear los que quedan
-    #    y repartir 100 SOLO entre ellos
-    # -----------------------------
-    partes = repartir_100(len(nuevos_ids))
-    partes_dec = []
-    for p in partes:
+    def _to_decimal_2(v):
         try:
-            partes_dec.append(Decimal(str(p)).quantize(Decimal("0.01")))
+            return Decimal(str(v)).quantize(Decimal("0.01"))
         except Exception:
-            partes_dec.append(Decimal("0.00"))
+            return Decimal("0.00")
 
+    payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
+    if payment_mode not in ("split", "full"):
+        payment_mode = "split"
+
+    if payment_mode == "full":
+        partes_dec = [Decimal("100.00") for _ in nuevos_ids]
+    else:
+        partes = repartir_100(len(nuevos_ids))
+        partes_dec = [_to_decimal_2(p) for p in partes]
+
+    # 1) activar/crear los que quedan
     for tid, pct in zip(nuevos_ids, partes_dec):
         if tid in por_tid:
             ts = por_tid[tid]
             update_fields = []
 
-            # porcentaje
             if ts.porcentaje != pct:
                 ts.porcentaje = pct
                 update_fields.append("porcentaje")
 
-            # si existe is_active => marcar activo
             if _has_is_active(ts) and getattr(ts, "is_active", True) is not True:
                 ts.is_active = True
                 update_fields.append("is_active")
@@ -3745,7 +3761,7 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
                 tecnico_id=tid,
                 porcentaje=pct,
             )
-            # si el modelo tiene is_active, lo creamos activo
+
             try:
                 SesionBillingTecnico._meta.get_field("is_active")
                 kwargs["is_active"] = True
@@ -3754,43 +3770,35 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
 
             SesionBillingTecnico.objects.create(**kwargs)
 
-    # -----------------------------
-    # 3) Procesar los que "salen"
-    # -----------------------------
+    # 2) procesar los que salen
     for ts in existentes:
         if ts.tecnico_id in nuevos_set:
-            continue  # se queda activo (ya lo actualizamos arriba)
+            continue
 
-        # ¿Tiene evidencias?
         has_evs = EvidenciaFotoBilling.objects.filter(tecnico_sesion=ts).exists()
 
         if has_evs:
-            # NO se borra (mantener fotos). Se desactiva si se puede.
             if _has_is_active(ts):
                 if getattr(ts, "is_active", True) is not False:
                     ts.is_active = False
-                    # opcional: setear porcentaje 0 para que no cuente nunca en nada
-                    # (aunque ya NO entra al reparto porque el reparto fue solo nuevos_ids)
                     ts.porcentaje = Decimal("0.00")
                     ts.save(update_fields=["is_active", "porcentaje"])
 
-            # Mensaje opcional
             if request is not None:
                 try:
                     tech_name = ts.tecnico.get_full_name() or ts.tecnico.username
                 except Exception:
                     tech_name = str(ts.tecnico_id)
+
                 messages.info(
                     request,
-                    f"'{tech_name}' was removed from the billing but their photos were kept."
+                    f"'{tech_name}' was removed from the billing but their photos were kept.",
                 )
-
         else:
-            # No tiene evidencias => sí se elimina
             ts.delete()
 
-    # Retornamos los ACTIVOS finales (los solicitados)
     return nuevos_ids
+
 
 @transaction.atomic
 def _guardar_billing(request, sesion=None):
@@ -3802,36 +3810,61 @@ def _guardar_billing(request, sesion=None):
     def money(v) -> Decimal:
         try:
             return Decimal(str(v or "0")).quantize(Decimal("0.01"))
-        except (InvalidOperation, ValueError):
+        except (InvalidOperation, ValueError, TypeError):
             return Decimal("0.00")
 
     def meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
-        return (PrecioActividadTecnico.objects
-                .filter(cliente=cliente, ciudad=ciudad, proyecto=proyecto,
-                        oficina=oficina, codigo_trabajo=codigo)
-                .values("tipo_trabajo", "descripcion", "unidad_medida")
-                .first())
+        return (
+            PrecioActividadTecnico.objects.filter(
+                cliente=cliente,
+                ciudad=ciudad,
+                proyecto=proyecto,
+                oficina=oficina,
+                codigo_trabajo=codigo,
+            )
+            .values("tipo_trabajo", "descripcion", "unidad_medida")
+            .first()
+        )
 
     def precio_empresa(cliente, ciudad, proyecto, oficina, codigo) -> Decimal:
-        val = (PrecioActividadTecnico.objects
-               .filter(cliente=cliente, ciudad=ciudad, proyecto=proyecto,
-                       oficina=oficina, codigo_trabajo=codigo)
-               .values_list("precio_empresa", flat=True)
-               .first())
+        val = (
+            PrecioActividadTecnico.objects.filter(
+                cliente=cliente,
+                ciudad=ciudad,
+                proyecto=proyecto,
+                oficina=oficina,
+                codigo_trabajo=codigo,
+            )
+            .values_list("precio_empresa", flat=True)
+            .first()
+        )
         return money(val or 0)
 
     def tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo) -> Decimal:
-        val = (PrecioActividadTecnico.objects
-               .filter(tecnico_id=tid, cliente=cliente, ciudad=ciudad,
-                       proyecto=proyecto, oficina=oficina, codigo_trabajo=codigo)
-               .values_list("precio_tecnico", flat=True)
-               .first())
+        val = (
+            PrecioActividadTecnico.objects.filter(
+                tecnico_id=tid,
+                cliente=cliente,
+                ciudad=ciudad,
+                proyecto=proyecto,
+                oficina=oficina,
+                codigo_trabajo=codigo,
+            )
+            .values_list("precio_tecnico", flat=True)
+            .first()
+        )
         if val is None:
-            val = (PrecioActividadTecnico.objects
-                   .filter(cliente=cliente, ciudad=ciudad, proyecto=proyecto,
-                           oficina=oficina, codigo_trabajo=codigo)
-                   .values_list("precio_tecnico", flat=True)
-                   .first())
+            val = (
+                PrecioActividadTecnico.objects.filter(
+                    cliente=cliente,
+                    ciudad=ciudad,
+                    proyecto=proyecto,
+                    oficina=oficina,
+                    codigo_trabajo=codigo,
+                )
+                .values_list("precio_tecnico", flat=True)
+                .first()
+            )
         return money(val or 0)
 
     # ----------------------------- Header ------------------------------ #
@@ -3849,21 +3882,26 @@ def _guardar_billing(request, sesion=None):
 
     is_direct_discount = request.POST.get("direct_discount") == "1"
 
+    # ✅ NUEVO: payment mode
+    tech_payment_mode = (
+        (request.POST.get("tech_payment_mode") or "split").strip().lower()
+    )
+    if tech_payment_mode not in ("split", "full"):
+        tech_payment_mode = "split"
+
     # ------------------------- Validaciones UX ------------------------- #
     def render_with_data(error_msg=None):
         if error_msg:
             messages.error(request, error_msg)
 
         clientes = (
-            PrecioActividadTecnico.objects
-            .values_list("cliente", flat=True)
+            PrecioActividadTecnico.objects.values_list("cliente", flat=True)
             .distinct()
             .order_by("cliente")
         )
 
         tecnicos = (
-            Usuario.objects
-            .filter(precioactividadtecnico__isnull=False, is_active=True)
+            Usuario.objects.filter(precioactividadtecnico__isnull=False, is_active=True)
             .distinct()
             .order_by("first_name", "last_name", "username")
         )
@@ -3874,17 +3912,19 @@ def _guardar_billing(request, sesion=None):
                 o = json.loads(raw)
             except Exception:
                 continue
-            items_ctx.append({
-                "codigo_trabajo": (o.get("code") or "").strip(),
-                "tipo_trabajo": "",
-                "descripcion": "",
-                "unidad_medida": "",
-                "cantidad": o.get("amount"),
-                "precio_empresa": "",
-                "subtotal_empresa": "",
-                "subtotal_tecnico": "",
-                "desglose_tecnico": [],
-            })
+            items_ctx.append(
+                {
+                    "codigo_trabajo": (o.get("code") or "").strip(),
+                    "tipo_trabajo": "",
+                    "descripcion": "",
+                    "unidad_medida": "",
+                    "cantidad": o.get("amount"),
+                    "precio_empresa": "",
+                    "subtotal_empresa": "",
+                    "subtotal_tecnico": "",
+                    "desglose_tecnico": [],
+                }
+            )
 
         sesion_ctx = {
             "proyecto_id": proyecto_id,
@@ -3895,15 +3935,20 @@ def _guardar_billing(request, sesion=None):
             "direccion_proyecto": direccion_proyecto,
             "semana_pago_proyectada": semana_pago_proyectada,
             "is_direct_discount": is_direct_discount,
+            "tech_payment_mode": tech_payment_mode,
         }
 
-        return render(request, "operaciones/billing_editar.html", {
-            "sesion": sesion_ctx if not sesion else sesion,
-            "clientes": list(clientes),
-            "tecnicos": tecnicos,
-            "items": items_ctx,
-            "ids_tecnicos": ids,
-        })
+        return render(
+            request,
+            "operaciones/billing_editar.html",
+            {
+                "sesion": sesion_ctx if not sesion else sesion,
+                "clientes": list(clientes),
+                "tecnicos": tecnicos,
+                "items": items_ctx,
+                "ids_tecnicos": ids,
+            },
+        )
 
     if not (proyecto_id and cliente and ciudad and proyecto and oficina):
         return render_with_data("Complete all header fields.")
@@ -3942,6 +3987,7 @@ def _guardar_billing(request, sesion=None):
             semana_pago_proyectada=semana_pago_proyectada,
             semana_pago_real=semana_pago_proyectada if is_direct_discount else "",
             is_direct_discount=is_direct_discount,
+            tech_payment_mode=tech_payment_mode,
         )
     else:
         sesion.proyecto_id = proyecto_id
@@ -3954,6 +4000,7 @@ def _guardar_billing(request, sesion=None):
         if is_direct_discount:
             sesion.semana_pago_real = semana_pago_proyectada
         sesion.is_direct_discount = is_direct_discount
+        sesion.tech_payment_mode = tech_payment_mode
         sesion.save()
 
     # ✅ Técnicos: SIEMPRE redistribuir al guardar (crear o editar)
@@ -3961,9 +4008,9 @@ def _guardar_billing(request, sesion=None):
 
     # reconstruir mapa de porcentajes (después de redistribución)
     ts_rows = list(
-        sesion.tecnicos_sesion
-        .filter(tecnico_id__in=final_ids)
-        .values_list("tecnico_id", "porcentaje")
+        sesion.tecnicos_sesion.filter(tecnico_id__in=final_ids).values_list(
+            "tecnico_id", "porcentaje"
+        )
     )
     pct_by_tid = {tid: money(pct) for tid, pct in ts_rows}
 
@@ -3979,7 +4026,9 @@ def _guardar_billing(request, sesion=None):
     for fila in filas:
         meta = meta_codigo(cliente, ciudad, proyecto, oficina, fila["codigo"])
         if not meta:
-            return HttpResponseBadRequest(f"Código '{fila['codigo']}' no existe con los filtros.")
+            return HttpResponseBadRequest(
+                f"Código '{fila['codigo']}' no existe con los filtros."
+            )
 
         p_emp = precio_empresa(cliente, ciudad, proyecto, oficina, fila["codigo"])
         sub_emp = money(p_emp * fila["cantidad"])
@@ -3998,17 +4047,25 @@ def _guardar_billing(request, sesion=None):
 
         sub_tecs = Decimal("0.00")
 
-        # ✅ Desglose técnico usando los porcentajes YA redistribuidos
         for tid, pct in zip(ids_def, partes_def):
-            base = tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, fila["codigo"])
-            efectiva = money(base * (pct / Decimal("100")))
+            base = tarifa_tecnico(
+                tid, cliente, ciudad, proyecto, oficina, fila["codigo"]
+            )
+
+            if tech_payment_mode == "full":
+                efectiva = money(base)
+                pct_guardado = Decimal("100.00")
+            else:
+                efectiva = money(base * (pct / Decimal("100")))
+                pct_guardado = pct
+
             subtotal = money(efectiva * item.cantidad)
 
             ItemBillingTecnico.objects.create(
                 item=item,
                 tecnico_id=tid,
                 tarifa_base=base,
-                porcentaje=pct,
+                porcentaje=pct_guardado,
                 tarifa_efectiva=efectiva,
                 subtotal=subtotal,
             )
@@ -4022,17 +4079,23 @@ def _guardar_billing(request, sesion=None):
 
     sesion.subtotal_empresa = money(total_emp)
     sesion.subtotal_tecnico = money(total_tec)
-    sesion.save(update_fields=[
-        "subtotal_empresa",
-        "subtotal_tecnico",
-        "semana_pago_real",
-        "is_direct_discount",
-    ])
+    sesion.save(
+        update_fields=[
+            "subtotal_empresa",
+            "subtotal_tecnico",
+            "semana_pago_real",
+            "is_direct_discount",
+            "tech_payment_mode",
+        ]
+    )
 
     messages.success(
         request,
-        "Direct discount saved and linked to the selected technician(s)." if is_direct_discount
-        else "Billing saved successfully."
+        (
+            "Direct discount saved and linked to the selected technician(s)."
+            if is_direct_discount
+            else "Billing saved successfully."
+        ),
     )
     return redirect("operaciones:listar_billing")
 
@@ -4204,7 +4267,7 @@ def ajax_buscar_codigos(request):
 def ajax_detalle_codigo(request):
     cliente = request.GET.get("client", "")
     ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")   # PK
+    proyecto = request.GET.get("project", "")  # PK
     oficina = request.GET.get("office", "")
     codigo = (request.GET.get("code") or "").strip()
 
@@ -4217,25 +4280,59 @@ def ajax_detalle_codigo(request):
 
     precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
 
-    tech_ids = list(map(int, request.GET.getlist("tech_ids[]")))
+    # ✅ acepta ambos nombres por compatibilidad
+    payment_mode = (
+        (
+            request.GET.get("payment_mode")
+            or request.GET.get("tech_payment_mode")
+            or "split"
+        )
+        .strip()
+        .lower()
+    )
+
+    if payment_mode not in ("split", "full"):
+        payment_mode = "split"
+
+    tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
     partes = repartir_100(len(tech_ids)) if tech_ids else []
+
+    # nombres técnicos para mostrar en frontend
+    tech_map = {
+        u.id: (u.get_full_name() or u.username or f"Tech {u.id}").strip()
+        for u in Usuario.objects.filter(id__in=tech_ids)
+    }
+
     desglose = []
     for tid, pct in zip(tech_ids, partes):
         base = _tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo)
-        desglose.append({
-            "tecnico_id": tid,
-            "tarifa_base": f"{base:.2f}",
-            "porcentaje": f"{pct:.2f}",
-            "tarifa_efectiva": f"{(base * (Decimal(pct) / 100)):.2f}",
-        })
 
-    return JsonResponse({
-        "tipo_trabajo": meta["tipo_trabajo"],
-        "descripcion": meta["descripcion"],
-        "unidad_medida": meta["unidad_medida"],
-        "precio_empresa": f"{precio_emp:.2f}",
-        "desglose_tecnico": desglose,
-    })
+        if payment_mode == "full":
+            porcentaje = Decimal("100.00")
+            efectiva = base
+        else:
+            porcentaje = Decimal(str(pct)).quantize(Decimal("0.01"))
+            efectiva = (base * (porcentaje / Decimal("100"))).quantize(Decimal("0.01"))
+
+        desglose.append(
+            {
+                "tecnico_id": tid,
+                "tecnico_nombre": tech_map.get(tid, f"Tech {tid}"),
+                "tarifa_base": f"{base:.2f}",
+                "porcentaje": f"{porcentaje:.2f}",
+                "tarifa_efectiva": f"{efectiva:.2f}",
+            }
+        )
+
+    return JsonResponse(
+        {
+            "tipo_trabajo": meta["tipo_trabajo"],
+            "descripcion": meta["descripcion"],
+            "unidad_medida": meta["unidad_medida"],
+            "precio_empresa": f"{precio_emp:.2f}",
+            "desglose_tecnico": desglose,
+        }
+    )
 
 
 ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
@@ -7562,50 +7659,6 @@ def bulk_delete_evidencias(request, sesion_id):
             "file_errors": file_errors[:5],  # no spamear
         }
     )
-
-
-@login_required
-@rol_requerido('admin', 'pm', 'supervisor')
-@csrf_protect
-def billing_update_creado_en(request, sesion_id: int):
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["POST"])
-
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-
-    raw = (request.POST.get("creado_en") or "").strip()
-    if not raw:
-        return JsonResponse({"ok": False, "error": "Date/time is required."}, status=400)
-
-    # Acepta: "YYYY-MM-DD HH:MM"
-    try:
-        from datetime import datetime
-        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
-    except Exception:
-        return JsonResponse(
-            {"ok": False, "error": "Invalid format. Use: YYYY-MM-DD HH:MM"},
-            status=400
-        )
-
-    # Aware en TZ actual
-    try:
-        tz = timezone.get_current_timezone()
-        if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, tz)
-        else:
-            dt = timezone.localtime(dt, tz)
-    except Exception:
-        return JsonResponse({"ok": False, "error": "Invalid date/time."}, status=400)
-
-    s.creado_en = dt
-    s.save(update_fields=["creado_en"])
-
-    display = timezone.localtime(s.creado_en).strftime("%Y-%m-%d %H:%M")
-    return JsonResponse({
-        "ok": True,
-        "display": display,
-        "search_value": display,
-    })
 
 
 @login_required

@@ -1,170 +1,187 @@
-  {% extends "dashboard_admin/base.html" %}
-  {% load static %}
-  {% block title %}{% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}{% endblock %}
+{% extends "dashboard_admin/base.html" %}
+{% load static %}
+{% block title %}{% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}{% endblock %}
 
-  {% block dashboard_content %}
-  <div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
-      <h1 class="text-2xl font-bold">🧾 {% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}</h1>
-      <div class="flex items-center gap-2">
-        <a href="{% url 'operaciones:listar_billing' %}" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Back</a>
-      </div>
-    </div>
-
-    <form id="billing-form" method="post" class="mt-4">
-      {% csrf_token %}
-
-      <!-- Header -->
-      <div class="grid md:grid-cols-3 gap-4">
-        <!-- Technicians -->
-        <div class="md:col-span-3">
-          <label class="block text-sm font-medium mb-1">Technicians</label>
-          <button type="button" id="btn-open-tech" class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
-            Select technicians
-          </button>
-          <span id="tech-summary" class="ml-2 text-sm text-gray-600"></span>
-          <!-- hidden inputs -->
-          <div id="tech-hidden"></div>
-        </div>
-
-        <!-- Project ID -->
-        <div>
-          <label class="block text-sm font-medium mb-1">Project ID</label>
-          <input name="project_id" value="{{ sesion.proyecto_id|default:'' }}" class="w-full border rounded p-2" required />
-        </div>
-
-        <!-- Project address / Maps -->
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-1">Project address / Google Maps link</label>
-          <input type="text" name="direccion_proyecto"
-                value="{{ sesion.direccion_proyecto|default:'' }}"
-                class="w-full border rounded p-2"
-                placeholder="Write an address or paste a Google Maps link" />
-          {% if sesion and sesion.direccion_proyecto %}
-            <a href="{{ sesion.maps_href }}" target="_blank" rel="noopener"
-              class="mt-1 inline-block text-xs text-blue-600 hover:underline">📍 Open map</a>
-          {% endif %}
-        </div>
-
-        <!-- Week (Flatpickr weekSelect, visible + hidden ISO YYYY-W##) -->
-        <div>
-          <label class="block text-sm font-medium mb-1">Week</label>
-          <!-- visible calendar input -->
-          <input id="week_display" type="text" class="w-full border rounded p-2" placeholder="Pick a week" autocomplete="off" />
-          <!-- hidden real value for POST -->
-          <input id="week" name="semana_pago_proyectada" type="hidden" value="{{ sesion.semana_pago_proyectada|default:'' }}">
-        </div>
-
-        <!-- Client -->
-        <div>
-          <label class="block text-sm font-medium mb-1">Client</label>
-          <select id="client" name="client" class="w-full border rounded p-2" required>
-            <option value="" disabled {% if not sesion %}selected{% endif %}>Select…</option>
-            {% for c in clientes %}
-            <option value="{{ c }}" {% if sesion and sesion.cliente == c %}selected{% endif %}>{{ c }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <!-- City -->
-        <div>
-          <label class="block text-sm font-medium mb-1">City</label>
-          <select id="city" name="city" class="w-full border rounded p-2" required>
-  {% if sesion %}
-    <option value="{{ sesion.ciudad }}" selected>{{ sesion.ciudad }}</option>
-  {% else %}
-    <option value="" disabled selected>Select…</option>
-  {% endif %}
-</select>
-        </div>
-
- <!-- Project -->
-<div>
-  <label class="block text-sm font-medium mb-1">Project</label>
-  <select id="project" name="project" class="w-full border rounded p-2" required>
-    {% if sesion %}
-      {# value = PK del Proyecto (o fallback si no se encontró) #}
-      <option value="{{ proyecto_value }}" selected>{{ proyecto_label }}</option>
-    {% else %}
-      <option value="" disabled selected>Select…</option>
-    {% endif %}
-  </select>
-</div>
-
-        <!-- Office -->
-        <div>
-          <label class="block text-sm font-medium mb-1">Office</label>
-          <select id="office" name="office" class="w-full border rounded p-2" required>
-  {% if sesion %}
-    <option value="{{ sesion.oficina }}" selected>{{ sesion.oficina }}</option>
-  {% else %}
-    <option value="" disabled selected>Select…</option>
-  {% endif %}
-</select>
-        </div>
-      </div>
-
-    <!-- Direct Discount -->
-    <div class="md:col-span-3">
-      <label class="inline-flex items-center gap-2">
-        <input type="checkbox"
-              name="direct_discount"
-              id="direct_discount"
-              value="1"
-              class="h-4 w-4 rounded border-gray-300"
-              {% if sesion and sesion.is_direct_discount %}checked{% endif %}>
-        <span class="text-sm font-medium">Direct discount (skip technician approval)</span>
-      </label>
-      <p id="dd-hint"
-        class="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 hidden">
-        This billing will go straight to payroll deductions. Quantities must be negative (e.g., -1).
-      </p>
-    </div>
-
-
-      <!-- Items Table -->
-      <div class="mt-6">
-      <div class="flex items-center justify-between mb-2">
-    <h2 class="text-lg font-semibold">Items</h2>
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <h1 class="text-2xl font-bold">🧾 {% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}</h1>
     <div class="flex items-center gap-2">
-      <span id="dd-banner"
-            class="hidden text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-        Direct discount mode: quantities must be negative
-      </span>
-      <button type="button" id="btn-add-row" class="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Add Row</button>
+      <a href="{% url 'operaciones:listar_billing' %}" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Back</a>
     </div>
   </div>
 
-        <div class="overflow-x-auto rounded-xl border">
-          <table class="min-w-[1100px] w-full text-sm" id="items-table">
-            <thead class="bg-gray-50 text-gray-700">
-              <tr>
-                <th class="p-2 text-left">Job Code</th>
-                <th class="p-2 text-left">Work Type</th>
-                <th class="p-2 text-left">Description</th>
-                <th class="p-2 text-left">UOM</th>
-                <th class="p-2 text-right">Quantity</th>
-                <th class="p-2 text-left">Technical Price</th>
-                <th class="p-2 text-right">Company Price</th>
-                <th class="p-2 text-right">Subtotal Technical</th>
-                <th class="p-2 text-right">Subtotal Company</th>
-                <th class="p-2 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% if items %}
-                {% for it in items %}
+  <form id="billing-form" method="post" class="mt-4">
+    {% csrf_token %}
+
+    <!-- Header -->
+    <div class="grid md:grid-cols-3 gap-4">
+      <!-- Technicians -->
+      <div class="md:col-span-3">
+        <label class="block text-sm font-medium mb-1">Technicians</label>
+        <button type="button" id="btn-open-tech" class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+          Select technicians
+        </button>
+        <span id="tech-summary" class="ml-2 text-sm text-gray-600"></span>
+        <!-- hidden inputs -->
+        <div id="tech-hidden"></div>
+      </div>
+
+      <!-- Tech payment mode -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Technician payment mode</label>
+        <select id="tech_payment_mode" name="tech_payment_mode" class="w-full border rounded p-2" required>
+          {% with pm=sesion.tech_payment_mode|default:"full" %}
+            <option value="full" {% if pm == "full" %}selected{% endif %}>Full amount for each technician</option>
+            <option value="split" {% if pm == "split" %}selected{% endif %}>Split between technicians</option>
+          {% endwith %}
+        </select>
+        <p class="text-xs text-gray-500 mt-1">
+          Controls how technician totals are calculated for this billing.
+        </p>
+      </div>
+
+      <!-- Project ID -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Project ID</label>
+        <input name="project_id" value="{{ sesion.proyecto_id|default:'' }}" class="w-full border rounded p-2" required />
+      </div>
+
+      <!-- Project address / Maps -->
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium mb-1">Project address / Google Maps link</label>
+        <input
+          type="text"
+          name="direccion_proyecto"
+          value="{{ sesion.direccion_proyecto|default:'' }}"
+          class="w-full border rounded p-2"
+          placeholder="Write an address or paste a Google Maps link"
+        />
+        {% if sesion and sesion.direccion_proyecto %}
+          <a href="{{ sesion.maps_href }}" target="_blank" rel="noopener"
+             class="mt-1 inline-block text-xs text-blue-600 hover:underline">📍 Open map</a>
+        {% endif %}
+      </div>
+
+      <!-- Week -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Week</label>
+        <input id="week_display" type="text" class="w-full border rounded p-2" placeholder="Pick a week" autocomplete="off" />
+        <input id="week" name="semana_pago_proyectada" type="hidden" value="{{ sesion.semana_pago_proyectada|default:'' }}">
+      </div>
+
+      <!-- Client -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Client</label>
+        <select id="client" name="client" class="w-full border rounded p-2" required>
+          <option value="" disabled {% if not sesion %}selected{% endif %}>Select…</option>
+          {% for c in clientes %}
+            <option value="{{ c }}" {% if sesion and sesion.cliente == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- City -->
+      <div>
+        <label class="block text-sm font-medium mb-1">City</label>
+        <select id="city" name="city" class="w-full border rounded p-2" required>
+          {% if sesion %}
+            <option value="{{ sesion.ciudad }}" selected>{{ sesion.ciudad }}</option>
+          {% else %}
+            <option value="" disabled selected>Select…</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <!-- Project -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Project</label>
+        <select id="project" name="project" class="w-full border rounded p-2" required>
+          {% if sesion %}
+            <option value="{{ proyecto_value }}" selected>{{ proyecto_label }}</option>
+          {% else %}
+            <option value="" disabled selected>Select…</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <!-- Office -->
+      <div>
+        <label class="block text-sm font-medium mb-1">Office</label>
+        <select id="office" name="office" class="w-full border rounded p-2" required>
+          {% if sesion %}
+            <option value="{{ sesion.oficina }}" selected>{{ sesion.oficina }}</option>
+          {% else %}
+            <option value="" disabled selected>Select…</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <!-- Direct Discount -->
+      <div class="md:col-span-3">
+        <label class="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            name="direct_discount"
+            id="direct_discount"
+            value="1"
+            class="h-4 w-4 rounded border-gray-300"
+            {% if sesion and sesion.is_direct_discount %}checked{% endif %}
+          >
+          <span class="text-sm font-medium">Direct discount (skip technician approval)</span>
+        </label>
+        <p id="dd-hint"
+           class="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 hidden">
+          This billing will go straight to payroll deductions. Quantities must be negative (e.g., -1).
+        </p>
+      </div>
+    </div>
+
+    <!-- Items Table -->
+    <div class="mt-6">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold">Items</h2>
+        <div class="flex items-center gap-2">
+          <span id="dd-banner"
+                class="hidden text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+            Direct discount mode: quantities must be negative
+          </span>
+          <button type="button" id="btn-add-row" class="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Add Row</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border">
+        <table class="min-w-[1100px] w-full text-sm" id="items-table">
+          <thead class="bg-gray-50 text-gray-700">
+            <tr>
+              <th class="p-2 text-left">Job Code</th>
+              <th class="p-2 text-left">Work Type</th>
+              <th class="p-2 text-left">Description</th>
+              <th class="p-2 text-left">UOM</th>
+              <th class="p-2 text-right">Quantity</th>
+              <th class="p-2 text-left">Technical Price</th>
+              <th class="p-2 text-right">Company Price</th>
+              <th class="p-2 text-right">Subtotal Technical</th>
+              <th class="p-2 text-right">Subtotal Company</th>
+              <th class="p-2 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if items %}
+              {% for it in items %}
                 <tr class="border-t">
                   <td class="p-2">
-  <div class="relative">
-    <input class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
-    <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
-  </div>
-</td>
-                  <td class="p-2"><input class="worktype-input w-40 border rounded p-1" value="{{ it.tipo_trabajo }}" readonly/></td>
-                  <td class="p-2"><input class="desc-input w-64 border rounded p-1" value="{{ it.descripcion }}" readonly/></td>
-                  <td class="p-2"><input class="uom-input w-24 border rounded p-1" value="{{ it.unidad_medida }}" readonly/></td>
-                  <td class="p-2 text-right"><input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}"/></td>
+                    <div class="relative">
+                      <input class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
+                      <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
+                    </div>
+                  </td>
+                  <td class="p-2"><input class="worktype-input w-40 border rounded p-1" value="{{ it.tipo_trabajo }}" readonly /></td>
+                  <td class="p-2"><input class="desc-input w-64 border rounded p-1" value="{{ it.descripcion }}" readonly /></td>
+                  <td class="p-2"><input class="uom-input w-24 border rounded p-1" value="{{ it.unidad_medida }}" readonly /></td>
+                  <td class="p-2 text-right">
+                    <input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}" />
+                  </td>
                   <td class="p-2">
                     <div class="tech-price-cell text-xs">
                       {% for bd in it.desglose_tecnico.all %}
@@ -175,293 +192,337 @@
                       {% endfor %}
                     </div>
                   </td>
-                  <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" value="{{ it.precio_empresa|floatformat:2 }}" readonly/></td>
-                  <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_tecnico|floatformat:2 }}" readonly/></td>
-                  <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_empresa|floatformat:2 }}" readonly/></td>
+                  <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" value="{{ it.precio_empresa|floatformat:2 }}" readonly /></td>
+                  <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_tecnico|floatformat:2 }}" readonly /></td>
+                  <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" value="{{ it.subtotal_empresa|floatformat:2 }}" readonly /></td>
                   <td class="p-2 text-center">
                     <button type="button" class="btn-remove-row text-red-600 hover:underline">Remove</button>
                   </td>
                 </tr>
-                {% endfor %}
-              {% endif %}
-            </tbody>
-            <tfoot class="bg-gray-50">
-              <tr>
-                <th class="p-2 text-right" colspan="7">Total</th>
-                <th class="p-2 text-right"><span id="total-tech">{{ sesion.subtotal_tecnico|default:0|floatformat:2 }}</span></th>
-                <th class="p-2 text-right"><span id="total-company">{{ sesion.subtotal_empresa|default:0|floatformat:2 }}</span></th>
-                <th></th>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="flex flex-wrap items-center gap-3 mt-6">
-        <a href="{% url 'operaciones:listar_billing' %}" class="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300">Cancel</a>
-        <button class="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
-      </div>
-
-      <!-- contenedores de items en POST -->
-      <div id="items-hidden"></div>
-    </form>
-  </div>
-
-  <!-- Modal de técnicos -->
-  <div id="tech-modal" class="fixed inset-0 hidden z-50">
-    <div class="absolute inset-0 bg-black/40" data-close="1"></div>
-    <div class="relative z-10 max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-lg font-semibold">Select Technicians</h3>
-        <button type="button" id="btn-close-tech" class="text-gray-500 hover:text-gray-700">✖</button>
-      </div>
-      <div class="overflow-x-auto border rounded">
-        <table class="min-w-[600px] w-full text-sm">
-          <thead class="bg-gray-50">
+              {% endfor %}
+            {% endif %}
+          </tbody>
+          <tfoot class="bg-gray-50">
             <tr>
-              <th class="p-2 text-left">Select</th>
-              <th class="p-2 text-left">Name</th>
-              <th class="p-2 text-left">Username</th>
+              <th class="p-2 text-right" colspan="7">Total</th>
+              <th class="p-2 text-right"><span id="total-tech">{{ sesion.subtotal_tecnico|default:0|floatformat:2 }}</span></th>
+              <th class="p-2 text-right"><span id="total-company">{{ sesion.subtotal_empresa|default:0|floatformat:2 }}</span></th>
+              <th></th>
             </tr>
-          </thead>
-          <tbody>
-            {% for t in tecnicos %}
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex flex-wrap items-center gap-3 mt-6">
+      <a href="{% url 'operaciones:listar_billing' %}" class="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300">Cancel</a>
+      <button class="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
+    </div>
+
+    <!-- contenedores de items en POST -->
+    <div id="items-hidden"></div>
+  </form>
+</div>
+
+<!-- Modal de técnicos -->
+<div id="tech-modal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40" data-close="1"></div>
+  <div class="relative z-10 max-w-2xl mx-auto bg-white rounded-2xl shadow p-4 sm:p-6 mt-24">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-semibold">Select Technicians</h3>
+      <button type="button" id="btn-close-tech" class="text-gray-500 hover:text-gray-700">✖</button>
+    </div>
+    <div class="overflow-x-auto border rounded">
+      <table class="min-w-[600px] w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="p-2 text-left">Select</th>
+            <th class="p-2 text-left">Name</th>
+            <th class="p-2 text-left">Username</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tecnicos %}
             <tr class="border-t">
               <td class="p-2">
                 <input type="checkbox" class="tech-check" value="{{ t.id }}"
-                  {% if ids_tecnicos and t.id in ids_tecnicos %}checked{% endif %}/>
+                       {% if ids_tecnicos and t.id in ids_tecnicos %}checked{% endif %} />
               </td>
               <td class="p-2">{{ t.get_full_name|default:t.username }}</td>
               <td class="p-2">{{ t.username }}</td>
             </tr>
-            {% empty %}
+          {% empty %}
             <tr><td colspan="3" class="p-3 text-center text-gray-500">No technicians found.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div class="mt-4 flex items-center justify-end gap-2">
-        <button type="button" id="btn-apply-tech" class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Apply</button>
-      </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <button type="button" id="btn-apply-tech" class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Apply</button>
     </div>
   </div>
+</div>
 
-  <!-- ================== JS ================== -->
-  <script>
-  /* === Estado front === */
-  const state = {
-    techIds: {{ ids_tecnicos|default:"[]"|safe }},
-    totals: { tech: 0, company: 0 }
-  };
-  const urls = {
-    ciudades: "{% url 'operaciones:ajax_ciudades' %}",
-    proyectos: "{% url 'operaciones:ajax_proyectos' %}",
-    oficinas: "{% url 'operaciones:ajax_oficinas' %}",
-    buscarCodigos: "{% url 'operaciones:ajax_buscar_codigos' %}",
-    detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
-  };
+<!-- ================== JS ================== -->
+<script>
+/* === Estado front === */
+const state = {
+  techIds: {{ ids_tecnicos|default:"[]"|safe }},
+  totals: { tech: 0, company: 0 }
+};
 
+const urls = {
+  ciudades: "{% url 'operaciones:ajax_ciudades' %}",
+  proyectos: "{% url 'operaciones:ajax_proyectos' %}",
+  oficinas: "{% url 'operaciones:ajax_oficinas' %}",
+  buscarCodigos: "{% url 'operaciones:ajax_buscar_codigos' %}",
+  detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
+};
 
+/* === Referencias header === */
+const clientSel = document.getElementById('client');
+const citySel = document.getElementById('city');
+const projectSel = document.getElementById('project');
+const officeSel = document.getElementById('office');
+const techPaymentModeSel = document.getElementById('tech_payment_mode');
 
-  /* === Direct Discount toggles === */
-  const dd       = document.getElementById('direct_discount');
-  const ddHint   = document.getElementById('dd-hint');
-  const ddBanner = document.getElementById('dd-banner');
+/* === Direct Discount toggles === */
+const dd = document.getElementById('direct_discount');
+const ddHint = document.getElementById('dd-hint');
+const ddBanner = document.getElementById('dd-banner');
 
-  function syncDirectDiscountUI(){
-    const on = !!(dd && dd.checked);
-    if (ddHint)   ddHint.classList.toggle('hidden', !on);
-    if (ddBanner) ddBanner.classList.toggle('hidden', !on);
+function isDirectDiscountOn() {
+  return !!(dd && dd.checked);
+}
+
+function normalizeAmountForDirectDiscount(inputEl) {
+  if (!inputEl) return;
+  const raw = (inputEl.value || "").trim();
+  if (raw === "" || raw === "-" || raw === "." || raw === "-.") return;
+
+  const n = parseFloat(raw);
+  if (Number.isNaN(n)) return;
+
+  if (isDirectDiscountOn() && n > 0) {
+    inputEl.value = String(-Math.abs(n));
   }
-  if (dd) { dd.addEventListener('change', syncDirectDiscountUI); }
-  syncDirectDiscountUI();
+}
 
+function syncDirectDiscountUI() {
+  const on = isDirectDiscountOn();
+  if (ddHint) ddHint.classList.toggle('hidden', !on);
+  if (ddBanner) ddBanner.classList.toggle('hidden', !on);
 
+  document.querySelectorAll('.amount-input').forEach(inp => {
+    normalizeAmountForDirectDiscount(inp);
+    const tr = inp.closest('tr');
+    if (tr) updateRowTotals(tr);
+  });
+}
 
-  /* === Modal técnicos === */
-  const modal = document.getElementById('tech-modal');
-  document.getElementById('btn-open-tech').onclick = () => modal.classList.remove('hidden');
-  document.getElementById('btn-close-tech').onclick = () => modal.classList.add('hidden');
-  modal.addEventListener('click', (e) => { if (e.target?.getAttribute('data-close') === '1') modal.classList.add('hidden'); });
+if (dd) {
+  dd.addEventListener('change', syncDirectDiscountUI);
+}
+syncDirectDiscountUI();
 
-  document.getElementById('btn-apply-tech').onclick = async () => {
+/* === Modal técnicos === */
+const modal = document.getElementById('tech-modal');
+
+document.getElementById('btn-open-tech').onclick = () => modal.classList.remove('hidden');
+document.getElementById('btn-close-tech').onclick = () => modal.classList.add('hidden');
+modal.addEventListener('click', (e) => {
+  if (e.target?.getAttribute('data-close') === '1') {
+    modal.classList.add('hidden');
+  }
+});
+
+document.getElementById('btn-apply-tech').onclick = async () => {
   const checks = [...document.querySelectorAll('.tech-check:checked')];
-  state.techIds = checks.map(c => parseInt(c.value));
+  state.techIds = checks.map(c => parseInt(c.value, 10));
   renderTechSummary();
   rebuildTechHidden();
 
-  // ✅ Guardar selección actual antes de recargar combos
   const prevProject = projectSel.value;
-  const prevOffice  = officeSel.value;
+  const prevOffice = officeSel.value;
 
-  // 👉 Si ya hay Client + City, recargamos proyectos filtrados por técnico
   if (clientSel.value && citySel.value) {
     const params = new URLSearchParams({
       client: clientSel.value || "",
-      city:   citySel.value || "",
+      city: citySel.value || "",
     });
     state.techIds.forEach(id => params.append("tech_ids[]", id));
 
-    // 1) Recargar proyectos (filtrados por técnicos)
     await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
 
-    // 2) ¿El proyecto anterior sigue existiendo?
     const projectStillValid = !![...projectSel.options].find(op => op.value === prevProject);
 
     if (projectStillValid) {
       projectSel.value = prevProject;
 
-      // 3) Recargar oficinas para ese proyecto (porque dependen de project)
       await loadOptions(
         officeSel,
         `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
       );
 
-      // 4) ¿La oficina anterior sigue existiendo?
       const officeStillValid = !![...officeSel.options].find(op => op.value === prevOffice);
       if (officeStillValid) {
         officeSel.value = prevOffice;
       }
-      // si no es válida, queda en "Select…" (reset correcto)
     } else {
-      // si el proyecto ya no es válido con estos técnicos, reseteamos office también
       clearSelect(officeSel);
     }
   }
 
   modal.classList.add('hidden');
-  recalcAllRows();
+  await recalcAllRows();
 };
 
+function renderTechSummary() {
+  const span = document.getElementById('tech-summary');
+  span.textContent = state.techIds.length
+    ? `${state.techIds.length} technician(s) selected`
+    : 'No technicians selected';
+}
 
-  function renderTechSummary() {
-    const span = document.getElementById('tech-summary');
-    span.textContent = state.techIds.length ? `${state.techIds.length} technician(s) selected` : 'No technicians selected';
-  }
-  function rebuildTechHidden() {
-    const box = document.getElementById('tech-hidden');
-    box.innerHTML = "";
-    state.techIds.forEach(id => {
-      const inp = document.createElement('input');
-      inp.type = 'hidden';
-      inp.name = 'tech_ids[]';
-      inp.value = id;
-      box.appendChild(inp);
-    });
-  }
-  renderTechSummary(); rebuildTechHidden();
+function rebuildTechHidden() {
+  const box = document.getElementById('tech-hidden');
+  box.innerHTML = "";
 
-  /* === Cascada de selects === */
-  const clientSel  = document.getElementById('client');
-  const citySel    = document.getElementById('city');
-  const projectSel = document.getElementById('project');
-  const officeSel  = document.getElementById('office');
-
-  clientSel.addEventListener('change', async () => {
-    await loadOptions(
-      citySel,
-      `${urls.ciudades}?client=${encodeURIComponent(clientSel.value)}`
-    );
-    clearSelect(projectSel);
-    clearSelect(officeSel);
+  state.techIds.forEach(id => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'tech_ids[]';
+    inp.value = id;
+    box.appendChild(inp);
   });
+}
 
-  citySel.addEventListener('change', async () => {
-    const params = new URLSearchParams({
-      client: clientSel.value || "",
-      city:   citySel.value || "",
-    });
-    // 👉 añadimos técnicos seleccionados para filtrar proyectos
-    state.techIds.forEach(id => params.append("tech_ids[]", id));
+renderTechSummary();
+rebuildTechHidden();
 
-    await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
-    clearSelect(officeSel);
+/* === Cascada de selects === */
+clientSel.addEventListener('change', async () => {
+  await loadOptions(
+    citySel,
+    `${urls.ciudades}?client=${encodeURIComponent(clientSel.value)}`
+  );
+  clearSelect(projectSel);
+  clearSelect(officeSel);
+});
+
+citySel.addEventListener('change', async () => {
+  const params = new URLSearchParams({
+    client: clientSel.value || "",
+    city: citySel.value || "",
   });
+  state.techIds.forEach(id => params.append("tech_ids[]", id));
 
-  projectSel.addEventListener('change', async () => {
-    await loadOptions(
-      officeSel,
-      `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
-    );
+  await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
+  clearSelect(officeSel);
+});
+
+projectSel.addEventListener('change', async () => {
+  await loadOptions(
+    officeSel,
+    `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
+  );
+});
+
+/* ✅ AQUÍ ESTÁ EL FIX IMPORTANTE:
+   al cambiar Full/Split, rehidrata por AJAX todas las filas con código */
+if (techPaymentModeSel) {
+  techPaymentModeSel.addEventListener('change', async () => {
+    await recalcAllRows();
   });
-  async function loadOptions(selectEl, url) {
-    selectEl.innerHTML = `<option selected disabled>Loading…</option>`;
-    const r = await fetch(url);
-    const data = await r.json();
+}
 
-    selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
+async function loadOptions(selectEl, url) {
+  selectEl.innerHTML = `<option selected disabled>Loading…</option>`;
+  const r = await fetch(url);
+  const data = await r.json();
 
-    (data.results || []).forEach(v => {
-      let value, label;
+  selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
 
-      if (v && typeof v === "object") {
-        // Caso proyectos: {id, label}
-        value = v.id;
-        label = v.label || String(v.id);
-      } else {
-        // Caso ciudades / oficinas: strings simples
-        value = v;
-        label = v;
-      }
+  (data.results || []).forEach(v => {
+    let value, label;
 
-      const op = document.createElement('option');
-      op.value = value;
-      op.textContent = label;
-      selectEl.appendChild(op);
-    });
-  }
-  function clearSelect(el) { el.innerHTML = `<option value="" disabled selected>Select…</option>` }
-
-  /* === Tabla Items === */
-  const tbody = document.querySelector('#items-table tbody');
-  document.getElementById('btn-add-row').onclick = () => addRow();
-
-  function addRow() {
-    const tr = document.createElement('tr');
-    tr.className = "border-t";
-    tr.innerHTML = `
-      <td class="p-2">
-        <div class="relative">
-          <input class="code-input w-40 border rounded p-1" placeholder="Type code…"/>
-          <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
-        </div>
-      </td>
-      <td class="p-2"><input class="worktype-input w-40 border rounded p-1" readonly/></td>
-      <td class="p-2"><input class="desc-input w-64 border rounded p-1" readonly/></td>
-      <td class="p-2"><input class="uom-input w-24 border rounded p-1" readonly/></td>
-      <td class="p-2 text-right"><input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="1"/></td>
-      <td class="p-2"><div class="tech-price-cell text-xs text-gray-800"></div></td>
-      <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" readonly/></td>
-      <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
-      <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
-      <td class="p-2 text-center"><button type="button" class="btn-remove-row text-red-600 hover:underline">Remove</button></td>
-    `;
-    tbody.appendChild(tr);
-    wireRow(tr);
-  }
-  tbody.addEventListener('click', (e) => {
-    if (e.target.classList.contains('btn-remove-row')) {
-      e.target.closest('tr').remove();
-      recomputeTotals();
+    if (v && typeof v === "object") {
+      value = v.id;
+      label = v.label || String(v.id);
+    } else {
+      value = v;
+      label = v;
     }
-  });
 
-  function wireRow(tr) {
-  const codeInput    = tr.querySelector('.code-input');
-  const suggestions  = tr.querySelector('.suggestions');
-  const amountInput  = tr.querySelector('.amount-input');
+    const op = document.createElement('option');
+    op.value = value;
+    op.textContent = label;
+    selectEl.appendChild(op);
+  });
+}
+
+function clearSelect(el) {
+  el.innerHTML = `<option value="" disabled selected>Select…</option>`;
+}
+
+/* === Tabla Items === */
+const tbody = document.querySelector('#items-table tbody');
+
+document.getElementById('btn-add-row').onclick = () => addRow();
+
+function addRow() {
+  const defaultAmount = isDirectDiscountOn() ? -1 : 1;
+
+  const tr = document.createElement('tr');
+  tr.className = "border-t";
+  tr.innerHTML = `
+    <td class="p-2">
+      <div class="relative">
+        <input class="code-input w-40 border rounded p-1" placeholder="Type code…"/>
+        <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
+      </div>
+    </td>
+    <td class="p-2"><input class="worktype-input w-40 border rounded p-1" readonly/></td>
+    <td class="p-2"><input class="desc-input w-64 border rounded p-1" readonly/></td>
+    <td class="p-2"><input class="uom-input w-24 border rounded p-1" readonly/></td>
+    <td class="p-2 text-right"><input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="${defaultAmount}"/></td>
+    <td class="p-2"><div class="tech-price-cell text-xs text-gray-800"></div></td>
+    <td class="p-2 text-right"><input class="company-price-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-right"><input class="tech-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-right"><input class="company-subtotal-input w-28 border rounded p-1 text-right" readonly/></td>
+    <td class="p-2 text-center"><button type="button" class="btn-remove-row text-red-600 hover:underline">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+  wireRow(tr);
+  updateRowTotals(tr);
+}
+
+tbody.addEventListener('click', (e) => {
+  if (e.target.classList.contains('btn-remove-row')) {
+    e.target.closest('tr').remove();
+    recomputeTotals();
+  }
+});
+
+function wireRow(tr) {
+  const codeInput = tr.querySelector('.code-input');
+  const suggestions = tr.querySelector('.suggestions');
+  const amountInput = tr.querySelector('.amount-input');
 
   codeInput.addEventListener('input', async () => {
     const ok = validateHeaderSelected();
     if (!ok) {
       showToast('Please select Client, City, Project, Office and Technicians first.');
       codeInput.value = "";
+      if (suggestions) {
+        suggestions.classList.add('hidden');
+        suggestions.innerHTML = "";
+      }
       return;
     }
 
     const q = codeInput.value.trim();
-    // si por alguna razón no hay contenedor de sugerencias, salimos sin romper
     if (!suggestions) return;
 
     if (!q) {
@@ -473,7 +534,8 @@
     const url = `${urls.buscarCodigos}?client=${enc(clientSel.value)}&city=${enc(citySel.value)}&project=${enc(projectSel.value)}&office=${enc(officeSel.value)}&q=${enc(q)}`;
     const r = await fetch(url);
     const data = await r.json();
-    suggestions.innerHTML = (data.results||[]).map(x => `
+
+    suggestions.innerHTML = (data.results || []).map(x => `
       <div class="px-2 py-1 hover:bg-gray-100 cursor-pointer"
            data-code="${x.codigo_trabajo}"
            data-w="${x.tipo_trabajo}"
@@ -482,6 +544,7 @@
         ${x.codigo_trabajo} — ${x.descripcion}
       </div>
     `).join('');
+
     suggestions.classList.remove('hidden');
   });
 
@@ -489,196 +552,289 @@
     suggestions.addEventListener('click', async (e) => {
       const row = e.target.closest('[data-code]');
       if (!row) return;
+
       suggestions.classList.add('hidden');
       codeInput.value = row.dataset.code;
       tr.querySelector('.worktype-input').value = row.dataset.w;
-      tr.querySelector('.desc-input').value   = row.dataset.d;
-      tr.querySelector('.uom-input').value    = row.dataset.u;
+      tr.querySelector('.desc-input').value = row.dataset.d;
+      tr.querySelector('.uom-input').value = row.dataset.u;
+
       await hydratePrices(tr);
     });
   }
 
-  amountInput.addEventListener('input', () => updateRowTotals(tr));
-}
-  function validateHeaderSelected() {
-    return clientSel.value && citySel.value && projectSel.value && officeSel.value && state.techIds.length>0;
-  }
-  function showToast(msg) { alert(msg) }
-  function enc(s){return encodeURIComponent(s)}
-
-  async function hydratePrices(tr){
-    const code = tr.querySelector('.code-input').value.trim();
-    if (!validateHeaderSelected() || !code) return;
-
-    const params = new URLSearchParams({
-      client: clientSel.value, city: citySel.value, project: projectSel.value, office: officeSel.value, code
-    });
-    state.techIds.forEach(id => params.append('tech_ids[]', id));
-    const r = await fetch(`${urls.detalleCodigo}?${params.toString()}`);
-    const data = await r.json();
-    if (data.error) { showToast("Code not found for selected filters."); return; }
-
-    tr.querySelector('.worktype-input').value        = data.tipo_trabajo;
-    tr.querySelector('.desc-input').value            = data.descripcion;
-    tr.querySelector('.uom-input').value             = data.unidad_medida;
-    tr.querySelector('.company-price-input').value   = data.precio_empresa;
-
-    const cell = tr.querySelector('.tech-price-cell');
-    cell.innerHTML = (data.desglose_tecnico||[]).map((t, idx) => `
-      <div class="flex gap-1">
-        <span class="px-1 rounded bg-gray-100">Tech ${idx + 1}</span>
-        <span>${t.tarifa_base} × ${t.porcentaje}% = <b>${t.tarifa_efectiva}</b></span>
-      </div>
-    `).join('');
-
+  amountInput.addEventListener('input', () => {
+    normalizeAmountForDirectDiscount(amountInput);
     updateRowTotals(tr);
-  }
-  function updateRowTotals(tr){
-    const amount = parseFloat(tr.querySelector('.amount-input').value||"0");
-    const comp   = parseFloat(tr.querySelector('.company-price-input').value||"0");
-
-    let effSum = 0;
-    tr.querySelectorAll('.tech-price-cell b').forEach(b=>{ effSum += parseFloat(b.textContent||"0"); });
-
-    const techSubtotal    = (effSum * amount) || 0;
-    const companySubtotal = (comp   * amount) || 0;
-
-    tr.querySelector('.tech-subtotal-input').value    = techSubtotal.toFixed(2);
-    tr.querySelector('.company-subtotal-input').value = companySubtotal.toFixed(2);
-
-    recomputeTotals();
-  }
-  function recalcAllRows(){
-    document.querySelectorAll('#items-table tbody tr').forEach(tr=>{
-      const code = tr.querySelector('.code-input')?.value?.trim();
-      if (code) hydratePrices(tr);
-    });
-  }
-  function recomputeTotals(){
-    let tTech = 0, tComp = 0;
-    document.querySelectorAll('.tech-subtotal-input').forEach(i=>tTech += parseFloat(i.value||"0"));
-    document.querySelectorAll('.company-subtotal-input').forEach(i=>tComp += parseFloat(i.value||"0"));
-    document.getElementById('total-tech').textContent    = (tTech||0).toFixed(2);
-    document.getElementById('total-company').textContent = (tComp||0).toFixed(2);
-  }
-
-  /* === Inicializar edición: enganchar filas + cargar proyectos/oficinas === */
-
-  // 1) Enganchar TODAS las filas actuales (modo editar)
-  document.querySelectorAll('#items-table tbody tr').forEach(tr => {
-    wireRow(tr);
   });
+}
+
+function validateHeaderSelected() {
+  return !!(
+    clientSel.value &&
+    citySel.value &&
+    projectSel.value &&
+    officeSel.value &&
+    state.techIds.length > 0
+  );
+}
+
+function showToast(msg) {
+  alert(msg);
+}
+
+function enc(s) {
+  return encodeURIComponent(s);
+}
+
+async function hydratePrices(tr) {
+  const code = tr.querySelector('.code-input').value.trim();
+  if (!validateHeaderSelected() || !code) return;
+
+  const params = new URLSearchParams({
+    client: clientSel.value,
+    city: citySel.value,
+    project: projectSel.value,
+    office: officeSel.value,
+    code: code,
+    payment_mode: techPaymentModeSel ? techPaymentModeSel.value : "full",   // ✅ FIX
+  });
+
+  state.techIds.forEach(id => params.append('tech_ids[]', id));
+
+  const r = await fetch(`${urls.detalleCodigo}?${params.toString()}`);
+  const data = await r.json();
+
+  if (data.error) {
+    showToast("Code not found for selected filters.");
+    return;
+  }
+
+  tr.querySelector('.worktype-input').value = data.tipo_trabajo;
+  tr.querySelector('.desc-input').value = data.descripcion;
+  tr.querySelector('.uom-input').value = data.unidad_medida;
+  tr.querySelector('.company-price-input').value = data.precio_empresa;
+
+  const cell = tr.querySelector('.tech-price-cell');
+  cell.innerHTML = (data.desglose_tecnico || []).map((t, idx) => `
+    <div class="flex gap-1">
+      <span class="px-1 rounded bg-gray-100">${t.tecnico_nombre || `Tech ${idx + 1}`}</span>
+      <span>${t.tarifa_base} × ${t.porcentaje}% = <b>${t.tarifa_efectiva}</b></span>
+    </div>
+  `).join('');
+
+  updateRowTotals(tr);
+}
+
+function updateRowTotals(tr) {
+  const amount = parseFloat(tr.querySelector('.amount-input').value || "0");
+  const comp = parseFloat(tr.querySelector('.company-price-input').value || "0");
+
+  let effSum = 0;
+  tr.querySelectorAll('.tech-price-cell b').forEach(b => {
+    effSum += parseFloat(b.textContent || "0");
+  });
+
+  const techSubtotal = (effSum * amount) || 0;
+  const companySubtotal = (comp * amount) || 0;
+
+  tr.querySelector('.tech-subtotal-input').value = techSubtotal.toFixed(2);
+  tr.querySelector('.company-subtotal-input').value = companySubtotal.toFixed(2);
+
   recomputeTotals();
+}
 
-  // 2) Si estamos editando, cargar lista completa de proyectos/oficinas
-  {% if sesion %}
-  (async function initEditCombos() {
-    try {
-      // Ya tenemos cliente, ciudad y técnicos de la sesión
-      if (clientSel.value && citySel.value && state.techIds.length > 0) {
-        // Cargar proyectos filtrados por client + city + técnicos
-        const params = new URLSearchParams({
-          client: clientSel.value || "",
-          city:   citySel.value || "",
-        });
-        state.techIds.forEach(id => params.append("tech_ids[]", id));
+async function recalcAllRows() {
+  const rows = [...document.querySelectorAll('#items-table tbody tr')];
 
-        await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
-
-        // Volver a seleccionar el proyecto guardado en la sesión
-        projectSel.value = "{{ proyecto_value }}";
-
-        // Cargar oficinas para ese proyecto
-        await loadOptions(
-          officeSel,
-          `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
-        );
-
-        // Volver a seleccionar la oficina guardada
-        officeSel.value = "{{ sesion.oficina }}";
-      }
-    } catch (err) {
-      console.error('Error inicializando combos en edición:', err);
+  for (const tr of rows) {
+    const code = tr.querySelector('.code-input')?.value?.trim();
+    if (code) {
+      await hydratePrices(tr);
+    } else {
+      normalizeAmountForDirectDiscount(tr.querySelector('.amount-input'));
+      updateRowTotals(tr);
     }
-  })();
-  {% endif %}
+  }
+}
 
-  /* === Empaquetar items para el POST === */
-  document.getElementById('billing-form').addEventListener('submit', (e)=>{
-    if (!validateHeaderSelected()) { e.preventDefault(); showToast('Please select technicians and all header filters.'); return; }
+function recomputeTotals() {
+  let tTech = 0;
+  let tComp = 0;
 
-    const hidden = document.getElementById('items-hidden');
-    hidden.innerHTML = "";
-    const rows = document.querySelectorAll('#items-table tbody tr');
-    if (!rows.length) { e.preventDefault(); showToast('Please add at least one item.'); return; }
-
-    rows.forEach(tr=>{
-      const code   = tr.querySelector('.code-input').value.trim();
-      const amount = tr.querySelector('.amount-input').value;
-      const payload = JSON.stringify({code, amount});
-      const inp = document.createElement('input');
-      inp.type = 'hidden'; inp.name = 'items[]'; inp.value = payload;
-      hidden.appendChild(inp);
-    });
+  document.querySelectorAll('.tech-subtotal-input').forEach(i => {
+    tTech += parseFloat(i.value || "0");
   });
-  </script>
+  document.querySelectorAll('.company-subtotal-input').forEach(i => {
+    tComp += parseFloat(i.value || "0");
+  });
 
-  <!-- ===== Flatpickr (week picker en inglés) ===== -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.css">
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.js"></script>
-  <script>
-  /* Helper: ISO week string YYYY-W## */
-  function isoWeekString(d){
-    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const dayNum = date.getUTCDay() || 7;
-    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
-    const weekNo = Math.ceil((((date - yearStart)/86400000) + 1)/7);
-    const year = date.getUTCFullYear();
-    const ww = String(weekNo).padStart(2, '0');
-    return `${year}-W${ww}`;
+  document.getElementById('total-tech').textContent = (tTech || 0).toFixed(2);
+  document.getElementById('total-company').textContent = (tComp || 0).toFixed(2);
+}
+
+/* === Inicializar edición === */
+document.querySelectorAll('#items-table tbody tr').forEach(tr => {
+  wireRow(tr);
+});
+syncDirectDiscountUI();
+recomputeTotals();
+
+{% if sesion %}
+(async function initEditCombos() {
+  try {
+    if (clientSel.value && citySel.value && state.techIds.length > 0) {
+      const params = new URLSearchParams({
+        client: clientSel.value || "",
+        city: citySel.value || "",
+      });
+      state.techIds.forEach(id => params.append("tech_ids[]", id));
+
+      await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
+      projectSel.value = "{{ proyecto_value }}";
+
+      await loadOptions(
+        officeSel,
+        `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
+      );
+
+      officeSel.value = "{{ sesion.oficina }}";
+    }
+
+    // ✅ rehidrata filas al cargar edición para que respete el payment mode guardado
+    await recalcAllRows();
+  } catch (err) {
+    console.error('Error inicializando combos en edición:', err);
   }
-  /* Convert YYYY-W## -> Monday date */
-  function dateFromIsoWeek(iso){
-    const [y, w] = iso.replace('W','').split('-');
-    const year = parseInt(y,10), week = parseInt(w,10);
-    const simple = new Date(Date.UTC(year,0,1 + (week - 1) * 7));
-    const dow = simple.getUTCDay();
-    const ISOweekStart = new Date(simple);
-    if (dow <= 4) ISOweekStart.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
-    else          ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
-    return new Date(ISOweekStart);
+})();
+{% else %}
+(async function initNewRows() {
+  await recalcAllRows();
+})();
+{% endif %}
+
+/* === Empaquetar items para el POST === */
+document.getElementById('billing-form').addEventListener('submit', (e) => {
+  if (!validateHeaderSelected()) {
+    e.preventDefault();
+    showToast('Please select technicians and all header filters.');
+    return;
   }
-  /* Current ISO week (client side) */
-  function currentIsoWeek(){
-    return isoWeekString(new Date());
+
+  const hidden = document.getElementById('items-hidden');
+  hidden.innerHTML = "";
+
+  const rows = document.querySelectorAll('#items-table tbody tr');
+  if (!rows.length) {
+    e.preventDefault();
+    showToast('Please add at least one item.');
+    return;
   }
 
-  (function(){
-    const hiddenInput = document.getElementById('week');         // name="semana_pago_proyectada"
-    const displayInput = document.getElementById('week_display');
+  let invalidDirectDiscount = false;
+  let missingCode = false;
 
-    // Determinar valor inicial
-    let initialIso = hiddenInput.value && hiddenInput.value.length ? hiddenInput.value : currentIsoWeek();
-    let initialDate = dateFromIsoWeek(initialIso);
+  rows.forEach(tr => {
+    const code = tr.querySelector('.code-input').value.trim();
+    const amountInput = tr.querySelector('.amount-input');
+    normalizeAmountForDirectDiscount(amountInput);
 
-    const fp = flatpickr(displayInput, {
-      plugins: [new weekSelect({})],
-      dateFormat: "F j, Y",       // visible (EN por defecto)
-      defaultDate: initialDate,
-      allowInput: false,
-      onChange(selectedDates){
-        if (selectedDates && selectedDates[0]){
-          hiddenInput.value = isoWeekString(selectedDates[0]);   // YYYY-W##
-        }
-      },
-      onReady(){
-        // si no había valor, persistimos la semana actual
-        if (!hiddenInput.value) hiddenInput.value = currentIsoWeek();
+    const amount = amountInput.value;
+
+    if (!code) {
+      missingCode = true;
+      return;
+    }
+
+    if (isDirectDiscountOn() && parseFloat(amount || "0") >= 0) {
+      invalidDirectDiscount = true;
+      return;
+    }
+
+    const payload = JSON.stringify({ code, amount });
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'items[]';
+    inp.value = payload;
+    hidden.appendChild(inp);
+  });
+
+  if (missingCode) {
+    e.preventDefault();
+    showToast('All rows must have a Job Code.');
+    return;
+  }
+
+  if (invalidDirectDiscount) {
+    e.preventDefault();
+    showToast('In direct discount mode, all quantities must be negative.');
+    return;
+  }
+});
+</script>
+
+<!-- ===== Flatpickr (week picker en inglés) ===== -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/weekSelect/weekSelect.js"></script>
+<script>
+function isoWeekString(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  const year = date.getUTCFullYear();
+  const ww = String(weekNo).padStart(2, '0');
+  return `${year}-W${ww}`;
+}
+
+function dateFromIsoWeek(iso) {
+  const [y, w] = iso.replace('W', '').split('-');
+  const year = parseInt(y, 10);
+  const week = parseInt(w, 10);
+  const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+  const dow = simple.getUTCDay();
+  const ISOweekStart = new Date(simple);
+
+  if (dow <= 4) {
+    ISOweekStart.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
+  } else {
+    ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
+  }
+
+  return new Date(ISOweekStart);
+}
+
+function currentIsoWeek() {
+  return isoWeekString(new Date());
+}
+
+(function () {
+  const hiddenInput = document.getElementById('week');
+  const displayInput = document.getElementById('week_display');
+
+  let initialIso = hiddenInput.value && hiddenInput.value.length
+    ? hiddenInput.value
+    : currentIsoWeek();
+
+  let initialDate = dateFromIsoWeek(initialIso);
+
+  flatpickr(displayInput, {
+    plugins: [new weekSelect({})],
+    dateFormat: "F j, Y",
+    defaultDate: initialDate,
+    allowInput: false,
+    onChange(selectedDates) {
+      if (selectedDates && selectedDates[0]) {
+        hiddenInput.value = isoWeekString(selectedDates[0]);
       }
-    });
-  })();
-  </script>
-  {% endblock %}
+    },
+    onReady() {
+      if (!hiddenInput.value) hiddenInput.value = currentIsoWeek();
+    }
+  });
+})();
+</script>
+{% endblock %}
