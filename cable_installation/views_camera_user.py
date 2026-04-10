@@ -33,6 +33,31 @@ def _safe_wasabi_key(key: str) -> bool:
     )
 
 
+def _row_allowed_shots(row):
+    """
+    Devuelve los shot_type que el técnico puede tomar para esta fila.
+
+    Regla:
+    - Si no hay fotos rechazadas, puede tomar solo las que faltan.
+    - Si hay fotos rechazadas, puede volver a tomar SOLO esas rechazadas.
+    - Las aprobadas no se pueden volver a tomar.
+    - Las pendientes tampoco se pueden duplicar.
+    """
+    rejected_shots = set(
+        CableEvidence.objects.filter(
+            assignment_requirement=row,
+            review_status=CableEvidence.REVIEW_REJECTED,
+        )
+        .exclude(shot_type="")
+        .values_list("shot_type", flat=True)
+        .distinct()
+    )
+    if rejected_shots:
+        return [shot for shot in _required_shots() if shot in rejected_shots]
+
+    return _pending_shots_for_row(row)
+
+
 def _cp_from_project_id(project_id: str) -> str:
     s = (project_id or "").strip()
     m = re.search(r"(CP[-_ ]?\d+)", s, re.IGNORECASE)
