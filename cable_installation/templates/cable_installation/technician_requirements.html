@@ -174,14 +174,15 @@
                    {% if block.is_done %}disabled{% endif %}>
 
             <div class="mt-2 flex justify-end">
-              <button type="button"
-                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
-                      data-row-id="{{ block.row.id }}"
-                      data-req-id="{{ block.requirement.id }}"
-                      data-shot="start_cable"
-                      {% if block.is_done %}disabled{% endif %}>
-                📷 Take
-              </button>
+    <button type="button"
+        class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+        data-row-id="{{ block.row.id }}"
+        data-req-id="{{ block.requirement.id }}"
+        data-shot="start_cable"
+        data-force-disabled="{% if not block.can_take_start %}1{% else %}0{% endif %}"
+        {% if not block.can_take_start %}disabled{% endif %}>
+  📷 Take
+</button>
             </div>
           </div>
 
@@ -244,14 +245,15 @@
             </div>
 
             <div class="mt-2 flex justify-end">
-              <button type="button"
-                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
-                      data-row-id="{{ block.row.id }}"
-                      data-req-id="{{ block.requirement.id }}"
-                      data-shot="end_cable"
-                      {% if block.is_done %}disabled{% endif %}>
-                📷 Take
-              </button>
+  <button type="button"
+        class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+        data-row-id="{{ block.row.id }}"
+        data-req-id="{{ block.requirement.id }}"
+        data-shot="end_cable"
+        data-force-disabled="{% if not block.can_take_end %}1{% else %}0{% endif %}"
+        {% if not block.can_take_end %}disabled{% endif %}>
+  📷 Take
+</button>
             </div>
           </div>
         </div>
@@ -265,16 +267,17 @@
           </div>
 
           <div class="soft-box">
-            <label class="block text-sm font-semibold text-gray-700 mb-1">Handhole / Camera photo</label>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Handhole photo</label>
             <div class="flex justify-end">
-              <button type="button"
-                      class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
-                      data-row-id="{{ block.row.id }}"
-                      data-req-id="{{ block.requirement.id }}"
-                      data-shot="handhole"
-                      {% if block.is_done %}disabled{% endif %}>
-                📷 Take
-              </button>
+<button type="button"
+        class="take-btn take-shot px-3 py-2 rounded text-sm bg-gray-100 hover:bg-gray-200"
+        data-row-id="{{ block.row.id }}"
+        data-req-id="{{ block.requirement.id }}"
+        data-shot="handhole"
+        data-force-disabled="{% if not block.can_take_handhole %}1{% else %}0{% endif %}"
+        {% if not block.can_take_handhole %}disabled{% endif %}>
+  📷 Take
+</button>
             </div>
           </div>
         </div>
@@ -715,25 +718,24 @@
       if (confirmCb && !done) confirmCb.checked = false;
     }
 
-    const rowWrap = getRowWrap(rowId);
-    if (rowWrap){
-      const btnStart = rowWrap.querySelector('.take-shot[data-shot="start_cable"]');
-      const btnEnd = rowWrap.querySelector('.take-shot[data-shot="end_cable"]');
-      const btnHandhole = rowWrap.querySelector('.take-shot[data-shot="handhole"]');
+const rowWrap = getRowWrap(rowId);
+if (rowWrap){
+  const btnStart = rowWrap.querySelector('.take-shot[data-shot="start_cable"]');
+  const btnEnd = rowWrap.querySelector('.take-shot[data-shot="end_cable"]');
+  const btnHandhole = rowWrap.querySelector('.take-shot[data-shot="handhole"]');
 
-      if (done){
-        if (btnStart) btnStart.disabled = true;
-        if (btnEnd) btnEnd.disabled = true;
-        if (btnHandhole) btnHandhole.disabled = true;
-        return;
-      }
-
-      if (btnStart) btnStart.disabled = (start === null);
-      if (btnEnd) btnEnd.disabled = (end === null);
-      if (btnHandhole) btnHandhole.disabled = false;
-    }
+  if (done){
+    if (btnStart) btnStart.disabled = true;
+    if (btnEnd) btnEnd.disabled = true;
+    if (btnHandhole) btnHandhole.disabled = true;
+    return;
   }
 
+  if (btnStart && btnStart.dataset.forceDisabled === '1') btnStart.disabled = true;
+  if (btnEnd && btnEnd.dataset.forceDisabled === '1') btnEnd.disabled = true;
+  if (btnHandhole && btnHandhole.dataset.forceDisabled === '1') btnHandhole.disabled = true;
+}
+}
   function buildTakeUrl(rowId, reqId, shot){
     const base = document.getElementById('js-urls')?.dataset?.cameraBase || '';
     const start = getStartInput(rowId)?.value || '';

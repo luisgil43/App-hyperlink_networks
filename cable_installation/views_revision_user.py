@@ -15,6 +15,73 @@ from usuarios.decoradores import rol_requerido
 from .models import CableAssignmentRequirement, CableEvidence
 
 
+def _row_rejected_shots(row):
+    return set(
+        CableEvidence.objects.filter(
+            assignment_requirement=row,
+            review_status=CableEvidence.REVIEW_REJECTED,
+        )
+        .exclude(shot_type="")
+        .values_list("shot_type", flat=True)
+        .distinct()
+    )
+
+
+def _row_non_rejected_shots(row):
+    return set(
+        CableEvidence.objects.filter(
+            assignment_requirement=row,
+        )
+        .exclude(shot_type="")
+        .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+        .values_list("shot_type", flat=True)
+        .distinct()
+    )
+
+
+def _assignment_allows_cable_reupload(assignment):
+    if (assignment.estado or "").strip() == "en_proceso":
+        return True
+
+    if (assignment.estado or "").strip() in {
+        "en_revision_supervisor",
+        "rechazado_supervisor",
+    }:
+        if getattr(assignment, "reintento_habilitado", False):
+            return True
+
+        return CableEvidence.objects.filter(
+            assignment_requirement__assignment=assignment,
+            review_status=CableEvidence.REVIEW_REJECTED,
+        ).exists()
+
+    return False
+
+
+def _row_allowed_shots(row):
+    assignment = row.assignment
+    estado = (assignment.estado or "").strip()
+
+    rejected_shots = _row_rejected_shots(row)
+    non_rejected_shots = _row_non_rejected_shots(row)
+
+    allowed = set()
+
+    if estado == "en_proceso":
+        for shot in _required_shots():
+            if shot in rejected_shots:
+                allowed.add(shot)
+            elif shot not in non_rejected_shots:
+                allowed.add(shot)
+        return allowed
+
+    if estado in {"en_revision_supervisor", "rechazado_supervisor"}:
+        if getattr(assignment, "reintento_habilitado", False) or rejected_shots:
+            return set(rejected_shots)
+
+    return allowed
+
+
 def _parse_decimal(value):
     if value in (None, ""):
         return None
@@ -335,8 +402,8 @@ def technician_requirements(request, assignment_id):
 
         uploaded = my_counts.get(req.id, 0)
         pending_shots = _pending_shots_for_row(row)
-        locked = is_done
         rejection_comment = row.supervisor_note or ""
+        allowed_shots = _row_allowed_shots(row)
 
         blocks.append(
             {
@@ -344,11 +411,14 @@ def technician_requirements(request, assignment_id):
                 "row": row,
                 "uploaded": uploaded,
                 "is_done": is_done,
-                "locked": locked,
+                "locked": is_done,
                 "evidences": row_evidences,
                 "pending_shots": pending_shots,
                 "photo_cards": _row_photo_cards(row, row_evidences),
                 "rejection_comment": rejection_comment,
+                "can_take_start": CableEvidence.SHOT_START_CABLE in allowed_shots,
+                "can_take_end": CableEvidence.SHOT_END_CABLE in allowed_shots,
+                "can_take_handhole": CableEvidence.SHOT_HANDHOLE in allowed_shots,
             }
         )
 
@@ -527,6 +597,12 @@ def upload_requirement_evidence_ajax(request, assignment_id):
     if not assignment.sesion.is_cable_installation:
         return JsonResponse({"ok": False, "error": "Invalid assignment."}, status=400)
 
+    if not _assignment_allows_cable_reupload(assignment):
+        return JsonResponse(
+            {"ok": False, "error": "This assignment is not open for uploads."},
+            status=403,
+        )
+
     req_id = request.POST.get("req_id")
     row_id = request.POST.get("row_id")
     shot_type = (request.POST.get("shot_type") or "").strip()
@@ -563,24 +639,15 @@ def upload_requirement_evidence_ajax(request, assignment_id):
             requirement_id=int(req_id),
         )
 
-    if shot_type:
-        already_taken = (
-            CableEvidence.objects.filter(
-                assignment_requirement=row,
-                shot_type=shot_type,
-            )
-            .exclude(review_status=CableEvidence.REVIEW_REJECTED)
-            .exists()
+    allowed_shots = _row_allowed_shots(row)
+    if shot_type and shot_type not in allowed_shots:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": f"{_shot_label(shot_type)} is not available for upload right now.",
+            },
+            status=403,
         )
-
-        if already_taken:
-            return JsonResponse(
-                {
-                    "ok": False,
-                    "error": f"{_shot_label(shot_type)} already uploaded for this requirement.",
-                },
-                status=409,
-            )
 
     taken_at = timezone.now()
     if client_taken_at_raw:
@@ -626,7 +693,7 @@ def upload_requirement_evidence_ajax(request, assignment_id):
                 "review_comment": ev.review_comment,
                 "shot_type": ev.shot_type,
                 "shot_label": _shot_label(ev.shot_type),
-                "can_delete": True,
+                "can_delete": ev.review_status == CableEvidence.REVIEW_REJECTED,
             },
             "row": {
                 "id": row.id,

@@ -226,9 +226,6 @@ def camera_take(request, asig_id: int):
     if not _is_asig_active(a):
         raise Http404()
 
-    if not _can_upload(a):
-        return HttpResponseForbidden("This assignment is not open for uploads.")
-
     row_id = (request.GET.get("row_id") or "").strip()
     shot = (request.GET.get("shot") or "").strip() or CableEvidence.SHOT_START_CABLE
 
@@ -242,27 +239,40 @@ def camera_take(request, asig_id: int):
             assignment=a,
         )
 
-    pending_rows = list(_pending_rows_for_assignment(a))
+    if not row:
+        pending_rows = list(_pending_rows_for_assignment(a))
+        if pending_rows:
+            row = pending_rows[0]
 
-    if not row and pending_rows:
-        row = pending_rows[0]
+    if not row:
+        raise Http404()
 
-    if row:
-        pending_shots = _pending_shots_for_row(row)
-        if shot not in pending_shots:
-            shot = pending_shots[0] if pending_shots else CableEvidence.SHOT_START_CABLE
-    else:
-        pending_shots = _required_shots()
+    allowed_shots = _row_allowed_shots(row)
 
-    selected_row_id = row.id if row else ""
+    if shot not in _required_shots():
+        shot = CableEvidence.SHOT_START_CABLE
+
+    if shot not in allowed_shots:
+        from django.contrib import messages
+        from django.shortcuts import redirect
+
+        messages.error(
+            request,
+            f"{_shot_label(shot)} is not available for upload right now.",
+        )
+        return redirect(
+            "cable_installation:technician_requirements", assignment_id=a.pk
+        )
+
+    current_req = row.requirement
+    selected_row_id = row.id
     row_title = _row_target_title(row, shot)
-    current_req = row.requirement if row else None
 
     ctx = {
         "a": a,
         "row": row,
         "row_id": selected_row_id,
-        "req_id": row.requirement_id if row else "",
+        "req_id": row.requirement_id,
         "req_title": row_title,
         "shot_type": shot,
         "direct_uploads_folder": _build_direct_upload_folder(a),
@@ -271,13 +281,12 @@ def camera_take(request, asig_id: int):
         "can_delete": True,
         "row_options": [
             {
-                "id": r.id,
-                "title": _row_label(r),
+                "id": row.id,
+                "title": _row_label(row),
             }
-            for r in pending_rows
         ],
         "selected_row_id": selected_row_id,
-        "shot_options": [{"value": s, "label": _shot_label(s)} for s in pending_shots],
+        "shot_options": [{"value": s, "label": _shot_label(s)} for s in allowed_shots],
         "start_ft": (
             (request.GET.get("start_ft") or "").strip()
             or (
