@@ -310,74 +310,74 @@
 
           <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 req-photos"
                data-req-photos="{{ block.requirement.id }}">
-            {% for ev in block.evidences %}
-            <div class="photo-card" data-ev-id="{{ ev.id }}">
-              <button type="button"
-                      class="relative w-full text-left thumb-btn"
-                      data-preview-url="{{ ev.image.url }}"
-                      data-preview-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
-                      aria-label="Open photo">
+       {% for ev in block.evidences %}
+<div class="photo-card" data-ev-id="{{ ev.id }}">
+  <button type="button"
+          class="relative w-full text-left thumb-btn"
+          data-preview-url="{{ ev.image.url }}"
+          data-preview-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+          aria-label="Open photo">
 
-                {% if ev.assignment_requirement.assignment_id == a.id %}
-                <span class="absolute top-2 right-2 z-10">
-                  <span
-                    class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
-                    role="button"
-                    tabindex="0"
-                    data-delete-url="{% url 'cable_installation:delete_own_evidence' ev.id %}"
-                    data-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
-                    data-img="{{ ev.image.url }}"
-                    title="Delete photo">✕</span>
-                </span>
-                {% endif %}
+    {% if ev.assignment_requirement.assignment_id == a.id and ev.review_status == 'rejected' %}
+    <span class="absolute top-2 right-2 z-10">
+      <span
+        class="w-7 h-7 rounded-full bg-red-600 text-white text-sm grid place-items-center hover:bg-red-700 btn-open-delete"
+        role="button"
+        tabindex="0"
+        data-delete-url="{% url 'cable_installation:delete_own_evidence' ev.id %}"
+        data-label="PK {{ block.requirement.sequence_no }} · {{ block.requirement.handhole }}"
+        data-img="{{ ev.image.url }}"
+        title="Delete photo">✕</span>
+    </span>
+    {% endif %}
 
-                <img src="{{ ev.image.url }}" class="w-full h-40 object-cover" loading="lazy" alt="photo">
-              </button>
+    <img src="{{ ev.image.url }}" class="w-full h-40 object-cover" loading="lazy" alt="photo">
+  </button>
 
-              <div class="p-3 space-y-2">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-xs font-semibold text-gray-700">
-                    {% if ev.shot_type == 'start_cable' %}
-                      Start cable photo
-                    {% elif ev.shot_type == 'end_cable' %}
-                      End cable photo
-                    {% elif ev.shot_type == 'handhole' %}
-                      Handhole / Camera photo
-                    {% else %}
-                      Photo
-                    {% endif %}
-                  </div>
+  <div class="p-3 space-y-2">
+    <div class="flex items-center justify-between gap-2">
+      <div class="text-xs font-semibold text-gray-700">
+        {% if ev.shot_type == 'start_cable' %}
+          Start cable photo
+        {% elif ev.shot_type == 'end_cable' %}
+          End cable photo
+        {% elif ev.shot_type == 'handhole' %}
+          Handhole / Camera photo
+        {% else %}
+          Photo
+        {% endif %}
+      </div>
 
-                  <span class="status-chip
-                    {% if ev.review_status == 'approved' %}approved{% elif ev.review_status == 'rejected' %}rejected{% else %}pending{% endif %}">
-                    {% if ev.review_status == 'approved' %}
-                      Approved
-                    {% elif ev.review_status == 'rejected' %}
-                      Rejected
-                    {% else %}
-                      Pending
-                    {% endif %}
-                  </span>
-                </div>
+      <span class="status-chip
+        {% if ev.review_status == 'approved' %}approved{% elif ev.review_status == 'rejected' %}rejected{% else %}pending{% endif %}">
+        {% if ev.review_status == 'approved' %}
+          Approved
+        {% elif ev.review_status == 'rejected' %}
+          Rejected
+        {% else %}
+          Pending
+        {% endif %}
+      </span>
+    </div>
 
-                <div class="text-xs text-gray-500">
-                  {{ ev.taken_at|date:"Y-m-d H:i" }}
-                </div>
+    <div class="text-xs text-gray-500">
+      {{ ev.taken_at|date:"Y-m-d H:i" }}
+    </div>
 
-                {% if ev.note %}
-                <div class="text-xs text-gray-600">
-                  <strong>Note:</strong> {{ ev.note }}
-                </div>
-                {% endif %}
+    {% if ev.note %}
+    <div class="text-xs text-gray-600">
+      <strong>Note:</strong> {{ ev.note }}
+    </div>
+    {% endif %}
 
-                {% if ev.review_comment %}
-                <div class="text-xs {% if ev.review_status == 'rejected' %}text-red-700{% else %}text-gray-600{% endif %}">
-                  <strong>Review:</strong> {{ ev.review_comment }}
-                </div>
-                {% endif %}
-              </div>
-            </div>
-            {% endfor %}
+    {% if ev.review_comment %}
+    <div class="text-xs {% if ev.review_status == 'rejected' %}text-red-700{% else %}text-gray-600{% endif %}">
+      <strong>Review:</strong> {{ ev.review_comment }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
           </div>
 
           <div class="text-xs text-gray-400 mt-2 req-empty"

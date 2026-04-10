@@ -656,6 +656,15 @@ def delete_own_evidence(request, evidence_id):
     if row.assignment.tecnico_id != request.user.id:
         return JsonResponse({"ok": False, "error": "No permission."}, status=403)
 
+    if ev.review_status != CableEvidence.REVIEW_REJECTED:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Only rejected photos can be deleted.",
+            },
+            status=403,
+        )
+
     image_name = ev.image.name
     try:
         storage = ev.image.storage
