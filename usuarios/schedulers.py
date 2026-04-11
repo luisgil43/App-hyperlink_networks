@@ -288,26 +288,28 @@ def procesar_cable_photo_report_job(job_id: int):
     except Exception:
         pass
 
-    from cable_installation.views_revision_admin import (
-        CableReportCancelled, _cable_report_evidences_qs,
-        _cable_report_project_key, _xlsx_path_cable_photo_report)
-
-    job = ReporteFotograficoJob.objects.select_related("sesion").get(pk=job_id)
-    if job.estado in ("procesando", "ok"):
-        return
-
-    billing = job.sesion
-
-    job.estado = "procesando"
-    job.iniciado_en = timezone.now()
-    job.total = _cable_report_evidences_qs(billing).count()
-    job.procesadas = 0
-    job.error = ""
-    job.save(update_fields=["estado", "iniciado_en", "total", "procesadas", "error"])
-
+    job = None
     tmp_path = None
 
     try:
+        from cable_installation.views_revision_admin import (
+            CableReportCancelled, _cable_report_evidences_qs,
+            _cable_report_project_key, _xlsx_path_cable_photo_report)
+
+        job = ReporteFotograficoJob.objects.select_related("sesion").get(pk=job_id)
+        if job.estado in ("procesando", "ok"):
+            return
+
+        billing = job.sesion
+
+        job.estado = "procesando"
+        job.iniciado_en = timezone.now()
+        job.total = _cable_report_evidences_qs(billing).count()
+        job.procesadas = 0
+        job.error = ""
+        job.save(
+            update_fields=["estado", "iniciado_en", "total", "procesadas", "error"]
+        )
 
         def progress_cb(done, total_count):
             fresh = ReporteFotograficoJob.objects.get(pk=job.pk)
@@ -363,7 +365,6 @@ def procesar_cable_photo_report_job(job_id: int):
 
             for a in billing.tecnicos_sesion.all():
                 update_fields = ["estado"]
-
                 a.estado = "aprobado_supervisor"
 
                 if hasattr(a, "supervisor_revisado_en"):
@@ -384,17 +385,12 @@ def procesar_cable_photo_report_job(job_id: int):
             update_fields=["estado", "terminado_en", "resultado_key", "procesadas"]
         )
 
-    except CableReportCancelled:
-        job.estado = "error"
-        job.terminado_en = timezone.now()
-        job.error = "Cancelled by user"
-        job.save(update_fields=["estado", "terminado_en", "error"])
-
     except Exception as e:
-        job.estado = "error"
-        job.terminado_en = timezone.now()
-        job.error = str(e)
-        job.save(update_fields=["estado", "terminado_en", "error"])
+        if job:
+            job.estado = "error"
+            job.terminado_en = timezone.now()
+            job.error = str(e)
+            job.save(update_fields=["estado", "terminado_en", "error"])
 
     finally:
         try:
