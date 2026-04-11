@@ -107,7 +107,7 @@
         📷 Take Photo — <span id="title-req">{{ req_title }}</span>
       </h1>
       <p class="text-sm text-gray-600 mt-1">
-        Billing #{{ a.sesion.id }} · {{ project_id }} · {{ cp_text }}
+        Billing #{{ a.sesion.id }} · {{ project_id }}
       </p>
     </div>
 
@@ -165,7 +165,7 @@
         <div class="line" id="ov-coords">—</div>
         <div class="line" id="ov-street">—</div>
         <div class="line" id="ov-city">—</div>
-        <div class="line" id="ov-cp">{{ cp_text }}</div>
+        <div class="line" id="ov-cp">{{ project_id }}</div>
       </div>
 
       <video id="video" class="cam-video" playsinline autoplay muted></video>
@@ -256,7 +256,6 @@
   // ---------------------------
   const ASIG_ID    = {{ a.pk }};
   const PROJECT_ID = "{{ project_id|escapejs }}";
-  const CP_TEXT    = "{{ cp_text|escapejs }}";
   const FOLDER     = "{{ direct_uploads_folder|escapejs }}";
 
   const URL_PRESIGN = "{% url 'operaciones:presign_wasabi' %}";
@@ -737,7 +736,7 @@
 
     const line3 = (lastGeo.streetLine || '—');
     const line4 = (lastGeo.cityLine || '—');
-    const line5 = (CP_TEXT || '');
+   const line5 = (PROJECT_ID || '');
 
     ovDate.textContent = line1;
     ovCoords.textContent = line2;
@@ -1208,7 +1207,7 @@
   // Init
   // ---------------------------
   document.addEventListener('DOMContentLoaded', async ()=>{
-    ovCp.textContent = CP_TEXT || '';
+    ovCp.textContent = PROJECT_ID || '';
     reqSelect.setAttribute('data-prev', reqSelect.value || '');
     updateRequirementUI();
     updateCounters();

@@ -26,17 +26,6 @@ def _is_asig_active(asig) -> bool:
     return getattr(asig, "is_active", True) is True
 
 
-def _cp_from_project_id(project_id: str) -> str:
-    s = (project_id or "").strip()
-    m = re.search(r"(CP[-_ ]?\d+)", s, re.IGNORECASE)
-    if m:
-        val = m.group(1).upper().replace("_", "").replace(" ", "").replace("CP", "")
-        val = val.replace("-", "")
-        return f"CP-{val}"
-    m2 = re.search(r"(\d{3,})$", s)
-    if m2:
-        return f"CP-{m2.group(1)}"
-    return f"CP-{s}" if s else "CP-—"
 
 
 def _safe_wasabi_key(key: str) -> bool:
@@ -158,10 +147,7 @@ def camera_take(request, asig_id: int):
         "direct_uploads_folder": direct_uploads_folder,
         "project_id": a.sesion.proyecto_id,
         "estado": a.sesion.estado,
-        "cp_text": _cp_from_project_id(a.sesion.proyecto_id),
         "can_delete": puede_subir,
-
-        # ✅ NUEVO: dropdown (Extra + pendientes)
         "req_options": [{"id": r.id, "title": r.titulo} for r in pending_reqs],
         "selected_req_id": (req.id if req else ""),
     }
