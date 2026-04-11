@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from operaciones.models import SesionBilling, SesionBillingTecnico
 from usuarios.decoradores import rol_requerido
@@ -373,69 +374,114 @@ def export_measurements_excel(request, billing_id):
         SesionBilling, pk=billing_id, is_cable_installation=True
     )
 
-    rows = (
-        CableAssignmentRequirement.objects.filter(assignment__sesion=billing)
-        .select_related("assignment", "assignment__tecnico", "requirement")
-        .order_by("requirement__order", "requirement__sequence_no", "assignment__id")
+    requirements = CableRequirement.objects.filter(billing=billing).order_by(
+        "order", "sequence_no", "id"
     )
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Cable Measurements"
+    ws.sheet_view.showGridLines = False
 
-    ws.append(
-        [
-            "PK",
-            "Handhole",
-            "Required",
-            "Technician",
-            "Planned reserve (ft)",
-            "Start ft",
-            "Expected end ft (low)",
-            "Expected end ft (high)",
-            "End ft",
-            "Installed ft",
-            "Technician status",
-            "Warning",
-            "Technician note",
-            "Supervisor note",
-            "Measurement warning",
+    headers = [
+        "PK",
+        "Handhole",
+        "Planned reserve (ft)",
+        "Start ft",
+        "Expected end ft (low)",
+        "Expected end ft (high)",
+        "End ft",
+        "Installed ft",
+        "Warning",
+        "Measurement warning",
+    ]
+    ws.append(headers)
+
+    thin = Side(style="thin", color="000000")
+    no_side = Side(style=None)
+
+    def make_border(left=False, right=False, top=False, bottom=False):
+        return Border(
+            left=thin if left else no_side,
+            right=thin if right else no_side,
+            top=thin if top else no_side,
+            bottom=thin if bottom else no_side,
+        )
+
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_font = Font(bold=True, color="000000")
+    normal_font = Font(color="000000")
+    wrap_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    column_widths = {
+        "A": 10,
+        "B": 24,
+        "C": 18,
+        "D": 14,
+        "E": 20,
+        "F": 20,
+        "G": 14,
+        "H": 14,
+        "I": 28,
+        "J": 42,
+    }
+    for col, width in column_widths.items():
+        ws.column_dimensions[col].width = width
+
+    # Header
+    for col_idx, title in enumerate(headers, start=1):
+        cell = ws.cell(1, col_idx, title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.border = make_border(
+            left=(col_idx == 1),
+            right=(col_idx == len(headers)),
+            top=True,
+            bottom=True,
+        )
+
+    # Data
+    for row_idx, req in enumerate(requirements, start=2):
+        values = [
+            req.sequence_no,
+            req.handhole or "",
+            float(req.planned_reserve_ft) if req.planned_reserve_ft is not None else "",
+            float(req.start_ft) if req.start_ft is not None else "",
+            (
+                float(req.expected_end_ft_low)
+                if req.expected_end_ft_low is not None
+                else ""
+            ),
+            (
+                float(req.expected_end_ft_high)
+                if req.expected_end_ft_high is not None
+                else ""
+            ),
+            float(req.end_ft) if req.end_ft is not None else "",
+            float(req.installed_ft) if req.installed_ft is not None else "",
+            req.warning or "",
+            req.measurement_warning_text or "",
         ]
-    )
 
-    for row in rows:
-        req = row.requirement
-        tech_name = (
-            getattr(row.assignment.tecnico, "get_full_name", lambda: "")()
-            or row.assignment.tecnico.username
-        )
-        ws.append(
-            [
-                req.sequence_no,
-                req.handhole,
-                "Yes" if req.required else "No",
-                tech_name,
-                float(req.planned_reserve_ft or 0),
-                float(req.start_ft or 0) if req.start_ft is not None else "",
-                (
-                    float(req.expected_end_ft_low or 0)
-                    if req.expected_end_ft_low is not None
-                    else ""
-                ),
-                (
-                    float(req.expected_end_ft_high or 0)
-                    if req.expected_end_ft_high is not None
-                    else ""
-                ),
-                float(req.end_ft or 0) if req.end_ft is not None else "",
-                float(req.installed_ft or 0),
-                row.get_status_display(),
-                req.warning,
-                row.note,
-                row.supervisor_note,
-                req.measurement_warning_text,
-            ]
-        )
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row_idx, col_idx, value)
+            cell.font = normal_font
+
+            if col_idx in [1, 3, 4, 5, 6, 7, 8]:
+                cell.alignment = center_alignment
+            else:
+                cell.alignment = left_alignment
+
+            cell.border = make_border(
+                left=(col_idx == 1),
+                right=(col_idx == len(headers)),
+                bottom=True,
+            )
+
+        ws.row_dimensions[row_idx].height = 24
 
     bio = BytesIO()
     wb.save(bio)

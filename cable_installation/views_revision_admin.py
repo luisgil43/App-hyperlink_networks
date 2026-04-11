@@ -1,20 +1,28 @@
+import os
+import tempfile
 from copy import copy
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 
+import xlsxwriter
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.files import File
+from django.core.files.storage import default_storage as storage
 from django.db import transaction
 from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.utils.http import http_date
+from django.utils.text import slugify
+from django.views.decorators.http import require_GET, require_POST
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from operaciones.models import SesionBilling
+from operaciones.excel_images import tmp_jpeg_from_filefield
+from operaciones.models import ReporteFotograficoJob, SesionBilling
 from usuarios.decoradores import rol_requerido
 
 from .models import CableAssignmentRequirement, CableEvidence, CableRequirement
@@ -75,6 +83,15 @@ def _status_badge_label(status):
         "aprobado_pm": "Approved by PM",
     }
     return mapping.get(status, status or "—")
+
+
+def storage_file_exists(filefield) -> bool:
+    if not filefield or not getattr(filefield, "name", ""):
+        return False
+    try:
+        return filefield.storage.exists(filefield.name)
+    except Exception:
+        return False
 
 
 def _required_shots():
@@ -861,3 +878,354 @@ def export_client_excel(request, billing_id):
         filename=filename,
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+class CableReportCancelled(Exception):
+    pass
+
+
+def _cable_report_project_key(billing: SesionBilling) -> str:
+    proj_slug = (
+        slugify(billing.proyecto_id or f"billing-{billing.id}")
+        or f"billing-{billing.id}"
+    )
+    sess_tag = f"{proj_slug}-{billing.id}"
+    return f"cable_installation/reports/{sess_tag}/{sess_tag}.xlsx"
+
+
+def _cable_report_evidences_qs(billing):
+    return (
+        CableEvidence.objects.filter(assignment_requirement__assignment__sesion=billing)
+        .select_related(
+            "assignment_requirement",
+            "assignment_requirement__requirement",
+            "assignment_requirement__assignment",
+            "assignment_requirement__assignment__tecnico",
+        )
+        .order_by(
+            "assignment_requirement__requirement__order",
+            "assignment_requirement__requirement__sequence_no",
+            "assignment_requirement__requirement__id",
+            "id",
+        )
+    )
+
+
+def _cable_report_sort_key(ev):
+    shot_order = {
+        CableEvidence.SHOT_START_CABLE: 1,
+        CableEvidence.SHOT_END_CABLE: 2,
+        CableEvidence.SHOT_HANDHOLE: 3,
+    }
+    req = ev.assignment_requirement.requirement
+    return (
+        req.order,
+        req.sequence_no,
+        req.id,
+        shot_order.get(ev.shot_type, 99),
+        ev.id,
+    )
+
+
+def _fmt_ft_compact(value):
+    if value is None:
+        return ""
+    value = Decimal(value)
+    if value == value.to_integral():
+        return str(int(value))
+    return format(value.normalize(), "f")
+
+
+def _cable_report_block_title(ev):
+    req = ev.assignment_requirement.requirement
+    handhole = (req.handhole or "").strip()
+
+    if ev.shot_type == CableEvidence.SHOT_START_CABLE:
+        start_txt = _fmt_ft_compact(req.start_ft)
+        return f"{handhole} | Start {start_txt}" if start_txt else handhole
+
+    if ev.shot_type == CableEvidence.SHOT_END_CABLE:
+        end_txt = _fmt_ft_compact(req.end_ft)
+        return f"{handhole} | End {end_txt}" if end_txt else handhole
+
+    return handhole
+
+
+def _cable_report_note(ev):
+    return (ev.note or "").strip()
+
+
+def _xlsx_path_cable_photo_report(
+    billing: SesionBilling, progress_cb=None, should_cancel=None
+):
+    evs = list(_cable_report_evidences_qs(billing))
+    evs.sort(key=_cable_report_sort_key)
+
+    tmp_xlsx = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_xlsx.close()
+
+    wb = xlsxwriter.Workbook(tmp_xlsx.name, {"in_memory": False})
+    ws = wb.add_worksheet("CABLE REPORT")
+    ws.hide_gridlines(2)
+
+    fmt_title = wb.add_format(
+        {
+            "bold": True,
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "bg_color": "#E8EEF7",
+            "font_size": 12,
+        }
+    )
+    fmt_head = wb.add_format(
+        {
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+            "bold": True,
+            "text_wrap": True,
+            "bg_color": "#F5F7FB",
+            "font_size": 11,
+        }
+    )
+    fmt_box = wb.add_format({"border": 1})
+    fmt_note = wb.add_format(
+        {
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+            "text_wrap": True,
+            "font_size": 9,
+        }
+    )
+
+    BLOCK_COLS = 6
+    SEP_COLS = 1
+    LEFT_COL = 0
+    RIGHT_COL = LEFT_COL + BLOCK_COLS + SEP_COLS
+
+    HEAD_ROWS = 1
+    ROWS_IMG = 12
+    ROW_NOTE = 1
+    ROW_SPACE = 1
+    BLOCK_ROWS = HEAD_ROWS + ROWS_IMG + ROW_NOTE
+
+    COL_W = 13
+    IMG_ROW_H = 18
+
+    def col_px(w):
+        return int(w * 7 + 5)
+
+    def row_px(h):
+        return int(h * 4 / 3)
+
+    max_w_px = BLOCK_COLS * col_px(COL_W)
+    max_h_px = ROWS_IMG * row_px(IMG_ROW_H)
+
+    for c in range(LEFT_COL, LEFT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+    ws.set_column(LEFT_COL + BLOCK_COLS, LEFT_COL + BLOCK_COLS, 2)
+    for c in range(RIGHT_COL, RIGHT_COL + BLOCK_COLS):
+        ws.set_column(c, c, COL_W)
+
+    ws.merge_range(
+        0, 0, 0, RIGHT_COL + BLOCK_COLS - 1, billing.proyecto_id or "", fmt_title
+    )
+    cur_row = 2
+
+    def draw_block(r, c, ev):
+        title_txt = _cable_report_block_title(ev)
+        note_txt = _cable_report_note(ev)
+
+        ws.merge_range(r, c, r + HEAD_ROWS - 1, c + BLOCK_COLS - 1, title_txt, fmt_head)
+        for rr in range(r, r + HEAD_ROWS):
+            ws.set_row(rr, 22)
+
+        img_top = r + HEAD_ROWS
+        for rr in range(img_top, img_top + ROWS_IMG):
+            ws.set_row(rr, IMG_ROW_H)
+        ws.merge_range(
+            img_top, c, img_top + ROWS_IMG - 1, c + BLOCK_COLS - 1, "", fmt_box
+        )
+
+        try:
+            tmp_img_path, w, h = tmp_jpeg_from_filefield(
+                ev.image, max_side_px=1600, quality=75
+            )
+            sx = max_w_px / float(w)
+            sy = max_h_px / float(h)
+            scale = min(sx, sy, 1.0)
+            scaled_w = int(w * scale)
+            scaled_h = int(h * scale)
+            x_off = max((max_w_px - scaled_w) // 2, 0)
+            y_off = max((max_h_px - scaled_h) // 2, 0)
+
+            ws.insert_image(
+                img_top,
+                c,
+                tmp_img_path,
+                {
+                    "x_scale": scale,
+                    "y_scale": scale,
+                    "x_offset": x_off,
+                    "y_offset": y_off,
+                    "object_position": 1,
+                },
+            )
+        except Exception:
+            pass
+
+        note_row = img_top + ROWS_IMG
+        ws.merge_range(note_row, c, note_row, c + BLOCK_COLS - 1, note_txt, fmt_note)
+        ws.set_row(note_row, 28 if note_txt else 20)
+
+    idx = 0
+    total = len(evs)
+
+    for ev in evs:
+        if callable(should_cancel) and should_cancel(idx):
+            wb.close()
+            raise CableReportCancelled()
+
+        if idx % 2 == 0:
+            draw_block(cur_row, LEFT_COL, ev)
+        else:
+            draw_block(cur_row, RIGHT_COL, ev)
+            cur_row += BLOCK_ROWS + ROW_SPACE
+
+        idx += 1
+
+        if callable(progress_cb):
+            progress_cb(idx, total)
+
+    if idx % 2 == 1:
+        cur_row += BLOCK_ROWS + ROW_SPACE
+
+    wb.close()
+    return tmp_xlsx.name
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def generate_cable_photo_report(request, billing_id):
+    from usuarios.schedulers import enqueue_cable_photo_report
+
+    billing = get_object_or_404(
+        SesionBilling,
+        pk=billing_id,
+        is_cable_installation=True,
+    )
+
+    total_photos = _cable_report_evidences_qs(billing).count()
+    if total_photos == 0:
+        messages.warning(
+            request,
+            "This project has no photos yet. Upload at least one photo before generating the report.",
+        )
+        return redirect("cable_installation:review_requirements", billing_id=billing.id)
+
+    last_job = (
+        ReporteFotograficoJob.objects.filter(sesion=billing)
+        .exclude(log__icontains="[partial]")
+        .order_by("-creado_en")
+        .first()
+    )
+
+    if last_job and last_job.estado in ("pendiente", "procesando"):
+        messages.info(
+            request,
+            "The report is already being generated in background.",
+        )
+        return redirect("cable_installation:review_requirements", billing_id=billing.id)
+
+    job = ReporteFotograficoJob.objects.create(
+        sesion=billing,
+        log="[cable-final] queued\n",
+        total=0,
+        procesadas=0,
+    )
+
+    transaction.on_commit(lambda: enqueue_cable_photo_report(job.id))
+
+    messages.info(
+        request,
+        "Generating cable photo report in background. It will be available when ready.",
+    )
+    return redirect("cable_installation:review_requirements", billing_id=billing.id)
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_GET
+def cable_photo_report_status(request, billing_id):
+    billing = get_object_or_404(
+        SesionBilling,
+        pk=billing_id,
+        is_cable_installation=True,
+    )
+
+    job = (
+        ReporteFotograficoJob.objects.filter(sesion=billing)
+        .exclude(log__icontains="[partial]")
+        .order_by("-creado_en")
+        .first()
+    )
+
+    ready = bool(
+        billing.reporte_fotografico and storage_file_exists(billing.reporte_fotografico)
+    )
+
+    if not job:
+        return JsonResponse(
+            {
+                "state": "ok" if ready else "none",
+                "processed": 0,
+                "total": 0,
+                "error": "",
+                "ready": ready,
+            }
+        )
+
+    state_map = {
+        "pendiente": "pending",
+        "procesando": "processing",
+        "ok": "ok",
+        "error": "error",
+    }
+
+    return JsonResponse(
+        {
+            "state": state_map.get(job.estado, job.estado),
+            "processed": job.procesadas or 0,
+            "total": job.total or 0,
+            "error": job.error or "",
+            "ready": ready,
+        }
+    )
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def download_cable_photo_report(request, billing_id):
+    billing = get_object_or_404(
+        SesionBilling,
+        pk=billing_id,
+        is_cable_installation=True,
+    )
+
+    if not billing.reporte_fotografico or not storage_file_exists(
+        billing.reporte_fotografico
+    ):
+        messages.warning(request, "The cable photo report is not ready yet.")
+        return redirect("cable_installation:review_requirements", billing_id=billing.id)
+
+    f = billing.reporte_fotografico.open("rb")
+    filename = f"{billing.proyecto_id}_CABLE_PHOTO_REPORT.xlsx"
+
+    resp = FileResponse(f, as_attachment=True, filename=filename)
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = http_date(0)
+    return resp

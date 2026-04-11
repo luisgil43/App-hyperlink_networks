@@ -2,7 +2,7 @@
 {% block title %}Cable Review{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+<div class="max-w-8xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
   <style>
     .nice-modal{
       position: fixed;
@@ -220,6 +220,21 @@
   Client Excel
 </a>
 
+<form method="post"
+      action="{% url 'cable_installation:generate_cable_photo_report' billing.id %}"
+      class="inline">
+  {% csrf_token %}
+  <button type="submit"
+          class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white">
+    Generate Report
+  </button>
+</form>
+
+<a href="{% url 'cable_installation:download_cable_photo_report' billing.id %}"
+   id="btn-download-cable-report"
+   class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white {% if not billing.reporte_fotografico %}hidden{% endif %}">
+  Download Report
+</a>
       {% if can_review_project %}
       <form method="post"
             action="{% url 'cable_installation:approve_project_review' billing.id %}"
@@ -240,6 +255,18 @@
       {% endif %}
     </div>
   </div>
+
+ <div id="cable-report-status"
+     class="mt-4 mb-6 p-3 rounded-xl border bg-gray-50 text-sm">
+  <strong>Status:</strong>
+  <span id="cable-report-status-text">
+  {% if billing.reporte_fotografico %}
+    Report is ready.
+  {% else %}
+    Waiting for report…
+  {% endif %}
+</span>
+</div>
 
   <div class="mb-5 border rounded-2xl bg-white p-4">
     <div class="flex items-center justify-between gap-3 mb-2">
@@ -270,6 +297,8 @@
       Approve selected photos
     </button>
   </div>
+
+
 
   {% for block in grouped_requirements %}
   <div class="border rounded-2xl mb-6 overflow-hidden">
@@ -902,5 +931,66 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 syncBulkApproveButton();
+</script>
+
+<script>
+(function () {
+  const statusUrl = "{% url 'cable_installation:cable_photo_report_status' billing.id %}";
+  const downloadBtn = document.getElementById("btn-download-cable-report");
+  const textEl = document.getElementById("cable-report-status-text");
+
+  let running = true;
+  let delay = 1500;
+
+  function setText(txt){
+    if (textEl) textEl.innerHTML = txt;
+  }
+
+  async function poll(){
+    if (!running) return;
+
+    try{
+      const r = await fetch(statusUrl, { cache: "no-store" });
+      const data = await r.json();
+      const state = (data.state || "none").toLowerCase();
+
+      if (state === "pending"){
+        setText("Queued to start…");
+      } else if (state === "processing"){
+        setText(`Generating report… ${data.processed || 0}/${data.total || 0} photos`);
+      } else if (state === "ok" && data.ready){
+        setText("Report is ready.");
+        if (downloadBtn) downloadBtn.classList.remove("hidden");
+        running = false;
+        return;
+      } else if (state === "error"){
+        setText(data.error || "Report generation failed.");
+        running = false;
+        return;
+      } else if (state === "none"){
+        if (data.ready){
+          setText("Report is ready.");
+          if (downloadBtn) downloadBtn.classList.remove("hidden");
+        } else {
+          setText("Waiting for report…");
+        }
+        running = false;
+        return;
+      } else {
+        setText("Waiting for report…");
+        running = false;
+        return;
+      }
+    } catch(e){
+      setText("Checking report status…");
+      running = false;
+      return;
+    }
+
+    setTimeout(poll, delay);
+  }
+
+  poll();
+})();
 </script>
 {% endblock %}

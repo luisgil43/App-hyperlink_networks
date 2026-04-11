@@ -119,4 +119,19 @@ urlpatterns = [
         ad.export_client_excel,
         name="export_client_excel",
     ),
+    path(
+        "billing/<int:billing_id>/generate-cable-report/",
+        ad.generate_cable_photo_report,
+        name="generate_cable_photo_report",
+    ),
+    path(
+        "billing/<int:billing_id>/cable-report-status/",
+        ad.cable_photo_report_status,
+        name="cable_photo_report_status",
+    ),
+    path(
+        "billing/<int:billing_id>/download-cable-report/",
+        ad.download_cable_photo_report,
+        name="download_cable_photo_report",
+    ),
 ]
