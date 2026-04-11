@@ -958,6 +958,12 @@ def _cable_report_note(ev):
 def _xlsx_path_cable_photo_report(
     billing: SesionBilling, progress_cb=None, should_cancel=None
 ):
+    import io
+    import tempfile
+
+    import xlsxwriter
+    from PIL import Image
+
     evs = list(_cable_report_evidences_qs(billing))
     evs.sort(key=_cable_report_sort_key)
 
@@ -1050,12 +1056,20 @@ def _xlsx_path_cable_photo_report(
         )
 
         try:
-            tmp_img_path, w, h = tmp_jpeg_from_filefield(
-                ev.image, max_side_px=1600, quality=75
-            )
+            ev.image.open("rb")
+            raw = ev.image.read()
+            ev.image.close()
+
+            image_data = io.BytesIO(raw)
+
+            with Image.open(io.BytesIO(raw)) as im:
+                im = im.convert("RGB")
+                w, h = im.size
+
             sx = max_w_px / float(w)
             sy = max_h_px / float(h)
             scale = min(sx, sy, 1.0)
+
             scaled_w = int(w * scale)
             scaled_h = int(h * scale)
             x_off = max((max_w_px - scaled_w) // 2, 0)
@@ -1064,8 +1078,9 @@ def _xlsx_path_cable_photo_report(
             ws.insert_image(
                 img_top,
                 c,
-                tmp_img_path,
+                "image.jpg",
                 {
+                    "image_data": image_data,
                     "x_scale": scale,
                     "y_scale": scale,
                     "x_offset": x_off,
@@ -1073,8 +1088,8 @@ def _xlsx_path_cable_photo_report(
                     "object_position": 1,
                 },
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[CABLE REPORT] image insert failed for evidence {ev.id}: {e}")
 
         note_row = img_top + ROWS_IMG
         ws.merge_range(note_row, c, note_row, c + BLOCK_COLS - 1, note_txt, fmt_note)
