@@ -202,55 +202,59 @@
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <a href="{% url 'operaciones:listar_billing' %}"
-         class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
-        ← Back
-      </a>
-      <a href="{% url 'cable_installation:export_measurements_excel' billing.id %}"
-         class="px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
-        Export Excel
-      </a>
-   <a href="{% url 'cable_installation:export_client_excel' billing.id %}"
-   class="px-4 py-2 rounded-full bg-sky-600 hover:bg-sky-700 text-white">
-  Client Report
-</a>
+    <div class="w-full sm:w-auto">
+  <div class="grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
+    <a href="{% url 'operaciones:listar_billing' %}"
+       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+      ← Back
+    </a>
 
-<form method="post"
-      action="{% url 'cable_installation:generate_cable_photo_report' billing.id %}"
-      class="inline">
-  {% csrf_token %}
-<button type="submit"
-        class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white">
-  Approve & Generate Report
-</button>
-</form>
+    <a href="{% url 'cable_installation:export_measurements_excel' billing.id %}"
+       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
+      Export Excel
+    </a>
 
-<a href="{% url 'cable_installation:download_cable_photo_report' billing.id %}"
-   id="btn-download-cable-report"
-   class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white {% if not billing.reporte_fotografico %}hidden{% endif %}">
-  📥 Report
-</a>
-      {% if can_review_project %}
-      <form method="post"
-            action="{% url 'cable_installation:approve_project_review' billing.id %}"
-            class="inline">
-        {% csrf_token %}
-        <button type="submit"
-                class="px-4 py-2 rounded-full {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
-                {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
-          Approve Project
-        </button>
-      </form>
+    <a href="{% url 'cable_installation:export_client_excel' billing.id %}"
+       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-sky-600 hover:bg-sky-700 text-white">
+      Client Report
+    </a>
 
-      <button type="button"
-              id="btn-reject-project"
-              class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white">
-        Reject Project
+    <form method="post"
+          action="{% url 'cable_installation:generate_cable_photo_report' billing.id %}"
+          class="w-full sm:w-auto">
+      {% csrf_token %}
+      <button type="submit"
+              class="w-full sm:w-auto px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white">
+        Approve & Generate Report
       </button>
-      {% endif %}
-    </div>
+    </form>
+
+    <a href="{% url 'cable_installation:download_cable_photo_report' billing.id %}"
+       id="btn-download-cable-report"
+       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white {% if not billing.reporte_fotografico %}hidden{% endif %}">
+      📥 Report
+    </a>
+
+    {% if can_review_project %}
+    <form method="post"
+          action="{% url 'cable_installation:approve_project_review' billing.id %}"
+          class="w-full sm:w-auto">
+      {% csrf_token %}
+      <button type="submit"
+              class="w-full sm:w-auto px-4 py-2 rounded-full {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
+              {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
+        Approve Project
+      </button>
+    </form>
+
+    <button type="button"
+            id="btn-reject-project"
+            class="w-full sm:w-auto px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white">
+      Reject Project
+    </button>
+    {% endif %}
   </div>
+</div>
 
  <div id="cable-report-status"
      class="mt-4 mb-6 p-3 rounded-xl border bg-gray-50 text-sm">

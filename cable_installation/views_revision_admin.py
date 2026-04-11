@@ -241,14 +241,30 @@ def review_requirements(request, billing_id):
     )
 
     evidences = list(
-        CableEvidence.objects.filter(assignment_requirement__assignment__sesion=billing)
-        .select_related(
+        CableEvidence.objects.filter(
+            assignment_requirement__assignment__sesion=billing
+        ).select_related(
             "assignment_requirement",
             "assignment_requirement__assignment",
             "assignment_requirement__assignment__tecnico",
             "assignment_requirement__requirement",
         )
-        .order_by("-taken_at", "-id")
+    )
+
+    shot_order = {
+        CableEvidence.SHOT_START_CABLE: 1,
+        CableEvidence.SHOT_END_CABLE: 2,
+        CableEvidence.SHOT_HANDHOLE: 3,
+    }
+
+    evidences.sort(
+        key=lambda ev: (
+            ev.assignment_requirement.requirement.order,
+            ev.assignment_requirement.requirement.sequence_no,
+            ev.assignment_requirement.requirement.id,
+            shot_order.get(ev.shot_type, 99),
+            ev.id,
+        )
     )
 
     progress = _billing_review_progress(billing)
@@ -532,8 +548,6 @@ def reject_evidence(request, evidence_id):
     if not comment:
         return JsonResponse({"ok": False, "error": "Comment is required."}, status=400)
 
-    ev.reject(request.user, comment)
-
     row = ev.assignment_requirement
     assignment = row.assignment
     billing = assignment.sesion
@@ -574,6 +588,8 @@ def reject_evidence(request, evidence_id):
                 update_fields.append("reintento_habilitado")
 
             asg.save(update_fields=update_fields)
+
+        ev.delete()
 
     return JsonResponse({"ok": True})
 

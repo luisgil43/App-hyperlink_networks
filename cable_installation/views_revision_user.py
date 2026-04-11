@@ -366,6 +366,12 @@ def technician_requirements(request, assignment_id):
     )
     own_row_by_requirement = {row.requirement_id: row for row in own_rows}
 
+    shot_order = {
+        CableEvidence.SHOT_START_CABLE: 1,
+        CableEvidence.SHOT_END_CABLE: 2,
+        CableEvidence.SHOT_HANDHOLE: 3,
+    }
+
     all_evidences = list(
         CableEvidence.objects.filter(
             assignment_requirement__requirement__billing=billing
@@ -376,7 +382,12 @@ def technician_requirements(request, assignment_id):
             "assignment_requirement__assignment__tecnico",
             "assignment_requirement__requirement",
         )
-        .order_by("-id")
+        .order_by(
+            "assignment_requirement__requirement__order",
+            "assignment_requirement__requirement__sequence_no",
+            "assignment_requirement__requirement__id",
+            "id",
+        )
     )
 
     evidences_by_requirement = {}
@@ -386,6 +397,14 @@ def technician_requirements(request, assignment_id):
         evidences_by_requirement.setdefault(rid, []).append(ev)
         if ev.assignment_requirement.assignment_id == assignment.id:
             my_counts[rid] = my_counts.get(rid, 0) + 1
+
+    for rid in evidences_by_requirement:
+        evidences_by_requirement[rid].sort(
+            key=lambda ev: (
+                shot_order.get(ev.shot_type, 99),
+                ev.id,
+            )
+        )
 
     requirements = list(
         billing.cable_requirements.all().order_by("order", "sequence_no", "id")
