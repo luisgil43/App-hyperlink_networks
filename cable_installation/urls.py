@@ -114,4 +114,9 @@ urlpatterns = [
         cam.camera_create_evidence_from_key,
         name="camera_create_evidence_from_key",
     ),
+    path(
+        "billing/<int:billing_id>/export-client-excel/",
+        ad.export_client_excel,
+        name="export_client_excel",
+    ),
 ]

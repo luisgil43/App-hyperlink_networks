@@ -215,6 +215,10 @@
          class="px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
         Export Excel
       </a>
+   <a href="{% url 'cable_installation:export_client_excel' billing.id %}"
+   class="px-4 py-2 rounded-full bg-sky-600 hover:bg-sky-700 text-white">
+  Client Excel
+</a>
 
       {% if can_review_project %}
       <form method="post"

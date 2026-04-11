@@ -1,12 +1,18 @@
+from copy import copy
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from operaciones.models import SesionBilling
 from usuarios.decoradores import rol_requerido
@@ -110,6 +116,52 @@ def _requirement_present_non_rejected_shots(requirement):
         .values_list("shot_type", flat=True)
         .distinct()
     )
+
+
+def _fmt_ft(value):
+    if value is None:
+        return ""
+    value = Decimal(value)
+    if value == value.to_integral():
+        return str(int(value))
+    return format(value.normalize(), "f")
+
+
+def _client_report_note_text(requirement):
+    notes = []
+
+    evidences = (
+        CableEvidence.objects.filter(
+            assignment_requirement__requirement=requirement,
+            shot_type=CableEvidence.SHOT_HANDHOLE,
+        )
+        .exclude(note__isnull=True)
+        .exclude(note__exact="")
+        .order_by("id")
+    )
+
+    for ev in evidences:
+        txt = (ev.note or "").strip()
+        if txt and txt not in notes:
+            notes.append(txt)
+
+    return "\n".join(notes)
+
+
+def _client_report_work_date(billing):
+    finished_dt = (
+        billing.tecnicos_sesion.exclude(finalizado_en__isnull=True)
+        .order_by("-finalizado_en")
+        .values_list("finalizado_en", flat=True)
+        .first()
+    )
+
+    dt = finished_dt or billing.creado_en
+
+    if timezone.is_aware(dt):
+        dt = timezone.localtime(dt)
+
+    return dt.date()
 
 
 def _billing_review_progress(billing):
@@ -619,3 +671,193 @@ def reject_project_review(request, billing_id):
 
     messages.warning(request, "Project rejected by supervisor.")
     return redirect("cable_installation:review_requirements", billing_id=billing.id)
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def export_client_excel(request, billing_id):
+    billing = get_object_or_404(
+        SesionBilling, pk=billing_id, is_cable_installation=True
+    )
+
+    requirements = list(
+        billing.cable_requirements.all().order_by("order", "sequence_no", "id")
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Client Report"
+
+    # Quitar líneas de división del resto de la hoja
+    ws.sheet_view.showGridLines = False
+
+    # Anchos
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 40
+    ws.column_dimensions["F"].width = 16
+
+    thin_side = Side(style="thin", color="000000")
+    no_side = Side(style=None)
+
+    def make_border(left=False, right=False, top=False, bottom=False):
+        return Border(
+            left=thin_side if left else no_side,
+            right=thin_side if right else no_side,
+            top=thin_side if top else no_side,
+            bottom=thin_side if bottom else no_side,
+        )
+
+    title_font = Font(bold=True, size=12, color="000000")
+    red_font = Font(bold=True, size=12, color="FF0000")
+    notes_red_font = Font(size=12, color="FF0000")
+    normal_font = Font(size=12, color="000000")
+
+    center = Alignment(horizontal="center", vertical="center")
+    left = Alignment(horizontal="left", vertical="center")
+    left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    # ---------------------------
+    # Header row 1
+    # ---------------------------
+    ws["A1"] = billing.proyecto_id or ""
+    ws["A1"].font = red_font
+    ws["A1"].alignment = left
+    ws["A1"].border = make_border(left=True, right=True, top=True, bottom=True)
+
+    ws.merge_cells("B1:D1")
+    ws["B1"] = "FIBER"
+    ws["B1"].font = title_font
+    ws["B1"].alignment = center
+
+    # Bordes del merge B1:D1
+    ws["B1"].border = make_border(left=True, top=True, bottom=True)
+    ws["C1"].border = make_border(top=True, bottom=True)
+    ws["D1"].border = make_border(right=True, top=True, bottom=True)
+
+    # Completar líneas verticales arriba en E y F
+    ws["E1"] = ""
+    ws["E1"].border = make_border(left=True, right=True, top=True)
+
+    ws["F1"] = ""
+    ws["F1"].border = make_border(left=True, right=True, top=True)
+
+    # ---------------------------
+    # Header row 2
+    # ---------------------------
+    ws["A2"] = "HH Number"
+    ws["B2"] = "Seq. #1(In)"
+    ws["C2"] = "Seq. #1(Out)"
+    ws["D2"] = "Slack"
+    ws["E2"] = "Notes"
+    ws["F2"] = "Week Ending"
+
+    ws["A2"].font = title_font
+    ws["B2"].font = title_font
+    ws["C2"].font = title_font
+    ws["D2"].font = title_font
+    ws["E2"].font = title_font
+    ws["F2"].font = red_font
+
+    ws["A2"].alignment = left
+    ws["B2"].alignment = left
+    ws["C2"].alignment = left
+    ws["D2"].alignment = left
+    ws["E2"].alignment = center
+    ws["F2"].alignment = center
+
+    ws["A2"].border = make_border(left=True, right=True, top=True, bottom=True)
+    ws["B2"].border = make_border(left=True, right=True, top=True, bottom=True)
+    ws["C2"].border = make_border(left=True, right=True, top=True, bottom=True)
+    ws["D2"].border = make_border(left=True, right=True, top=True, bottom=True)
+    ws["E2"].border = make_border(left=True, right=True, top=True, bottom=True)
+    ws["F2"].border = make_border(left=True, right=True, top=True, bottom=True)
+
+    # ---------------------------
+    # Data
+    # ---------------------------
+    week_ending = _client_report_work_date(billing)
+    start_row = 3
+    last_row = start_row + len(requirements) - 1 if requirements else start_row
+
+    for row_idx, req in enumerate(requirements, start=start_row):
+        # Nota: solo la nota de la foto handhole / camera
+        handhole_evidence = (
+            CableEvidence.objects.filter(
+                assignment_requirement__requirement=req,
+                shot_type=CableEvidence.SHOT_HANDHOLE,
+            )
+            .exclude(review_status=CableEvidence.REVIEW_REJECTED)
+            .order_by("-taken_at", "-id")
+            .first()
+        )
+
+        note_text = (handhole_evidence.note or "").strip() if handhole_evidence else ""
+        is_last = row_idx == last_row
+
+        ws.row_dimensions[row_idx].height = 24 if not note_text else 30
+
+        # A = HH Number
+        a = ws.cell(row_idx, 1, req.handhole or "")
+        a.font = normal_font
+        a.alignment = left
+        a.border = make_border(left=True, bottom=True)
+
+        # B = Seq. #1(In)
+        b = ws.cell(row_idx, 2)
+        b.value = float(req.start_ft) if req.start_ft is not None else ""
+        b.font = normal_font
+        b.alignment = center
+        b.border = make_border(bottom=True)
+
+        # C = Seq. #1(Out)
+        c = ws.cell(row_idx, 3)
+        c.value = float(req.end_ft) if req.end_ft is not None else ""
+        c.font = normal_font
+        c.alignment = center
+        c.border = make_border(bottom=True)
+
+        # D = Slack
+        d = ws.cell(row_idx, 4)
+        d.value = (
+            float(req.planned_reserve_ft) if req.planned_reserve_ft is not None else ""
+        )
+        d.font = normal_font
+        d.alignment = center
+        d.border = make_border(bottom=True)
+
+        # E = Notes (rojo)
+        e = ws.cell(row_idx, 5, note_text)
+        e.font = notes_red_font
+        e.alignment = left_wrap
+        e.border = make_border(bottom=True)
+
+        # F = Week Ending
+        f = ws.cell(row_idx, 6)
+        f.value = week_ending.strftime("%m-%d-%y") if week_ending else ""
+        f.font = normal_font
+        f.alignment = center
+        f.border = make_border(right=True, bottom=True)
+
+        # Última fila: cerrar borde inferior
+        if is_last:
+            a.border = make_border(left=True, bottom=True)
+            b.border = make_border(bottom=True)
+            c.border = make_border(bottom=True)
+            d.border = make_border(bottom=True)
+            e.border = make_border(bottom=True)
+            f.border = make_border(right=True, bottom=True)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"{billing.proyecto_id}_CLIENT_REPORT.xlsx"
+    return FileResponse(
+        output,
+        as_attachment=True,
+        filename=filename,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
