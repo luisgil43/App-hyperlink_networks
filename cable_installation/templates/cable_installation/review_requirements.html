@@ -252,11 +252,7 @@
           </button>
         </form>
 
-        <button type="button"
-                id="btn-reject-project"
-                class="w-full px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white">
-          Reject Project
-        </button>
+      
         {% endif %}
       </div>
     </div>
@@ -293,17 +289,27 @@
       </div>
     </div>
 
-    <div class="border rounded-2xl bg-white p-4 flex flex-col gap-3">
-      <div class="text-sm text-gray-700">
-        Review the shared measurement once per handhole, then review the uploaded photos.
-      </div>
-      <button type="button"
-              id="btn-bulk-approve"
-              class="w-full px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled>
-        Approve selected photos
-      </button>
-    </div>
+ 
+<div class="border rounded-2xl bg-white p-4 flex flex-col gap-3">
+  <div class="text-sm text-gray-700">
+    Review the shared measurement once per handhole, then review the uploaded photos.
+  </div>
+
+  <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+    <input type="checkbox"
+           id="check-all-photos"
+           class="w-4 h-4 rounded border-gray-300">
+    <span>Select all pending photos</span>
+  </label>
+
+  <button type="button"
+          id="btn-bulk-approve"
+          class="w-full px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled>
+    Approve selected photos
+  </button>
+</div>
+
   </div>
 </div>
 
@@ -613,11 +619,36 @@ function fmt2(v){
   return Number.isFinite(n) ? n.toFixed(2) : '';
 }
 
+
 function syncBulkApproveButton(){
-  const checked = document.querySelectorAll('.ev-check:checked').length;
   const btn = document.getElementById('btn-bulk-approve');
-  if(btn){
-    btn.disabled = checked === 0;
+  const master = document.getElementById('check-all-photos');
+
+  const enabledChecks = Array.from(document.querySelectorAll('.ev-check:not(:disabled)'));
+  const checkedEnabled = enabledChecks.filter(el => el.checked);
+
+  if (btn){
+    btn.disabled = checkedEnabled.length === 0;
+  }
+
+  if (master){
+    if (enabledChecks.length === 0){
+      master.checked = false;
+      master.indeterminate = false;
+      master.disabled = true;
+    } else if (checkedEnabled.length === 0){
+      master.checked = false;
+      master.indeterminate = false;
+      master.disabled = false;
+    } else if (checkedEnabled.length === enabledChecks.length){
+      master.checked = true;
+      master.indeterminate = false;
+      master.disabled = false;
+    } else {
+      master.checked = false;
+      master.indeterminate = true;
+      master.disabled = false;
+    }
   }
 }
 
@@ -784,11 +815,22 @@ document.addEventListener('input', function(e){
   }
 });
 
+
 document.addEventListener('change', function(e){
   if(e.target.classList.contains('ev-check')){
     syncBulkApproveButton();
+    return;
+  }
+
+  if(e.target.id === 'check-all-photos'){
+    const checked = e.target.checked;
+    document.querySelectorAll('.ev-check:not(:disabled)').forEach(function(el){
+      el.checked = checked;
+    });
+    syncBulkApproveButton();
   }
 });
+
 
 document.addEventListener('click', async function(e){
   const saveSharedBtn = e.target.closest('.btn-save-shared');
