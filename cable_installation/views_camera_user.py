@@ -71,6 +71,11 @@ def _cp_from_project_id(project_id: str) -> str:
     return f"CP-{s}" if s else "CP-—"
 
 
+def _row_label(row: CableAssignmentRequirement) -> str:
+    req = row.requirement
+    return f"PK {req.sequence_no} · {req.handhole}"
+
+
 def _is_asig_active(asig) -> bool:
     return getattr(asig, "is_active", True) is True
 
@@ -115,9 +120,10 @@ def _build_direct_upload_folder(a: SesionBillingTecnico) -> str:
     return f"cable_installation/{project_slug}/billing_{billing.id}/{tech_slug}/requirements/"
 
 
-def _row_label(row: CableAssignmentRequirement) -> str:
-    req = row.requirement
-    return f"PK {req.sequence_no} · {req.handhole}"
+
+
+
+
 
 
 def _row_target_title(row: CableAssignmentRequirement | None, shot: str) -> str:
@@ -265,6 +271,8 @@ def camera_take(request, asig_id: int):
     row_id = (request.GET.get("row_id") or "").strip()
     shot = (request.GET.get("shot") or "").strip() or CableEvidence.SHOT_START_CABLE
 
+    pending_rows = list(_pending_rows_for_assignment(a))
+
     row = None
     if row_id:
         row = get_object_or_404(
@@ -275,13 +283,32 @@ def camera_take(request, asig_id: int):
             assignment=a,
         )
 
-    if not row:
-        pending_rows = list(_pending_rows_for_assignment(a))
-        if pending_rows:
-            row = pending_rows[0]
+    if not row and pending_rows:
+        row = pending_rows[0]
 
     if not row:
-        raise Http404()
+        ctx = {
+            "a": a,
+            "row": None,
+            "row_id": "",
+            "req_id": "",
+            "req_title": "No more requirements available",
+            "shot_type": CableEvidence.SHOT_START_CABLE,
+            "direct_uploads_folder": _build_direct_upload_folder(a),
+            "project_id": getattr(a.sesion, "proyecto_id", "") or "",
+            "cp_text": "Handhole",
+            "can_delete": True,
+            "row_options": [],
+            "selected_row_id": "",
+            "shot_options": [],
+            "start_ft": "",
+            "reserve_ft": "",
+            "end_ft": "",
+            "row_note": "",
+            "expected_end_text": "",
+            "measurement_warning_text": "",
+        }
+        return render(request, "cable_installation/camera_take.html", ctx)
 
     allowed_shots = _row_allowed_shots(row)
 
@@ -289,16 +316,19 @@ def camera_take(request, asig_id: int):
         shot = CableEvidence.SHOT_START_CABLE
 
     if shot not in allowed_shots:
-        from django.contrib import messages
-        from django.shortcuts import redirect
+        if allowed_shots:
+            shot = allowed_shots[0]
+        else:
+            from django.contrib import messages
+            from django.shortcuts import redirect
 
-        messages.error(
-            request,
-            f"{_shot_label(shot)} is not available for upload right now.",
-        )
-        return redirect(
-            "cable_installation:technician_requirements", assignment_id=a.pk
-        )
+            messages.error(
+                request,
+                "This photo type is not available for upload right now.",
+            )
+            return redirect(
+                "cable_installation:technician_requirements", assignment_id=a.pk
+            )
 
     current_req = row.requirement
     selected_row_id = row.id
@@ -313,13 +343,14 @@ def camera_take(request, asig_id: int):
         "shot_type": shot,
         "direct_uploads_folder": _build_direct_upload_folder(a),
         "project_id": getattr(a.sesion, "proyecto_id", "") or "",
-        "cp_text": _cp_from_project_id(getattr(a.sesion, "proyecto_id", "") or ""),
+        "cp_text": (getattr(current_req, "handhole", "") or "").strip() or "Handhole",
         "can_delete": True,
         "row_options": [
             {
-                "id": row.id,
-                "title": _row_label(row),
+                "id": r.id,
+                "title": _row_label(r),
             }
+            for r in pending_rows
         ],
         "selected_row_id": selected_row_id,
         "shot_options": [{"value": s, "label": _shot_label(s)} for s in allowed_shots],
