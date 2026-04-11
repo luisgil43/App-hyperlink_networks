@@ -582,8 +582,7 @@ def mis_assignments(request):
 
         if getattr(a.sesion, "is_cable_installation", False):
             a.can_finish = (
-                a.estado
-                in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+                a.estado in ["en_proceso", "rechazado_supervisor"]
                 and not a.faltantes_global_labels
                 and not a.pendientes_aceptar_names
             )
@@ -858,7 +857,7 @@ def detalle_assignment(request, pk):
             )
 
         can_finish = (
-            a.estado in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
+            a.estado in ["en_proceso", "rechazado_supervisor"]
             and not cable_missing_labels
             and not pendientes_aceptar
         )

@@ -321,19 +321,45 @@ def reject_evidence(request, evidence_id):
     ev.reject(request.user, comment)
 
     row = ev.assignment_requirement
-    row.status = CableAssignmentRequirement.STATUS_REJECTED
-    row.supervisor_note = comment
-    row.last_reviewed_at = timezone.now()
-    row.last_reviewed_by = request.user
-    row.save(
-        update_fields=[
-            "status",
-            "supervisor_note",
-            "last_reviewed_at",
-            "last_reviewed_by",
-            "updated_at",
-        ]
-    )
+    assignment = row.assignment
+    billing = assignment.sesion
+    now = timezone.now()
+
+    with transaction.atomic():
+        row.status = CableAssignmentRequirement.STATUS_REJECTED
+        row.supervisor_note = comment
+        row.last_reviewed_at = now
+        row.last_reviewed_by = request.user
+        row.save(
+            update_fields=[
+                "status",
+                "supervisor_note",
+                "last_reviewed_at",
+                "last_reviewed_by",
+                "updated_at",
+            ]
+        )
+
+        billing.estado = "rechazado_supervisor"
+        billing.save(update_fields=["estado"])
+
+        for asg in billing.tecnicos_sesion.all():
+            update_fields = ["estado"]
+            asg.estado = "rechazado_supervisor"
+
+            if hasattr(asg, "supervisor_revisado_en"):
+                asg.supervisor_revisado_en = now
+                update_fields.append("supervisor_revisado_en")
+
+            if hasattr(asg, "supervisor_comentario"):
+                asg.supervisor_comentario = comment
+                update_fields.append("supervisor_comentario")
+
+            if hasattr(asg, "reintento_habilitado"):
+                asg.reintento_habilitado = True
+                update_fields.append("reintento_habilitado")
+
+            asg.save(update_fields=update_fields)
 
     return JsonResponse({"ok": True})
 

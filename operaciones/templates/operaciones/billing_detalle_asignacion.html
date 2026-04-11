@@ -30,7 +30,7 @@
           </a>
         {% endif %}
 
-        {% if a.estado == "en_proceso" or a.estado == "en_revision_supervisor" or a.estado == "rechazado_supervisor" %}
+        {% if a.estado == "en_proceso" or a.estado == "rechazado_supervisor" %}
           <button type="button"
                   class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
                   data-action="{% url 'operaciones:finish_assignment' a.pk %}"

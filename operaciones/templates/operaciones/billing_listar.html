@@ -437,51 +437,58 @@ else %}asignado assigned{% endif %}"
 </td>
           <!-- Actions -->
           <td class="p-2 border text-center">
-            {% if s.estado == "aprobado_supervisor" or s.estado == "aprobado_pm" or s.estado == "aprobado_finanzas" %}
-              <!-- Solo botón para renovar a Assigned -->
-              <form method="post" action="{% url 'operaciones:billing_reopen_asignado' s.id %}" class="inline">
-                {% csrf_token %}
-                <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded"
-                        title="Renew status to Assigned so technicians can retake photos and re-upload.">
-                  Renew to Assigned
-                </button>
-              </form>
-            {% else %}
-              <div class="flex items-center justify-center gap-3">
-                <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
-{% if s.is_cable_installation %}
-  <a class="text-purple-700 hover:underline" href="{% url 'cable_installation:configure_requirements' s.id %}">Requirements</a>
-{% else %}
-  <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
-{% endif %}
-                <button type="button"
-                class="btn-manage-tech text-emerald-700 hover:underline"
-                data-id="{{ s.id }}"
-                title="Manage technicians for this billing">
-                Add technician
-                </button>
-                <button type="button"
-                        class="btn-open-delete text-red-600 hover:underline"
-                        data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
-                        data-label="#{{ s.id }} – {{ s.proyecto_id }}">
-                  Delete
-                </button>
-                <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
-              </div>
-            {% endif %}
+  {% if s.estado == "aprobado_supervisor" or s.estado == "aprobado_pm" or s.estado == "aprobado_finanzas" %}
+    <form method="post" action="{% url 'operaciones:billing_reopen_asignado' s.id %}" class="inline">
+      {% csrf_token %}
+      <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded"
+              title="Renew status to Assigned so technicians can retake photos and re-upload.">
+        Renew to Assigned
+      </button>
+    </form>
+  {% else %}
+    <div class="flex items-center justify-center gap-3">
+      <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
 
-            {% if s.finance_status == "rejected" %}
-              <form method="post"
-                    action="{% url 'operaciones:billing_mark_in_review' s.id %}"
-                    class="inline form-inreview">
-                {% csrf_token %}
-                <button class="text-amber-700 hover:underline"
-                        title="Mark as 'In review' while you correct this billing">
-                  Mark as in review
-                </button>
-              </form>
-            {% endif %}
-          </td>
+      {% if s.is_cable_installation %}
+        <a class="text-purple-700 hover:underline" href="{% url 'cable_installation:configure_requirements' s.id %}">Requirements</a>
+      {% else %}
+        <a class="text-purple-700 hover:underline" href="{% url 'operaciones:configurar_requisitos' s.id %}">Requirements</a>
+      {% endif %}
+
+      <button type="button"
+              class="btn-manage-tech text-emerald-700 hover:underline"
+              data-id="{{ s.id }}"
+              title="Manage technicians for this billing">
+        Add technician
+      </button>
+
+      <button type="button"
+              class="btn-open-delete text-red-600 hover:underline"
+              data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
+              data-label="#{{ s.id }} – {{ s.proyecto_id }}">
+        Delete
+      </button>
+
+     {% if s.is_cable_installation %}
+  <a class="text-gray-700 hover:underline" href="{% url 'cable_installation:review_requirements' s.id %}">Review</a>
+{% else %}
+  <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
+{% endif %}
+    </div>
+  {% endif %}
+
+  {% if s.finance_status == "rejected" %}
+    <form method="post"
+          action="{% url 'operaciones:billing_mark_in_review' s.id %}"
+          class="inline form-inreview">
+      {% csrf_token %}
+      <button class="text-amber-700 hover:underline"
+              title="Mark as 'In review' while you correct this billing">
+        Mark as in review
+      </button>
+    </form>
+  {% endif %}
+</td>
         </tr>
 
         <!-- Detail row -->
@@ -621,7 +628,11 @@ else %}asignado assigned{% endif %}"
                       </td>
 
                       <td class="p-2 text-center">
-                        <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
+ {% if s.is_cable_installation %}
+  <a class="text-gray-700 hover:underline" href="{% url 'cable_installation:review_requirements' s.id %}">Review</a>
+{% else %}
+  <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
+{% endif %}
                       </td>
                     </tr>
                     {% empty %}
