@@ -176,15 +176,20 @@
     }
   </style>
 
-  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
-    <div>
+<div class="mb-6">
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div class="bg-gray-50 border rounded-2xl p-4">
       <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
         🧵 Cable Review — Billing #{{ billing.id }}
       </h1>
-      <p class="text-sm text-gray-600 mt-1">
-        Project ID: {{ billing.proyecto_id }} · Client: {{ billing.cliente }} · City: {{ billing.ciudad }}
-      </p>
-      <div class="mt-2 text-sm">
+
+      <div class="mt-3 space-y-1 text-sm text-gray-700">
+        <div><span class="font-semibold">Project ID:</span> {{ billing.proyecto_id }}</div>
+        <div><span class="font-semibold">Client:</span> {{ billing.cliente }}</div>
+        <div><span class="font-semibold">City:</span> {{ billing.ciudad }}</div>
+      </div>
+
+      <div class="mt-4 text-sm">
         <span class="font-semibold text-gray-700">Project status:</span>
         {% if billing.estado == "aprobado_supervisor" %}
           <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by supervisor</span>
@@ -202,103 +207,105 @@
       </div>
     </div>
 
-    <div class="w-full sm:w-auto">
-  <div class="grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
-    <a href="{% url 'operaciones:listar_billing' %}"
-       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
-      ← Back
-    </a>
+    <div class="bg-gray-50 border rounded-2xl p-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+        <a href="{% url 'operaciones:listar_billing' %}"
+           class="text-center px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700">
+          ← Back
+        </a>
 
-    <a href="{% url 'cable_installation:export_measurements_excel' billing.id %}"
-       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
-      Export Excel
-    </a>
+        <a href="{% url 'cable_installation:export_measurements_excel' billing.id %}"
+           class="text-center px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white">
+          Export Excel
+        </a>
 
-    <a href="{% url 'cable_installation:export_client_excel' billing.id %}"
-       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-sky-600 hover:bg-sky-700 text-white">
-      Client Report
-    </a>
+        <a href="{% url 'cable_installation:export_client_excel' billing.id %}"
+           class="text-center px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white">
+          Client Report
+        </a>
 
-    <form method="post"
-          action="{% url 'cable_installation:generate_cable_photo_report' billing.id %}"
-          class="w-full sm:w-auto">
-      {% csrf_token %}
-      <button type="submit"
-              class="w-full sm:w-auto px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white">
-        Approve & Generate Report
-      </button>
-    </form>
+        <form method="post"
+              action="{% url 'cable_installation:generate_cable_photo_report' billing.id %}"
+              class="contents">
+          {% csrf_token %}
+          <button type="submit"
+                  class="w-full px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white">
+            Approve & Generate Report
+          </button>
+        </form>
 
-    <a href="{% url 'cable_installation:download_cable_photo_report' billing.id %}"
-       id="btn-download-cable-report"
-       class="w-full sm:w-auto text-center px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white {% if not billing.reporte_fotografico %}hidden{% endif %}">
-      📥 Report
-    </a>
+        <a href="{% url 'cable_installation:download_cable_photo_report' billing.id %}"
+           id="btn-download-cable-report"
+           class="text-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white {% if not billing.reporte_fotografico %}hidden{% endif %}">
+          📥 Report
+        </a>
 
-    {% if can_review_project %}
-    <form method="post"
-          action="{% url 'cable_installation:approve_project_review' billing.id %}"
-          class="w-full sm:w-auto">
-      {% csrf_token %}
-      <button type="submit"
-              class="w-full sm:w-auto px-4 py-2 rounded-full {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
-              {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
-        Approve Project
-      </button>
-    </form>
+        {% if can_review_project %}
+        <form method="post"
+              action="{% url 'cable_installation:approve_project_review' billing.id %}"
+              class="contents">
+          {% csrf_token %}
+          <button type="submit"
+                  class="w-full px-4 py-2 rounded-xl {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
+                  {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
+            Approve Project
+          </button>
+        </form>
 
-    <button type="button"
-            id="btn-reject-project"
-            class="w-full sm:w-auto px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white">
-      Reject Project
-    </button>
-    {% endif %}
+        <button type="button"
+                id="btn-reject-project"
+                class="w-full px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white">
+          Reject Project
+        </button>
+        {% endif %}
+      </div>
+    </div>
   </div>
-</div>
 
- <div id="cable-report-status"
-     class="mt-4 mb-6 p-3 rounded-xl border bg-gray-50 text-sm">
-  <strong>Status:</strong>
-  <span id="cable-report-status-text">
-  {% if billing.reporte_fotografico %}
-    Report is ready.
-  {% else %}
-    Waiting for report…
-  {% endif %}
-</span>
-</div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+    <div id="cable-report-status"
+         class="border rounded-2xl bg-white p-4">
+      <div class="text-sm font-semibold text-gray-800 mb-1">Report status</div>
+      <div class="text-sm text-gray-600" id="cable-report-status-text">
+        {% if billing.reporte_fotografico %}
+          Report is ready.
+        {% else %}
+          Waiting for report…
+        {% endif %}
+      </div>
+    </div>
 
-  <div class="mb-5 border rounded-2xl bg-white p-4">
-    <div class="flex items-center justify-between gap-3 mb-2">
-      <div>
-        <div class="text-sm font-semibold text-gray-800">Project progress</div>
-        <div class="text-xs text-gray-500">
-          {{ progress_completed }} of {{ progress_total }} required handholes completed
+    <div class="border rounded-2xl bg-white p-4">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div>
+          <div class="text-sm font-semibold text-gray-800">Project progress</div>
+          <div class="text-xs text-gray-500">
+            {{ progress_completed }} of {{ progress_total }} required handholes completed
+          </div>
+        </div>
+        <div class="text-sm font-bold text-indigo-700">
+          {{ progress_percent }}%
         </div>
       </div>
-      <div class="text-sm font-bold text-indigo-700">
-        {{ progress_percent }}%
+
+      <div class="progress-shell">
+        <div class="progress-bar" style="width: {{ progress_percent }}%;"></div>
       </div>
     </div>
 
-    <div class="progress-shell">
-      <div class="progress-bar" style="width: {{ progress_percent }}%;"></div>
+    <div class="border rounded-2xl bg-white p-4 flex flex-col gap-3">
+      <div class="text-sm text-gray-700">
+        Review the shared measurement once per handhole, then review the uploaded photos.
+      </div>
+      <button type="button"
+              id="btn-bulk-approve"
+              class="w-full px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled>
+        Approve selected photos
+      </button>
     </div>
   </div>
-
-  <div class="mb-4 flex items-center justify-between gap-3 bg-gray-50 border rounded-2xl px-4 py-3">
-    <div class="text-sm text-gray-700">
-      Review the shared measurement once per handhole, then review the uploaded photos.
-    </div>
-    <button type="button"
-            id="btn-bulk-approve"
-            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled>
-      Approve selected photos
-    </button>
-  </div>
-
-
+</div>
 
   {% for block in grouped_requirements %}
   <div class="border rounded-2xl mb-6 overflow-hidden">
@@ -394,7 +401,7 @@
       <div class="font-semibold text-gray-800 mb-3">Requirement photos</div>
 
       {% if block.evidences %}
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
         {% for ev in block.evidences %}
         <div class="border rounded-2xl p-3 bg-white">
           <div class="flex items-start justify-between gap-2 mb-2">
@@ -418,7 +425,7 @@
 
           <a href="{{ ev.image.url }}" target="_blank" rel="noopener" class="block">
             <img src="{{ ev.image.url }}"
-                 class="w-full h-56 object-cover rounded-xl border"
+                 class="w-full aspect-[4/3] object-cover rounded-xl border bg-gray-100"
                  alt="photo">
           </a>
 
