@@ -40,13 +40,12 @@ def _row_non_rejected_shots(row):
 
 
 def _assignment_allows_cable_reupload(assignment):
-    if (assignment.estado or "").strip() == "en_proceso":
+    estado = (assignment.estado or "").strip()
+
+    if estado == "en_proceso":
         return True
 
-    if (assignment.estado or "").strip() in {
-        "en_revision_supervisor",
-        "rechazado_supervisor",
-    }:
+    if estado == "rechazado_supervisor":
         if getattr(assignment, "reintento_habilitado", False):
             return True
 
@@ -62,7 +61,7 @@ def _row_allowed_shots(row):
     assignment = row.assignment
     estado = (assignment.estado or "").strip()
 
-    if estado not in {"en_proceso", "en_revision_supervisor", "rechazado_supervisor"}:
+    if estado not in {"en_proceso", "rechazado_supervisor"}:
         return set()
 
     rejected_shots = _row_rejected_shots(row)
@@ -294,6 +293,11 @@ def _pendientes_aceptar_names(billing):
 
 
 def _assignment_can_finish(assignment):
+    estado = (assignment.estado or "").strip()
+
+    if estado not in {"en_proceso", "rechazado_supervisor"}:
+        return False
+
     billing = assignment.sesion
     faltantes = _faltantes_global_labels(billing)
     pendientes = _pendientes_aceptar_names(billing)

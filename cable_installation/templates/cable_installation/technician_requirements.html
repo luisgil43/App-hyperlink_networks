@@ -79,12 +79,12 @@
 
     <div class="flex flex-wrap gap-2 w-full sm:w-auto">
       <button type="button"
-              id="btn-finalizar"
-              class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
-              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-              {% if not can_finish %}disabled title="All required handholes must have measurements and required photos, and all assignees must accept (Start)."{% endif %}>
-        Finish
-      </button>
+        id="btn-finalizar"
+        class="{% if can_finish and a.estado != 'en_revision_supervisor' %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+        data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+        {% if not can_finish or a.estado == 'en_revision_supervisor' %}disabled title="This assignment must be in progress or rejected by supervisor before finishing again."{% endif %}>
+  Finish
+</button>
     </div>
   </div>
 
@@ -1098,17 +1098,23 @@ document.addEventListener('click', async function(e){
   }
 
   function setFinishEnabled(enabled){
-    const btn = document.getElementById('btn-finalizar');
-    if (!btn) return;
-    btn.disabled = !enabled;
-    if (enabled){
-      btn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open';
-      btn.removeAttribute('title');
-    } else {
-      btn.className = 'bg-indigo-300 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left cursor-not-allowed btn-finish-open';
-      btn.title = 'All required handholes must have measurements and required photos, and all assignees must accept (Start).';
-    }
+  const btn = document.getElementById('btn-finalizar');
+  if (!btn) return;
+
+  const currentStatus = "{{ a.estado }}";
+  const allowedByStatus = currentStatus === "en_proceso" || currentStatus === "rechazado_supervisor";
+  const finalEnabled = !!enabled && allowedByStatus;
+
+  btn.disabled = !finalEnabled;
+
+  if (finalEnabled){
+    btn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open';
+    btn.removeAttribute('title');
+  } else {
+    btn.className = 'bg-indigo-300 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left cursor-not-allowed btn-finish-open';
+    btn.title = 'This assignment must be in progress or rejected by supervisor before finishing again.';
   }
+}
 
   async function tick(){
     if (!STATUS_URL) return;
