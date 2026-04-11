@@ -3,6 +3,179 @@
 
 {% block dashboard_content %}
 <div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+  <style>
+    .nice-modal{
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+    }
+    .nice-modal.show{
+      display: block;
+    }
+    .nice-modal-backdrop{
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, .55);
+      backdrop-filter: blur(2px);
+    }
+    .nice-modal-card{
+      position: relative;
+      width: calc(100% - 2rem);
+      max-width: 34rem;
+      margin: 10vh auto 0;
+      background: #fff;
+      border-radius: 1.25rem;
+      box-shadow: 0 25px 60px rgba(0,0,0,.25);
+      border: 1px solid rgb(229 231 235);
+      overflow: hidden;
+    }
+    .nice-modal-head{
+      display: flex;
+      align-items: flex-start;
+      gap: .75rem;
+      padding: 1.25rem 1.25rem 0;
+    }
+    .nice-modal-icon{
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .nice-modal-icon.danger{
+      background: rgb(254 226 226);
+      color: rgb(185 28 28);
+    }
+    .nice-modal-icon.info{
+      background: rgb(219 234 254);
+      color: rgb(29 78 216);
+    }
+    .nice-modal-body{
+      padding: .75rem 1.25rem 1.25rem;
+    }
+    .nice-modal-title{
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: rgb(31 41 55);
+      line-height: 1.2;
+    }
+    .nice-modal-text{
+      margin-top: .25rem;
+      font-size: .875rem;
+      color: rgb(107 114 128);
+      white-space: pre-line;
+    }
+    .nice-modal-actions{
+      display: flex;
+      justify-content: flex-end;
+      gap: .5rem;
+      padding: 0 1.25rem 1.25rem;
+    }
+    .btn-soft{
+      padding: .65rem 1rem;
+      border-radius: .9rem;
+      background: rgb(243 244 246);
+      color: rgb(31 41 55);
+      font-weight: 600;
+    }
+    .btn-soft:hover{
+      background: rgb(229 231 235);
+    }
+    .btn-danger{
+      padding: .65rem 1rem;
+      border-radius: .9rem;
+      background: rgb(220 38 38);
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn-danger:hover{
+      background: rgb(185 28 28);
+    }
+    .btn-primary{
+      padding: .65rem 1rem;
+      border-radius: .9rem;
+      background: rgb(37 99 235);
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn-primary:hover{
+      background: rgb(29 78 216);
+    }
+    .modal-textarea{
+      width: 100%;
+      border: 1px solid rgb(209 213 219);
+      border-radius: 1rem;
+      padding: .85rem 1rem;
+      min-height: 7rem;
+      resize: vertical;
+      outline: none;
+    }
+    .modal-textarea:focus{
+      border-color: rgb(59 130 246);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+    }
+    .modal-error{
+      margin-top: .5rem;
+      font-size: .8rem;
+      color: rgb(185 28 28);
+      display: none;
+    }
+    .modal-error.show{
+      display: block;
+    }
+    .status-chip{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:.2rem .55rem;
+      border-radius:9999px;
+      font-size:.75rem;
+      font-weight:700;
+      line-height:1;
+    }
+    .status-chip.pending{background:#FEF3C7;color:#92400E;}
+    .status-chip.approved{background:#DCFCE7;color:#166534;}
+    .status-chip.rejected{background:#FEE2E2;color:#991B1B;}
+    .req-chip-ok{
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      padding:.25rem .55rem;
+      border-radius:9999px;
+      background:#DCFCE7;
+      color:#166534;
+      font-size:.75rem;
+      font-weight:700;
+    }
+    .req-chip-pending{
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      padding:.25rem .55rem;
+      border-radius:9999px;
+      background:#FEE2E2;
+      color:#991B1B;
+      font-size:.75rem;
+      font-weight:700;
+    }
+    .progress-shell{
+      width:100%;
+      height:10px;
+      background:#E5E7EB;
+      border-radius:9999px;
+      overflow:hidden;
+    }
+    .progress-bar{
+      height:100%;
+      border-radius:9999px;
+      background:linear-gradient(90deg, #2563EB 0%, #4F46E5 100%);
+      transition:width .25s ease;
+    }
+  </style>
+
   <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -49,7 +222,8 @@
             class="inline">
         {% csrf_token %}
         <button type="submit"
-                class="px-4 py-2 rounded-full bg-green-600 hover:bg-green-700 text-white">
+                class="px-4 py-2 rounded-full {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
+                {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
           Approve Project
         </button>
       </form>
@@ -63,9 +237,27 @@
     </div>
   </div>
 
+  <div class="mb-5 border rounded-2xl bg-white p-4">
+    <div class="flex items-center justify-between gap-3 mb-2">
+      <div>
+        <div class="text-sm font-semibold text-gray-800">Project progress</div>
+        <div class="text-xs text-gray-500">
+          {{ progress_completed }} of {{ progress_total }} required handholes completed
+        </div>
+      </div>
+      <div class="text-sm font-bold text-indigo-700">
+        {{ progress_percent }}%
+      </div>
+    </div>
+
+    <div class="progress-shell">
+      <div class="progress-bar" style="width: {{ progress_percent }}%;"></div>
+    </div>
+  </div>
+
   <div class="mb-4 flex items-center justify-between gap-3 bg-gray-50 border rounded-2xl px-4 py-3">
     <div class="text-sm text-gray-700">
-      Review the shared measurement once per handhole, then review the technician statuses and photos.
+      Review the shared measurement once per handhole, then review the uploaded photos.
     </div>
     <button type="button"
             id="btn-bulk-approve"
@@ -83,10 +275,33 @@
         <div><b>Handhole:</b> {{ block.requirement.handhole }}</div>
         <div><b>Planned reserve:</b> {{ block.requirement.planned_reserve_ft }} ft</div>
         <div><b>Required:</b> {% if block.requirement.required %}Yes{% else %}No{% endif %}</div>
+
+        {% if block.is_complete %}
+          <span class="req-chip-ok">✓ Completed</span>
+        {% else %}
+          <span class="req-chip-pending">• Pending</span>
+        {% endif %}
+
         {% if block.requirement.warning %}
         <div class="text-amber-700"><b>Warning:</b> {{ block.requirement.warning }}</div>
         {% endif %}
       </div>
+
+      {% if not block.is_complete %}
+      <div class="mt-2 text-xs text-red-700 space-y-1">
+        {% if block.missing_measurement_fields %}
+          <div>
+            Missing measurement:
+            {{ block.missing_measurement_fields|join:", " }}.
+          </div>
+        {% endif %}
+        {% if block.missing_shots %}
+          <div>
+            Missing photos: {{ block.missing_shots|join:", " }}.
+          </div>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
 
     <div class="p-4 border-b bg-white">
@@ -142,57 +357,6 @@
       </div>
     </div>
 
-    <div class="overflow-x-auto border-b">
-      <table class="w-full min-w-[900px] text-sm">
-        <thead class="bg-white border-b">
-          <tr>
-            <th class="p-2 text-left">Technician</th>
-            <th class="p-2 text-left">Status</th>
-            <th class="p-2 text-left">Note</th>
-            <th class="p-2 text-left">Supervisor note</th>
-            <th class="p-2 text-left">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in block.rows %}
-          <tr class="border-b align-top">
-            <td class="p-2">
-              {{ row.assignment.tecnico.get_full_name|default:row.assignment.tecnico.username }}
-            </td>
-            <td class="p-2">
-              <select class="rv-status border rounded px-2 py-1 w-full" data-row-id="{{ row.id }}">
-                {% for value, label in row.STATUS_CHOICES %}
-                <option value="{{ value }}" {% if row.status == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td class="p-2">
-              <textarea class="rv-note border rounded px-2 py-1 w-full"
-                        rows="2"
-                        data-row-id="{{ row.id }}">{{ row.note }}</textarea>
-            </td>
-            <td class="p-2">
-              <textarea class="rv-supervisor-note border rounded px-2 py-1 w-full"
-                        rows="2"
-                        data-row-id="{{ row.id }}">{{ row.supervisor_note }}</textarea>
-            </td>
-            <td class="p-2">
-              <button type="button"
-                      class="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 btn-save-row"
-                      data-row-id="{{ row.id }}">
-                Save technician row
-              </button>
-            </td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="5" class="p-3 text-center text-gray-500">No technician rows.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
     <div class="p-4 bg-gray-50">
       <div class="font-semibold text-gray-800 mb-3">Requirement photos</div>
 
@@ -200,7 +364,16 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {% for ev in block.evidences %}
         <div class="border rounded-2xl p-3 bg-white">
-          <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-800">
+                {{ ev.shot_label }}
+              </div>
+              <div class="text-xs text-gray-500">
+                Uploaded by: {{ ev.uploader_name }}
+              </div>
+            </div>
+
             <label class="inline-flex items-center gap-2 text-xs text-gray-600">
               <input type="checkbox"
                      class="ev-check w-4 h-4"
@@ -208,10 +381,6 @@
                      {% if ev.review_status == 'approved' %}disabled{% endif %}>
               <span>Select</span>
             </label>
-
-            <div class="text-xs text-gray-500">
-              {{ ev.uploader_name }}
-            </div>
           </div>
 
           <a href="{{ ev.image.url }}" target="_blank" rel="noopener" class="block">
@@ -220,37 +389,39 @@
                  alt="photo">
           </a>
 
-          <div class="mt-2 text-xs text-gray-600">
-            Taken: {{ ev.taken_at|date:"Y-m-d H:i" }}
-          </div>
+          <div class="mt-3 flex items-center justify-between gap-2">
+            <div class="text-xs text-gray-600">
+              Taken: {{ ev.taken_at|date:"Y-m-d H:i" }}
+            </div>
 
-          <div class="mt-1 text-xs">
-            Status:
-            {% if ev.review_status == 'approved' %}
-              <span class="text-green-700 font-semibold">Approved</span>
-            {% elif ev.review_status == 'rejected' %}
-              <span class="text-red-700 font-semibold">Rejected</span>
-            {% else %}
-              <span class="text-amber-700 font-semibold">Pending</span>
-            {% endif %}
+            <span class="status-chip {% if ev.review_status == 'approved' %}approved{% elif ev.review_status == 'rejected' %}rejected{% else %}pending{% endif %}">
+              {% if ev.review_status == 'approved' %}
+                Approved
+              {% elif ev.review_status == 'rejected' %}
+                Rejected
+              {% else %}
+                Pending
+              {% endif %}
+            </span>
           </div>
 
           {% if ev.note %}
-          <div class="mt-1 text-xs text-gray-600">
-            Technician note: {{ ev.note }}
+          <div class="mt-2 text-xs text-gray-600">
+            <strong>Technician note:</strong> {{ ev.note }}
           </div>
           {% endif %}
 
           {% if ev.review_comment %}
-          <div class="mt-1 text-xs text-red-700">
-            Review comment: {{ ev.review_comment }}
+          <div class="mt-2 text-xs text-red-700">
+            <strong>Review comment:</strong> {{ ev.review_comment }}
           </div>
           {% endif %}
 
           <div class="mt-3 flex gap-2">
             <button type="button"
-                    class="btn-approve-ev px-3 py-1 rounded bg-green-600 text-white text-xs"
-                    data-id="{{ ev.id }}">
+                    class="btn-approve-ev px-3 py-1 rounded bg-green-600 text-white text-xs {% if ev.review_status == 'approved' %}opacity-50 cursor-not-allowed{% endif %}"
+                    data-id="{{ ev.id }}"
+                    {% if ev.review_status == 'approved' %}disabled{% endif %}>
               Approve
             </button>
             <button type="button"
@@ -278,6 +449,111 @@
   <input type="hidden" name="comment" id="reject-project-comment">
 </form>
 
+<div id="modal-reject-project" class="nice-modal" aria-hidden="true">
+  <div class="nice-modal-backdrop" data-close-project-modal></div>
+  <div class="nice-modal-card">
+    <div class="nice-modal-head">
+      <div class="nice-modal-icon danger">
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h3 class="nice-modal-title">Reject project</h3>
+        <p class="nice-modal-text">
+          Explain clearly why this whole project is being rejected.
+        </p>
+      </div>
+    </div>
+
+    <div class="nice-modal-body">
+      <textarea id="modal-reject-project-text"
+                class="modal-textarea"
+                placeholder="Write the rejection reason..."></textarea>
+      <div id="modal-reject-project-error" class="modal-error">Comment is required.</div>
+    </div>
+
+    <div class="nice-modal-actions">
+      <button type="button" class="btn-soft" data-close-project-modal>Cancel</button>
+      <button type="button" id="modal-reject-project-confirm" class="btn-danger">Reject project</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-reject-evidence" class="nice-modal" aria-hidden="true">
+  <div class="nice-modal-backdrop" data-close-evidence-modal></div>
+  <div class="nice-modal-card">
+    <div class="nice-modal-head">
+      <div class="nice-modal-icon danger">
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h3 class="nice-modal-title">Reject photo</h3>
+        <p class="nice-modal-text">
+          Describe what is wrong with this photo so the technician can correct it.
+        </p>
+      </div>
+    </div>
+
+    <div class="nice-modal-body">
+      <textarea id="modal-reject-evidence-text"
+                class="modal-textarea"
+                placeholder="Write the rejection reason..."></textarea>
+      <div id="modal-reject-evidence-error" class="modal-error">Comment is required.</div>
+    </div>
+
+    <div class="nice-modal-actions">
+      <button type="button" class="btn-soft" data-close-evidence-modal>Cancel</button>
+      <button type="button" id="modal-reject-evidence-confirm" class="btn-danger">Reject photo</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-confirm-save" class="nice-modal" aria-hidden="true">
+  <div class="nice-modal-backdrop" data-close-confirm-save></div>
+  <div class="nice-modal-card">
+    <div class="nice-modal-head">
+      <div class="nice-modal-icon danger">
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.366-.446.92-.699 1.506-.699s1.14.253 1.506.7l6.347 7.736c.777.947.09 2.364-1.134 2.364H3.044c-1.223 0-1.91-1.417-1.133-2.364L8.257 3.1zM10 7.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 7.5zm0 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h3 class="nice-modal-title">Confirm measurement</h3>
+        <p id="modal-confirm-save-text" class="nice-modal-text"></p>
+      </div>
+    </div>
+
+    <div class="nice-modal-actions">
+      <button type="button" class="btn-soft" data-close-confirm-save>Cancel</button>
+      <button type="button" id="modal-confirm-save-accept" class="btn-primary">Accept</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-info" class="nice-modal" aria-hidden="true">
+  <div class="nice-modal-backdrop" data-close-info-modal></div>
+  <div class="nice-modal-card">
+    <div class="nice-modal-head">
+      <div class="nice-modal-icon info">
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M18 10A8 8 0 11 2 10a8 8 0 0116 0zM9 8a1 1 0 112 0 1 1 0 01-2 0zm.25 3a.75.75 0 000 1.5h.5v2h-.5a.75.75 0 000 1.5h2a.75.75 0 000-1.5h-.5v-2h.5a.75.75 0 000-1.5h-2z"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h3 id="modal-info-title" class="nice-modal-title">Information</h3>
+        <p id="modal-info-text" class="nice-modal-text"></p>
+      </div>
+    </div>
+
+    <div class="nice-modal-actions">
+      <button type="button" class="btn-primary" data-close-info-modal>Accept</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function getCookie(name){
   const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
@@ -285,11 +561,71 @@ function getCookie(name){
 }
 const csrftoken = getCookie('csrftoken') || '';
 
+function toNum(v){
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmt2(v){
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : '';
+}
+
 function syncBulkApproveButton(){
   const checked = document.querySelectorAll('.ev-check:checked').length;
   const btn = document.getElementById('btn-bulk-approve');
   if(btn){
     btn.disabled = checked === 0;
+  }
+}
+
+function recomputeRequirementUI(requirementId){
+  const startEl = document.querySelector('.shared-start[data-requirement-id="' + requirementId + '"]');
+  const endEl = document.querySelector('.shared-end[data-requirement-id="' + requirementId + '"]');
+  const installedEl = document.getElementById('installed-req-' + requirementId);
+
+  if (!startEl || !endEl || !installedEl) return;
+
+  const start = toNum(startEl.value);
+  const end = toNum(endEl.value);
+
+  if (start !== null && end !== null){
+    installedEl.textContent = fmt2(Math.abs(end - start));
+  } else {
+    installedEl.textContent = '0.00';
+  }
+}
+
+function showInfoModal(message, title='Information'){
+  const modal = document.getElementById('modal-info');
+  const titleEl = document.getElementById('modal-info-title');
+  const textEl = document.getElementById('modal-info-text');
+  titleEl.textContent = title;
+  textEl.textContent = message || '';
+  modal.classList.add('show');
+}
+
+function closeInfoModal(){
+  document.getElementById('modal-info')?.classList.remove('show');
+}
+
+let confirmSaveResolver = null;
+
+function showConfirmSaveModal(message){
+  return new Promise((resolve) => {
+    confirmSaveResolver = resolve;
+    document.getElementById('modal-confirm-save-text').textContent = message || '';
+    document.getElementById('modal-confirm-save').classList.add('show');
+  });
+}
+
+function closeConfirmSaveModal(result){
+  document.getElementById('modal-confirm-save')?.classList.remove('show');
+  if (confirmSaveResolver){
+    confirmSaveResolver(result);
+    confirmSaveResolver = null;
   }
 }
 
@@ -313,7 +649,9 @@ async function saveSharedRequirement(requirementId){
   let data = await resp.json();
 
   if(resp.status === 409 && data.requires_confirmation){
-    const ok = confirm(data.error + "\n\nDo you want to save this value anyway?");
+    const ok = await showConfirmSaveModal(
+      (data.error || '') + '\n\nDo you want to save this value anyway?'
+    );
     if(!ok) return;
 
     const confirmBody = new FormData();
@@ -333,11 +671,23 @@ async function saveSharedRequirement(requirementId){
   }
 
   if(!resp.ok || !data.ok){
-    alert(data.error || 'Save failed');
+    showInfoModal(data.error || 'Save failed', 'Error');
     return;
   }
 
-  document.getElementById('installed-req-' + requirementId).textContent = data.requirement.installed_ft;
+  const installedEl = document.getElementById('installed-req-' + requirementId);
+  if (installedEl && data.requirement && typeof data.requirement.installed_ft !== 'undefined'){
+    installedEl.textContent = data.requirement.installed_ft || '0.00';
+  }
+
+  const startEl = document.querySelector('.shared-start[data-requirement-id="' + requirementId + '"]');
+  const endEl = document.querySelector('.shared-end[data-requirement-id="' + requirementId + '"]');
+  if (startEl && data.requirement && typeof data.requirement.start_ft !== 'undefined'){
+    startEl.value = data.requirement.start_ft || '';
+  }
+  if (endEl && data.requirement && typeof data.requirement.end_ft !== 'undefined'){
+    endEl.value = data.requirement.end_ft || '';
+  }
 
   const warn = document.getElementById('warn-req-' + requirementId);
   if(warn){
@@ -350,36 +700,49 @@ async function saveSharedRequirement(requirementId){
     }
   }
 
-  alert('Shared measurement saved.');
+  recomputeRequirementUI(requirementId);
+  showInfoModal(data.message || 'Shared measurement saved.', 'Saved');
 }
 
-async function saveReviewRow(rowId){
-  const status = document.querySelector('.rv-status[data-row-id="' + rowId + '"]')?.value || '';
-  const note = document.querySelector('.rv-note[data-row-id="' + rowId + '"]')?.value || '';
-  const supervisorNote = document.querySelector('.rv-supervisor-note[data-row-id="' + rowId + '"]')?.value || '';
+const projectRejectModal = document.getElementById('modal-reject-project');
+const projectRejectText = document.getElementById('modal-reject-project-text');
+const projectRejectError = document.getElementById('modal-reject-project-error');
 
-  const body = new FormData();
-  body.append('status', status);
-  body.append('note', note);
-  body.append('supervisor_note', supervisorNote);
+const evidenceRejectModal = document.getElementById('modal-reject-evidence');
+const evidenceRejectText = document.getElementById('modal-reject-evidence-text');
+const evidenceRejectError = document.getElementById('modal-reject-evidence-error');
+let currentEvidenceRejectId = null;
 
-  const resp = await fetch(
-    "{% url 'cable_installation:reviewer_update_requirement' 0 %}".replace('/0/', '/' + rowId + '/'),
-    {
-      method: 'POST',
-      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
-      body
-    }
-  );
+function openProjectRejectModal(){
+  projectRejectText.value = '';
+  projectRejectError.classList.remove('show');
+  projectRejectModal.classList.add('show');
+  setTimeout(() => { try { projectRejectText.focus(); } catch(e) {} }, 30);
+}
 
-  const data = await resp.json();
-  if(!resp.ok || !data.ok){
-    alert(data.error || 'Save failed');
-    return;
+function closeProjectRejectModal(){
+  projectRejectModal.classList.remove('show');
+}
+
+function openEvidenceRejectModal(evidenceId){
+  currentEvidenceRejectId = evidenceId;
+  evidenceRejectText.value = '';
+  evidenceRejectError.classList.remove('show');
+  evidenceRejectModal.classList.add('show');
+  setTimeout(() => { try { evidenceRejectText.focus(); } catch(e) {} }, 30);
+}
+
+function closeEvidenceRejectModal(){
+  evidenceRejectModal.classList.remove('show');
+  currentEvidenceRejectId = null;
+}
+
+document.addEventListener('input', function(e){
+  if (e.target.classList.contains('shared-start') || e.target.classList.contains('shared-end')){
+    const requirementId = e.target.dataset.requirementId;
+    if (requirementId) recomputeRequirementUI(requirementId);
   }
-
-  alert('Technician row saved.');
-}
+});
 
 document.addEventListener('change', function(e){
   if(e.target.classList.contains('ev-check')){
@@ -394,14 +757,10 @@ document.addEventListener('click', async function(e){
     return;
   }
 
-  const saveBtn = e.target.closest('.btn-save-row');
-  if(saveBtn){
-    await saveReviewRow(saveBtn.dataset.rowId);
-    return;
-  }
-
   const approveBtn = e.target.closest('.btn-approve-ev');
   if(approveBtn){
+    if (approveBtn.disabled) return;
+
     const id = approveBtn.dataset.id;
     const body = new FormData();
     const resp = await fetch("{% url 'cable_installation:approve_evidence' 0 %}".replace('/0/', '/' + id + '/'), {
@@ -411,7 +770,7 @@ document.addEventListener('click', async function(e){
     });
     const data = await resp.json();
     if(!resp.ok || !data.ok){
-      alert(data.error || 'Approve failed');
+      showInfoModal(data.error || 'Approve failed', 'Error');
       return;
     }
     location.reload();
@@ -420,28 +779,7 @@ document.addEventListener('click', async function(e){
 
   const rejectBtn = e.target.closest('.btn-reject-ev');
   if(rejectBtn){
-    const id = rejectBtn.dataset.id;
-    const comment = prompt('Why are you rejecting this photo?');
-    if(comment === null) return;
-    if(!comment.trim()){
-      alert('Comment is required.');
-      return;
-    }
-
-    const body = new FormData();
-    body.append('comment', comment.trim());
-
-    const resp = await fetch("{% url 'cable_installation:reject_evidence' 0 %}".replace('/0/', '/' + id + '/'), {
-      method: 'POST',
-      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
-      body
-    });
-    const data = await resp.json();
-    if(!resp.ok || !data.ok){
-      alert(data.error || 'Reject failed');
-      return;
-    }
-    location.reload();
+    openEvidenceRejectModal(rejectBtn.dataset.id);
     return;
   }
 
@@ -449,7 +787,7 @@ document.addEventListener('click', async function(e){
   if(bulkBtn){
     const ids = Array.from(document.querySelectorAll('.ev-check:checked')).map(el => el.value);
     if(!ids.length){
-      alert('Select at least one photo.');
+      showInfoModal('Select at least one photo.', 'Information');
       return;
     }
 
@@ -463,7 +801,7 @@ document.addEventListener('click', async function(e){
     });
     const data = await resp.json();
     if(!resp.ok || !data.ok){
-      alert(data.error || 'Bulk approve failed');
+      showInfoModal(data.error || 'Bulk approve failed', 'Error');
       return;
     }
     location.reload();
@@ -472,15 +810,91 @@ document.addEventListener('click', async function(e){
 
   const rejectProjectBtn = e.target.closest('#btn-reject-project');
   if(rejectProjectBtn){
-    const comment = prompt('Why are you rejecting this project?');
-    if(comment === null) return;
-    if(!comment.trim()){
-      alert('Comment is required.');
-      return;
-    }
-    document.getElementById('reject-project-comment').value = comment.trim();
-    document.getElementById('reject-project-form').submit();
+    openProjectRejectModal();
+    return;
   }
+
+  if(e.target.hasAttribute('data-close-project-modal')){
+    closeProjectRejectModal();
+    return;
+  }
+
+  if(e.target.hasAttribute('data-close-evidence-modal')){
+    closeEvidenceRejectModal();
+    return;
+  }
+
+  if(e.target.hasAttribute('data-close-confirm-save')){
+    closeConfirmSaveModal(false);
+    return;
+  }
+
+  if(e.target.hasAttribute('data-close-info-modal')){
+    closeInfoModal();
+    return;
+  }
+});
+
+document.getElementById('modal-confirm-save-accept')?.addEventListener('click', function(){
+  closeConfirmSaveModal(true);
+});
+
+document.getElementById('modal-reject-project-confirm')?.addEventListener('click', function(){
+  const comment = (projectRejectText.value || '').trim();
+  if(!comment){
+    projectRejectError.classList.add('show');
+    projectRejectText.focus();
+    return;
+  }
+  document.getElementById('reject-project-comment').value = comment;
+  document.getElementById('reject-project-form').submit();
+});
+
+document.getElementById('modal-reject-evidence-confirm')?.addEventListener('click', async function(){
+  const comment = (evidenceRejectText.value || '').trim();
+  if(!comment){
+    evidenceRejectError.classList.add('show');
+    evidenceRejectText.focus();
+    return;
+  }
+  if(!currentEvidenceRejectId) return;
+
+  const body = new FormData();
+  body.append('comment', comment);
+
+  const resp = await fetch(
+    "{% url 'cable_installation:reject_evidence' 0 %}".replace('/0/', '/' + currentEvidenceRejectId + '/'),
+    {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' },
+      body
+    }
+  );
+
+  const data = await resp.json();
+  if(!resp.ok || !data.ok){
+    showInfoModal(data.error || 'Reject failed', 'Error');
+    return;
+  }
+
+  closeEvidenceRejectModal();
+  location.reload();
+});
+
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    closeProjectRejectModal();
+    closeEvidenceRejectModal();
+    closeConfirmSaveModal(false);
+    closeInfoModal();
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.shared-start[data-requirement-id], .shared-end[data-requirement-id]').forEach(function(el){
+    const requirementId = el.dataset.requirementId;
+    if (requirementId) recomputeRequirementUI(requirementId);
+  });
 });
 
 syncBulkApproveButton();
