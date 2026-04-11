@@ -1061,6 +1061,7 @@ def _xlsx_path_cable_photo_report(
             ev.image.close()
 
             image_data = io.BytesIO(raw)
+            image_data.seek(0)
 
             with Image.open(io.BytesIO(raw)) as im:
                 im = im.convert("RGB")
