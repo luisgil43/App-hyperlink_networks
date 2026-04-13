@@ -125,6 +125,15 @@ def _requirement_measurement_complete(requirement):
     return requirement.start_ft is not None and requirement.end_ft is not None
 
 
+def _requirement_has_any_progress(requirement):
+    if requirement.start_ft is not None or requirement.end_ft is not None:
+        return True
+
+    return CableEvidence.objects.filter(
+        assignment_requirement__requirement=requirement
+    ).exists()
+
+
 def _requirement_present_non_rejected_shots(requirement):
     return set(
         CableEvidence.objects.filter(assignment_requirement__requirement=requirement)
@@ -188,7 +197,7 @@ def _billing_review_progress(billing):
 
     details = {}
     completed = 0
-    total = len(requirements)
+    total = 0
 
     for req in requirements:
         present_shots = _requirement_present_non_rejected_shots(req)
@@ -197,16 +206,46 @@ def _billing_review_progress(billing):
         missing_shots = [
             shot for shot in _required_shots() if shot not in present_shots
         ]
-        is_complete = measurement_complete and not missing_shots
+        has_any_progress = _requirement_has_any_progress(req)
 
-        if is_complete:
-            completed += 1
+        # -----------------------------
+        # REGLAS NUEVAS
+        # -----------------------------
+        if req.required:
+            # Requerido:
+            # - siempre cuenta
+            # - completo solo si tiene medida completa + fotos requeridas
+            is_visible = True
+            counts_for_approval = True
+            is_complete = measurement_complete and not missing_shots
+
+        else:
+            # No requerido:
+            # - si no tiene medida ni fotos: no se muestra y no cuenta
+            # - si tiene medida completa aunque no tenga fotos: cuenta como completo
+            # - si tiene algo cargado pero medida incompleta: se muestra pendiente y bloquea aprobación
+            if not has_any_progress:
+                is_visible = False
+                counts_for_approval = False
+                is_complete = False
+            else:
+                is_visible = True
+                counts_for_approval = True
+                is_complete = measurement_complete
+
+        if counts_for_approval:
+            total += 1
+            if is_complete:
+                completed += 1
 
         details[req.id] = {
             "measurement_complete": measurement_complete,
             "missing_measurement_fields": missing_measurement_fields,
             "missing_shots": missing_shots,
             "is_complete": is_complete,
+            "is_visible": is_visible,
+            "counts_for_approval": counts_for_approval,
+            "has_any_progress": has_any_progress,
         }
 
     percent = int(round((completed / total) * 100)) if total > 0 else 0
@@ -311,16 +350,8 @@ def review_requirements(request, billing_id):
             evidence_item
         )
 
-    grouped_requirements = list(grouped.values())
-    grouped_requirements.sort(
-        key=lambda x: (
-            x["requirement"].order,
-            x["requirement"].sequence_no,
-            x["requirement"].id,
-        )
-    )
-
-    for block in grouped_requirements:
+    grouped_requirements = []
+    for block in grouped.values():
         req = block["requirement"]
         req_progress = progress["details"].get(
             req.id,
@@ -329,13 +360,32 @@ def review_requirements(request, billing_id):
                 "missing_measurement_fields": ["Shared Start ft", "Shared End ft"],
                 "missing_shots": _required_shots(),
                 "is_complete": False,
+                "is_visible": True,
+                "counts_for_approval": True,
+                "has_any_progress": False,
             },
         )
+
+        # No mostrar requerimientos NO obligatorios sin ningún avance
+        if not req_progress["is_visible"]:
+            continue
 
         block["is_complete"] = req_progress["is_complete"]
         block["measurement_complete"] = req_progress["measurement_complete"]
         block["missing_measurement_fields"] = req_progress["missing_measurement_fields"]
         block["missing_shots"] = [_shot_label(s) for s in req_progress["missing_shots"]]
+        block["has_any_progress"] = req_progress["has_any_progress"]
+        block["counts_for_approval"] = req_progress["counts_for_approval"]
+
+        grouped_requirements.append(block)
+
+    grouped_requirements.sort(
+        key=lambda x: (
+            x["requirement"].order,
+            x["requirement"].sequence_no,
+            x["requirement"].id,
+        )
+    )
 
     billing_status_label = _status_badge_label(getattr(billing, "estado", ""))
 

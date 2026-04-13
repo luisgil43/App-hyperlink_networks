@@ -241,19 +241,23 @@
         </a>
 
         {% if can_review_project %}
-        <form method="post"
-              action="{% url 'cable_installation:approve_project_review' billing.id %}"
-              class="contents">
-          {% csrf_token %}
-          <button type="submit"
-                  class="w-full px-4 py-2 rounded-xl {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
-                  {% if not can_approve_project %}disabled title="All required handholes must be complete before approving the project."{% endif %}>
-            Approve Project
-          </button>
-        </form>
+<form method="post"
+      action="{% url 'cable_installation:approve_project_review' billing.id %}"
+      class="contents">
+  {% csrf_token %}
+  <button type="submit"
+          class="w-full px-4 py-2 rounded-xl {% if can_approve_project %}bg-green-600 hover:bg-green-700 text-white{% else %}bg-green-300 text-white cursor-not-allowed{% endif %}"
+          {% if not can_approve_project %}disabled title="Only required handholes must be fully completed. Optional handholes may be approved with full measurement only, but if started they cannot remain incomplete."{% endif %}>
+    Approve Project
+  </button>
+</form>
 
-      
-        {% endif %}
+<button type="button"
+        id="btn-reject-project"
+        class="w-full px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white">
+  Reject Project
+</button>
+{% endif %}
       </div>
     </div>
   </div>
@@ -323,31 +327,41 @@
         <div><b>Required:</b> {% if block.requirement.required %}Yes{% else %}No{% endif %}</div>
 
         {% if block.is_complete %}
-          <span class="req-chip-ok">✓ Completed</span>
-        {% else %}
-          <span class="req-chip-pending">• Pending</span>
-        {% endif %}
+  {% if not block.requirement.required and block.measurement_complete and not block.evidences %}
+    <span class="req-chip-ok">✓ Optional completed by measurement</span>
+  {% else %}
+    <span class="req-chip-ok">✓ Completed</span>
+  {% endif %}
+{% else %}
+  <span class="req-chip-pending">• Pending</span>
+{% endif %}
 
         {% if block.requirement.warning %}
         <div class="text-amber-700"><b>Warning:</b> {{ block.requirement.warning }}</div>
         {% endif %}
       </div>
+{% if not block.is_complete %}
+<div class="mt-2 text-xs text-red-700 space-y-1">
+  {% if block.missing_measurement_fields %}
+    <div>
+      Missing measurement:
+      {{ block.missing_measurement_fields|join:", " }}.
+    </div>
+  {% endif %}
 
-      {% if not block.is_complete %}
-      <div class="mt-2 text-xs text-red-700 space-y-1">
-        {% if block.missing_measurement_fields %}
-          <div>
-            Missing measurement:
-            {{ block.missing_measurement_fields|join:", " }}.
-          </div>
-        {% endif %}
-        {% if block.missing_shots %}
-          <div>
-            Missing photos: {{ block.missing_shots|join:", " }}.
-          </div>
-        {% endif %}
-      </div>
-      {% endif %}
+  {% if block.requirement.required and block.missing_shots %}
+    <div>
+      Missing photos: {{ block.missing_shots|join:", " }}.
+    </div>
+  {% endif %}
+
+  {% if not block.requirement.required and block.has_any_progress and not block.measurement_complete %}
+    <div>
+      Optional requirement started: if measurement is started, it must be completed to approve the project.
+    </div>
+  {% endif %}
+</div>
+{% endif %}
     </div>
 
     <div class="p-4 border-b bg-white">
