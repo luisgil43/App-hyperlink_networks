@@ -83,6 +83,24 @@ class VehicleForm(forms.ModelForm):
             ),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # ✅ Status requerido (si no, luego no aparece en el listado "active")
+        self.fields["status"].required = True
+
+        # ✅ Solo statuses activos para seleccionar
+        self.fields["status"].queryset = VehicleStatus.objects.filter(
+            is_active=True
+        ).order_by("name")
+
+        # ✅ Si es "create" (sin instance.pk) y no viene initial, preselecciona el primero activo
+        if not getattr(self.instance, "pk", None):
+            if not self.initial.get("status"):
+                first_active = self.fields["status"].queryset.first()
+                if first_active:
+                    self.initial["status"] = first_active.pk
+
     def clean_patente(self):
         val = (self.cleaned_data.get("patente") or "").strip()
         if not val:
@@ -104,6 +122,14 @@ class VehicleForm(forms.ModelForm):
         #     raise ValidationError("VIN cannot contain I, O, or Q.")
 
         return vin
+
+    def clean_status(self):
+        st = self.cleaned_data.get("status")
+        if not st:
+            raise ValidationError("Status is required.")
+        if hasattr(st, "is_active") and not bool(st.is_active):
+            raise ValidationError("Please select an active status.")
+        return st
 
     def clean_kilometraje_actual(self):
         v = self.cleaned_data.get("kilometraje_actual")
