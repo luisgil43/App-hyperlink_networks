@@ -27,6 +27,21 @@ def _row_rejected_shots(row):
     )
 
 
+def _row_measurement_locked(row):
+    assignment = row.assignment
+    estado = (assignment.estado or "").strip()
+
+    # Si hay observación de supervisor en el row, este requerimiento
+    # debe quedar desbloqueado sí o sí.
+    if (row.supervisor_note or "").strip():
+        return False
+
+    if estado == "rechazado_supervisor":
+        return False
+
+    return _row_is_complete(row)
+
+
 def _row_non_rejected_shots(row):
     return set(
         CableEvidence.objects.filter(
@@ -214,24 +229,27 @@ def _row_has_rejected_photo(row):
 
 
 def _row_last_measurement_touch_at(row):
-    stamps = []
-
-    if getattr(row, "updated_at", None):
-        stamps.append(row.updated_at)
-
     req = row.requirement
+
+    # La medida real vive en el requirement:
+    # start_ft / end_ft / planned_reserve_ft
+    # No debemos usar row.updated_at porque en un rechazo masivo
+    # el supervisor actualiza el row (supervisor_note, last_reviewed_at, etc.)
+    # y eso hace creer incorrectamente que el técnico ya volvió a tocar la medida.
     if getattr(req, "updated_at", None):
-        stamps.append(req.updated_at)
+        return req.updated_at
 
-    if not stamps:
-        return None
-
-    return max(stamps)
+    return None
 
 
 def _row_requires_measurement_resubmission(row):
     assignment = row.assignment
     estado = (assignment.estado or "").strip()
+
+    # Si el row ya trae observación de supervisor, forzamos reenvío
+    # aunque el estado del assignment no haya quedado sincronizado.
+    if (row.supervisor_note or "").strip():
+        return True
 
     if estado != "rechazado_supervisor":
         return False
@@ -537,6 +555,10 @@ def technician_requirements(request, assignment_id):
         is_done = _refresh_row_status(row)
         row.refresh_from_db()
 
+        locked = _row_measurement_locked(row)
+        if not locked:
+            is_done = False
+
         uploaded = my_counts.get(req.id, 0)
         pending_shots = _pending_shots_for_row(row)
         rejection_comment = row.supervisor_note or ""
@@ -551,7 +573,7 @@ def technician_requirements(request, assignment_id):
                 "row": row,
                 "uploaded": uploaded,
                 "is_done": is_done,
-                "locked": is_done,
+                "locked": locked,
                 "evidences": row_evidences,
                 "pending_shots": pending_shots,
                 "photo_cards": _row_photo_cards(row, row_evidences),
@@ -672,9 +694,16 @@ def update_assignment_requirement(request, row_id):
         requirement.save()
 
         row.note = note
+
+        # Si no hay fotos rechazadas, asumimos que la observación era del rechazo masivo
+        # y la limpiamos al volver a guardar la medida.
+        if not _row_has_rejected_photo(row):
+            row.supervisor_note = ""
+
         row.save(
             update_fields=[
                 "note",
+                "supervisor_note",
                 "updated_at",
             ]
         )
@@ -693,6 +722,7 @@ def update_assignment_requirement(request, row_id):
                 "note": row.note,
                 "supervisor_note": row.supervisor_note or "",
                 "is_complete": is_complete,
+                "locked": _row_measurement_locked(row),
                 "pending_shots": _pending_shots_for_row(row),
             },
             "requirement": {
@@ -841,7 +871,8 @@ def upload_requirement_evidence_ajax(request, assignment_id):
                 "id": row.id,
                 "status": row.status,
                 "supervisor_note": row.supervisor_note or "",
-                "is_complete": is_complete,
+                "is_complete": is_complete if _row_measurement_locked(row) else False,
+                "locked": _row_measurement_locked(row),
                 "pending_shots": _pending_shots_for_row(row),
             },
         }
@@ -898,7 +929,8 @@ def delete_own_evidence(request, evidence_id):
                 "id": row.id,
                 "status": row.status,
                 "supervisor_note": row.supervisor_note or "",
-                "is_complete": is_complete,
+                "is_complete": is_complete if _row_measurement_locked(row) else False,
+                "locked": _row_measurement_locked(row),
                 "pending_shots": _pending_shots_for_row(row),
             },
         }
@@ -937,6 +969,10 @@ def technician_requirements_status_json(request, assignment_id):
         is_complete = _refresh_row_status(row)
         row.refresh_from_db()
 
+        locked = _row_measurement_locked(row)
+        if not locked:
+            is_complete = False
+
         req = row.requirement
         my_count = CableEvidence.objects.filter(assignment_requirement=row).count()
         pending_shots = _pending_shots_for_row(row)
@@ -949,7 +985,7 @@ def technician_requirements_status_json(request, assignment_id):
                 "row_id": row.id,
                 "my_count": my_count,
                 "global_done": is_complete,
-                "locked": is_complete,
+                "locked": locked,
                 "pending_shots": pending_shots,
                 "has_rejected": rejected,
                 "supervisor_note": row.supervisor_note or "",

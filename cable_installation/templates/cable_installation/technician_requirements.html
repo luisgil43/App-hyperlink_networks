@@ -115,10 +115,11 @@
 
     <ul class="space-y-3">
       {% for block in blocks %}
-      <li class="border rounded-2xl p-4"
+    <li class="border rounded-2xl p-4"
     data-row-wrap="{{ block.row.id }}"
     data-req-id="{{ block.requirement.id }}"
     data-is-done="{% if block.is_done %}1{% else %}0{% endif %}"
+    data-locked="{% if block.locked %}1{% else %}0{% endif %}"
     data-required="{% if block.requirement.required %}1{% else %}0{% endif %}">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -177,7 +178,7 @@
                    data-row-id="{{ block.row.id }}"
                    value="{{ block.requirement.start_ft|default:'' }}"
                    placeholder="Enter start ft"
-                   {% if block.is_done %}disabled{% endif %}>
+                   {% if block.locked %}disabled{% endif %}>
 
             <div class="mt-2 flex justify-end">
     <button type="button"
@@ -202,7 +203,7 @@
                    value="{% if block.row.reserve_ft %}{{ block.row.reserve_ft }}{% elif block.requirement.planned_reserve_ft %}{{ block.requirement.planned_reserve_ft }}{% else %}{% endif %}"
                    data-planned-reserve="{{ block.requirement.planned_reserve_ft|default:'0' }}"
                    placeholder="Enter reserve ft"
-                   {% if block.is_done %}disabled{% endif %}>
+                   {% if block.locked %}disabled{% endif %}>
 
             <div class="mt-2 text-xs text-gray-600">
               Planned Slack: <span class="planned-reserve-label" data-row-id="{{ block.row.id }}">{{ block.requirement.planned_reserve_ft|default:"0.00" }}</span> ft
@@ -212,7 +213,7 @@
               <button type="button"
                       class="btn-save-tech px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
                       data-row-id="{{ block.row.id }}"
-                      {% if block.is_done %}disabled{% endif %}>
+                      {% if block.locked %}disabled{% endif %}>
                 Save measurement
               </button>
             </div>
@@ -227,7 +228,7 @@
                    data-row-id="{{ block.row.id }}"
                    value="{{ block.requirement.end_ft|default:'' }}"
                    placeholder="Enter end ft"
-                   {% if block.is_done %}disabled{% endif %}>
+                   {% if block.locked %}disabled{% endif %}>
 
             <div id="end-help-{{ block.row.id }}"
                  class="mt-2 text-xs text-gray-600">
@@ -245,7 +246,7 @@
                        class="end-confirm-checkbox"
                        data-row-id="{{ block.row.id }}"
                        {% if block.requirement.end_ft_overridden %}checked{% endif %}
-                       {% if block.is_done %}disabled{% endif %}>
+                       {% if block.locked %}disabled{% endif %}>
                 Confirm different end ft
               </label>
             </div>
@@ -294,7 +295,7 @@
                     rows="2"
                     data-row-id="{{ block.row.id }}"
                     placeholder="Write a note (optional)"
-                    {% if block.is_done %}disabled{% endif %}>{{ block.row.note }}</textarea>
+                    {% if block.locked %}disabled{% endif %}>{{ block.row.note }}</textarea>
         </div>
 
         <div class="mt-3">
@@ -647,10 +648,10 @@
     return document.querySelector('.end-confirm-checkbox[data-row-id="' + rowId + '"]');
   }
 
-  function rowIsDone(rowId){
-    const wrap = getRowWrap(rowId);
-    return wrap && wrap.dataset.isDone === '1';
-  }
+  function rowIsLocked(rowId){
+  const wrap = getRowWrap(rowId);
+  return wrap && wrap.dataset.locked === '1';
+}
 
   function rowIsRequired(rowId){
     const wrap = getRowWrap(rowId);
@@ -750,7 +751,7 @@
     const endWarnEl = document.getElementById(`end-warning-${rowId}`);
     const endConfirmWrap = document.getElementById(`end-confirm-wrap-${rowId}`);
     const confirmCb = getConfirmCheckbox(rowId);
-    const done = rowIsDone(rowId);
+    const locked = rowIsLocked(rowId);
 
     if (!startEl || !reserveEl || !endEl) return;
 
@@ -801,7 +802,7 @@
         endWarnEl.textContent = '';
       }
       if (endConfirmWrap) endConfirmWrap.classList.add('hidden');
-      if (confirmCb && !done) confirmCb.checked = false;
+      if (confirmCb && !locked) confirmCb.checked = false;
     }
 
     const rowWrap = getRowWrap(rowId);
@@ -810,12 +811,12 @@
       const btnEnd = rowWrap.querySelector('.take-shot[data-shot="end_cable"]');
       const btnHandhole = rowWrap.querySelector('.take-shot[data-shot="handhole"]');
 
-      if (done){
-        if (btnStart) btnStart.disabled = true;
-        if (btnEnd) btnEnd.disabled = true;
-        if (btnHandhole) btnHandhole.disabled = true;
-        return;
-      }
+      if (locked){
+  if (btnStart) btnStart.disabled = true;
+  if (btnEnd) btnEnd.disabled = true;
+  if (btnHandhole) btnHandhole.disabled = true;
+  return;
+}
 
       if (btnStart && btnStart.dataset.forceDisabled === '1') btnStart.disabled = true;
       if (btnEnd && btnEnd.dataset.forceDisabled === '1') btnEnd.disabled = true;
@@ -857,9 +858,9 @@
         e.target.value = '';
       }
       const cb = getConfirmCheckbox(rowId);
-      if (cb && e.target.classList.contains('tech-end') && !rowIsDone(rowId)) {
-        cb.checked = false;
-      }
+    if (cb && e.target.classList.contains('tech-end') && !rowIsLocked(rowId)) {
+  cb.checked = false;
+}
       recomputeMeasurementUI(rowId);
       refreshOptionalRequirementState(rowId);
     }
@@ -879,7 +880,7 @@
     const reqId = btn.dataset.reqId;
     const shot = btn.dataset.shot;
 
-    if (btn.disabled || rowIsDone(rowId)) return;
+    if (btn.disabled || rowIsLocked(rowId)) return;
 
     const start = toNum(getStartInput(rowId)?.value);
     const reserve = toNum(getReserveInput(rowId)?.value);
@@ -946,10 +947,10 @@ async function readJsonSafe(resp){
 
 async function saveTechRow(rowId){
   const rowWrap = document.querySelector('[data-row-wrap="' + rowId + '"]');
-  if (rowWrap && rowWrap.dataset.isDone === '1') {
-    alert('This requirement is locked. Delete a photo to reopen it.');
-    return false;
-  }
+  if (rowWrap && rowWrap.dataset.locked === '1') {
+  alert('This requirement is locked right now.');
+  return false;
+}
 
   const start = document.querySelector('.tech-start[data-row-id="' + rowId + '"]')?.value || '';
   const reserve = document.querySelector('.tech-reserve[data-row-id="' + rowId + '"]')?.value || '';
@@ -1048,10 +1049,14 @@ async function saveTechRow(rowId){
     const endEl = document.querySelector('.tech-end[data-row-id="' + rowId + '"]');
     if (endEl) endEl.value = data.requirement.end_ft || '';
   }
-
-  if (data.row && typeof data.row.is_complete !== 'undefined' && rowWrap){
+if (data.row && rowWrap){
+  if (typeof data.row.is_complete !== 'undefined') {
     rowWrap.dataset.isDone = data.row.is_complete ? '1' : '0';
   }
+  if (typeof data.row.locked !== 'undefined') {
+    rowWrap.dataset.locked = data.row.locked ? '1' : '0';
+  }
+}
 
   const badge = document.querySelector('.req-badge[data-req="' + (rowWrap?.dataset.reqId || '') + '"]');
   if (badge && data.row && typeof data.row.is_complete !== 'undefined'){
@@ -1113,9 +1118,10 @@ document.addEventListener('click', async function(e){
       const rowWrap = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
       const nowState = r.global_done ? 'done' : 'pending';
 
-      if (rowWrap){
-        rowWrap.dataset.isDone = r.global_done ? '1' : '0';
-      }
+     if (rowWrap){
+  rowWrap.dataset.isDone = r.global_done ? '1' : '0';
+  rowWrap.dataset.locked = r.locked ? '1' : '0';
+}
 
       if (badge){
         badge.setAttribute('data-state', nowState);
@@ -1141,9 +1147,9 @@ document.addEventListener('click', async function(e){
       const cb = document.querySelector('.end-confirm-checkbox[data-row-id="' + r.row_id + '"]');
 
       [startEl, reserveEl, endEl, noteEl, saveBtn, cb].forEach(el => {
-        if (!el) return;
-        el.disabled = !!r.global_done;
-      });
+  if (!el) return;
+  el.disabled = !!r.locked;
+});
 
       const rowWrapNode = document.querySelector('[data-row-wrap="' + r.row_id + '"]');
       if (rowWrapNode){
@@ -1151,20 +1157,20 @@ document.addEventListener('click', async function(e){
         const btnEnd = rowWrapNode.querySelector('.take-shot[data-shot="end_cable"]');
         const btnHandhole = rowWrapNode.querySelector('.take-shot[data-shot="handhole"]');
 
-        if (btnStart){
-          btnStart.dataset.forceDisabled = r.can_take_start ? '0' : '1';
-          btnStart.disabled = !!r.global_done || !r.can_take_start;
-        }
+       if (btnStart){
+  btnStart.dataset.forceDisabled = r.can_take_start ? '0' : '1';
+  btnStart.disabled = !!r.locked || !r.can_take_start;
+}
 
-        if (btnEnd){
-          btnEnd.dataset.forceDisabled = r.can_take_end ? '0' : '1';
-          btnEnd.disabled = !!r.global_done || !r.can_take_end;
-        }
+if (btnEnd){
+  btnEnd.dataset.forceDisabled = r.can_take_end ? '0' : '1';
+  btnEnd.disabled = !!r.locked || !r.can_take_end;
+}
 
-        if (btnHandhole){
-          btnHandhole.dataset.forceDisabled = r.can_take_handhole ? '0' : '1';
-          btnHandhole.disabled = !!r.global_done || !r.can_take_handhole;
-        }
+if (btnHandhole){
+  btnHandhole.dataset.forceDisabled = r.can_take_handhole ? '0' : '1';
+  btnHandhole.disabled = !!r.locked || !r.can_take_handhole;
+}
       }
 
       if (typeof window.__recomputeCableMeasurementUI === 'function'){
