@@ -23,22 +23,22 @@
       {% endif %}
 
       {% if a.sesion.is_cable_installation %}
-        {% if can_open_cable_report %}
-          <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
-             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
-            Cable report
-          </a>
-        {% endif %}
+  {% if a.estado == "en_proceso" %}
+    {% if can_open_cable_report %}
+      <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">
+        Cable report
+      </a>
+    {% endif %}
 
-        {% if a.estado == "en_proceso" or a.estado == "rechazado_supervisor" %}
-          <button type="button"
-                  class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
-                  data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-                  {% if not can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
-            Finish
-          </button>
-        {% endif %}
-      {% else %}
+    <button type="button"
+            class="{% if can_finish %}bg-indigo-600 hover:bg-indigo-700 text-white{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left btn-finish-open"
+            data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+            {% if not can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
+      Finish
+    </button>
+  {% endif %}
+{% else %}
         {% if a.estado == "en_proceso" %}
           <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap text-center sm:text-left">

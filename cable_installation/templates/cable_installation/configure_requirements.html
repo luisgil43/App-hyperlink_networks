@@ -58,7 +58,7 @@
       </div>
 
       <div class="mb-4 text-xs text-gray-500">
-        Planned reserve can be left blank. Blank will be saved as 0.
+        Planned slack can be left blank. Blank will be saved as 0.
       </div>
 
       <div id="req-list" class="space-y-4">
@@ -87,7 +87,7 @@
             </div>
 
             <div class="sm:col-span-2">
-              <label class="text-xs text-gray-500 block mb-1">Planned reserve (ft)</label>
+              <label class="text-xs text-gray-500 block mb-1">Planned Slack(ft)</label>
               <input name="planned_reserve_ft[]"
                      value="{{ row.planned_reserve_ft }}"
                      class="border rounded-xl p-2 w-full {% if row.errors.planned_reserve_ft %}border-red-500 bg-red-50{% endif %}"

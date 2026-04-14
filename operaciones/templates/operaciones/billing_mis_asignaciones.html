@@ -275,46 +275,38 @@
 
   {% if a.sesion.is_cable_installation %}
 
-    {% if a.estado == "asignado" %}
-      <button type="button"
-              class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-              data-action="{% url 'operaciones:start_assignment' a.pk %}">
-        ✅ Accept & Start
-      </button>
+  {% if a.estado == "asignado" %}
+    <button type="button"
+            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+            data-action="{% url 'operaciones:start_assignment' a.pk %}">
+      ✅ Accept & Start
+    </button>
 
-    {% elif a.estado == "en_proceso" %}
-      {% if a.can_open_cable_report %}
-        <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
-           class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Cable report
-        </a>
-      {% endif %}
-
-      <button type="button"
-              class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-              {% if not a.can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
-        Finish
-      </button>
-
-    {% elif a.estado == "en_revision_supervisor" %}
-      {% if a.can_open_cable_report %}
-        <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
-           class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Cable report
-        </a>
-      {% endif %}
-
-    {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-      <button type="button"
-              class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-              data-action="{% url 'operaciones:start_assignment' a.pk %}">
-        Start
-      </button>
-
+  {% elif a.estado == "en_proceso" %}
+    {% if a.can_open_cable_report %}
+      <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+         class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+        Cable report
+      </a>
     {% endif %}
 
-  {% else %}
+    <button type="button"
+            class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+            data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+            {% if not a.can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
+      Finish
+    </button>
+
+  {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+    <button type="button"
+            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+            data-action="{% url 'operaciones:start_assignment' a.pk %}">
+      Start
+    </button>
+
+  {% endif %}
+
+{% else %}
 
     {% if a.estado == "asignado" %}
       <button type="button"

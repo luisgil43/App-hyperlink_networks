@@ -720,7 +720,9 @@ def approve_project_review(request, billing_id):
 @require_POST
 def reject_project_review(request, billing_id):
     billing = get_object_or_404(
-        SesionBilling, pk=billing_id, is_cable_installation=True
+        SesionBilling,
+        pk=billing_id,
+        is_cable_installation=True,
     )
 
     comment = (request.POST.get("comment") or "").strip()
@@ -734,6 +736,10 @@ def reject_project_review(request, billing_id):
         billing.estado = "rechazado_supervisor"
         billing.save(update_fields=["estado"])
 
+        # Importante:
+        # El rechazo general SOLO devuelve al técnico la revisión de medidas.
+        # No elimina fotos, no rechaza fotos individualmente, no borra evidencias.
+        # Las fotos buenas se conservan.
         for assignment in billing.tecnicos_sesion.all():
             update_fields = ["estado"]
             assignment.estado = "rechazado_supervisor"
@@ -752,7 +758,39 @@ def reject_project_review(request, billing_id):
 
             assignment.save(update_fields=update_fields)
 
-    messages.warning(request, "Project rejected by supervisor.")
+        # Dejar todos los requerimientos en pending para forzar nueva validación
+        # de la medida, pero SIN tocar ni borrar fotos.
+        req_rows = CableAssignmentRequirement.objects.filter(
+            assignment__sesion=billing
+        ).select_related("requirement", "assignment")
+
+        for row in req_rows:
+            update_fields = []
+            if row.status != CableAssignmentRequirement.STATUS_PENDING:
+                row.status = CableAssignmentRequirement.STATUS_PENDING
+                update_fields.append("status")
+
+            # Guardamos la observación general para mostrar al técnico
+            if row.supervisor_note != comment:
+                row.supervisor_note = comment
+                update_fields.append("supervisor_note")
+
+            if hasattr(row, "last_reviewed_at"):
+                row.last_reviewed_at = now
+                update_fields.append("last_reviewed_at")
+
+            if hasattr(row, "last_reviewed_by"):
+                row.last_reviewed_by = request.user
+                update_fields.append("last_reviewed_by")
+
+            if update_fields:
+                update_fields.append("updated_at")
+                row.save(update_fields=update_fields)
+
+    messages.warning(
+        request,
+        "Project rejected by supervisor. Photos were preserved and measurements must be reviewed again by the technician.",
+    )
     return redirect("cable_installation:review_requirements", billing_id=billing.id)
 
 

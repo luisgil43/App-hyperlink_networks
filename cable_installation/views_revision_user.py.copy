@@ -213,69 +213,26 @@ def _row_has_rejected_photo(row):
     ).exists()
 
 
-def _row_last_measurement_touch_at(row):
-    stamps = []
-
-    if getattr(row, "updated_at", None):
-        stamps.append(row.updated_at)
-
-    req = row.requirement
-    if getattr(req, "updated_at", None):
-        stamps.append(req.updated_at)
-
-    if not stamps:
-        return None
-
-    return max(stamps)
-
-
-def _row_requires_measurement_resubmission(row):
-    assignment = row.assignment
-    estado = (assignment.estado or "").strip()
-
-    if estado != "rechazado_supervisor":
-        return False
-
-    reviewed_at = getattr(assignment, "supervisor_revisado_en", None)
-    if not reviewed_at:
-        return False
-
-    last_touch = _row_last_measurement_touch_at(row)
-    if not last_touch:
-        return True
-
-    return last_touch <= reviewed_at
-
-
 def _row_is_complete(row):
     req = row.requirement
     measurement_state = _requirement_measurement_state(req)
     pending_shots = _pending_shots_for_row(row)
     has_rejected = _row_has_rejected_photo(row)
     started = _row_has_any_started_data(row)
-    needs_measurement_resubmission = _row_requires_measurement_resubmission(row)
 
     if req.required:
         return (
-            measurement_state == "complete"
-            and not needs_measurement_resubmission
-            and not pending_shots
-            and not has_rejected
+            measurement_state == "complete" and not pending_shots and not has_rejected
         )
 
     # Optional:
     # - untouched => no cuenta como completo, pero tampoco debe bloquear
     # - complete measurement => completo aunque no tenga fotos
     # - partial measurement or rejected => pendiente
-    # - rejected supervisor general => debe volver a guardar medida
     if not started:
         return False
 
-    return (
-        measurement_state == "complete"
-        and not needs_measurement_resubmission
-        and not has_rejected
-    )
+    return measurement_state == "complete" and not has_rejected
 
 
 def _refresh_row_status(row):
@@ -287,10 +244,7 @@ def _refresh_row_status(row):
     )
 
     latest_rejection = _row_latest_rejection_comment(row)
-
-    # Si existe rechazo individual de foto, ese comentario manda.
-    # Si no existe, conservamos la observación general ya guardada.
-    supervisor_note = latest_rejection or (row.supervisor_note or "")
+    supervisor_note = latest_rejection or ""
 
     updates = []
 
@@ -346,14 +300,9 @@ def _faltantes_global_labels(billing):
         present_shots = _present_shots_for_row(sample_row)
         has_rejected = _row_has_rejected_photo(sample_row)
         started = _row_has_any_started_data(sample_row)
-        needs_measurement_resubmission = _row_requires_measurement_resubmission(
-            sample_row
-        )
 
         if req.required:
-            missing_measurement = (
-                measurement_state != "complete" or needs_measurement_resubmission
-            )
+            missing_measurement = measurement_state != "complete"
             missing_shots = [
                 shot for shot in _required_shots() if shot not in present_shots
             ]
@@ -376,16 +325,11 @@ def _faltantes_global_labels(billing):
             continue
 
         # - complete measurement and no rejected => no bloquear
-        # - si hubo rechazo general, debe volver a guardar medida
-        if (
-            measurement_state == "complete"
-            and not needs_measurement_resubmission
-            and not has_rejected
-        ):
+        if measurement_state == "complete" and not has_rejected:
             continue
 
         suffix = []
-        if measurement_state != "complete" or needs_measurement_resubmission:
+        if measurement_state != "complete":
             suffix.append("measurement")
         if has_rejected:
             suffix.append("review")
