@@ -809,10 +809,8 @@ def export_client_excel(request, billing_id):
     ws = wb.active
     ws.title = "Client Report"
 
-    # Quitar líneas de división del resto de la hoja
     ws.sheet_view.showGridLines = False
 
-    # Anchos
     ws.column_dimensions["A"].width = 18
     ws.column_dimensions["B"].width = 16
     ws.column_dimensions["C"].width = 16
@@ -840,9 +838,6 @@ def export_client_excel(request, billing_id):
     left = Alignment(horizontal="left", vertical="center")
     left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-    # ---------------------------
-    # Header row 1
-    # ---------------------------
     ws["A1"] = billing.proyecto_id or ""
     ws["A1"].font = red_font
     ws["A1"].alignment = left
@@ -853,21 +848,16 @@ def export_client_excel(request, billing_id):
     ws["B1"].font = title_font
     ws["B1"].alignment = center
 
-    # Bordes del merge B1:D1
     ws["B1"].border = make_border(left=True, top=True, bottom=True)
     ws["C1"].border = make_border(top=True, bottom=True)
     ws["D1"].border = make_border(right=True, top=True, bottom=True)
 
-    # Completar líneas verticales arriba en E y F
     ws["E1"] = ""
     ws["E1"].border = make_border(left=True, right=True, top=True)
 
     ws["F1"] = ""
     ws["F1"].border = make_border(left=True, right=True, top=True)
 
-    # ---------------------------
-    # Header row 2
-    # ---------------------------
     ws["A2"] = "HH Number"
     ws["B2"] = "Seq. #1(In)"
     ws["C2"] = "Seq. #1(Out)"
@@ -896,22 +886,18 @@ def export_client_excel(request, billing_id):
     ws["E2"].border = make_border(left=True, right=True, top=True, bottom=True)
     ws["F2"].border = make_border(left=True, right=True, top=True, bottom=True)
 
-    # ---------------------------
-    # Data
-    # ---------------------------
     week_ending = _client_report_work_date(billing)
     start_row = 3
     last_row = start_row + len(requirements) - 1 if requirements else start_row
 
     for row_idx, req in enumerate(requirements, start=start_row):
-        # Nota: solo la nota de la foto handhole / camera
         handhole_evidence = (
             CableEvidence.objects.filter(
                 assignment_requirement__requirement=req,
                 shot_type=CableEvidence.SHOT_HANDHOLE,
             )
             .exclude(review_status=CableEvidence.REVIEW_REJECTED)
-            .order_by("-taken_at", "-id")
+            .order_by("-id")
             .first()
         )
 
@@ -920,27 +906,23 @@ def export_client_excel(request, billing_id):
 
         ws.row_dimensions[row_idx].height = 24 if not note_text else 30
 
-        # A = HH Number
         a = ws.cell(row_idx, 1, req.handhole or "")
         a.font = normal_font
         a.alignment = left
         a.border = make_border(left=True, bottom=True)
 
-        # B = Seq. #1(In)
         b = ws.cell(row_idx, 2)
         b.value = float(req.start_ft) if req.start_ft is not None else ""
         b.font = normal_font
         b.alignment = center
         b.border = make_border(bottom=True)
 
-        # C = Seq. #1(Out)
         c = ws.cell(row_idx, 3)
         c.value = float(req.end_ft) if req.end_ft is not None else ""
         c.font = normal_font
         c.alignment = center
         c.border = make_border(bottom=True)
 
-        # D = Slack
         d = ws.cell(row_idx, 4)
         d.value = (
             float(req.planned_reserve_ft) if req.planned_reserve_ft is not None else ""
@@ -949,20 +931,17 @@ def export_client_excel(request, billing_id):
         d.alignment = center
         d.border = make_border(bottom=True)
 
-        # E = Notes (rojo)
         e = ws.cell(row_idx, 5, note_text)
         e.font = notes_red_font
         e.alignment = left_wrap
         e.border = make_border(bottom=True)
 
-        # F = Week Ending
         f = ws.cell(row_idx, 6)
         f.value = week_ending.strftime("%m-%d-%y") if week_ending else ""
         f.font = normal_font
         f.alignment = center
         f.border = make_border(right=True, bottom=True)
 
-        # Última fila: cerrar borde inferior
         if is_last:
             a.border = make_border(left=True, bottom=True)
             b.border = make_border(bottom=True)
