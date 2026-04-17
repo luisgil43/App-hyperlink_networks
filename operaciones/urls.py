@@ -7,7 +7,7 @@ from . import views as v
 from . import views_adjustments
 from . import views_billing_camera as cam  # ✅ NUEVO
 from . import views_billing_exec as b
-from . import views_fotos_zip, views_plans
+from . import views_fotos_zip, views_plans, views_resumen
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -377,5 +377,11 @@ urlpatterns = [
         "mis-assignments/<int:pk>/upload-dispatch/",
         views.upload_evidencias_dispatch,
         name="upload_evidencias_dispatch",
+    ),
+    path("billing/resumen/", views_resumen.resumen_operativo, name="resumen_operativo"),
+    path(
+        "billing/resumen/export/",
+        views_resumen.export_resumen_operativo_xlsx,
+        name="resumen_operativo_export",
     ),
 ]
