@@ -55,6 +55,7 @@
     }
     .flag-indigo{ background:#e0e7ff; color:#4338ca; }
     .flag-cyan{ background:#cffafe; color:#0f766e; }
+    .flag-violet{ background:#ede9fe; color:#5b21b6; }
     .flag-purple{ background:#f3e8ff; color:#7e22ce; }
     .flag-emerald{ background:#d1fae5; color:#065f46; }
 
@@ -97,6 +98,113 @@
 
     details[open] .section-arrow{
       transform:rotate(90deg);
+    }
+
+    .subgroup-card{
+      border:1px solid rgb(229 231 235);
+      border-radius:1rem;
+      overflow:hidden;
+      background:#fff;
+    }
+
+    .subgroup-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:1rem;
+      padding:1rem 1rem .9rem 1rem;
+      border-bottom:1px solid rgb(229 231 235);
+    }
+
+    .subgroup-head-cable{
+      background:linear-gradient(180deg,#ecfeff 0%, #f8feff 100%);
+    }
+
+    .subgroup-head-fiber{
+      background:linear-gradient(180deg,#eef2ff 0%, #fafbff 100%);
+    }
+
+    .subgroup-kpis{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:.75rem;
+      text-align:right;
+    }
+
+    .subgroup-kpis .cap{
+      font-size:.72rem;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+      color:#6b7280;
+      font-weight:800;
+    }
+
+    .subgroup-kpis .val{
+      font-size:.95rem;
+      font-weight:800;
+      color:#111827;
+    }
+
+    .outside-breakdown{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:.75rem;
+      margin-top:1rem;
+    }
+
+    .outside-box{
+      border:1px solid rgb(229 231 235);
+      border-radius:.9rem;
+      padding:.8rem .9rem;
+      background:#fff;
+    }
+
+    .outside-box-cable{
+      background:linear-gradient(180deg,#ecfeff 0%, #ffffff 100%);
+    }
+
+    .outside-box-fiber{
+      background:linear-gradient(180deg,#eef2ff 0%, #ffffff 100%);
+    }
+
+    .outside-title{
+      font-size:.85rem;
+      font-weight:800;
+      color:#111827;
+      margin-bottom:.45rem;
+    }
+
+    .outside-metrics{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:.6rem;
+    }
+
+    .outside-metrics .cap{
+      font-size:.68rem;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+      color:#6b7280;
+      font-weight:800;
+    }
+
+    .outside-metrics .val{
+      font-size:.95rem;
+      font-weight:800;
+      color:#111827;
+    }
+
+    @media (max-width: 768px){
+      .outside-breakdown{
+        grid-template-columns:1fr;
+      }
+      .subgroup-kpis{
+        grid-template-columns:1fr;
+        text-align:left;
+      }
+      .outside-metrics{
+        grid-template-columns:1fr;
+      }
     }
   </style>
 
@@ -234,106 +342,183 @@
         </summary>
 
         <div class="px-4 sm:px-5 pb-5">
-          {% if s.items %}
-            <div class="overflow-x-auto rounded-2xl border border-gray-200">
-              <table class="summary-table min-w-[1280px] w-full text-sm">
-                <thead>
-                  <tr>
-                    <th>Billing</th>
-                    <th>Created</th>
-                    <th>Project ID</th>
-                    <th>Project</th>
-                    <th>Client</th>
-                    <th>City</th>
-                    <th>Office</th>
-                    <th>Projected week</th>
-                    <th>Real week</th>
-                    <th class="text-right">Company</th>
-                    <th class="text-right">Technical</th>
-                    <th>Finance</th>
-                    <th>Flags</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for it in s.items %}
-                    <tr class="hover:bg-gray-50">
-                      <td class="font-semibold text-gray-900">#{{ it.id }}</td>
-                      <td class="text-gray-700">
-                        {% if it.created_at %}{{ it.created_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}
-                      </td>
-                      <td class="font-mono text-gray-700">{{ it.project_id|default:"—" }}</td>
-                      <td class="font-medium text-gray-900">{{ it.project_label|default:"—" }}</td>
-                      <td>{{ it.client|default:"—" }}</td>
-                      <td>{{ it.city|default:"—" }}</td>
-                      <td>{{ it.office|default:"—" }}</td>
-                      <td>{{ it.projected_week|default:"—" }}</td>
-                      <td>{{ it.real_week|default:"—" }}</td>
-                      <td class="text-right font-semibold">
-                        {% localize on %}${{ it.subtotal_company|floatformat:2 }}{% endlocalize %}
-                      </td>
-                      <td class="text-right font-semibold">
-                        {% localize on %}${{ it.subtotal_technical|floatformat:2 }}{% endlocalize %}
-                      </td>
-                      <td>
-                        {% if it.finance_status == "none" %}
-                          <span class="pill pill-gray">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "review_discount" %}
-                          <span class="pill pill-amber">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "discount_applied" %}
-                          <span class="pill pill-green">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "sent" %}
-                          <span class="pill pill-blue">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "pending" %}
-                          <span class="pill pill-amber">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "in_review" %}
-                          <span class="pill pill-blue">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "rejected" %}
-                          <span class="pill pill-red">{{ it.finance_label }}</span>
-                        {% elif it.finance_status == "paid" %}
-                          <span class="pill pill-green">{{ it.finance_label }}</span>
+          <div class="outside-breakdown">
+            <div class="outside-box outside-box-cable">
+              <div class="outside-title">Cable</div>
+              <div class="outside-metrics">
+                <div>
+                  <div class="cap">Billings</div>
+                  <div class="val">{{ s.cable.count }}</div>
+                </div>
+                <div>
+                  <div class="cap">Company</div>
+                  <div class="val">{% localize on %}${{ s.cable.total_company|floatformat:2 }}{% endlocalize %}</div>
+                </div>
+                <div>
+                  <div class="cap">Technical</div>
+                  <div class="val">{% localize on %}${{ s.cable.total_technical|floatformat:2 }}{% endlocalize %}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="outside-box outside-box-fiber">
+              <div class="outside-title">Fiber / Underground</div>
+              <div class="outside-metrics">
+                <div>
+                  <div class="cap">Billings</div>
+                  <div class="val">{{ s.fiber.count }}</div>
+                </div>
+                <div>
+                  <div class="cap">Company</div>
+                  <div class="val">{% localize on %}${{ s.fiber.total_company|floatformat:2 }}{% endlocalize %}</div>
+                </div>
+                <div>
+                  <div class="cap">Technical</div>
+                  <div class="val">{% localize on %}${{ s.fiber.total_technical|floatformat:2 }}{% endlocalize %}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 space-y-4">
+            {% for g in s.subgroups %}
+              {% if g.count %}
+                <div class="subgroup-card">
+                  <div class="subgroup-head {% if g.slug == 'cable' %}subgroup-head-cable{% else %}subgroup-head-fiber{% endif %}">
+                    <div>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="text-base font-extrabold text-gray-900">{{ g.label }}</h3>
+
+                        {% if g.slug == 'cable' %}
+                          <span class="flag flag-cyan">Cable workflow</span>
                         {% else %}
-                          <span class="pill pill-gray">{{ it.finance_label }}</span>
+                          <span class="flag flag-violet">Fiber / Underground</span>
                         {% endif %}
-                      </td>
-                      <td>
-                        {% if it.is_direct_discount %}
-                          <span class="flag flag-indigo">Direct discount</span>
-                        {% endif %}
-                        {% if it.is_cable_installation %}
-                          <span class="flag flag-cyan">Cable</span>
-                        {% endif %}
-                        {% if it.is_split_child %}
-                          <span class="flag flag-purple">Split</span>
-                        {% endif %}
-                        {% if it.proyecto_especial %}
-                          <span class="flag flag-emerald">Special</span>
-                        {% endif %}
-                        {% if not it.is_direct_discount and not it.is_cable_installation and not it.is_split_child and not it.proyecto_especial %}
-                          <span class="text-gray-400">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-                <tfoot>
-                  <tr class="bg-gray-50 font-bold">
-                    <td colspan="9" class="text-right">Subtotal — {{ s.label }}</td>
-                    <td class="text-right">
-                      {% localize on %}${{ s.total_company|floatformat:2 }}{% endlocalize %}
-                    </td>
-                    <td class="text-right">
-                      {% localize on %}${{ s.total_technical|floatformat:2 }}{% endlocalize %}
-                    </td>
-                    <td colspan="2"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          {% else %}
-            <div class="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-              No billings found in this stage for the selected filter.
-            </div>
-          {% endif %}
+                      </div>
+                      <p class="text-xs text-gray-500 mt-1">
+                        {{ g.count }} billing{{ g.count|pluralize }} included in this subgroup.
+                      </p>
+                    </div>
+
+                    <div class="subgroup-kpis">
+                      <div>
+                        <div class="cap">Billings</div>
+                        <div class="val">{{ g.count }}</div>
+                      </div>
+                      <div>
+                        <div class="cap">Company</div>
+                        <div class="val">{% localize on %}${{ g.total_company|floatformat:2 }}{% endlocalize %}</div>
+                      </div>
+                      <div>
+                        <div class="cap">Technical</div>
+                        <div class="val">{% localize on %}${{ g.total_technical|floatformat:2 }}{% endlocalize %}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="summary-table min-w-[1280px] w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th>Billing</th>
+                          <th>Created</th>
+                          <th>Project ID</th>
+                          <th>Project</th>
+                          <th>Client</th>
+                          <th>City</th>
+                          <th>Office</th>
+                          <th>Projected week</th>
+                          <th>Real week</th>
+                          <th class="text-right">Company</th>
+                          <th class="text-right">Technical</th>
+                          <th>Finance</th>
+                          <th>Flags</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for it in g.items %}
+                          <tr class="hover:bg-gray-50">
+                            <td class="font-semibold text-gray-900">#{{ it.id }}</td>
+                            <td class="text-gray-700">
+                              {% if it.created_at %}{{ it.created_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}
+                            </td>
+                            <td class="font-mono text-gray-700">{{ it.project_id|default:"—" }}</td>
+                            <td class="font-medium text-gray-900">{{ it.project_label|default:"—" }}</td>
+                            <td>{{ it.client|default:"—" }}</td>
+                            <td>{{ it.city|default:"—" }}</td>
+                            <td>{{ it.office|default:"—" }}</td>
+                            <td>{{ it.projected_week|default:"—" }}</td>
+                            <td>{{ it.real_week|default:"—" }}</td>
+                            <td class="text-right font-semibold">
+                              {% localize on %}${{ it.subtotal_company|floatformat:2 }}{% endlocalize %}
+                            </td>
+                            <td class="text-right font-semibold">
+                              {% localize on %}${{ it.subtotal_technical|floatformat:2 }}{% endlocalize %}
+                            </td>
+                            <td>
+                              {% if it.finance_status == "none" %}
+                                <span class="pill pill-gray">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "review_discount" %}
+                                <span class="pill pill-amber">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "discount_applied" %}
+                                <span class="pill pill-green">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "sent" %}
+                                <span class="pill pill-blue">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "pending" %}
+                                <span class="pill pill-amber">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "in_review" %}
+                                <span class="pill pill-blue">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "rejected" %}
+                                <span class="pill pill-red">{{ it.finance_label }}</span>
+                              {% elif it.finance_status == "paid" %}
+                                <span class="pill pill-green">{{ it.finance_label }}</span>
+                              {% else %}
+                                <span class="pill pill-gray">{{ it.finance_label }}</span>
+                              {% endif %}
+                            </td>
+                            <td>
+                              {% if it.is_direct_discount %}
+                                <span class="flag flag-indigo">Direct discount</span>
+                              {% endif %}
+                              {% if it.is_cable_installation %}
+                                <span class="flag flag-cyan">Cable</span>
+                              {% else %}
+                                <span class="flag flag-violet">Fiber / Underground</span>
+                              {% endif %}
+                              {% if it.is_split_child %}
+                                <span class="flag flag-purple">Split</span>
+                              {% endif %}
+                              {% if it.proyecto_especial %}
+                                <span class="flag flag-emerald">Special</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                      <tfoot>
+                        <tr class="bg-gray-50 font-bold">
+                          <td colspan="9" class="text-right">Subtotal — {{ g.label }}</td>
+                          <td class="text-right">
+                            {% localize on %}${{ g.total_company|floatformat:2 }}{% endlocalize %}
+                          </td>
+                          <td class="text-right">
+                            {% localize on %}${{ g.total_technical|floatformat:2 }}{% endlocalize %}
+                          </td>
+                          <td colspan="2"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+
+            {% if not s.cable.count and not s.fiber.count %}
+              <div class="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                No billings found in this stage for the selected filter.
+              </div>
+            {% endif %}
+          </div>
         </div>
       </details>
     {% endfor %}

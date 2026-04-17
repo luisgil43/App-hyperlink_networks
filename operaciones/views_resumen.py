@@ -217,6 +217,24 @@ def _base_resumen_qs(user):
     return qs
 
 
+def _empty_bucket(label: str, slug: str):
+    return {
+        "label": label,
+        "slug": slug,
+        "count": 0,
+        "total_company": Decimal("0.00"),
+        "total_technical": Decimal("0.00"),
+        "items": [],
+    }
+
+
+def _append_item_to_bucket(bucket: dict, item: dict):
+    bucket["items"].append(item)
+    bucket["count"] += 1
+    bucket["total_company"] += item["subtotal_company"]
+    bucket["total_technical"] += item["subtotal_technical"]
+
+
 def _build_resumen_data(request):
     """
     Devuelve estructura completa del resumen operativo.
@@ -235,7 +253,6 @@ def _build_resumen_data(request):
     if week_sel:
         base = base.filter(semana_pago_proyectada=week_sel)
 
-    # Query de proyectos visibles para resolver nombres amigables
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
@@ -244,7 +261,6 @@ def _build_resumen_data(request):
 
     sesiones = list(base.order_by("-creado_en", "-id"))
 
-    # Estructura de grupos
     secciones = []
     total_global_count = 0
     total_global_company = Decimal("0.00")
@@ -255,11 +271,15 @@ def _build_resumen_data(request):
 
     for conf in ESTADOS_RESUMEN:
         statuses = set(conf["statuses"])
-        items = []
 
-        count = 0
-        total_company = Decimal("0.00")
-        total_technical = Decimal("0.00")
+        section_totals = {
+            "count": 0,
+            "total_company": Decimal("0.00"),
+            "total_technical": Decimal("0.00"),
+        }
+
+        cable = _empty_bucket("Cable", "cable")
+        fiber = _empty_bucket("Fiber / Underground", "fiber-underground")
 
         for s in sesiones:
             if (s.estado or "") not in statuses:
@@ -267,6 +287,7 @@ def _build_resumen_data(request):
 
             company = _safe_decimal(getattr(s, "subtotal_empresa", 0))
             technical = _safe_decimal(getattr(s, "subtotal_tecnico", 0))
+            is_cable = bool(getattr(s, "is_cable_installation", False))
 
             item = {
                 "id": s.id,
@@ -285,36 +306,40 @@ def _build_resumen_data(request):
                     s.finance_status, s.finance_status or "—"
                 ),
                 "is_direct_discount": bool(getattr(s, "is_direct_discount", False)),
-                "is_cable_installation": bool(
-                    getattr(s, "is_cable_installation", False)
-                ),
+                "is_cable_installation": is_cable,
                 "is_split_child": bool(getattr(s, "is_split_child", False)),
                 "proyecto_especial": bool(getattr(s, "proyecto_especial", False)),
             }
-            items.append(item)
 
-            count += 1
-            total_company += company
-            total_technical += technical
+            if is_cable:
+                _append_item_to_bucket(cable, item)
+            else:
+                _append_item_to_bucket(fiber, item)
 
-        total_global_count += count
-        total_global_company += total_company
-        total_global_technical += total_technical
+            section_totals["count"] += 1
+            section_totals["total_company"] += company
+            section_totals["total_technical"] += technical
+
+        total_global_count += section_totals["count"]
+        total_global_company += section_totals["total_company"]
+        total_global_technical += section_totals["total_technical"]
 
         if conf["key"] == "aprobado_supervisor":
-            approved_count = count
+            approved_count = section_totals["count"]
         if conf["key"] == "en_revision_supervisor":
-            review_count = count
+            review_count = section_totals["count"]
 
         secciones.append(
             {
                 "key": conf["key"],
                 "label": conf["label"],
                 "badge": conf["badge"],
-                "count": count,
-                "total_company": total_company,
-                "total_technical": total_technical,
-                "items": items,
+                "count": section_totals["count"],
+                "total_company": section_totals["total_company"],
+                "total_technical": section_totals["total_technical"],
+                "cable": cable,
+                "fiber": fiber,
+                "subgroups": [cable, fiber],
             }
         )
 
@@ -353,13 +378,14 @@ def export_resumen_operativo_xlsx(request):
     ws = wb.active
     ws.title = "Operational Summary"
 
-    # Estilos
     thin = Side(style="thin", color="D1D5DB")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     title_fill = PatternFill("solid", fgColor="E8EEF7")
     header_fill = PatternFill("solid", fgColor="1F2937")
     subheader_fill = PatternFill("solid", fgColor="F3F4F6")
+    cable_fill = PatternFill("solid", fgColor="ECFEFF")
+    fiber_fill = PatternFill("solid", fgColor="EEF2FF")
 
     title_font = Font(bold=True, size=14)
     white_bold = Font(bold=True, color="FFFFFF")
@@ -372,7 +398,7 @@ def export_resumen_operativo_xlsx(request):
     row = 1
 
     # Título
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=13)
     c = ws.cell(row=row, column=1, value="Operational Summary — Billing by stage")
     c.font = title_font
     c.alignment = center
@@ -386,19 +412,34 @@ def export_resumen_operativo_xlsx(request):
     ws.cell(row=row, column=5, value=ctx["total_global_count"])
     ws.cell(row=row, column=7, value="Total company").font = bold_font
     ws.cell(row=row, column=8, value=float(ctx["total_global_company"]))
-    ws.cell(row=row, column=9, value="Total technical").font = bold_font
-    ws.cell(row=row, column=10, value=float(ctx["total_global_technical"]))
+    ws.cell(row=row, column=10, value="Total technical").font = bold_font
+    ws.cell(row=row, column=11, value=float(ctx["total_global_technical"]))
 
-    for col in range(1, 11):
+    for col in range(1, 14):
         ws.cell(row=row, column=col).border = border
     row += 2
 
-    # Secciones
+    headers = [
+        "Billing",
+        "Created",
+        "Project ID",
+        "Project",
+        "Client",
+        "City",
+        "Office",
+        "Projected week",
+        "Real pay week",
+        "Company",
+        "Technical",
+        "Finance",
+        "Flags",
+    ]
+
     for sec in ctx["secciones"]:
         if not sec["count"]:
             continue
 
-        # Cabecera sección
+        # Cabecera etapa
         ws.cell(row=row, column=1, value=sec["label"]).font = bold_font
         ws.cell(row=row, column=2, value="Billings").font = bold_font
         ws.cell(row=row, column=3, value=sec["count"])
@@ -407,72 +448,104 @@ def export_resumen_operativo_xlsx(request):
         ws.cell(row=row, column=6, value="Technical").font = bold_font
         ws.cell(row=row, column=7, value=float(sec["total_technical"]))
 
-        for col in range(1, 8):
+        ws.cell(row=row, column=9, value="Cable").font = bold_font
+        ws.cell(row=row, column=10, value=sec["cable"]["count"])
+        ws.cell(row=row, column=11, value="Fiber / Underground").font = bold_font
+        ws.cell(row=row, column=12, value=sec["fiber"]["count"])
+
+        for col in range(1, 13):
             ws.cell(row=row, column=col).fill = subheader_fill
             ws.cell(row=row, column=col).border = border
         row += 1
 
-        headers = [
-            "Billing",
-            "Created",
-            "Project ID",
-            "Project",
-            "Client",
-            "City",
-            "Office",
-            "Projected week",
-            "Real pay week",
-            "Company",
-            "Technical",
-            "Finance",
-            "Flags",
-        ]
-        for idx, h in enumerate(headers, start=1):
-            cell = ws.cell(row=row, column=idx, value=h)
-            cell.font = white_bold
-            cell.fill = header_fill
-            cell.alignment = center
-            cell.border = border
-        row += 1
+        for subgroup in sec["subgroups"]:
+            if not subgroup["count"]:
+                continue
 
-        for item in sec["items"]:
-            flags = []
-            if item["is_direct_discount"]:
-                flags.append("Direct discount")
-            if item["is_cable_installation"]:
-                flags.append("Cable")
-            if item["is_split_child"]:
-                flags.append("Split")
-            if item["proyecto_especial"]:
-                flags.append("Special")
+            subgroup_fill = cable_fill if subgroup["slug"] == "cable" else fiber_fill
 
-            values = [
-                item["id"],
-                (
-                    item["created_at"].strftime("%Y-%m-%d %H:%M")
-                    if item["created_at"]
-                    else ""
-                ),
-                item["project_id"],
-                item["project_label"],
-                item["client"],
-                item["city"],
-                item["office"],
-                item["projected_week"],
-                item["real_week"],
-                float(item["subtotal_company"]),
-                float(item["subtotal_technical"]),
-                item["finance_label"],
-                ", ".join(flags),
-            ]
+            ws.cell(row=row, column=1, value=subgroup["label"]).font = bold_font
+            ws.cell(row=row, column=2, value="Billings").font = bold_font
+            ws.cell(row=row, column=3, value=subgroup["count"])
+            ws.cell(row=row, column=4, value="Company").font = bold_font
+            ws.cell(row=row, column=5, value=float(subgroup["total_company"]))
+            ws.cell(row=row, column=6, value="Technical").font = bold_font
+            ws.cell(row=row, column=7, value=float(subgroup["total_technical"]))
 
-            for idx, val in enumerate(values, start=1):
-                cell = ws.cell(row=row, column=idx, value=val)
+            for col in range(1, 8):
+                ws.cell(row=row, column=col).fill = subgroup_fill
+                ws.cell(row=row, column=col).border = border
+            row += 1
+
+            for idx, h in enumerate(headers, start=1):
+                cell = ws.cell(row=row, column=idx, value=h)
+                cell.font = white_bold
+                cell.fill = header_fill
+                cell.alignment = center
                 cell.border = border
-                if idx in (10, 11):
-                    cell.alignment = right
+            row += 1
+
+            for item in subgroup["items"]:
+                flags = []
+                if item["is_direct_discount"]:
+                    flags.append("Direct discount")
+                if item["is_cable_installation"]:
+                    flags.append("Cable")
                 else:
-                    cell.alignment = left
+                    flags.append("Fiber / Underground")
+                if item["is_split_child"]:
+                    flags.append("Split")
+                if item["proyecto_especial"]:
+                    flags.append("Special")
+
+                values = [
+                    item["id"],
+                    (
+                        item["created_at"].strftime("%Y-%m-%d %H:%M")
+                        if item["created_at"]
+                        else ""
+                    ),
+                    item["project_id"],
+                    item["project_label"],
+                    item["client"],
+                    item["city"],
+                    item["office"],
+                    item["projected_week"],
+                    item["real_week"],
+                    float(item["subtotal_company"]),
+                    float(item["subtotal_technical"]),
+                    item["finance_label"],
+                    ", ".join(flags),
+                ]
+
+                for idx, val in enumerate(values, start=1):
+                    cell = ws.cell(row=row, column=idx, value=val)
+                    cell.border = border
+                    if idx in (10, 11):
+                        cell.alignment = right
+                    else:
+                        cell.alignment = left
+                row += 1
+
+            ws.cell(
+                row=row,
+                column=9,
+                value=f"Subtotal — {subgroup['label']}",
+            ).font = bold_font
+            ws.cell(
+                row=row,
+                column=10,
+                value=float(subgroup["total_company"]),
+            ).font = bold_font
+            ws.cell(
+                row=row,
+                column=11,
+                value=float(subgroup["total_technical"]),
+            ).font = bold_font
+
+            for col in range(9, 12):
+                ws.cell(row=row, column=col).border = border
+                ws.cell(row=row, column=col).fill = subgroup_fill
             row += 1
 
         ws.cell(row=row, column=9, value=f"Subtotal — {sec['label']}").font = bold_font
@@ -486,7 +559,6 @@ def export_resumen_operativo_xlsx(request):
             ws.cell(row=row, column=col).fill = subheader_fill
         row += 2
 
-    # Ajuste ancho columnas
     for col in range(1, 14):
         max_len = 0
         for r in ws.iter_rows(min_col=col, max_col=col, min_row=1, max_row=ws.max_row):
@@ -498,7 +570,6 @@ def export_resumen_operativo_xlsx(request):
             max(max_len + 2, 12), 40
         )
 
-    # Formato numérico
     for col in (8, 10, 11):
         for r in range(2, ws.max_row + 1):
             ws.cell(r, col).number_format = "$#,##0.00"
