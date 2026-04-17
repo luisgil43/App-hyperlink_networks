@@ -1,0 +1,466 @@
+
+{% load static %}
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta id="meta-csrf" name="csrf-token" content="">
+
+
+<!-- iOS / Apple Touch Icons -->
+<link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
+<link rel="apple-touch-icon" sizes="120x120" href="{% static 'icons/apple-touch-icon-120x120.png' %}">
+<link rel="apple-touch-icon" sizes="180x180" href="{% static 'icons/apple-touch-icon-180x180.png' %}">
+
+<!-- Favicon clásico -->
+<link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32x32.png' %}">
+<link rel="icon" type="image/png" sizes="16x16" href="{% static 'icons/favicon-16x16.png' %}">
+<link rel="icon" href="{% static 'icons/favicon.ico' %}" sizes="any">
+
+<!-- PWA (opcional pero recomendado) -->
+<link rel="manifest" href="{% static 'icons/site.webmanifest' %}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hyperlink">
+
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .rotate-90 { transform: rotate(90deg); }
+        .bg-sidebar { background-color: #1e293b; }
+
+            /* ===== Layout: sidebar colapsable ===== */
+    .content-wrapper {
+      transition: margin-left 0.2s ease;
+    }
+
+    @media (min-width: 768px) {
+      .content-wrapper.with-sidebar main {
+        margin-left: 18rem; /* equivalente a ml-72 */
+      }
+      .content-wrapper.no-sidebar main {
+        margin-left: 0;
+      }
+    }
+
+    #side-nav {
+      transition: transform 0.2s ease;
+    }
+
+    /* En desktop, cuando está colapsado lo movemos a la izquierda */
+    @media (min-width: 768px) {
+      #side-nav.collapsed {
+        transform: translateX(-100%);
+      }
+    }
+    </style>
+</head>
+
+
+<body class="bg-gray-100 text-gray-900 min-h-screen">
+
+<!-- HEADER SUPERIOR FIJO -->
+<header id="app-header" class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
+  <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
+
+    <!-- Campanita de notificaciones -->
+    <div class="absolute top-2 right-4 z-50">
+      <button onclick="toggleNotifications()" class="relative text-gray-700">
+        <i data-lucide="bell" class="w-6 h-6"></i>
+        {% if notificaciones_no_leidas > 0 %}
+          <span class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+            {{ notificaciones_no_leidas }}
+          </span>
+        {% endif %}
+      </button>
+
+      <!-- Panel desplegable de notificaciones -->
+      <div id="notification-panel"
+           class="hidden absolute right-0 mt-2 w-72 bg-white border rounded-lg shadow-lg z-50">
+        <div class="p-2 max-h-80 overflow-y-auto">
+          {% for n in notificaciones_recientes %}
+            <div id="notificacion-{{ n.id }}">
+              <a href="{% url 'usuarios:leer_notificacion' n.id %}"
+                 class="block p-2 text-sm border-b w-full text-left {% if not n.leido %}bg-yellow-100{% else %}hover:bg-gray-100{% endif %}">
+                <div class="flex flex-col">
+                  <span>{{ n.mensaje }}</span>
+                  <span class="text-xs text-gray-400">{{ n.fecha|naturaltime }}</span>
+                </div>
+              </a>
+            </div>
+          {% empty %}
+            <p class="text-sm text-gray-500 p-2">No notification history.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Contenido principal del header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
+
+      <!-- IZQUIERDA: Logo y nombre -->
+      <div class="flex items-center gap-3 min-w-0">
+  <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
+  <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+  <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
+    HYPERLINK NETWORKS PLATFORM
+  </strong>
+</div>
+
+<div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+  <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
+    {{ request.user.get_full_name|default:request.user.username }}
+  </span>
+
+  <div class="flex items-center gap-2">
+    {% if can_switch_ui_mode %}
+      <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit"
+                class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
+                       hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
+                       whitespace-nowrap transition">
+          {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
+        </button>
+      </form>
+    {% endif %}
+
+    <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
+      {% csrf_token %}
+      <button type="submit"
+              class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
+                     hover:bg-red-50 hover:text-red-700 hover:border-red-700
+                     whitespace-nowrap transition">
+        Log Out
+      </button>
+    </form>
+  </div>
+</div>
+    </div>
+  </div>
+</header>
+
+<!-- CONTENEDOR PRINCIPAL -->
+<div class="flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar"
+     style="padding-top: var(--app-header-h, 56px);">
+
+  <!-- MENÚ LATERAL -->
+  <nav id="side-nav"
+  class="bg-gray-800 text-white w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
+  style="top: var(--app-header-h, 56px);">
+    <h2 class="text-2xl font-bold mb-8">Menu</h2>
+    <ul class="space-y-4 text-base">
+      <li>
+        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+      </li>
+
+      <!-- SECCIÓN: Operations -->
+      {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+            onclick="toggleMenu(this)">
+            <span class="flex items-center gap-2">🛠 Operations</span>
+            <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
+         <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Salaries & Productions</a></li>
+          <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
+<li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
+<li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
+<li><a href="{% url 'operaciones:resumen_operativo' %}" class="hover:text-emerald-400">Operational Summary</a></li>
+
+        </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: Human Resources -->
+      {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+          <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
+          <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+            <a href="{% url 'rrhh:list_rate_sheets' %}"  class="hover:text-emerald-400">Rate Sheets</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
+          {% endif %}
+          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+            <li><a href="#" class="hover:text-emerald-400">Employee Onboarding</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Employee Documents</a></li>
+            <a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Signature Records</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
+          {% endif %}
+        </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: Subcontract -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">🤝 Subcontractors</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
+            <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>   
+          </ul>
+      </li>
+      {% endif %}
+
+      <!-- SECCIÓN: Logistics -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">📦 Logistics</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Delivery</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Receiving</a></li>   
+      	<li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
+	<li><a href="#" class="hover:text-emerald-400">Assigned PPE</a></li>
+          </ul>
+      </li>
+      {% endif %}
+
+<!-- SECCIÓN: Fleet -->
+{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+       onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🚚 Fleet</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+
+  <ul class="ml-4 submenu space-y-1 hidden">
+    <li>
+      <a href="{% url 'fleet:vehicles_list' %}" class="hover:text-emerald-400">
+        Vehicles
+      </a>
+    </li>
+
+    <!-- ✅ Phase 2 -->
+    <li>
+      <a href="{% url 'fleet:odometer_logs_list' %}" class="hover:text-emerald-400">
+        Odometer Logs
+      </a>
+    </li>
+
+    <!-- ✅ Assignments (Phase next) -->
+    <li>
+      <a href="{% url 'fleet:assignments_list' %}" class="hover:text-emerald-400">
+        Assignments
+      </a>
+    </li>
+
+    
+   <li>
+  <a href="{% url 'fleet:service_list' %}" class="hover:text-emerald-400">
+    Services
+  </a>
+</li>
+
+  </ul>
+</li>
+{% endif %}
+
+      <!-- SECCIÓN: Finance -->
+      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">📑 Finance</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+            <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
+              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
+              <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Ready to Invoice</a></li>
+              
+
+       {% if request.user.es_admin_general or request.user.es_emision_facturacion  %}       
+              <li class="group">
+  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🧾 Invoicing</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+  <ul class="ml-4 submenu space-y-1 hidden">
+<li><a href="{% url 'invoicing:branding' %}" class="hover:text-emerald-400">Branding & Logos</a></li>
+                  <li><a href="{% url 'invoicing:customers_list' %}" class="hover:text-emerald-400">Customers</a></li>
+                  <li><a href="#" class="hover:text-emerald-400">Dashboard</a></li>
+                  <li><a href="{% url 'invoicing:invoices_list' %}" class="hover:text-emerald-400">Invoices</a></li>
+                  <li><a href="{% url 'invoicing:itemcodes_list' %}" class="hover:text-emerald-400">Item Codes</a></li>
+                  <li><a href="{% url 'invoicing:templates' %}" class="hover:text-emerald-400">Templates</a></li>
+  </ul>
+</li>
+          </ul>
+      </li>
+      {% endif %}
+      {% endif %}
+
+      {% if request.user.is_authenticated %}
+<li class="group">
+    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+         onclick="toggleMenu(this)">
+        <span class="flex items-center gap-2">🔐 Security</span>
+        <span class="flecha transition-transform duration-200">▶</span>
+    </div>
+    <ul class="ml-4 submenu space-y-1 hidden">
+        <li>
+            <a href="{% url 'usuarios:two_factor_setup' %}" class="hover:text-emerald-400">
+                Two-factor authentication & devices
+            </a>
+        </li>
+    </ul>
+</li>
+{% endif %}
+
+
+      <!-- SECCIÓN: User Management -->
+      {% if request.user.es_admin_general %}
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+              onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">👤 User Management</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#" class="hover:text-emerald-400">Groups</a></li>
+              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}" class="hover:text-emerald-400">Users</a></li>
+          </ul>
+      </li>
+      {% endif %}
+    </ul>
+
+    <!-- Pie de menú -->
+    <div class="mt-10 text-center text-gray-400 text-xs">
+      <p class="mb-1">Developed by</p>
+      <img src="{% static 'images/planixb.png' %}" alt="Planix" class="h-12 mx-auto max-w-[100px] object-contain">
+    </div>
+  </nav>
+
+  <!-- CONTENIDO PRINCIPAL -->
+ <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
+    {% block dashboard_content %}{% endblock %}
+  </main>
+</div>
+
+
+{# Toasts globales para ADMIN, igual que en usuario #}
+{% if messages %}
+<div id="mensajes-admin" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+  {% for message in messages %}
+  <div class="flex items-center justify-between p-4 rounded-md shadow text-white
+              {% if message.tags == 'success' %}bg-green-600
+              {% elif message.tags == 'error' %}bg-red-600
+              {% elif message.tags == 'warning' %}bg-yellow-500
+              {% else %}bg-blue-600{% endif %}">
+    <span>{{ message }}</span>
+    <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
+  </div>
+  {% endfor %}
+</div>
+<script>
+  setTimeout(() => {
+    const mensajes = document.getElementById('mensajes-admin');
+    if (mensajes) mensajes.remove();
+  }, 5000);
+</script>
+{% endif %}
+
+
+<!-- SCRIPTS -->
+<script>
+  // Abrir/cerrar submenús
+  function toggleMenu(el) {
+    const submenu = el.nextElementSibling;
+    const flecha = el.querySelector('.flecha');
+    if (submenu && flecha) {
+      submenu.classList.toggle('hidden');
+      flecha.classList.toggle('rotate-90');
+    }
+  }
+
+   // Mostrar/ocultar menú lateral
+  function toggleSidebar() {
+    const nav     = document.getElementById('side-nav');
+    const wrapper = document.querySelector('.content-wrapper');
+    if (!nav || !wrapper) return;
+
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+
+    if (isDesktop) {
+      // En desktop: colapsar/expandir y ajustar margen del contenido
+      const collapsed = nav.classList.toggle('collapsed');
+      wrapper.classList.toggle('no-sidebar', collapsed);
+      wrapper.classList.toggle('with-sidebar', !collapsed);
+    } else {
+      // En móvil: off-canvas clásico
+      nav.classList.toggle('-translate-x-full');
+    }
+  }
+
+  // Mostrar/ocultar panel de notificaciones
+  function toggleNotifications() {
+    const panel = document.getElementById('notification-panel');
+    if (panel) panel.classList.toggle('hidden');
+  }
+</script>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script> lucide.createIcons(); </script>
+
+
+<!-- Semilla CSRF: fuerza que Django genere token/cookie -->
+<!-- Semilla CSRF: fuerza que Django genere token/cookie -->
+<form class="hidden">{% csrf_token %}</form>
+
+<script>
+  // helper robusto (cookie → input → meta)
+  window.getCsrfToken = function () {
+    // Intenta primero por cookie
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]);
+
+    // Luego por input (inyectado por {% csrf_token %})
+    const i = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+    return i || '';
+  };
+
+  // Al cargar, pobla el <meta>
+  (function(){
+    const meta = document.getElementById('meta-csrf');
+    if (meta) {
+      meta.setAttribute('content', window.getCsrfToken() || '');
+    }
+  })();
+</script>
+<script>
+(function(){
+  function applyHeaderOffset(){
+    const header = document.getElementById('app-header');
+    if(!header) return;
+
+    const h = Math.ceil(header.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--app-header-h', h + 'px');
+  }
+
+  window.addEventListener('load', applyHeaderOffset);
+  window.addEventListener('resize', applyHeaderOffset);
+  window.addEventListener('orientationchange', applyHeaderOffset);
+})();
+</script>
+
+
+</body>
+</html>
+

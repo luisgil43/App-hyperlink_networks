@@ -1,4 +1,3 @@
-
 {% load static %}
 {% load humanize %}
 <!DOCTYPE html>
@@ -30,30 +29,93 @@
         .rotate-90 { transform: rotate(90deg); }
         .bg-sidebar { background-color: #1e293b; }
 
-            /* ===== Layout: sidebar colapsable ===== */
-    .content-wrapper {
-      transition: margin-left 0.2s ease;
-    }
+        /* ===== Layout: sidebar colapsable ===== */
+        .content-wrapper {
+          transition: margin-left 0.2s ease;
+        }
 
-    @media (min-width: 768px) {
-      .content-wrapper.with-sidebar main {
-        margin-left: 18rem; /* equivalente a ml-72 */
-      }
-      .content-wrapper.no-sidebar main {
-        margin-left: 0;
-      }
-    }
+        @media (min-width: 768px) {
+          .content-wrapper.with-sidebar main {
+            margin-left: 18rem; /* equivalente a ml-72 */
+          }
+          .content-wrapper.no-sidebar main {
+            margin-left: 0;
+          }
+        }
 
-    #side-nav {
-      transition: transform 0.2s ease;
-    }
+        #side-nav {
+          transition: transform 0.2s ease;
+        }
 
-    /* En desktop, cuando está colapsado lo movemos a la izquierda */
-    @media (min-width: 768px) {
-      #side-nav.collapsed {
-        transform: translateX(-100%);
-      }
-    }
+        /* En desktop, cuando está colapsado lo movemos a la izquierda */
+        @media (min-width: 768px) {
+          #side-nav.collapsed {
+            transform: translateX(-100%);
+          }
+        }
+
+        /* ===== Animación pro del logo ===== */
+        .brand-logo-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9999px;
+        }
+
+        .brand-logo-wrap::before {
+          content: "";
+          position: absolute;
+          inset: -6px;
+          border-radius: 9999px;
+          background: radial-gradient(circle, rgba(37,99,235,0.22) 0%, rgba(37,99,235,0.10) 35%, rgba(37,99,235,0) 70%);
+          animation: logoPulse 3.6s ease-in-out infinite;
+          pointer-events: none;
+        }
+
+        .brand-logo {
+          position: relative;
+          z-index: 1;
+          height: 3rem;
+          animation: logoFloat 4.2s ease-in-out infinite, logoGlow 3.2s ease-in-out infinite;
+          filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
+          transition: transform 0.25s ease, filter 0.25s ease;
+          will-change: transform, filter;
+        }
+
+        .brand-logo:hover {
+          transform: scale(1.04);
+          filter: drop-shadow(0 0 10px rgba(37,99,235,0.35));
+        }
+
+        @keyframes logoFloat {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-2px);
+          }
+        }
+
+        @keyframes logoGlow {
+          0%, 100% {
+            filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
+          }
+          50% {
+            filter: drop-shadow(0 0 8px rgba(37,99,235,0.28));
+          }
+        }
+
+        @keyframes logoPulse {
+          0%, 100% {
+            opacity: 0.55;
+            transform: scale(0.98);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.06);
+          }
+        }
     </style>
 </head>
 
@@ -101,43 +163,47 @@
 
       <!-- IZQUIERDA: Logo y nombre -->
       <div class="flex items-center gap-3 min-w-0">
-  <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
-  <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
-  <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
-    HYPERLINK NETWORKS PLATFORM
-  </strong>
-</div>
+        <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
 
-<div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-  <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
-    {{ request.user.get_full_name|default:request.user.username }}
-  </span>
+        <span class="brand-logo-wrap">
+          <img src="{% static 'images/logoh.png' %}" alt="Logo" class="brand-logo">
+        </span>
 
-  <div class="flex items-center gap-2">
-    {% if can_switch_ui_mode %}
-      <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
-        {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <button type="submit"
-                class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
-                       hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
-                       whitespace-nowrap transition">
-          {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
-        </button>
-      </form>
-    {% endif %}
+        <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
+          HYPERLINK NETWORKS PLATFORM
+        </strong>
+      </div>
 
-    <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
-      {% csrf_token %}
-      <button type="submit"
-              class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
-                     hover:bg-red-50 hover:text-red-700 hover:border-red-700
-                     whitespace-nowrap transition">
-        Log Out
-      </button>
-    </form>
-  </div>
-</div>
+      <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
+          {{ request.user.get_full_name|default:request.user.username }}
+        </span>
+
+        <div class="flex items-center gap-2">
+          {% if can_switch_ui_mode %}
+            <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit"
+                      class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
+                             hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
+                             whitespace-nowrap transition">
+                {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
+              </button>
+            </form>
+          {% endif %}
+
+          <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
+            {% csrf_token %}
+            <button type="submit"
+                    class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
+                           hover:bg-red-50 hover:text-red-700 hover:border-red-700
+                           whitespace-nowrap transition">
+              Log Out
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 </header>
@@ -166,12 +232,11 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
-         <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Salaries & Productions</a></li>
+          <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Salaries & Productions</a></li>
           <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
-<li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
-<li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
-<li><a href="{% url 'operaciones:resumen_operativo' %}" class="hover:text-emerald-400">Operational Summary</a></li>
-
+          <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
+          <li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
+          <li><a href="{% url 'operaciones:resumen_operativo' %}" class="hover:text-emerald-400">Operational Summary</a></li>
         </ul>
       </li>
       {% endif %}
@@ -185,7 +250,7 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <a href="{% url 'rrhh:list_rate_sheets' %}"  class="hover:text-emerald-400">Rate Sheets</a></li>
+            <a href="{% url 'rrhh:list_rate_sheets' %}" class="hover:text-emerald-400">Rate Sheets</a></li>
             <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
@@ -207,7 +272,7 @@
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
               <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>   
+              <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>
           </ul>
       </li>
       {% endif %}
@@ -224,53 +289,49 @@
               <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Delivery</a></li>
               <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Material Receiving</a></li>   
-      	<li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
-	<li><a href="#" class="hover:text-emerald-400">Assigned PPE</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Material Receiving</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
+              <li><a href="#" class="hover:text-emerald-400">Assigned PPE</a></li>
           </ul>
       </li>
       {% endif %}
 
-<!-- SECCIÓN: Fleet -->
-{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
-<li class="group">
-  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-       onclick="toggleMenu(this)">
-    <span class="flex items-center gap-2">🚚 Fleet</span>
-    <span class="flecha transition-transform duration-200">▶</span>
-  </div>
+      <!-- SECCIÓN: Fleet -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+             onclick="toggleMenu(this)">
+          <span class="flex items-center gap-2">🚚 Fleet</span>
+          <span class="flecha transition-transform duration-200">▶</span>
+        </div>
 
-  <ul class="ml-4 submenu space-y-1 hidden">
-    <li>
-      <a href="{% url 'fleet:vehicles_list' %}" class="hover:text-emerald-400">
-        Vehicles
-      </a>
-    </li>
+        <ul class="ml-4 submenu space-y-1 hidden">
+          <li>
+            <a href="{% url 'fleet:vehicles_list' %}" class="hover:text-emerald-400">
+              Vehicles
+            </a>
+          </li>
 
-    <!-- ✅ Phase 2 -->
-    <li>
-      <a href="{% url 'fleet:odometer_logs_list' %}" class="hover:text-emerald-400">
-        Odometer Logs
-      </a>
-    </li>
+          <li>
+            <a href="{% url 'fleet:odometer_logs_list' %}" class="hover:text-emerald-400">
+              Odometer Logs
+            </a>
+          </li>
 
-    <!-- ✅ Assignments (Phase next) -->
-    <li>
-      <a href="{% url 'fleet:assignments_list' %}" class="hover:text-emerald-400">
-        Assignments
-      </a>
-    </li>
+          <li>
+            <a href="{% url 'fleet:assignments_list' %}" class="hover:text-emerald-400">
+              Assignments
+            </a>
+          </li>
 
-    
-   <li>
-  <a href="{% url 'fleet:service_list' %}" class="hover:text-emerald-400">
-    Services
-  </a>
-</li>
-
-  </ul>
-</li>
-{% endif %}
+          <li>
+            <a href="{% url 'fleet:service_list' %}" class="hover:text-emerald-400">
+              Services
+            </a>
+          </li>
+        </ul>
+      </li>
+      {% endif %}
 
       <!-- SECCIÓN: Finance -->
       {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
@@ -281,49 +342,47 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-            <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
+              <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
               <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
               <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
               <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Ready to Invoice</a></li>
-              
 
-       {% if request.user.es_admin_general or request.user.es_emision_facturacion  %}       
+              {% if request.user.es_admin_general or request.user.es_emision_facturacion %}
               <li class="group">
-  <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
-    <span class="flex items-center gap-2">🧾 Invoicing</span>
-    <span class="flecha transition-transform duration-200">▶</span>
-  </div>
-  <ul class="ml-4 submenu space-y-1 hidden">
-<li><a href="{% url 'invoicing:branding' %}" class="hover:text-emerald-400">Branding & Logos</a></li>
+                <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+                  <span class="flex items-center gap-2">🧾 Invoicing</span>
+                  <span class="flecha transition-transform duration-200">▶</span>
+                </div>
+                <ul class="ml-4 submenu space-y-1 hidden">
+                  <li><a href="{% url 'invoicing:branding' %}" class="hover:text-emerald-400">Branding & Logos</a></li>
                   <li><a href="{% url 'invoicing:customers_list' %}" class="hover:text-emerald-400">Customers</a></li>
                   <li><a href="#" class="hover:text-emerald-400">Dashboard</a></li>
                   <li><a href="{% url 'invoicing:invoices_list' %}" class="hover:text-emerald-400">Invoices</a></li>
                   <li><a href="{% url 'invoicing:itemcodes_list' %}" class="hover:text-emerald-400">Item Codes</a></li>
                   <li><a href="{% url 'invoicing:templates' %}" class="hover:text-emerald-400">Templates</a></li>
-  </ul>
-</li>
+                </ul>
+              </li>
+              {% endif %}
           </ul>
       </li>
       {% endif %}
-      {% endif %}
 
       {% if request.user.is_authenticated %}
-<li class="group">
-    <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
-         onclick="toggleMenu(this)">
-        <span class="flex items-center gap-2">🔐 Security</span>
-        <span class="flecha transition-transform duration-200">▶</span>
-    </div>
-    <ul class="ml-4 submenu space-y-1 hidden">
-        <li>
-            <a href="{% url 'usuarios:two_factor_setup' %}" class="hover:text-emerald-400">
-                Two-factor authentication & devices
-            </a>
-        </li>
-    </ul>
-</li>
-{% endif %}
-
+      <li class="group">
+          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+               onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">🔐 Security</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li>
+                  <a href="{% url 'usuarios:two_factor_setup' %}" class="hover:text-emerald-400">
+                      Two-factor authentication & devices
+                  </a>
+              </li>
+          </ul>
+      </li>
+      {% endif %}
 
       <!-- SECCIÓN: User Management -->
       {% if request.user.es_admin_general %}
@@ -349,7 +408,7 @@
   </nav>
 
   <!-- CONTENIDO PRINCIPAL -->
- <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
+  <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
     {% block dashboard_content %}{% endblock %}
   </main>
 </div>
@@ -390,7 +449,7 @@
     }
   }
 
-   // Mostrar/ocultar menú lateral
+  // Mostrar/ocultar menú lateral
   function toggleSidebar() {
     const nav     = document.getElementById('side-nav');
     const wrapper = document.querySelector('.content-wrapper');
@@ -421,7 +480,6 @@
 
 
 <!-- Semilla CSRF: fuerza que Django genere token/cookie -->
-<!-- Semilla CSRF: fuerza que Django genere token/cookie -->
 <form class="hidden">{% csrf_token %}</form>
 
 <script>
@@ -444,6 +502,7 @@
     }
   })();
 </script>
+
 <script>
 (function(){
   function applyHeaderOffset(){
@@ -463,4 +522,3 @@
 
 </body>
 </html>
-
