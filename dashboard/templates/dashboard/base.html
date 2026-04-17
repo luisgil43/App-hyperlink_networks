@@ -30,7 +30,18 @@
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
-    :root { --app-header-h: 56px; }
+    :root {
+      --app-header-h: 56px;
+
+      --sidebar-bg-1: #2f6be6;
+      --sidebar-bg-2: #2b61d6;
+      --sidebar-bg-3: #244fba;
+      --sidebar-text: #f4f8ff;
+      --sidebar-text-soft: #e2eeff;
+      --sidebar-hover: rgba(255,255,255,0.12);
+      --sidebar-hover-strong: rgba(255,255,255,0.18);
+      --sidebar-border: rgba(255,255,255,0.14);
+    }
 
     .rotate-90 { transform: rotate(90deg); }
 
@@ -46,6 +57,149 @@
 
     @media (min-width: 768px) {
       #side-nav.collapsed { transform: translateX(-100%); }
+    }
+
+    /* ===== Sidebar pro azul ===== */
+    #side-nav {
+      background: linear-gradient(
+        180deg,
+        var(--sidebar-bg-1) 0%,
+        var(--sidebar-bg-2) 52%,
+        var(--sidebar-bg-3) 100%
+      );
+      color: var(--sidebar-text);
+      border-right: 1px solid var(--sidebar-border);
+      box-shadow:
+        10px 0 30px rgba(36, 79, 186, 0.18),
+        inset -1px 0 0 rgba(255,255,255,0.05);
+    }
+
+    #side-nav h2 {
+      color: #ffffff;
+      letter-spacing: 0.2px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      font-weight: 800;
+      font-size: 2rem;
+    }
+
+    #side-nav > ul {
+      font-size: 1.03rem;
+    }
+
+    #side-nav > ul > li > a,
+    #side-nav > ul > li > span {
+      color: var(--sidebar-text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+    }
+
+    #side-nav > ul > li > a:hover,
+    #side-nav > ul > li > span:hover {
+      background: var(--sidebar-hover);
+      color: #ffffff;
+      transform: translateX(2px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+
+    #side-nav .submenu {
+      margin-top: 6px;
+    }
+
+    #side-nav .submenu li a,
+    #side-nav .submenu > a {
+      display: block;
+      color: var(--sidebar-text-soft);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-weight: 600;
+      transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+    }
+
+    #side-nav .submenu li a:hover,
+    #side-nav .submenu > a:hover {
+      background: var(--sidebar-hover-strong);
+      color: #ffffff;
+      transform: translateX(2px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+
+    #side-nav .arrow {
+      color: #edf4ff;
+      font-weight: 800;
+      font-size: 1rem;
+    }
+
+    #side-nav .text-gray-400 {
+      color: #d7e6ff !important;
+    }
+
+    #side-nav .text-xs {
+      letter-spacing: 0.2px;
+    }
+
+    /* ===== Logo header ===== */
+    .brand-logo-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9999px;
+    }
+
+    .brand-logo-wrap::before {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: 9999px;
+      background: radial-gradient(circle, rgba(37,99,235,0.22) 0%, rgba(37,99,235,0.10) 35%, rgba(37,99,235,0) 70%);
+      animation: logoPulse 3.6s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .brand-logo {
+      position: relative;
+      z-index: 1;
+      height: 3rem;
+      animation: logoFloat 4.2s ease-in-out infinite, logoGlow 3.2s ease-in-out infinite;
+      filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
+      transition: transform 0.25s ease, filter 0.25s ease;
+      will-change: transform, filter;
+    }
+
+    .brand-logo:hover {
+      transform: scale(1.04);
+      filter: drop-shadow(0 0 10px rgba(37,99,235,0.35));
+    }
+
+    @keyframes logoFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+
+    @keyframes logoGlow {
+      0%, 100% { filter: drop-shadow(0 0 0 rgba(37,99,235,0.00)); }
+      50% { filter: drop-shadow(0 0 8px rgba(37,99,235,0.28)); }
+    }
+
+    @keyframes logoPulse {
+      0%, 100% {
+        opacity: 0.55;
+        transform: scale(0.98);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.06);
+      }
     }
   </style>
 </head>
@@ -94,7 +248,11 @@
       <!-- Logo y texto -->
       <div class="flex items-center gap-3 min-w-0">
         <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
-        <img src="{% static 'images/logoh.png' %}" alt="Logo" class="h-12">
+
+        <span class="brand-logo-wrap">
+          <img src="{% static 'images/logoh.png' %}" alt="Logo" class="brand-logo">
+        </span>
+
         <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
           HYPERLINK NETWORKS PLATFORM
         </strong>
@@ -142,53 +300,58 @@
 
   <!-- MENÚ LATERAL -->
   <nav id="side-nav"
-       class="bg-gray-800 text-white w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
+       class="w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
        style="top: var(--app-header-h, 56px);">
     <h2 class="text-2xl font-bold mb-8">Menu</h2>
     <ul class="space-y-4 text-base">
       <li>
-        <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+        <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center">🏠 Home</a>
       </li>
+
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li><a href="{% url 'fleet:my_vehicle_dashboard' %}" class="hover:text-emerald-400">My Assigned Vehicle</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Maintenance</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Vehicle Documentation</a></li>
+          <li><a href="{% url 'fleet:my_vehicle_dashboard' %}">My Assigned Vehicle</a></li>
+          <li><a href="#">Maintenance</a></li>
+          <li><a href="#">Vehicle Documentation</a></li>
         </ul>
       </li>
+
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li><a href="#" class="hover:text-emerald-400">Material Request</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
-          <li><a href="#" class="hover:text-emerald-400">My Assigned Equipment</a></li>
-          <li><a href="#" class="hover:text-emerald-400">My Assigned PPE</a></li>
+          <li><a href="#">Material Request</a></li>
+          <li><a href="#">Material Return</a></li>
+          <li><a href="#">My Assigned Equipment</a></li>
+          <li><a href="#">My Assigned PPE</a></li>
         </ul>
       </li>
+
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <a href="{% url 'operaciones:mis_assignments' %}" class="hover:text-emerald-400">My Assignment</a></li>
-          <li><a href="{% url 'operaciones:produccion_usuario' %}" class="hover:text-emerald-400">Salary & Production</a></li>
-          <li><a href="{% url 'operaciones:mis_rendiciones' %}" class="hover:text-emerald-400">My Expense Reports</a></li>
+          <li><a href="{% url 'operaciones:mis_assignments' %}">My Assignment</a></li>
+          <li><a href="{% url 'operaciones:produccion_usuario' %}">Salary & Production</a></li>
+          <li><a href="{% url 'operaciones:mis_rendiciones' %}">My Expense Reports</a></li>
         </ul>
       </li>
+
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <a href="{% url 'rrhh:my_rate_sheets' %}" class="hover:text-emerald-400">My Rate Sheets</a></li>
-          <li><a href="#" class="hover:text-emerald-400">My Employment Agreement</a></li>
-          <li><a href="#" class="hover:text-emerald-400">My Onboarding Form</a></li>
-          <li><a href="#" class="hover:text-emerald-400">My Documents</a></li>
-          <a href="{% url 'rrhh:register_signature' %}" class="hover:text-emerald-400">My Digital Signature</a></li>
+          <li><a href="{% url 'rrhh:my_rate_sheets' %}">My Rate Sheets</a></li>
+          <li><a href="#">My Employment Agreement</a></li>
+          <li><a href="#">My Onboarding Form</a></li>
+          <li><a href="#">My Documents</a></li>
+          <li><a href="{% url 'rrhh:register_signature' %}">My Digital Signature</a></li>
         </ul>
       </li>
+
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontractors <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
-          <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>
+          <li><a href="#">Upload Production</a></li>
+          <li><a href="#">Onboarding Documents</a></li>
         </ul>
       </li>
     </ul>
@@ -204,7 +367,6 @@
   <main id="main-content" class="flex-1 p-6 z-10 bg-gray-100">
     {% block content %}{% endblock %}
   </main>
-
 </div>
 
 <!-- Scripts de interacción -->
@@ -226,21 +388,18 @@
     }
   }
 
-  // Mostrar/ocultar menú lateral
   function toggleSidebar() {
-    const nav     = document.getElementById('side-nav');
+    const nav = document.getElementById('side-nav');
     const wrapper = document.querySelector('.content-wrapper');
     if (!nav || !wrapper) return;
 
     const isDesktop = window.matchMedia('(min-width: 768px)').matches;
 
     if (isDesktop) {
-      // En desktop: colapsar/expandir y ajustar margen del contenido
       const collapsed = nav.classList.toggle('collapsed');
       wrapper.classList.toggle('no-sidebar', collapsed);
       wrapper.classList.toggle('with-sidebar', !collapsed);
     } else {
-      // En móvil: off-canvas clásico
       nav.classList.toggle('-translate-x-full');
     }
   }
@@ -269,7 +428,6 @@
 {% endif %}
 
 <script>
-  // Marcar notificación como leída y redirigir
   function leerNotificacion(id, urlDestino) {
     fetch(`/usuarios/notificacion/${id}/leer/`)
       .then(response => {
@@ -290,7 +448,6 @@
       });
   }
 
-  // Mostrar u ocultar el panel de notificaciones
   function toggleNotifications() {
     const panel = document.getElementById('notification-panel');
     if (panel) {

@@ -23,100 +23,198 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Hyperlink">
 
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    :root{
+      --sidebar-bg-1: #2f6be6;
+      --sidebar-bg-2: #2b61d6;
+      --sidebar-bg-3: #244fba;
+      --sidebar-text: #f4f8ff;
+      --sidebar-text-soft: #e2eeff;
+      --sidebar-accent: #ffffff;
+      --sidebar-hover: rgba(255,255,255,0.12);
+      --sidebar-hover-strong: rgba(255,255,255,0.18);
+      --sidebar-border: rgba(255,255,255,0.14);
+    }
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .rotate-90 { transform: rotate(90deg); }
-        .bg-sidebar { background-color: #1e293b; }
+    .rotate-90 { transform: rotate(90deg); }
+    .bg-sidebar { background-color: #1e293b; }
 
-        /* ===== Layout: sidebar colapsable ===== */
-        .content-wrapper {
-          transition: margin-left 0.2s ease;
-        }
+    /* ===== Layout: sidebar colapsable ===== */
+    .content-wrapper {
+      transition: margin-left 0.2s ease;
+    }
 
-        @media (min-width: 768px) {
-          .content-wrapper.with-sidebar main {
-            margin-left: 18rem; /* equivalente a ml-72 */
-          }
-          .content-wrapper.no-sidebar main {
-            margin-left: 0;
-          }
-        }
+    @media (min-width: 768px) {
+      .content-wrapper.with-sidebar main {
+        margin-left: 18rem;
+      }
+      .content-wrapper.no-sidebar main {
+        margin-left: 0;
+      }
+    }
 
-        #side-nav {
-          transition: transform 0.2s ease;
-        }
+    #side-nav {
+      transition: transform 0.2s ease;
+    }
 
-        /* En desktop, cuando está colapsado lo movemos a la izquierda */
-        @media (min-width: 768px) {
-          #side-nav.collapsed {
-            transform: translateX(-100%);
-          }
-        }
+    @media (min-width: 768px) {
+      #side-nav.collapsed {
+        transform: translateX(-100%);
+      }
+    }
 
-        /* ===== Animación pro del logo ===== */
-        .brand-logo-wrap {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-        }
+    /* ===== Sidebar nuevo color ===== */
+    #side-nav {
+      background: linear-gradient(
+        180deg,
+        var(--sidebar-bg-1) 0%,
+        var(--sidebar-bg-2) 52%,
+        var(--sidebar-bg-3) 100%
+      );
+      color: var(--sidebar-text);
+      border-right: 1px solid var(--sidebar-border);
+      box-shadow:
+        10px 0 30px rgba(36, 79, 186, 0.18),
+        inset -1px 0 0 rgba(255,255,255,0.05);
+    }
 
-        .brand-logo-wrap::before {
-          content: "";
-          position: absolute;
-          inset: -6px;
-          border-radius: 9999px;
-          background: radial-gradient(circle, rgba(37,99,235,0.22) 0%, rgba(37,99,235,0.10) 35%, rgba(37,99,235,0) 70%);
-          animation: logoPulse 3.6s ease-in-out infinite;
-          pointer-events: none;
-        }
+    #side-nav h2 {
+      color: #ffffff;
+      letter-spacing: 0.2px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      font-weight: 800;
+      font-size: 2rem;
+    }
 
-        .brand-logo {
-          position: relative;
-          z-index: 1;
-          height: 3rem;
-          animation: logoFloat 4.2s ease-in-out infinite, logoGlow 3.2s ease-in-out infinite;
-          filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
-          transition: transform 0.25s ease, filter 0.25s ease;
-          will-change: transform, filter;
-        }
+    #side-nav > ul {
+      font-size: 1.03rem;
+    }
 
-        .brand-logo:hover {
-          transform: scale(1.04);
-          filter: drop-shadow(0 0 10px rgba(37,99,235,0.35));
-        }
+    #side-nav > ul > li > a,
+    #side-nav > ul > li > div {
+      color: var(--sidebar-text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+    }
 
-        @keyframes logoFloat {
-          0%, 100% {
-            transform: translateY(0);
-          }
-          50% {
-            transform: translateY(-2px);
-          }
-        }
+    #side-nav > ul > li > a:hover,
+    #side-nav > ul > li > div:hover {
+      background: var(--sidebar-hover);
+      color: #ffffff;
+      transform: translateX(2px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
 
-        @keyframes logoGlow {
-          0%, 100% {
-            filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
-          }
-          50% {
-            filter: drop-shadow(0 0 8px rgba(37,99,235,0.28));
-          }
-        }
+    #side-nav .submenu {
+      margin-top: 6px;
+    }
 
-        @keyframes logoPulse {
-          0%, 100% {
-            opacity: 0.55;
-            transform: scale(0.98);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.06);
-          }
-        }
-    </style>
+    #side-nav .submenu li a,
+    #side-nav .submenu > a {
+      display: block;
+      color: var(--sidebar-text-soft);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-weight: 600;
+      transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+    }
+
+    #side-nav .submenu li a:hover,
+    #side-nav .submenu > a:hover {
+      background: var(--sidebar-hover-strong);
+      color: #ffffff;
+      transform: translateX(2px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+
+    #side-nav .flecha {
+      color: #edf4ff;
+      font-weight: 800;
+      font-size: 1rem;
+    }
+
+    #side-nav .text-gray-400 {
+      color: #d7e6ff !important;
+    }
+
+    #side-nav .text-xs {
+      letter-spacing: 0.2px;
+    }
+
+    /* ===== Animación pro del logo ===== */
+    .brand-logo-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9999px;
+    }
+
+    .brand-logo-wrap::before {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: 9999px;
+      background: radial-gradient(circle, rgba(37,99,235,0.22) 0%, rgba(37,99,235,0.10) 35%, rgba(37,99,235,0) 70%);
+      animation: logoPulse 3.6s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .brand-logo {
+      position: relative;
+      z-index: 1;
+      height: 3rem;
+      animation: logoFloat 4.2s ease-in-out infinite, logoGlow 3.2s ease-in-out infinite;
+      filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
+      transition: transform 0.25s ease, filter 0.25s ease;
+      will-change: transform, filter;
+    }
+
+    .brand-logo:hover {
+      transform: scale(1.04);
+      filter: drop-shadow(0 0 10px rgba(37,99,235,0.35));
+    }
+
+    @keyframes logoFloat {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-2px);
+      }
+    }
+
+    @keyframes logoGlow {
+      0%, 100% {
+        filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
+      }
+      50% {
+        filter: drop-shadow(0 0 8px rgba(37,99,235,0.28));
+      }
+    }
+
+    @keyframes logoPulse {
+      0%, 100% {
+        opacity: 0.55;
+        transform: scale(0.98);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.06);
+      }
+    }
+</style>
 </head>
 
 
@@ -214,29 +312,29 @@
 
   <!-- MENÚ LATERAL -->
   <nav id="side-nav"
-  class="bg-gray-800 text-white w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
+  class="w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
   style="top: var(--app-header-h, 56px);">
     <h2 class="text-2xl font-bold mb-8">Menu</h2>
     <ul class="space-y-4 text-base">
       <li>
-        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center hover:text-emerald-400">🏠 Home</a>
+        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center">🏠 Home</a>
       </li>
 
       <!-- SECCIÓN: Operations -->
       {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
       <li class="group">
-        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+        <div class="flex justify-between items-center cursor-pointer"
             onclick="toggleMenu(this)">
             <span class="flex items-center gap-2">🛠 Operations</span>
             <span class="flecha transition-transform duration-200">▶</span>
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
-          <li><a href="#" class="hover:text-emerald-400">Overtime</a></li>
-          <li><a href="{% url 'operaciones:produccion_admin'%}" class="hover:text-emerald-400">Salaries & Productions</a></li>
-          <li><a href="{% url 'operaciones:vista_rendiciones' %}" class="hover:text-emerald-400">Expense Reports</a></li>
-          <li><a href="{% url 'operaciones:listar_precios_tecnico' %}" class="hover:text-emerald-400">Technician Pricing Table</a></li>
-          <li><a href="{% url 'operaciones:listar_billing' %}" class="hover:text-emerald-400">Create Billing</a></li>
-          <li><a href="{% url 'operaciones:resumen_operativo' %}" class="hover:text-emerald-400">Operational Summary</a></li>
+          <li><a href="#">Overtime</a></li>
+          <li><a href="{% url 'operaciones:produccion_admin'%}">Salaries & Productions</a></li>
+          <li><a href="{% url 'operaciones:vista_rendiciones' %}">Expense Reports</a></li>
+          <li><a href="{% url 'operaciones:listar_precios_tecnico' %}">Technician Pricing Table</a></li>
+          <li><a href="{% url 'operaciones:listar_billing' %}">Create Billing</a></li>
+          <li><a href="{% url 'operaciones:resumen_operativo' %}">Operational Summary</a></li>
         </ul>
       </li>
       {% endif %}
@@ -244,20 +342,20 @@
       <!-- SECCIÓN: Human Resources -->
       {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
       <li class="group">
-        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+        <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
           <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
           <span class="flecha transition-transform duration-200">▶</span>
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <a href="{% url 'rrhh:list_rate_sheets' %}" class="hover:text-emerald-400">Rate Sheets</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Employment Agreement</a></li>
+            <a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
+            <li><a href="#">Employment Agreement</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="#" class="hover:text-emerald-400">Employee Onboarding</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Employee Documents</a></li>
-            <a href="{% url 'rrhh:listar_firmas' %}" class="hover:text-emerald-400">Signature Records</a></li>
-            <li><a href="#" class="hover:text-emerald-400">Upload Legal Representative Signature</a></li>
+            <li><a href="#">Employee Onboarding</a></li>
+            <li><a href="#">Employee Documents</a></li>
+            <a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
+            <li><a href="#">Upload Legal Representative Signature</a></li>
           {% endif %}
         </ul>
       </li>
@@ -266,13 +364,13 @@
       <!-- SECCIÓN: Subcontract -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}
       <li class="group">
-          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+          <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">🤝 Subcontractors</span>
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#" class="hover:text-emerald-400">Upload Production</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Onboarding Documents</a></li>
+              <li><a href="#">Upload Production</a></li>
+              <li><a href="#">Onboarding Documents</a></li>
           </ul>
       </li>
       {% endif %}
@@ -280,18 +378,18 @@
       <!-- SECCIÓN: Logistics -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
       <li class="group">
-          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+          <div class="flex justify-between items-center cursor-pointer"
               onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">📦 Logistics</span>
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#" class="hover:text-emerald-400">Material Return</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Material Delivery</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Material Transfer</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Material Receiving</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Equipment Assignment</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Assigned PPE</a></li>
+              <li><a href="#">Material Return</a></li>
+              <li><a href="#">Material Delivery</a></li>
+              <li><a href="#">Material Transfer</a></li>
+              <li><a href="#">Material Receiving</a></li>
+              <li><a href="#">Equipment Assignment</a></li>
+              <li><a href="#">Assigned PPE</a></li>
           </ul>
       </li>
       {% endif %}
@@ -299,7 +397,7 @@
       <!-- SECCIÓN: Fleet -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
       <li class="group">
-        <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+        <div class="flex justify-between items-center cursor-pointer"
              onclick="toggleMenu(this)">
           <span class="flex items-center gap-2">🚚 Fleet</span>
           <span class="flecha transition-transform duration-200">▶</span>
@@ -307,25 +405,25 @@
 
         <ul class="ml-4 submenu space-y-1 hidden">
           <li>
-            <a href="{% url 'fleet:vehicles_list' %}" class="hover:text-emerald-400">
+            <a href="{% url 'fleet:vehicles_list' %}">
               Vehicles
             </a>
           </li>
 
           <li>
-            <a href="{% url 'fleet:odometer_logs_list' %}" class="hover:text-emerald-400">
+            <a href="{% url 'fleet:odometer_logs_list' %}">
               Odometer Logs
             </a>
           </li>
 
           <li>
-            <a href="{% url 'fleet:assignments_list' %}" class="hover:text-emerald-400">
+            <a href="{% url 'fleet:assignments_list' %}">
               Assignments
             </a>
           </li>
 
           <li>
-            <a href="{% url 'fleet:service_list' %}" class="hover:text-emerald-400">
+            <a href="{% url 'fleet:service_list' %}">
               Services
             </a>
           </li>
@@ -336,30 +434,30 @@
       <!-- SECCIÓN: Finance -->
       {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
       <li class="group">
-          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+          <div class="flex justify-between items-center cursor-pointer"
               onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">📑 Finance</span>
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="{% url 'facturacion:listar_cartola' %}" class="hover:text-emerald-400">Account Transactions</a></li>
-              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}" class="hover:text-emerald-400">Available Balances</a></li>
-              <li><a href="#" class="hover:text-emerald-400">Purchase Orders</a></li>
-              <li><a href="{% url 'facturacion:invoices' %}" class="hover:text-emerald-400">Ready to Invoice</a></li>
+              <li><a href="{% url 'facturacion:listar_cartola' %}">Account Transactions</a></li>
+              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}">Available Balances</a></li>
+              <li><a href="#">Purchase Orders</a></li>
+              <li><a href="{% url 'facturacion:invoices' %}">Ready to Invoice</a></li>
 
               {% if request.user.es_admin_general or request.user.es_emision_facturacion %}
               <li class="group">
-                <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400" onclick="toggleMenu(this)">
+                <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
                   <span class="flex items-center gap-2">🧾 Invoicing</span>
                   <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
-                  <li><a href="{% url 'invoicing:branding' %}" class="hover:text-emerald-400">Branding & Logos</a></li>
-                  <li><a href="{% url 'invoicing:customers_list' %}" class="hover:text-emerald-400">Customers</a></li>
-                  <li><a href="#" class="hover:text-emerald-400">Dashboard</a></li>
-                  <li><a href="{% url 'invoicing:invoices_list' %}" class="hover:text-emerald-400">Invoices</a></li>
-                  <li><a href="{% url 'invoicing:itemcodes_list' %}" class="hover:text-emerald-400">Item Codes</a></li>
-                  <li><a href="{% url 'invoicing:templates' %}" class="hover:text-emerald-400">Templates</a></li>
+                  <li><a href="{% url 'invoicing:branding' %}">Branding & Logos</a></li>
+                  <li><a href="{% url 'invoicing:customers_list' %}">Customers</a></li>
+                  <li><a href="#">Dashboard</a></li>
+                  <li><a href="{% url 'invoicing:invoices_list' %}">Invoices</a></li>
+                  <li><a href="{% url 'invoicing:itemcodes_list' %}">Item Codes</a></li>
+                  <li><a href="{% url 'invoicing:templates' %}">Templates</a></li>
                 </ul>
               </li>
               {% endif %}
@@ -369,14 +467,14 @@
 
       {% if request.user.is_authenticated %}
       <li class="group">
-          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+          <div class="flex justify-between items-center cursor-pointer"
                onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">🔐 Security</span>
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
               <li>
-                  <a href="{% url 'usuarios:two_factor_setup' %}" class="hover:text-emerald-400">
+                  <a href="{% url 'usuarios:two_factor_setup' %}">
                       Two-factor authentication & devices
                   </a>
               </li>
@@ -387,14 +485,14 @@
       <!-- SECCIÓN: User Management -->
       {% if request.user.es_admin_general %}
       <li class="group">
-          <div class="flex justify-between items-center cursor-pointer hover:text-emerald-400"
+          <div class="flex justify-between items-center cursor-pointer"
               onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">👤 User Management</span>
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#" class="hover:text-emerald-400">Groups</a></li>
-              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}" class="hover:text-emerald-400">Users</a></li>
+              <li><a href="#">Groups</a></li>
+              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}">Users</a></li>
           </ul>
       </li>
       {% endif %}
