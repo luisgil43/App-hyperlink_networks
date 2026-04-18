@@ -1501,22 +1501,19 @@ def _attach_project_label(page_obj):
 def invoices_list(request):
     """
     Finanzas:
-      - 'open': todo lo que realmente está en Finanzas (incluye descuentos directos
-                SOLO si fueron ENVIADOS -> finance_sent_at no nulo).
-      - 'paid': solo pagados.
-      - 'all' : todo lo de Finanzas (enviado, en revisión, pendiente, rechazado, pagado,
-                y descuentos directos ENVIADOS). Excluye 'none', vacío y nulos.
+      - 'open': todo lo que realmente está en Finanzas
+      - 'paid': solo pagados
+      - 'all': todo lo de Finanzas
 
-    Visibilidad:
-      - Usuarios normales: solo ven invoices de proyectos a los que tienen acceso
-        (según ProyectoAsignacion / filter_queryset_by_access).
-      - Usuarios privilegiados (superuser o es_usuario_historial): pueden ver TODO
-        el historial de Finanzas (sin restringir por proyectos asignados).
+    Además:
+      - filtros rápidos por GET
+      - filtros Excel globales vía GET['excel_filters']
+      - filtros Excel aplicados antes de paginar
     """
-    user = request.user
-    scope = request.GET.get("scope", "open")  # open | all | paid
-
+    import json
+    from datetime import date as _date
     from datetime import datetime
+    from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
     from django.db.models import Prefetch, Q
@@ -1527,13 +1524,13 @@ def invoices_list(request):
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
 
-    # ---------------- Usuarios privilegiados (historial completo) ----------------
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
+    user = request.user
+    scope = (request.GET.get("scope") or "open").strip()
+
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
     )
 
-    # ---------------- Proyectos visibles para el usuario ----------------
     try:
         proyectos_user = filter_queryset_by_access(
             Proyecto.objects.all(),
@@ -1546,78 +1543,74 @@ def invoices_list(request):
     if proyectos_user.exists():
         allowed_keys = set()
         for p in proyectos_user:
-            # nombre legible del proyecto
             nombre = (getattr(p, "nombre", "") or "").strip()
             if nombre:
                 allowed_keys.add(nombre)
 
-            # compatibilidad: código y id
             codigo = getattr(p, "codigo", None)
             if codigo:
                 allowed_keys.add(str(codigo).strip())
+
             allowed_keys.add(str(p.id).strip())
     else:
-        # sin proyectos asignados → no ve nada (para usuarios normales)
         allowed_keys = set()
 
-    # -------------------- Query base + prefetch --------------------
-    qs = (
-        SesionBilling.objects
-        .prefetch_related(
-            Prefetch(
-                "items",
-                queryset=ItemBilling.objects.prefetch_related(
-                    Prefetch(
-                        "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
-                    )
-                ),
+    qs = SesionBilling.objects.prefetch_related(
+        Prefetch(
+            "items",
+            queryset=ItemBilling.objects.prefetch_related(
+                Prefetch(
+                    "desglose_tecnico",
+                    queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                )
             ),
-            Prefetch(
-                "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects
-                .select_related("tecnico")
-                .prefetch_related(
-                    Prefetch(
-                        "evidencias",
-                        queryset=EvidenciaFotoBilling.objects.only(
-                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
-                        ).order_by("-id"),
-                    )
-                ),
+        ),
+        Prefetch(
+            "tecnicos_sesion",
+            queryset=SesionBillingTecnico.objects.select_related(
+                "tecnico"
+            ).prefetch_related(
+                Prefetch(
+                    "evidencias",
+                    queryset=EvidenciaFotoBilling.objects.only(
+                        "id",
+                        "imagen",
+                        "tecnico_sesion_id",
+                        "requisito_id",
+                    ).order_by("-id"),
+                )
             ),
-        )
-        .order_by("-creado_en")
-    )
+        ),
+    ).order_by("-creado_en")
 
-    # -------------------- Alcance Finanzas (open / all / paid) --------------------
-    FINANCE_OPEN_BASE = ["discount_applied", "sent", "in_review", "pending", "rejected"]
+    finance_open_base = [
+        "discount_applied",
+        "sent",
+        "in_review",
+        "pending",
+        "rejected",
+    ]
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
-
     elif scope == "all":
         qs = qs.exclude(
-            Q(finance_status__in=["none", ""]) |
-            Q(finance_status__isnull=True) |
-            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
+            Q(finance_status__in=["none", ""])
+            | Q(finance_status__isnull=True)
+            | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
         )
-
-    else:  # "open"
+    else:
         qs = qs.filter(
-            Q(finance_status__in=FINANCE_OPEN_BASE) |
-            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
+            Q(finance_status__in=finance_open_base)
+            | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
         ).exclude(finance_status="paid")
 
-    # ---------------- 🔒 Limitar por proyectos asignados (solo usuarios NO historial) ----------------
     if not can_view_legacy_history:
         if allowed_keys:
             qs = qs.filter(proyecto__in=allowed_keys)
         else:
             qs = SesionBilling.objects.none()
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
-    # Si include_history=True => todo; si start_at => desde start_at en adelante
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
@@ -1626,26 +1619,34 @@ def invoices_list(request):
     if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
         try:
             asignaciones = list(
-                ProyectoAsignacion.objects
-                .filter(usuario=user, proyecto__in=proyectos_user)
-                .select_related("proyecto")
+                ProyectoAsignacion.objects.filter(
+                    usuario=user,
+                    proyecto__in=proyectos_user,
+                ).select_related("proyecto")
             )
         except Exception:
             asignaciones = []
 
         if asignaciones:
             access_by_key = {}
+
             for a in asignaciones:
                 p = getattr(a, "proyecto", None)
                 if not p:
                     continue
 
-                if a.include_history or not a.start_at:
+                if getattr(a, "include_history", False) or not getattr(
+                    a, "start_at", None
+                ):
                     access = {"include_history": True, "start_at": None}
                 else:
                     access = {"include_history": False, "start_at": a.start_at}
 
-                for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
+                for k in (
+                    getattr(p, "nombre", None),
+                    getattr(p, "codigo", None),
+                    getattr(p, "id", None),
+                ):
                     if k is None:
                         continue
                     ks = str(k).strip()
@@ -1653,8 +1654,10 @@ def invoices_list(request):
                         access_by_key[ks.lower()] = access
 
             ids_ok = []
-            for sid, proj_txt, creado_en in qs.values_list("id", "proyecto", "creado_en"):
-                key = (str(proj_txt).strip().lower() if proj_txt else "")
+            for sid, proj_txt, creado_en in qs.values_list(
+                "id", "proyecto", "creado_en"
+            ):
+                key = str(proj_txt).strip().lower() if proj_txt else ""
                 if not key:
                     continue
 
@@ -1670,14 +1673,16 @@ def invoices_list(request):
                     continue
 
                 start_at = access["start_at"]
-                # normalizar a date para evitar datetime vs date
-                if isinstance(start_at, datetime):
-                    start_date = start_at.date()
-                else:
-                    start_date = start_at
+                start_date = (
+                    start_at.date() if isinstance(start_at, datetime) else start_at
+                )
 
                 if isinstance(creado_en, datetime):
-                    creado_date = timezone.localtime(creado_en).date() if timezone.is_aware(creado_en) else creado_en.date()
+                    creado_date = (
+                        timezone.localtime(creado_en).date()
+                        if timezone.is_aware(creado_en)
+                        else creado_en.date()
+                    )
                 else:
                     creado_date = creado_en
 
@@ -1686,144 +1691,291 @@ def invoices_list(request):
 
             qs = qs.filter(id__in=ids_ok)
 
-    # -------------------- Filtros por GET (ligeros) --------------------
-    date_s = (request.GET.get("date") or "").strip()
-    projid_s = (request.GET.get("projid") or "").strip()
-    week_s = (request.GET.get("week") or "").strip()
-    tech_s = (request.GET.get("tech") or "").strip()
-    client_s = (request.GET.get("client") or "").strip()
-    status_s = (request.GET.get("status") or "").strip().lower()
+    # ---------------- Filtros rápidos ----------------
+    f = {
+        "tech": (request.GET.get("f_tech") or "").strip(),
+        "projid": (request.GET.get("f_projid") or "").strip(),
+        "week": (request.GET.get("f_week") or "").strip(),
+        "client": (request.GET.get("f_client") or "").strip(),
+        "finish": (request.GET.get("f_finish") or "").strip(),
+    }
 
-    # 🔹 nuevos filtros específicos
-    f_finish = (request.GET.get("f_finish") or "").strip()
-    f_projid = (request.GET.get("f_projid") or "").strip()
-    f_client = (request.GET.get("f_client") or "").strip()
+    qs_filtered = qs
 
-    # Date (YYYY-MM-DD). Si viene mal formado, se ignora.
-    if date_s:
-        try:
-            d = datetime.strptime(date_s, "%Y-%m-%d").date()
-            qs = qs.filter(creado_en__date=d)
-        except ValueError:
-            pass
+    if f["projid"]:
+        qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
 
-    if projid_s:
-        qs = qs.filter(proyecto_id__icontains=projid_s)
-
-    if week_s:
-        qs = qs.filter(semana_pago_proyectada__icontains=week_s)
-
-    if tech_s:
-        qs = qs.filter(
-            Q(tecnicos_sesion__tecnico__first_name__icontains=tech_s) |
-            Q(tecnicos_sesion__tecnico__last_name__icontains=tech_s) |
-            Q(tecnicos_sesion__tecnico__username__icontains=tech_s)
+    if f["week"]:
+        qs_filtered = qs_filtered.filter(
+            Q(semana_pago_proyectada__icontains=f["week"])
+            | Q(semana_pago_real__icontains=f["week"])
+            | Q(semana_descuento__icontains=f["week"])
+            | Q(discount_week__icontains=f["week"])
         )
 
-    if client_s:
-        qs = qs.filter(cliente__icontains=client_s)
+    if f["tech"]:
+        qs_filtered = qs_filtered.filter(
+            Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"])
+            | Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"])
+            | Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
+        )
 
-    # Status (palabras clave simples)
-    if status_s:
-        if "direct" in status_s or "descuento" in status_s:
-            qs = qs.filter(is_direct_discount=True)
-        elif ("supervisor" in status_s) and ("aprob" in status_s or "approved" in status_s):
-            qs = qs.filter(estado="aprobado_supervisor")
-        elif ("pm" in status_s) and ("aprob" in status_s or "approved" in status_s):
-            qs = qs.filter(estado="aprobado_pm")
-        elif "rechaz" in status_s or "rejected" in status_s:
-            qs = qs.filter(estado__startswith="rechazado")
-        elif "review" in status_s or "revisi" in status_s:
-            qs = qs.filter(estado="en_revision_supervisor")
-        elif "finished" in status_s or "finaliz" in status_s:
-            qs = qs.filter(estado="finalizado")
-        elif "progress" in status_s or "proceso" in status_s:
-            qs = qs.filter(estado="en_proceso")
-        elif "assigned" in status_s or "asignado" in status_s:
-            qs = qs.filter(estado="asignado")
+    if f["client"]:
+        qs_filtered = qs_filtered.filter(cliente__icontains=f["client"])
 
-    # 🔹 Nuevo: filtro por fecha de finalización (finance_end_date, formato YYYY-MM-DD)
-    if f_finish:
+    if f["finish"]:
         try:
-            d_fin = datetime.strptime(f_finish, "%Y-%m-%d").date()
-            qs = qs.filter(finance_end_date__date=d_fin)
+            d_fin = _date.fromisoformat(f["finish"])
+            qs_filtered = qs_filtered.filter(finance_finish_date=d_fin)
         except ValueError:
             pass
 
-    # 🔹 Nuevo: filtro por Project ID (extra, además del viejo 'projid')
-    if f_projid:
-        qs = qs.filter(proyecto_id__icontains=f_projid)
+    qs_filtered = qs_filtered.distinct()
 
-    # 🔹 Nuevo: filtro por Client (extra, además del viejo 'client')
-    if f_client:
-        qs = qs.filter(cliente__icontains=f_client)
+    # ---------------- Proyecto legible ----------------
+    all_rows = list(qs_filtered)
 
-    # Evitar duplicados por joins con tecnicos_sesion/items
-    qs = qs.distinct()
-
-    # -------------------- Paginación --------------------
-    raw_cantidad = request.GET.get("cantidad", "10")
-    page_number = request.GET.get("page")
-
-    MAX_PAGE_SIZE = 100  # 👈 límite duro
-
-    if raw_cantidad == "todos":
-        # si viene "todos", en realidad mostramos como máximo 100
-        per_page = MAX_PAGE_SIZE
-        cantidad = "todos"
-    else:
+    proj_ids = set()
+    for s in all_rows:
+        val = s.proyecto
+        if val is None:
+            continue
         try:
-            per_page = int(raw_cantidad)
-            cantidad = raw_cantidad
+            proj_ids.add(int(val))
+        except (TypeError, ValueError):
+            continue
+
+    proyectos_map = (
+        {
+            p.id: getattr(p, "nombre", str(p))
+            for p in Proyecto.objects.filter(id__in=proj_ids)
+        }
+        if proj_ids
+        else {}
+    )
+
+    for s in all_rows:
+        val = s.proyecto
+        try:
+            key = int(val)
+        except (TypeError, ValueError):
+            s.project_label = val
+        else:
+            s.project_label = proyectos_map.get(key, val)
+
+    def money_label(n):
+        try:
+            return f"${float(n or 0):.2f}"
         except Exception:
-            per_page = 10
-            cantidad = "10"
+            return "$0.00"
 
-        # mínimos / máximos
-        if per_page < 5:
-            per_page = 5
-        if per_page > MAX_PAGE_SIZE:
-            per_page = MAX_PAGE_SIZE
+    def session_status_label(s):
+        if s.is_direct_discount:
+            return "Direct discount"
+        if s.estado == "aprobado_pm":
+            return "Approved by PM"
+        if s.estado == "rechazado_pm":
+            return "Rejected by PM"
+        if s.estado == "aprobado_supervisor":
+            return "Approved by supervisor"
+        if s.estado == "rechazado_supervisor":
+            return "Rejected by supervisor"
+        if s.estado == "en_revision_supervisor":
+            return "In supervisor review"
+        if s.estado == "finalizado":
+            return "Finished (pending review)"
+        if s.estado == "en_proceso":
+            return "In progress"
+        return "Assigned"
 
-    pagina = Paginator(qs, per_page).get_page(page_number)
+    def finance_status_label(s):
+        if s.finance_status == "review_discount":
+            return "Review discount"
+        if s.finance_status == "discount_applied":
+            return "Discount applied"
+        if s.finance_status == "sent":
+            return "Sent to client"
+        if s.finance_status == "in_review":
+            return "In review"
+        if s.finance_status == "rejected":
+            return "Rejected"
+        if s.finance_status == "pending":
+            return "Pending payment"
+        if s.finance_status == "paid":
+            return "Paid"
+        return "—"
 
-    # Adjuntamos etiqueta legible de proyecto (project_label) a cada sesión
-    pagina = _attach_project_label(pagina)
+    def techs_label(s):
+        vals = []
+        try:
+            for st in s.tecnicos_sesion.all():
+                vals.append(st.tecnico.get_full_name() or st.tecnico.username)
+        except Exception:
+            pass
+        return ", ".join(v for v in vals if v)
 
-    # ✅ NUEVO: armar comentarios_tecnicos (como en Billing)
-    # El template usa: a.tecnico + a.tecnico_comentario
-    try:
-        for s in pagina.object_list:
-            lst = []
+    def comments_label(s):
+        vals = []
+        try:
             for st in s.tecnicos_sesion.all():
                 txt = (getattr(st, "tecnico_comentario", "") or "").strip()
                 if txt:
-                    lst.append(st)  # st tiene .tecnico y .tecnico_comentario
-            s.comentarios_tecnicos = lst
+                    vals.append(txt)
+        except Exception:
+            pass
+        return " | ".join(vals) if vals else "—"
+
+    def excel_value_for_invoice(s, col):
+        if col == "0":
+            d = getattr(s, "creado_en", None)
+            return d.strftime("%Y-%m-%d %H:%M") if d else ""
+        elif col == "1":
+            return str(getattr(s, "proyecto_id", "") or "")
+        elif col == "2":
+            return str(getattr(s, "direccion_proyecto", "") or "")
+        elif col == "3":
+            return str(getattr(s, "semana_pago_proyectada", "") or "—")
+        elif col == "4":
+            return session_status_label(s)
+        elif col == "5":
+            return techs_label(s) or "—"
+        elif col == "6":
+            return str(getattr(s, "cliente", "") or "")
+        elif col == "7":
+            return str(getattr(s, "ciudad", "") or "")
+        elif col == "8":
+            return str(getattr(s, "project_label", "") or "")
+        elif col == "9":
+            return str(getattr(s, "oficina", "") or "")
+        elif col == "10":
+            return money_label(getattr(s, "subtotal_tecnico", 0))
+        elif col == "11":
+            return money_label(getattr(s, "subtotal_empresa", 0))
+        elif col == "12":
+            return str(getattr(s, "finance_daily_number", "") or "—")
+        elif col == "13":
+            d = getattr(s, "finance_finish_date", None)
+            return d.strftime("%Y-%m-%d") if d else "—"
+        elif col == "14":
+            real = getattr(s, "real_company_billing", None)
+            return "—" if real is None else money_label(real)
+        elif col == "15":
+            diff = getattr(s, "diferencia", None)
+            if diff is None:
+                return "—"
+            try:
+                diff = float(diff)
+            except Exception:
+                return "—"
+            if diff > 0:
+                return f"+ ${abs(diff):.2f}"
+            if diff < 0:
+                return f"- ${abs(diff):.2f}"
+            return "$0.00"
+        elif col == "16":
+            return finance_status_label(s)
+        elif col == "17":
+            left = str(getattr(s, "semana_pago_real", "") or "—")
+            right = str(
+                getattr(s, "semana_descuento", getattr(s, "discount_week", "")) or ""
+            )
+            return f"{left} / {right}" if right else left
+        elif col == "18":
+            return comments_label(s)
+        return ""
+
+    # ---------------- Filtros Excel ----------------
+    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+    try:
+        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
+    except json.JSONDecodeError:
+        excel_filters = {}
+
+    if excel_filters:
+        filtered_rows = []
+        for s in all_rows:
+            ok = True
+            for col, values in excel_filters.items():
+                values_set = set(values or [])
+                if not values_set:
+                    continue
+                label = excel_value_for_invoice(s, col)
+                if label not in values_set:
+                    ok = False
+                    break
+            if ok:
+                filtered_rows.append(s)
+        all_rows = filtered_rows
+
+    # comentarios_tecnicos para template
+    for s in all_rows:
+        lst = []
+        try:
+            for st in s.tecnicos_sesion.all():
+                txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+                if txt:
+                    lst.append(st)
+        except Exception:
+            pass
+        s.comentarios_tecnicos = lst
+
+    excel_global = {}
+    for col in range(19):
+        vals = set()
+        for s in all_rows:
+            vals.add(excel_value_for_invoice(s, str(col)) or "(Vacías)")
+        excel_global[col] = sorted(vals)
+
+    excel_global_json = json.dumps(excel_global)
+
+    # ---------------- Paginación ----------------
+    raw_cantidad = request.GET.get("cantidad", "10")
+    try:
+        per_page = int(raw_cantidad)
     except Exception:
-        for s in getattr(pagina, "object_list", []):
-            s.comentarios_tecnicos = []
+        per_page = 10
 
-    ctx = {
-        "pagina": pagina,
-        "cantidad": cantidad,
+    if per_page < 5:
+        per_page = 5
+    if per_page > 100:
+        per_page = 100
+
+    cantidad = str(per_page)
+    pagina = Paginator(all_rows, per_page).get_page(request.GET.get("page"))
+
+    # ---------------- Mantener querystring ----------------
+    keep_params = {
         "scope": scope,
-        "can_edit_real_week": _can_edit_real_week(request.user),
-
-        # para rellenar inputs y reconstruir enlaces
-        "date_s": date_s,
-        "projid_s": projid_s,
-        "week_s": week_s,
-        "tech_s": tech_s,
-        "client_s": client_s,
-        "status_s": status_s,
-
-        # nuevos filtros (para el template)
-        "f_finish": f_finish,
-        "f_projid": f_projid,
-        "f_client": f_client,
+        "cantidad": cantidad,
+        "f_tech": f["tech"],
+        "f_projid": f["projid"],
+        "f_week": f["week"],
+        "f_client": f["client"],
+        "f_finish": f["finish"],
     }
-    return render(request, "facturacion/invoices_list.html", ctx)
+
+    if excel_filters_raw:
+        keep_params["excel_filters"] = excel_filters_raw
+
+    qs_keep = urlencode({k: v for k, v in keep_params.items() if v not in ("", None)})
+
+    return render(
+        request,
+        "facturacion/invoices_list.html",
+        {
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "scope": scope,
+            "can_edit_real_week": _can_edit_real_week(request.user),
+            "f_tech": f["tech"],
+            "f_projid": f["projid"],
+            "f_week_input": f["week"],
+            "f_client": f["client"],
+            "f_finish": f["finish"],
+            "qs_keep": qs_keep,
+            "excel_global_json": excel_global_json,
+        },
+    )
 
 
 @require_POST

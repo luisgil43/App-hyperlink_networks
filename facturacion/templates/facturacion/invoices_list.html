@@ -5,23 +5,64 @@
 
 {% block dashboard_content %}
 <div class="w-full mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<style>
+  .excel-header-btn{
+    width:100%;
+    justify-content:center;
+    font-size:0.875rem;
+  }
 
+  .excel-header-btn .excel-arrow{
+    font-size:0.65rem;
+    margin-left:2px;
+  }
+
+  .excel-panel{
+    position:fixed;
+    z-index:50;
+    width:260px;
+    background:#fff;
+    border-radius:0.75rem;
+    border:1px solid #d1d5db;
+    box-shadow:0 10px 30px rgba(0,0,0,.15);
+    padding:0.75rem;
+    font-size:0.8rem;
+  }
+
+  .excel-panel h3{
+    font-weight:600;
+    margin-bottom:0.5rem;
+  }
+
+  .excel-panel small{
+    font-size:0.7rem;
+    color:#6b7280;
+  }
+
+  .excel-panel .excel-options{
+    max-height:180px;
+    overflow-y:auto;
+    border:1px solid #e5e7eb;
+    border-radius:0.5rem;
+    padding:0.25rem 0.5rem;
+    margin-top:0.25rem;
+    background:#f9fafb;
+  }
+
+  .excel-col-filtered .excel-header-btn{
+    background:#e0f2fe;
+    border-radius:999px;
+  }
+
+  .excel-col-filtered .excel-arrow{
+    color:#2563eb !important;
+  }
+</style>
 
 
   <!-- Header -->
   <div class="flex flex-wrap items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💼 Invoices</h1>
-
-    <!-- Botón por fila (ejemplo dentro de una celda de acciones) -->
-
-    <!-- Scope filter (Finance view specific) -->
-    <form method="get" class="flex items-center gap-2">
-      <input type="hidden" name="cantidad" value="{{ cantidad }}">
-      <select name="scope" class="border rounded-lg px-3 py-2" onchange="this.form.submit()">
-        <option value="open" {% if scope == "open" %}selected{% endif %}>Open (in process)</option>
-        <option value="paid" {% if scope == "paid" %}selected{% endif %}>Paid</option>
-        <option value="all"  {% if scope == "all" %}selected{% endif %}>All</option>
-      </select>
 
 <button
   id="btn-duplicate-top"
@@ -40,69 +81,7 @@
     >
       ⬇️ Export
     </a>
-    </form>
-    
-
   </div>
-
-
-
-<form id="filters" class="mb-3" onsubmit="return false;">
-  <div class="inline-flex flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-
-    <div class="w-full sm:w-52">
-      <label class="text-xs text-gray-600">Technician</label>
-      <input id="f-tech" name="f_tech" type="text" value="{{ f_tech }}"
-       class="w-full border rounded px-2 py-1.5 text-sm"
-       placeholder="Name or username">
-    </div>
-
-     <!-- 🔹 Project ID -->
-    <div class="w-full sm:w-44">
-      <label class="text-xs text-gray-600">Project ID</label>
-      <input id="f-projid" name="f_projid" type="text" value="{{ f_projid }}"
-       class="w-full border rounded px-2 py-1.5 text-sm"
-       placeholder="e.g. NB6790">
-    </div>
-
-    <div class="w-full sm:w-48">
-      <label class="text-xs text-gray-600">Week</label>
-      <input id="f-week" name="f_week" type="text" value="{{ f_week_input }}"
-       class="w-full border rounded px-2 py-1.5 text-sm"
-       placeholder="e.g. W34 or 2025-W34">
-    </div>
-    
-    <!-- 🔹 Client -->
-    <div class="w-full sm:w-52">
-      <label class="text-xs text-gray-600">Client</label>
-      <input id="f-client" name="f_client" type="text" value="{{ f_client }}"
-       class="w-full border rounded px-2 py-1.5 text-sm"
-       placeholder="Client name">
-    </div>
-
-
-    <!-- 🔹 Finish date -->
-    <div class="w-full sm:w-48">
-      <label class="text-xs text-gray-600">Finish date</label>
-      <input id="f-finish" name="f_finish" type="text" value="{{ f_finish }}"
-       class="w-full border rounded px-2 py-1.5 text-sm"
-       placeholder="YYYY-MM-DD">
-    </div>
-
-   
-
-    
-
-   <div class="w-full sm:w-auto flex items-end">
-  <button type="button"
-          id="btn-clear"
-          class="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm text-center">
-    Reset
-  </button>
-</div>
-
-  </div>
-</form>
 
 <div class="flex justify-start mb-2">
   <details class="relative">
@@ -236,36 +215,140 @@
   </details>
 </div>
 
+<div class="flex justify-start mb-2">
+  <button type="button"
+          id="btnExcelClearAll"
+          class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
+    ❌ Clear filters
+  </button>
+</div>
 
   <!-- Table -->
+   <div id="zonaTabla" data-excel-global='{{ excel_global_json|safe }}'>
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
     <table id="billing-table" class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1750px]" style="white-space: nowrap;">
-      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+<thead class="bg-gray-100 text-gray-800 font-semibold text-center">
   <tr>
-    <th class="p-2 border w-8">
-      <!-- (opcional) un “select none/all” si algún día quieres multi; por ahora vacío -->
+    <!-- Sin filtro Excel -->
+    <th class="p-2 border w-8"></th> <!-- Select -->
+    <th class="p-2 border w-10"></th> <!-- Expand -->
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="0">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Date</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
     </th>
-    <th class="p-2 border w-10"></th> <!-- caret -->
-    <th class="p-2 border text-left">Date</th>
-    <th class="p-2 border text-left">Project ID</th>
-    <th class="p-2 border text-left">Project address</th>
-    <th class="p-2 border text-left">Week</th>
-    <th class="p-2 border text-left">Status</th>
-    <th class="p-2 border text-left">Technicians</th>
-    <th class="p-2 border text-left">Client</th>
-    <th class="p-2 border text-left">City</th>
-    <th class="p-2 border text-left">Project</th>
-    <th class="p-2 border text-left">Office</th>
-    <th class="p-2 border text-right">Technical Billing</th>
-    <th class="p-2 border text-right">Company Billing</th>
-    <th class="p-2 border text-right">Daily Number</th>
-    <th class="p-2 border text-left">Finish date</th>
-    <th class="p-2 border text-right">Real Company Billing</th>
-    <th class="p-2 border text-right">Difference</th>
-    <th class="p-2 border text-left">Finance status</th>
-    <th class="p-2 border text-left">Pay week / Discount week</th>
-<th class="p-2 border text-left">Comment</th>
-<th class="p-2 border text-center">Actions</th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="1">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Project ID</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="2">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Project address</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="3">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Week</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="4">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="5">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Technicians</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="6">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Client</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="7">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>City</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="8">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="9">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Office</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-right" data-excel-col data-excel-key="10">
+      <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
+        <span>Technical Billing</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-right" data-excel-col data-excel-key="11">
+      <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
+        <span>Company Billing</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-right" data-excel-col data-excel-key="12">
+      <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
+        <span>Daily Number</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="13">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Finish date</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-right" data-excel-col data-excel-key="14">
+      <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
+        <span>Real Company Billing</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-right" data-excel-col data-excel-key="15">
+      <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
+        <span>Difference</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="16">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Finance status</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="17">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Pay week / Discount week</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="18">
+      <button type="button" class="excel-header-btn flex items-center gap-1">
+        <span>Comment</span><span class="excel-arrow text-gray-500">▼</span>
+      </button>
+    </th>
+
+    <!-- Sin filtro Excel -->
+    <th class="p-2 border text-center">Actions</th>
   </tr>
 </thead>
 
@@ -544,9 +627,9 @@
 
         <!-- Detail row -->
         <tr id="detalle-{{ s.id }}" class="hidden">
-          <td class="border"></td>  <!-- caret -->
-          <!-- 17 columnas visibles arriba -> colspan = 17 -->
-          <td class="p-3 border bg-gray-50" colspan="22">
+  <td class="border"></td>
+  <td class="border"></td>
+  <td class="p-3 border bg-gray-50" colspan="20">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -597,7 +680,8 @@
                   {% endfor %}
                 </tbody>
               </table>
-            </div>
+               </div>
+           
 
             <!-- Assignments -->
             <div class="mt-6">
@@ -654,14 +738,16 @@
 
         {% empty %}
         <tr>
-          <td colspan="18" class="p-4 text-center text-gray-500">No invoices found.</td>
+          <td colspan="22" class="p-4 text-center text-gray-500">No invoices found.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+   </div>
 
   <!-- Pagination -->
+<div id="pager">
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form id="formCantidad" class="flex items-center gap-2">
       <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
@@ -671,27 +757,26 @@
         <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
         <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
         <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
-
-        
       </select>
     </form>
   </div>
 
-<div class="mt-2 flex justify-center text-sm">
-  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-</div>
+  <div class="mt-2 flex justify-center text-sm">
+    <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+  </div>
 
   <div class="mt-2 flex justify-center gap-2 text-sm">
-    {% if pagina.has_previous and cantidad != 'todos' %}
-      <a href="?page=1&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
-      <a href="?page={{ pagina.previous_page_number }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+    {% if pagina.has_previous %}
+      <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+      <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
     {% endif %}
-    {% if pagina.has_next and cantidad != 'todos' %}
-      <a href="?page={{ pagina.next_page_number }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
-      <a href="?page={{ pagina.paginator.num_pages }}&cantidad={{ cantidad }}&scope={{ scope }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+    {% if pagina.has_next %}
+      <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+      <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
     {% endif %}
   </div>
 </div>
+
 
 
 <!-- ===== Rejection modal (bonito) ===== -->
@@ -709,6 +794,34 @@
         <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Reject</button>
       </div>
     </form>
+  </div>
+</div>
+
+
+<div id="excelFilterPanel" class="excel-panel hidden">
+  <h3 id="excelPanelTitle">Column</h3>
+  <small>Filter values</small>
+
+  <div class="mt-2">
+    <input id="excelFilterSearch"
+           type="text"
+           placeholder="Search..."
+           class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
+  </div>
+
+  <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+
+  <div class="mt-3 flex justify-end gap-2">
+    <button type="button"
+            id="excelFilterClearAll"
+            class="px-2 py-1 border rounded-md text-xs">
+      Clear
+    </button>
+    <button type="button"
+            id="excelFilterApply"
+            class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">
+      Apply
+    </button>
   </div>
 </div>
 
@@ -871,129 +984,7 @@ document.addEventListener('click', function(e){
 })();
 </script>
 
-<script>
-(function () {
-  /* ===================== Filters ===================== */
-  const table = document.getElementById("billing-table");
-  if (!table) return;
 
-  const allRows = Array.from(table.querySelectorAll('tbody tr[data-row="main"]'));
-  const inputs = {
-    date:   document.getElementById("f-date"),
-    projid: document.getElementById("f-projid"),
-    week:   document.getElementById("f-week"),
-    tech:   document.getElementById("f-tech"),
-    client: document.getElementById("f-client"),
-    status: document.getElementById("f-status"),
-    finish: document.getElementById("f-finish"),
-  };
-  const btnClear = document.getElementById("btn-clear");
-
-  const lc   = (s) => (s || "").toLowerCase();
-  const norm = (s) => lc(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const v    = (el) => norm(el?.value || "");
-
-  function statusHaystackFor(tr) {
-    const td = tr.querySelector("td[data-status-cell]") || tr.querySelectorAll("td")[6];
-    const txt = norm(td?.textContent || "");
-    let extras = "";
-    if (txt.includes("approved"))          extras += " aprobado approved";
-    if (txt.includes("rejected"))          extras += " rechazado rejected";
-    if (txt.includes("supervisor review")) extras += " en revision revision review";
-    if (txt.includes("finished"))          extras += " finalizado pendiente revision review";
-    if (txt.includes("in progress"))       extras += " en proceso progress";
-    if (txt.includes("assigned"))          extras += " asignado assigned";
-    const code = tr.dataset.status || "";
-    return norm(txt + " " + extras + " " + code);
-  }
-
-  function applyFilters() {
-    const f = {
-      date:   v(inputs.date),
-      projid: v(inputs.projid),
-      week:   v(inputs.week),
-      tech:   v(inputs.tech),
-      client: v(inputs.client),
-      status: v(inputs.status),
-      finish: v(inputs.finish),
-    };
-
-    allRows.forEach((tr) => {
-      const rowTech   = norm(tr.dataset.tech || "");
-      const rowClient = norm(tr.dataset.client || "");
-      const rowProjid = norm(tr.dataset.projid || "");
-      const rowWeek   = norm(tr.dataset.week || "");
-      const rowDate   = norm(tr.dataset.date || "");
-      const rowFinish = norm(tr.dataset.finish || "");
-
-      const ok =
-        (!f.date   || rowDate.includes(f.date)) &&
-        (!f.projid || rowProjid.includes(f.projid)) &&
-        (!f.week   || rowWeek.includes(f.week)) &&
-        (!f.tech   || rowTech.includes(f.tech)) &&
-        (!f.client || rowClient.includes(f.client)) &&
-        (!f.status || statusHaystackFor(tr).includes(f.status)) &&
-        (!f.finish || rowFinish.includes(f.finish));
-
-      tr.style.display = ok ? "" : "none";
-
-      const detailId = tr.querySelector(".btn-toggle-detalle")?.getAttribute("data-target");
-      if (detailId) {
-        const det = document.getElementById(detailId);
-        if (det) det.style.display = ok ? "" : "none";
-      }
-    });
-  }
-
-  // Listeners de inputs (solo los que existan)
-  Object.values(inputs).forEach((i) => {
-    if (!i) return;
-    i.addEventListener("input", applyFilters);
-  });
-
-  // Reset seguro: solo limpia inputs existentes
-  btnClear?.addEventListener("click", () => {
-    Object.values(inputs).forEach((i) => {
-      if (i) i.value = "";
-    });
-    applyFilters();
-  });
-
-  // Filtro inicial al cargar
-  applyFilters();
-
-  /* ===================== Discount verified (robusto) ===================== */
-  const toastSafe = window.toast || ((msg) => console.log(msg));
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".btn-discount-verified");
-    if (!btn) return;
-
-    const id = btn.dataset.id;
-    const base = "{% url 'facturacion:invoices' %}";
-    const url = btn.dataset.url || base.replace("/invoices/", `/invoices/${id}/discount-verified/`);
-
-    try {
-      const data = await window.__postAjax__(url, {}, false);
-
-      if (!data || data.ok !== true){
-        const msg = (data && (data.error || data.message)) || "Unknown error";
-        throw new Error(msg);
-      }
-
-      const row = btn.closest("tr");
-      const cell = row?.querySelector('[data-finance-status]');
-      if (cell) {
-        cell.innerHTML =
-          '<span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Discount applied</span>';
-      }
-      btn.remove();
-      toastSafe("Discount applied.", "success");
-    } catch (err) {
-      toastSafe(err.message || "Operation failed", "error");
-    }
-  });
-})();
-</script>
 
 <!-- Inline edit + finance actions -->
 <script>
@@ -1369,99 +1360,7 @@ document.addEventListener("keydown", async (e)=>{
 })();
 </script>
 
-<script>
-(function () {
-  const form = document.getElementById('filters-form');
-  if (!form) return;
 
-  const inputs = form.querySelectorAll('.quick-filter');
-  let timer = null;
-  const STORAGE_KEY = 'invoices_filters_focus';
-
-  function saveFocus(el) {
-    try {
-      if (!el) return sessionStorage.removeItem(STORAGE_KEY);
-      const data = {
-        id: el.id || null,
-        caret: (typeof el.selectionStart === 'number')
-          ? el.selectionStart
-          : (el.value || '').length,
-        ts: Date.now()
-      };
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (_) {}
-  }
-
-  function submitWithFocus() {
-    // guarda qué input está activo y dónde está el cursor
-    const el = document.activeElement && document.activeElement.closest('.quick-filter');
-    saveFocus(el);
-    form.submit();
-  }
-
-  function submitDebounced() {
-    clearTimeout(timer);
-    timer = setTimeout(submitWithFocus, 250);
-  }
-
-  // Restaurar foco + caret tras recargar
-  window.addEventListener('DOMContentLoaded', () => {
-    try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const { id, caret } = JSON.parse(raw) || {};
-      const el = id && document.getElementById(id);
-      if (el) {
-        el.focus({ preventScroll: true });
-        const pos = Math.min(Math.max(0, caret | 0), (el.value || '').length);
-        // pequeño delay para que el input exista y sea focusable
-        setTimeout(() => {
-          try { el.setSelectionRange(pos, pos); } catch (_) {}
-          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        }, 0);
-      }
-    } catch (_) {}
-  });
-
-  // Trackear foco/caret mientras el usuario escribe o hace clic
-  document.addEventListener('focusin', (e) => {
-    const el = e.target.closest('.quick-filter');
-    if (el) saveFocus(el);
-  });
-  document.addEventListener('keyup', (e) => {
-    const el = e.target.closest('.quick-filter');
-    if (el) saveFocus(el);
-  });
-  document.addEventListener('click', (e) => {
-    const el = e.target.closest('.quick-filter');
-    if (el) saveFocus(el);
-  });
-
-  // Eventos de los inputs: autosubmit con debounce
-  inputs.forEach(i => {
-    i.addEventListener('input',  submitDebounced);
-    i.addEventListener('change', submitDebounced);
-    i.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        submitWithFocus();
-      }
-    });
-  });
-
-  // Botón Clear: limpia, guarda foco actual y envía
-  document.getElementById('btn-clear')?.addEventListener('click', () => {
-    inputs.forEach(i => i.value = '');
-    submitWithFocus();
-  });
-
-  // Por si el form se envía de otra manera, garantizamos guardar foco
-  form.addEventListener('submit', () => {
-    const el = document.activeElement && document.activeElement.closest('.quick-filter');
-    saveFocus(el);
-  });
-})();
-</script>
 
 <script>
 /* Mantener el scroll horizontal del listado de Invoices */
@@ -1894,7 +1793,7 @@ document.addEventListener("keydown", async (e)=>{
 
   // Clave para recordar las columnas por vista/tabla
   const tableId = table.dataset.columnsTable || location.pathname;
-  const STORAGE_KEY = 'cols:' + tableId;
+ const STORAGE_KEY = 'cols:' + tableId + ':v2';
 
   function loadState() {
     try {
@@ -1998,6 +1897,270 @@ document.addEventListener("keydown", async (e)=>{
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
+})();
+</script>
+<script>
+(function(){
+  const zona = document.getElementById('zonaTabla');
+  if(!zona) return;
+
+  const panel = document.getElementById('excelFilterPanel');
+  const titleEl = document.getElementById('excelPanelTitle');
+  const searchInput = document.getElementById('excelFilterSearch');
+  const optionsBox = document.getElementById('excelFilterOptions');
+  const btnApply = document.getElementById('excelFilterApply');
+  const btnClear = document.getElementById('excelFilterClearAll');
+  const btnClearAll = document.getElementById('btnExcelClearAll');
+
+  let currentKey = null;
+  let activeFilters = loadFilters();
+
+  function loadFilters(){
+    try{
+      const raw = sessionStorage.getItem('excelFilters:' + location.pathname);
+      if(!raw) return {};
+      const obj = JSON.parse(raw);
+      const out = {};
+      Object.entries(obj).forEach(([k,v]) => out[k] = new Set(v));
+      return out;
+    }catch(_){
+      return {};
+    }
+  }
+
+  function saveFilters(){
+    const plain = {};
+    Object.entries(activeFilters).forEach(([k,v]) => {
+      plain[k] = Array.from(v);
+    });
+    sessionStorage.setItem('excelFilters:' + location.pathname, JSON.stringify(plain));
+  }
+
+  function getExcelGlobal(){
+    try{
+      return JSON.parse(zona.dataset.excelGlobal || '{}');
+    }catch(_){
+      return {};
+    }
+  }
+
+ function updateHeaderStates(){
+  activeFilters = loadFilters();
+
+  zona.querySelectorAll('th[data-excel-col]').forEach(th => {
+    const key = th.dataset.excelKey;
+    const has = activeFilters[key] && activeFilters[key].size > 0;
+    th.classList.toggle('excel-col-filtered', !!has);
+  });
+}
+
+  function renderOptions(key){
+    const globalVals = getExcelGlobal();
+    const values = Array.from(globalVals[key] || []).sort((a,b) => String(a).localeCompare(String(b)));
+    const selected = activeFilters[key];
+
+    optionsBox.innerHTML = '';
+
+    const allWrap = document.createElement('label');
+    allWrap.className = 'flex items-center gap-2 mb-2';
+    allWrap.innerHTML = `<input type="checkbox" id="excel-select-all"> <span>(Select all)</span>`;
+    optionsBox.appendChild(allWrap);
+
+    values.forEach(val => {
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 text-xs mt-1';
+      label.dataset.optionLabel = "1";
+
+      const checked = !selected || selected.has(val);
+
+      label.innerHTML = `
+        <input type="checkbox" class="excel-opt" data-value="${String(val).replace(/"/g, '&quot;')}" ${checked ? 'checked' : ''}>
+        <span>${val}</span>
+      `;
+      optionsBox.appendChild(label);
+    });
+
+    const selectAll = document.getElementById('excel-select-all');
+    const opts = Array.from(optionsBox.querySelectorAll('.excel-opt'));
+    selectAll.checked = !selected || selected.size === values.length;
+
+    selectAll.addEventListener('change', () => {
+      opts.forEach(o => {
+        const row = o.closest('[data-option-label]');
+        if (row && row.style.display === 'none' && searchInput.value.trim()) return;
+        o.checked = selectAll.checked;
+      });
+    });
+  }
+
+  function filterOptionList(q){
+    const query = (q || '').trim().toLowerCase();
+    let visible = 0;
+
+    optionsBox.querySelectorAll('[data-option-label]').forEach(lbl => {
+      const txt = lbl.textContent.toLowerCase();
+      const show = !query || txt.includes(query);
+      lbl.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+
+    btnApply.disabled = !!query && visible === 0;
+    btnApply.classList.toggle('opacity-50', btnApply.disabled);
+    btnApply.classList.toggle('cursor-not-allowed', btnApply.disabled);
+  }
+
+function openPanel(th){
+  currentKey = th.dataset.excelKey;
+  titleEl.textContent = th.innerText.trim();
+  activeFilters = loadFilters();
+  renderOptions(currentKey);
+
+  const scrollBox = zona.querySelector('.overflow-x-auto');
+  const thRect = th.getBoundingClientRect();
+  const boxRect = scrollBox.getBoundingClientRect();
+
+  panel.classList.remove('hidden');
+
+  const panelWidth = panel.offsetWidth || 260;
+  const panelHeight = panel.offsetHeight || 220;
+
+  let left = thRect.left;
+  let top  = thRect.bottom + 4;
+
+  const minLeft = boxRect.left + 8;
+  const maxLeft = boxRect.right - panelWidth - 8;
+
+  if (left < minLeft) left = minLeft;
+  if (left > maxLeft) left = maxLeft;
+
+  const maxTop = window.innerHeight - panelHeight - 8;
+  if (top > maxTop) top = maxTop;
+
+  panel.style.left = left + 'px';
+  panel.style.top  = top + 'px';
+
+  searchInput.value = '';
+  filterOptionList('');
+  searchInput.focus();
+}
+
+ function buildParams(resetPage=true){
+  const p = new URLSearchParams(location.search);
+
+  if (resetPage) p.set('page', '1');
+
+  const plain = {};
+  Object.entries(activeFilters).forEach(([k,v]) => {
+    if(v && v.size) plain[k] = Array.from(v);
+  });
+
+  if(Object.keys(plain).length){
+    p.set('excel_filters', JSON.stringify(plain));
+  }else{
+    p.delete('excel_filters');
+  }
+
+  return p;
+}
+
+  async function reloadWithParams(params){
+    const url = `${location.pathname}?${params.toString()}`;
+    history.replaceState(null, '', url);
+
+    const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    const nuevaZona = doc.getElementById('zonaTabla');
+    if(!nuevaZona) {
+      location.href = url;
+      return;
+    }
+
+    zona.innerHTML = nuevaZona.innerHTML;
+    zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+
+    bindHeaders();
+    updateHeaderStates();
+
+    const pager = document.getElementById('pager');
+    const newPager = doc.getElementById('pager');
+    if (pager && newPager) pager.innerHTML = newPager.innerHTML;
+  }
+
+  function bindHeaders(){
+    zona.querySelectorAll('th[data-excel-col] .excel-header-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        openPanel(btn.closest('th[data-excel-col]'));
+      });
+    });
+  }
+
+   bindHeaders();
+  updateHeaderStates();
+
+  searchInput.addEventListener('input', () => filterOptionList(searchInput.value));
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    if (btnApply.disabled || currentKey == null) return;
+
+    btnApply.click();
+  });
+
+  btnApply.addEventListener('click', async () => {
+    if(currentKey == null) return;
+
+    const selected = new Set();
+    optionsBox.querySelectorAll('.excel-opt').forEach(opt => {
+      const row = opt.closest('[data-option-label]');
+      if(searchInput.value.trim() && row.style.display === 'none') return;
+      if(opt.checked) selected.add(opt.dataset.value);
+    });
+
+    const total = new Set(getExcelGlobal()[currentKey] || []);
+    if(selected.size === 0 || selected.size === total.size){
+      delete activeFilters[currentKey];
+    }else{
+      activeFilters[currentKey] = selected;
+    }
+
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    await reloadWithParams(buildParams(true));
+  });
+
+  btnClear.addEventListener('click', async () => {
+    if(currentKey == null) return;
+
+    delete activeFilters[currentKey];
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    await reloadWithParams(buildParams(true));
+  });
+
+  btnClearAll?.addEventListener('click', async () => {
+    activeFilters = {};
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    await reloadWithParams(buildParams(true));
+  });
+
+  document.addEventListener('click', e => {
+    if(panel.classList.contains('hidden')) return;
+    if(panel.contains(e.target)) return;
+    if(e.target.closest('.excel-header-btn')) return;
+    panel.classList.add('hidden');
+  });
 })();
 </script>
 {% endblock %}
