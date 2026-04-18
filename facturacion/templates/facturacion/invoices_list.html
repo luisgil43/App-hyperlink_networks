@@ -1786,9 +1786,7 @@ document.addEventListener("keydown", async (e)=>{
   if (!panel) return;
 
   // Tabla asociada: usa la que tenga data-columns-table
-  const table =
-    document.querySelector('[data-columns-table]') ||
-    document.querySelector('table');
+ const table = document.getElementById('billing-table');
   if (!table) return;
 
   // Clave para recordar las columnas por vista/tabla

@@ -1734,19 +1734,26 @@ document.addEventListener('click', function(e){
   const panel = document.getElementById('columnToggles');
   if (!panel) return;
 
-  const table = document.getElementById('billing-table');
-  if (!table) return;
+  function getTable() {
+    return document.getElementById('billing-table');
+  }
 
-  // 👇 columnas fijas al inicio: caret + checkbox
-  const offset = parseInt(table.dataset.columnsOffset || '0', 10);
+  function getOffset() {
+    const table = getTable();
+    if (!table) return 0;
+    return parseInt(table.dataset.columnsOffset || '0', 10);
+  }
 
-  // clave única para esta tabla en localStorage
-  const tableId = table.dataset.columnsTable || 'billing-table';
-  const STORAGE_KEY = 'cols:' + tableId;
+  function getStorageKey() {
+    const table = getTable();
+    if (!table) return 'cols:billing-table';
+    const tableId = table.dataset.columnsTable || 'billing-table';
+    return 'cols:' + tableId;
+  }
 
   function loadState() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(getStorageKey());
       if (!raw) return {};
       const obj = JSON.parse(raw);
       return obj && typeof obj === 'object' ? obj : {};
@@ -1757,54 +1764,52 @@ document.addEventListener('click', function(e){
 
   function saveState(state) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(getStorageKey(), JSON.stringify(state));
     } catch (e) {}
   }
 
   function applyVisibility() {
-    const state = loadState(); // índices lógicos: 0=Date, 1=Project ID, ...
+    const table = getTable();
+    if (!table) return;
 
-    // --- THEAD ---
+    const offset = getOffset();
+    const state = loadState();
+
     const theadCells = table.querySelectorAll('thead tr th');
     theadCells.forEach((th, realIdx) => {
-      // columnas fijas (flecha + checkbox) SIEMPRE visibles
       if (realIdx < offset) {
         th.style.display = '';
         return;
       }
+
       const logicalIdx = realIdx - offset;
-      const visible = state[logicalIdx] !== false; // por defecto visible
+      const visible = state[logicalIdx] !== false;
       th.style.display = visible ? '' : 'none';
     });
 
-    // --- TBODY ---
     table.querySelectorAll('tbody tr').forEach((tr) => {
       const tds = tr.querySelectorAll('td');
-
-      // 🔹 NO queremos aplicar la lógica de columnas a las filas de detalle
-      //    (las que NO tienen data-row="main"), para que el detalle se vea completo.
       const isMain = tr.dataset.row === 'main';
+
       if (!isMain) {
-        // mostramos siempre todas las celdas de detalle
         tds.forEach((td) => {
           td.style.display = '';
         });
         return;
       }
 
-      // Fila principal -> sí aplica la lógica de columnas
       tds.forEach((td, realIdx) => {
         if (realIdx < offset) {
           td.style.display = '';
           return;
         }
+
         const logicalIdx = realIdx - offset;
         const visible = state[logicalIdx] !== false;
         td.style.display = visible ? '' : 'none';
       });
     });
 
-    // Sincronizar checkboxes del panel + master
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
     let allOn = true;
@@ -1825,18 +1830,16 @@ document.addEventListener('click', function(e){
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
 
-    // Checkboxes individuales
     checks.forEach((cb) => {
       cb.addEventListener('change', () => {
         const logicalIdx = parseInt(cb.dataset.col || '0', 10);
         const state = loadState();
-        state[logicalIdx] = cb.checked;   // true/false
+        state[logicalIdx] = cb.checked;
         saveState(state);
         applyVisibility();
       });
     });
 
-    // Master "Show all columns"
     if (master) {
       master.addEventListener('change', () => {
         const val = master.checked;
@@ -1854,7 +1857,6 @@ document.addEventListener('click', function(e){
     }
   }
 
-  // Cerrar el <details> al hacer clic fuera
   function bindOutsideClickToClose() {
     const details = panel.closest('details');
     if (!details) return;
@@ -1866,12 +1868,10 @@ document.addEventListener('click', function(e){
     });
   }
 
-  // Init
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
 
-  // Lo dejamos global por si luego quieres re-aplicarlo tras un AJAX
   window.applyBillingColumnsVisibility = applyVisibility;
 })();
 </script>
