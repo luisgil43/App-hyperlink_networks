@@ -901,6 +901,21 @@ def public_start(request, token):
     obj = get_object_or_404(Ombording, link_token=token)
 
     if obj.link_expires_at and obj.link_expires_at < timezone.now():
+        if _public_can_download_after_complete(request, obj):
+            return render(
+                request,
+                "ombording/public_link_closed.html",
+                {
+                    "obj": obj,
+                    "closed_title": "Onboarding completed successfully",
+                    "closed_message": (
+                        "Thank you. Your onboarding has been submitted successfully and is now under review. "
+                        "Our team will contact you if any additional information is needed."
+                    ),
+                },
+                status=200,
+            )
+
         return render(
             request,
             "ombording/public_link_closed.html",
@@ -914,6 +929,26 @@ def public_start(request, token):
                 ),
             },
             status=410,
+        )
+
+    if (
+        obj.status == OmbordingStatus.IN_REVIEW
+        and obj.worker_signed_at
+        and not _public_is_verified(request, obj)
+        and _public_can_download_after_complete(request, obj)
+    ):
+        return render(
+            request,
+            "ombording/public_link_closed.html",
+            {
+                "obj": obj,
+                "closed_title": "Onboarding completed successfully",
+                "closed_message": (
+                    "Thank you. Your onboarding has been submitted successfully and is now under review. "
+                    "Our team will contact you if any additional information is needed."
+                ),
+            },
+            status=200,
         )
 
     step = (request.GET.get("step") or "").strip() or PUBLIC_STEP_VERIFY
@@ -1224,18 +1259,11 @@ def public_start(request, token):
                     request, "Your onboarding was sent for review successfully."
                 )
 
-                return render(
+                return _public_render(
                     request,
-                    "ombording/public_link_closed.html",
-                    {
-                        "obj": obj,
-                        "closed_title": "Onboarding completed successfully",
-                        "closed_message": (
-                            "Thank you. Your onboarding has been submitted successfully and is now under review. "
-                            "Our team will contact you if any additional information is needed."
-                        ),
-                    },
-                    status=200,
+                    obj,
+                    PUBLIC_STEP_SIGNATURE,
+                    public_completed=True,
                 )
 
             return _public_render(
