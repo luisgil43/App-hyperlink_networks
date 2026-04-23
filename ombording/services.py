@@ -1001,20 +1001,15 @@ def sync_status_after_internal_save(ombording):
     refresh_current_step(ombording)
 
     if ombording.send_email_on_create:
-        if ombording.is_admin_complete():
-            ombording.status = OmbordingStatus.SUBMITTED
-            if not ombording.submitted_at:
-                ombording.submitted_at = timezone.now()
-        else:
-            ombording.status = OmbordingStatus.PENDING_USER
+        ombording.status = OmbordingStatus.PENDING_USER
         return
 
     if ombording.is_admin_complete():
-        ombording.status = OmbordingStatus.UNDER_REVIEW
+        ombording.status = OmbordingStatus.IN_REVIEW
         if not ombording.submitted_at:
             ombording.submitted_at = timezone.now()
     elif ombording.is_initial_complete():
-        ombording.status = OmbordingStatus.IN_PROGRESS
+        ombording.status = OmbordingStatus.PENDING_USER
     else:
         ombording.status = OmbordingStatus.DRAFT
 
@@ -1050,7 +1045,7 @@ def sync_status_after_review_update(ombording):
         return
 
     if rejected_exists:
-        ombording.status = OmbordingStatus.REJECTED_PARTIAL
+        ombording.status = OmbordingStatus.REJECTED
         ombording.rejected_at = timezone.now()
         ombording.approved_at = None
         ombording.save(
@@ -1065,7 +1060,7 @@ def sync_status_after_review_update(ombording):
         return
 
     if ombording.is_admin_complete():
-        ombording.status = OmbordingStatus.UNDER_REVIEW
+        ombording.status = OmbordingStatus.IN_REVIEW
         if not ombording.submitted_at:
             ombording.submitted_at = timezone.now()
         ombording.approved_at = None
