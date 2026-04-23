@@ -1,0 +1,681 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block dashboard_content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<div class="bg-white shadow mt-3 rounded-2xl px-4 py-5 sm:p-6">
+  <style>
+    .section-card{border:1px solid #e5e7eb;border-radius:1rem;padding:1rem;background:#fff}
+    .section-title{font-size:1rem;font-weight:700;color:#1f2937}
+    .section-sub{font-size:.82rem;color:#6b7280;margin-top:.15rem}
+    .file-hidden{display:none}
+    .file-box{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+    .file-name{font-size:.82rem;color:#4b5563}
+    .temp-tag{display:inline-flex;align-items:center;gap:.4rem;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:999px;padding:.15rem .55rem;font-size:.72rem}
+    .copy-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+    .copy-label{font-size:.78rem;font-weight:600;color:#6b7280;min-width:48px}
+    .copy-input{flex:1;min-width:260px;border:1px solid #d1d5db;border-radius:.75rem;padding:.55rem .75rem;background:#f9fafb;font-size:.78rem}
+    .copy-btn{border:1px solid #d1d5db;background:#fff;border-radius:.75rem;padding:.55rem .9rem;font-size:.78rem}
+    .copy-btn:hover{background:#f3f4f6}
+  </style>
+
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold text-gray-800">{{ title }}</h1>
+    <p class="text-sm text-gray-500 mt-1">Professional internal ombording form.</p>
+  </div>
+
+  {% if obj and obj.pk %}
+  <div class="section-card mb-6">
+    <div class="section-title">Public Access</div>
+    <div class="section-sub">Share the public link and the access code with the worker.</div>
+
+    <div class="mt-4 space-y-3">
+      <div class="copy-row">
+        <span class="copy-label">Link</span>
+        <input
+          type="text"
+          readonly
+          id="public-link-{{ obj.id }}"
+          class="copy-input"
+          value="{{ request.scheme }}://{{ request.get_host }}{% url 'ombording:public_start' obj.link_token %}"
+        >
+        <button
+          type="button"
+          class="copy-btn"
+          onclick="copyTextById('public-link-{{ obj.id }}', this)">
+          Copy
+        </button>
+      </div>
+
+      <div class="copy-row">
+        <span class="copy-label">Code</span>
+        <input
+          type="text"
+          readonly
+          id="public-code-{{ obj.id }}"
+          class="copy-input"
+          value="{{ obj.public_access_code }}"
+        >
+        <button
+          type="button"
+          class="copy-btn"
+          onclick="copyTextById('public-code-{{ obj.id }}', this)">
+          Copy
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if temp_uploads %}
+  <div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+    Files already selected were saved temporarily. You do not need to select them again unless you want to replace them.
+  </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <div class="section-card">
+      <div class="section-title">Initial Setup</div>
+      <div class="section-sub">Basic information and email delivery.</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">First Name</label>
+          {{ form.first_name }}
+          {% if form.first_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.first_name.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Last Name</label>
+          {{ form.last_name }}
+          {% if form.last_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.last_name.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Email</label>
+          {{ form.email }}
+          {% if form.email.errors %}<p class="mt-1 text-sm text-red-600">{{ form.email.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Position</label>
+          <div class="flex gap-2">
+            <div class="flex-1">{{ form.position }}</div>
+            <a href="{% url 'ombording:position_create' %}"
+               class="shrink-0 bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl text-sm">
+              New Position
+            </a>
+          </div>
+          {% if form.position.errors %}<p class="mt-1 text-sm text-red-600">{{ form.position.errors.0 }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center gap-2">
+        {{ form.send_email_now }}
+        <label class="text-sm font-medium text-gray-700">Send email now</label>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">Base PDF Documents</div>
+      <div class="section-sub">These files are attached when the ombording is created.</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700">Independent Contractor Agreement</label>
+          <div class="file-box">
+            <input type="file" name="contractor_agreement_base" id="id_contractor_agreement_base" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
+            <input type="file" name="contractor_agreement_base_camera" id="id_contractor_agreement_base_camera" class="file-hidden" accept="image/*" capture="environment">
+            <label for="id_contractor_agreement_base" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+            <label for="id_contractor_agreement_base_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+            <span class="file-name" data-file-name-for="id_contractor_agreement_base">{{ temp_uploads.contractor_agreement_base.original_name|default:"No file selected" }}</span>
+            {% if temp_uploads.contractor_agreement_base %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700">Exhibit</label>
+          <div class="file-box">
+            <input type="file" name="exhibit_base" id="id_exhibit_base" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
+            <input type="file" name="exhibit_base_camera" id="id_exhibit_base_camera" class="file-hidden" accept="image/*" capture="environment">
+            <label for="id_exhibit_base" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+            <label for="id_exhibit_base_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+            <span class="file-name" data-file-name-for="id_exhibit_base">{{ temp_uploads.exhibit_base.original_name|default:"No file selected" }}</span>
+            {% if temp_uploads.exhibit_base %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700">W-9 Base</label>
+          <div class="file-box">
+            <input type="file" name="w9_base" id="id_w9_base" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
+            <input type="file" name="w9_base_camera" id="id_w9_base_camera" class="file-hidden" accept="image/*" capture="environment">
+            <label for="id_w9_base" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+            <label for="id_w9_base_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+            <span class="file-name" data-file-name-for="id_w9_base">{{ temp_uploads.w9_base.original_name|default:"No file selected" }}</span>
+            {% if temp_uploads.w9_base %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">Personal & Emergency</div>
+      <div class="section-sub">Personal information and emergency contact.</div>
+
+      <datalist id="country-options">
+        {% for c in countries %}
+        <option value="{{ c }}">
+        {% endfor %}
+      </datalist>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Date of Birth</label>
+    {{ form.date_of_birth }}
+    <p class="mt-1 text-xs text-gray-500">Age: <span id="age-preview">{{ form.instance.age|default:"—" }}</span></p>
+    {% if form.date_of_birth.errors %}<p class="mt-1 text-sm text-red-600">{{ form.date_of_birth.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Nationality</label>
+    {{ form.nationality }}
+    {% if form.nationality.errors %}<p class="mt-1 text-sm text-red-600">{{ form.nationality.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div class="md:col-span-2">
+    <label class="mb-1 block text-sm font-medium text-gray-700">Street Address</label>
+    {{ form.street_address }}
+    {% if form.street_address.errors %}<p class="mt-1 text-sm text-red-600">{{ form.street_address.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Apt / Suite</label>
+    {{ form.apt_suite }}
+    {% if form.apt_suite.errors %}<p class="mt-1 text-sm text-red-600">{{ form.apt_suite.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div></div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">City</label>
+    {{ form.city }}
+    {% if form.city.errors %}<p class="mt-1 text-sm text-red-600">{{ form.city.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">State</label>
+    {{ form.state }}
+    {% if form.state.errors %}<p class="mt-1 text-sm text-red-600">{{ form.state.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">ZIP Code</label>
+    {{ form.zip_code }}
+    {% if form.zip_code.errors %}<p class="mt-1 text-sm text-red-600">{{ form.zip_code.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Phone Number</label>
+    {{ form.phone_number }}
+    {% if form.phone_number.errors %}<p class="mt-1 text-sm text-red-600">{{ form.phone_number.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+    {{ form.emergency_contact_name }}
+    {% if form.emergency_contact_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.emergency_contact_name.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Phone</label>
+    {{ form.emergency_contact_phone }}
+    {% if form.emergency_contact_phone.errors %}<p class="mt-1 text-sm text-red-600">{{ form.emergency_contact_phone.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div>
+    <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Relationship</label>
+    {{ form.emergency_contact_relationship }}
+    {% if form.emergency_contact_relationship.errors %}<p class="mt-1 text-sm text-red-600">{{ form.emergency_contact_relationship.errors.0 }}</p>{% endif %}
+  </div>
+</div>
+
+      <div class="mt-4">
+        <label class="mb-2 block text-sm font-medium text-gray-700">Address Proof</label>
+        <div class="file-box">
+          <input type="file" name="address_proof" id="id_address_proof" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
+          <input type="file" name="address_proof_camera" id="id_address_proof_camera" class="file-hidden" accept="image/*" capture="environment">
+          <label for="id_address_proof" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+          <label for="id_address_proof_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+          <span class="file-name" data-file-name-for="id_address_proof">{{ temp_uploads.address_proof.original_name|default:"No file selected" }}</span>
+          {% if temp_uploads.address_proof %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+        </div>
+      </div>
+    </div>
+
+   <div class="section-card">
+  <div class="section-title">Identity & Work Authorization</div>
+  <div class="section-sub">Documents and legal identification details.</div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">Has Social Security</label>
+      {{ form.has_ssn }}
+      {% if form.has_ssn.errors %}<p class="mt-1 text-sm text-red-600">{{ form.has_ssn.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div id="ssn_number_block">
+      <label class="mb-1 block text-sm font-medium text-gray-700">Social Security Number</label>
+      {{ form.ssn_number }}
+      {% if form.ssn_number.errors %}<p class="mt-1 text-sm text-red-600">{{ form.ssn_number.errors.0 }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div id="ssn_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Social Security Front</label>
+      <div class="file-box">
+        <input type="file" name="ssn_front" id="id_ssn_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="ssn_front_camera" id="id_ssn_front_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_ssn_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_ssn_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_ssn_front">{{ temp_uploads.ssn_front.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.ssn_front %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Social Security Back</label>
+      <div class="file-box">
+        <input type="file" name="ssn_back" id="id_ssn_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="ssn_back_camera" id="id_ssn_back_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_ssn_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_ssn_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_ssn_back">{{ temp_uploads.ssn_back.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.ssn_back %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div id="passport_number_block">
+      <label class="mb-1 block text-sm font-medium text-gray-700">Passport Number</label>
+      {{ form.passport_number }}
+      {% if form.passport_number.errors %}<p class="mt-1 text-sm text-red-600">{{ form.passport_number.errors.0 }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div id="passport_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Passport Front</label>
+      <div class="file-box">
+        <input type="file" name="passport_front" id="id_passport_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="passport_front_camera" id="id_passport_front_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_passport_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_passport_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_passport_front">{{ temp_uploads.passport_front.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.passport_front %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Passport Back</label>
+      <div class="file-box">
+        <input type="file" name="passport_back" id="id_passport_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="passport_back_camera" id="id_passport_back_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_passport_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_passport_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_passport_back">{{ temp_uploads.passport_back.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.passport_back %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">Has Work Permit</label>
+      {{ form.has_work_permit }}
+      {% if form.has_work_permit.errors %}<p class="mt-1 text-sm text-red-600">{{ form.has_work_permit.errors.0 }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div id="work_permit_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Work Permit Front</label>
+      <div class="file-box">
+        <input type="file" name="work_permit_front" id="id_work_permit_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="work_permit_front_camera" id="id_work_permit_front_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_work_permit_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_work_permit_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_work_permit_front">{{ temp_uploads.work_permit_front.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.work_permit_front %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Work Permit Back</label>
+      <div class="file-box">
+        <input type="file" name="work_permit_back" id="id_work_permit_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="work_permit_back_camera" id="id_work_permit_back_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_work_permit_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_work_permit_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_work_permit_back">{{ temp_uploads.work_permit_back.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.work_permit_back %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">Has Driver License</label>
+      {{ form.has_driver_license }}
+      {% if form.has_driver_license.errors %}<p class="mt-1 text-sm text-red-600">{{ form.has_driver_license.errors.0 }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div id="driver_license_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Driver License Front</label>
+      <div class="file-box">
+        <input type="file" name="driver_license_front" id="id_driver_license_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="driver_license_front_camera" id="id_driver_license_front_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_driver_license_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_driver_license_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_driver_license_front">{{ temp_uploads.driver_license_front.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.driver_license_front %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+
+    <div>
+      <label class="mb-2 block text-sm font-medium text-gray-700">Driver License Back</label>
+      <div class="file-box">
+        <input type="file" name="driver_license_back" id="id_driver_license_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+        <input type="file" name="driver_license_back_camera" id="id_driver_license_back_camera" class="file-hidden" accept="image/*" capture="environment">
+        <label for="id_driver_license_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+        <label for="id_driver_license_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+        <span class="file-name" data-file-name-for="id_driver_license_back">{{ temp_uploads.driver_license_back.original_name|default:"No file selected" }}</span>
+        {% if temp_uploads.driver_license_back %}<span class="temp-tag">Saved temporarily</span>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div class="section-card">
+  <div class="section-title">W-9 / Tax Information</div>
+  <div class="section-sub">Fill this section following the same order shown on the W-9 form.</div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        2. Business name/disregarded entity name, if different from above
+      </label>
+      {{ form.business_name }}
+      {% if form.business_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.business_name.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        3a. Check the appropriate box for federal tax classification
+      </label>
+      {{ form.w9_tax_classification }}
+      <p class="mt-1 text-xs text-gray-500">
+        Choose exactly as shown in the W-9: Individual/sole proprietor, C corporation, S corporation, Partnership, Trust/estate, LLC, or Other.
+      </p>
+      {% if form.w9_tax_classification.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_tax_classification.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div id="w9_llc_classification_block">
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        LLC only: enter the tax classification (C = C corporation, S = S corporation, P = Partnership)
+      </label>
+      {{ form.w9_llc_classification }}
+      {% if form.w9_llc_classification.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_llc_classification.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div id="w9_other_text_block">
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        Other (see instructions)
+      </label>
+      {{ form.w9_other_text }}
+      {% if form.w9_other_text.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_other_text.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        3b. If line 3a is Partnership, Trust/estate, or LLC with code P: does this box apply?
+      </label>
+      {{ form.w9_part3b_required }}
+      <p class="mt-1 text-xs text-gray-500">
+        Use “Yes” only if line 3a is Partnership, Trust/estate, or LLC with code P and this statement applies.
+      </p>
+      {% if form.w9_part3b_required.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_part3b_required.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        4. Exempt payee code (if any)
+      </label>
+      {{ form.w9_exempt_payee_code }}
+      {% if form.w9_exempt_payee_code.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_exempt_payee_code.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        4. Exemption from FATCA reporting code (if any)
+      </label>
+      {{ form.w9_fatca_exemption_code }}
+      <p class="mt-1 text-xs text-gray-500">
+        Applies only to accounts maintained outside the United States.
+      </p>
+      {% if form.w9_fatca_exemption_code.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_fatca_exemption_code.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        7. List account number(s) here (optional)
+      </label>
+      {{ form.w9_account_numbers }}
+      {% if form.w9_account_numbers.errors %}<p class="mt-1 text-sm text-red-600">{{ form.w9_account_numbers.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="mb-1 block text-sm font-medium text-gray-700">
+        Employer identification number (EIN)
+      </label>
+      {{ form.ein_number }}
+      {% if form.ein_number.errors %}<p class="mt-1 text-sm text-red-600">{{ form.ein_number.errors.0 }}</p>{% endif %}
+    </div>
+  </div>
+</div>
+
+    <div class="section-card">
+      <div class="section-title">Banking</div>
+      <div class="section-sub">Payment information.</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Bank Name</label>
+          {{ form.bank_name }}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Account Type</label>
+          {{ form.account_type }}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Routing Number</label>
+          {{ form.routing_number }}
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Account Number</label>
+          {{ form.account_number }}
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">Internal Notes</div>
+      <div class="section-sub">Optional notes for admin and HR.</div>
+
+      <div class="mt-4">
+        {{ form.internal_notes }}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+              class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full text-sm shadow">
+        {{ submit_label }}
+      </button>
+
+      <a href="{% url 'ombording:ombording_list' %}"
+         class="bg-white border hover:bg-gray-50 text-gray-700 px-5 py-2 rounded-full text-sm shadow">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const dobInput = document.getElementById("id_date_of_birth");
+  const agePreview = document.getElementById("age-preview");
+
+  function calculateAge(dateString) {
+    if (!dateString) return "—";
+    const dob = new Date(dateString + "T00:00:00");
+    if (Number.isNaN(dob.getTime())) return "—";
+
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+    const dayDiff = today.getDate() - dob.getDate();
+
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+      age -= 1;
+    }
+    return age >= 0 ? String(age) : "—";
+  }
+
+  if (window.flatpickr) {
+    document.querySelectorAll(".js-date-picker").forEach(function (el) {
+      flatpickr(el, {
+        dateFormat: "Y-m-d",
+        altInput: true,
+        altFormat: "F j, Y",
+        allowInput: true,
+        onChange: function (selectedDates, dateStr) {
+          if (agePreview) agePreview.textContent = calculateAge(dateStr);
+        }
+      });
+    });
+  }
+
+  dobInput?.addEventListener("change", function () {
+    if (agePreview) agePreview.textContent = calculateAge(dobInput.value);
+  });
+
+  if (dobInput && agePreview) {
+    agePreview.textContent = calculateAge(dobInput.value);
+  }
+
+  function bindFileMirror(primaryId, cameraId) {
+    const primary = document.getElementById(primaryId);
+    const camera = document.getElementById(cameraId);
+    const span = document.querySelector('[data-file-name-for="' + primaryId + '"]');
+
+    function setNameFrom(input) {
+      if (!span || !input) return;
+      span.textContent = input.files.length ? input.files[0].name : span.textContent;
+      if (input.files.length && input === camera && primary) primary.value = "";
+      if (input.files.length && input === primary && camera) camera.value = "";
+    }
+
+    primary?.addEventListener("change", function () { setNameFrom(primary); });
+    camera?.addEventListener("change", function () { setNameFrom(camera); });
+  }
+
+  bindFileMirror("id_contractor_agreement_base", "id_contractor_agreement_base_camera");
+  bindFileMirror("id_exhibit_base", "id_exhibit_base_camera");
+  bindFileMirror("id_w9_base", "id_w9_base_camera");
+  bindFileMirror("id_address_proof", "id_address_proof_camera");
+  bindFileMirror("id_passport_front", "id_passport_front_camera");
+  bindFileMirror("id_passport_back", "id_passport_back_camera");
+  bindFileMirror("id_ssn_front", "id_ssn_front_camera");
+  bindFileMirror("id_ssn_back", "id_ssn_back_camera");
+  bindFileMirror("id_work_permit_front", "id_work_permit_front_camera");
+  bindFileMirror("id_work_permit_back", "id_work_permit_back_camera");
+  bindFileMirror("id_driver_license_front", "id_driver_license_front_camera");
+  bindFileMirror("id_driver_license_back", "id_driver_license_back_camera");
+
+  const nationalityEl = document.getElementById("id_nationality");
+  const hasSsnEl = document.getElementById("id_has_ssn");
+  const hasWorkPermitEl = document.getElementById("id_has_work_permit");
+  const hasDriverLicenseEl = document.getElementById("id_has_driver_license");
+  const taxClassEl = document.getElementById("id_w9_tax_classification");
+
+  const passportNumberBlock = document.getElementById("passport_number_block");
+  const passportDocsBlock = document.getElementById("passport_docs_block");
+  const ssnNumberBlock = document.getElementById("ssn_number_block");
+  const ssnDocsBlock = document.getElementById("ssn_docs_block");
+  const workPermitDocsBlock = document.getElementById("work_permit_docs_block");
+  const driverLicenseDocsBlock = document.getElementById("driver_license_docs_block");
+  const w9LlcBlock = document.getElementById("w9_llc_classification_block");
+  const w9OtherBlock = document.getElementById("w9_other_text_block");
+
+  function show(el, visible) {
+    if (!el) return;
+    el.style.display = visible ? "" : "none";
+  }
+
+  function updateConditionalFields() {
+    const nationality = (nationalityEl?.value || "").trim().toLowerCase();
+    const isUs = nationality === "united states";
+
+    const hasSsn = (hasSsnEl?.value || "").toLowerCase();
+    const hasWorkPermit = (hasWorkPermitEl?.value || "").toLowerCase();
+    const hasDriverLicense = (hasDriverLicenseEl?.value || "").toLowerCase();
+    const taxClass = (taxClassEl?.value || "").toLowerCase();
+
+    const showPassport = !isUs || hasSsn === "no";
+    const showSsn = hasSsn === "yes";
+
+    show(passportNumberBlock, showPassport);
+    show(passportDocsBlock, showPassport);
+    show(ssnNumberBlock, showSsn);
+    show(ssnDocsBlock, showSsn);
+    show(workPermitDocsBlock, hasWorkPermit === "yes");
+    show(driverLicenseDocsBlock, hasDriverLicense === "yes");
+    show(w9LlcBlock, taxClass === "llc");
+    show(w9OtherBlock, taxClass === "other");
+  }
+
+  nationalityEl?.addEventListener("input", updateConditionalFields);
+  hasSsnEl?.addEventListener("change", updateConditionalFields);
+  hasWorkPermitEl?.addEventListener("change", updateConditionalFields);
+  hasDriverLicenseEl?.addEventListener("change", updateConditionalFields);
+  taxClassEl?.addEventListener("change", updateConditionalFields);
+
+  updateConditionalFields();
+});
+
+function copyTextById(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  navigator.clipboard.writeText(input.value).then(function () {
+    const oldText = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(function () {
+      btn.textContent = oldText;
+    }, 1200);
+  });
+}
+</script>
+{% endblock %}

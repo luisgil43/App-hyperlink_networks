@@ -1,0 +1,584 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Ombording Review{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 rounded-2xl px-4 py-5 sm:p-6">
+    <style>
+        .info-card{
+            border:1px solid #e5e7eb;
+            border-radius:1rem;
+            padding:1rem;
+            background:#fff;
+        }
+        .info-card-title{
+            font-size:1rem;
+            font-weight:700;
+            color:#111827;
+            margin-bottom:.85rem;
+        }
+        .info-grid{
+            display:grid;
+            grid-template-columns:1fr;
+            gap:1rem;
+        }
+        @media (min-width: 768px){
+            .info-grid{
+                grid-template-columns:1fr 1fr;
+            }
+        }
+        .info-item{
+            border:1px solid #e5e7eb;
+            border-radius:.9rem;
+            padding:.9rem 1rem;
+            background:#fafafa;
+        }
+        .info-item-wide{
+            grid-column:1 / -1;
+        }
+        .info-label{
+            font-size:.78rem;
+            color:#6b7280;
+            margin-bottom:.25rem;
+            font-weight:600;
+            text-transform:uppercase;
+            letter-spacing:.02em;
+        }
+        .info-value{
+            font-size:.97rem;
+            font-weight:600;
+            color:#111827;
+            word-break:break-word;
+            line-height:1.45;
+        }
+        .doc-card{
+            border:1px solid #e5e7eb;
+            border-radius:1rem;
+            padding:1rem;
+            background:#fafafa;
+        }
+        .doc-title{
+            font-size:.95rem;
+            font-weight:700;
+            color:#111827;
+        }
+        .status-pill{
+            display:inline-flex;
+            align-items:center;
+            padding:.35rem .8rem;
+            border-radius:999px;
+            font-size:.78rem;
+            font-weight:700;
+        }
+        .status-draft{ background:#f3f4f6; color:#374151; }
+        .status-pending_user{ background:#eff6ff; color:#1d4ed8; }
+        .status-in_correction{ background:#fff7ed; color:#c2410c; }
+        .status-in_review{ background:#ede9fe; color:#6d28d9; }
+        .status-rejected{ background:#fef2f2; color:#b91c1c; }
+        .status-approved{ background:#ecfdf5; color:#047857; }
+        .status-expired{ background:#f3f4f6; color:#6b7280; }
+
+        .modal-backdrop{
+            position:fixed;
+            inset:0;
+            background:rgba(17,24,39,.55);
+            display:none;
+            align-items:center;
+            justify-content:center;
+            z-index:60;
+            padding:1rem;
+        }
+        .modal-backdrop.show{
+            display:flex;
+        }
+        .modal-card{
+            width:100%;
+            max-width:560px;
+            background:#fff;
+            border-radius:1rem;
+            border:1px solid #e5e7eb;
+            box-shadow:0 20px 50px rgba(0,0,0,.22);
+            padding:1rem;
+        }
+    </style>
+
+    {% if messages %}
+      <div class="space-y-2 mb-5">
+        {% for message in messages %}
+          <div class="rounded-2xl border px-4 py-3 text-sm
+                      {% if message.tags == 'success' %}border-emerald-200 bg-emerald-50 text-emerald-800
+                      {% elif message.tags == 'error' %}border-red-200 bg-red-50 text-red-800
+                      {% else %}border-gray-200 bg-gray-50 text-gray-700{% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="flex flex-wrap items-center gap-3 mb-5">
+        <h1 class="text-2xl font-bold text-gray-800">🔎 Ombording Review</h1>
+
+        <a href="{% url 'ombording:ombording_list' %}"
+           class="bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
+            ← Back to Ombording List
+        </a>
+
+        <a href="{% url 'ombording:ombording_edit' obj.id %}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Edit
+        </a>
+
+        <a href="{% url 'ombording:ombording_send_email' obj.id %}"
+           class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Send Email
+        </a>
+
+        <a href="{% url 'ombording:ombording_reactivate' obj.id %}"
+           class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Reactivate
+        </a>
+
+        {% if obj.status != "approved" %}
+        <button type="button"
+        onclick="openApproveModal()"
+        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+        Approve
+        </button>
+        {% endif %}
+
+        {% if obj.status != "approved" %}
+          <button type="button"
+                  onclick="openRejectModal()"
+                  class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Reject
+          </button>
+        {% endif %}
+    </div>
+
+   <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+    <div class="xl:col-span-2 space-y-6">
+
+        <div class="info-card">
+            <div class="info-card-title">General Information</div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="info-item">
+                    <div class="info-label">Full Name</div>
+                    <div class="info-value">{{ obj.full_name|default:"—" }}</div>
+                </div>
+
+                <div class="info-item">
+                    <div class="info-label">Email</div>
+                    <div class="info-value">{{ obj.email|default:"—" }}</div>
+                </div>
+
+                <div class="info-item">
+                    <div class="info-label">Position</div>
+                    <div class="info-value">{{ obj.position.name|default:"—" }}</div>
+                </div>
+
+                <div class="info-item">
+                    <div class="info-label">Current Status</div>
+                    <div class="info-value">
+                        <span class="status-pill status-{{ obj.status }}">{{ obj.get_status_display }}</span>
+                    </div>
+                </div>
+
+                <div class="info-item">
+                    <div class="info-label">Submitted At</div>
+                    <div class="info-value">{{ obj.submitted_at|date:"Y-m-d H:i"|default:"—" }}</div>
+                </div>
+
+                <div class="info-item">
+                    <div class="info-label">Approved At</div>
+                    <div class="info-value">{{ obj.approved_at|date:"Y-m-d H:i"|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% if obj.rejection_note %}
+        <div class="info-card border-red-200 bg-red-50">
+            <div class="info-card-title text-red-800">Last Rejection Note</div>
+            <div class="text-sm text-red-700 whitespace-pre-line">{{ obj.rejection_note }}</div>
+        </div>
+        {% endif %}
+
+        <div class="info-card">
+            <div class="info-card-title">Initial Setup</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">First Name</div>
+                    <div class="info-value">{{ obj.first_name|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Last Name</div>
+                    <div class="info-value">{{ obj.last_name|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Email</div>
+                    <div class="info-value">{{ obj.email|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Position</div>
+                    <div class="info-value">{{ obj.position.name|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Personal & Emergency</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Date of Birth</div>
+                    <div class="info-value">{{ obj.date_of_birth|date:"Y-m-d"|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Age</div>
+                    <div class="info-value">{{ obj.age|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Nationality</div>
+                    <div class="info-value">{{ obj.nationality|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Phone Number</div>
+                    <div class="info-value">{{ obj.phone_number|default:"—" }}</div>
+                </div>
+                <div class="info-item info-item-wide">
+                    <div class="info-label">Street Address</div>
+                    <div class="info-value">{{ obj.street_address|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Apt / Suite</div>
+                    <div class="info-value">{{ obj.apt_suite|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">City</div>
+                    <div class="info-value">{{ obj.city|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">State</div>
+                    <div class="info-value">{{ obj.state|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">ZIP Code</div>
+                    <div class="info-value">{{ obj.zip_code|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Emergency Contact Name</div>
+                    <div class="info-value">{{ obj.emergency_contact_name|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Emergency Contact Phone</div>
+                    <div class="info-value">{{ obj.emergency_contact_phone|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Emergency Contact Relationship</div>
+                    <div class="info-value">{{ obj.emergency_contact_relationship|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Identity & Work Authorization</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Has Social Security</div>
+                    <div class="info-value">{{ obj.has_ssn|yesno:"Yes,No,—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Social Security Number</div>
+                    <div class="info-value">{{ obj.ssn_number|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Passport Number</div>
+                    <div class="info-value">{{ obj.passport_number|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Has Work Permit</div>
+                    <div class="info-value">{{ obj.has_work_permit|yesno:"Yes,No,—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Has Driver License</div>
+                    <div class="info-value">{{ obj.has_driver_license|yesno:"Yes,No,—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">W-9 / Tax Information</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Business Name</div>
+                    <div class="info-value">{{ obj.business_name|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Line 3a - Federal Tax Classification</div>
+                    <div class="info-value">{{ obj.w9_tax_classification|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">LLC Classification</div>
+                    <div class="info-value">{{ obj.w9_llc_classification|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Other Text</div>
+                    <div class="info-value">{{ obj.w9_other_text|default:"—" }}</div>
+                </div>
+                <div class="info-item info-item-wide">
+                    <div class="info-label">Line 3b</div>
+                    <div class="info-value">{{ obj.w9_part3b_required|yesno:"Yes,No,—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Exempt Payee Code</div>
+                    <div class="info-value">{{ obj.w9_exempt_payee_code|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">FATCA Exemption Code</div>
+                    <div class="info-value">{{ obj.w9_fatca_exemption_code|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Account Numbers</div>
+                    <div class="info-value">{{ obj.w9_account_numbers|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Employer Identification Number (EIN)</div>
+                    <div class="info-value">{{ obj.ein_number|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Banking</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Bank Name</div>
+                    <div class="info-value">{{ obj.bank_name|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Account Type</div>
+                    <div class="info-value">{{ obj.account_type|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Routing Number</div>
+                    <div class="info-value">{{ obj.routing_number|default:"—" }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Account Number</div>
+                    <div class="info-value">{{ obj.account_number|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Documents</div>
+            <div class="space-y-4">
+                {% for doc in documents %}
+                <div class="doc-card">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <div class="info-label">Document</div>
+                            <div class="doc-title">{{ doc.label }}</div>
+                        </div>
+                        <div class="text-sm">
+                            <a href="{{ doc.file.url }}" target="_blank" class="text-blue-600 hover:underline">
+                                Open document
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-sm text-gray-500">No documents yet.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="space-y-6">
+        <div class="info-card">
+            <div class="info-card-title">Public Link</div>
+
+            <div class="mt-3 flex items-center gap-2">
+                <input type="text" readonly
+                       id="review-public-link"
+                       value="{{ request.scheme }}://{{ request.get_host }}{% url 'ombording:public_start' obj.link_token %}"
+                       class="w-full border rounded-xl px-3 py-2 text-sm bg-gray-50">
+
+                <button type="button"
+                        class="px-3 py-2 text-sm border rounded-xl bg-white hover:bg-gray-50"
+                        onclick="copyReviewPublicLink(this)">
+                    Copy
+                </button>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Access Code</div>
+
+            <div class="mt-3 flex items-center gap-2">
+                <input type="text" readonly
+                       id="review-access-code"
+                       value="{{ obj.public_access_code }}"
+                       class="w-full border rounded-xl px-3 py-2 text-sm bg-gray-50 font-semibold tracking-widest">
+
+                <button type="button"
+                        class="px-3 py-2 text-sm border rounded-xl bg-white hover:bg-gray-50"
+                        onclick="copyAccessCode(this)">
+                    Copy
+                </button>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="info-card-title">Audit Log</div>
+            <div class="mt-3 space-y-3">
+                {% for log in audit_logs %}
+                <div class="rounded-xl border p-3">
+                    <p class="font-semibold text-sm">{{ log.action }}</p>
+                    <p class="text-sm text-gray-600">{{ log.detail|default:"—" }}</p>
+                    <p class="text-xs text-gray-400 mt-1">{{ log.created_at|date:"Y-m-d H:i" }}</p>
+                </div>
+                {% empty %}
+                <p class="text-sm text-gray-500">No audit logs yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+<div id="rejectModal" class="modal-backdrop">
+    <div class="modal-card">
+        <div class="flex items-start justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900">Reject onboarding</h3>
+                <p class="text-sm text-gray-500 mt-1">
+                    The rejection note will be shown to the worker before entering the code.
+                </p>
+            </div>
+            <button type="button"
+                    onclick="closeRejectModal()"
+                    class="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm">
+                Close
+            </button>
+        </div>
+
+        <form method="post" action="{% url 'ombording:ombording_reject' obj.id %}">
+            {% csrf_token %}
+            <label class="block text-sm font-medium text-gray-700 mb-2">Rejection note</label>
+            <textarea name="rejection_note"
+                      rows="6"
+                      required
+                      class="w-full rounded-xl border px-3 py-2"
+                      placeholder="Write the reason for rejection...">{{ obj.rejection_note }}</textarea>
+
+            <div class="mt-4 flex justify-end gap-3">
+                <button type="button"
+                        onclick="closeRejectModal()"
+                        class="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm font-medium">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
+                    Reject
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="approveModal" class="modal-backdrop">
+    <div class="modal-card">
+        <div class="flex items-start justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900">Approve onboarding</h3>
+                <p class="text-sm text-gray-500 mt-1">
+                    Are you sure you want to approve this onboarding?
+                </p>
+            </div>
+            <button type="button"
+                    onclick="closeApproveModal()"
+                    class="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm">
+                Close
+            </button>
+        </div>
+
+        <form method="post" action="{% url 'ombording:ombording_approve' obj.id %}">
+            {% csrf_token %}
+            <div class="mt-4 flex justify-end gap-3">
+                <button type="button"
+                        onclick="closeApproveModal()"
+                        class="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm font-medium">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold">
+                    Approve
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<script>
+function copyReviewPublicLink(btn) {
+    const input = document.getElementById("review-public-link");
+    if (!input) return;
+
+    navigator.clipboard.writeText(input.value).then(function () {
+        const oldText = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () {
+            btn.textContent = oldText;
+        }, 1200);
+    });
+}
+
+function copyAccessCode(btn) {
+    const input = document.getElementById("review-access-code");
+    if (!input) return;
+
+    navigator.clipboard.writeText(input.value).then(function () {
+        const oldText = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () {
+            btn.textContent = oldText;
+        }, 1200);
+    });
+}
+
+function openRejectModal() {
+    document.getElementById("rejectModal")?.classList.add("show");
+}
+
+function closeRejectModal() {
+    document.getElementById("rejectModal")?.classList.remove("show");
+}
+
+function openApproveModal() {
+    document.getElementById("approveModal")?.classList.add("show");
+}
+
+function closeApproveModal() {
+    document.getElementById("approveModal")?.classList.remove("show");
+}
+
+document.addEventListener("click", function (e) {
+    const rejectModal = document.getElementById("rejectModal");
+    const approveModal = document.getElementById("approveModal");
+
+    if (e.target === rejectModal) {
+        closeRejectModal();
+    }
+
+    if (e.target === approveModal) {
+        closeApproveModal();
+    }
+});
+
+document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+        closeRejectModal();
+        closeApproveModal();
+    }
+});
+</script>
+{% endblock %}

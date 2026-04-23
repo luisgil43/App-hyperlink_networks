@@ -1,0 +1,832 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+{% block title %}Ombording List{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+    <style>
+    .excel-header-btn {
+        width: 100%;
+        justify-content: center;
+        font-size: .875rem;
+    }
+
+    .excel-header-btn .excel-arrow {
+        font-size: .65rem;
+        margin-left: 2px;
+    }
+
+    .excel-panel {
+        position: fixed;
+        z-index: 50;
+        width: 260px;
+        background: #fff;
+        border-radius: .75rem;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .15);
+        padding: .75rem;
+        font-size: .8rem;
+    }
+
+    .excel-panel h3 {
+        font-weight: 600;
+        margin-bottom: .5rem;
+    }
+
+    .excel-panel small {
+        font-size: .7rem;
+        color: #6b7280;
+    }
+
+    .excel-panel .excel-options {
+        max-height: 180px;
+        overflow-y: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        padding: .25rem .5rem;
+        margin-top: .25rem;
+        background: #f9fafb;
+    }
+
+    .excel-col-filtered .excel-header-btn {
+        background: #e0f2fe;
+        border-radius: 999px;
+    }
+
+    .excel-col-filtered .excel-arrow {
+        color: #2563eb !important;
+    }
+
+    .copy-row {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        margin-bottom: .4rem;
+    }
+
+    .copy-row:last-child {
+        margin-bottom: 0;
+    }
+
+    .copy-input {
+        width: 100%;
+        min-width: 220px;
+        border: 1px solid #d1d5db;
+        border-radius: .5rem;
+        padding: .4rem .55rem;
+        font-size: .75rem;
+        background: #f9fafb;
+    }
+
+    .copy-btn {
+        white-space: nowrap;
+        padding: .35rem .7rem;
+        font-size: .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: .5rem;
+        background: #fff;
+    }
+
+    .copy-btn:hover {
+        background: #f3f4f6;
+    }
+
+    .copy-label {
+        font-size: .7rem;
+        font-weight: 600;
+        color: #6b7280;
+        min-width: 42px;
+    }
+
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: .35rem .8rem;
+        border-radius: 999px;
+        font-size: .78rem;
+        font-weight: 700;
+    }
+
+    .status-draft { background: #f3f4f6; color: #374151; }
+    .status-pending_user { background: #eff6ff; color: #1d4ed8; }
+    .status-in_correction { background: #fff7ed; color: #c2410c; }
+    .status-in_review { background: #ede9fe; color: #6d28d9; }
+    .status-rejected { background: #fef2f2; color: #b91c1c; }
+    .status-approved { background: #ecfdf5; color: #047857; }
+    .status-expired { background: #f3f4f6; color: #6b7280; }
+</style>
+
+    <div class="flex flex-col gap-3 mb-4">
+        <div class="flex flex-wrap items-center gap-3">
+            <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                🧑‍💼 Ombording
+            </h1>
+
+            <div class="flex items-center gap-2">
+                <a href="{% url 'ombording:ombording_create' %}"
+                   class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+                    ➕ New Ombording
+                </a>
+
+                <a href="{% url 'ombording:position_list' %}"
+                   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+                    🧾 Create Position
+                </a>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="flex justify-start mb-2">
+        <details class="relative">
+            <summary class="cursor-pointer text-sm text-gray-700 px-3 py-1 border rounded-full bg-gray-50 hover:bg-gray-100 select-none">
+                ⚙️ Columns
+            </summary>
+
+            <div id="columnToggles" class="absolute left-0 mt-1 w-72 bg-white border rounded-xl shadow-lg p-3 z-10">
+                <p class="text-xs text-gray-500 mb-2">Show / hide columns</p>
+
+                <label class="flex items-center gap-2 mb-2 pb-2 border-b">
+                    <input type="checkbox" id="col-toggle-all" checked>
+                    <span class="font-semibold text-xs">Show all columns</span>
+                </label>
+
+                <div class="space-y-1 text-sm">
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="0" checked> <span>Created</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="1" checked> <span>First Name</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="2" checked> <span>Last Name</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="3" checked> <span>Email</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="4" checked> <span>Position</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="5" checked> <span>Status</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="6" checked> <span>Agreement</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="7" checked> <span>Exhibit</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="8" checked> <span>W-9</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="9" checked> <span>Access</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="10" checked> <span>Actions</span></label>
+                </div>
+            </div>
+        </details>
+    </div>
+
+    <div class="flex justify-start mb-2">
+        <button type="button" id="btnExcelClearAll"
+                class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
+            ❌ Clear filters
+        </button>
+    </div>
+
+    <div id="excelFilterPanel" class="excel-panel hidden">
+        <h3 id="excelPanelTitle">Column</h3>
+        <small>Filter values</small>
+
+        <div class="mt-2">
+            <input id="excelFilterSearch" type="text" placeholder="Search..."
+                   class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
+        </div>
+
+        <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+
+        <div class="mt-3 flex justify-end gap-2">
+            <button type="button" id="excelFilterClearAll" class="px-2 py-1 border rounded-md text-xs">Clear</button>
+            <button type="button" id="excelFilterApply"
+                    class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">Apply</button>
+        </div>
+    </div>
+
+    <div id="zonaTabla" data-excel-global='{{ excel_global_json|safe }}'>
+        <div class="rounded-xl border border-gray-200 overflow-x-auto">
+            <table id="ombording-table"
+                   data-columns-table="ombording"
+                   data-columns-offset="0"
+                   class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1700px]"
+                   style="white-space: nowrap;">
+                <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+                    <tr>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="0">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Created</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="1">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>First Name</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="2">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Last Name</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="3">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Email</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="4">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Position</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="5">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-center" data-excel-col data-excel-key="6">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Agreement</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-center" data-excel-col data-excel-key="7">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Exhibit</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-center" data-excel-col data-excel-key="8">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>W-9</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-left" data-excel-col data-excel-key="9">
+                            <button type="button" class="excel-header-btn flex items-center gap-1">
+                                <span>Access</span><span class="excel-arrow text-gray-500">▼</span>
+                            </button>
+                        </th>
+                        <th class="p-2 border text-center">Actions</th>
+                    </tr>
+                </thead>
+
+                <tbody class="text-left">
+                    {% for s in pagina.object_list %}
+                    <tr class="border-t hover:bg-gray-50">
+                        <td class="p-2 border">{{ s.created_at|date:"Y-m-d H:i" }}</td>
+                        <td class="p-2 border">{{ s.first_name|default:"—" }}</td>
+                        <td class="p-2 border">{{ s.last_name|default:"—" }}</td>
+                        <td class="p-2 border">{{ s.email|default:"—" }}</td>
+                        <td class="p-2 border">{{ s.position.name }}</td>
+                        <td class="p-2 border">
+    <span class="status-pill status-{{ s.status }}">
+        {{ s.get_status_display }}
+    </span>
+</td>
+                        
+
+                        <td class="p-2 border text-center">
+                            {% for d in s.documents.all %}
+                                {% if d.document_key == "contractor_agreement_base" %}
+                                    <a href="{{ d.file.url }}" target="_blank" class="text-green-700 hover:underline">Open</a>
+                                {% endif %}
+                            {% empty %}
+                                <span class="text-gray-400">—</span>
+                            {% endfor %}
+                        </td>
+
+                        <td class="p-2 border text-center">
+                            {% for d in s.documents.all %}
+                                {% if d.document_key == "exhibit_base" %}
+                                    <a href="{{ d.file.url }}" target="_blank" class="text-green-700 hover:underline">Open</a>
+                                {% endif %}
+                            {% empty %}
+                                <span class="text-gray-400">—</span>
+                            {% endfor %}
+                        </td>
+
+                        <td class="p-2 border text-center">
+                            {% for d in s.documents.all %}
+                                {% if d.document_key == "w9_base" %}
+                                    <a href="{{ d.file.url }}" target="_blank" class="text-green-700 hover:underline">Open</a>
+                                {% endif %}
+                            {% empty %}
+                                <span class="text-gray-400">—</span>
+                            {% endfor %}
+                        </td>
+
+                        <td class="p-2 border align-top">
+                            <div class="copy-row">
+                                <span class="copy-label">Link</span>
+                                <input type="text" readonly
+                                       value="{{ request.scheme }}://{{ request.get_host }}{% url 'ombording:public_start' s.link_token %}"
+                                       class="copy-input"
+                                       id="public-link-{{ s.id }}">
+                                <button type="button"
+                                        class="copy-btn"
+                                        onclick="copyTextById('public-link-{{ s.id }}', this)">
+                                    Copy
+                                </button>
+                            </div>
+
+                            <div class="copy-row">
+                                <span class="copy-label">Code</span>
+                                <input type="text" readonly
+                                       value="{{ s.public_access_code }}"
+                                       class="copy-input"
+                                       id="public-code-{{ s.id }}">
+                                <button type="button"
+                                        class="copy-btn"
+                                        onclick="copyTextById('public-code-{{ s.id }}', this)">
+                                    Copy
+                                </button>
+                            </div>
+                        </td>
+
+                        <td class="p-2 border text-center">
+                            <div class="flex items-center justify-center gap-3 flex-wrap">
+                                <a class="text-blue-600 hover:underline"
+                                   href="{% url 'ombording:ombording_edit' s.id %}">Edit</a>
+                                <a class="text-gray-700 hover:underline"
+                                   href="{% url 'ombording:ombording_review' s.id %}">Review</a>
+                                <a class="text-emerald-700 hover:underline"
+                                   href="{% url 'ombording:ombording_send_email' s.id %}">Send Email</a>
+                                <a class="text-red-700 hover:underline"
+                                   href="{% url 'ombording:ombording_pause' s.id %}"
+                                   onclick="return confirm('Are you sure you want to pause this ombording? The public link will stop working until it is reactivated.');">
+                                    Pause
+                                </a>
+                                <a class="text-amber-700 hover:underline"
+                                   href="{% url 'ombording:ombording_reactivate' s.id %}">Reactivate</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="11" class="p-4 text-center text-gray-500">No ombordings yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div id="pager">
+            <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+                <form method="get" class="flex items-center gap-2">
+                    <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+                    <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+                        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+                        <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+                        <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+                        <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+                    </select>
+                </form>
+            </div>
+
+            <div class="mt-2 flex justify-center gap-2 text-sm">
+                {% if pagina.has_previous %}
+                    <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+                    <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+                {% endif %}
+                {% if pagina.has_next %}
+                    <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+                    <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const panel = document.getElementById('columnToggles');
+    if (!panel) return;
+
+    const table = document.getElementById('ombording-table');
+
+    function getStorageKey() {
+        return 'cols:ombording';
+    }
+
+    function loadState() {
+        try {
+            return JSON.parse(localStorage.getItem(getStorageKey()) || '{}');
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveState(state) {
+        localStorage.setItem(getStorageKey(), JSON.stringify(state));
+    }
+
+    function applyVisibility() {
+        const state = loadState();
+        const checks = panel.querySelectorAll('.col-toggle');
+        const master = document.getElementById('col-toggle-all');
+
+        table.querySelectorAll('thead tr th').forEach((th, idx) => {
+            const visible = state[idx] !== false;
+            th.style.display = visible ? '' : 'none';
+        });
+
+        table.querySelectorAll('tbody tr').forEach((tr) => {
+            tr.querySelectorAll('td').forEach((td, idx) => {
+                const visible = state[idx] !== false;
+                td.style.display = visible ? '' : 'none';
+            });
+        });
+
+        let allOn = true;
+        checks.forEach((cb) => {
+            const idx = parseInt(cb.dataset.col, 10);
+            const visible = state[idx] !== false;
+            cb.checked = visible;
+            if (!visible) allOn = false;
+        });
+
+        if (master) {
+            master.checked = allOn;
+        }
+    }
+
+    panel.querySelectorAll('.col-toggle').forEach((cb) => {
+        cb.addEventListener('change', () => {
+            const state = loadState();
+            state[parseInt(cb.dataset.col, 10)] = cb.checked;
+            saveState(state);
+            applyVisibility();
+        });
+    });
+
+    document.getElementById('col-toggle-all')?.addEventListener('change', function () {
+        const state = {};
+        panel.querySelectorAll('.col-toggle').forEach((cb) => {
+            cb.checked = this.checked;
+            state[parseInt(cb.dataset.col, 10)] = this.checked;
+        });
+        saveState(state);
+        applyVisibility();
+    });
+
+    applyVisibility();
+    window.applyOmbordingColumnsVisibility = applyVisibility;
+})();
+</script>
+
+<script>
+function copyTextById(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    navigator.clipboard.writeText(input.value).then(function () {
+        const oldText = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () {
+            btn.textContent = oldText;
+        }, 1200);
+    });
+}
+</script>
+
+<script>
+(function(){
+    const zona = document.getElementById('zonaTabla');
+    if(!zona) return;
+
+    const panel = document.getElementById('excelFilterPanel');
+    const titleEl = document.getElementById('excelPanelTitle');
+    const searchInput = document.getElementById('excelFilterSearch');
+    const optionsBox = document.getElementById('excelFilterOptions');
+    const btnApply = document.getElementById('excelFilterApply');
+    const btnClear = document.getElementById('excelFilterClearAll');
+    const btnClearAll = document.getElementById('btnExcelClearAll');
+
+    let currentKey = null;
+    let activeFilters = loadFilters();
+
+    function loadFilters(){
+        try{
+            const raw = sessionStorage.getItem('excelFilters:' + location.pathname);
+            if(!raw) return {};
+            const obj = JSON.parse(raw);
+            const out = {};
+            Object.entries(obj).forEach(([k,v]) => out[k] = new Set(v));
+            return out;
+        }catch(_){
+            return {};
+        }
+    }
+
+    function saveFilters(){
+        const plain = {};
+        Object.entries(activeFilters).forEach(([k,v]) => {
+            plain[k] = Array.from(v);
+        });
+        sessionStorage.setItem('excelFilters:' + location.pathname, JSON.stringify(plain));
+    }
+
+    function getExcelGlobal(){
+        try{
+            return JSON.parse(zona.dataset.excelGlobal || '{}');
+        }catch(_){
+            return {};
+        }
+    }
+
+    function updateHeaderStates(){
+        activeFilters = loadFilters();
+
+        zona.querySelectorAll('th[data-excel-col]').forEach(th => {
+            const key = th.dataset.excelKey;
+            const has = activeFilters[key] && activeFilters[key].size > 0;
+            th.classList.toggle('excel-col-filtered', !!has);
+        });
+    }
+
+    function renderOptions(key){
+        const globalVals = getExcelGlobal();
+        const values = Array.from(globalVals[key] || []).sort((a,b) => String(a).localeCompare(String(b)));
+        const selected = activeFilters[key];
+
+        optionsBox.innerHTML = '';
+
+        const allWrap = document.createElement('label');
+        allWrap.className = 'flex items-center gap-2 mb-2';
+        allWrap.innerHTML = `<input type="checkbox" id="excel-select-all"> <span>(Select all)</span>`;
+        optionsBox.appendChild(allWrap);
+
+        values.forEach(val => {
+            const label = document.createElement('label');
+            label.className = 'flex items-center gap-2 text-xs mt-1';
+            label.dataset.optionLabel = "1";
+
+            const checked = !selected || selected.has(val);
+
+            label.innerHTML = `
+                <input type="checkbox" class="excel-opt" data-value="${String(val).replace(/"/g, '&quot;')}" ${checked ? 'checked' : ''}>
+                <span>${val}</span>
+            `;
+            optionsBox.appendChild(label);
+        });
+
+        const selectAll = document.getElementById('excel-select-all');
+        const opts = Array.from(optionsBox.querySelectorAll('.excel-opt'));
+        selectAll.checked = !selected || selected.size === values.length;
+
+        selectAll.addEventListener('change', () => {
+            opts.forEach(o => {
+                const row = o.closest('[data-option-label]');
+                if (row && row.style.display === 'none' && searchInput.value.trim()) return;
+                o.checked = selectAll.checked;
+            });
+        });
+    }
+
+    function filterOptionList(q){
+        const query = (q || '').trim().toLowerCase();
+        let visible = 0;
+
+        optionsBox.querySelectorAll('[data-option-label]').forEach(lbl => {
+            const txt = lbl.textContent.toLowerCase();
+            const show = !query || txt.includes(query);
+            lbl.style.display = show ? '' : 'none';
+            if(show) visible++;
+        });
+
+        btnApply.disabled = !!query && visible === 0;
+        btnApply.classList.toggle('opacity-50', btnApply.disabled);
+        btnApply.classList.toggle('cursor-not-allowed', btnApply.disabled);
+    }
+
+    function openPanel(th){
+        currentKey = th.dataset.excelKey;
+        titleEl.textContent = th.innerText.trim();
+
+        activeFilters = loadFilters();
+        renderOptions(currentKey);
+
+        const thRect = th.getBoundingClientRect();
+
+        panel.classList.remove('hidden');
+
+        let left = thRect.left;
+        let top = thRect.bottom + 4;
+
+        const panelWidth = panel.offsetWidth || 260;
+        const panelHeight = panel.offsetHeight || 220;
+
+        if (left + panelWidth > window.innerWidth - 8) {
+            left = window.innerWidth - panelWidth - 8;
+        }
+        if (left < 8) left = 8;
+
+        if (top + panelHeight > window.innerHeight - 8) {
+            top = window.innerHeight - panelHeight - 8;
+        }
+        if (top < 8) top = 8;
+
+        panel.style.left = left + 'px';
+        panel.style.top = top + 'px';
+
+        searchInput.value = '';
+        filterOptionList('');
+        searchInput.focus();
+    }
+
+    function buildParams(resetPage=true){
+        const p = new URLSearchParams(location.search);
+
+        if (resetPage) p.set('page', '1');
+
+        const cantidadSelect = document.getElementById('cantidad');
+        if (cantidadSelect && cantidadSelect.value) {
+            p.set('cantidad', cantidadSelect.value);
+        }
+
+        const searchInputMain = document.querySelector('input[name="search"]');
+        const statusSelect = document.querySelector('select[name="status"]');
+
+        if (searchInputMain) {
+            if (searchInputMain.value) p.set('search', searchInputMain.value);
+            else p.delete('search');
+        }
+
+        if (statusSelect) {
+            if (statusSelect.value) p.set('status', statusSelect.value);
+            else p.delete('status');
+        }
+
+        const plain = {};
+        Object.entries(activeFilters).forEach(([k,v]) => {
+            if(v && v.size) plain[k] = Array.from(v);
+        });
+
+        if(Object.keys(plain).length){
+            p.set('excel_filters', JSON.stringify(plain));
+        }else{
+            p.delete('excel_filters');
+        }
+
+        return p;
+    }
+
+    async function reloadWithParams(params){
+        const url = `${location.pathname}?${params.toString()}`;
+        history.replaceState(null, '', url);
+
+        const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const html = await resp.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+
+        const nuevaZona = doc.getElementById('zonaTabla');
+        if(!nuevaZona) {
+            location.href = url;
+            return;
+        }
+
+        zona.innerHTML = nuevaZona.innerHTML;
+        zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+
+        bindHeaders();
+        updateHeaderStates();
+
+        if (window.applyOmbordingColumnsVisibility) {
+            window.applyOmbordingColumnsVisibility();
+        }
+    }
+
+    function bindHeaders(){
+        zona.querySelectorAll('th[data-excel-col] .excel-header-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                openPanel(btn.closest('th[data-excel-col]'));
+            });
+        });
+    }
+
+    bindHeaders();
+    updateHeaderStates();
+
+    searchInput.addEventListener('input', () => filterOptionList(searchInput.value));
+
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+
+        if (btnApply.disabled || currentKey == null) return;
+        btnApply.click();
+    });
+
+    btnApply.addEventListener('click', async () => {
+        if(currentKey == null) return;
+
+        const selected = new Set();
+        optionsBox.querySelectorAll('.excel-opt').forEach(opt => {
+            const row = opt.closest('[data-option-label]');
+            if(searchInput.value.trim() && row.style.display === 'none') return;
+            if(opt.checked) selected.add(opt.dataset.value);
+        });
+
+        const total = new Set(getExcelGlobal()[currentKey] || []);
+        if(selected.size === 0 || selected.size === total.size){
+            delete activeFilters[currentKey];
+        }else{
+            activeFilters[currentKey] = selected;
+        }
+
+        saveFilters();
+        updateHeaderStates();
+        panel.classList.add('hidden');
+
+        await reloadWithParams(buildParams(true));
+    });
+
+    btnClear.addEventListener('click', async () => {
+        if(currentKey == null) return;
+
+        delete activeFilters[currentKey];
+        saveFilters();
+        updateHeaderStates();
+        panel.classList.add('hidden');
+
+        await reloadWithParams(buildParams(true));
+    });
+
+    btnClearAll?.addEventListener('click', async () => {
+        activeFilters = {};
+        saveFilters();
+        updateHeaderStates();
+        panel.classList.add('hidden');
+
+        await reloadWithParams(buildParams(true));
+    });
+
+    document.addEventListener('click', async (e) => {
+        const a = e.target.closest('#pager a[href]');
+        if (a) {
+            e.preventDefault();
+            const url = new URL(a.href, location.origin);
+            history.replaceState(null, '', url.toString());
+
+            const resp = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const html = await resp.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+
+            const nuevaZona = doc.getElementById('zonaTabla');
+            if(!nuevaZona){
+                location.href = url.toString();
+                return;
+            }
+
+            zona.innerHTML = nuevaZona.innerHTML;
+            zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+
+            bindHeaders();
+            updateHeaderStates();
+
+            if (window.applyOmbordingColumnsVisibility) {
+                window.applyOmbordingColumnsVisibility();
+            }
+            return;
+        }
+
+        if(panel.classList.contains('hidden')) return;
+        if(panel.contains(e.target)) return;
+        if(e.target.closest('.excel-header-btn')) return;
+        panel.classList.add('hidden');
+    });
+
+    window.ombordingExcelRebindHeaders = bindHeaders;
+    window.ombordingExcelUpdateHeaderStates = updateHeaderStates;
+})();
+</script>
+
+<script>
+(function () {
+    document.addEventListener('change', async function (e) {
+        const select = e.target.closest('#cantidad');
+        if (!select) return;
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('cantidad', select.value);
+        url.searchParams.set('page', '1');
+
+        history.replaceState(null, '', url.toString());
+
+        const resp = await fetch(url.toString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const html = await resp.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+
+        const zona = document.getElementById('zonaTabla');
+        const nuevaZona = doc.getElementById('zonaTabla');
+
+        if (!zona || !nuevaZona) {
+            location.href = url.toString();
+            return;
+        }
+
+        zona.innerHTML = nuevaZona.innerHTML;
+        zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+
+        if (window.ombordingExcelRebindHeaders) {
+            window.ombordingExcelRebindHeaders();
+        }
+        if (window.ombordingExcelUpdateHeaderStates) {
+            window.ombordingExcelUpdateHeaderStates();
+        }
+        if (window.applyOmbordingColumnsVisibility) {
+            window.applyOmbordingColumnsVisibility();
+        }
+    });
+})();
+</script>
+{% endblock %}

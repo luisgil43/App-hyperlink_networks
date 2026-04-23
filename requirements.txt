@@ -42,6 +42,7 @@ pycparser==2.23
 pydyf==0.11.0
 PyMuPDF==1.24.14
 pyotp==2.9.0
+pypdf==6.10.2
 PyPDF2==3.0.1
 pypdfium2==4.30.0
 pyphen==0.17.2

@@ -341,25 +341,22 @@
 
       <!-- SECCIÓN: Human Resources -->
       {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-      <li class="group">
-        <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
-          <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
-          <span class="flecha transition-transform duration-200">▶</span>
-        </div>
-        <ul class="ml-4 submenu space-y-1 hidden">
-          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
-            <li><a href="#">Employment Agreement</a></li>
-          {% endif %}
-          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="#">Employee Onboarding</a></li>
-            <li><a href="#">Employee Documents</a></li>
-            <a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
-            <li><a href="#">Upload Legal Representative Signature</a></li>
-          {% endif %}
-        </ul>
-      </li>
-      {% endif %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+  <ul class="ml-4 submenu space-y-1 hidden">
+    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+      <li><a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
+    {% endif %}
+    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+      <li><a href="{% url 'ombording:ombording_list' %}">Onboarding</a></li>
+      <li><a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
+    {% endif %}
+  </ul>
+</li>
+{% endif %}
 
       <!-- SECCIÓN: Subcontract -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}

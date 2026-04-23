@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ obj.full_name|default:"Onboarding" }} - Link Closed</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <div class="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+      <div class="px-6 py-5 border-b border-gray-200 bg-gray-50">
+        <h1 class="text-2xl font-bold text-gray-800">Onboarding</h1>
+        <p class="text-sm text-gray-500 mt-1">
+          This link is no longer active.
+        </p>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <p class="text-lg font-semibold text-amber-800">{{ closed_title }}</p>
+          <p class="text-sm text-amber-700 mt-2">
+            {{ closed_message }}
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Full Name</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.full_name|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.email|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Position</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.position.name|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.get_status_display }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

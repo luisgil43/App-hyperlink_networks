@@ -116,6 +116,7 @@ urlpatterns = [
             namespace="cable_installation",
         ),
     ),
+    path("ombording/", include(("ombording.urls", "ombording"), namespace="ombording")),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)

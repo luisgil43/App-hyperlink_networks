@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ obj.full_name|default:"Onboarding" }} - Onboarding</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+      <div class="px-6 py-5 border-b border-gray-200 bg-gray-50">
+        <h1 class="text-2xl font-bold text-gray-800">Onboarding</h1>
+        <p class="text-sm text-gray-500 mt-1">
+          Complete your onboarding step by step.
+        </p>
+      </div>
+
+      <div class="px-6 py-4 border-b border-gray-200 bg-white">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+          {% for item in steps %}
+            <div class="rounded-2xl border px-3 py-2 text-center text-sm {% if item.active %}border-blue-500 bg-blue-50 text-blue-700 font-semibold{% else %}border-gray-200 bg-gray-50 text-gray-500{% endif %}">
+              {{ item.label }}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <style>
+          .file-hidden{display:none}
+          .file-box{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+          .file-name{font-size:.82rem;color:#4b5563}
+        </style>
+
+        {% if messages %}
+          <div class="space-y-2">
+            {% for message in messages %}
+              <div class="rounded-2xl border px-4 py-3 text-sm
+                          {% if message.tags == 'success' %}border-emerald-200 bg-emerald-50 text-emerald-800
+                          {% elif message.tags == 'error' %}border-red-200 bg-red-50 text-red-800
+                          {% else %}border-gray-200 bg-gray-50 text-gray-700{% endif %}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Full Name</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.full_name|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.email|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Position</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.position.name|default:"—" }}</p>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ obj.get_status_display }}</p>
+          </div>
+        </div>
+
+        {% if public_completed %}
+          <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p class="text-lg font-semibold text-emerald-800">Onboarding sent for review successfully</p>
+            <p class="text-sm text-emerald-700 mt-1">
+              Your information was saved, your signature was registered and your documents were generated.
+            </p>
+
+            {% if filled_documents %}
+              <div class="mt-5">
+                <p class="text-sm font-semibold text-emerald-900 mb-3">Download your completed documents</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {% for item in filled_documents %}
+                    <a href="{{ item.url }}"
+                       download
+                       class="rounded-2xl border border-emerald-300 bg-white px-4 py-3 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+                      {{ item.label }}
+                    </a>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+
+        {% elif step == "verify" %}
+          {% if obj.status == "rejected" and obj.rejection_note %}
+            <div class="rounded-2xl border border-red-200 bg-red-50 p-5 max-w-3xl">
+              <p class="text-lg font-semibold text-red-800">Correction required</p>
+              <p class="text-sm text-red-700 mt-2 whitespace-pre-line">{{ obj.rejection_note }}</p>
+            </div>
+          {% endif %}
+
+          <form method="post" class="rounded-2xl border border-gray-200 p-5 bg-white max-w-xl">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="verify_access">
+
+            <h2 class="text-lg font-semibold text-gray-800">Access verification</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Enter the access code provided by your company contact.
+            </p>
+
+            <div class="mt-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Access code</label>
+              {{ access_form.access_code }}
+              {% if access_form.access_code.errors %}
+                <p class="mt-1 text-sm text-red-600">{{ access_form.access_code.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="mt-5">
+              <button type="submit"
+                      class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+                Continue
+              </button>
+            </div>
+          </form>
+
+        {% elif step == "accept" %}
+          <div class="rounded-2xl border border-gray-200 p-5 bg-white">
+            <h2 class="text-lg font-semibold text-gray-800">Review base documents</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Download and read the documents before continuing.
+            </p>
+
+            <div class="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {% for item in base_documents %}
+               <a href="{{ item.url }}"
+                  download
+                  class="rounded-2xl border border-emerald-300 bg-white px-4 py-3 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+                  {{ item.label }}
+               </a>
+              {% empty %}
+                <div class="text-sm text-red-600">Base documents are not available.</div>
+              {% endfor %}
+            </div>
+
+            <form method="post" class="mt-6">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="accept_documents">
+
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                {{ acceptance_form.accepted_documents }}
+                <span class="text-sm text-gray-700">
+                  I reviewed the documents and I agree to continue with this onboarding process.
+                </span>
+              </label>
+              {% if acceptance_form.accepted_documents.errors %}
+                <p class="mt-1 text-sm text-red-600">{{ acceptance_form.accepted_documents.errors.0 }}</p>
+              {% endif %}
+
+              <div class="mt-5 flex flex-wrap gap-3">
+                {% if back_url %}
+                  <a href="{{ back_url }}"
+                     class="px-5 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold">
+                    Back
+                  </a>
+                {% endif %}
+                <button type="submit"
+                        class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+                  Continue
+                </button>
+              </div>
+            </form>
+          </div>
+
+        {% elif step == "personal" %}
+          <form method="post" enctype="multipart/form-data" class="rounded-2xl border border-gray-200 p-5 bg-white">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_personal">
+
+            <h2 class="text-lg font-semibold text-gray-800">Personal & Emergency</h2>
+
+            <datalist id="country-options">
+              {% for c in countries %}
+                <option value="{{ c }}">
+              {% endfor %}
+            </datalist>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Date of Birth</label>
+                {{ personal_form.date_of_birth }}
+                <p class="mt-1 text-xs text-gray-500">Age: <span id="age-preview">{{ obj.age|default:"—" }}</span></p>
+                {% if personal_form.date_of_birth.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.date_of_birth.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Nationality</label>
+                {{ personal_form.nationality }}
+                {% if personal_form.nationality.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.nationality.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div class="md:col-span-2">
+                <label class="mb-1 block text-sm font-medium text-gray-700">Street Address</label>
+                {{ personal_form.street_address }}
+                {% if personal_form.street_address.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.street_address.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Apt / Suite</label>
+                {{ personal_form.apt_suite }}
+                {% if personal_form.apt_suite.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.apt_suite.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div></div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">City</label>
+                {{ personal_form.city }}
+                {% if personal_form.city.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.city.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">State</label>
+                {{ personal_form.state }}
+                {% if personal_form.state.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.state.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">ZIP Code</label>
+                {{ personal_form.zip_code }}
+                {% if personal_form.zip_code.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.zip_code.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Phone Number</label>
+                {{ personal_form.phone_number }}
+                {% if personal_form.phone_number.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.phone_number.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+                {{ personal_form.emergency_contact_name }}
+                {% if personal_form.emergency_contact_name.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.emergency_contact_name.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Phone</label>
+                {{ personal_form.emergency_contact_phone }}
+                {% if personal_form.emergency_contact_phone.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.emergency_contact_phone.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Emergency Contact Relationship</label>
+                {{ personal_form.emergency_contact_relationship }}
+                {% if personal_form.emergency_contact_relationship.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.emergency_contact_relationship.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Address Proof</label>
+                <div class="file-box">
+                  <input type="file" name="address_proof" id="id_address_proof" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                  <input type="file" name="address_proof_camera" id="id_address_proof_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_address_proof" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_address_proof_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_address_proof">No file selected</span>
+                </div>
+                {% if existing_documents.address_proof %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.address_proof.file.url }}" download class="underline">
+                      {{ existing_documents.address_proof.original_name|default:"Address Proof" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if personal_form.address_proof.errors %}<p class="mt-1 text-sm text-red-600">{{ personal_form.address_proof.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div class="mt-6 flex flex-wrap gap-3">
+              {% if back_url %}
+                <a href="{{ back_url }}"
+                   class="px-5 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold">
+                  Back
+                </a>
+              {% endif %}
+              <button type="submit" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+                Save and continue
+              </button>
+            </div>
+          </form>
+
+        {% elif step == "identity" %}
+          <form method="post" enctype="multipart/form-data" class="rounded-2xl border border-gray-200 p-5 bg-white">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_identity">
+
+            <h2 class="text-lg font-semibold text-gray-800">Identity & Work Authorization</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Has Social Security</label>
+                {{ identity_form.has_ssn }}
+                {% if identity_form.has_ssn.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.has_ssn.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div id="ssn_number_block">
+                <label class="mb-1 block text-sm font-medium text-gray-700">Social Security Number</label>
+                {{ identity_form.ssn_number }}
+                {% if identity_form.ssn_number.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.ssn_number.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div id="passport_number_block">
+                <label class="mb-1 block text-sm font-medium text-gray-700">Passport Number</label>
+                {{ identity_form.passport_number }}
+                {% if identity_form.passport_number.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.passport_number.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Has Work Permit</label>
+                {{ identity_form.has_work_permit }}
+                {% if identity_form.has_work_permit.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.has_work_permit.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Has Driver License</label>
+                {{ identity_form.has_driver_license }}
+                {% if identity_form.has_driver_license.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.has_driver_license.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div id="ssn_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Social Security Front</label>
+                <div class="file-box">
+                  <input type="file" name="ssn_front" id="id_ssn_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="ssn_front_camera" id="id_ssn_front_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_ssn_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_ssn_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_ssn_front">No file selected</span>
+                </div>
+                {% if existing_documents.ssn_front %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.ssn_front.file.url }}" download class="underline">
+                      {{ existing_documents.ssn_front.original_name|default:"Social Security Front" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.ssn_front.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.ssn_front.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Social Security Back</label>
+                <div class="file-box">
+                  <input type="file" name="ssn_back" id="id_ssn_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="ssn_back_camera" id="id_ssn_back_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_ssn_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_ssn_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_ssn_back">No file selected</span>
+                </div>
+                {% if existing_documents.ssn_back %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.ssn_back.file.url }}" download class="underline">
+                      {{ existing_documents.ssn_back.original_name|default:"Social Security Back" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.ssn_back.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.ssn_back.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div id="passport_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Passport Front</label>
+                <div class="file-box">
+                  <input type="file" name="passport_front" id="id_passport_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="passport_front_camera" id="id_passport_front_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_passport_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_passport_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_passport_front">No file selected</span>
+                </div>
+                {% if existing_documents.passport_front %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.passport_front.file.url }}" download class="underline">
+                      {{ existing_documents.passport_front.original_name|default:"Passport Front" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.passport_front.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.passport_front.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Passport Back</label>
+                <div class="file-box">
+                  <input type="file" name="passport_back" id="id_passport_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="passport_back_camera" id="id_passport_back_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_passport_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_passport_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_passport_back">No file selected</span>
+                </div>
+                {% if existing_documents.passport_back %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.passport_back.file.url }}" download class="underline">
+                      {{ existing_documents.passport_back.original_name|default:"Passport Back" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.passport_back.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.passport_back.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div id="work_permit_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Work Permit Front</label>
+                <div class="file-box">
+                  <input type="file" name="work_permit_front" id="id_work_permit_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="work_permit_front_camera" id="id_work_permit_front_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_work_permit_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_work_permit_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_work_permit_front">No file selected</span>
+                </div>
+                {% if existing_documents.work_permit_front %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.work_permit_front.file.url }}" download class="underline">
+                      {{ existing_documents.work_permit_front.original_name|default:"Work Permit Front" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.work_permit_front.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.work_permit_front.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Work Permit Back</label>
+                <div class="file-box">
+                  <input type="file" name="work_permit_back" id="id_work_permit_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="work_permit_back_camera" id="id_work_permit_back_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_work_permit_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_work_permit_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_work_permit_back">No file selected</span>
+                </div>
+                {% if existing_documents.work_permit_back %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.work_permit_back.file.url }}" download class="underline">
+                      {{ existing_documents.work_permit_back.original_name|default:"Work Permit Back" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.work_permit_back.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.work_permit_back.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div id="driver_license_docs_block" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Driver License Front</label>
+                <div class="file-box">
+                  <input type="file" name="driver_license_front" id="id_driver_license_front" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="driver_license_front_camera" id="id_driver_license_front_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_driver_license_front" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_driver_license_front_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_driver_license_front">No file selected</span>
+                </div>
+                {% if existing_documents.driver_license_front %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.driver_license_front.file.url }}" download class="underline">
+                      {{ existing_documents.driver_license_front.original_name|default:"Driver License Front" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.driver_license_front.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.driver_license_front.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700">Driver License Back</label>
+                <div class="file-box">
+                  <input type="file" name="driver_license_back" id="id_driver_license_back" class="file-hidden" accept=".jpg,.jpeg,.png,.webp,.pdf">
+                  <input type="file" name="driver_license_back_camera" id="id_driver_license_back_camera" class="file-hidden" accept="image/*" capture="environment">
+                  <label for="id_driver_license_back" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
+                  <label for="id_driver_license_back_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
+                  <span class="file-name" data-file-name-for="id_driver_license_back">No file selected</span>
+                </div>
+                {% if existing_documents.driver_license_back %}
+                  <p class="mt-2 text-xs text-emerald-700">
+                    Current file:
+                    <a href="{{ existing_documents.driver_license_back.file.url }}" download class="underline">
+                      {{ existing_documents.driver_license_back.original_name|default:"Driver License Back" }}
+                    </a>
+                  </p>
+                {% endif %}
+                {% if identity_form.driver_license_back.errors %}<p class="mt-1 text-sm text-red-600">{{ identity_form.driver_license_back.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            {% if identity_form.non_field_errors %}
+              <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {{ identity_form.non_field_errors }}
+              </div>
+            {% endif %}
+
+            <div class="mt-6 flex flex-wrap gap-3">
+              {% if back_url %}
+                <a href="{{ back_url }}"
+                   class="px-5 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold">
+                  Back
+                </a>
+              {% endif %}
+              <button type="submit" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+                Save and continue
+              </button>
+            </div>
+          </form>
+
+        {% elif step == "tax_banking" %}
+          <form method="post" enctype="multipart/form-data" class="rounded-2xl border border-gray-200 p-5 bg-white">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_tax_banking">
+
+            <h2 class="text-lg font-semibold text-gray-800">W-9 & Banking</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Business Name</label>
+                {{ tax_banking_form.business_name }}
+                {% if tax_banking_form.business_name.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.business_name.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Tax Classification</label>
+                {{ tax_banking_form.w9_tax_classification }}
+                {% if tax_banking_form.w9_tax_classification.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_tax_classification.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div id="w9_llc_classification_block">
+                <label class="mb-1 block text-sm font-medium text-gray-700">LLC Classification</label>
+                {{ tax_banking_form.w9_llc_classification }}
+                {% if tax_banking_form.w9_llc_classification.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_llc_classification.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div id="w9_other_text_block">
+                <label class="mb-1 block text-sm font-medium text-gray-700">Other</label>
+                {{ tax_banking_form.w9_other_text }}
+                {% if tax_banking_form.w9_other_text.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_other_text.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Part 3b applies?</label>
+                {{ tax_banking_form.w9_part3b_required }}
+                {% if tax_banking_form.w9_part3b_required.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_part3b_required.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Exempt payee code</label>
+                {{ tax_banking_form.w9_exempt_payee_code }}
+                {% if tax_banking_form.w9_exempt_payee_code.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_exempt_payee_code.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">FATCA exemption code</label>
+                {{ tax_banking_form.w9_fatca_exemption_code }}
+                {% if tax_banking_form.w9_fatca_exemption_code.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_fatca_exemption_code.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">W-9 Account Numbers (optional)</label>
+                {{ tax_banking_form.w9_account_numbers }}
+                {% if tax_banking_form.w9_account_numbers.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.w9_account_numbers.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Employer Identification Number (EIN)</label>
+                {{ tax_banking_form.ein_number }}
+                {% if tax_banking_form.ein_number.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.ein_number.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Bank Name</label>
+                {{ tax_banking_form.bank_name }}
+                {% if tax_banking_form.bank_name.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.bank_name.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Account Type</label>
+                {{ tax_banking_form.account_type }}
+                {% if tax_banking_form.account_type.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.account_type.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Routing Number</label>
+                {{ tax_banking_form.routing_number }}
+                {% if tax_banking_form.routing_number.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.routing_number.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">Account Number</label>
+                {{ tax_banking_form.account_number }}
+                {% if tax_banking_form.account_number.errors %}<p class="mt-1 text-sm text-red-600">{{ tax_banking_form.account_number.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            {% if tax_banking_form.non_field_errors %}
+              <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {{ tax_banking_form.non_field_errors }}
+              </div>
+            {% endif %}
+
+            <div class="mt-6 flex flex-wrap gap-3">
+              {% if back_url %}
+                <a href="{{ back_url }}"
+                   class="px-5 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold">
+                  Back
+                </a>
+              {% endif %}
+              <button type="submit" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+                Save and continue
+              </button>
+            </div>
+          </form>
+
+        {% elif step == "signature" %}
+          <div class="rounded-2xl border border-gray-200 p-5 bg-white">
+            <h2 class="text-lg font-semibold text-gray-800">Final signature</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              After signing, your onboarding will be sent for admin review.
+            </p>
+
+            <form method="post" onsubmit="captureAndSubmit(event)" class="mt-5">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="save_signature">
+              {{ signature_form.signature_dataurl }}
+
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Signature Name</label>
+                {{ signature_form.signature_name }}
+                {% if signature_form.signature_name.errors %}<p class="mt-1 text-sm text-red-600">{{ signature_form.signature_name.errors.0 }}</p>{% endif %}
+              </div>
+
+              {% if signature_form.non_field_errors %}
+                <div class="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {{ signature_form.non_field_errors }}
+                </div>
+              {% endif %}
+
+              <div class="mb-3">
+                <p class="text-sm font-medium text-gray-700 mb-2">Draw your signature</p>
+                <canvas
+                  id="pad"
+                  class="border rounded-2xl w-full bg-white"
+                  style="touch-action:none; height:240px;"
+                ></canvas>
+              </div>
+
+              <div class="flex flex-wrap gap-3">
+                {% if back_url %}
+                  <a href="{{ back_url }}"
+                     class="px-4 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
+                    Back
+                  </a>
+                {% endif %}
+                <button
+                  type="button"
+                  onclick="clearPad()"
+                  class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium"
+                >
+                  Clear
+                </button>
+
+                <button
+                  type="submit"
+                  class="px-5 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold"
+                >
+                  Complete onboarding
+                </button>
+              </div>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+  <script>
+    function bindFileMirror(primaryId, cameraId) {
+      const primary = document.getElementById(primaryId);
+      const camera = document.getElementById(cameraId);
+      const span = document.querySelector('[data-file-name-for="' + primaryId + '"]');
+
+      function setNameFrom(input) {
+        if (!span || !input) return;
+        span.textContent = input.files.length ? input.files[0].name : "No file selected";
+        if (input.files.length && input === camera && primary) primary.value = "";
+        if (input.files.length && input === primary && camera) camera.value = "";
+      }
+
+      primary?.addEventListener("change", function () { setNameFrom(primary); });
+      camera?.addEventListener("change", function () { setNameFrom(camera); });
+    }
+  </script>
+
+  {% if step == "personal" %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const dobInput = document.getElementById("id_date_of_birth");
+      const agePreview = document.getElementById("age-preview");
+
+      function calculateAge(dateString) {
+        if (!dateString) return "—";
+        const dob = new Date(dateString + "T00:00:00");
+        if (Number.isNaN(dob.getTime())) return "—";
+
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        const dayDiff = today.getDate() - dob.getDate();
+
+        if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+          age -= 1;
+        }
+        return age >= 0 ? String(age) : "—";
+      }
+
+      if (window.flatpickr) {
+        document.querySelectorAll(".js-date-picker").forEach(function (el) {
+          flatpickr(el, {
+            dateFormat: "Y-m-d",
+            altInput: true,
+            altFormat: "F j, Y",
+            allowInput: true,
+            onChange: function (selectedDates, dateStr) {
+              if (agePreview) agePreview.textContent = calculateAge(dateStr);
+            }
+          });
+        });
+      }
+
+      dobInput?.addEventListener("change", function () {
+        if (agePreview) agePreview.textContent = calculateAge(dobInput.value);
+      });
+
+      if (dobInput && agePreview) {
+        agePreview.textContent = calculateAge(dobInput.value);
+      }
+
+      bindFileMirror("id_address_proof", "id_address_proof_camera");
+    });
+  </script>
+  {% endif %}
+
+  {% if step == "identity" %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      bindFileMirror("id_ssn_front", "id_ssn_front_camera");
+      bindFileMirror("id_ssn_back", "id_ssn_back_camera");
+      bindFileMirror("id_passport_front", "id_passport_front_camera");
+      bindFileMirror("id_passport_back", "id_passport_back_camera");
+      bindFileMirror("id_work_permit_front", "id_work_permit_front_camera");
+      bindFileMirror("id_work_permit_back", "id_work_permit_back_camera");
+      bindFileMirror("id_driver_license_front", "id_driver_license_front_camera");
+      bindFileMirror("id_driver_license_back", "id_driver_license_back_camera");
+
+      const hasSsnEl = document.getElementById("id_has_ssn");
+      const hasWorkPermitEl = document.getElementById("id_has_work_permit");
+      const hasDriverLicenseEl = document.getElementById("id_has_driver_license");
+
+      const passportNumberBlock = document.getElementById("passport_number_block");
+      const passportDocsBlock = document.getElementById("passport_docs_block");
+      const ssnNumberBlock = document.getElementById("ssn_number_block");
+      const ssnDocsBlock = document.getElementById("ssn_docs_block");
+      const workPermitDocsBlock = document.getElementById("work_permit_docs_block");
+      const driverLicenseDocsBlock = document.getElementById("driver_license_docs_block");
+
+      function show(el, visible) {
+        if (!el) return;
+        el.style.display = visible ? "" : "none";
+      }
+
+      function updateConditionalFields() {
+        const nationality = "{{ obj.nationality|default:''|lower|escapejs }}";
+        const isUs = nationality === "united states";
+
+        const hasSsn = (hasSsnEl?.value || "").toLowerCase();
+        const hasWorkPermit = (hasWorkPermitEl?.value || "").toLowerCase();
+        const hasDriverLicense = (hasDriverLicenseEl?.value || "").toLowerCase();
+
+        const showPassport = !isUs || hasSsn === "no";
+        const showSsn = hasSsn === "yes";
+
+        show(passportNumberBlock, showPassport);
+        show(passportDocsBlock, showPassport);
+        show(ssnNumberBlock, showSsn);
+        show(ssnDocsBlock, showSsn);
+        show(workPermitDocsBlock, hasWorkPermit === "yes");
+        show(driverLicenseDocsBlock, hasDriverLicense === "yes");
+      }
+
+      hasSsnEl?.addEventListener("change", updateConditionalFields);
+      hasWorkPermitEl?.addEventListener("change", updateConditionalFields);
+      hasDriverLicenseEl?.addEventListener("change", updateConditionalFields);
+
+      updateConditionalFields();
+    });
+  </script>
+  {% endif %}
+
+  {% if step == "tax_banking" %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const taxClassEl = document.getElementById("id_w9_tax_classification");
+      const w9LlcBlock = document.getElementById("w9_llc_classification_block");
+      const w9OtherBlock = document.getElementById("w9_other_text_block");
+
+      function show(el, visible) {
+        if (!el) return;
+        el.style.display = visible ? "" : "none";
+      }
+
+      function updateConditionalFields() {
+        const taxClass = (taxClassEl?.value || "").toLowerCase();
+        show(w9LlcBlock, taxClass === "llc");
+        show(w9OtherBlock, taxClass === "other");
+      }
+
+      taxClassEl?.addEventListener("change", updateConditionalFields);
+      updateConditionalFields();
+    });
+  </script>
+  {% endif %}
+
+  {% if step == "signature" %}
+  <script>
+    (function () {
+      const canvas = document.getElementById("pad");
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      let drawing = false;
+
+      function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "#111827";
+      }
+
+      function pos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        return {
+          x: clientX - rect.left,
+          y: clientY - rect.top
+        };
+      }
+
+      canvas.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        drawing = true;
+        ctx.beginPath();
+        const p = pos(e);
+        ctx.moveTo(p.x, p.y);
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+
+      canvas.addEventListener("pointermove", function (e) {
+        if (!drawing) return;
+        e.preventDefault();
+        const p = pos(e);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      });
+
+      window.addEventListener("pointerup", function (e) {
+        if (!drawing) return;
+        drawing = false;
+        try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+      });
+
+      window.clearPad = function () {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      };
+
+      window.captureAndSubmit = function () {
+        const input = document.querySelector('input[name="signature_dataurl"]');
+        if (input) {
+          input.value = canvas.toDataURL("image/png");
+        }
+      };
+
+      resizeCanvas();
+
+      let rafId;
+      function onResize() {
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(resizeCanvas);
+      }
+
+      window.addEventListener("resize", onResize);
+      window.addEventListener("orientationchange", onResize);
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

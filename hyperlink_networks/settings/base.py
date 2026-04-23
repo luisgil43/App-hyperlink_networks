@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     "logistica",
     "subcontrato",
     "facturacion",
+    "ombording",
     "invoicing",
     "usuarios",
     "cable_installation",

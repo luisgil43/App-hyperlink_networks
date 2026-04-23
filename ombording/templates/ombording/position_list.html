@@ -1,0 +1,52 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Positions{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            🧾 Positions
+        </h1>
+
+        <a href="{% url 'ombording:position_create' %}"
+            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            ➕ New Position
+        </a>
+
+        <a href="{% url 'ombording:ombording_list' %}"
+            class="bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
+            ← Back to Ombording
+        </a>
+    </div>
+
+    <div class="rounded-xl border border-gray-200 overflow-x-auto">
+        <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[700px]">
+            <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+                <tr>
+                    <th class="p-2 border text-left">ID</th>
+                    <th class="p-2 border text-left">Name</th>
+                    <th class="p-2 border text-left">Active</th>
+                    <th class="p-2 border text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr class="border-t hover:bg-gray-50">
+                    <td class="p-2 border">{{ item.id }}</td>
+                    <td class="p-2 border">{{ item.name }}</td>
+                    <td class="p-2 border">{% if item.is_active %}Yes{% else %}No{% endif %}</td>
+                    <td class="p-2 border text-center">
+                        <a href="{% url 'ombording:position_edit' item.pk %}"
+                            class="text-blue-600 hover:underline">Edit</a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="p-4 text-center text-gray-500">No positions yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

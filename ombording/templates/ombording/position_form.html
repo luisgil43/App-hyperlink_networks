@@ -1,0 +1,37 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl bg-white shadow mt-3 rounded-2xl px-4 py-5 sm:p-6">
+    <div class="mb-5">
+        <h1 class="text-2xl font-bold text-gray-800">{{ title }}</h1>
+        <p class="text-sm text-gray-500 mt-1">Create or edit a position.</p>
+    </div>
+
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+
+        <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">Name</label>
+            {{ form.name }}
+        </div>
+
+        <div class="flex items-center gap-2">
+            {{ form.is_active }}
+            <label class="text-sm font-medium text-gray-700">Active</label>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button type="submit"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-full text-sm shadow">
+                {{ submit_label }}
+            </button>
+
+            <a href="{% url 'ombording:position_list' %}"
+                class="bg-white border hover:bg-gray-50 text-gray-700 px-5 py-2 rounded-full text-sm shadow">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}
