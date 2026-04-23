@@ -1111,10 +1111,14 @@ class PublicTaxBankingForm(_PublicBaseMixin, forms.ModelForm):
                     "class": "w-full border rounded-xl px-3 py-2",
                     "maxlength": "9",
                     "inputmode": "numeric",
+                    "placeholder": "9 digits",
                 }
             ),
             "account_number": forms.TextInput(
-                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+                attrs={
+                    "class": "w-full border rounded-xl px-3 py-2",
+                    "maxlength": "50",
+                }
             ),
         }
 

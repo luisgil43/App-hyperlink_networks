@@ -330,22 +330,36 @@
                         </td>
 
                         <td class="p-2 border text-center">
-                            <div class="flex items-center justify-center gap-3 flex-wrap">
-                                <a class="text-blue-600 hover:underline"
-                                   href="{% url 'ombording:ombording_edit' s.id %}">Edit</a>
-                                <a class="text-gray-700 hover:underline"
-                                   href="{% url 'ombording:ombording_review' s.id %}">Review</a>
-                                <a class="text-emerald-700 hover:underline"
-                                   href="{% url 'ombording:ombording_send_email' s.id %}">Send Email</a>
-                                <a class="text-red-700 hover:underline"
-                                   href="{% url 'ombording:ombording_pause' s.id %}"
-                                   onclick="return confirm('Are you sure you want to pause this ombording? The public link will stop working until it is reactivated.');">
-                                    Pause
-                                </a>
-                                <a class="text-amber-700 hover:underline"
-                                   href="{% url 'ombording:ombording_reactivate' s.id %}">Reactivate</a>
-                            </div>
-                        </td>
+    <div class="flex items-center justify-center gap-3 flex-wrap">
+        <a class="text-blue-600 hover:underline"
+           href="{% url 'ombording:ombording_edit' s.id %}">Edit</a>
+
+        <a class="text-gray-700 hover:underline"
+           href="{% url 'ombording:ombording_review' s.id %}">Review</a>
+
+        <a class="text-emerald-700 hover:underline"
+           href="{% url 'ombording:ombording_send_email' s.id %}">Send Email</a>
+
+        <a class="text-red-700 hover:underline"
+           href="{% url 'ombording:ombording_pause' s.id %}"
+           onclick="return confirm('Are you sure you want to pause this ombording? The public link will stop working until it is reactivated.');">
+            Pause
+        </a>
+
+        <a class="text-amber-700 hover:underline"
+           href="{% url 'ombording:ombording_reactivate' s.id %}">Reactivate</a>
+
+        <form method="post"
+              action="{% url 'ombording:ombording_delete' s.id %}"
+              onsubmit="return confirm('Are you sure you want to delete this ombording? This action cannot be undone.');"
+              class="inline">
+            {% csrf_token %}
+            <button type="submit" class="text-red-800 hover:underline">
+                Delete
+            </button>
+        </form>
+    </div>
+</td>
                     </tr>
                     {% empty %}
                     <tr>

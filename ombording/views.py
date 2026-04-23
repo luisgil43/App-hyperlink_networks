@@ -951,7 +951,9 @@ def public_start(request, token):
                         detail="Public access code verified successfully.",
                     )
                     return redirect(_public_step_url(token, PUBLIC_STEP_ACCEPT))
+
                 form.add_error("access_code", "Invalid access code.")
+
             return _public_render(
                 request,
                 obj,
@@ -1222,11 +1224,18 @@ def public_start(request, token):
                     request, "Your onboarding was sent for review successfully."
                 )
 
-                return _public_render(
+                return render(
                     request,
-                    obj,
-                    PUBLIC_STEP_SIGNATURE,
-                    public_completed=True,
+                    "ombording/public_link_closed.html",
+                    {
+                        "obj": obj,
+                        "closed_title": "Onboarding completed successfully",
+                        "closed_message": (
+                            "Thank you. Your onboarding has been submitted successfully and is now under review. "
+                            "Our team will contact you if any additional information is needed."
+                        ),
+                    },
+                    status=200,
                 )
 
             return _public_render(
@@ -1297,4 +1306,21 @@ def ombording_pause(request, pk):
         "Ombording paused manually from admin panel.",
     )
     messages.success(request, "Ombording paused successfully.")
+    return redirect("ombording:ombording_list")
+
+
+@login_required
+@require_POST
+def ombording_delete(request, pk):
+    obj = get_object_or_404(Ombording, pk=pk)
+
+    register_audit_log(
+        obj,
+        action="ombording_deleted",
+        performed_by=request.user,
+        detail="Ombording deleted from admin panel.",
+    )
+
+    obj.delete()
+    messages.success(request, "Ombording deleted successfully.")
     return redirect("ombording:ombording_list")

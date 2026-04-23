@@ -360,19 +360,19 @@ def _draw_signature_after_word(
     page_height,
     image_field=None,
     fallback_text="",
-    dx=8,
-    dy=14,
-    width=150,
-    height=34,
+    dx=6,
+    dy=10,
+    width=105,
+    height=22,
 ):
     if not word:
         return
 
     x = float(word["x1"]) + float(dx)
-    baseline_y = _canvas_y_from_word(page_height, word, 4)
+    baseline_y = _canvas_y_from_word(page_height, word, 3)
 
     if image_field:
-        image_y = baseline_y - (float(height) * 0.55)
+        image_y = baseline_y - (float(height) * 0.45)
         _draw_signature_image(
             c,
             image_field,
@@ -554,10 +554,10 @@ def _agreement_overlay_pages(ombording, total_pages, page_width, page_height):
                         else None
                     ),
                     fallback_text=payload["signature_name"],
-                    dx=8,
-                    dy=8,
-                    width=150,
-                    height=34,
+                    dx=6,
+                    dy=10,
+                    width=105,
+                    height=22,
                 )
 
                 # Initial final dentro del bloque de cierre
@@ -623,10 +623,10 @@ def _exhibit_overlay_pages(ombording, total_pages, page_width, page_height):
                         else None
                     ),
                     fallback_text=payload["signature_name"],
-                    dx=8,
-                    dy=8,
-                    width=150,
-                    height=34,
+                    dx=6,
+                    dy=10,
+                    width=105,
+                    height=22,
                 )
 
         pages.append(_create_overlay_for_page(page_width, page_height, draw))
@@ -726,9 +726,9 @@ def _w9_overlay_pages(ombording, total_pages, page_width, page_height):
                 c,
                 signature_file,
                 130,
-                180,
-                width=120,
-                height=28,
+                186,
+                width=100,
+                height=20,
             )
         else:
             c.drawString(130, 196, payload["signature_name"])

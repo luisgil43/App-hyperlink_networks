@@ -37,4 +37,5 @@ urlpatterns = [
     path("<int:pk>/pause/", views.ombording_pause, name="ombording_pause"),
     path("review/<int:pk>/approve/", views.ombording_approve, name="ombording_approve"),
     path("review/<int:pk>/reject/", views.ombording_reject, name="ombording_reject"),
+    path("<int:pk>/delete/", views.ombording_delete, name="ombording_delete"),
 ]
