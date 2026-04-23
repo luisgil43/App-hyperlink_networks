@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 import re
@@ -80,6 +81,17 @@ FILLED_DOCUMENT_MAP = {
         "W-9 Filled",
     ),
 }
+
+
+def normalize_upload_session_key(raw_key):
+    raw = (raw_key or "").strip()
+    if not raw:
+        return ""
+
+    if len(raw) <= 100:
+        return raw
+
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _build_w9_address_lines(payload):
@@ -867,6 +879,7 @@ def resolve_uploaded_file(files, key):
 
 
 def get_temp_uploads_map(session_key):
+    session_key = normalize_upload_session_key(session_key)
     return {
         x.field_name: x
         for x in OmbordingTempUpload.objects.filter(session_key=session_key).order_by(
@@ -876,6 +889,8 @@ def get_temp_uploads_map(session_key):
 
 
 def save_temp_uploads_from_request(session_key, user, files):
+    session_key = normalize_upload_session_key(session_key)
+
     for field_name, _, _ in DOCUMENT_FIELD_MAP:
         uploaded = resolve_uploaded_file(files, field_name)
         if not uploaded:
@@ -939,6 +954,7 @@ def save_uploaded_documents_from_form(ombording, user, files):
 
 
 def consume_temp_uploads_into_ombording(ombording, user, session_key):
+    session_key = normalize_upload_session_key(session_key)
     temp_map = get_temp_uploads_map(session_key)
 
     for key, document_key, label in DOCUMENT_FIELD_MAP:
