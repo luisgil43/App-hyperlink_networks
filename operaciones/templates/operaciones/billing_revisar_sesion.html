@@ -93,6 +93,38 @@
     📦 Generating report… (ZIP disabled)
   </button>
 {% endif %}
+
+<a href="{% url 'operaciones:export_light_levels_xlsx' s.id %}"
+
+   class="inline-flex items-center px-4 py-2 rounded shadow bg-sky-600 hover:bg-sky-700 text-white">
+
+  ⚡ Download light levels
+
+</a>
+
+<form id="backfill-light-form"
+
+      method="post"
+
+      action="{% url 'operaciones:backfill_light_levels_project' s.id %}"
+
+      class="inline">
+
+  {% csrf_token %}
+
+  <input type="hidden" name="force" id="backfill-force-input" value="0">
+
+  <button type="button"
+
+          id="btn-open-backfill-modal"
+
+          class="inline-flex items-center px-4 py-2 rounded shadow bg-amber-600 hover:bg-amber-700 text-white">
+
+    ⚡ Backfill light levels
+
+  </button>
+
+</form>
   {# ------------------------------------------------------------------------ #}
 
 </div>
@@ -214,6 +246,18 @@
   </div>
 {% endif %}
 
+{% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+  {% if ev.is_power_candidate %}
+    <div class="absolute left-2 top-12 z-20">
+      <button type="button"
+              class="btn-extract-power inline-flex items-center gap-1 bg-white/90 border rounded-full px-2 py-1 text-xs text-gray-700 shadow-sm"
+              data-url="{% url 'operaciones:extract_power_from_evidence' ev.id %}">
+        ⚡ Extract power
+      </button>
+    </div>
+  {% endif %}
+{% endif %}
+
       <div class="relative rounded overflow-hidden bg-black/5">
         {% if ev.lat and ev.lng %}
           <div class="absolute top-2 left-2 z-10">
@@ -241,16 +285,66 @@
         </a>
       </div>
 
-      <figcaption class="text-xs mt-1">
-        <div class="font-medium">
-          {% if s.proyecto_especial and not ev.requisito_id %}
-            {{ ev.titulo_manual|default:"Extra" }}
-          {% else %}
-            {{ ev.requisito.titulo|default:"Extra" }}
-          {% endif %}
-        </div>
+    <figcaption class="text-xs mt-1">
+  <div class="font-medium">
+    {% if s.proyecto_especial and not ev.requisito_id %}
+      {{ ev.titulo_manual|default:"Extra" }}
+    {% else %}
+      {{ ev.requisito.titulo|default:"Extra" }}
+    {% endif %}
+  </div>
 
-        <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
+  <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
+
+{% if ev.is_power_candidate %}
+
+  <div class="mt-1 power-inline-wrap"
+
+       data-power-wrap="{{ ev.id }}"
+
+       data-update-url="{% url 'operaciones:update_power_from_evidence' ev.id %}">
+
+    <span id="power-view-{{ ev.id }}"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs {% if ev.power_dbm != None %}bg-emerald-100 text-emerald-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+      ⚡ Power:
+      <span class="power-value">
+        {% if ev.power_dbm != None %}
+          {{ ev.power_dbm }} dBm
+        {% else %}
+          pending
+        {% endif %}
+      </span>
+    </span>
+
+    {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
+      <input type="text"
+             id="power-input-{{ ev.id }}"
+             class="power-input hidden border rounded px-2 py-0.5 text-xs w-24"
+             value="{% if ev.power_dbm != None %}{{ ev.power_dbm|unlocalize }}{% endif %}"
+             placeholder="-28.03">
+
+      <button type="button"
+              class="power-edit text-xs text-blue-600 underline ml-1"
+              data-id="{{ ev.id }}">
+        ✏️
+      </button>
+
+      <button type="button"
+              class="power-save hidden text-xs text-emerald-700 underline ml-1"
+              data-id="{{ ev.id }}">
+        Save
+      </button>
+
+      <button type="button"
+              class="power-cancel hidden text-xs text-gray-500 underline ml-1"
+              data-id="{{ ev.id }}">
+        Cancel
+      </button>
+    {% endif %}
+  </div>
+{% endif %}
+
+       
 
         <div class="text-gray-600">
           {% if s.proyecto_especial and not ev.requisito_id %}
@@ -386,6 +480,124 @@
 </div>
 {% endif %}
 
+{# -------- Modal Backfill Light Levels -------- #}
+<div id="modal-backfill-light" class="fixed inset-0 hidden z-[9999]">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" data-close-backfill></div>
+
+  <div class="relative min-h-screen flex items-center justify-center px-4">
+    <div class="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+      <div class="px-6 py-5 border-b bg-gradient-to-r from-amber-50 to-white">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xl">
+            ⚡
+          </div>
+
+          <div class="flex-1">
+            <h3 class="text-lg font-bold text-gray-900">
+              Backfill light levels
+            </h3>
+            <p class="mt-1 text-sm text-gray-600">
+              This will review existing photos and try to extract light levels and port numbers.
+            </p>
+          </div>
+
+          <button type="button"
+                  class="text-gray-400 hover:text-gray-600 text-xl leading-none"
+                  data-close-backfill>
+            ×
+          </button>
+        </div>
+      </div>
+
+      <div class="px-6 py-5 space-y-4">
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p class="font-semibold">Important</p>
+          <p class="mt-1">
+            Photos will not be deleted or replaced. Only the power metadata will be completed when the system detects a valid reading.
+          </p>
+        </div>
+
+        <label class="flex items-start gap-3 rounded-xl border border-gray-200 px-4 py-3 cursor-pointer hover:bg-gray-50">
+          <input type="checkbox"
+                 id="chk-backfill-force"
+                 class="mt-1 w-4 h-4 rounded border-gray-300">
+          <span class="text-sm text-gray-700">
+            <span class="font-semibold block">Force reprocess</span>
+            <span class="text-gray-500">
+              Re-run extraction even for photos that already have power and port saved.
+            </span>
+          </span>
+        </label>
+
+        <p class="text-xs text-gray-500">
+          If most photos already show “Power”, you can leave this unchecked.
+        </p>
+      </div>
+
+      <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-2">
+        <button type="button"
+                class="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-100"
+                data-close-backfill>
+          Cancel
+        </button>
+
+        <button type="button"
+                id="btn-confirm-backfill"
+                class="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 shadow">
+          Start backfill
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const modal = document.getElementById('modal-backfill-light');
+  const openBtn = document.getElementById('btn-open-backfill-modal');
+  const confirmBtn = document.getElementById('btn-confirm-backfill');
+  const form = document.getElementById('backfill-light-form');
+  const forceInput = document.getElementById('backfill-force-input');
+  const forceChk = document.getElementById('chk-backfill-force');
+
+  if (!modal || !openBtn || !confirmBtn || !form) return;
+
+  function openModal(){
+    modal.classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+  }
+
+  function closeModal(){
+    modal.classList.add('hidden');
+    document.body.classList.remove('overflow-hidden');
+  }
+
+  openBtn.addEventListener('click', openModal);
+
+  modal.addEventListener('click', function(e){
+    if (e.target.hasAttribute('data-close-backfill')) {
+      closeModal();
+    }
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+      closeModal();
+    }
+  });
+
+  confirmBtn.addEventListener('click', function(){
+    if (forceInput) {
+      forceInput.value = forceChk && forceChk.checked ? '1' : '0';
+    }
+
+    confirmBtn.disabled = true;
+    confirmBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    confirmBtn.textContent = 'Processing…';
+
+    form.submit();
+  });
+})();
+</script>
 <script>
 function getCookie(name){
   const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
@@ -751,6 +963,200 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
 
   document.addEventListener('DOMContentLoaded', syncUI);
   syncUI();
+})();
+</script>
+
+<script>
+(function(){
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : '';
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  document.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('.btn-extract-power');
+    if(!btn) return;
+
+    const url = btn.getAttribute('data-url');
+    if(!url) return;
+
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = 'Extracting…';
+
+    try{
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrftoken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok || data.ok === false){
+        throw new Error(data.error || ('HTTP ' + r.status));
+      }
+
+      window.location.reload();
+    }catch(err){
+      alert(err.message || 'Extraction failed.');
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : '';
+  }
+
+  const csrftoken = getCookie('csrftoken');
+
+  function toast(msg, type){
+    const bg = type === 'success' ? 'bg-green-600' : 'bg-red-600';
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50 text-sm`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+
+  function setEditMode(id, on){
+    const view = document.getElementById(`power-view-${id}`);
+    const input = document.getElementById(`power-input-${id}`);
+    const edit = document.querySelector(`.power-edit[data-id="${id}"]`);
+    const save = document.querySelector(`.power-save[data-id="${id}"]`);
+    const cancel = document.querySelector(`.power-cancel[data-id="${id}"]`);
+
+    if (!view || !input) return;
+
+    view.classList.toggle('hidden', on);
+    input.classList.toggle('hidden', !on);
+    edit?.classList.toggle('hidden', on);
+    save?.classList.toggle('hidden', !on);
+    cancel?.classList.toggle('hidden', !on);
+
+    if (on) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  function updateBadge(id, value){
+    const view = document.getElementById(`power-view-${id}`);
+    const input = document.getElementById(`power-input-${id}`);
+    if (!view || !input) return;
+
+    const valueSpan = view.querySelector('.power-value');
+
+    if (value) {
+      valueSpan.textContent = `${value} dBm`;
+      input.value = value;
+      view.classList.remove('bg-yellow-100', 'text-yellow-800');
+      view.classList.add('bg-emerald-100', 'text-emerald-800');
+    } else {
+      valueSpan.textContent = 'pending';
+      input.value = '';
+      view.classList.remove('bg-emerald-100', 'text-emerald-800');
+      view.classList.add('bg-yellow-100', 'text-yellow-800');
+    }
+  }
+
+  async function savePower(id){
+    const wrap = document.querySelector(`[data-power-wrap="${id}"]`);
+    const input = document.getElementById(`power-input-${id}`);
+    const btnSave = document.querySelector(`.power-save[data-id="${id}"]`);
+
+    if (!wrap || !input) return;
+
+    const url = wrap.dataset.updateUrl;
+    const value = (input.value || '').trim();
+
+    if (!url) {
+      toast('Missing update URL.', 'error');
+      return;
+    }
+
+    btnSave && (btnSave.disabled = true);
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          power_dbm: value
+        }),
+        cache: 'no-store',
+      });
+
+      const data = await resp.json().catch(() => ({}));
+
+      if (!resp.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+
+      updateBadge(id, data.power_dbm || '');
+      setEditMode(id, false);
+      toast('Power updated.', 'success');
+
+    } catch (err) {
+      toast(err.message || 'Could not update power.', 'error');
+      input.focus();
+    } finally {
+      btnSave && (btnSave.disabled = false);
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    const edit = e.target.closest('.power-edit');
+    if (edit) {
+      setEditMode(edit.dataset.id, true);
+      return;
+    }
+
+    const save = e.target.closest('.power-save');
+    if (save) {
+      savePower(save.dataset.id);
+      return;
+    }
+
+    const cancel = e.target.closest('.power-cancel');
+    if (cancel) {
+      setEditMode(cancel.dataset.id, false);
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', function(e){
+    const input = e.target.closest('.power-input');
+    if (!input || input.classList.contains('hidden')) return;
+
+    const id = input.id.replace('power-input-', '');
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      savePower(id);
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditMode(id, false);
+    }
+  });
 })();
 </script>
 {% endif %}

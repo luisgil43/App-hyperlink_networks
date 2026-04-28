@@ -384,4 +384,24 @@ urlpatterns = [
         views_resumen.export_resumen_operativo_xlsx,
         name="resumen_operativo_export",
     ),
+    path(
+        "evidencias/<int:evidencia_id>/extract-power/",
+        b.extract_power_from_evidence,
+        name="extract_power_from_evidence",
+    ),
+    path(
+        "evidence/<int:evidencia_id>/update-power/",
+        b.update_power_from_evidence,
+        name="update_power_from_evidence",
+    ),
+    path(
+        "billing/<int:sesion_id>/light-level/export/",
+        b.export_light_levels_xlsx,
+        name="export_light_levels_xlsx",
+    ),
+    path(
+        "billing/<int:sesion_id>/light-levels/backfill/",
+        b.backfill_light_levels_project,
+        name="backfill_light_levels_project",
+    ),
 ]

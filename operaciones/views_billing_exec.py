@@ -46,6 +46,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_GET, require_POST
 from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
 from openpyxl import Workbook
+from openpyxl.styles import Border, Font, PatternFill, Side
 from PIL import ExifTags, Image, ImageFile
 from pillow_heif import register_heif_opener
 
@@ -69,6 +70,22 @@ register_heif_opener()  # habilita abrir .heic/.heif en Pillow
 # ============================
 # UTIL
 # ============================
+
+POWER_PORT_RE = re.compile(r"^\s*power\s*port\s*(\d+)\s*$", re.IGNORECASE)
+
+
+def _power_meta_from_title(title: str):
+    t = (title or "").strip()
+    m = POWER_PORT_RE.match(t)
+    if not m:
+        return (False, None)
+    try:
+        n = int(m.group(1))
+    except Exception:
+        n = None
+    if n is not None and not (1 <= n <= 8):
+        n = None
+    return (True, n)
 
 
 def storage_file_exists(filefield) -> bool:
@@ -1327,17 +1344,26 @@ def upload_evidencias(request, pk):
 
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 @require_POST
 def upload_evidencias_ajax(request, pk):
     """
     Subida AJAX (una imagen por request) al estilo GZ Services.
+
+    - Si la evidencia corresponde a POWER PORT, intenta extraer automáticamente
+      la potencia dBm al momento de guardar la foto.
+    - Si es Extra, solo intenta extraer automáticamente si el título/nota sugiere
+      potencia, para no gastar IA en fotos normales.
+    - Si no logra extraer, NO bloquea la subida.
+      La foto queda subida y el botón manual "Extract power" sigue disponible.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
 
-    # ✅ NUEVO: bloquear si la asignación está inactiva
     if not _is_asig_active(a):
-        return JsonResponse({"ok": False, "error": "Assignment no longer available."}, status=404)
+        return JsonResponse(
+            {"ok": False, "error": "Assignment no longer available."},
+            status=404,
+        )
 
     s = a.sesion
 
@@ -1356,17 +1382,14 @@ def upload_evidencias_ajax(request, pk):
         sess = asig.sesion
         candidatos = [
             getattr(sess, "proyecto_especial", None),
-            getattr(getattr(sess, "servicio", None),
-                    "proyecto_especial", None),
-            getattr(getattr(asig, "servicio", None),
-                    "proyecto_especial", None),
-            getattr(getattr(sess, "proyecto", None),
-                    "proyecto_especial", None),
+            getattr(getattr(sess, "servicio", None), "proyecto_especial", None),
+            getattr(getattr(asig, "servicio", None), "proyecto_especial", None),
+            getattr(getattr(sess, "proyecto", None), "proyecto_especial", None),
         ]
         for v in candidatos:
             if v is not None:
                 return _boolish(v)
-        # Heurística: sin requisitos en la sesión => especial
+
         return not RequisitoFotoBilling.objects.filter(
             tecnico_sesion__sesion=sess
         ).exists()
@@ -1377,7 +1400,10 @@ def upload_evidencias_ajax(request, pk):
         a.estado == "rechazado_supervisor" and a.reintento_habilitado
     )
     if not puede_subir:
-        return JsonResponse({"ok": False, "error": "Asignación no abierta para subir fotos."}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "Asignación no abierta para subir fotos."},
+            status=400,
+        )
 
     req_id = request.POST.get("req_id") or None
     nota = (request.POST.get("nota") or "").strip()
@@ -1389,26 +1415,38 @@ def upload_evidencias_ajax(request, pk):
     titulo_manual = (request.POST.get("titulo_manual") or "").strip()
     direccion_manual = (request.POST.get("direccion_manual") or "").strip()
 
-    # En proyecto especial y sin req_id (Extra) exigir Título y Dirección
     if is_especial and not req_id:
         if not titulo_manual:
-            return JsonResponse({"ok": False, "error": "Ingresa un Título (proyecto especial)."}, status=400)
+            return JsonResponse(
+                {"ok": False, "error": "Ingresa un Título (proyecto especial)."},
+                status=400,
+            )
         if not direccion_manual:
-            return JsonResponse({"ok": False, "error": "Ingresa una Dirección (proyecto especial)."}, status=400)
+            return JsonResponse(
+                {"ok": False, "error": "Ingresa una Dirección (proyecto especial)."},
+                status=400,
+            )
 
-    # 🔢 Límite global de Extra por sesión: 1000
     if not req_id:
         total_extra = EvidenciaFotoBilling.objects.filter(
-            tecnico_sesion__sesion=s, requisito__isnull=True
+            tecnico_sesion__sesion=s,
+            requisito__isnull=True,
         ).count()
         if total_extra >= 1000:
-            return JsonResponse({"ok": False, "error": "Límite alcanzado: máximo 1000 fotos extra por proyecto."}, status=400)
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "Límite alcanzado: máximo 1000 fotos extra por proyecto.",
+                },
+                status=400,
+            )
 
     file = request.FILES.get("imagen")
     if not file:
         return JsonResponse({"ok": False, "error": "No llegó la imagen."}, status=400)
 
     f_conv = _to_jpeg_if_needed(file)
+
     try:
         f_conv.seek(0)
         im = Image.open(f_conv)
@@ -1426,35 +1464,87 @@ def upload_evidencias_ajax(request, pk):
         requisito_id=req_id,
         imagen=f_conv,
         nota=nota,
-        lat=use_lat, lng=use_lng, gps_accuracy_m=acc,
+        lat=use_lat,
+        lng=use_lng,
+        gps_accuracy_m=acc,
         client_taken_at=use_taken,
         titulo_manual=titulo_manual,
         direccion_manual=direccion_manual or "",
     )
 
-    # extras_left tras esta subida (global por sesión)
-    extras_left = max(0, 1000 - EvidenciaFotoBilling.objects.filter(
-        tecnico_sesion__sesion=s, requisito__isnull=True
-    ).count())
+    auto_power = {
+        "attempted": False,
+        "ok": False,
+        "power_dbm": "",
+        "port_no": None,
+        "error": "",
+    }
 
-    titulo = ev.requisito.titulo if ev.requisito_id else (
-        ev.titulo_manual or "Extra")
-    fecha_txt = timezone.localtime(
-        ev.client_taken_at or ev.tomada_en).strftime("%Y-%m-%d %H:%M")
+    try:
+        should_try_auto_power = False
 
-    return JsonResponse({
-        "ok": True,
-        "evidencia": {
-            "id": ev.id,
-            "url": ev.imagen.url,
-            "titulo": titulo,
-            "fecha": fecha_txt,
-            "lat": ev.lat, "lng": ev.lng, "acc": ev.gps_accuracy_m,
-            "req_id": int(req_id) if req_id else None,
-        },
-        "extras_left": extras_left,
-        "max_extra": 1000,
-    })
+        if ev.requisito_id:
+            req = ev.requisito
+            titulo_req = (req.titulo or "").strip().upper()
+
+            should_try_auto_power = bool(
+                getattr(req, "needs_power_reading", False)
+            ) or titulo_req.startswith("POWER PORT")
+        else:
+            extra_hint = f"{titulo_manual} {nota}".strip().lower()
+            should_try_auto_power = any(
+                x in extra_hint
+                for x in ["power", "port", "dbm", "opm", "light level", "light"]
+            )
+
+        if should_try_auto_power:
+            auto_power["attempted"] = True
+            result = _extract_power_dbm_for_evidence(ev, user=request.user)
+            auto_power["ok"] = True
+            auto_power["power_dbm"] = result.get("power_dbm", "")
+            auto_power["port_no"] = result.get("port_no")
+
+    except Exception as e:
+        auto_power["ok"] = False
+        auto_power["error"] = str(e)[:255]
+
+    extras_left = max(
+        0,
+        1000
+        - EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s,
+            requisito__isnull=True,
+        ).count(),
+    )
+
+    ev.refresh_from_db()
+
+    titulo = ev.requisito.titulo if ev.requisito_id else (ev.titulo_manual or "Extra")
+
+    fecha_txt = timezone.localtime(ev.client_taken_at or ev.tomada_en).strftime(
+        "%Y-%m-%d %H:%M"
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "evidencia": {
+                "id": ev.id,
+                "url": ev.imagen.url,
+                "titulo": titulo,
+                "fecha": fecha_txt,
+                "lat": ev.lat,
+                "lng": ev.lng,
+                "acc": ev.gps_accuracy_m,
+                "req_id": int(req_id) if req_id else None,
+                "power_dbm": f"{ev.power_dbm:.2f}" if ev.power_dbm is not None else "",
+            },
+            "auto_power": auto_power,
+            "extras_left": extras_left,
+            "max_extra": 1000,
+        }
+    )
+
 
 @rol_requerido('usuario')
 @login_required
@@ -1950,7 +2040,7 @@ def _project_report_key(sesion: SesionBilling) -> str:
 
 # ---------- revisar_sesion ----------
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
+@rol_requerido("supervisor", "admin", "pm")
 def revisar_sesion(request, sesion_id):
     """
     Revisión por PROYECTO.
@@ -1960,10 +2050,9 @@ def revisar_sesion(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
     asignaciones = (
-        s.tecnicos_sesion
-         .select_related("tecnico")
-         .prefetch_related("evidencias__requisito")
-         .all()
+        s.tecnicos_sesion.select_related("tecnico")
+        .prefetch_related("evidencias__requisito")
+        .all()
     )
 
     # Mantén sincronizado el estado a partir de las asignaciones
@@ -1976,30 +2065,32 @@ def revisar_sesion(request, sesion_id):
         comentario = (request.POST.get("comentario") or "").strip()
 
         if not can_review and accion in {"aprobar", "approve", "rechazar", "reject"}:
-            messages.error(
-                request, "This project is not ready for supervisor review.")
+            messages.error(request, "This project is not ready for supervisor review.")
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         if accion in {"aprobar", "approve"}:
             from usuarios.schedulers import enqueue_reporte_fotografico
 
             last_job = (
-                ReporteFotograficoJob.objects
-                .filter(sesion=s)
-                .exclude(log__icontains="[partial]")   # solo FINAL
+                ReporteFotograficoJob.objects.filter(sesion=s)
+                .exclude(log__icontains="[partial]")  # solo FINAL
                 .order_by("-creado_en")
                 .first()
             )
             if last_job and last_job.estado in ("pendiente", "procesando"):
                 messages.info(
-                    request, "Photographic report is already being generated in background. It will be attached automatically when it’s ready.")
+                    request,
+                    "Photographic report is already being generated in background. It will be attached automatically when it’s ready.",
+                )
                 return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
             job = ReporteFotograficoJob.objects.create(sesion=s)
             enqueue_reporte_fotografico(job.id)
 
             messages.info(
-                request, "Generating photographic report in background. It will be attached automatically when it’s ready.")
+                request,
+                "Generating photographic report in background. It will be attached automatically when it’s ready.",
+            )
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         elif accion in {"rechazar", "reject"}:
@@ -2012,11 +2103,18 @@ def revisar_sesion(request, sesion_id):
                     a.supervisor_comentario = comentario or "Rejected."
                     a.supervisor_revisado_en = now
                     a.reintento_habilitado = True
-                    a.save(update_fields=[
-                           "estado", "supervisor_comentario", "supervisor_revisado_en", "reintento_habilitado"])
+                    a.save(
+                        update_fields=[
+                            "estado",
+                            "supervisor_comentario",
+                            "supervisor_revisado_en",
+                            "reintento_habilitado",
+                        ]
+                    )
 
             messages.warning(
-                request, "Project rejected. Reupload enabled for technicians.")
+                request, "Project rejected. Reupload enabled for technicians."
+            )
             return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
         messages.error(request, "Unknown action.")
@@ -2025,40 +2123,69 @@ def revisar_sesion(request, sesion_id):
     # GET: datos para template
     evidencias_por_asig = []
     for a in asignaciones:
-        evs = (
-            a.evidencias
-             .select_related("requisito")
-             .order_by("requisito__orden", "tomada_en", "id")
+        evs_qs = a.evidencias.select_related("requisito").order_by(
+            "requisito__orden", "tomada_en", "id"
         )
+
+        evs = list(evs_qs)
+
+        for ev in evs:
+            is_power_candidate = False
+
+            if ev.requisito_id:
+                titulo_req = (ev.requisito.titulo or "").strip()
+                needs_power, _port_no = _power_meta_from_title(titulo_req)
+
+                is_power_candidate = (
+                    bool(getattr(ev.requisito, "needs_power_reading", False))
+                    or needs_power
+                )
+            else:
+                # Extras antiguas:
+                # Permitimos botón para que IA detecte potencia + puerto.
+                # Si ya tiene potencia o título POWER PORT, seguro es candidata.
+                titulo_manual = (ev.titulo_manual or "").strip()
+                needs_power, _port_no = _power_meta_from_title(titulo_manual)
+
+                is_power_candidate = (
+                    needs_power
+                    or ev.power_dbm is not None
+                    or titulo_manual.lower() in {"extra", ""}
+                )
+
+            ev.is_power_candidate = is_power_candidate
+
         evidencias_por_asig.append((a, evs))
 
     # Archivo final existente (en storage)
     project_report_exists = bool(
-        s.reporte_fotografico and storage_file_exists(s.reporte_fotografico))
+        s.reporte_fotografico and storage_file_exists(s.reporte_fotografico)
+    )
 
     # Job FINAL en curso
     last_job = (
-        ReporteFotograficoJob.objects
-        .filter(sesion=s)
-        .exclude(log__icontains="[partial]")   # solo FINAL
+        ReporteFotograficoJob.objects.filter(sesion=s)
+        .exclude(log__icontains="[partial]")  # solo FINAL
         .order_by("-creado_en")
         .first()
     )
-    job_running = bool(last_job and last_job.estado in (
-        "pendiente", "procesando"))
+    job_running = bool(last_job and last_job.estado in ("pendiente", "procesando"))
 
     # Solo consideramos "ready" si HOY el servidor dice que está aprobado
     server_approved = s.estado in {"aprobado_supervisor", "aprobado_pm"}
-    project_report_effective_ready = server_approved and project_report_exists and not job_running
+    project_report_effective_ready = (
+        server_approved and project_report_exists and not job_running
+    )
 
-    status_url = reverse("operaciones:project_report_status",
-                         kwargs={"sesion_id": s.id})
+    status_url = reverse(
+        "operaciones:project_report_status", kwargs={"sesion_id": s.id}
+    )
 
     # ========= Resolver etiqueta legible del proyecto (para el header) =========
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
-        'id',
+        "id",
     )
 
     proyecto_sel = None
@@ -2071,8 +2198,7 @@ def revisar_sesion(request, sesion_id):
         except (TypeError, ValueError):
             # datos viejos: nombre/código en texto
             proyecto_sel = proyectos_qs.filter(
-                Q(nombre__iexact=raw) |
-                Q(codigo__iexact=raw)
+                Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
             ).first()
         else:
             proyecto_sel = proyectos_qs.filter(pk=pid).first()
@@ -2081,8 +2207,7 @@ def revisar_sesion(request, sesion_id):
     if not proyecto_sel and s.proyecto_id:
         code = str(s.proyecto_id).strip()
         proyecto_sel = proyectos_qs.filter(
-            Q(codigo__iexact=code) |
-            Q(nombre__icontains=code)
+            Q(codigo__iexact=code) | Q(nombre__icontains=code)
         ).first()
 
     if proyecto_sel:
@@ -2101,7 +2226,9 @@ def revisar_sesion(request, sesion_id):
             "can_review": can_review,
             "project_report_exists": project_report_effective_ready,
             "job_running": job_running,
-            "project_report_url": s.reporte_fotografico.url if project_report_effective_ready else "",
+            "project_report_url": (
+                s.reporte_fotografico.url if project_report_effective_ready else ""
+            ),
             "status_url": status_url,
             "poll_ms": 1000,
             # 👈 para que el JS no pinte aprobado si no lo está
@@ -2891,13 +3018,759 @@ def regenerar_reporte_fotografico_proyecto(request, sesion_id):
     )
     return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
+
+def _power_port_no_from_evidence(ev):
+    """
+    Devuelve puerto 1..8 para una evidencia de potencia.
+
+    Prioridad:
+    1) Requisito POWER PORT X / requisito.power_port_no
+    2) Título manual si es Extra y dice POWER PORT X
+    3) power_extract_note con formato port=5
+    """
+    if ev.requisito_id:
+        port_no = getattr(ev.requisito, "power_port_no", None)
+        if port_no:
+            try:
+                port_no = int(port_no)
+                if 1 <= port_no <= 8:
+                    return port_no
+            except Exception:
+                pass
+
+        title = (ev.requisito.titulo or "").strip()
+        _needs_power, port_no = _power_meta_from_title(title)
+        if port_no:
+            return port_no
+
+    title_manual = (getattr(ev, "titulo_manual", "") or "").strip()
+    _needs_power, port_no = _power_meta_from_title(title_manual)
+    if port_no:
+        return port_no
+
+    note = (getattr(ev, "power_extract_note", "") or "").strip()
+    m = re.search(r"\bport\s*=\s*([1-8])\b", note, flags=re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+
+    return None
+
+
+def _build_light_level_workbook(sesion):
+    """
+    Crea el Excel de Light Level con el formato base:
+    - A2: Structure ID
+    - B2: Light level
+    - B3:I3: PORT 1..PORT 8
+    - A4: ID proyecto
+    - B4:I4: potencias
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DFN"
+
+    thick = Side(style="medium", color="000000")
+    border = Border(left=thick, right=thick, top=thick, bottom=thick)
+
+    fill_blue = PatternFill("solid", fgColor="C0E6F5")
+    font_normal = Font(name="Calibri", size=11, color="000000")
+
+    for row in range(1, 8):
+        for col in range(1, 15):
+            cell = ws.cell(row=row, column=col)
+            cell.border = border
+            cell.font = font_normal
+            if row >= 2:
+                cell.fill = fill_blue
+
+    ws["A1"] = "DFN"
+    ws["B1"] = "Column2"
+    ws["C1"] = "Column3"
+    ws["D1"] = "Column4"
+    ws["E1"] = "Column5"
+    ws["F1"] = "Column6"
+    ws["G1"] = "Column7"
+    ws["H1"] = "Column8"
+    ws["I1"] = "Column9"
+    ws["J1"] = "Column10"
+    ws["K1"] = "Column11"
+    ws["L1"] = "Column12"
+    ws["M1"] = "Column13"
+    ws["N1"] = "Column14"
+
+    ws["A2"] = "Structure ID"
+    ws["B2"] = "Light level"
+
+    ws["B3"] = "PORT 1"
+    ws["C3"] = "PORT 2"
+    ws["D3"] = "PORT 3"
+    ws["E3"] = "PORT 4"
+    ws["F3"] = "PORT 5"
+    ws["G3"] = "PORT 6"
+    ws["H3"] = "PORT 7"
+    ws["I3"] = "PORT 8"
+
+    ws["A4"] = sesion.proyecto_id or ""
+
+    ws.column_dimensions["A"].width = 32
+    for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"]:
+        ws.column_dimensions[col].width = 13
+
+    for row in range(1, 8):
+        ws.row_dimensions[row].height = 22
+
+    ws.row_dimensions[3].height = 26
+
+    return wb
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def export_light_levels_xlsx(request, sesion_id):
+    """
+    Exporta Excel de potencias:
+    - A2: Structure ID
+    - B2: Light level
+    - B3:I3: PORT 1..PORT 8
+    - A4: ID proyecto
+    - B4:I4: potencia de PORT 1..8
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    evidencias = (
+        EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s,
+            power_dbm__isnull=False,
+        )
+        .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
+        .order_by("client_taken_at", "tomada_en", "id")
+    )
+
+    port_values = {}
+
+    for ev in evidencias:
+        port_no = _power_port_no_from_evidence(ev)
+
+        if not port_no:
+            continue
+
+        try:
+            port_no = int(port_no)
+        except Exception:
+            continue
+
+        if not (1 <= port_no <= 8):
+            continue
+
+        # Si hay más de una lectura para el mismo puerto, queda la última según orden.
+        port_values[port_no] = ev.power_dbm
+
+    wb = _build_light_level_workbook(s)
+    ws = wb.active
+
+    port_to_cell = {
+        1: "B4",
+        2: "C4",
+        3: "D4",
+        4: "E4",
+        5: "F4",
+        6: "G4",
+        7: "H4",
+        8: "I4",
+    }
+
+    for port_no, cell_ref in port_to_cell.items():
+        value = port_values.get(port_no)
+        if value is not None:
+            ws[cell_ref] = float(value)
+
+    filename = f"LIGHT LEVEL {s.proyecto_id or s.id}.xlsx"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def backfill_light_levels_project(request, sesion_id):
+    """
+    Procesa fotos históricas ya cargadas para extraer:
+    - power_dbm
+    - port=1..8 en power_extract_note
+
+    Sirve para proyectos ya finalizados/aprobados.
+    No borra fotos, no cambia estados, solo completa metadata de potencia.
+
+    force=1:
+    - Reprocesa incluso fotos que ya tienen power_dbm + puerto.
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    force = (request.POST.get("force") or "").strip().lower() in {
+        "1", "true", "yes", "y", "on", "si", "sí"
+    }
+
+    evidencias = (
+        EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s,
+        )
+        .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
+        .order_by("id")
+    )
+
+    total = 0
+    procesadas = 0
+    extraidas = 0
+    omitidas = 0
+    errores = 0
+
+    for ev in evidencias:
+        total += 1
+
+        # Si ya tiene potencia y puerto, no gastamos IA salvo que el usuario fuerce.
+        if not force and ev.power_dbm is not None and _power_port_no_from_evidence(ev):
+            omitidas += 1
+            continue
+
+        should_try = False
+
+        if ev.requisito_id:
+            titulo_req = (ev.requisito.titulo or "").strip()
+            needs_power, _port_no = _power_meta_from_title(titulo_req)
+
+            should_try = (
+                bool(getattr(ev.requisito, "needs_power_reading", False))
+                or needs_power
+                or titulo_req.upper().startswith("POWER PORT")
+            )
+        else:
+            titulo_manual = (ev.titulo_manual or "").strip()
+            nota = (ev.nota or "").strip()
+            hint = f"{titulo_manual} {nota}".lower()
+
+            should_try = (
+                force
+                or ev.power_dbm is not None
+                or titulo_manual.lower() in {"", "extra"}
+                or any(
+                    x in hint
+                    for x in ["power", "port", "dbm", "opm", "light level", "light"]
+                )
+            )
+
+        if not should_try:
+            omitidas += 1
+            continue
+
+        procesadas += 1
+
+        try:
+            result = _extract_power_dbm_for_evidence(
+                ev,
+                user=request.user,
+                allow_extra=True,
+                allow_locked=True,
+            )
+
+            if result.get("power_dbm"):
+                extraidas += 1
+            else:
+                errores += 1
+
+        except Exception:
+            errores += 1
+            continue
+
+    if procesadas == 0 and omitidas > 0:
+        messages.info(
+            request,
+            (
+                f"Light levels already completed or skipped. "
+                f"Total photos: {total}. "
+                f"Processed: {procesadas}. "
+                f"Extracted: {extraidas}. "
+                f"Skipped: {omitidas}. "
+                f"Errors: {errores}."
+            ),
+        )
+    else:
+        messages.success(
+            request,
+            (
+                f"Light levels backfill completed. "
+                f"Total photos: {total}. "
+                f"Processed: {procesadas}. "
+                f"Extracted: {extraidas}. "
+                f"Skipped: {omitidas}. "
+                f"Errors: {errores}."
+            ),
+        )
+
+    return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+
+def _extract_power_dbm_for_evidence(
+    ev, user=None, allow_extra=True, allow_locked=False
+):
+    """
+    Extrae automáticamente:
+    - potencia dBm del Optical Power Meter
+    - puerto físico 1..8 donde está conectado el jumper en la caja
+
+    Sirve para:
+    - POWER PORT con requisito
+    - Extras ya cargados
+    """
+    import base64
+    import json
+    import re
+    from decimal import Decimal, InvalidOperation
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    ses = ev.tecnico_sesion.sesion
+
+    if (getattr(ses, "estado", "") in ("aprobado_supervisor", "aprobado_pm")
+    and not allow_locked
+    ):
+
+        raise ValueError("Locked after approval.")  
+
+    if not ev.requisito_id and not allow_extra:
+        raise ValueError("This evidence has no requirement.")
+
+    api_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY is not configured on the server.")
+
+    model_name = getattr(settings, "OPENAI_VISION_MODEL", "gpt-4o-mini")
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        raise ValueError("openai package is not installed. Run: pip install openai")
+
+    def _read_image_bytes(evidence):
+        try:
+            evidence.imagen.open("rb")
+            return evidence.imagen.read()
+        finally:
+            try:
+                evidence.imagen.close()
+            except Exception:
+                pass
+
+    def _normalize_dbm_value(raw):
+        txt = (raw or "").strip()
+        txt = txt.replace(",", ".")
+        txt = txt.replace("−", "-").replace("–", "-").replace("—", "-")
+
+        m = re.search(r"-\s*\d{1,2}(?:\.\d{1,2})?", txt)
+        if not m:
+            return None
+
+        val_txt = m.group(0).replace(" ", "")
+
+        try:
+            val = Decimal(val_txt)
+        except InvalidOperation:
+            return None
+
+        if not (Decimal("-60.00") <= val <= Decimal("0.00")):
+            return None
+
+        return val.quantize(Decimal("0.01"))
+
+    def _normalize_port(raw):
+        if raw in (None, "", "null"):
+            return None
+
+        try:
+            port = int(str(raw).strip())
+        except Exception:
+            return None
+
+        if 1 <= port <= 8:
+            return port
+
+        return None
+
+    raw_bytes = _read_image_bytes(ev)
+    if not raw_bytes:
+        raise ValueError("Image file is empty.")
+
+    image_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+
+    name = (getattr(ev.imagen, "name", "") or "").lower()
+    if name.endswith(".png"):
+        mime = "image/png"
+    elif name.endswith(".webp"):
+        mime = "image/webp"
+    else:
+        mime = "image/jpeg"
+
+    known_port = None
+    if ev.requisito_id:
+        known_port = getattr(ev.requisito, "power_port_no", None)
+        if not known_port:
+            _needs_power, known_port = _power_meta_from_title(ev.requisito.titulo or "")
+
+    prompt = f"""
+You are reading a telecom field photo.
+
+Tasks:
+1. Read ONLY the main optical power value shown on the Optical Power Meter LCD screen in dBm.
+2. Detect which physical port number 1 to 8 on the terminal box is connected to the active fiber jumper from the power meter.
+
+Context:
+- Known requirement port, if any: {known_port or "unknown"}.
+- The photo may be an Extra, so there may be no requirement title.
+- The yellow/green jumper from the power meter connects into one of the green ports on the terminal box.
+- Count the green ports from left to right as PORT 1, PORT 2, PORT 3, PORT 4, PORT 5, PORT 6, PORT 7, PORT 8.
+- If the jumper is plugged into the fifth green port from left to right, return port_no 5.
+- Ignore GPS coordinates, dates, addresses, labels, serial numbers, and all other numbers.
+- Do not guess the dBm value if unreadable.
+- If the port is unclear, use null for port_no.
+- If the known requirement port is available and the image visually agrees, use that port.
+- If the known requirement port conflicts with the visible physical connection, use the visible physical connection and explain briefly.
+
+Respond ONLY as strict JSON:
+{{
+  "found": true or false,
+  "value_dbm": "-28.96",
+  "port_no": 5,
+  "confidence": 0.0 to 1.0,
+  "port_confidence": 0.0 to 1.0,
+  "reason": "short reason"
+}}
+"""
+
+    client = OpenAI(api_key=api_key)
+
+    resp = client.responses.create(
+        model=model_name,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt,
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{mime};base64,{image_b64}",
+                    },
+                ],
+            }
+        ],
+        temperature=0,
+    )
+
+    content = (getattr(resp, "output_text", "") or "").strip()
+
+    cleaned = content.strip()
+    cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^```\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        data = json.loads(cleaned)
+    except Exception:
+        raise ValueError("Vision response was not valid JSON.")
+
+    found = bool(data.get("found"))
+    confidence = data.get("confidence", 0)
+    port_confidence = data.get("port_confidence", 0)
+    raw_value = data.get("value_dbm", "")
+    port_no = _normalize_port(data.get("port_no"))
+
+    try:
+        confidence_decimal = Decimal(str(confidence))
+    except Exception:
+        confidence_decimal = Decimal("0")
+
+    try:
+        port_confidence_decimal = Decimal(str(port_confidence))
+    except Exception:
+        port_confidence_decimal = Decimal("0")
+
+    val = _normalize_dbm_value(raw_value)
+
+    if not found or val is None:
+        raise ValueError("Could not find a valid dBm value.")
+
+    if confidence_decimal < Decimal("0.70"):
+        raise ValueError(
+            "The dBm value was detected but confidence is too low. Please review manually."
+        )
+
+    if not port_no and known_port:
+        try:
+            known_port_int = int(known_port)
+            if 1 <= known_port_int <= 8:
+                port_no = known_port_int
+        except Exception:
+            pass
+
+    ev.power_dbm = val
+    ev.power_extracted_at = timezone.now()
+    ev.power_extracted_by = user
+
+    note_parts = [
+        "Vision OCR",
+        f"model={model_name}",
+        f"confidence={confidence_decimal}",
+        f"raw={raw_value}",
+    ]
+
+    if port_no:
+        note_parts.append(f"port={port_no}")
+        note_parts.append(f"port_confidence={port_confidence_decimal}")
+
+    reason = (data.get("reason") or "")[:100]
+    if reason:
+        note_parts.append(f"reason={reason}")
+
+    ev.power_extract_note = " | ".join(note_parts)[:255]
+
+    ev.save(
+        update_fields=[
+            "power_dbm",
+            "power_extracted_at",
+            "power_extracted_by",
+            "power_extract_note",
+        ]
+    )
+
+    return {
+        "power_dbm": f"{val:.2f}",
+        "port_no": port_no,
+        "confidence": str(confidence_decimal),
+        "port_confidence": str(port_confidence_decimal),
+        "method": "vision",
+        "raw_response": data,
+    }
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def extract_power_from_evidence(request, evidencia_id: int):
+    """
+    Botón manual para extraer potencia dBm y puerto.
+    Sirve para requisitos POWER PORT y también para Extras.
+    """
+    ev = get_object_or_404(
+        EvidenciaFotoBilling.objects.select_related(
+            "requisito",
+            "tecnico_sesion",
+            "tecnico_sesion__sesion",
+        ),
+        pk=evidencia_id,
+    )
+
+    try:
+        result = _extract_power_dbm_for_evidence(ev, user=request.user)
+    except ValueError as e:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": str(e),
+            },
+            status=422,
+        )
+    except Exception as e:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": f"Vision extraction failed: {e}",
+            },
+            status=500,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "power_dbm": result.get("power_dbm", ""),
+            "port_no": result.get("port_no", None),
+            "confidence": result.get("confidence", ""),
+            "port_confidence": result.get("port_confidence", ""),
+            "method": result.get("method", "vision"),
+            "raw_response": result.get("raw_response", {}),
+        }
+    )
+
+
+# ============================
+# Editar potencia en la linea
+# ============================
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def update_power_from_evidence(request, evidencia_id: int):
+    import json
+    import re
+    from decimal import Decimal, InvalidOperation
+
+    ev = get_object_or_404(
+        EvidenciaFotoBilling.objects.select_related(
+            "requisito",
+            "tecnico_sesion",
+            "tecnico_sesion__sesion",
+        ),
+        pk=evidencia_id,
+    )
+
+    ses = ev.tecnico_sesion.sesion
+    if getattr(ses, "estado", "") in ("aprobado_supervisor", "aprobado_pm"):
+        return JsonResponse(
+            {"ok": False, "error": "Locked after approval."},
+            status=403,
+        )
+
+    is_power_port = False
+
+    if ev.requisito_id:
+        titulo_req = (ev.requisito.titulo or "").strip()
+        needs_power, _port_no = _power_meta_from_title(titulo_req)
+
+        is_power_port = (
+            bool(getattr(ev.requisito, "needs_power_reading", False)) or needs_power
+        )
+    else:
+        titulo_manual = (ev.titulo_manual or "").strip()
+        needs_power, _port_no = _power_meta_from_title(titulo_manual)
+
+        # Permitimos editar extras si ya fueron detectadas o si tienen título POWER PORT X.
+        is_power_port = (
+            needs_power or ev.power_dbm is not None or _power_port_no_from_evidence(ev)
+        )
+
+    if not is_power_port:
+        return JsonResponse(
+            {"ok": False, "error": "This evidence is not marked as Power Port."},
+            status=400,
+        )
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        payload = {}
+
+    raw = str(payload.get("power_dbm", "")).strip()
+    raw = raw.replace(",", ".")
+    raw = raw.replace("−", "-").replace("–", "-").replace("—", "-")
+    raw = raw.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
+
+    old_note = (ev.power_extract_note or "").strip()
+    old_port = _power_port_no_from_evidence(ev)
+
+    if raw == "":
+        ev.power_dbm = None
+        ev.power_extracted_at = timezone.now()
+        ev.power_extracted_by = request.user
+
+        note_parts = [f"Manual edit | cleared | user={request.user.username}"]
+        if old_port:
+            note_parts.append(f"port={old_port}")
+
+        ev.power_extract_note = " | ".join(note_parts)[:255]
+        ev.save(
+            update_fields=[
+                "power_dbm",
+                "power_extracted_at",
+                "power_extracted_by",
+                "power_extract_note",
+            ]
+        )
+        return JsonResponse(
+            {
+                "ok": True,
+                "power_dbm": "",
+                "display": "pending",
+            }
+        )
+
+    m = re.search(r"-?\d{1,2}(?:\.\d{1,2})?", raw)
+    if not m:
+        return JsonResponse(
+            {"ok": False, "error": "Invalid value. Example: -28.03"},
+            status=400,
+        )
+
+    try:
+        val = Decimal(m.group(0))
+    except InvalidOperation:
+        return JsonResponse(
+            {"ok": False, "error": "Invalid value. Example: -28.03"},
+            status=400,
+        )
+
+    if not (Decimal("-60.00") <= val <= Decimal("0.00")):
+        return JsonResponse(
+            {"ok": False, "error": "Power must be between -60.00 and 0.00 dBm."},
+            status=400,
+        )
+
+    val = val.quantize(Decimal("0.01"))
+
+    ev.power_dbm = val
+    ev.power_extracted_at = timezone.now()
+    ev.power_extracted_by = request.user
+
+    note_parts = [f"Manual edit | user={request.user.username}"]
+
+    if old_port:
+        note_parts.append(f"port={old_port}")
+
+    if old_note and "port=" in old_note.lower():
+        m_port_conf = re.search(
+            r"\bport_confidence\s*=\s*([0-9.]+)",
+            old_note,
+            flags=re.IGNORECASE,
+        )
+        if m_port_conf:
+            note_parts.append(f"port_confidence={m_port_conf.group(1)}")
+
+    ev.power_extract_note = " | ".join(note_parts)[:255]
+
+    ev.save(
+        update_fields=[
+            "power_dbm",
+            "power_extracted_at",
+            "power_extracted_by",
+            "power_extract_note",
+        ]
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "power_dbm": f"{val:.2f}",
+            "display": f"{val:.2f} dBm",
+        }
+    )
+
+
 # ============================
 # CONFIGURAR REQUISITOS (¡la que faltaba!)
 # ============================
 
 
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
+@rol_requerido("supervisor", "admin", "pm")
 @require_POST
 def confirmar_importar_requisitos(request, sesion_id):
     """
@@ -2905,6 +3778,7 @@ def confirmar_importar_requisitos(request, sesion_id):
     - Lee preview desde session
     - Crea SOLO requisitos nuevos en TODAS las asignaciones
     - NO modifica los existentes (por tu regla)
+    - Marca automáticamente POWER PORT X como lectura de potencia
     """
     from django.contrib import messages
     from django.db import transaction
@@ -2915,7 +3789,9 @@ def confirmar_importar_requisitos(request, sesion_id):
 
     payload = request.session.get("req_import_preview") or {}
     if not payload or payload.get("sesion_id") != s.id:
-        messages.error(request, "No preview data to confirm. Please re-upload the file.")
+        messages.error(
+            request, "No preview data to confirm. Please re-upload the file."
+        )
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
     to_create = payload.get("to_create") or []
@@ -2927,33 +3803,55 @@ def confirmar_importar_requisitos(request, sesion_id):
     try:
         with transaction.atomic():
             asignaciones = list(
-                s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+                s.tecnicos_sesion.select_related("tecnico")
+                .prefetch_related("requisitos")
+                .all()
             )
 
             created_total = 0
 
             for a in asignaciones:
                 existentes_por_slug = {
-                    slugify((r.titulo or "").strip()): r
-                    for r in a.requisitos.all()
+                    slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
                 }
+
+                # ✅ fallback de orden estable por asignación
+                try:
+                    current_max_order = max(
+                        (r.orden for r in a.requisitos.all()), default=-1
+                    )
+                except Exception:
+                    current_max_order = -1
+                next_order = current_max_order + 1
 
                 for r in to_create:
                     name = (r.get("name") or "").strip()
                     if not name:
                         continue
+
                     key = slugify(name)
                     if not key:
                         continue
+
                     if key in existentes_por_slug:
                         continue  # seguridad extra
 
-                    try:
-                        order = int(r.get("order"))
-                    except Exception:
-                        order = len(existentes_por_slug)
+                    # order: si viene bien en el archivo, úsalo. Si no, usa next_order incremental.
+                    raw_order = r.get("order", None)
+                    order = None
+                    if raw_order not in (None, "", "null"):
+                        try:
+                            order = int(raw_order)
+                        except Exception:
+                            order = None
+                    if order is None:
+                        order = next_order
+                        next_order += 1
 
                     mandatory = bool(r.get("mandatory", True))
+
+                    # ✅ NUEVO: detectar POWER PORT 1..8
+                    needs_power, port_no = _power_meta_from_title(name)
 
                     RequisitoFotoBilling.objects.create(
                         tecnico_sesion=a,
@@ -2961,12 +3859,16 @@ def confirmar_importar_requisitos(request, sesion_id):
                         descripcion="",
                         obligatorio=mandatory,
                         orden=order,
+                        needs_power_reading=bool(needs_power),
+                        power_port_no=port_no,
                     )
+
+                    existentes_por_slug[key] = True
                     created_total += 1
 
         messages.success(
             request,
-            f"Created {created_total} new requirement(s). Existing identical requirements were kept unchanged."
+            f"Created {created_total} new requirement(s). Existing identical requirements were kept unchanged.",
         )
     except Exception as e:
         messages.error(request, f"Could not apply imported requirements: {e}")
@@ -2976,18 +3878,11 @@ def confirmar_importar_requisitos(request, sesion_id):
     return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
 
 
+"""
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def configurar_requisitos(request, sesion_id):
-    """
-    Configura la lista compartida de requisitos a nivel de proyecto
-    y la sincroniza con TODAS las asignaciones SIN borrar estados previos.
-    Reglas:
-      - Si envías id[] => UPDATE del requisito (conserva estado/fotos).
-      - Si id[] viene vacío => CREATE (quedará Pending).
-      - Solo se elimina lo que aparezca en delete_id[].
-      - order[] y mandatory[] se actualizan en los existentes.
-    """
+  
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
     # Para pintar el formulario con una "lista canónica"
@@ -3125,7 +4020,146 @@ def configurar_requisitos(request, sesion_id):
             "is_special": bool(s.proyecto_especial),
         },
     )
+"""
 
+@login_required
+@rol_requerido('supervisor', 'admin', 'pm')
+def configurar_requisitos(request, sesion_id):
+    """
+    Configura la lista compartida de requisitos a nivel de proyecto
+    y la sincroniza con TODAS las asignaciones SIN borrar estados previos.
+    + NUEVO: marca automáticamente needs_power_reading/power_port_no si el título es POWER PORT X.
+    """
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    asignaciones = list(
+        s.tecnicos_sesion.select_related("tecnico")
+         .prefetch_related("requisitos")
+         .all()
+    )
+    canonical = []
+    if asignaciones and asignaciones[0].requisitos.exists():
+        canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
+
+    if request.method == "POST":
+        names = request.POST.getlist("name[]")
+        orders = request.POST.getlist("order[]")
+        mand = request.POST.getlist("mandatory[]")
+        ids = request.POST.getlist("id[]")
+        to_del = set(request.POST.getlist("delete_id[]"))
+        s.proyecto_especial = bool(request.POST.get("proyecto_especial"))
+
+        normalized = []  # [(req_id, orden, name, mandatory)]
+        for i, raw_name in enumerate(names):
+            name = (raw_name or "").strip()
+            if not name:
+                continue
+            try:
+                orden = int(orders[i]) if i < len(orders) else i
+            except Exception:
+                orden = i
+            mandatory = (mand[i] == "1") if i < len(mand) else True
+            req_id = (ids[i].strip() or None) if i < len(ids) else None
+            normalized.append((req_id, orden, name, mandatory))
+
+        try:
+            with transaction.atomic():
+                s.save(update_fields=["proyecto_especial"])
+
+                for a in asignaciones:
+                    existentes = {str(r.id): r for r in a.requisitos.all()}
+                    existentes_por_slug = {
+                        slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
+                    }
+
+                    if to_del:
+                        del_objs = [existentes[x] for x in to_del if x in existentes]
+                        if del_objs:
+                            RequisitoFotoBilling.objects.filter(
+                                id__in=[d.id for d in del_objs]
+                            ).delete()
+
+                    for req_id, orden, name, mandatory in normalized:
+                        needs_power, port_no = _power_meta_from_title(name)
+
+                        if req_id and req_id in existentes:
+                            r = existentes[req_id]
+                            changed = (
+                                r.titulo != name
+                                or r.orden != orden
+                                or r.obligatorio != mandatory
+                                or r.tecnico_sesion_id != a.id
+                                or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
+                                or getattr(r, "power_port_no", None) != port_no
+                            )
+                            if changed:
+                                r.titulo = name
+                                r.orden = orden
+                                r.obligatorio = mandatory
+                                r.tecnico_sesion = a
+                                r.needs_power_reading = bool(needs_power)
+                                r.power_port_no = port_no
+                                r.save(update_fields=[
+                                    "titulo", "orden", "obligatorio", "tecnico_sesion",
+                                    "needs_power_reading", "power_port_no",
+                                ])
+                        else:
+                            key = slugify(name)
+                            r = existentes_por_slug.get(key)
+
+                            if r and str(r.id) not in to_del:
+                                # rename/match por slug
+                                changed = (
+                                    r.titulo != name
+                                    or r.orden != orden
+                                    or r.obligatorio != mandatory
+                                    or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
+                                    or getattr(r, "power_port_no", None) != port_no
+                                )
+                                if changed:
+                                    r.titulo = name
+                                    r.orden = orden
+                                    r.obligatorio = mandatory
+                                    r.needs_power_reading = bool(needs_power)
+                                    r.power_port_no = port_no
+                                    r.save(update_fields=[
+                                        "titulo", "orden", "obligatorio",
+                                        "needs_power_reading", "power_port_no",
+                                    ])
+                            else:
+                                RequisitoFotoBilling.objects.create(
+                                    tecnico_sesion=a,
+                                    titulo=name,
+                                    descripcion="",
+                                    obligatorio=mandatory,
+                                    orden=orden,
+                                    needs_power_reading=bool(needs_power),
+                                    power_port_no=port_no,
+                                )
+
+            messages.success(request, "Photo requirements saved (project-wide).")
+            return redirect("operaciones:listar_billing")
+
+        except Exception as e:
+            messages.error(request, f"Could not save requirements: {e}")
+
+        class _Row:
+            def __init__(self, orden, titulo, obligatorio):
+                self.orden = orden
+                self.titulo = titulo
+                self.obligatorio = obligatorio
+
+        canonical = [_Row(o, n, m) for _, o, n, m in normalized]
+
+    return render(
+        request,
+        "operaciones/billing_configurar_requisitos.html",
+        {
+            "sesion": s,
+            "requirements": canonical,
+            "is_special": bool(s.proyecto_especial),
+        },
+    )
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
@@ -3766,8 +4800,9 @@ def bulk_importar_requisitos_preview(request):
         },
     )
 
+
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
+@rol_requerido("supervisor", "admin", "pm")
 @require_POST
 def bulk_confirmar_importar_requisitos(request):
     """
@@ -3777,12 +4812,15 @@ def bulk_confirmar_importar_requisitos(request):
         crea SOLO requisitos nuevos en TODAS las asignaciones
         NO modifica existentes
     - Bloquea si alguna sesión cambió a estado no permitido entre preview y confirm
+    - Marca automáticamente POWER PORT X como lectura de potencia
     """
     payload = request.session.get("bulk_req_import_preview") or {}
     bulk_preview = payload.get("bulk_preview") or []
 
     if not bulk_preview:
-        messages.error(request, "No preview data to confirm. Please re-upload the file.")
+        messages.error(
+            request, "No preview data to confirm. Please re-upload the file."
+        )
         return redirect("operaciones:listar_billing")
 
     allowed_states = {"asignado", "en_proceso", "en_revision_supervisor"}
@@ -3805,15 +4843,19 @@ def bulk_confirmar_importar_requisitos(request):
                 est = (getattr(s, "estado", "") or "").strip()
 
                 if est in blocked_states or est not in allowed_states:
-                    blocked_now.append({
-                        "id": s.id,
-                        "proyecto_id": s.proyecto_id,
-                        "estado": est,
-                    })
+                    blocked_now.append(
+                        {
+                            "id": s.id,
+                            "proyecto_id": s.proyecto_id,
+                            "estado": est,
+                        }
+                    )
                     continue
 
                 asignaciones = list(
-                    s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
+                    s.tecnicos_sesion.select_related("tecnico")
+                    .prefetch_related("requisitos")
+                    .all()
                 )
 
                 for a in asignaciones:
@@ -3826,9 +4868,11 @@ def bulk_confirmar_importar_requisitos(request):
                         name = (r.get("name") or "").strip()
                         if not name:
                             continue
+
                         key = slugify(name)
                         if not key:
                             continue
+
                         if key in existentes_por_slug:
                             continue
 
@@ -3839,13 +4883,19 @@ def bulk_confirmar_importar_requisitos(request):
 
                         mandatory = bool(r.get("mandatory", True))
 
+                        # ✅ NUEVO: detectar POWER PORT 1..8
+                        needs_power, port_no = _power_meta_from_title(name)
+
                         RequisitoFotoBilling.objects.create(
                             tecnico_sesion=a,
                             titulo=name,
                             descripcion="",
                             obligatorio=mandatory,
                             orden=order,
+                            needs_power_reading=bool(needs_power),
+                            power_port_no=port_no,
                         )
+
                         created_total += 1
                         existentes_por_slug[key] = True
 
@@ -3860,15 +4910,16 @@ def bulk_confirmar_importar_requisitos(request):
     if blocked_now:
         messages.warning(
             request,
-            f"Created {created_total} requirements. Some billings were skipped because their status changed."
+            f"Created {created_total} requirements. Some billings were skipped because their status changed.",
         )
     else:
         messages.success(
             request,
-            f"Created {created_total} new requirement(s) across {affected_sessions} billing(s). Existing identical requirements were kept unchanged."
+            f"Created {created_total} new requirement(s) across {affected_sessions} billing(s). Existing identical requirements were kept unchanged.",
         )
 
     return redirect("operaciones:listar_billing")
+
 
 # ============================
 # PM — Aprobación/Rechazo PROYECTO

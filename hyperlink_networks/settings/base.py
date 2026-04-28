@@ -143,7 +143,12 @@ AXES_IPWARE_META_PRECEDENCE_ORDER = ['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR']
 # ==============================
 ROOT_URLCONF = 'hyperlink_networks.urls'
 WSGI_APPLICATION = 'hyperlink_networks.wsgi.application'
+# ==============================
+# IA
+# ==============================
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
 # ==============================
 # TEMPLATES
 # ==============================

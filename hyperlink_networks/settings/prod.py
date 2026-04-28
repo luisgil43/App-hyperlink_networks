@@ -25,6 +25,12 @@ DATABASES = {
     )
 }
 
+# ==============================
+# IA
+# ==============================
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
 
 # Archivos estáticos
 STATIC_URL = '/static/'
@@ -99,8 +105,6 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_HSTS_SECONDS = 31536000
 SECURE_SSL_REDIRECT = True
-
-
 
 
 # Logs informativos para verificar en consola que todo esté correcto

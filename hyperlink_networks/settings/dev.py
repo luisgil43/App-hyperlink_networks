@@ -33,6 +33,13 @@ DATABASES = {
     }
 }
 
+# ==============================
+# IA
+# ==============================
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
+
 # Desactivar seguridad estricta en cookies y HTTPS
 CSRF_COOKIE_SECURE = False
 SESSION_COOKIE_SECURE = False
@@ -46,5 +53,3 @@ TWO_FACTOR_ENFORCE_DATE = date(2026, 10, 28)
 # Storage: Wasabi también en desarrollo
 # ==============================
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-
-

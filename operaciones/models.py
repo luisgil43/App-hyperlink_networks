@@ -589,7 +589,7 @@ def upload_to_evidencia(instance, filename: str) -> str:
 
     return f"operaciones/reporte_fotografico/{proj_slug}/{tech_slug}/evidencia/{safe_base}{ext}"
 
-
+"""
 class RequisitoFotoBilling(models.Model):
     tecnico_sesion = models.ForeignKey(
         SesionBillingTecnico, on_delete=models.CASCADE, related_name="requisitos")
@@ -604,8 +604,52 @@ class RequisitoFotoBilling(models.Model):
 
     def __str__(self):
         return f"[{self.tecnico_sesion_id}] {self.orden}. {self.titulo}"
+"""
 
 
+class RequisitoFotoBilling(models.Model):
+
+    tecnico_sesion = models.ForeignKey(
+        SesionBillingTecnico, on_delete=models.CASCADE, related_name="requisitos"
+    )
+
+    titulo = models.CharField(max_length=150)
+
+    descripcion = models.CharField(max_length=300, blank=True)
+
+    obligatorio = models.BooleanField(default=True)
+
+    orden = models.PositiveIntegerField(default=0)
+
+    # ✅ NUEVO: flags de medición (Power Meter)
+
+    needs_power_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Power Meter reading (dBm).",
+    )
+
+    power_port_no = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Optional port number (1..8) when title is POWER PORT X.",
+    )
+
+    class Meta:
+
+        ordering = ("orden", "id")
+
+        indexes = [
+            models.Index(fields=["tecnico_sesion", "orden"]),
+            models.Index(fields=["tecnico_sesion", "needs_power_reading"]),
+        ]
+
+    def __str__(self):
+
+        return f"[{self.tecnico_sesion_id}] {self.orden}. {self.titulo}"
+
+"""
 class EvidenciaFotoBilling(models.Model):
     tecnico_sesion = models.ForeignKey(
         SesionBillingTecnico, on_delete=models.CASCADE, related_name="evidencias"
@@ -657,6 +701,103 @@ class EvidenciaFotoBilling(models.Model):
             return f"Evidence {self.requisito.titulo} (session {self.tecnico_sesion_id})"
         elif self.titulo_manual:
             return f"Evidence {self.titulo_manual} (session {self.tecnico_sesion_id})"
+        return f"Evidence Extra (session {self.tecnico_sesion_id})"
+"""
+
+
+class EvidenciaFotoBilling(models.Model):
+
+    tecnico_sesion = models.ForeignKey(
+        SesionBillingTecnico, on_delete=models.CASCADE, related_name="evidencias"
+    )
+
+    requisito = models.ForeignKey(
+        RequisitoFotoBilling,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="evidencias",
+    )
+
+    imagen = models.ImageField(
+        upload_to=upload_to_evidencia,
+        storage=wasabi_storage,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+        max_length=1024,
+    )
+
+    nota = models.CharField("Note", max_length=255, blank=True)
+
+    tomada_en = models.DateTimeField(default=timezone.now)
+
+    # Client metadata (optional)
+
+    lat = models.DecimalField(
+        "Latitude", max_digits=9, decimal_places=6, null=True, blank=True
+    )
+
+    lng = models.DecimalField(
+        "Longitude", max_digits=9, decimal_places=6, null=True, blank=True
+    )
+
+    gps_accuracy_m = models.DecimalField(
+        "GPS accuracy (m)", max_digits=7, decimal_places=2, null=True, blank=True
+    )
+
+    client_taken_at = models.DateTimeField("Taken at (client)", null=True, blank=True)
+
+    # Special projects
+
+    titulo_manual = models.CharField("Custom title", max_length=200, blank=True)
+
+    direccion_manual = models.CharField("Custom address", max_length=255, blank=True)
+
+    # ✅ NUEVO: Power meter reading (extracted by admin)
+
+    power_dbm = models.DecimalField(
+        "Power (dBm)",
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Extracted Power Meter reading in dBm (e.g., -21.05).",
+    )
+
+    power_extracted_at = models.DateTimeField(null=True, blank=True)
+
+    power_extracted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="power_extractions",
+    )
+
+    power_extract_note = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+
+        ordering = ("requisito__orden", "tomada_en", "id")
+
+        indexes = [
+            models.Index(fields=["tecnico_sesion"]),
+            models.Index(fields=["requisito"]),
+            models.Index(fields=["power_dbm"]),
+        ]
+
+    def __str__(self):
+
+        if self.requisito_id:
+
+            return (
+                f"Evidence {self.requisito.titulo} (session {self.tecnico_sesion_id})"
+            )
+
+        elif self.titulo_manual:
+
+            return f"Evidence {self.titulo_manual} (session {self.tecnico_sesion_id})"
+
         return f"Evidence Extra (session {self.tecnico_sesion_id})"
 
 
