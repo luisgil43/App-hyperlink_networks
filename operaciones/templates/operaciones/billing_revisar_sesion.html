@@ -317,83 +317,79 @@
       </span>
     </span>
 
-    {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
-      <div id="power-edit-box-{{ ev.id }}"
-           class="power-edit-box hidden mt-1 p-2 rounded-lg border bg-gray-50 w-fit">
+    <div id="power-edit-box-{{ ev.id }}"
+         class="power-edit-box hidden mt-1 p-2 rounded-lg border bg-gray-50 w-fit">
 
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-gray-600 w-12">Power</label>
-          <input type="text"
-                 id="power-input-{{ ev.id }}"
-                 class="power-input border rounded px-2 py-0.5 text-xs w-24"
-                 value="{% if ev.power_dbm != None %}{{ ev.power_dbm|unlocalize }}{% endif %}"
-                 placeholder="-28.03">
-        </div>
-
-        <div class="flex items-center gap-2 mt-1">
-          <label class="text-xs text-gray-600 w-12">Port</label>
-          <input type="number"
-                 id="port-input-{{ ev.id }}"
-                 class="port-input border rounded px-2 py-0.5 text-xs w-20"
-                 min="1"
-                 max="8"
-                 value="{% if ev.power_port_no_display %}{{ ev.power_port_no_display }}{% endif %}"
-                 placeholder="1-8">
-        </div>
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-600 w-12">Power</label>
+        <input type="text"
+               id="power-input-{{ ev.id }}"
+               class="power-input border rounded px-2 py-0.5 text-xs w-24"
+               value="{% if ev.power_dbm != None %}{{ ev.power_dbm|unlocalize }}{% endif %}"
+               placeholder="-28.03">
       </div>
 
-      <button type="button"
-              class="power-edit text-xs text-blue-600 underline ml-1"
-              data-id="{{ ev.id }}">
-        ✏️
-      </button>
+      <div class="flex items-center gap-2 mt-1">
+        <label class="text-xs text-gray-600 w-12">Port</label>
+        <input type="number"
+               id="port-input-{{ ev.id }}"
+               class="port-input border rounded px-2 py-0.5 text-xs w-20"
+               min="1"
+               max="8"
+               value="{% if ev.power_port_no_display %}{{ ev.power_port_no_display }}{% endif %}"
+               placeholder="1-8">
+      </div>
+    </div>
 
-      <button type="button"
-              class="power-save hidden text-xs text-emerald-700 underline ml-1"
-              data-id="{{ ev.id }}">
-        Save
-      </button>
+    <button type="button"
+            class="power-edit text-xs text-blue-600 underline ml-1"
+            data-id="{{ ev.id }}">
+      ✏️
+    </button>
 
-      <button type="button"
-              class="power-cancel hidden text-xs text-gray-500 underline ml-1"
-              data-id="{{ ev.id }}">
-        Cancel
-      </button>
-    {% endif %}
+    <button type="button"
+            class="power-save hidden text-xs text-emerald-700 underline ml-1"
+            data-id="{{ ev.id }}">
+      Save
+    </button>
+
+    <button type="button"
+            class="power-cancel hidden text-xs text-gray-500 underline ml-1"
+            data-id="{{ ev.id }}">
+      Cancel
+    </button>
   </div>
 {% endif %}
 
-       
-
-        <div class="text-gray-600">
-          {% if s.proyecto_especial and not ev.requisito_id %}
-            {% if ev.direccion_manual %}
-              📍 {{ ev.direccion_manual }}
-            {% else %}
-              <span class="text-gray-400">📍 Sin dirección</span>
-            {% endif %}
-            {% if ev.lat and ev.lng %}
-              <a class="ml-1 text-blue-600 hover:underline" target="_blank"
-                 href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}">
-                Open map
-              </a>
-              {% if ev.gps_accuracy_m %}
-                <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
-              {% endif %}
-            {% endif %}
-          {% else %}
-            {% if ev.lat and ev.lng %}
-              📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
-              <a class="ml-1 text-blue-600 hover:underline" target="_blank"
-                 href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
-              {% if ev.gps_accuracy_m %}
-                <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
-              {% endif %}
-            {% else %}
-              <span class="text-gray-400">📍 No GPS</span>
-            {% endif %}
-          {% endif %}
-        </div>
+<div class="text-gray-600">
+  {% if s.proyecto_especial and not ev.requisito_id %}
+    {% if ev.direccion_manual %}
+      📍 {{ ev.direccion_manual }}
+    {% else %}
+      <span class="text-gray-400">📍 Sin dirección</span>
+    {% endif %}
+    {% if ev.lat and ev.lng %}
+      <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+         href="https://www.google.com/maps?q={{ ev.lat|floatformat:5|unlocalize }},{{ ev.lng|floatformat:5|unlocalize }}">
+        Open map
+      </a>
+      {% if ev.gps_accuracy_m %}
+        <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+      {% endif %}
+    {% endif %}
+  {% else %}
+    {% if ev.lat and ev.lng %}
+      📍 {{ ev.lat|floatformat:5 }}, {{ ev.lng|floatformat:5 }}
+      <a class="ml-1 text-blue-600 hover:underline" target="_blank"
+         href="https://www.google.com/maps?q={{ ev.lat }},{{ ev.lng }}">Open map</a>
+      {% if ev.gps_accuracy_m %}
+        <span class="ml-1 text-gray-400">± {{ ev.gps_accuracy_m|floatformat:0 }} m</span>
+      {% endif %}
+    {% else %}
+      <span class="text-gray-400">📍 No GPS</span>
+    {% endif %}
+  {% endif %}
+</div>
 
         {% if ev.nota %}
           <div class="text-gray-600">{{ ev.nota }}</div>
@@ -1029,6 +1025,7 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   });
 })();
 </script>
+{% endif %}
 
 <script>
 (function(){
@@ -1208,5 +1205,4 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   });
 })();
 </script>
-{% endif %}
 {% endblock %}

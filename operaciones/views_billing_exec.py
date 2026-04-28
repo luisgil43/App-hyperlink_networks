@@ -3507,6 +3507,172 @@ def backfill_light_levels_project(request, sesion_id):
     return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
 
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def bulk_backfill_light_levels(request):
+    """
+    Backfill masivo de light levels para varios billings seleccionados.
+
+    Recibe:
+    - ids: "1,2,3"
+    - force: "1" o "0"
+
+    Procesa fotos existentes y completa:
+    - power_dbm
+    - port en power_extract_note
+
+    No borra fotos, no cambia estados, solo metadata de potencia.
+    """
+
+    ids_raw = (request.POST.get("ids") or "").strip()
+    force = (request.POST.get("force") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+        "si",
+        "sí",
+    }
+
+    ids = []
+    for x in ids_raw.split(","):
+        x = (x or "").strip()
+        if not x:
+            continue
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+
+    ids = list(dict.fromkeys(ids))
+
+    if not ids:
+        messages.error(request, "Please select at least one billing.")
+        return redirect("operaciones:listar_billing")
+
+    sesiones = list(
+        SesionBilling.objects.filter(id__in=ids).order_by("proyecto_id", "id")
+    )
+
+    if not sesiones:
+        messages.error(request, "No selected billings were found.")
+        return redirect("operaciones:listar_billing")
+
+    total_global = 0
+    procesadas_global = 0
+    extraidas_global = 0
+    omitidas_global = 0
+    errores_global = 0
+
+    resumen_por_billing = []
+
+    for s in sesiones:
+        evidencias = (
+            EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion=s,
+            )
+            .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
+            .order_by("id")
+        )
+
+        total = 0
+        procesadas = 0
+        extraidas = 0
+        omitidas = 0
+        errores = 0
+
+        for ev in evidencias:
+            total += 1
+            total_global += 1
+
+            if (
+                not force
+                and ev.power_dbm is not None
+                and _power_port_no_from_evidence(ev)
+            ):
+                omitidas += 1
+                omitidas_global += 1
+                continue
+
+            should_try = False
+
+            if ev.requisito_id:
+                titulo_req = (ev.requisito.titulo or "").strip()
+                needs_power, _port_no = _power_meta_from_title(titulo_req)
+
+                should_try = (
+                    bool(getattr(ev.requisito, "needs_power_reading", False))
+                    or needs_power
+                    or titulo_req.upper().startswith("POWER PORT")
+                )
+            else:
+                titulo_manual = (ev.titulo_manual or "").strip()
+                nota = (ev.nota or "").strip()
+                hint = f"{titulo_manual} {nota}".lower()
+
+                should_try = (
+                    force
+                    or ev.power_dbm is not None
+                    or titulo_manual.lower() in {"", "extra"}
+                    or any(
+                        x in hint
+                        for x in ["power", "port", "dbm", "opm", "light level", "light"]
+                    )
+                )
+
+            if not should_try:
+                omitidas += 1
+                omitidas_global += 1
+                continue
+
+            procesadas += 1
+            procesadas_global += 1
+
+            try:
+                result = _extract_power_dbm_for_evidence(
+                    ev,
+                    user=request.user,
+                    allow_extra=True,
+                    allow_locked=True,
+                )
+
+                if result.get("power_dbm"):
+                    extraidas += 1
+                    extraidas_global += 1
+                else:
+                    errores += 1
+                    errores_global += 1
+
+            except Exception:
+                errores += 1
+                errores_global += 1
+                continue
+
+        resumen_por_billing.append(
+            f"{s.proyecto_id or s.id}: processed {procesadas}, extracted {extraidas}, skipped {omitidas}, errors {errores}"
+        )
+
+    messages.success(
+        request,
+        (
+            f"Bulk light levels backfill completed. "
+            f"Billings: {len(sesiones)}. "
+            f"Total photos: {total_global}. "
+            f"Processed: {procesadas_global}. "
+            f"Extracted: {extraidas_global}. "
+            f"Skipped: {omitidas_global}. "
+            f"Errors: {errores_global}."
+        ),
+    )
+
+    if resumen_por_billing:
+        messages.info(request, " | ".join(resumen_por_billing[:10]))
+
+    return redirect("operaciones:listar_billing")
+
+
 def _extract_power_dbm_for_evidence(
     ev, user=None, allow_extra=True, allow_locked=False
 ):
@@ -3870,12 +4036,10 @@ def update_power_from_evidence(request, evidencia_id: int):
         pk=evidencia_id,
     )
 
+    # ✅ TEMPORAL:
+    # Permitimos editar power/port incluso si el proyecto está aprobado.
+    # No borramos fotos, no cambiamos estados, solo metadata de potencia.
     ses = ev.tecnico_sesion.sesion
-    if getattr(ses, "estado", "") in ("aprobado_supervisor", "aprobado_pm"):
-        return JsonResponse(
-            {"ok": False, "error": "Locked after approval."},
-            status=403,
-        )
 
     is_power_port = False
 
@@ -3884,7 +4048,10 @@ def update_power_from_evidence(request, evidencia_id: int):
         needs_power, _port_no = _power_meta_from_title(titulo_req)
 
         is_power_port = (
-            bool(getattr(ev.requisito, "needs_power_reading", False)) or needs_power
+            bool(getattr(ev.requisito, "needs_power_reading", False))
+            or needs_power
+            or ev.power_dbm is not None
+            or _power_port_no_from_evidence(ev)
         )
     else:
         titulo_manual = (ev.titulo_manual or "").strip()
@@ -3912,6 +4079,7 @@ def update_power_from_evidence(request, evidencia_id: int):
     # Validar puerto
     # ==========================
     port_no = None
+
     if raw_port:
         try:
             port_no = int(raw_port)
@@ -3929,6 +4097,15 @@ def update_power_from_evidence(request, evidencia_id: int):
     else:
         port_no = _power_port_no_from_evidence(ev)
 
+    # ✅ Si la evidencia pertenece a un requisito POWER PORT,
+    # el puerto real que usa display/export viene desde el requisito.
+    # Por eso, cuando el usuario edita el puerto, actualizamos también el requisito.
+    if ev.requisito_id and port_no:
+        req = ev.requisito
+        req.power_port_no = port_no
+        req.needs_power_reading = True
+        req.save(update_fields=["power_port_no", "needs_power_reading"])
+
     # ==========================
     # Limpiar potencia
     # ==========================
@@ -3943,10 +4120,17 @@ def update_power_from_evidence(request, evidencia_id: int):
         ev.power_extracted_by = request.user
 
         note_parts = [f"Manual edit | cleared | user={request.user.username}"]
+
         if port_no:
             note_parts.append(f"port={port_no}")
+            if ev.requisito_id:
+                note_parts.append("port_source=manual_requirement")
+            else:
+                note_parts.append("port_source=manual_extra")
+            note_parts.append("port_confidence=manual")
 
         ev.power_extract_note = " | ".join(note_parts)[:255]
+
         ev.save(
             update_fields=[
                 "power_dbm",
@@ -3996,6 +4180,10 @@ def update_power_from_evidence(request, evidencia_id: int):
 
     if port_no:
         note_parts.append(f"port={port_no}")
+        if ev.requisito_id:
+            note_parts.append("port_source=manual_requirement")
+        else:
+            note_parts.append("port_source=manual_extra")
         note_parts.append("port_confidence=manual")
 
     ev.power_extract_note = " | ".join(note_parts)[:255]
