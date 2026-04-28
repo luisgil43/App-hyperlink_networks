@@ -295,13 +295,9 @@
   </div>
 
   <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
-
 {% if ev.is_power_candidate %}
-
   <div class="mt-1 power-inline-wrap"
-
        data-power-wrap="{{ ev.id }}"
-
        data-update-url="{% url 'operaciones:update_power_from_evidence' ev.id %}">
 
     <span id="power-view-{{ ev.id }}"
@@ -310,6 +306,11 @@
       <span class="power-value">
         {% if ev.power_dbm != None %}
           {{ ev.power_dbm }} dBm
+          {% if ev.power_port_no_display %}
+            <span class="ml-1 font-semibold text-emerald-900">· Port {{ ev.power_port_no_display }}</span>
+          {% else %}
+            <span class="ml-1 text-amber-700">· Port pending</span>
+          {% endif %}
         {% else %}
           pending
         {% endif %}
@@ -317,11 +318,29 @@
     </span>
 
     {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
-      <input type="text"
-             id="power-input-{{ ev.id }}"
-             class="power-input hidden border rounded px-2 py-0.5 text-xs w-24"
-             value="{% if ev.power_dbm != None %}{{ ev.power_dbm|unlocalize }}{% endif %}"
-             placeholder="-28.03">
+      <div id="power-edit-box-{{ ev.id }}"
+           class="power-edit-box hidden mt-1 p-2 rounded-lg border bg-gray-50 w-fit">
+
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-gray-600 w-12">Power</label>
+          <input type="text"
+                 id="power-input-{{ ev.id }}"
+                 class="power-input border rounded px-2 py-0.5 text-xs w-24"
+                 value="{% if ev.power_dbm != None %}{{ ev.power_dbm|unlocalize }}{% endif %}"
+                 placeholder="-28.03">
+        </div>
+
+        <div class="flex items-center gap-2 mt-1">
+          <label class="text-xs text-gray-600 w-12">Port</label>
+          <input type="number"
+                 id="port-input-{{ ev.id }}"
+                 class="port-input border rounded px-2 py-0.5 text-xs w-20"
+                 min="1"
+                 max="8"
+                 value="{% if ev.power_port_no_display %}{{ ev.power_port_no_display }}{% endif %}"
+                 placeholder="1-8">
+        </div>
+      </div>
 
       <button type="button"
               class="power-edit text-xs text-blue-600 underline ml-1"
@@ -1030,16 +1049,15 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   }
 
   function setEditMode(id, on){
-    const view = document.getElementById(`power-view-${id}`);
+    const editBox = document.getElementById(`power-edit-box-${id}`);
     const input = document.getElementById(`power-input-${id}`);
     const edit = document.querySelector(`.power-edit[data-id="${id}"]`);
     const save = document.querySelector(`.power-save[data-id="${id}"]`);
     const cancel = document.querySelector(`.power-cancel[data-id="${id}"]`);
 
-    if (!view || !input) return;
+    if (!editBox || !input) return;
 
-    view.classList.toggle('hidden', on);
-    input.classList.toggle('hidden', !on);
+    editBox.classList.toggle('hidden', !on);
     edit?.classList.toggle('hidden', on);
     save?.classList.toggle('hidden', !on);
     cancel?.classList.toggle('hidden', !on);
@@ -1050,21 +1068,37 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
     }
   }
 
-  function updateBadge(id, value){
+  function updateBadge(id, powerValue, portNo){
     const view = document.getElementById(`power-view-${id}`);
-    const input = document.getElementById(`power-input-${id}`);
-    if (!view || !input) return;
+    const powerInput = document.getElementById(`power-input-${id}`);
+    const portInput = document.getElementById(`port-input-${id}`);
+
+    if (!view || !powerInput) return;
 
     const valueSpan = view.querySelector('.power-value');
 
-    if (value) {
-      valueSpan.textContent = `${value} dBm`;
-      input.value = value;
+    if (powerValue) {
+      let html = `${powerValue} dBm`;
+
+      if (portNo) {
+        html += ` <span class="ml-1 font-semibold text-emerald-900">· Port ${portNo}</span>`;
+      } else {
+        html += ` <span class="ml-1 text-amber-700">· Port pending</span>`;
+      }
+
+      valueSpan.innerHTML = html;
+      powerInput.value = powerValue;
+
+      if (portInput && portNo) {
+        portInput.value = portNo;
+      }
+
       view.classList.remove('bg-yellow-100', 'text-yellow-800');
       view.classList.add('bg-emerald-100', 'text-emerald-800');
     } else {
       valueSpan.textContent = 'pending';
-      input.value = '';
+      powerInput.value = '';
+
       view.classList.remove('bg-emerald-100', 'text-emerald-800');
       view.classList.add('bg-yellow-100', 'text-yellow-800');
     }
@@ -1072,13 +1106,15 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
 
   async function savePower(id){
     const wrap = document.querySelector(`[data-power-wrap="${id}"]`);
-    const input = document.getElementById(`power-input-${id}`);
+    const powerInput = document.getElementById(`power-input-${id}`);
+    const portInput = document.getElementById(`port-input-${id}`);
     const btnSave = document.querySelector(`.power-save[data-id="${id}"]`);
 
-    if (!wrap || !input) return;
+    if (!wrap || !powerInput) return;
 
     const url = wrap.dataset.updateUrl;
-    const value = (input.value || '').trim();
+    const powerValue = (powerInput.value || '').trim();
+    const portValue = portInput ? (portInput.value || '').trim() : '';
 
     if (!url) {
       toast('Missing update URL.', 'error');
@@ -1098,7 +1134,8 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          power_dbm: value
+          power_dbm: powerValue,
+          port_no: portValue
         }),
         cache: 'no-store',
       });
@@ -1109,13 +1146,13 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
         throw new Error(data.error || `HTTP ${resp.status}`);
       }
 
-      updateBadge(id, data.power_dbm || '');
+      updateBadge(id, data.power_dbm || '', data.port_no || '');
       setEditMode(id, false);
       toast('Power updated.', 'success');
 
     } catch (err) {
       toast(err.message || 'Could not update power.', 'error');
-      input.focus();
+      powerInput.focus();
     } finally {
       btnSave && (btnSave.disabled = false);
     }
@@ -1142,10 +1179,22 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
   });
 
   document.addEventListener('keydown', function(e){
-    const input = e.target.closest('.power-input');
-    if (!input || input.classList.contains('hidden')) return;
+    const powerInput = e.target.closest('.power-input');
+    const portInput = e.target.closest('.port-input');
 
-    const id = input.id.replace('power-input-', '');
+    if (!powerInput && !portInput) return;
+
+    let id = '';
+
+    if (powerInput) {
+      id = powerInput.id.replace('power-input-', '');
+    }
+
+    if (portInput) {
+      id = portInput.id.replace('port-input-', '');
+    }
+
+    if (!id) return;
 
     if (e.key === 'Enter') {
       e.preventDefault();

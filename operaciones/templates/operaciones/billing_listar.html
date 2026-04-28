@@ -92,6 +92,8 @@
                     class="block w-full text-left px-4 py-2 hover:bg-gray-100">Import requirements to selected</button>
             <button type="button" data-action="merge_xlsx"
                     class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
+            <button type="button" data-action="bulk_light_levels"
+                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Download selected light levels</button>
           </div>
         </div>
 
@@ -1261,6 +1263,12 @@ document.addEventListener('click', function(e){
       return;
     }
 
+    // ✅ 2.1) BULK LIGHT LEVELS
+    if(action === 'bulk_light_levels'){
+      if (window.downloadBulkLightLevels) window.downloadBulkLightLevels(ids);
+      return;
+    }
+
     // ✅ 3) EXPORT
     if(action === 'export'){
       exportIdsInp.value = ids.join(',');
@@ -1295,7 +1303,47 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
+<script>
+(function(){
+  async function downloadBulkLightLevels(ids){
+    if(!ids || !ids.length) return;
 
+    document.getElementById('menu-actions')?.classList.add('hidden');
+
+    if (window.showBusy) {
+      window.showBusy('Preparing light levels', 'Generating consolidated Excel');
+    }
+
+    const url = "{% url 'operaciones:bulk_export_light_levels_xlsx' %}" +
+                "?ids=" + encodeURIComponent(ids.join(','));
+
+    window.open(url, '_blank');
+
+    ids.forEach(id => {
+      const chk = document.querySelector(`.row-chk[value="${id}"]`);
+      if (chk){
+        chk.checked = false;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    const header = document.getElementById('chk-all');
+    if (header){
+      header.checked = false;
+      header.indeterminate = false;
+    }
+
+    const btnActions = document.getElementById('btn-actions');
+    if (btnActions) btnActions.disabled = true;
+
+    setTimeout(() => {
+      if (window.hideBusy) window.hideBusy();
+    }, 700);
+  }
+
+  window.downloadBulkLightLevels = downloadBulkLightLevels;
+})();
+</script>
 <script>
 (function(){
   const modal   = document.getElementById('modal-finance');

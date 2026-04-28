@@ -2139,6 +2139,8 @@ def revisar_sesion(request, sesion_id):
                 is_power_candidate = (
                     bool(getattr(ev.requisito, "needs_power_reading", False))
                     or needs_power
+                    or ev.power_dbm is not None
+                    or "port=" in ((ev.power_extract_note or "").lower())
                 )
             else:
                 # Extras antiguas:
@@ -2150,10 +2152,12 @@ def revisar_sesion(request, sesion_id):
                 is_power_candidate = (
                     needs_power
                     or ev.power_dbm is not None
+                    or "port=" in ((ev.power_extract_note or "").lower())
                     or titulo_manual.lower() in {"extra", ""}
                 )
 
             ev.is_power_candidate = is_power_candidate
+            ev.power_port_no_display = _power_port_no_from_evidence(ev)
 
         evidencias_por_asig.append((a, evs))
 
@@ -3023,13 +3027,19 @@ def _power_port_no_from_evidence(ev):
     """
     Devuelve puerto 1..8 para una evidencia de potencia.
 
-    Prioridad:
-    1) Requisito POWER PORT X / requisito.power_port_no
-    2) Título manual si es Extra y dice POWER PORT X
-    3) power_extract_note con formato port=5
+    Regla correcta:
+    1) Si la foto pertenece a un requisito POWER PORT X, SIEMPRE manda el puerto del requisito.
+       Ejemplo: requisito "POWER PORT 5" => Port 5, aunque la IA haya guardado port=1.
+    2) Solo para fotos Extra se usa el port=N guardado por IA o edición manual.
+    3) Para Extra también se permite detectar el puerto desde titulo_manual si dice POWER PORT X.
     """
+
+    # ==========================================================
+    # 1) Requisito cargado: manda SIEMPRE el requisito
+    # ==========================================================
     if ev.requisito_id:
         port_no = getattr(ev.requisito, "power_port_no", None)
+
         if port_no:
             try:
                 port_no = int(port_no)
@@ -3040,14 +3050,20 @@ def _power_port_no_from_evidence(ev):
 
         title = (ev.requisito.titulo or "").strip()
         _needs_power, port_no = _power_meta_from_title(title)
+
         if port_no:
-            return port_no
+            try:
+                port_no = int(port_no)
+                if 1 <= port_no <= 8:
+                    return port_no
+            except Exception:
+                pass
 
-    title_manual = (getattr(ev, "titulo_manual", "") or "").strip()
-    _needs_power, port_no = _power_meta_from_title(title_manual)
-    if port_no:
-        return port_no
+        return None
 
+    # ==========================================================
+    # 2) Extra: aquí sí manda IA/manual desde power_extract_note
+    # ==========================================================
     note = (getattr(ev, "power_extract_note", "") or "").strip()
     m = re.search(r"\bport\s*=\s*([1-8])\b", note, flags=re.IGNORECASE)
     if m:
@@ -3056,21 +3072,40 @@ def _power_port_no_from_evidence(ev):
         except Exception:
             pass
 
+    # ==========================================================
+    # 3) Extra con título manual tipo POWER PORT X
+    # ==========================================================
+    title_manual = (getattr(ev, "titulo_manual", "") or "").strip()
+    _needs_power, port_no = _power_meta_from_title(title_manual)
+
+    if port_no:
+        try:
+            port_no = int(port_no)
+            if 1 <= port_no <= 8:
+                return port_no
+        except Exception:
+            pass
+
     return None
 
 
-def _build_light_level_workbook(sesion):
+def _build_light_level_workbook(row_count=1):
     """
-    Crea el Excel de Light Level con el formato base:
+    Crea el Excel de Light Level con el MISMO formato para individual y masivo.
+
+    Formato:
+    - A1:N1: DFN / Column2..Column14
     - A2: Structure ID
     - B2: Light level
     - B3:I3: PORT 1..PORT 8
-    - A4: ID proyecto
-    - B4:I4: potencias
+    - Desde A4 hacia abajo: proyectos seleccionados
     """
     wb = Workbook()
     ws = wb.active
     ws.title = "DFN"
+    ws.sheet_view.showGridLines = False
+
+    total_rows = max(7, 3 + int(row_count or 1))
 
     thick = Side(style="medium", color="000000")
     border = Border(left=thick, right=thick, top=thick, bottom=thick)
@@ -3078,28 +3113,25 @@ def _build_light_level_workbook(sesion):
     fill_blue = PatternFill("solid", fgColor="C0E6F5")
     font_normal = Font(name="Calibri", size=11, color="000000")
 
-    for row in range(1, 8):
-        for col in range(1, 15):
-            cell = ws.cell(row=row, column=col)
-            cell.border = border
-            cell.font = font_normal
-            if row >= 2:
-                cell.fill = fill_blue
+    headers_row_1 = [
+        "DFN",
+        "Column2",
+        "Column3",
+        "Column4",
+        "Column5",
+        "Column6",
+        "Column7",
+        "Column8",
+        "Column9",
+        "Column10",
+        "Column11",
+        "Column12",
+        "Column13",
+        "Column14",
+    ]
 
-    ws["A1"] = "DFN"
-    ws["B1"] = "Column2"
-    ws["C1"] = "Column3"
-    ws["D1"] = "Column4"
-    ws["E1"] = "Column5"
-    ws["F1"] = "Column6"
-    ws["G1"] = "Column7"
-    ws["H1"] = "Column8"
-    ws["I1"] = "Column9"
-    ws["J1"] = "Column10"
-    ws["K1"] = "Column11"
-    ws["L1"] = "Column12"
-    ws["M1"] = "Column13"
-    ws["N1"] = "Column14"
+    for col_idx, value in enumerate(headers_row_1, start=1):
+        ws.cell(row=1, column=col_idx).value = value
 
     ws["A2"] = "Structure ID"
     ws["B2"] = "Light level"
@@ -3113,25 +3145,43 @@ def _build_light_level_workbook(sesion):
     ws["H3"] = "PORT 7"
     ws["I3"] = "PORT 8"
 
-    ws["A4"] = sesion.proyecto_id or ""
+    for row in range(1, total_rows + 1):
+        for col in range(1, 15):
+            cell = ws.cell(row=row, column=col)
+            cell.border = border
+            cell.font = font_normal
+            if row >= 2:
+                cell.fill = fill_blue
 
     ws.column_dimensions["A"].width = 32
     for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"]:
         ws.column_dimensions[col].width = 13
 
-    for row in range(1, 8):
+    for row in range(1, total_rows + 1):
         ws.row_dimensions[row].height = 22
 
     ws.row_dimensions[3].height = 26
 
     return wb
 
+def _write_light_level_row(ws, row, structure_id, port_values):
+    """
+    Escribe una fila de light level usando el formato base:
+    A = Structure ID
+    B:I = PORT 1..PORT 8
+    """
+    ws.cell(row=row, column=1).value = structure_id or ""
+
+    for port_no in range(1, 9):
+        value = port_values.get(port_no)
+        if value is not None:
+            ws.cell(row=row, column=port_no + 1).value = float(value)
 
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 def export_light_levels_xlsx(request, sesion_id):
     """
-    Exporta Excel de potencias:
+    Exporta Excel individual de potencias con el MISMO formato usado en masivo:
     - A2: Structure ID
     - B2: Light level
     - B3:I3: PORT 1..PORT 8
@@ -3165,27 +3215,17 @@ def export_light_levels_xlsx(request, sesion_id):
         if not (1 <= port_no <= 8):
             continue
 
-        # Si hay más de una lectura para el mismo puerto, queda la última según orden.
         port_values[port_no] = ev.power_dbm
 
-    wb = _build_light_level_workbook(s)
+    wb = _build_light_level_workbook(row_count=1)
     ws = wb.active
 
-    port_to_cell = {
-        1: "B4",
-        2: "C4",
-        3: "D4",
-        4: "E4",
-        5: "F4",
-        6: "G4",
-        7: "H4",
-        8: "I4",
-    }
-
-    for port_no, cell_ref in port_to_cell.items():
-        value = port_values.get(port_no)
-        if value is not None:
-            ws[cell_ref] = float(value)
+    _write_light_level_row(
+        ws=ws,
+        row=4,
+        structure_id=s.proyecto_id or "",
+        port_values=port_values,
+    )
 
     filename = f"LIGHT LEVEL {s.proyecto_id or s.id}.xlsx"
 
@@ -3198,6 +3238,146 @@ def export_light_levels_xlsx(request, sesion_id):
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def bulk_export_light_levels_xlsx(request):
+    """
+
+    Exporta un Excel consolidado de light levels para varios billings seleccionados.
+
+    Usa el MISMO formato del export individual:
+
+    - A2: Structure ID
+
+    - B2: Light level
+
+    - B3:I3: PORT 1..PORT 8
+
+    - Desde A4 hacia abajo: una fila por proyecto/billing.
+
+    """
+
+    ids_raw = (request.GET.get("ids") or request.POST.get("ids") or "").strip()
+
+    ids = []
+
+    for x in ids_raw.split(","):
+
+        x = (x or "").strip()
+
+        if not x:
+
+            continue
+
+        try:
+
+            ids.append(int(x))
+
+        except Exception:
+
+            pass
+
+    ids = list(dict.fromkeys(ids))
+
+    if not ids:
+
+        messages.error(request, "Please select at least one billing.")
+
+        return redirect("operaciones:listar_billing")
+
+    sesiones = list(
+        SesionBilling.objects.filter(id__in=ids).order_by("proyecto_id", "id")
+    )
+
+    if not sesiones:
+
+        messages.error(request, "No selected billings were found.")
+
+        return redirect("operaciones:listar_billing")
+
+    session_ids = [s.id for s in sesiones]
+
+    evidencias = (
+        EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion_id__in=session_ids,
+            power_dbm__isnull=False,
+        )
+        .select_related(
+            "requisito",
+            "tecnico_sesion",
+            "tecnico_sesion__sesion",
+        )
+        .order_by(
+            "tecnico_sesion__sesion_id",
+            "client_taken_at",
+            "tomada_en",
+            "id",
+        )
+    )
+
+    values_by_session = {sid: {} for sid in session_ids}
+
+    for ev in evidencias:
+
+        port_no = _power_port_no_from_evidence(ev)
+
+        if not port_no:
+
+            continue
+
+        try:
+
+            port_no = int(port_no)
+
+        except Exception:
+
+            continue
+
+        if not (1 <= port_no <= 8):
+
+            continue
+
+        sid = ev.tecnico_sesion.sesion_id
+
+        values_by_session.setdefault(sid, {})[port_no] = ev.power_dbm
+
+    wb = _build_light_level_workbook(row_count=len(sesiones))
+
+    ws = wb.active
+
+    row = 4
+
+    for s in sesiones:
+
+        port_values = values_by_session.get(s.id, {})
+
+        _write_light_level_row(
+            ws=ws,
+            row=row,
+            structure_id=s.proyecto_id or f"Billing #{s.id}",
+            port_values=port_values,
+        )
+
+        row += 1
+
+    filename = "LIGHT LEVELS SELECTED PROJECTS.xlsx"
+
+    bio = BytesIO()
+
+    wb.save(bio)
+
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
     return response
 
 
@@ -3335,12 +3515,13 @@ def _extract_power_dbm_for_evidence(
     - potencia dBm del Optical Power Meter
     - puerto físico 1..8 donde está conectado el jumper en la caja
 
-    Sirve para:
-    - POWER PORT con requisito
-    - Extras ya cargados
+    Regla de puerto:
+    - Si la evidencia tiene requisito POWER PORT X, se guarda y se muestra SIEMPRE ese puerto X.
+    - Si la evidencia es Extra, se usa el puerto detectado por IA.
     """
     import base64
     import json
+    import os
     import re
     from decimal import Decimal, InvalidOperation
 
@@ -3349,11 +3530,11 @@ def _extract_power_dbm_for_evidence(
 
     ses = ev.tecnico_sesion.sesion
 
-    if (getattr(ses, "estado", "") in ("aprobado_supervisor", "aprobado_pm")
-    and not allow_locked
+    if (
+        getattr(ses, "estado", "") in ("aprobado_supervisor", "aprobado_pm")
+        and not allow_locked
     ):
-
-        raise ValueError("Locked after approval.")  
+        raise ValueError("Locked after approval.")
 
     if not ev.requisito_id and not allow_extra:
         raise ValueError("This evidence has no requirement.")
@@ -3429,37 +3610,69 @@ def _extract_power_dbm_for_evidence(
         mime = "image/jpeg"
 
     known_port = None
+    titulo = ""
+
     if ev.requisito_id:
+        titulo = ev.requisito.titulo or ""
+
         known_port = getattr(ev.requisito, "power_port_no", None)
         if not known_port:
-            _needs_power, known_port = _power_meta_from_title(ev.requisito.titulo or "")
+            _needs_power, known_port = _power_meta_from_title(titulo)
+
+        try:
+            known_port = int(known_port) if known_port else None
+        except Exception:
+            known_port = None
+
+        if known_port and not (1 <= known_port <= 8):
+            known_port = None
+    else:
+        titulo = ev.titulo_manual or "Extra"
 
     prompt = f"""
-You are reading a telecom field photo.
+You are analyzing a telecom field photo for a light level report.
+
+The photo usually contains:
+- An Optical Power Meter with an LCD screen showing a dBm value.
+- A fiber terminal box with 8 green adapter ports.
+- A yellow or green fiber jumper connected from the power meter to one of the green ports.
+
+Return the result as strict JSON only.
 
 Tasks:
 1. Read ONLY the main optical power value shown on the Optical Power Meter LCD screen in dBm.
-2. Detect which physical port number 1 to 8 on the terminal box is connected to the active fiber jumper from the power meter.
+2. Detect the physical port number on the terminal box where the active yellow/green jumper is connected.
 
-Context:
-- Known requirement port, if any: {known_port or "unknown"}.
-- The photo may be an Extra, so there may be no requirement title.
-- The yellow/green jumper from the power meter connects into one of the green ports on the terminal box.
-- Count the green ports from left to right as PORT 1, PORT 2, PORT 3, PORT 4, PORT 5, PORT 6, PORT 7, PORT 8.
-- If the jumper is plugged into the fifth green port from left to right, return port_no 5.
-- Ignore GPS coordinates, dates, addresses, labels, serial numbers, and all other numbers.
+Important context:
+- Evidence title: {titulo}
+- Known requirement port: {known_port or "unknown"}
+- If Known requirement port is available, it belongs to the original loaded requirement.
+- If this is a normal requirement photo, the system will use the known requirement port.
+- If this is an Extra photo, the system will use your detected physical port.
+
+How to count ports:
+- Look at the row of green adapter ports on the terminal box.
+- Count the green ports from LEFT to RIGHT as:
+  PORT 1, PORT 2, PORT 3, PORT 4, PORT 5, PORT 6, PORT 7, PORT 8.
+- The active port is the green port where the jumper from the power meter is plugged in.
+- Follow the yellow/green jumper coming from the Optical Power Meter.
+- Do NOT use the GPS text, date, structure ID, meter serial number, address, or any overlay numbers as the port.
+- Do NOT use the dBm value as the port.
+- If several yellow fibers are visible, choose the one physically connected to the power meter/test lead.
+
+Rules:
 - Do not guess the dBm value if unreadable.
-- If the port is unclear, use null for port_no.
-- If the known requirement port is available and the image visually agrees, use that port.
-- If the known requirement port conflicts with the visible physical connection, use the visible physical connection and explain briefly.
+- If the dBm value is readable, return found true.
+- If the port is visible but not perfectly clear, return your best port number and lower port_confidence.
+- Use null for port_no only when the terminal box port connection is not visible at all.
 
 Respond ONLY as strict JSON:
 {{
-  "found": true or false,
-  "value_dbm": "-28.96",
+  "found": true,
+  "value_dbm": "-30.21",
   "port_no": 5,
-  "confidence": 0.0 to 1.0,
-  "port_confidence": 0.0 to 1.0,
+  "confidence": 0.0,
+  "port_confidence": 0.0,
   "reason": "short reason"
 }}
 """
@@ -3479,6 +3692,7 @@ Respond ONLY as strict JSON:
                     {
                         "type": "input_image",
                         "image_url": f"data:{mime};base64,{image_b64}",
+                        "detail": "high",
                     },
                 ],
             }
@@ -3502,7 +3716,8 @@ Respond ONLY as strict JSON:
     confidence = data.get("confidence", 0)
     port_confidence = data.get("port_confidence", 0)
     raw_value = data.get("value_dbm", "")
-    port_no = _normalize_port(data.get("port_no"))
+
+    detected_port_no = _normalize_port(data.get("port_no"))
 
     try:
         confidence_decimal = Decimal(str(confidence))
@@ -3524,13 +3739,15 @@ Respond ONLY as strict JSON:
             "The dBm value was detected but confidence is too low. Please review manually."
         )
 
-    if not port_no and known_port:
-        try:
-            known_port_int = int(known_port)
-            if 1 <= known_port_int <= 8:
-                port_no = known_port_int
-        except Exception:
-            pass
+    # ==========================================================
+    # REGLA FINAL DEL PUERTO
+    # ==========================================================
+    if ev.requisito_id and known_port:
+        # Si ya viene de un requisito POWER PORT X, manda ese puerto.
+        port_no = known_port
+    else:
+        # Solo extras usan el puerto detectado por IA.
+        port_no = detected_port_no
 
     ev.power_dbm = val
     ev.power_extracted_at = timezone.now()
@@ -3543,9 +3760,21 @@ Respond ONLY as strict JSON:
         f"raw={raw_value}",
     ]
 
-    if port_no:
-        note_parts.append(f"port={port_no}")
-        note_parts.append(f"port_confidence={port_confidence_decimal}")
+    if ev.requisito_id and known_port:
+        note_parts.append(f"port={known_port}")
+        note_parts.append("port_source=requirement")
+        if detected_port_no:
+            note_parts.append(f"detected_port={detected_port_no}")
+            note_parts.append(f"detected_port_confidence={port_confidence_decimal}")
+    else:
+        if port_no:
+            note_parts.append(f"port={port_no}")
+            note_parts.append("port_source=vision_extra")
+            note_parts.append(f"port_confidence={port_confidence_decimal}")
+        else:
+            note_parts.append("port=null")
+            note_parts.append("port_source=vision_extra")
+            note_parts.append(f"port_confidence={port_confidence_decimal}")
 
     reason = (data.get("reason") or "")[:100]
     if reason:
@@ -3661,7 +3890,6 @@ def update_power_from_evidence(request, evidencia_id: int):
         titulo_manual = (ev.titulo_manual or "").strip()
         needs_power, _port_no = _power_meta_from_title(titulo_manual)
 
-        # Permitimos editar extras si ya fueron detectadas o si tienen título POWER PORT X.
         is_power_port = (
             needs_power or ev.power_dbm is not None or _power_port_no_from_evidence(ev)
         )
@@ -3677,13 +3905,37 @@ def update_power_from_evidence(request, evidencia_id: int):
     except Exception:
         payload = {}
 
-    raw = str(payload.get("power_dbm", "")).strip()
+    raw_power = str(payload.get("power_dbm", "")).strip()
+    raw_port = str(payload.get("port_no", "")).strip()
+
+    # ==========================
+    # Validar puerto
+    # ==========================
+    port_no = None
+    if raw_port:
+        try:
+            port_no = int(raw_port)
+        except Exception:
+            return JsonResponse(
+                {"ok": False, "error": "Port must be a number from 1 to 8."},
+                status=400,
+            )
+
+        if not (1 <= port_no <= 8):
+            return JsonResponse(
+                {"ok": False, "error": "Port must be between 1 and 8."},
+                status=400,
+            )
+    else:
+        port_no = _power_port_no_from_evidence(ev)
+
+    # ==========================
+    # Limpiar potencia
+    # ==========================
+    raw = raw_power
     raw = raw.replace(",", ".")
     raw = raw.replace("−", "-").replace("–", "-").replace("—", "-")
     raw = raw.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
-
-    old_note = (ev.power_extract_note or "").strip()
-    old_port = _power_port_no_from_evidence(ev)
 
     if raw == "":
         ev.power_dbm = None
@@ -3691,8 +3943,8 @@ def update_power_from_evidence(request, evidencia_id: int):
         ev.power_extracted_by = request.user
 
         note_parts = [f"Manual edit | cleared | user={request.user.username}"]
-        if old_port:
-            note_parts.append(f"port={old_port}")
+        if port_no:
+            note_parts.append(f"port={port_no}")
 
         ev.power_extract_note = " | ".join(note_parts)[:255]
         ev.save(
@@ -3703,10 +3955,12 @@ def update_power_from_evidence(request, evidencia_id: int):
                 "power_extract_note",
             ]
         )
+
         return JsonResponse(
             {
                 "ok": True,
                 "power_dbm": "",
+                "port_no": port_no,
                 "display": "pending",
             }
         )
@@ -3740,17 +3994,9 @@ def update_power_from_evidence(request, evidencia_id: int):
 
     note_parts = [f"Manual edit | user={request.user.username}"]
 
-    if old_port:
-        note_parts.append(f"port={old_port}")
-
-    if old_note and "port=" in old_note.lower():
-        m_port_conf = re.search(
-            r"\bport_confidence\s*=\s*([0-9.]+)",
-            old_note,
-            flags=re.IGNORECASE,
-        )
-        if m_port_conf:
-            note_parts.append(f"port_confidence={m_port_conf.group(1)}")
+    if port_no:
+        note_parts.append(f"port={port_no}")
+        note_parts.append("port_confidence=manual")
 
     ev.power_extract_note = " | ".join(note_parts)[:255]
 
@@ -3767,6 +4013,7 @@ def update_power_from_evidence(request, evidencia_id: int):
         {
             "ok": True,
             "power_dbm": f"{val:.2f}",
+            "port_no": port_no,
             "display": f"{val:.2f} dBm",
         }
     )

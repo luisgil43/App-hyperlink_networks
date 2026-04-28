@@ -404,4 +404,9 @@ urlpatterns = [
         b.backfill_light_levels_project,
         name="backfill_light_levels_project",
     ),
+    path(
+        "billing/light-levels/bulk-export/",
+        b.bulk_export_light_levels_xlsx,
+        name="bulk_export_light_levels_xlsx",
+    ),
 ]
