@@ -4036,11 +4036,17 @@ def update_power_from_evidence(request, evidencia_id: int):
         pk=evidencia_id,
     )
 
-    # ✅ TEMPORAL:
-    # Permitimos editar power/port incluso si el proyecto está aprobado.
-    # No borramos fotos, no cambiamos estados, solo metadata de potencia.
-    ses = ev.tecnico_sesion.sesion
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        payload = {}
 
+    raw_power = str(payload.get("power_dbm", "")).strip()
+    raw_port = str(payload.get("port_no", "")).strip()
+
+    # ==========================================================
+    # Detectar si es evidencia de Power Port
+    # ==========================================================
     is_power_port = False
 
     if ev.requisito_id:
@@ -4055,10 +4061,24 @@ def update_power_from_evidence(request, evidencia_id: int):
         )
     else:
         titulo_manual = (ev.titulo_manual or "").strip()
+        nota = (ev.nota or "").strip()
         needs_power, _port_no = _power_meta_from_title(titulo_manual)
 
+        # ✅ FIX:
+        # Si es Extra, permitimos edición manual cuando el usuario envía power o port.
+        # Esto evita el error:
+        # "This evidence is not marked as Power Port."
         is_power_port = (
-            needs_power or ev.power_dbm is not None or _power_port_no_from_evidence(ev)
+            needs_power
+            or ev.power_dbm is not None
+            or _power_port_no_from_evidence(ev)
+            or bool(raw_power)
+            or bool(raw_port)
+            or titulo_manual.lower() in {"extra", ""}
+            or any(
+                x in f"{titulo_manual} {nota}".lower()
+                for x in ["power", "port", "dbm", "opm", "light level", "light"]
+            )
         )
 
     if not is_power_port:
@@ -4066,14 +4086,6 @@ def update_power_from_evidence(request, evidencia_id: int):
             {"ok": False, "error": "This evidence is not marked as Power Port."},
             status=400,
         )
-
-    try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        payload = {}
-
-    raw_power = str(payload.get("power_dbm", "")).strip()
-    raw_port = str(payload.get("port_no", "")).strip()
 
     # ==========================
     # Validar puerto
@@ -4097,9 +4109,8 @@ def update_power_from_evidence(request, evidencia_id: int):
     else:
         port_no = _power_port_no_from_evidence(ev)
 
-    # ✅ Si la evidencia pertenece a un requisito POWER PORT,
-    # el puerto real que usa display/export viene desde el requisito.
-    # Por eso, cuando el usuario edita el puerto, actualizamos también el requisito.
+    # ✅ Si pertenece a requisito POWER PORT, actualizamos también el requisito.
+    # En Extra no hay requisito, por eso el puerto queda guardado en power_extract_note.
     if ev.requisito_id and port_no:
         req = ev.requisito
         req.power_port_no = port_no
@@ -4114,6 +4125,9 @@ def update_power_from_evidence(request, evidencia_id: int):
     raw = raw.replace("−", "-").replace("–", "-").replace("—", "-")
     raw = raw.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
 
+    # ==========================
+    # Si viene vacío, limpiar power pero conservar port si existe
+    # ==========================
     if raw == "":
         ev.power_dbm = None
         ev.power_extracted_at = timezone.now()
