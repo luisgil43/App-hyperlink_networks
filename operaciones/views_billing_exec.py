@@ -3200,6 +3200,7 @@ def export_light_levels_xlsx(request, sesion_id):
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
+
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 @require_POST
@@ -3218,7 +3219,13 @@ def backfill_light_levels_project(request, sesion_id):
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
     force = (request.POST.get("force") or "").strip().lower() in {
-        "1", "true", "yes", "y", "on", "si", "sí"
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+        "si",
+        "sí",
     }
 
     evidencias = (
@@ -3318,6 +3325,7 @@ def backfill_light_levels_project(request, sesion_id):
         )
 
     return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+
 
 def _extract_power_dbm_for_evidence(
     ev, user=None, allow_extra=True, allow_locked=False
