@@ -29,10 +29,18 @@
 
       <div class="p-6 space-y-6">
         <style>
-          .file-hidden{display:none}
-          .file-box{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
-          .file-name{font-size:.82rem;color:#4b5563}
-        </style>
+  .file-hidden{
+    position:absolute;
+    width:1px;
+    height:1px;
+    opacity:0;
+    overflow:hidden;
+    clip:rect(0 0 0 0);
+    white-space:nowrap;
+  }
+  .file-box{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+  .file-name{font-size:.82rem;color:#4b5563}
+</style>
 
         {% if messages %}
           <div class="space-y-2">
@@ -682,29 +690,48 @@
 
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
-  <script>
-    function bindFileMirror(primaryId, cameraId) {
-      const primary = document.getElementById(primaryId);
-      const camera = document.getElementById(cameraId);
-      const span = document.querySelector('[data-file-name-for="' + primaryId + '"]');
+<script>
+  function bindCameraInputs() {
+    document.querySelectorAll('input[type="file"][id$="_camera"]').forEach(function (input) {
+      const label = document.querySelector('label[for="' + input.id + '"]');
 
-      function setNameFrom(input) {
-        if (!span || !input) return;
-        span.textContent = input.files.length ? input.files[0].name : "No file selected";
-        if (input.files.length && input === camera && primary) primary.value = "";
-        if (input.files.length && input === primary && camera) camera.value = "";
-      }
+      if (!label) return;
 
-      primary?.addEventListener("change", function () { setNameFrom(primary); });
-      camera?.addEventListener("change", function () { setNameFrom(camera); });
+      label.addEventListener("click", function (e) {
+        e.preventDefault();
+
+        input.setAttribute("accept", "image/*");
+        input.setAttribute("capture", "environment");
+
+        input.click();
+      });
+    });
+  }
+
+  function bindFileMirror(primaryId, cameraId) {
+    const primary = document.getElementById(primaryId);
+    const camera = document.getElementById(cameraId);
+    const span = document.querySelector('[data-file-name-for="' + primaryId + '"]');
+
+    function setNameFrom(input) {
+      if (!span || !input) return;
+      span.textContent = input.files.length ? input.files[0].name : "No file selected";
+      if (input.files.length && input === camera && primary) primary.value = "";
+      if (input.files.length && input === primary && camera) camera.value = "";
     }
-  </script>
+
+    primary?.addEventListener("change", function () { setNameFrom(primary); });
+    camera?.addEventListener("change", function () { setNameFrom(camera); });
+  }
+</script>
 
   {% if step == "personal" %}
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      const dobInput = document.getElementById("id_date_of_birth");
-      const agePreview = document.getElementById("age-preview");
+  bindCameraInputs();
+
+  const dobInput = document.getElementById("id_date_of_birth");
+  const agePreview = document.getElementById("age-preview");
 
       function calculateAge(dateString) {
         if (!dateString) return "—";
@@ -752,7 +779,9 @@
   {% if step == "identity" %}
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      bindFileMirror("id_ssn_front", "id_ssn_front_camera");
+  bindCameraInputs();
+
+  bindFileMirror("id_ssn_front", "id_ssn_front_camera");
       bindFileMirror("id_ssn_back", "id_ssn_back_camera");
       bindFileMirror("id_passport_front", "id_passport_front_camera");
       bindFileMirror("id_passport_back", "id_passport_back_camera");

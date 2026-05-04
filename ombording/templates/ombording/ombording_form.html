@@ -9,7 +9,15 @@
     .section-card{border:1px solid #e5e7eb;border-radius:1rem;padding:1rem;background:#fff}
     .section-title{font-size:1rem;font-weight:700;color:#1f2937}
     .section-sub{font-size:.82rem;color:#6b7280;margin-top:.15rem}
-    .file-hidden{display:none}
+    .file-hidden{
+  position:absolute;
+  width:1px;
+  height:1px;
+  opacity:0;
+  overflow:hidden;
+  clip:rect(0 0 0 0);
+  white-space:nowrap;
+}
     .file-box{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
     .file-name{font-size:.82rem;color:#4b5563}
     .temp-tag{display:inline-flex;align-items:center;gap:.4rem;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:999px;padding:.15rem .55rem;font-size:.72rem}
@@ -131,7 +139,14 @@
           <label class="mb-2 block text-sm font-medium text-gray-700">Independent Contractor Agreement</label>
           <div class="file-box">
             <input type="file" name="contractor_agreement_base" id="id_contractor_agreement_base" class="file-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp">
-            <input type="file" name="contractor_agreement_base_camera" id="id_contractor_agreement_base_camera" class="file-hidden" accept="image/*" capture="environment">
+            <input
+  type="file"
+  name="contractor_agreement_base_camera"
+  id="id_contractor_agreement_base_camera"
+  class="file-hidden"
+  accept="image/*"
+  capture="environment"
+>
             <label for="id_contractor_agreement_base" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">Choose file</label>
             <label for="id_contractor_agreement_base_camera" class="cursor-pointer bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">Take photo</label>
             <span class="file-name" data-file-name-for="id_contractor_agreement_base">{{ temp_uploads.contractor_agreement_base.original_name|default:"No file selected" }}</span>
@@ -544,23 +559,50 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+
   const dobInput = document.getElementById("id_date_of_birth");
+
   const agePreview = document.getElementById("age-preview");
 
+  document.querySelectorAll('input[type="file"][id$="_camera"]').forEach(function (input) {
+    const label = document.querySelector('label[for="' + input.id + '"]');
+
+    if (!label) return;
+
+    label.addEventListener("click", function (e) {
+      e.preventDefault();
+
+      input.setAttribute("accept", "image/*");
+      input.setAttribute("capture", "environment");
+
+      input.click();
+    });
+  });
+
   function calculateAge(dateString) {
+
     if (!dateString) return "—";
+
     const dob = new Date(dateString + "T00:00:00");
+
     if (Number.isNaN(dob.getTime())) return "—";
 
     const today = new Date();
+
     let age = today.getFullYear() - dob.getFullYear();
+
     const monthDiff = today.getMonth() - dob.getMonth();
+
     const dayDiff = today.getDate() - dob.getDate();
 
     if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+
       age -= 1;
+
     }
+
     return age >= 0 ? String(age) : "—";
+
   }
 
   if (window.flatpickr) {
@@ -585,6 +627,8 @@ document.addEventListener("DOMContentLoaded", function () {
     agePreview.textContent = calculateAge(dobInput.value);
   }
 
+
+  
   function bindFileMirror(primaryId, cameraId) {
     const primary = document.getElementById(primaryId);
     const camera = document.getElementById(cameraId);
