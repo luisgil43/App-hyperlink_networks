@@ -1,5 +1,5 @@
 {% extends "dashboard_admin/base.html" %}
-{% block title %}Ombording Review{% endblock %}
+{% block title %}Onboarding Review{% endblock %}
 
 {% block dashboard_content %}
 <div class="bg-white shadow mt-3 rounded-2xl px-4 py-5 sm:p-6">
@@ -115,11 +115,11 @@
     {% endif %}
 
     <div class="flex flex-wrap items-center gap-3 mb-5">
-        <h1 class="text-2xl font-bold text-gray-800">🔎 Ombording Review</h1>
+        <h1 class="text-2xl font-bold text-gray-800">🔎 Onboarding Review</h1>
 
         <a href="{% url 'ombording:ombording_list' %}"
            class="bg-white border hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm shadow">
-            ← Back to Ombording List
+            ← Back to Onboarding List
         </a>
 
         <a href="{% url 'ombording:ombording_edit' obj.id %}"
