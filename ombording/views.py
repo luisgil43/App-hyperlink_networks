@@ -579,7 +579,7 @@ def ombording_create(request):
         "ombording/ombording_form.html",
         {
             "form": form,
-            "title": "New Ombording",
+            "title": "New Onboarding",
             "submit_label": "Create",
             "countries": COUNTRIES,
             "temp_uploads": temp_uploads,

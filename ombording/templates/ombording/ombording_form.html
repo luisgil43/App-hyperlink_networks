@@ -132,7 +132,7 @@
 
     <div class="section-card">
       <div class="section-title">Base PDF Documents</div>
-      <div class="section-sub">These files are attached when the ombording is created.</div>
+      <div class="section-sub">These files are attached when the onboarding is created.</div>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
         <div>
@@ -544,9 +544,12 @@
 
     <div class="flex items-center gap-3">
       <button type="submit"
-              class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full text-sm shadow">
-        {{ submit_label }}
-      </button>
+        id="btnSubmitOnboarding"
+        data-label="{{ submit_label }}"
+        data-loading-label="Creating..."
+        class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed">
+  {{ submit_label }}
+</button>
 
       <a href="{% url 'ombording:ombording_list' %}"
          class="bg-white border hover:bg-gray-50 text-gray-700 px-5 py-2 rounded-full text-sm shadow">
@@ -559,6 +562,30 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+
+  const formEl = document.querySelector('form[method="post"][enctype="multipart/form-data"]');
+  const submitBtn = document.getElementById("btnSubmitOnboarding");
+
+  if (formEl && submitBtn) {
+  formEl.addEventListener("submit", function (e) {
+    if (!formEl.checkValidity()) {
+      return;
+    }
+
+    if (submitBtn.disabled) {
+      e.preventDefault();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = submitBtn.dataset.loadingLabel || "Processing...";
+
+    formEl.querySelectorAll('button[type="submit"]').forEach(function (btn) {
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "cursor-not-allowed");
+    });
+  });
+}
 
   const dobInput = document.getElementById("id_date_of_birth");
 
