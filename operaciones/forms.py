@@ -44,16 +44,31 @@ def _normalizar_odometro(val):
 def _is_admin_or_fleet(user):
     if not user or not getattr(user, "is_authenticated", False):
         return False
+
     if getattr(user, "is_superuser", False):
         return True
+
+    try:
+        if getattr(user, "es_admin_general", False):
+            return True
+    except Exception:
+        pass
+
+    try:
+        if getattr(user, "es_flota", False):
+            return True
+    except Exception:
+        pass
+
     try:
         if (
             hasattr(user, "roles")
-            and user.roles.filter(nombre__in=["admin", "fleet"]).exists()
+            and user.roles.filter(nombre__in=["admin", "flota"]).exists()
         ):
             return True
     except Exception:
         pass
+
     return False
 
 
