@@ -1502,13 +1502,14 @@ def invoices_list(request):
     """
     Finanzas:
       - 'open': todo lo que realmente está en Finanzas
-      - 'paid': solo pagados
+      - 'paid': solo cobrados
       - 'all': todo lo de Finanzas
 
-    Además:
-      - filtros rápidos por GET
-      - filtros Excel globales vía GET['excel_filters']
-      - filtros Excel aplicados antes de paginar
+    Importante:
+      - La pertenencia a esta vista depende de finance_status,
+        NO del estado operativo del billing.
+      - Remove debe sacar persistentemente la fila de esta vista.
+      - El pago semanal del técnico NO define si aparece o no aquí.
     """
     import json
     from datetime import date as _date
@@ -1520,7 +1521,8 @@ def invoices_list(request):
     from django.utils import timezone
 
     from facturacion.models import Proyecto
-    from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
+    from operaciones.models import (BillingPayWeekSnapshot,
+                                    EvidenciaFotoBilling, ItemBilling,
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
 
@@ -1581,6 +1583,22 @@ def invoices_list(request):
                 )
             ),
         ),
+        Prefetch(
+            "pay_week_snapshots",
+            queryset=BillingPayWeekSnapshot.objects.select_related(
+                "tecnico",
+                "item",
+            )
+            .filter(is_adjustment=False)
+            .order_by(
+                "tecnico__first_name",
+                "tecnico__last_name",
+                "tecnico__username",
+                "tipo_trabajo",
+                "codigo_trabajo",
+                "id",
+            ),
+        ),
     ).order_by("-creado_en")
 
     finance_open_base = [
@@ -1593,13 +1611,15 @@ def invoices_list(request):
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
+
     elif scope == "all":
         qs = qs.exclude(
             Q(finance_status__in=["none", ""])
             | Q(finance_status__isnull=True)
             | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
         )
-    else:
+
+    else:  # open
         qs = qs.filter(
             Q(finance_status__in=finance_open_base)
             | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
@@ -1711,6 +1731,8 @@ def invoices_list(request):
             | Q(semana_pago_real__icontains=f["week"])
             | Q(semana_descuento__icontains=f["week"])
             | Q(discount_week__icontains=f["week"])
+            | Q(pay_week_snapshots__semana_resultado__icontains=f["week"])
+            | Q(pay_week_snapshots__semana_base__icontains=f["week"])
         )
 
     if f["tech"]:
@@ -1718,6 +1740,9 @@ def invoices_list(request):
             Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"])
             | Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"])
             | Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__first_name__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__last_name__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__username__icontains=f["tech"])
         )
 
     if f["client"]:
@@ -1802,7 +1827,7 @@ def invoices_list(request):
         if s.finance_status == "pending":
             return "Pending payment"
         if s.finance_status == "paid":
-            return "Paid"
+            return "Collected"
         return "—"
 
     def techs_label(s):
@@ -1820,10 +1845,182 @@ def invoices_list(request):
             for st in s.tecnicos_sesion.all():
                 txt = (getattr(st, "tecnico_comentario", "") or "").strip()
                 if txt:
-                    vals.append(txt)
+                    tech_name = st.tecnico.get_full_name() or st.tecnico.username
+                    vals.append(f"{tech_name}: {txt}")
         except Exception:
             pass
         return " | ".join(vals) if vals else "—"
+
+    def legacy_paid_flag(s):
+        """
+        En legacy el pay week es a nivel de sesión.
+        Si encontramos cualquier marcador histórico de pago semanal asociado
+        a la sesión, bloqueamos la edición por seguridad.
+        """
+        note = getattr(s, "finance_note", "") or ""
+        tech_ids = []
+
+        try:
+            tech_ids = list(
+                s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
+            )
+        except Exception:
+            tech_ids = []
+
+        possible_weeks = [
+            (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+            (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+            (getattr(s, "discount_week", "") or "").strip().upper(),
+            (getattr(s, "semana_descuento", "") or "").strip().upper(),
+        ]
+        possible_weeks = [w for w in possible_weeks if w]
+
+        for tech_id in tech_ids:
+            for wk in possible_weeks:
+                marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+                if marker in note:
+                    return True
+
+        return False
+
+    def build_payweek_groups(s):
+        groups = []
+        groups_map = {}
+
+        snaps = (
+            list(getattr(s, "pay_week_snapshots", []).all())
+            if hasattr(s, "pay_week_snapshots")
+            else []
+        )
+
+        # =========================================================
+        # NUEVO FLUJO (SNAPSHOTS) -> NO TOCAR
+        # =========================================================
+        if snaps:
+            for snap in snaps:
+                tech_name = (
+                    snap.tecnico.get_full_name().strip()
+                    if getattr(snap, "tecnico", None) and snap.tecnico.get_full_name()
+                    else getattr(snap.tecnico, "username", "")
+                    or f"User {snap.tecnico_id}"
+                )
+
+                grp = groups_map.setdefault(
+                    tech_name,
+                    {
+                        "tech_name": tech_name,
+                        "weeks_summary": "",
+                        "lines": [],
+                    },
+                )
+
+                work_type = (
+                    (snap.tipo_trabajo or "").strip()
+                    or (getattr(snap.item, "tipo_trabajo", "") or "").strip()
+                    or "Legacy"
+                )
+
+                week = (
+                    (snap.semana_resultado or "").strip()
+                    or (snap.semana_base or "").strip()
+                    or (s.semana_pago_real or "").strip()
+                    or (s.semana_descuento or "").strip()
+                    or (s.discount_week or "").strip()
+                    or (s.semana_pago_proyectada or "").strip()
+                    or "—"
+                )
+
+                is_paid_line = bool(
+                    getattr(snap, "paid_at", None) or getattr(snap, "is_paid", False)
+                )
+
+                grp["lines"].append(
+                    {
+                        "work_type": work_type,
+                        "codigo_trabajo": (snap.codigo_trabajo or "").strip(),
+                        "week": week,
+                        "is_legacy": False,
+                        "snapshot_id": snap.id,
+                        "is_paid": is_paid_line,
+                    }
+                )
+
+            groups = list(groups_map.values())
+
+            for grp in groups:
+                weeks = []
+                for line in grp["lines"]:
+                    wk = (line.get("week") or "").strip()
+                    if wk and wk not in weeks:
+                        weeks.append(wk)
+                grp["weeks_summary"] = ", ".join(weeks) if weeks else "—"
+
+            return groups
+
+        # =========================================================
+        # LEGACY -> UNA SOLA LÍNEA POR SESIÓN
+        # =========================================================
+        asignaciones = (
+            list(s.tecnicos_sesion.all()) if hasattr(s, "tecnicos_sesion") else []
+        )
+
+        base_week = (
+            (s.semana_pago_real or "").strip()
+            or (s.semana_descuento or "").strip()
+            or (s.discount_week or "").strip()
+            or (s.semana_pago_proyectada or "").strip()
+            or "—"
+        )
+
+        legacy_is_paid = legacy_paid_flag(s)
+
+        tech_names = []
+        for asig in asignaciones:
+            tech_name = (
+                asig.tecnico.get_full_name().strip()
+                if getattr(asig, "tecnico", None) and asig.tecnico.get_full_name()
+                else getattr(asig.tecnico, "username", "") or f"User {asig.tecnico_id}"
+            )
+            if tech_name and tech_name not in tech_names:
+                tech_names.append(tech_name)
+
+        tech_label = ", ".join(tech_names) if tech_names else "—"
+
+        return [
+            {
+                "tech_name": tech_label,
+                "weeks_summary": base_week,
+                "lines": [
+                    {
+                        "work_type": "Legacy",
+                        "codigo_trabajo": "",
+                        "week": base_week,
+                        "is_legacy": True,
+                        "session_id": s.id,
+                        "dom_id": f"{s.id}-legacy",
+                        "is_paid": legacy_is_paid,
+                    }
+                ],
+            }
+        ]
+
+    def payweek_snapshot_label(s):
+        groups = build_payweek_groups(s)
+        if not groups:
+            return str(getattr(s, "semana_pago_real", "") or "—")
+
+        rows = []
+        for grp in groups:
+            tech_name = grp.get("tech_name") or "—"
+            for line in grp.get("lines", []):
+                work_type = (line.get("work_type") or "").strip() or "Work type"
+                week = (line.get("week") or "").strip() or "—"
+                suffix = " [Paid]" if line.get("is_paid") else ""
+                rows.append(f"{tech_name} — {work_type} → {week}{suffix}")
+
+        return (
+            " | ".join(rows) if rows else str(getattr(s, "semana_pago_real", "") or "—")
+        )
 
     def excel_value_for_invoice(s, col):
         if col == "0":
@@ -1875,16 +2072,11 @@ def invoices_list(request):
         elif col == "16":
             return finance_status_label(s)
         elif col == "17":
-            left = str(getattr(s, "semana_pago_real", "") or "—")
-            right = str(
-                getattr(s, "semana_descuento", getattr(s, "discount_week", "")) or ""
-            )
-            return f"{left} / {right}" if right else left
+            return payweek_snapshot_label(s)
         elif col == "18":
             return comments_label(s)
         return ""
 
-    # ---------------- Filtros Excel ----------------
     excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
     try:
         excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
@@ -1907,7 +2099,6 @@ def invoices_list(request):
                 filtered_rows.append(s)
         all_rows = filtered_rows
 
-    # comentarios_tecnicos para template
     for s in all_rows:
         lst = []
         try:
@@ -1917,7 +2108,10 @@ def invoices_list(request):
                     lst.append(st)
         except Exception:
             pass
+
         s.comentarios_tecnicos = lst
+        s.payweek_groups = build_payweek_groups(s)
+        s.payweek_snapshot_label = payweek_snapshot_label(s)
 
     excel_global = {}
     for col in range(19):
@@ -1928,7 +2122,6 @@ def invoices_list(request):
 
     excel_global_json = json.dumps(excel_global)
 
-    # ---------------- Paginación ----------------
     raw_cantidad = request.GET.get("cantidad", "10")
     try:
         per_page = int(raw_cantidad)
@@ -1943,7 +2136,6 @@ def invoices_list(request):
     cantidad = str(per_page)
     pagina = Paginator(all_rows, per_page).get_page(request.GET.get("page"))
 
-    # ---------------- Mantener querystring ----------------
     keep_params = {
         "scope": scope,
         "cantidad": cantidad,
@@ -2048,37 +2240,49 @@ def invoice_update_real(request, pk):
         'finance_status': s.finance_status,
     })
 
+
 @login_required
 @rol_requerido("facturacion", "admin")
 def invoice_mark_paid(request, pk: int):
     """
-    Mark invoice as Paid.
-    - Requires real_company_billing not null
-    - If difference > 0 (we receive less than company billing), require client-side confirmation (force=1)
+    Mark invoice as Collected.
+    - Requiere real_company_billing
+    - Si hay diferencia positiva, pide confirmación
+    - Este flujo es SOLO de finanzas / cobro cliente
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
 
     s = get_object_or_404(SesionBilling, pk=pk)
     if s.real_company_billing is None:
-        return HttpResponseBadRequest("Real Company Billing is required before marking as paid.")
+        return HttpResponseBadRequest(
+            "Real Company Billing is required before marking as collected."
+        )
 
     difference = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
     force = (request.POST.get("force") or "") == "1"
 
     if difference > 0 and not force:
-        return JsonResponse({
-            "ok": False,
-            "confirm": True,
-            "message": "You are collecting less than expected. Do you still want to mark it as paid?"
-        }, status=409)
+        return JsonResponse(
+            {
+                "ok": False,
+                "confirm": True,
+                "message": "You are collecting less than expected. Do you still want to mark it as collected?",
+            },
+            status=409,
+        )
 
     with transaction.atomic():
-        s.finance_status = "paid"
-        if not s.semana_pago_real:
-            y, w, _ = timezone.localdate().isocalendar()
-            s.semana_pago_real = f"{y}-W{int(w):02d}"
-        s.save(update_fields=["finance_status", "semana_pago_real"])
+        s.finance_status = "paid"  # interno
+        if not s.finance_finish_date:
+            s.finance_finish_date = timezone.localdate()
+        s.save(
+            update_fields=[
+                "finance_status",
+                "finance_finish_date",
+                "finance_updated_at",
+            ]
+        )
 
     return JsonResponse({"ok": True})
 
@@ -2115,54 +2319,59 @@ def invoice_remove(request, pk: int):
     Saca la sesión de la cola de Finanzas (NO borra el billing).
 
     Reglas:
-    - Si es descuento directo -> vuelve a 'review_discount' (se mantiene visible en Billing).
-    - Si NO es descuento directo -> vuelve a 'none'.
-    - Si está 'paid' -> no permitir remover.
+    - Si es descuento directo -> vuelve a 'review_discount'
+    - Si NO es descuento directo -> vuelve a 'none'
+    - No toca status operativo
+    - No borra markers legacy de pago técnico
     """
-    # Trae solo lo necesario y evita invocar save() (usaremos .update)
     s = (
-        SesionBilling.objects
-        .only("id", "is_direct_discount", "finance_status")
+        SesionBilling.objects.only(
+            "id",
+            "is_direct_discount",
+            "finance_status",
+            "finance_note",
+        )
         .filter(pk=pk)
         .first()
     )
 
-    # Not found
     if not s:
         if request.headers.get("x-requested-with") == "XMLHttpRequest":
             return JsonResponse({"ok": False, "error": "Not found"}, status=404)
         messages.error(request, "Billing not found.")
-        return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
+        return redirect(
+            request.META.get("HTTP_REFERER") or reverse("facturacion:invoices")
+        )
 
-    # No se puede remover si ya está pagado
-    if s.finance_status == "paid":
-        if request.headers.get("x-requested-with") == "XMLHttpRequest":
-            return JsonResponse({"ok": False, "error": "Already paid"}, status=409)
-        messages.error(
-            request, "This billing is already paid and cannot be removed from Finance.")
-        return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
-
-    # Estado de retorno según sea descuento directo o no
     new_status = "review_discount" if s.is_direct_discount else "none"
 
-    # Actualización atómica y sin disparar save()
+    # Preservar markers técnicos legacy
+    old_note = getattr(s, "finance_note", "") or ""
+    keep_lines = []
+
+    for ln in old_note.splitlines():
+        txt = (ln or "").strip()
+        if txt.startswith("[TECH_WEEKLY_PAYMENT_PAID:") and txt.endswith("]"):
+            keep_lines.append(txt)
+
+    preserved_note = "\n".join(keep_lines).strip()
+
     SesionBilling.objects.filter(pk=s.pk).update(
         finance_status=new_status,
-        finance_note="",
+        finance_note=preserved_note,
         finance_sent_at=None,
+        finance_finish_date=None,
         finance_updated_at=timezone.now(),
     )
 
-    # Respuesta
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse({"ok": True, "id": s.pk, "finance_status": new_status})
 
     if new_status == "review_discount":
-        messages.success(
-            request, f"Direct discount #{s.pk} returned to Operations.")
+        messages.success(request, f"Direct discount #{s.pk} returned to Operations.")
     else:
-        messages.success(
-            request, f"Billing #{s.pk} removed from Finance queue.")
+        messages.success(request, f"Billing #{s.pk} removed from Finance queue.")
+
     return redirect(request.META.get("HTTP_REFERER") or reverse("facturacion:invoices"))
 
 

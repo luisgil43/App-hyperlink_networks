@@ -1,4 +1,5 @@
 {% extends "dashboard_admin/base.html" %}
+{% load widget_tweaks %}
 
 {% block title %}Preview Technician Prices{% endblock %}
 
@@ -19,7 +20,7 @@
 
   <!-- Table Preview -->
   <div class="overflow-x-auto bg-white rounded-xl shadow">
-    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1100px]" style="white-space: nowrap;">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1200px]" style="white-space: nowrap;">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
           <th class="p-2 border">City</th>
@@ -30,6 +31,7 @@
           <th class="p-2 border">Job Code</th>
           <th class="p-2 border">Description</th>
           <th class="p-2 border">UOM</th>
+          <th class="p-2 border">Payment Weeks</th>
           <th class="p-2 border">Tech Price</th>
           <th class="p-2 border">Company Price</th>
           <th class="p-2 border">Errors</th>
@@ -46,13 +48,14 @@
             <td class="p-2 border">{{ row.codigo_trabajo }}</td>
             <td class="p-2 border">{{ row.descripcion }}</td>
             <td class="p-2 border">{{ row.uom }}</td>
+            <td class="p-2 border">{{ row.payment_weeks|default:0 }}</td>
             <td class="p-2 border text-right">
               {% if row.precio_tecnico is not None %}${{ row.precio_tecnico }}{% else %}-{% endif %}
             </td>
             <td class="p-2 border text-right">
               {% if row.precio_empresa is not None %}${{ row.precio_empresa }}{% else %}-{% endif %}
             </td>
-            <td class="p-2 border">
+            <td class="p-2 border text-left">
               {% if row.error %}
                 <span class="text-red-600">{{ row.error }}</span>
               {% else %}
@@ -62,17 +65,38 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="11" class="p-4 text-center text-gray-500">No data to preview.</td>
+            <td colspan="12" class="p-4 text-center text-gray-500">No data to preview.</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
+  {% if preview_data %}
+    {% with has_row_errors=False %}
+    {% endwith %}
+  {% endif %}
+
   <!-- Buttons -->
   <div class="flex justify-end mt-6 space-x-4">
-    <a href="{% url 'operaciones:importar_precios' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded">Back</a>
-    <button type="button" onclick="openConfirmationModal()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded">Confirm Import</button>
+    <a href="{% url 'operaciones:importar_precios' %}"
+       class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded">
+      Back
+    </a>
+
+    <button
+      type="button"
+      id="open-confirm-btn"
+      onclick="openConfirmationModal()"
+      class="px-6 py-2 rounded text-white
+             {% if preview_data|length and not has_conflicts %}
+               bg-green-600 hover:bg-green-700
+             {% else %}
+               bg-green-600 hover:bg-green-700
+             {% endif %}"
+    >
+      Confirm Import
+    </button>
   </div>
 </div>
 
@@ -90,7 +114,7 @@
 
     {% if has_conflicts %}
       <div class="mb-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 text-sm">
-        Some technicians already have prices for the same City/Project/Office/Client.  
+        Some technicians already have prices for the same City/Project/Office/Client.
         You can replace those existing records if you continue.
       </div>
 
@@ -100,20 +124,27 @@
       </div>
     {% endif %}
 
+    <div id="preview-error-box" class="hidden mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">
+      You cannot continue because the preview contains errors. Please fix the file and import again.
+    </div>
+
     <div class="flex justify-end space-x-2">
       <button type="button" onclick="closeModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">Cancel</button>
-      <form method="post" action="{% url 'operaciones:confirmar_importar_precios' %}">
+
+      <form method="post" action="{% url 'operaciones:confirmar_importar_precios' %}" id="confirm-import-form">
         {% csrf_token %}
         {% if has_conflicts %}
           <input type="hidden" name="replace" id="replace-input" value="no">
         {% endif %}
-        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Continue</button>
+        <button type="submit" id="confirm-submit-btn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+          Continue
+        </button>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Error Modal boni -->
+<!-- Error Modal -->
 <div id="error-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
   <div class="mx-4 max-w-md w-full rounded-2xl border shadow-xl bg-red-50 border-red-200 text-red-800">
     <div class="p-5">
@@ -137,15 +168,23 @@
 </div>
 
 <script>
+  const previewHasErrors = {{ preview_data|safe|length|yesno:"true,false" }};
+</script>
+
+<script>
   function openConfirmationModal() {
-    // si todo el preview viene desde importar_precios, ya tenemos los técnicos y la lista renderizada
+    const hasErrors = document.querySelectorAll('tbody tr.bg-red-50').length > 0;
+    if (hasErrors) {
+      showError("You cannot continue because the preview contains errors. Please fix the file and import again.");
+      return;
+    }
     document.getElementById('confirmation-modal').classList.remove('hidden');
   }
+
   function closeModal() {
     document.getElementById('confirmation-modal').classList.add('hidden');
   }
 
-  // Conectar checkbox -> hidden input (solo si existe)
   const replaceCheck = document.getElementById('replace-check');
   if (replaceCheck) {
     replaceCheck.addEventListener('change', function () {
@@ -158,8 +197,33 @@
     document.getElementById('error-text').textContent = text;
     document.getElementById('error-modal').classList.remove('hidden');
   }
+
   function hideError() {
     document.getElementById('error-modal').classList.add('hidden');
   }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const hasErrors = document.querySelectorAll('tbody tr.bg-red-50').length > 0;
+    const openBtn = document.getElementById('open-confirm-btn');
+    const submitBtn = document.getElementById('confirm-submit-btn');
+
+    if (hasErrors && openBtn) {
+      openBtn.disabled = true;
+      openBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+      openBtn.classList.add('bg-gray-300', 'cursor-not-allowed');
+      openBtn.setAttribute('title', 'Fix preview errors before continuing');
+    }
+
+    if (hasErrors && submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+      submitBtn.classList.add('bg-gray-300', 'cursor-not-allowed');
+    }
+
+    const errorBox = document.getElementById('preview-error-box');
+    if (hasErrors && errorBox) {
+      errorBox.classList.remove('hidden');
+    }
+  });
 </script>
 {% endblock %}

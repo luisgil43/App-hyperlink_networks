@@ -21,7 +21,12 @@ class PrecioActividadTecnico(models.Model):
         db_index=True,
     )
 
-    proyecto = models.ForeignKey("facturacion.Proyecto",on_delete=models.CASCADE,related_name="precios_tecnico",db_index=True)
+    proyecto = models.ForeignKey(
+        "facturacion.Proyecto",
+        on_delete=models.CASCADE,
+        related_name="precios_tecnico",
+        db_index=True,
+    )
     ciudad = models.CharField(max_length=100)
     oficina = models.CharField(max_length=100, default="-")
     cliente = models.CharField(max_length=100, default="-")
@@ -31,14 +36,24 @@ class PrecioActividadTecnico(models.Model):
     unidad_medida = models.CharField(max_length=60)
     precio_tecnico = models.DecimalField(max_digits=10, decimal_places=2)
     precio_empresa = models.DecimalField(max_digits=10, decimal_places=2)
+
+    payment_weeks = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Number of weeks to defer payment for this technician price.",
+    )
+
     fecha_creacion = models.DateField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Precio por Actividad"
         verbose_name_plural = "Precios por Actividad"
-        # ahora la unicidad usa el FK "proyecto"
         unique_together = (
-            "tecnico", "ciudad", "proyecto", "oficina", "cliente", "codigo_trabajo"
+            "tecnico",
+            "ciudad",
+            "proyecto",
+            "oficina",
+            "cliente",
+            "codigo_trabajo",
         )
         indexes = [
             models.Index(
@@ -54,7 +69,6 @@ class PrecioActividadTecnico(models.Model):
         ]
 
     def __str__(self):
-        # Django mostrará el __str__ de Proyecto
         return f"{self.tecnico} — {self.ciudad}/{self.proyecto} · {self.codigo_trabajo}"
 
 
@@ -323,6 +337,53 @@ class SesionBilling(models.Model):
 
         return f"https://www.google.com/maps/search/?api=1&query={quote_plus(val)}"
 
+    def has_any_paid_work_type(self) -> bool:
+        """
+        Retorna True si este Billing tiene al menos una línea de pago técnico
+        ya marcada como pagada.
+
+        Cubre:
+        - payment_status = paid
+        - paid_at con fecha
+        - weekly_payment relacionado en status paid
+        """
+        qs = self.pay_week_snapshots.all()
+
+        try:
+            qs = qs.filter(is_adjustment=False)
+        except Exception:
+            pass
+
+        if qs.filter(payment_status="paid").exists():
+            return True
+
+        if qs.exclude(paid_at__isnull=True).exists():
+            return True
+
+        if qs.filter(weekly_payment__status="paid").exists():
+            return True
+
+        return False
+
+    @property
+    def is_accounting_locked(self) -> bool:
+        return self.has_any_paid_work_type()
+
+    @property
+    def can_reopen_billing(self) -> bool:
+        return (
+            self.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
+            and not self.is_accounting_locked
+        )
+
+    @property
+    def can_delete_billing(self) -> bool:
+        return not self.is_accounting_locked
+
+    @property
+    def can_edit_billing(self) -> bool:
+        return not self.is_accounting_locked
+
     def __str__(self):
         return f"Billing #{self.id} - {self.cliente} / {self.proyecto_id}"
 
@@ -378,9 +439,6 @@ class SesionBilling(models.Model):
             self.tech_payment_mode = "split"
 
         super().save(*args, **kwargs)
-
-
-# ======================= Job de Reporte Fotográfico =======================
 
 
 class ReporteFotograficoJob(models.Model):
@@ -589,23 +647,6 @@ def upload_to_evidencia(instance, filename: str) -> str:
 
     return f"operaciones/reporte_fotografico/{proj_slug}/{tech_slug}/evidencia/{safe_base}{ext}"
 
-"""
-class RequisitoFotoBilling(models.Model):
-    tecnico_sesion = models.ForeignKey(
-        SesionBillingTecnico, on_delete=models.CASCADE, related_name="requisitos")
-    titulo = models.CharField(max_length=150)
-    descripcion = models.CharField(max_length=300, blank=True)
-    obligatorio = models.BooleanField(default=True)
-    orden = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ("orden", "id")
-        indexes = [models.Index(fields=["tecnico_sesion", "orden"])]
-
-    def __str__(self):
-        return f"[{self.tecnico_sesion_id}] {self.orden}. {self.titulo}"
-"""
-
 
 class RequisitoFotoBilling(models.Model):
 
@@ -648,61 +689,6 @@ class RequisitoFotoBilling(models.Model):
     def __str__(self):
 
         return f"[{self.tecnico_sesion_id}] {self.orden}. {self.titulo}"
-
-"""
-class EvidenciaFotoBilling(models.Model):
-    tecnico_sesion = models.ForeignKey(
-        SesionBillingTecnico, on_delete=models.CASCADE, related_name="evidencias"
-    )
-    requisito = models.ForeignKey(
-        RequisitoFotoBilling,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="evidencias",
-    )
-    imagen = models.ImageField(
-        upload_to=upload_to_evidencia,
-        storage=wasabi_storage,
-        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
-        max_length=1024,
-    )
-    nota = models.CharField("Note", max_length=255, blank=True)
-    tomada_en = models.DateTimeField(default=timezone.now)
-
-    # Client metadata (optional)
-    lat = models.DecimalField(
-        "Latitude", max_digits=9, decimal_places=6, null=True, blank=True
-    )
-    lng = models.DecimalField(
-        "Longitude", max_digits=9, decimal_places=6, null=True, blank=True
-    )
-    gps_accuracy_m = models.DecimalField(
-        "GPS accuracy (m)", max_digits=7, decimal_places=2, null=True, blank=True
-    )
-    client_taken_at = models.DateTimeField(
-        "Taken at (client)", null=True, blank=True)
-
-    # NEW: For special projects (replacing default "Extra" behavior)
-    titulo_manual = models.CharField(
-        "Custom title", max_length=200, blank=True)
-    direccion_manual = models.CharField(
-        "Custom address", max_length=255, blank=True)
-
-    class Meta:
-        ordering = ("requisito__orden", "tomada_en", "id")
-        indexes = [
-            models.Index(fields=["tecnico_sesion"]),
-            models.Index(fields=["requisito"]),
-        ]
-
-    def __str__(self):
-        if self.requisito_id:
-            return f"Evidence {self.requisito.titulo} (session {self.tecnico_sesion_id})"
-        elif self.titulo_manual:
-            return f"Evidence {self.titulo_manual} (session {self.tecnico_sesion_id})"
-        return f"Evidence Extra (session {self.tecnico_sesion_id})"
-"""
 
 
 class EvidenciaFotoBilling(models.Model):
@@ -832,23 +818,35 @@ class WeeklyPayment(models.Model):
     1 registro por técnico y semana de pago.
     Monto total (sumado desde la producción), estado, motivo de rechazo,
     comprobante y semana efectiva en que se pagó.
+
+    Además:
+    - congela el monto pagado histórico
+    - congela el desglose histórico de lo pagado
+    para que el historial siga visible aunque luego cambie o se elimine
+    el billing original.
     """
+
     STATUS = [
         ("pending_user", "Pending worker approval"),
         ("approved_user", "Approved by worker"),
         ("rejected_user", "Rejected by worker"),
-        ("pending_payment", "Pending payment"),  # aprobado por el trabajador
+        ("pending_payment", "Pending payment"),
         ("paid", "Paid"),
     ]
 
     technician = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="weekly_payments"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="weekly_payments",
     )
     week = models.CharField(max_length=10, db_index=True)  # ISO: 2025-W34
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     status = models.CharField(
-        max_length=20, choices=STATUS, default="pending_user", db_index=True
+        max_length=20,
+        choices=STATUS,
+        default="pending_user",
+        db_index=True,
     )
     reject_reason = models.TextField(blank=True, default="")
 
@@ -865,11 +863,31 @@ class WeeklyPayment(models.Model):
         max_length=1024,
     )
 
+    # ===== snapshots históricos de pago =====
+    paid_amount_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Historical frozen amount when this weekly payment was marked as paid.",
+    )
+    paid_breakdown_snapshot = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Historical frozen breakdown of what was paid in this weekly payment.",
+    )
+    paid_snapshot_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the historical paid snapshot was captured.",
+    )
+    # ========================================
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # Un pago por técnico+semana
         unique_together = [("technician", "week")]
         ordering = ["-week", "technician_id"]
         indexes = [
@@ -888,13 +906,40 @@ class WeeklyPayment(models.Model):
     def mark_paid(self, paid_week: str | None = None):
         """
         Marca como pagado y setea la semana de pago efectiva.
+        Además marca como pagadas las líneas snapshot asociadas a este pago semanal.
+
+        Nota:
+        El snapshot histórico del breakdown conviene llenarlo desde la vista/servicio
+        que hace el pago, antes o junto con llamar este método.
         """
         if not paid_week:
             y, w, _ = timezone.localdate().isocalendar()
             paid_week = f"{y}-W{int(w):02d}"
+
         self.status = "paid"
         self.paid_week = paid_week
-        self.save(update_fields=["status", "paid_week", "updated_at"])
+
+        if self.paid_amount_snapshot is None:
+            self.paid_amount_snapshot = self.amount
+
+        if not self.paid_snapshot_at:
+            self.paid_snapshot_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "paid_week",
+                "paid_amount_snapshot",
+                "paid_snapshot_at",
+                "updated_at",
+            ]
+        )
+
+        self.snapshot_lines.exclude(payment_status="paid").update(
+            payment_status="paid",
+            paid_at=timezone.now(),
+            updated_at=timezone.now(),
+        )
 
 
 def upload_to_plan(instance, filename: str) -> str:
@@ -995,3 +1040,116 @@ class AdjustmentEntry(models.Model):
         if self.adjustment_type == "advance":
             return -abs(self.amount or 0)
         return abs(self.amount or 0)
+
+
+class BillingPayWeekSnapshot(models.Model):
+    PAYMENT_STATUS = [
+        ("pending", "Pending"),
+        ("queued", "Queued in weekly payment"),
+        ("paid", "Paid"),
+        ("reopened", "Reopened"),
+        ("adjustment_pending", "Adjustment pending"),
+        ("adjustment_paid", "Adjustment paid"),
+    ]
+
+    sesion = models.ForeignKey(
+        "operaciones.SesionBilling",
+        on_delete=models.CASCADE,
+        related_name="pay_week_snapshots",
+        db_index=True,
+    )
+    tecnico = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="billing_pay_week_snapshots",
+        db_index=True,
+    )
+    item = models.ForeignKey(
+        "operaciones.ItemBilling",
+        on_delete=models.CASCADE,
+        related_name="pay_week_snapshots",
+        null=True,
+        blank=True,
+    )
+
+    codigo_trabajo = models.CharField(max_length=100, blank=True, default="")
+    tipo_trabajo = models.CharField(max_length=120, blank=True, default="")
+    payment_weeks = models.PositiveSmallIntegerField(default=0)
+
+    semana_base = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+        help_text="Projected/base week captured at snapshot time.",
+    )
+    semana_resultado = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+        help_text="Final real pay week for this technician/work type line.",
+    )
+
+    tarifa_base = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    porcentaje = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    tarifa_efectiva = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    subtotal = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+
+    # ✅ nuevo: control fino por línea
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS,
+        default="pending",
+        db_index=True,
+    )
+    weekly_payment = models.ForeignKey(
+        "operaciones.WeeklyPayment",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="snapshot_lines",
+    )
+    is_adjustment = models.BooleanField(default=False, db_index=True)
+    adjustment_of = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="adjustment_children",
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("sesion_id", "tecnico_id", "id")
+        indexes = [
+            models.Index(fields=["sesion", "tecnico"]),
+            models.Index(fields=["sesion", "semana_resultado"]),
+            models.Index(fields=["tecnico", "semana_resultado"]),
+            models.Index(fields=["tecnico", "payment_status"]),
+            models.Index(fields=["weekly_payment", "payment_status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"Billing {self.sesion_id} / "
+            f"Tech {self.tecnico_id} / "
+            f"{self.tipo_trabajo} -> {self.semana_resultado}"
+        )

@@ -9,15 +9,32 @@
 
   <form method="post">
     {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {% for err in form.non_field_errors %}
+          <p>{{ err }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
     {% for field in form %}
       <div class="mb-4">
         <label class="block text-gray-700 font-medium mb-1">{{ field.label }}</label>
         {{ field|add_class:"w-full border px-3 py-2 rounded-lg" }}
+
+        {% if field.help_text %}
+          <p class="text-gray-500 text-sm mt-1">{{ field.help_text }}</p>
+        {% endif %}
+
         {% if field.errors %}
-          <p class="text-red-500 text-sm">{{ field.errors.0 }}</p>
+          {% for err in field.errors %}
+            <p class="text-red-500 text-sm mt-1">{{ err }}</p>
+          {% endfor %}
         {% endif %}
       </div>
     {% endfor %}
+
     <div class="flex justify-end gap-2">
       <a href="{% url 'operaciones:listar_precios_tecnico' %}" class="px-4 py-2 bg-gray-300 rounded">Cancel</a>
       <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>

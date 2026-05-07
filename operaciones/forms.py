@@ -639,80 +639,208 @@ class ImportarPreciosForm(forms.Form):
         return tecnicos
 
 
+from django import forms
+from django.core.exceptions import ValidationError
+
+from .models import PrecioActividadTecnico
+
+
 class PrecioActividadTecnicoForm(forms.ModelForm):
-    """Formulario para crear o editar precios por técnico con todos los campos requeridos."""
+    """
+    Formulario para crear o editar precios por técnico.
+    Regla:
+    Para un mismo:
+      Technician + City + Project + Office + Client + Work Type
+    debe existir un único payment_weeks.
+    """
 
     class Meta:
         model = PrecioActividadTecnico
         fields = [
-            'tecnico',
-            'ciudad',
-            'proyecto',
-            'oficina',
-            'cliente',
-            'tipo_trabajo',
-            'codigo_trabajo',
-            'descripcion',
-            'unidad_medida',
-            'precio_tecnico',
-            'precio_empresa',
+            "tecnico",
+            "ciudad",
+            "proyecto",
+            "oficina",
+            "cliente",
+            "tipo_trabajo",
+            "codigo_trabajo",
+            "descripcion",
+            "unidad_medida",
+            "payment_weeks",
+            "precio_tecnico",
+            "precio_empresa",
         ]
         labels = {
-            'tecnico': "Technician",
-            'ciudad': "City",
-            'proyecto': "Project",
-            'oficina': "Office",
-            'cliente': "Client",
-            'tipo_trabajo': "Work Type",
-            'codigo_trabajo': "Job Code",
-            'descripcion': "Description",
-            'unidad_medida': "UOM",
-            'precio_tecnico': "Tech Price (USD)",
-            'precio_empresa': "Company Price (USD)",
+            "tecnico": "Technician",
+            "ciudad": "City",
+            "proyecto": "Project",
+            "oficina": "Office",
+            "cliente": "Client",
+            "tipo_trabajo": "Work Type",
+            "codigo_trabajo": "Job Code",
+            "descripcion": "Description",
+            "unidad_medida": "UOM",
+            "payment_weeks": "Payment Weeks",
+            "precio_tecnico": "Tech Price (USD)",
+            "precio_empresa": "Company Price (USD)",
         }
         widgets = {
-            'tecnico': forms.Select(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'ciudad': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'proyecto': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'oficina': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'cliente': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'tipo_trabajo': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'codigo_trabajo': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'descripcion': forms.Textarea(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'rows': 3}),
-            'unidad_medida': forms.TextInput(attrs={'class': 'w-full border rounded-xl px-3 py-2'}),
-            'precio_tecnico': forms.NumberInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'step': '0.01'}),
-            'precio_empresa': forms.NumberInput(attrs={'class': 'w-full border rounded-xl px-3 py-2', 'step': '0.01'}),
+            "tecnico": forms.Select(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "ciudad": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "proyecto": forms.Select(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "oficina": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "cliente": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "tipo_trabajo": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "codigo_trabajo": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "descripcion": forms.Textarea(
+                attrs={"class": "w-full border rounded-xl px-3 py-2", "rows": 3}
+            ),
+            "unidad_medida": forms.TextInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2"}
+            ),
+            "payment_weeks": forms.NumberInput(
+                attrs={
+                    "class": "w-full border rounded-xl px-3 py-2",
+                    "min": "0",
+                    "step": "1",
+                }
+            ),
+            "precio_tecnico": forms.NumberInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2", "step": "0.01"}
+            ),
+            "precio_empresa": forms.NumberInput(
+                attrs={"class": "w-full border rounded-xl px-3 py-2", "step": "0.01"}
+            ),
         }
 
     def clean_precio_tecnico(self):
-        precio = self.cleaned_data.get('precio_tecnico')
+        precio = self.cleaned_data.get("precio_tecnico")
+        if precio is None:
+            return precio
         if precio < 0:
             raise ValidationError("Technician price cannot be negative.")
         return precio
 
     def clean_precio_empresa(self):
-        precio = self.cleaned_data.get('precio_empresa')
+        precio = self.cleaned_data.get("precio_empresa")
+        if precio is None:
+            return precio
         if precio < 0:
             raise ValidationError("Company price cannot be negative.")
         return precio
 
+    def clean_payment_weeks(self):
+        value = self.cleaned_data.get("payment_weeks")
+        if value in (None, ""):
+            return 0
+        if value < 0:
+            raise ValidationError("Payment Weeks cannot be negative.")
+        return int(value)
+
     def clean_codigo_trabajo(self):
-        codigo_trabajo = self.cleaned_data.get('codigo_trabajo')
+        codigo_trabajo = (self.cleaned_data.get("codigo_trabajo") or "").strip()
         if not codigo_trabajo:
             raise ValidationError("Job code cannot be empty.")
         return codigo_trabajo
 
     def clean_ciudad(self):
-        ciudad = self.cleaned_data.get('ciudad')
+        ciudad = (self.cleaned_data.get("ciudad") or "").strip()
         if not ciudad:
             raise ValidationError("City cannot be empty.")
         return ciudad
 
     def clean_proyecto(self):
-        proyecto = self.cleaned_data.get('proyecto')
+        proyecto = self.cleaned_data.get("proyecto")
         if not proyecto:
             raise ValidationError("Project cannot be empty.")
         return proyecto
+
+    def clean_oficina(self):
+        return (self.cleaned_data.get("oficina") or "").strip()
+
+    def clean_cliente(self):
+        return (self.cleaned_data.get("cliente") or "").strip()
+
+    def clean_tipo_trabajo(self):
+        tipo_trabajo = (self.cleaned_data.get("tipo_trabajo") or "").strip()
+        if not tipo_trabajo:
+            raise ValidationError("Work Type cannot be empty.")
+        return tipo_trabajo
+
+    def clean(self):
+        cleaned = super().clean()
+
+        tecnico = cleaned.get("tecnico")
+        ciudad = (cleaned.get("ciudad") or "").strip()
+        proyecto = cleaned.get("proyecto")
+        oficina = (cleaned.get("oficina") or "").strip()
+        cliente = (cleaned.get("cliente") or "").strip()
+        tipo_trabajo = (cleaned.get("tipo_trabajo") or "").strip()
+        payment_weeks = cleaned.get("payment_weeks")
+
+        # Si ya hay errores base, no seguir metiendo ruido
+        if self.errors:
+            return cleaned
+
+        # Validaciones mínimas
+        if not tecnico:
+            self.add_error("tecnico", "Technician is required.")
+        if not ciudad:
+            self.add_error("ciudad", "City cannot be empty.")
+        if not proyecto:
+            self.add_error("proyecto", "Project is required.")
+        if not cliente:
+            self.add_error("cliente", "Client cannot be empty.")
+        if not tipo_trabajo:
+            self.add_error("tipo_trabajo", "Work Type cannot be empty.")
+
+        if self.errors:
+            return cleaned
+
+        if payment_weeks is None:
+            payment_weeks = 0
+
+        qs = PrecioActividadTecnico.objects.filter(
+            tecnico=tecnico,
+            ciudad=ciudad,
+            proyecto=proyecto,
+            oficina=oficina,
+            cliente=cliente,
+            tipo_trabajo=tipo_trabajo,
+        )
+
+        if self.instance and self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        existing_weeks = set(
+            int(x or 0) for x in qs.values_list("payment_weeks", flat=True).distinct()
+        )
+
+        if existing_weeks and existing_weeks != {int(payment_weeks)}:
+            existing_list = ", ".join(str(x) for x in sorted(existing_weeks))
+            msg = (
+                "Payment Weeks must be the same for this combination of "
+                "Technician / City / Project / Office / Client / Work Type. "
+                f"Existing value(s): {existing_list}. Attempted value: {payment_weeks}."
+            )
+
+            self.add_error("payment_weeks", msg)
+
+        return cleaned
 
 
 class PaymentApproveForm(forms.ModelForm):

@@ -91,9 +91,9 @@ from .forms import (ImportarPreciosForm, PaymentApproveForm,  # <-- TUS FORMS
                     PaymentMarkPaidForm, PaymentRejectForm)
 from .models import PrecioActividadTecnico  # <-- TU MODELO DE PRECIOS
 from .models import SesionBilling  # ajusta a tu ruta real
-from .models import (AdjustmentEntry, EvidenciaFotoBilling, ItemBilling,
-                     ItemBillingTecnico, RequisitoFotoBilling,
-                     SesionBillingTecnico, WeeklyPayment)
+from .models import (AdjustmentEntry, BillingPayWeekSnapshot,
+                     EvidenciaFotoBilling, ItemBilling, ItemBillingTecnico,
+                     RequisitoFotoBilling, SesionBillingTecnico, WeeklyPayment)
 from .services.weekly import \
     materialize_week_for_payments  # crea/actualiza solo la semana indicada
 from .services.weekly import \
@@ -104,10 +104,17 @@ try:
 except Exception:
     AdjustmentEntry = None
 
+from collections import OrderedDict
+from datetime import date, timedelta
+from decimal import Decimal
+
+from django.db import transaction
+from django.db.models import Q
 from django.views.decorators.http import require_GET, require_POST
 
 # 👇 nuevo
 from facturacion.models import Proyecto  # ajusta el app si está en otro lado
+from operaciones.models import BillingPayWeekSnapshot, PrecioActividadTecnico
 
 # type: ignore
 
@@ -120,6 +127,1715 @@ RECEIPT_MAX_MB = int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25))
 RECEIPTS_SAFE_PREFIX = getattr(
     settings, "DIRECT_UPLOADS_RECEIPTS_PREFIX", "operaciones/rendiciones/"
 )
+
+def _serialize_decimal_for_json(value) -> str:
+    try:
+        if isinstance(value, Decimal):
+            return format(value.quantize(Decimal("0.01")), "f")
+        return format(Decimal(str(value or 0)).quantize(Decimal("0.01")), "f")
+    except Exception:
+        return "0.00"
+
+def _visible_tech_ids_for_user(user):
+    """
+    Devuelve:
+      - None  => sin restricción, ve a todos los técnicos
+      - set() => IDs de técnicos visibles para el usuario
+
+    Reglas:
+      - superuser / admin general: todos
+      - facturación pura: todos
+      - PM / supervisor: técnicos que comparten proyecto con él + él mismo
+      - otros: solo él mismo
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return set()
+
+    # Siempre puede verse a sí mismo
+    ids = {user.id}
+
+    # Admin real ve todo
+    if getattr(user, "is_superuser", False) or getattr(user, "es_admin_general", False):
+        return None
+
+    tiene_rol = getattr(user, "tiene_rol", None)
+
+    def has_role(role_name):
+        if callable(tiene_rol):
+            try:
+                return bool(tiene_rol(role_name))
+            except Exception:
+                return False
+        return bool(getattr(user, f"es_{role_name}", False))
+
+    is_pm = has_role("pm") or getattr(user, "es_pm", False)
+    is_supervisor = has_role("supervisor") or getattr(user, "es_supervisor", False)
+    is_facturacion = has_role("facturacion") or getattr(user, "es_facturacion", False)
+
+    # Facturación pura ve todo
+    if is_facturacion and not (is_pm or is_supervisor):
+        return None
+
+    # Si no es PM ni supervisor, solo se ve a sí mismo
+    if not (is_pm or is_supervisor):
+        return ids
+
+    # PM / supervisor: técnicos que comparten proyectos asignados
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        return ids
+
+    my_project_ids = list(
+        ProyectoAsignacion.objects.filter(usuario=user)
+        .values_list("proyecto_id", flat=True)
+        .distinct()
+    )
+
+    if not my_project_ids:
+        return ids
+
+    shared_user_ids = (
+        ProyectoAsignacion.objects.filter(proyecto_id__in=my_project_ids)
+        .values_list("usuario_id", flat=True)
+        .distinct()
+    )
+
+    ids.update(shared_user_ids)
+    return ids
+
+def _deserialize_decimal_from_json(value) -> Decimal:
+    try:
+        return Decimal(str(value or "0")).quantize(Decimal("0.01"))
+    except Exception:
+        return Decimal("0.00")
+
+
+def _build_paid_breakdown_snapshot_for_weekly_payment(wp) -> dict:
+    """
+    Congela el desglose del pago semanal al momento de marcarlo como PAID.
+
+    Guarda:
+      {
+        "week": "2026-W19",
+        "technician_id": 123,
+        "technician_name": "Luis...",
+        "lines": [
+          {"project_label": "NB1234", "subtotal": "200.00", "source": "snapshot"},
+          {"project_label": "Direct discount", "subtotal": "-10.00", "source": "legacy"},
+          {"project_label": "Bonus", "subtotal": "50.00", "source": "adjustment"},
+        ],
+        "total": "240.00",
+      }
+
+    IMPORTANTE:
+    - No depende de permisos ni visibilidad del usuario.
+    - Debe servir aunque luego borren o modifiquen billings.
+    """
+    week = (getattr(wp, "week", "") or "").strip().upper()
+    technician_id = getattr(wp, "technician_id", None)
+
+    tech_name = ""
+    try:
+        tech = getattr(wp, "technician", None)
+        if tech:
+            tech_name = (tech.get_full_name() or tech.username or "").strip()
+    except Exception:
+        tech_name = ""
+
+    if not week or not technician_id:
+        return {
+            "week": week,
+            "technician_id": technician_id,
+            "technician_name": tech_name,
+            "lines": [],
+            "total": "0.00",
+        }
+
+    lines = []
+    total = Decimal("0.00")
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    # ==========================================================
+    # 1) SNAPSHOTS productivos
+    # ==========================================================
+    snap_qs = snapshot_model.objects.filter(
+        tecnico_id=technician_id,
+        semana_resultado=week,
+        sesion__isnull=False,
+    )
+
+    if has_is_adjustment:
+        snap_qs = snap_qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        snap_qs = snap_qs.filter(adjustment_of__isnull=True)
+
+    snap_qs = snap_qs.filter(
+        Q(sesion__estado__in={"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"})
+        | Q(sesion__is_direct_discount=True)
+        | Q(subtotal__lt=0)
+    )
+
+    det_prod = (
+        snap_qs.values(
+            "sesion__proyecto_id",
+            "sesion__is_direct_discount",
+        )
+        .annotate(
+            subtotal=Coalesce(
+                Sum("subtotal"),
+                Value(Decimal("0.00"), output_field=DecimalField(max_digits=18, decimal_places=2)),
+            )
+        )
+        .order_by("sesion__proyecto_id")
+    )
+
+    for row in det_prod:
+        subtotal = row["subtotal"] or Decimal("0.00")
+        project_label = (
+            "Direct discount"
+            if row["sesion__is_direct_discount"]
+            else (row["sesion__proyecto_id"] or "—")
+        )
+
+        lines.append(
+            {
+                "project_label": str(project_label),
+                "subtotal": _serialize_decimal_for_json(subtotal),
+                "source": "snapshot",
+            }
+        )
+        total += subtotal
+
+    # ==========================================================
+    # 2) LEGACY sin snapshots productivos
+    # ==========================================================
+    legacy = _legacy_weekly_payment_details(
+        tech_ids=[technician_id],
+        weeks=[week],
+        allowed_project_keys=None,
+        can_view_all_projects=True,
+    )
+
+    for row in legacy.get((technician_id, week), []):
+        subtotal = row.get("subtotal") or Decimal("0.00")
+        lines.append(
+            {
+                "project_label": str(row.get("project_label") or "—"),
+                "subtotal": _serialize_decimal_for_json(subtotal),
+                "source": "legacy",
+            }
+        )
+        total += subtotal
+
+    # ==========================================================
+    # 3) AJUSTES
+    # ==========================================================
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    if AdjustmentEntry is not None:
+        ADJ_LABEL = {
+            "fixed_salary": "Fixed salary",
+            "bonus": "Bonus",
+            "advance": "Advance",
+        }
+
+        adj_rows = (
+            AdjustmentEntry.objects.filter(
+                technician_id=technician_id,
+                week=week,
+            )
+            .values("adjustment_type")
+            .annotate(
+                total=Coalesce(
+                    Sum("amount"),
+                    Value(Decimal("0.00"), output_field=DecimalField(max_digits=18, decimal_places=2)),
+                )
+            )
+            .order_by("adjustment_type")
+        )
+
+        for row in adj_rows:
+            subtotal = row["total"] or Decimal("0.00")
+            label = ADJ_LABEL.get(row["adjustment_type"], row["adjustment_type"] or "Adjustment")
+
+            lines.append(
+                {
+                    "project_label": str(label),
+                    "subtotal": _serialize_decimal_for_json(subtotal),
+                    "source": "adjustment",
+                }
+            )
+            total += subtotal
+
+    return {
+        "week": week,
+        "technician_id": technician_id,
+        "technician_name": tech_name,
+        "lines": lines,
+        "total": _serialize_decimal_for_json(total),
+    }
+
+def _snapshot_is_paid(snap) -> bool:
+    """
+    Determina si un snapshot ya quedó pagado.
+    Compatible con varios estados/campos históricos.
+    """
+    try:
+        if bool(getattr(snap, "is_paid", False)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        if getattr(snap, "paid_at", None):
+            return True
+    except Exception:
+        pass
+
+    try:
+        if (getattr(snap, "payment_status", "") or "").strip().lower() == "paid":
+            return True
+    except Exception:
+        pass
+
+    try:
+        wp = getattr(snap, "weekly_payment", None)
+        if wp and (getattr(wp, "status", "") or "").strip().lower() == "paid":
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _session_has_productive_snapshots(sesion) -> bool:
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    qs = snapshot_model.objects.filter(sesion=sesion)
+
+    if has_is_adjustment:
+        qs = qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        qs = qs.filter(adjustment_of__isnull=True)
+
+    return qs.exists()
+
+
+def _item_is_paid_locked(item) -> bool:
+    """
+    Un item queda bloqueado si:
+    - tiene snapshots productivos marcados como paid, o
+    - es una sesión legacy sin snapshots productivos pero la sesión ya está pagada.
+    """
+    sesion = getattr(item, "sesion", None)
+    if not sesion:
+        return False
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    qs = snapshot_model.objects.filter(item=item, sesion=sesion)
+
+    if has_is_adjustment:
+        qs = qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        qs = qs.filter(adjustment_of__isnull=True)
+
+    snaps = list(qs.select_related("weekly_payment"))
+    if snaps:
+        return any(_snapshot_is_paid(snap) for snap in snaps)
+
+    # fallback legacy: si no hay snapshots productivos en la sesión y la sesión está pagada,
+    # se considera bloqueado el item completo.
+    if not _session_has_productive_snapshots(sesion) and _session_is_paid_locked(
+        sesion
+    ):
+        return True
+
+    return False
+
+
+def _normalize_qty_for_lock_compare(value) -> Decimal:
+    try:
+        return Decimal(str(value or "0")).quantize(Decimal("0.01"))
+    except Exception:
+        return Decimal("0.00")
+
+
+def _validate_paid_locked_existing_items(sesion, filas) -> str | None:
+    """
+    Regla:
+    - Los items ya pagados no pueden:
+        * desaparecer
+        * cambiar cantidad
+        * duplicarse con el mismo código
+    - Solo se pueden agregar códigos NUEVOS.
+    """
+    existing_items = list(
+        sesion.items.all().only("id", "codigo_trabajo", "cantidad", "sesion_id")
+    )
+
+    locked_items = [it for it in existing_items if _item_is_paid_locked(it)]
+    if not locked_items:
+        return None
+
+    locked_map = {}
+    for it in locked_items:
+        code = (getattr(it, "codigo_trabajo", "") or "").strip()
+        qty = _normalize_qty_for_lock_compare(getattr(it, "cantidad", 0))
+        locked_map.setdefault(code, []).append(qty)
+
+    posted_map = {}
+    for fila in filas:
+        code = (fila.get("codigo") or "").strip()
+        qty = _normalize_qty_for_lock_compare(fila.get("cantidad"))
+        posted_map.setdefault(code, []).append(qty)
+
+    for code in locked_map:
+        locked_map[code] = sorted(locked_map[code])
+    for code in posted_map:
+        posted_map[code] = sorted(posted_map[code])
+
+    for code, locked_qtys in locked_map.items():
+        posted_qtys = posted_map.get(code)
+        if not posted_qtys:
+            return (
+                f"The code '{code}' is already paid and cannot be removed. "
+                f"Use Unpay first if you need to change it."
+            )
+
+        if posted_qtys != locked_qtys:
+            return (
+                f"The code '{code}' is already paid and its quantity cannot be changed. "
+                f"Use Unpay first if you need to modify it."
+            )
+
+    return None
+
+
+def _unmark_billings_paid_for_weekly_payment(wp):
+    """
+
+    Revierte SOLO las marcas de pago técnico (pay week).
+
+    NO toca finance_status ni notas visibles de finanzas.
+
+    """
+
+    week = (getattr(wp, "week", "") or "").strip().upper()
+
+    technician_id = getattr(wp, "technician_id", None)
+
+    if not week or not technician_id:
+
+        return
+
+    snapshot_qs = BillingPayWeekSnapshot.objects.filter(
+        tecnico_id=technician_id,
+        semana_resultado=week,
+    )
+
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+
+    if "is_adjustment" in snapshot_field_names:
+
+        snapshot_qs = snapshot_qs.filter(is_adjustment=False)
+
+    elif "adjustment_of" in snapshot_field_names:
+
+        snapshot_qs = snapshot_qs.filter(adjustment_of__isnull=True)
+
+    # 1) flujo nuevo: snapshots
+
+    for snap in snapshot_qs:
+
+        changed = []
+
+        if hasattr(snap, "is_paid") and getattr(snap, "is_paid", False):
+
+            snap.is_paid = False
+
+            changed.append("is_paid")
+
+        if hasattr(snap, "paid_at") and getattr(snap, "paid_at", None):
+
+            snap.paid_at = None
+
+            changed.append("paid_at")
+
+        if changed:
+
+            snap.save(update_fields=changed)
+
+    # 2) fallback legacy
+
+    marker = f"[TECH_WEEKLY_PAYMENT_PAID:{technician_id}:{week}]"
+
+    legacy_sessions = SesionBilling.objects.filter(
+        tecnicos_sesion__tecnico_id=technician_id
+    ).distinct()
+
+    for s in legacy_sessions:
+
+        note = (getattr(s, "finance_note", "") or "").strip()
+
+        if not note or marker not in note:
+
+            continue
+
+        lines = [ln for ln in note.splitlines() if ln.strip() and ln.strip() != marker]
+
+        s.finance_note = "\n".join(lines).strip()
+
+        s.save(update_fields=["finance_note", "finance_updated_at"])
+
+
+def _mark_billings_paid_for_weekly_payment(wp):
+    """
+    Marca como pagados los snapshots / legacy vinculados al WeeklyPayment,
+    SOLO para producción válida.
+
+    Regla:
+    - Billing normal: solo si estado está aprobado por supervisor/PM/finanzas.
+    - Direct discount: sí puede marcarse.
+    - Nunca marca snapshots de billings en asignado, en proceso,
+      finalizado, en revisión supervisor, rechazado, etc.
+    """
+
+    from django.utils import timezone
+
+    ESTADOS_OK_SYNC = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    week = (getattr(wp, "week", "") or "").strip().upper()
+    technician_id = getattr(wp, "technician_id", None)
+
+    if not week or not technician_id:
+        return
+
+    now = timezone.now()
+
+    snapshot_qs = BillingPayWeekSnapshot.objects.filter(
+        tecnico_id=technician_id,
+        semana_resultado=week,
+        sesion__isnull=False,
+    )
+
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+
+    if "is_adjustment" in snapshot_field_names:
+        snapshot_qs = snapshot_qs.filter(is_adjustment=False)
+    elif "adjustment_of" in snapshot_field_names:
+        snapshot_qs = snapshot_qs.filter(adjustment_of__isnull=True)
+
+    # ✅ FIX CLAVE:
+    # Solo marcar como paid snapshots de billings aprobados o direct discount.
+    snapshot_qs = snapshot_qs.filter(
+        Q(sesion__estado__in=ESTADOS_OK_SYNC)
+        | Q(sesion__is_direct_discount=True)
+    )
+
+    # 1) flujo nuevo: snapshots
+    for snap in snapshot_qs.select_related("sesion"):
+        changed = []
+
+        if hasattr(snap, "is_paid") and not getattr(snap, "is_paid", False):
+            snap.is_paid = True
+            changed.append("is_paid")
+
+        if hasattr(snap, "paid_at") and not getattr(snap, "paid_at", None):
+            snap.paid_at = now
+            changed.append("paid_at")
+
+        if hasattr(snap, "payment_status"):
+            if (getattr(snap, "payment_status", "") or "").strip().lower() != "paid":
+                snap.payment_status = "paid"
+                changed.append("payment_status")
+
+        if changed:
+            snap.save(update_fields=changed)
+
+    # 2) fallback legacy: sesiones sin snapshots productivos
+    legacy_sessions = (
+        SesionBilling.objects
+        .filter(
+            tecnicos_sesion__tecnico_id=technician_id,
+        )
+        .filter(
+            Q(estado__in=ESTADOS_OK_SYNC)
+            | Q(is_direct_discount=True)
+        )
+        .distinct()
+    )
+
+    for s in legacy_sessions:
+        has_productive_snapshot = BillingPayWeekSnapshot.objects.filter(
+            sesion=s,
+            tecnico_id=technician_id,
+            semana_resultado=week,
+        ).exists()
+
+        if has_productive_snapshot:
+            continue
+
+        session_week = (
+            (getattr(s, "semana_pago_real", "") or "").strip().upper()
+            or (getattr(s, "semana_pago_proyectada", "") or "").strip().upper()
+        )
+
+        if session_week != week:
+            continue
+
+        note = (getattr(s, "finance_note", "") or "").strip()
+        marker = f"[TECH_WEEKLY_PAYMENT_PAID:{technician_id}:{week}]"
+
+        if marker not in note:
+            s.finance_note = f"{note}\n{marker}".strip() if note else marker
+            s.save(update_fields=["finance_note", "finance_updated_at"])
+
+
+def _legacy_weekly_payment_details(
+    *,
+    tech_ids,
+    weeks=None,
+    allowed_project_keys=None,
+    can_view_all_projects=False,
+):
+    """
+    Devuelve detalle legacy por (technician_id, week) para sesiones antiguas que:
+    - están aprobadas o son direct discount
+    - tienen semana_pago_real
+    - NO tienen snapshots productivos
+
+    Salida:
+      {
+        (tecnico_id, "2026-W19"): [
+            {
+                "project_label": "NB3231",
+                "project_lookup_text": "Underground",
+                "project_lookup_id": "NB3231",
+                "subtotal": Decimal("200.00"),
+            },
+            ...
+        ],
+        ...
+      }
+
+    Reglas:
+    - Si la sesión es direct discount -> label = "Direct discount"
+    - Si no -> label = sesion.proyecto_id
+    - project_lookup_text usa sesion.proyecto (el nombre real guardado en la sesión)
+    - project_lookup_id usa sesion.proyecto_id
+    - Si no hay desglose_tecnico, hace fallback por porcentaje de la sesión
+    """
+    from collections import defaultdict
+
+    ESTADOS_OK_SYNC = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    snapshot_fields = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    tech_ids = {int(t) for t in (tech_ids or []) if str(t).isdigit()}
+    if not tech_ids:
+        return {}
+
+    base_qs = (
+        SesionBilling.objects
+        .filter(Q(estado__in=ESTADOS_OK_SYNC) | Q(is_direct_discount=True))
+        .exclude(semana_pago_real__isnull=True)
+        .exclude(semana_pago_real__exact="")
+        .prefetch_related(
+            "items__desglose_tecnico",
+            "tecnicos_sesion",
+            "pay_week_snapshots",
+        )
+    )
+
+    if weeks:
+        weeks = {str(w).strip().upper() for w in weeks if str(w).strip()}
+        if weeks:
+            base_qs = base_qs.filter(semana_pago_real__in=weeks)
+
+    if not can_view_all_projects:
+        allowed_project_keys = {
+            str(x).strip() for x in (allowed_project_keys or set()) if str(x).strip()
+        }
+        if not allowed_project_keys:
+            return {}
+        base_qs = base_qs.filter(proyecto__in=allowed_project_keys)
+
+    details = defaultdict(list)
+
+    for sesion in base_qs:
+        snaps_qs = sesion.pay_week_snapshots.all()
+
+        productive_exists = False
+        for snap in snaps_qs:
+            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+                continue
+            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+                continue
+            productive_exists = True
+            break
+
+        # Si ya tiene snapshots productivos, NO entra como legacy
+        if productive_exists:
+            continue
+
+        week_real = (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
+        if not week_real:
+            continue
+
+        project_label = (
+            "Direct discount"
+            if getattr(sesion, "is_direct_discount", False)
+            else (str(getattr(sesion, "proyecto_id", "") or "—").strip() or "—")
+        )
+
+        project_lookup_text = (str(getattr(sesion, "proyecto", "") or "").strip() or "")
+        project_lookup_id = (str(getattr(sesion, "proyecto_id", "") or "").strip() or "")
+
+        tech_totals = {}
+
+        # 1) Intentar por desglose real
+        try:
+            for item in sesion.items.all():
+                for bd in item.desglose_tecnico.all():
+                    tid = getattr(bd, "tecnico_id", None)
+                    if not tid or int(tid) not in tech_ids:
+                        continue
+
+                    subtotal = getattr(bd, "subtotal", None)
+                    try:
+                        subtotal = (
+                            subtotal
+                            if isinstance(subtotal, Decimal)
+                            else Decimal(str(subtotal or 0))
+                        )
+                    except Exception:
+                        subtotal = Decimal("0.00")
+
+                    tech_totals[int(tid)] = tech_totals.get(int(tid), Decimal("0.00")) + subtotal
+        except Exception:
+            tech_totals = {}
+
+        # 2) Fallback por porcentaje
+        if not tech_totals:
+            try:
+                subtotal_tecnico = getattr(sesion, "subtotal_tecnico", None)
+                subtotal_tecnico = (
+                    subtotal_tecnico
+                    if isinstance(subtotal_tecnico, Decimal)
+                    else Decimal(str(subtotal_tecnico or 0))
+                )
+            except Exception:
+                subtotal_tecnico = Decimal("0.00")
+
+            try:
+                asignaciones = list(sesion.tecnicos_sesion.all())
+            except Exception:
+                asignaciones = []
+
+            for asig in asignaciones:
+                tid = getattr(asig, "tecnico_id", None)
+                if not tid or int(tid) not in tech_ids:
+                    continue
+
+                try:
+                    pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
+                except Exception:
+                    pct = Decimal("0.00")
+
+                tech_totals[int(tid)] = (subtotal_tecnico * (pct / Decimal("100"))).quantize(
+                    Decimal("0.01")
+                )
+
+        for tid, amount in tech_totals.items():
+            if amount == 0:
+                continue
+
+            details[(tid, week_real)].append(
+                {
+                    "project_label": project_label,
+                    "project_lookup_text": project_lookup_text,
+                    "project_lookup_id": project_lookup_id,
+                    "subtotal": amount,
+                }
+            )
+
+    return dict(details)
+
+def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
+    """
+    Retorna totales legacy por (technician_id, week) para sesiones antiguas que:
+    - sí tienen semana_pago_real
+    - están aprobadas o son direct discount
+    - NO tienen snapshots productivos
+
+    Salida:
+      {
+        (tecnico_id, "2026-W21"): Decimal("47.25"),
+        ...
+      }
+    """
+    from collections import defaultdict
+
+    ESTADOS_OK_SYNC = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    snapshot_fields = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    base_qs = SesionBilling.objects.filter(
+        Q(estado__in=ESTADOS_OK_SYNC) | Q(is_direct_discount=True)
+    ).exclude(semana_pago_real__isnull=True).exclude(semana_pago_real__exact="")
+
+    if week:
+        base_qs = base_qs.filter(semana_pago_real=week)
+
+    base_qs = base_qs.prefetch_related(
+        "items__desglose_tecnico",
+        "tecnicos_sesion",
+        "pay_week_snapshots",
+    )
+
+    totals = defaultdict(lambda: Decimal("0.00"))
+
+    for sesion in base_qs:
+        snaps_qs = sesion.pay_week_snapshots.all()
+
+        productive_exists = False
+        for snap in snaps_qs:
+            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+                continue
+            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+                continue
+            productive_exists = True
+            break
+
+        # si ya tiene snapshots productivos, ya entra por el flujo nuevo
+        if productive_exists:
+            continue
+
+        week_real = (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
+        if not week_real:
+            continue
+
+        # 1) Intentar usar el desglose real por item/técnico
+        tech_totals = {}
+        try:
+            for item in sesion.items.all():
+                for bd in item.desglose_tecnico.all():
+                    tid = getattr(bd, "tecnico_id", None)
+                    if not tid:
+                        continue
+
+                    subtotal = getattr(bd, "subtotal", None)
+                    try:
+                        subtotal = (
+                            subtotal
+                            if isinstance(subtotal, Decimal)
+                            else Decimal(str(subtotal or 0))
+                        )
+                    except Exception:
+                        subtotal = Decimal("0.00")
+
+                    tech_totals[tid] = tech_totals.get(tid, Decimal("0.00")) + subtotal
+        except Exception:
+            tech_totals = {}
+
+        # 2) Fallback extremo: repartir subtotal_tecnico por porcentaje
+        if not tech_totals:
+            try:
+                subtotal_tecnico = getattr(sesion, "subtotal_tecnico", None)
+                subtotal_tecnico = (
+                    subtotal_tecnico
+                    if isinstance(subtotal_tecnico, Decimal)
+                    else Decimal(str(subtotal_tecnico or 0))
+                )
+            except Exception:
+                subtotal_tecnico = Decimal("0.00")
+
+            try:
+                asignaciones = list(sesion.tecnicos_sesion.all())
+            except Exception:
+                asignaciones = []
+
+            for asig in asignaciones:
+                tid = getattr(asig, "tecnico_id", None)
+                if not tid:
+                    continue
+                try:
+                    pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
+                except Exception:
+                    pct = Decimal("0.00")
+
+                tech_totals[tid] = (subtotal_tecnico * (pct / Decimal("100"))).quantize(
+                    Decimal("0.01")
+                )
+
+        for tid, amount in tech_totals.items():
+            if amount:
+                totals[(tid, week_real)] += amount
+
+    return dict(totals)
+
+
+def build_payweek_groups(sesion):
+    """
+    Estructura para el template:
+    [
+      {
+        "tech_name": "...",
+        "weeks_summary": "2026-W18, 2026-W19",
+        "lines": [
+          {
+            "snapshot_id": 1,
+            "work_type": "Cable",
+            "week": "2026-W19",
+            "payment_status": "paid",
+            "is_paid": True,
+          },
+          ...
+        ]
+      },
+      ...
+    ]
+
+    REGLAS:
+    - Nuevo modelo:
+        agrupa por técnico + work_type a partir de snapshots
+    - Compatibilidad legacy:
+        si NO hay snapshots productivos pero la sesión sí tiene semana_pago_real,
+        se arma una salida fallback por técnico usando la semana legacy
+
+    IMPORTANTE:
+    - En legacy se agrega "dom_id" único por línea para evitar IDs repetidos
+      en el template/JS.
+    - Cada línea trae:
+        * payment_status
+        * is_paid
+    - Si la sesión ya tiene finance_status='paid', toda la sesión queda bloqueada
+      y visible como Paid aunque no exista WeeklyPayment pagado todavía.
+    """
+    from collections import OrderedDict
+
+    try:
+        snaps = list(sesion.pay_week_snapshots.all())
+    except Exception:
+        snaps = []
+
+    snapshot_fields = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    finance_paid = (
+        getattr(sesion, "finance_status", "") or ""
+    ).strip().lower() == "paid"
+
+    def _tech_name_from_user(user_obj, fallback_id=None):
+        try:
+            if user_obj:
+                return user_obj.get_full_name() or user_obj.username
+        except Exception:
+            pass
+        return f"Tech {fallback_id or ''}".strip()
+
+    def _week_sort_value(week_str: str):
+        y, w = _parse_iso_week((week_str or "").strip())
+        if y and w:
+            return (y, w)
+        return (0, 0)
+
+    def _resolve_week_for_snap(snap):
+        return (
+            (getattr(snap, "semana_resultado", "") or "").strip().upper()
+            or (getattr(snap, "semana_base", "") or "").strip().upper()
+            or (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
+            or (getattr(sesion, "semana_descuento", "") or "").strip().upper()
+            or (getattr(sesion, "discount_week", "") or "").strip().upper()
+            or (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper()
+            or ""
+        )
+
+    def _legacy_line_is_paid(tecnico_id, week_value):
+        """
+        Legacy: marca paid por línea usando:
+        1) finance_status='paid' en la sesión
+        2) WeeklyPayment paid del técnico en esa semana
+        """
+        if finance_paid:
+            return True
+
+        week_value = (week_value or "").strip().upper()
+        if not tecnico_id or not week_value:
+            return False
+
+        try:
+            return WeeklyPayment.objects.filter(
+                technician_id=tecnico_id,
+                week=week_value,
+                status="paid",
+            ).exists()
+        except Exception:
+            return False
+
+    # ==========================================================
+    # 1) MODO NUEVO: snapshots productivos
+    # ==========================================================
+    productive_snaps = []
+    for snap in snaps:
+        if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+            continue
+        if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+            continue
+        productive_snaps.append(snap)
+
+    if productive_snaps:
+        grouped = OrderedDict()
+
+        for snap in productive_snaps:
+            tech_name = _tech_name_from_user(
+                getattr(snap, "tecnico", None),
+                getattr(snap, "tecnico_id", None),
+            )
+
+            tech_bucket = grouped.setdefault(
+                tech_name,
+                {
+                    "tech_name": tech_name,
+                    "weeks": set(),
+                    "lines_map": OrderedDict(),
+                },
+            )
+
+            work_type = (
+                (getattr(snap, "tipo_trabajo", "") or "").strip()
+                or (
+                    getattr(getattr(snap, "item", None), "tipo_trabajo", "") or ""
+                ).strip()
+                or "Legacy"
+            )
+
+            week_value = _resolve_week_for_snap(snap)
+
+            snap_payment_status = (
+                (getattr(snap, "payment_status", "") or "").strip().lower()
+            )
+            snap_is_paid = (
+                bool(getattr(snap, "is_paid", False)) or snap_payment_status == "paid"
+            )
+
+            if finance_paid:
+                payment_status = "paid"
+                is_paid = True
+            else:
+                payment_status = snap_payment_status or "pending"
+                is_paid = snap_is_paid
+
+            if week_value:
+                tech_bucket["weeks"].add(week_value)
+
+            line_key = work_type.lower()
+
+            line_bucket = tech_bucket["lines_map"].setdefault(
+                line_key,
+                {
+                    "snapshot_id": snap.id,
+                    "work_type": work_type,
+                    "weeks": set(),
+                    "is_legacy": False,
+                    "payment_status": payment_status,
+                    "is_paid": is_paid,
+                },
+            )
+
+            if week_value:
+                line_bucket["weeks"].add(week_value)
+
+            if not line_bucket.get("snapshot_id"):
+                line_bucket["snapshot_id"] = snap.id
+
+            if finance_paid:
+                line_bucket["payment_status"] = "paid"
+                line_bucket["is_paid"] = True
+            else:
+                if snap_is_paid:
+                    line_bucket["payment_status"] = "paid"
+                    line_bucket["is_paid"] = True
+                elif not line_bucket.get("payment_status"):
+                    line_bucket["payment_status"] = payment_status or "pending"
+
+        out = []
+
+        for _, grp in grouped.items():
+            weeks_sorted = sorted(list(grp["weeks"]), key=_week_sort_value)
+            weeks_summary = ", ".join(weeks_sorted) if weeks_sorted else "—"
+
+            lines = []
+            for _, line in grp["lines_map"].items():
+                line_weeks_sorted = sorted(list(line["weeks"]), key=_week_sort_value)
+                line_week = line_weeks_sorted[-1] if line_weeks_sorted else "—"
+
+                lines.append(
+                    {
+                        "snapshot_id": line["snapshot_id"],
+                        "work_type": line["work_type"],
+                        "week": line_week,
+                        "is_legacy": False,
+                        "payment_status": (
+                            "paid"
+                            if line.get("is_paid")
+                            else (line.get("payment_status") or "pending")
+                        ),
+                        "is_paid": bool(line.get("is_paid")),
+                    }
+                )
+
+            lines.sort(key=lambda x: (x["work_type"] or "").lower())
+
+            out.append(
+                {
+                    "tech_name": grp["tech_name"],
+                    "weeks_summary": weeks_summary,
+                    "lines": lines,
+                }
+            )
+
+        out.sort(key=lambda g: (g["tech_name"] or "").lower())
+        return out
+
+    # ==========================================================
+    # 2) MODO LEGACY: sin snapshots productivos
+    # ==========================================================
+    legacy_week = (
+        (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
+        or (getattr(sesion, "semana_descuento", "") or "").strip().upper()
+        or (getattr(sesion, "discount_week", "") or "").strip().upper()
+        or (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper()
+    )
+
+    if not legacy_week:
+        return []
+
+    try:
+        asignaciones = list(
+            sesion.tecnicos_sesion.select_related("tecnico").all().order_by("id")
+        )
+    except Exception:
+        asignaciones = []
+
+    if not asignaciones:
+        return []
+
+    out = []
+    for idx, asig in enumerate(asignaciones, start=1):
+        tech_name = _tech_name_from_user(
+            getattr(asig, "tecnico", None),
+            getattr(asig, "tecnico_id", None),
+        )
+
+        line_is_paid = _legacy_line_is_paid(
+            getattr(asig, "tecnico_id", None),
+            legacy_week,
+        )
+
+        out.append(
+            {
+                "tech_name": tech_name,
+                "weeks_summary": legacy_week,
+                "lines": [
+                    {
+                        "session_id": sesion.id,
+                        "snapshot_id": 0,
+                        "dom_id": f"{sesion.id}_{asig.tecnico_id}_{idx}",
+                        "work_type": "Legacy",
+                        "week": legacy_week,
+                        "is_legacy": True,
+                        "payment_status": "paid" if line_is_paid else "pending",
+                        "is_paid": line_is_paid,
+                    }
+                ],
+            }
+        )
+
+    out.sort(key=lambda g: (g["tech_name"] or "").lower())
+    return out
+
+
+def _billing_project_week_lock_message(sesion) -> str | None:
+    """
+    Si el billing ya está marcado como pagado, no se permite modificar
+    la semana de pago proyectada.
+
+    Devuelve:
+      - str con el mensaje de bloqueo, si está bloqueado
+      - None, si sí se puede editar
+    """
+    finance_status = (getattr(sesion, "finance_status", "") or "").strip().lower()
+    if finance_status != "paid":
+        return None
+
+    paid_week = (
+        (getattr(sesion, "semana_pago_real", "") or "").strip()
+        or (getattr(sesion, "semana_pago_proyectada", "") or "").strip()
+        or "the registered week"
+    )
+
+    return (
+        f"This billing cannot be modified because it was already paid in week "
+        f"'{paid_week}'. Please contact the administrator."
+    )
+
+def _parse_iso_week(value: str):
+    """
+    Recibe 'YYYY-W##' y devuelve (year, week).
+    Si no es válido, retorna (None, None).
+    """
+    s = (value or "").strip().upper()
+    m = re.match(r"^(\d{4})-W(\d{2})$", s)
+    if not m:
+        return None, None
+
+    year = int(m.group(1))
+    week = int(m.group(2))
+
+    try:
+        date.fromisocalendar(year, week, 1)
+    except ValueError:
+        return None, None
+
+    return year, week
+
+def _iso_week_monday(year: int, week: int):
+    return date.fromisocalendar(year, week, 1)
+
+
+def _format_iso_week(d: date):
+    y, w, _ = d.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def _add_weeks_to_iso_week(base_week: str, weeks_to_add: int) -> str:
+    year, week = _parse_iso_week(base_week)
+    if not year or not week:
+        return ""
+    monday = _iso_week_monday(year, week)
+    result = monday + timedelta(weeks=int(weeks_to_add or 0))
+    return _format_iso_week(result)
+
+
+def rebuild_billing_payweek_snapshot(sesion):
+    """
+    Reconstruye el snapshot de semanas reales por técnico/item SIN borrar
+    líneas ya pagadas ni líneas de ajuste.
+
+    Regla:
+      - semana_base = sesion.semana_pago_proyectada
+      - payment_weeks = PrecioActividadTecnico.payment_weeks
+      - semana_resultado = semana_base + payment_weeks
+
+    Conserva:
+      - snapshots pagados
+      - snapshots de ajuste
+
+    Actualiza:
+      - snapshots normales no pagados
+      - crea snapshots faltantes
+      - elimina snapshots normales no pagados que ya no correspondan
+
+    También congela:
+      - tarifa_base
+      - porcentaje
+      - tarifa_efectiva
+      - subtotal
+
+    Retorna:
+      {
+        "created": <int>,
+        "updated": <int>,
+        "deleted": <int>,
+        "summary_week": <str>,
+      }
+    """
+    model = BillingPayWeekSnapshot
+    field_names = {f.name for f in model._meta.get_fields()}
+
+    has_payment_status = "payment_status" in field_names
+    has_is_adjustment = "is_adjustment" in field_names
+    has_adjustment_of = "adjustment_of" in field_names
+    has_weekly_payment = "weekly_payment" in field_names
+    has_paid_at = "paid_at" in field_names
+
+    def _is_paid_snapshot(obj):
+        if has_payment_status:
+            return (getattr(obj, "payment_status", "") or "").strip().lower() == "paid"
+        if has_paid_at and getattr(obj, "paid_at", None):
+            return True
+        if has_weekly_payment and getattr(obj, "weekly_payment_id", None):
+            return True
+        return False
+
+    def _is_adjustment_snapshot(obj):
+        if has_is_adjustment and bool(getattr(obj, "is_adjustment", False)):
+            return True
+        if has_adjustment_of and getattr(obj, "adjustment_of_id", None):
+            return True
+        return False
+
+    def _parse_week_safe(value):
+        try:
+            y, wk = _parse_iso_week((value or "").strip())
+            if y and wk:
+                return (y, wk)
+        except Exception:
+            pass
+        return None
+
+    def _compute_summary_week_from_db():
+        qs = model.objects.filter(sesion=sesion)
+
+        if has_is_adjustment:
+            qs = qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            qs = qs.filter(adjustment_of__isnull=True)
+
+        weeks = []
+        for w in (
+            qs.exclude(semana_resultado__isnull=True)
+            .exclude(semana_resultado__exact="")
+            .values_list("semana_resultado", flat=True)
+        ):
+            parsed = _parse_week_safe(w)
+            if parsed:
+                weeks.append((parsed[0], parsed[1], w))
+
+        if not weeks:
+            return ""
+
+        weeks.sort(key=lambda x: (x[0], x[1]))
+        return weeks[-1][2]
+
+    semana_base = (sesion.semana_pago_proyectada or "").strip().upper()
+
+    # Si no hay semana base, NO borrar snapshots pagados/ajustes.
+    # Solo recalcular resumen desde lo que siga existiendo.
+    if not semana_base:
+        summary_week = _compute_summary_week_from_db()
+        if (sesion.semana_pago_real or "") != summary_week:
+            sesion.semana_pago_real = summary_week
+            sesion.save(update_fields=["semana_pago_real"])
+        return {"created": 0, "updated": 0, "deleted": 0, "summary_week": summary_week}
+
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(sesion)
+    if not proyecto_pk:
+        summary_week = _compute_summary_week_from_db()
+        if (sesion.semana_pago_real or "") != summary_week:
+            sesion.semana_pago_real = summary_week
+            sesion.save(update_fields=["semana_pago_real"])
+        return {"created": 0, "updated": 0, "deleted": 0, "summary_week": summary_week}
+
+    created = 0
+    updated = 0
+    deleted = 0
+
+    # ------------------------------------------------------------------
+    # 1) Armar mapa deseado desde items actuales
+    # ------------------------------------------------------------------
+    desired_rows = {}
+
+    items = sesion.items.prefetch_related("desglose_tecnico").all()
+
+    for item in items:
+        for bd in item.desglose_tecnico.all():
+            tecnico_id = bd.tecnico_id
+
+            precio = (
+                PrecioActividadTecnico.objects.filter(
+                    tecnico_id=tecnico_id,
+                    ciudad=sesion.ciudad,
+                    proyecto_id=proyecto_pk,
+                    oficina=sesion.oficina,
+                    cliente=sesion.cliente,
+                    codigo_trabajo=item.codigo_trabajo,
+                )
+                .only("payment_weeks")
+                .first()
+            )
+
+            if not precio:
+                precio = (
+                    PrecioActividadTecnico.objects.filter(
+                        tecnico_id=tecnico_id,
+                        ciudad=sesion.ciudad,
+                        proyecto_id=proyecto_pk,
+                        oficina=sesion.oficina,
+                        cliente=sesion.cliente,
+                        tipo_trabajo=item.tipo_trabajo,
+                    )
+                    .only("payment_weeks")
+                    .first()
+                )
+
+            payment_weeks = int(getattr(precio, "payment_weeks", 0) or 0)
+            semana_resultado = _add_weeks_to_iso_week(semana_base, payment_weeks)
+
+            key = (item.id, tecnico_id)
+
+            desired_rows[key] = {
+                "sesion": sesion,
+                "tecnico_id": tecnico_id,
+                "item": item,
+                "codigo_trabajo": (item.codigo_trabajo or "").strip(),
+                "tipo_trabajo": (item.tipo_trabajo or "").strip(),
+                "payment_weeks": payment_weeks,
+                "semana_base": semana_base,
+                "semana_resultado": semana_resultado,
+                "tarifa_base": getattr(bd, "tarifa_base", Decimal("0.00"))
+                or Decimal("0.00"),
+                "porcentaje": getattr(bd, "porcentaje", Decimal("0.00"))
+                or Decimal("0.00"),
+                "tarifa_efectiva": getattr(bd, "tarifa_efectiva", Decimal("0.00"))
+                or Decimal("0.00"),
+                "subtotal": getattr(bd, "subtotal", Decimal("0.00")) or Decimal("0.00"),
+            }
+
+    # ------------------------------------------------------------------
+    # 2) Cargar snapshots existentes y separar protegidos vs editables
+    # ------------------------------------------------------------------
+    existing = list(model.objects.filter(sesion=sesion).select_related("item"))
+
+    reusable_by_key = {}
+    protected_ids = set()
+
+    for snap in existing:
+        if _is_paid_snapshot(snap) or _is_adjustment_snapshot(snap):
+            protected_ids.add(snap.id)
+            continue
+
+        key = (snap.item_id, snap.tecnico_id)
+        reusable_by_key.setdefault(key, []).append(snap)
+
+    touched_ids = set()
+
+    # ------------------------------------------------------------------
+    # 3) Update/Create de snapshots normales no pagados
+    # ------------------------------------------------------------------
+    for key, payload in desired_rows.items():
+        bucket = reusable_by_key.get(key) or []
+
+        snap = bucket.pop(0) if bucket else None
+
+        if snap is None:
+            create_kwargs = dict(payload)
+
+            if has_payment_status:
+                create_kwargs["payment_status"] = "pending"
+            if has_is_adjustment:
+                create_kwargs["is_adjustment"] = False
+            if has_adjustment_of:
+                create_kwargs["adjustment_of"] = None
+
+            model.objects.create(**create_kwargs)
+            created += 1
+            continue
+
+        changed = []
+
+        for field in (
+            "codigo_trabajo",
+            "tipo_trabajo",
+            "payment_weeks",
+            "semana_base",
+            "semana_resultado",
+            "tarifa_base",
+            "porcentaje",
+            "tarifa_efectiva",
+            "subtotal",
+        ):
+            new_value = payload[field]
+            old_value = getattr(snap, field)
+            if old_value != new_value:
+                setattr(snap, field, new_value)
+                changed.append(field)
+
+        if snap.item_id != payload["item"].id:
+            snap.item = payload["item"]
+            changed.append("item")
+
+        if snap.tecnico_id != payload["tecnico_id"]:
+            snap.tecnico_id = payload["tecnico_id"]
+            changed.append("tecnico")
+
+        if (
+            has_payment_status
+            and (getattr(snap, "payment_status", "") or "").strip().lower() != "pending"
+        ):
+            snap.payment_status = "pending"
+            changed.append("payment_status")
+
+        if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+            snap.is_adjustment = False
+            changed.append("is_adjustment")
+
+        if has_adjustment_of and getattr(snap, "adjustment_of_id", None) is not None:
+            snap.adjustment_of = None
+            changed.append("adjustment_of")
+
+        if changed:
+            snap.save(update_fields=changed)
+            updated += 1
+
+        touched_ids.add(snap.id)
+
+    # ------------------------------------------------------------------
+    # 4) Eliminar snapshots normales no pagados que ya no correspondan
+    # ------------------------------------------------------------------
+    stale_ids = []
+
+    for snap in existing:
+        if snap.id in protected_ids:
+            continue
+
+        key = (snap.item_id, snap.tecnico_id)
+        if key not in desired_rows and snap.id not in touched_ids:
+            stale_ids.append(snap.id)
+
+    if stale_ids:
+        deleted, _ = model.objects.filter(id__in=stale_ids).delete()
+
+    # ------------------------------------------------------------------
+    # 5) Recalcular semana resumen de la sesión
+    # ------------------------------------------------------------------
+    summary_week = _compute_summary_week_from_db()
+
+    if (sesion.semana_pago_real or "") != summary_week:
+        sesion.semana_pago_real = summary_week
+        sesion.save(update_fields=["semana_pago_real"])
+
+    return {
+        "created": created,
+        "updated": updated,
+        "deleted": deleted,
+        "summary_week": summary_week,
+    }
+
+
+def _iso_week_start(year: int, week: int):
+    """
+    Retorna el lunes de una ISO week.
+    """
+    return date.fromisocalendar(year, week, 1)
+
+
+def _norm_text_key(value):
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _build_payment_weeks_consistency_key(
+    *, tecnico_id, ciudad, proyecto_id, oficina, cliente, tipo_trabajo
+):
+    """
+    La consistencia de payment_weeks se valida por:
+    Technician + City + Project + Office + Client + Work Type
+    """
+    return (
+        int(tecnico_id),
+        _norm_text_key(ciudad),
+        int(proyecto_id),
+        _norm_text_key(oficina),
+        _norm_text_key(cliente),
+        _norm_text_key(tipo_trabajo),
+    )
+
+
+def _validate_preview_payment_weeks_consistency(preview_data, proyecto_id):
+    """
+    Valida consistencia dentro del preview importado.
+    Si para la misma llave lógica existen distintos payment_weeks, marca error.
+    """
+    seen = {}
+
+    for row in preview_data:
+        tecnico_ids = row.get("tecnico") or []
+        for tecnico_id in tecnico_ids:
+            key = _build_payment_weeks_consistency_key(
+                tecnico_id=tecnico_id,
+                ciudad=row.get("ciudad"),
+                proyecto_id=proyecto_id,
+                oficina=row.get("oficina"),
+                cliente=row.get("cliente"),
+                tipo_trabajo=row.get("tipo_trabajo"),
+            )
+            val = row.get("payment_weeks")
+            seen.setdefault(key, set()).add(0 if val in (None, "") else int(val))
+
+    invalid_keys = {k: v for k, v in seen.items() if len(v) > 1}
+    if not invalid_keys:
+        return preview_data
+
+    for row in preview_data:
+        tecnico_ids = row.get("tecnico") or []
+        row_invalid = False
+        found_vals = None
+
+        for tecnico_id in tecnico_ids:
+            key = _build_payment_weeks_consistency_key(
+                tecnico_id=tecnico_id,
+                ciudad=row.get("ciudad"),
+                proyecto_id=proyecto_id,
+                oficina=row.get("oficina"),
+                cliente=row.get("cliente"),
+                tipo_trabajo=row.get("tipo_trabajo"),
+            )
+            if key in invalid_keys:
+                row_invalid = True
+                found_vals = sorted(list(invalid_keys[key]))
+                break
+
+        if row_invalid:
+            msg = (
+                "Inconsistent Payment Weeks for the same Technician / City / Project / "
+                "Office / Client / Work Type. Found values: "
+                + ", ".join(str(x) for x in found_vals)
+            )
+            row["error"] += (" | " if row["error"] else "") + msg
+
+    return preview_data
+
+
+def _collect_import_family_map(preview_data, proyecto_id):
+    """
+    Construye un mapa por familia lógica:
+      key -> {
+        "weeks": {1,2,...},
+        "codes": {"BM2F","HO-1(<48)",...}
+      }
+    """
+    family_map = {}
+
+    for row in preview_data:
+        tecnico_ids = row.get("tecnico") or []
+        codigo = (row.get("codigo_trabajo") or "").strip()
+        payment_weeks = row.get("payment_weeks")
+        if payment_weeks in (None, ""):
+            payment_weeks = 0
+        payment_weeks = int(payment_weeks)
+
+        for tecnico_id in tecnico_ids:
+            key = _build_payment_weeks_consistency_key(
+                tecnico_id=tecnico_id,
+                ciudad=row.get("ciudad"),
+                proyecto_id=proyecto_id,
+                oficina=row.get("oficina"),
+                cliente=row.get("cliente"),
+                tipo_trabajo=row.get("tipo_trabajo"),
+            )
+            bucket = family_map.setdefault(key, {"weeks": set(), "codes": set()})
+            bucket["weeks"].add(payment_weeks)
+            if codigo:
+                bucket["codes"].add(codigo)
+
+    return family_map
+
+
+def _validate_db_payment_weeks_consistency_for_import(
+    *, tecnico, proyecto_id, family_map, replace=False
+):
+    """
+    Valida por técnico TODO el lote importado contra BD.
+
+    Regla:
+    - Una familia lógica = Technician + City + Project + Office + Client + Work Type
+    - Debe terminar con un único payment_weeks
+
+    Si replace=True:
+    - Se ignoran en BD los Job Codes que vienen en el mismo import para esa familia,
+      porque esos registros serán reemplazados.
+    """
+    errors = []
+
+    for key, payload in family_map.items():
+        tecnico_id, ciudad_n, proyecto_id_key, oficina_n, cliente_n, tipo_n = key
+
+        if int(tecnico.id) != int(tecnico_id):
+            continue
+
+        imported_weeks = set(int(x) for x in (payload.get("weeks") or set()))
+        imported_codes = set((payload.get("codes") or set()))
+
+        qs = PrecioActividadTecnico.objects.filter(
+            tecnico=tecnico,
+            proyecto_id=proyecto_id_key,
+            tipo_trabajo__iexact=tipo_n,
+        )
+
+        db_rows = []
+        for obj in qs.only(
+            "id",
+            "ciudad",
+            "oficina",
+            "cliente",
+            "tipo_trabajo",
+            "codigo_trabajo",
+            "payment_weeks",
+        ):
+            if _norm_text_key(obj.ciudad) != ciudad_n:
+                continue
+            if _norm_text_key(obj.oficina) != oficina_n:
+                continue
+            if _norm_text_key(obj.cliente) != cliente_n:
+                continue
+            if _norm_text_key(obj.tipo_trabajo) != tipo_n:
+                continue
+            db_rows.append(obj)
+
+        if replace and imported_codes:
+            db_rows = [
+                r
+                for r in db_rows
+                if (r.codigo_trabajo or "").strip() not in imported_codes
+            ]
+
+        db_weeks = set(int(getattr(r, "payment_weeks", 0) or 0) for r in db_rows)
+        final_weeks = set(imported_weeks) | set(db_weeks)
+
+        if len(final_weeks) > 1:
+            sample_tipo = tipo_n or "-"
+            sample_city = ciudad_n or "-"
+            sample_office = oficina_n or "-"
+            sample_client = cliente_n or "-"
+            imported_codes_txt = (
+                ", ".join(sorted(imported_codes)) if imported_codes else "-"
+            )
+            final_weeks_txt = ", ".join(str(x) for x in sorted(final_weeks))
+
+            errors.append(
+                "Inconsistent Payment Weeks for technician "
+                f"'{tecnico.get_full_name() or tecnico.username}', "
+                f"City '{sample_city}', Office '{sample_office}', Client '{sample_client}', "
+                f"Work Type '{sample_tipo}'. "
+                f"Imported Job Code(s): {imported_codes_txt}. "
+                f"Final value(s) after import would be: {final_weeks_txt}."
+            )
+
+    return errors
 
 
 def _build_receipt_key(user_id: int, filename: str) -> str:
@@ -1533,14 +3249,12 @@ def exportar_mis_rendiciones(request):
     wb.save(response)
     return response
 
-from django.http import JsonResponse
 
-
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm', 'facturacion')
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm", "facturacion")
 def listar_precios_tecnico(request):
     # ---- Cantidad por página (solo estos valores) ----
-    cantidad_str = request.GET.get('cantidad', '10')
+    cantidad_str = request.GET.get("cantidad", "10")
     allowed_page_sizes = {"5", "10", "20", "50", "100"}
 
     if cantidad_str not in allowed_page_sizes:
@@ -1549,36 +3263,33 @@ def listar_precios_tecnico(request):
     cantidad = int(cantidad_str)
 
     # ---- Filtros (GET) ----
-    f_tecnico = (request.GET.get('f_tecnico') or '').strip()
-    f_ciudad  = (request.GET.get('f_ciudad') or '').strip()
-    f_proy    = (request.GET.get('f_proyecto') or '').strip()
-    f_codigo  = (request.GET.get('f_codigo') or '').strip()
+    f_tecnico = (request.GET.get("f_tecnico") or "").strip()
+    f_ciudad = (request.GET.get("f_ciudad") or "").strip()
+    f_proy = (request.GET.get("f_proyecto") or "").strip()
+    f_codigo = (request.GET.get("f_codigo") or "").strip()
 
-    qs = (
-        PrecioActividadTecnico.objects
-        .select_related('tecnico')   # NO agregamos 'proyecto' hasta que sea FK
-        .order_by('-fecha_creacion')
+    qs = PrecioActividadTecnico.objects.select_related("tecnico", "proyecto").order_by(
+        "-fecha_creacion"
     )
 
     # 🔒 Limitar por proyectos asignados al usuario actual SOLO si 'proyecto' es FK
     is_fk_proyecto = False
     try:
-        f = PrecioActividadTecnico._meta.get_field('proyecto')
+        f = PrecioActividadTecnico._meta.get_field("proyecto")
         if isinstance(f, dj_models.ForeignKey):
             is_fk_proyecto = True
-            qs = filter_queryset_by_access(qs, request.user, 'proyecto_id')
+            qs = filter_queryset_by_access(qs, request.user, "proyecto_id")
     except Exception:
         pass
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion)
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
         ProyectoAsignacion = None
 
-    can_view_legacy_history = (
-        request.user.is_superuser or
-        getattr(request.user, "es_usuario_historial", False)
+    can_view_legacy_history = request.user.is_superuser or getattr(
+        request.user, "es_usuario_historial", False
     )
 
     if ProyectoAsignacion is not None and (not can_view_legacy_history):
@@ -1593,9 +3304,9 @@ def listar_precios_tecnico(request):
 
             try:
                 asignaciones = list(
-                    ProyectoAsignacion.objects
-                    .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
-                    .select_related("proyecto")
+                    ProyectoAsignacion.objects.filter(
+                        usuario=request.user, proyecto_id__in=proyecto_ids_visibles
+                    ).select_related("proyecto")
                 )
             except Exception:
                 asignaciones = []
@@ -1604,12 +3315,20 @@ def listar_precios_tecnico(request):
                 access_by_pk = {}
                 for a in asignaciones:
                     if a.include_history or not a.start_at:
-                        access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                        access_by_pk[a.proyecto_id] = {
+                            "include_history": True,
+                            "start_at": None,
+                        }
                     else:
-                        access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+                        access_by_pk[a.proyecto_id] = {
+                            "include_history": False,
+                            "start_at": a.start_at,
+                        }
 
                 ids_ok = []
-                for pid, rid, fcrea in qs.values_list("proyecto_id", "id", "fecha_creacion"):
+                for pid, rid, fcrea in qs.values_list(
+                    "proyecto_id", "id", "fecha_creacion"
+                ):
                     if pid is None:
                         continue
                     access = access_by_pk.get(pid)
@@ -1621,10 +3340,11 @@ def listar_precios_tecnico(request):
                     if not fcrea:
                         continue
 
-                    # ✅ FIX MINIMO: normalizar date vs datetime antes de comparar
                     start_at = access["start_at"]
                     fcrea_cmp = fcrea.date() if hasattr(fcrea, "date") else fcrea
-                    start_cmp = start_at.date() if hasattr(start_at, "date") else start_at
+                    start_cmp = (
+                        start_at.date() if hasattr(start_at, "date") else start_at
+                    )
 
                     if fcrea_cmp >= start_cmp:
                         ids_ok.append(rid)
@@ -1633,7 +3353,6 @@ def listar_precios_tecnico(request):
 
         # --- Caso B: proyecto es TEXTO (legacy) ---
         else:
-            # 1) Limitar por proyectos visibles del usuario -> allowed_keys (nombre/código/id)
             try:
                 from facturacion.models import Proyecto
             except Exception:
@@ -1641,7 +3360,9 @@ def listar_precios_tecnico(request):
 
             if Proyecto is not None:
                 try:
-                    proyectos_user = filter_queryset_by_access(Proyecto.objects.all(), request.user, 'id')
+                    proyectos_user = filter_queryset_by_access(
+                        Proyecto.objects.all(), request.user, "id"
+                    )
                 except Exception:
                     proyectos_user = Proyecto.objects.none()
 
@@ -1665,12 +3386,11 @@ def listar_precios_tecnico(request):
                 else:
                     qs = PrecioActividadTecnico.objects.none()
 
-                # 2) Ventana por fecha usando keys (nombre/código/id) -> start_at/include_history
                 try:
                     asignaciones = list(
-                        ProyectoAsignacion.objects
-                        .filter(usuario=request.user, proyecto__in=list(proyectos_user))
-                        .select_related("proyecto")
+                        ProyectoAsignacion.objects.filter(
+                            usuario=request.user, proyecto__in=list(proyectos_user)
+                        ).select_related("proyecto")
                     )
                 except Exception:
                     asignaciones = []
@@ -1687,8 +3407,11 @@ def listar_precios_tecnico(request):
                         else:
                             access = {"include_history": False, "start_at": a.start_at}
 
-                        # guardamos varias llaves posibles
-                        for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
+                        for k in (
+                            getattr(p, "nombre", None),
+                            getattr(p, "codigo", None),
+                            getattr(p, "id", None),
+                        ):
                             if k is None:
                                 continue
                             ks = str(k).strip()
@@ -1696,8 +3419,10 @@ def listar_precios_tecnico(request):
                                 access_by_key[ks.lower()] = access
 
                     ids_ok = []
-                    for rid, proj_txt, fcrea in qs.values_list("id", "proyecto", "fecha_creacion"):
-                        key = (str(proj_txt).strip().lower() if proj_txt else "")
+                    for rid, proj_txt, fcrea in qs.values_list(
+                        "id", "proyecto", "fecha_creacion"
+                    ):
+                        key = str(proj_txt).strip().lower() if proj_txt else ""
                         if not key:
                             continue
                         access = access_by_key.get(key)
@@ -1709,10 +3434,11 @@ def listar_precios_tecnico(request):
                         if not fcrea:
                             continue
 
-                        # ✅ FIX MINIMO: normalizar date vs datetime antes de comparar
                         start_at = access["start_at"]
                         fcrea_cmp = fcrea.date() if hasattr(fcrea, "date") else fcrea
-                        start_cmp = start_at.date() if hasattr(start_at, "date") else start_at
+                        start_cmp = (
+                            start_at.date() if hasattr(start_at, "date") else start_at
+                        )
 
                         if fcrea_cmp >= start_cmp:
                             ids_ok.append(rid)
@@ -1721,36 +3447,36 @@ def listar_precios_tecnico(request):
 
     if f_tecnico:
         qs = qs.filter(
-            Q(tecnico__first_name__icontains=f_tecnico) |
-            Q(tecnico__last_name__icontains=f_tecnico) |
-            Q(tecnico__username__icontains=f_tecnico)
+            Q(tecnico__first_name__icontains=f_tecnico)
+            | Q(tecnico__last_name__icontains=f_tecnico)
+            | Q(tecnico__username__icontains=f_tecnico)
         )
     if f_ciudad:
         qs = qs.filter(ciudad__icontains=f_ciudad)
     if f_proy:
         try:
             qs = qs.filter(
-                Q(proyecto__nombre__icontains=f_proy) |
-                Q(proyecto__codigo__icontains=f_proy)
+                Q(proyecto__nombre__icontains=f_proy)
+                | Q(proyecto__codigo__icontains=f_proy)
             )
         except FieldError:
             qs = qs.filter(proyecto__icontains=f_proy)
     if f_codigo:
         qs = qs.filter(codigo_trabajo__icontains=f_codigo)
 
-    paginator   = Paginator(qs, cantidad)
-    page_number = request.GET.get('page')
-    pagina      = paginator.get_page(page_number)
+    paginator = Paginator(qs, cantidad)
+    page_number = request.GET.get("page")
+    pagina = paginator.get_page(page_number)
 
     ctx = {
-        'pagina': pagina,
-        'cantidad': cantidad_str,
-        'f_tecnico': f_tecnico,
-        'f_ciudad': f_ciudad,
-        'f_proyecto': f_proy,
-        'f_codigo': f_codigo,
+        "pagina": pagina,
+        "cantidad": cantidad_str,
+        "f_tecnico": f_tecnico,
+        "f_ciudad": f_ciudad,
+        "f_proyecto": f_proy,
+        "f_codigo": f_codigo,
     }
-    return render(request, 'operaciones/listar_precios_tecnico.html', ctx)
+    return render(request, "operaciones/listar_precios_tecnico.html", ctx)
 
 
 try:
@@ -1813,86 +3539,106 @@ def _tecnicos_de_proyecto_qs(proyecto: Optional[Proyecto]):
     return User.objects.filter(id__in=tech_ids).order_by("first_name", "last_name", "username")
 
 
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm')
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm")
 def importar_precios(request):
     """
     GET  -> muestra form; si viene ?proyecto_id, filtra técnicos.
     POST -> valida, arma preview y muestra conflictos.
+    Regla nueva:
+    Para un mismo Technician + City + Project + Office + Client + Work Type
+    debe existir un único payment_weeks.
     """
-    proyectos_qs = filter_queryset_by_access(Proyecto.objects.all(), request.user, 'id')
+    proyectos_qs = filter_queryset_by_access(Proyecto.objects.all(), request.user, "id")
 
     # ---------------- GET ----------------
-    if request.method == 'GET':
+    if request.method == "GET":
         form = ImportarPreciosForm()
-        proyecto_id_get = (request.GET.get('proyecto_id') or '').strip()
+        proyecto_id_get = (request.GET.get("proyecto_id") or "").strip()
 
         proyecto_sel = None
         if proyecto_id_get and proyectos_qs.filter(pk=proyecto_id_get).exists():
             proyecto_sel = proyectos_qs.get(pk=proyecto_id_get)
 
-        # filtra técnicos según proyecto seleccionado
-        form.fields['tecnicos'].queryset = _tecnicos_de_proyecto_qs(proyecto_sel)
+        form.fields["tecnicos"].queryset = _tecnicos_de_proyecto_qs(proyecto_sel)
 
         return render(
             request,
-            'operaciones/importar_precios.html',
+            "operaciones/importar_precios.html",
             {
-                'form': form,
-                'proyectos': proyectos_qs,
-                'proyecto_sel': proyecto_sel,
-            }
+                "form": form,
+                "proyectos": proyectos_qs,
+                "proyecto_sel": proyecto_sel,
+            },
         )
 
     # ---------------- POST ----------------
     form = ImportarPreciosForm(request.POST, request.FILES)
 
-    proyecto_id = (request.POST.get('proyecto_id') or '').strip()
+    proyecto_id = (request.POST.get("proyecto_id") or "").strip()
     if not proyecto_id:
         messages.error(request, "Please select a Project.")
-        return redirect('operaciones:importar_precios')
+        return redirect("operaciones:importar_precios")
 
     if not proyectos_qs.filter(pk=proyecto_id).exists():
         messages.error(request, "Selected Project not found or not allowed.")
-        return redirect('operaciones:importar_precios')
+        return redirect("operaciones:importar_precios")
 
     proyecto = proyectos_qs.get(pk=proyecto_id)
 
-    # 🔒 restringe 'tecnicos' ANTES de validar el form
-    form.fields['tecnicos'].queryset = _tecnicos_de_proyecto_qs(proyecto)
+    form.fields["tecnicos"].queryset = _tecnicos_de_proyecto_qs(proyecto)
 
     if not form.is_valid():
         messages.error(request, "Invalid form.")
-        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+        return redirect(
+            f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}"
+        )
 
     try:
-        archivo = request.FILES['archivo']
-        tecnicos = form.cleaned_data['tecnicos']
+        archivo = request.FILES["archivo"]
+        tecnicos = form.cleaned_data["tecnicos"]
 
-        # 1) extensión
-        if not archivo.name.endswith('.xlsx'):
+        if not archivo.name.endswith(".xlsx"):
             messages.error(request, "The file must be in .xlsx format.")
-            return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+            return redirect(
+                f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}"
+            )
 
-        # 2) leer excel
         df = pd.read_excel(archivo, header=0)
         if df.empty:
             messages.error(request, "The uploaded Excel file is empty.")
-            return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+            return redirect(
+                f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}"
+            )
 
-        # 3) normalizar columnas
-        df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True)
+        df.columns = (
+            df.columns.str.strip().str.lower().str.replace(r"\s+", "_", regex=True)
+        )
 
         colmap = {
-            'city': ['city', 'ciudad'],
-            'office': ['office', 'oficina', 'oficce'],
-            'client': ['client', 'cliente'],
-            'work_type': ['work_type', 'tipo_trabajo', 'tipo_de_trabajo'],
-            'code': ['code', 'job_code', 'codigo', 'codigo_trabajo'],
-            'description': ['description', 'descripcion', 'descripción'],
-            'uom': ['uom', 'unidad_medida', 'unidad', 'unit'],
-            'technical_price': ['technical_price', 'tech_price', 'precio_tecnico', 'precio_técnico'],
-            'company_price': ['company_price', 'precio_empresa', 'companyprice'],
+            "city": ["city", "ciudad"],
+            "office": ["office", "oficina", "oficce"],
+            "client": ["client", "cliente"],
+            "work_type": ["work_type", "tipo_trabajo", "tipo_de_trabajo"],
+            "code": ["code", "job_code", "codigo", "codigo_trabajo"],
+            "description": ["description", "descripcion", "descripción"],
+            "uom": ["uom", "unidad_medida", "unidad", "unit"],
+            "technical_price": [
+                "technical_price",
+                "tech_price",
+                "precio_tecnico",
+                "precio_técnico",
+            ],
+            "company_price": ["company_price", "precio_empresa", "companyprice"],
+            "payment_weeks": [
+                "payment_weeks",
+                "payment_week",
+                "weeks_to_pay",
+                "weeks_payment",
+                "payment_delay_weeks",
+                "semanas_pago",
+                "semana_pago",
+            ],
         }
 
         def resolve(colkey, required=True):
@@ -1900,70 +3646,108 @@ def importar_precios(request):
                 if cand in df.columns:
                     return cand
             if required:
-                raise KeyError(f"Required column not found for '{colkey}'. Available columns: {list(df.columns)}")
+                raise KeyError(
+                    f"Required column not found for '{colkey}'. Available columns: {list(df.columns)}"
+                )
             return None
 
-        c_city = resolve('city')
-        c_code = resolve('code')
-        c_desc = resolve('description')
-        c_uom  = resolve('uom')
-        c_tp   = resolve('technical_price')
-        c_cp   = resolve('company_price')
-        c_office = resolve('office', required=False)
-        c_client = resolve('client', required=False)
-        c_wtype  = resolve('work_type', required=False)
+        def parse_payment_weeks(value):
+            if value in (None, ""):
+                return 0
+            try:
+                if pd.isna(value):
+                    return 0
+            except Exception:
+                pass
 
-        # 4) preview
+            try:
+                num = int(float(str(value).strip()))
+            except Exception:
+                return None
+
+            if num < 0:
+                return None
+            return num
+
+        c_city = resolve("city")
+        c_code = resolve("code")
+        c_desc = resolve("description")
+        c_uom = resolve("uom")
+        c_tp = resolve("technical_price")
+        c_cp = resolve("company_price")
+        c_pw = resolve("payment_weeks", required=False)
+        c_office = resolve("office", required=False)
+        c_client = resolve("client", required=False)
+        c_wtype = resolve("work_type", required=False)
+
         preview_data = []
         for _, row in df.iterrows():
+            payment_weeks = parse_payment_weeks(row.get(c_pw)) if c_pw else 0
+
             r = {
-                'ciudad': row.get(c_city),
-                'proyecto': proyecto.nombre,
-                'codigo_trabajo': row.get(c_code),
-                'descripcion': row.get(c_desc),
-                'uom': row.get(c_uom),
-                'precio_tecnico': _to2(row.get(c_tp)),
-                'precio_empresa': _to2(row.get(c_cp)),
-                'oficina': row.get(c_office) if c_office else "",
-                'cliente': row.get(c_client) if c_client else "",
-                'tipo_trabajo': row.get(c_wtype) if c_wtype else "",
-                'tecnico': [t.id for t in tecnicos],
-                'error': ''
+                "ciudad": row.get(c_city),
+                "proyecto": proyecto.nombre,
+                "codigo_trabajo": row.get(c_code),
+                "descripcion": row.get(c_desc),
+                "uom": row.get(c_uom),
+                "precio_tecnico": _to2(row.get(c_tp)),
+                "precio_empresa": _to2(row.get(c_cp)),
+                "payment_weeks": payment_weeks,
+                "oficina": row.get(c_office) if c_office else "",
+                "cliente": row.get(c_client) if c_client else "",
+                "tipo_trabajo": row.get(c_wtype) if c_wtype else "",
+                "tecnico": [t.id for t in tecnicos],
+                "error": "",
             }
 
             missing = []
-            if not r['ciudad']:         missing.append('city')
-            if not r['codigo_trabajo']: missing.append('code')
-            if not r['descripcion']:    missing.append('description')
-            if not r['uom']:            missing.append('uom')
-            if r['precio_tecnico'] is None:
-                r['error'] += (" | " if r['error'] else "") + "Invalid Technical Price"
-            if r['precio_empresa'] is None:
-                r['error'] += (" | " if r['error'] else "") + "Invalid Company Price"
+            if not r["ciudad"]:
+                missing.append("city")
+            if not r["codigo_trabajo"]:
+                missing.append("code")
+            if not r["descripcion"]:
+                missing.append("description")
+            if not r["uom"]:
+                missing.append("uom")
+            if not r["tipo_trabajo"]:
+                missing.append("work_type")
+
+            if r["precio_tecnico"] is None:
+                r["error"] += (" | " if r["error"] else "") + "Invalid Technical Price"
+            if r["precio_empresa"] is None:
+                r["error"] += (" | " if r["error"] else "") + "Invalid Company Price"
+            if r["payment_weeks"] is None:
+                r["error"] += (" | " if r["error"] else "") + "Invalid Payment Weeks"
             if missing:
-                r['error'] += (" | " if r['error'] else "") + f"Missing fields: {', '.join(missing)}"
+                r["error"] += (
+                    " | " if r["error"] else ""
+                ) + f"Missing fields: {', '.join(missing)}"
 
             preview_data.append(r)
 
-        request.session['preview_data'] = preview_data
-        request.session['selected_proyecto_id'] = proyecto.id
+        # ✅ NUEVO: validar consistencia dentro del archivo importado
+        preview_data = _validate_preview_payment_weeks_consistency(
+            preview_data=preview_data,
+            proyecto_id=proyecto.id,
+        )
 
-        # 5) conflictos por (tecnico, proyecto*, codigo_trabajo)
-        codes = {r['codigo_trabajo'] for r in preview_data if r.get('codigo_trabajo')}
+        request.session["preview_data"] = preview_data
+        request.session["selected_proyecto_id"] = proyecto.id
+
+        codes = {r["codigo_trabajo"] for r in preview_data if r.get("codigo_trabajo")}
         has_conflicts = False
         conflicts_by_tech = {}
 
         for t in tecnicos:
-            qs_conf = PrecioActividadTecnico.objects.filter(tecnico=t, codigo_trabajo__in=codes)
+            qs_conf = PrecioActividadTecnico.objects.filter(
+                tecnico=t, codigo_trabajo__in=codes
+            )
 
-            # Soporta ambos esquemas de proyecto en PrecioActividadTecnico
             try:
-                # Si existe proyecto_id (FK/char)
                 qs_conf = qs_conf.filter(proyecto_id=proyecto.id)
             except FieldError:
-                # Fallback: campo legacy 'proyecto' (texto)
-                nome = str(getattr(proyecto, 'nombre', '')).strip()
-                cod  = str(getattr(proyecto, 'codigo', '')).strip()
+                nome = str(getattr(proyecto, "nombre", "")).strip()
+                cod = str(getattr(proyecto, "codigo", "")).strip()
                 cond = dj_models.Q()
                 if nome:
                     cond |= dj_models.Q(proyecto__iexact=nome)
@@ -1974,29 +3758,147 @@ def importar_precios(request):
                 else:
                     qs_conf = qs_conf.none()
 
-            conflicts = list(qs_conf.values_list('codigo_trabajo', flat=True).distinct())
+            conflicts = list(
+                qs_conf.values_list("codigo_trabajo", flat=True).distinct()
+            )
             conflicts_by_tech[t.id] = conflicts
             if conflicts:
                 has_conflicts = True
 
         return render(
             request,
-            'operaciones/preview_import.html',
+            "operaciones/preview_import.html",
             {
-                'preview_data': preview_data,
-                'tecnicos': tecnicos,
-                'has_conflicts': has_conflicts,
-                'conflicts_by_tech': conflicts_by_tech,
-                'proyecto_sel': proyecto,
-            }
+                "preview_data": preview_data,
+                "tecnicos": tecnicos,
+                "has_conflicts": has_conflicts,
+                "conflicts_by_tech": conflicts_by_tech,
+                "proyecto_sel": proyecto,
+            },
         )
 
     except KeyError as ke:
         messages.error(request, f"Column not found or incorrectly assigned: {ke}")
-        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+        return redirect(
+            f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}"
+        )
     except Exception as e:
         messages.error(request, f"Error during import: {str(e)}")
-        return redirect(f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}")
+        return redirect(
+            f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto.id}"
+        )
+
+
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm")
+def descargar_template_precios(request):
+    """
+    Genera el template Excel de precios desde cero, sin depender de un archivo base.
+    Mantiene el estilo visual del template viejo y agrega la columna Payment Weeks
+    después de UOM.
+    """
+    from io import BytesIO
+
+    from django.http import HttpResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Technician Prices"
+
+    headers = [
+        "City",  # A
+        "Office",  # B
+        "Client",  # C
+        "Work Type",  # D
+        "Job Code",  # E
+        "Description",  # F
+        "UOM",  # G
+        "Payment\nWeeks",  # H
+        "Technical Price",  # I
+        "Company Price",  # J
+    ]
+
+    # ---- estilos ----
+    header_fill = PatternFill(fill_type="solid", fgColor="DCE6F1")
+    header_font = Font(name="Calibri", size=12, bold=True, color="000000")
+    header_alignment = Alignment(
+        horizontal="center",
+        vertical="center",
+        wrap_text=True,
+    )
+
+    thin_black = Side(style="thin", color="000000")
+    all_border = Border(
+        left=thin_black,
+        right=thin_black,
+        top=thin_black,
+        bottom=thin_black,
+    )
+
+    body_alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=False,
+    )
+
+    # ---- dimensiones ----
+    widths = {
+        "A": 14,  # City
+        "B": 14,  # Office
+        "C": 16,  # Client
+        "D": 16,  # Work Type
+        "E": 14,  # Job Code
+        "F": 20,  # Description
+        "G": 10,  # UOM
+        "H": 16,  # Payment Weeks
+        "I": 18,  # Technical Price
+        "J": 18,  # Company Price
+    }
+
+    for col_letter, width in widths.items():
+        ws.column_dimensions[col_letter].width = width
+
+    ws.row_dimensions[1].height = 34
+
+    # ---- header ----
+    for col_idx, title in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = all_border
+
+    # ---- grilla visible hasta fila 15 y columna J ----
+    for row in range(2, 16):
+        for col in range(1, 11):  # A:J
+            cell = ws.cell(row=row, column=col)
+            cell.border = all_border
+            cell.alignment = body_alignment
+
+    # ---- formato numérico sugerido para precios ----
+    for row in range(2, 16):
+        ws.cell(row=row, column=9).number_format = "0.00"  # I Technical Price
+        ws.cell(row=row, column=10).number_format = "0.00"  # J Company Price
+
+    # ---- freeze pane ----
+    ws.freeze_panes = "A2"
+
+    # ---- respuesta ----
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="Technician_Prices_Template.xlsx"'
+    )
+    return response
 
 
 @login_required(login_url='usuarios:login')
@@ -2036,85 +3938,130 @@ def api_tecnicos_por_proyecto(request):
     return JsonResponse(data)
 
 
-from django.contrib.auth import get_user_model
-# ---------- CONFIRMAR / GUARDAR ----------
-from django.db import transaction
-
-
 @login_required
-@rol_requerido('admin', 'pm')
+@rol_requerido("admin", "pm")
 def confirmar_importar_precios(request):
-    if request.method != 'POST':
-        return redirect('operaciones:importar_precios')
+    if request.method != "POST":
+        return redirect("operaciones:importar_precios")
 
     try:
-        preview_data = request.session.get('preview_data', [])
-        proyecto_id  = request.session.get('selected_proyecto_id')  # <-- clave
+        preview_data = request.session.get("preview_data", [])
+        proyecto_id = request.session.get("selected_proyecto_id")
+
         if not preview_data or not proyecto_id:
             messages.error(request, "No data to save. Please try again.")
-            return redirect('operaciones:importar_precios')
+            return redirect("operaciones:importar_precios")
 
-        replace = request.POST.get('replace') == 'yes'
-        created_total = updated_total = skipped_total = 0
+        replace = request.POST.get("replace") == "yes"
+        created_total = 0
+        updated_total = 0
+        skipped_total = 0
+
         User = get_user_model()
 
+        # Seguridad: no continuar si el preview ya trae errores
+        preview_errors = [row for row in preview_data if row.get("error")]
+        if preview_errors:
+            messages.error(
+                request,
+                "Import cannot continue because the preview contains errors. Please correct the file and try again.",
+            )
+            return redirect(
+                f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto_id}"
+            )
+
+        # ===== Validación por lote contra BD =====
+        family_map = _collect_import_family_map(preview_data, int(proyecto_id))
+
+        tecnico_ids_all = set()
+        for row in preview_data:
+            for tid in row.get("tecnico") or []:
+                try:
+                    tecnico_ids_all.add(int(tid))
+                except Exception:
+                    pass
+
+        tecnicos_all = User.objects.filter(id__in=tecnico_ids_all)
+        validation_errors = []
+
+        for tecnico in tecnicos_all:
+            errs = _validate_db_payment_weeks_consistency_for_import(
+                tecnico=tecnico,
+                proyecto_id=int(proyecto_id),
+                family_map=family_map,
+                replace=replace,
+            )
+            validation_errors.extend(errs)
+
+        if validation_errors:
+            for err in validation_errors:
+                messages.error(request, err)
+            return redirect(
+                f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto_id}"
+            )
+
+        # ===== Guardado =====
         with transaction.atomic():
             for row in preview_data:
-                if row.get('error'):
-                    continue
-
-                tecnico_ids = row.get('tecnico', [])
+                tecnico_ids = row.get("tecnico", [])
                 tecnicos = User.objects.filter(id__in=tecnico_ids)
 
                 for tecnico in tecnicos:
                     lookup = dict(
                         tecnico=tecnico,
-                        proyecto_id=proyecto_id,                  # <-- FK real
-                        ciudad=row.get('ciudad') or "",
-                        oficina=row.get('oficina') or "",
-                        cliente=row.get('cliente') or "",
-                        codigo_trabajo=row.get('codigo_trabajo') or "",
+                        proyecto_id=proyecto_id,
+                        ciudad=(row.get("ciudad") or "").strip(),
+                        oficina=(row.get("oficina") or "").strip(),
+                        cliente=(row.get("cliente") or "").strip(),
+                        codigo_trabajo=(row.get("codigo_trabajo") or "").strip(),
                     )
+
                     defaults = dict(
-                        tipo_trabajo=row.get('tipo_trabajo') or "",
-                        descripcion=row.get('descripcion') or "",
-                        unidad_medida=row.get('uom') or "",
-                        precio_tecnico=row.get('precio_tecnico') or 0,
-                        precio_empresa=row.get('precio_empresa') or 0,
-                        # opcional: reflejar nombre legacy si mantienes ese campo CharField
-                        # proyecto=row.get('proyecto') or "",
+                        tipo_trabajo=(row.get("tipo_trabajo") or "").strip(),
+                        descripcion=(row.get("descripcion") or "").strip(),
+                        unidad_medida=(row.get("uom") or "").strip(),
+                        payment_weeks=int(row.get("payment_weeks") or 0),
+                        precio_tecnico=row.get("precio_tecnico") or 0,
+                        precio_empresa=row.get("precio_empresa") or 0,
                     )
 
                     if replace:
                         obj, created = PrecioActividadTecnico.objects.update_or_create(
-                            **lookup, defaults=defaults
+                            **lookup,
+                            defaults=defaults,
                         )
-                        if created: created_total += 1
-                        else:       updated_total += 1
+                        if created:
+                            created_total += 1
+                        else:
+                            updated_total += 1
                     else:
                         obj, created = PrecioActividadTecnico.objects.get_or_create(
-                            **lookup, defaults=defaults
+                            **lookup,
+                            defaults=defaults,
                         )
-                        if created: skipped = False; created_total += 1
-                        else:       skipped_total += 1
+                        if created:
+                            created_total += 1
+                        else:
+                            skipped_total += 1
 
         msg = f"Import completed. Created: {created_total}, updated: {updated_total}"
         if skipped_total:
             msg += f", skipped (already existing): {skipped_total}"
         messages.success(request, msg)
 
-        # limpiar sesión
-        request.session.pop('preview_data', None)
-        request.session.pop('selected_proyecto_id', None)
+        request.session.pop("preview_data", None)
+        request.session.pop("selected_proyecto_id", None)
 
-        return redirect('operaciones:listar_precios_tecnico')
+        return redirect("operaciones:listar_precios_tecnico")
 
+    except ValidationError as e:
+        messages.error(request, str(e))
+        return redirect(
+            f"{reverse('operaciones:importar_precios')}?proyecto_id={proyecto_id}"
+        )
     except Exception as e:
         messages.error(request, f"An error occurred during the import: {str(e)}")
-        return redirect('operaciones:importar_precios')
-
-
-# ---------- CRUD EDIT/DELETE ----------
+        return redirect("operaciones:importar_precios")
 
 
 from core.permissions import project_object_access_required  # <-- NUEVO
@@ -2799,10 +4746,26 @@ def billing_mark_in_review(request, pk: int):
 def billing_reopen_asignado(request, pk):
     obj = get_object_or_404(SesionBilling, pk=pk)
 
+    # 🔒 Bloqueo contable absoluto:
+    # Si al menos una línea de algún trabajador ya fue pagada,
+    # el Billing no se puede reabrir.
+    if _session_is_paid_locked(obj):
+        messages.error(
+            request,
+            (
+                "This billing cannot be reopened because at least one worker/work type "
+                "line has already been marked as paid."
+            ),
+        )
+        return HttpResponseRedirect(
+            request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
+        )
+
     if obj.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"):
         with transaction.atomic():
             obj.estado = "asignado"
             obj.save(update_fields=["estado"])
+
             obj.tecnicos_sesion.all().update(
                 estado="asignado",
                 aceptado_en=None,
@@ -2813,11 +4776,19 @@ def billing_reopen_asignado(request, pk):
                 pm_comentario="",
                 reintento_habilitado=True,
             )
+
+            rebuild_billing_payweek_snapshot(obj)
+
         messages.success(
-            request, f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated.")
+            request,
+            f"Billing #{obj.pk} has been reopened to 'Assigned' and all assignments were reactivated.",
+        )
     else:
         messages.info(request, "This record is not in an approved state.")
-    return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/operaciones/billing/listar/"))
+
+    return HttpResponseRedirect(
+        request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
+    )
 
 
 @login_required
@@ -2844,27 +4815,29 @@ def listar_billing(request):
     from django.db.models import Prefetch, Q
 
     from facturacion.models import Proyecto
-    from operaciones.models import (EvidenciaFotoBilling, ItemBilling,
+    from operaciones.models import (BillingPayWeekSnapshot,
+                                    EvidenciaFotoBilling, ItemBilling,
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
 
     user = request.user
 
     # ---------------- Usuarios privilegiados ----------------
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
     )
 
     visible_filter = (
-        (Q(is_direct_discount=True) & Q(finance_sent_at__isnull=True) & ~Q(finance_status='paid'))
-        |
-        (Q(is_direct_discount=False) & ~Q(finance_status__in=['sent', 'pending', 'paid', 'in_review']))
+        Q(is_direct_discount=True)
+        & Q(finance_sent_at__isnull=True)
+        & ~Q(finance_status="paid")
+    ) | (
+        Q(is_direct_discount=False)
+        & ~Q(finance_status__in=["sent", "pending", "paid", "in_review"])
     )
 
     qs = (
-        SesionBilling.objects
-        .filter(visible_filter)
+        SesionBilling.objects.filter(visible_filter)
         .order_by("-creado_en")
         .prefetch_related(
             Prefetch(
@@ -2878,15 +4851,28 @@ def listar_billing(request):
             ),
             Prefetch(
                 "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects
-                .select_related("tecnico")
-                .prefetch_related(
+                queryset=SesionBillingTecnico.objects.select_related(
+                    "tecnico"
+                ).prefetch_related(
                     Prefetch(
                         "evidencias",
                         queryset=EvidenciaFotoBilling.objects.only(
                             "id", "imagen", "tecnico_sesion_id", "requisito_id"
-                        ).order_by("-id")
+                        ).order_by("-id"),
                     )
+                ),
+            ),
+            Prefetch(
+                "pay_week_snapshots",
+                queryset=BillingPayWeekSnapshot.objects.select_related(
+                    "tecnico", "item"
+                ).order_by(
+                    "tecnico__first_name",
+                    "tecnico__last_name",
+                    "tecnico__username",
+                    "tipo_trabajo",
+                    "codigo_trabajo",
+                    "id",
                 ),
             ),
         )
@@ -2898,7 +4884,7 @@ def listar_billing(request):
             proyectos_user = filter_queryset_by_access(
                 Proyecto.objects.all(),
                 request.user,
-                'id',
+                "id",
             )
         except Exception:
             proyectos_user = Proyecto.objects.none()
@@ -2922,9 +4908,9 @@ def listar_billing(request):
             try:
                 if ProyectoAsignacion is not None:
                     asignaciones = list(
-                        ProyectoAsignacion.objects
-                        .filter(usuario=request.user, proyecto__in=proyectos_user)
-                        .select_related("proyecto")
+                        ProyectoAsignacion.objects.filter(
+                            usuario=request.user, proyecto__in=proyectos_user
+                        ).select_related("proyecto")
                     )
                 else:
                     asignaciones = []
@@ -2949,10 +4935,12 @@ def listar_billing(request):
 
                     keys.add(str(p.id).strip())
 
-                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                    if getattr(a, "include_history", False) or not getattr(
+                        a, "start_at", None
+                    ):
                         window_q |= Q(proyecto__in=keys)
                     else:
-                        window_q |= (Q(proyecto__in=keys) & Q(creado_en__gte=a.start_at))
+                        window_q |= Q(proyecto__in=keys) & Q(creado_en__gte=a.start_at)
 
                 qs = qs.filter(window_q) if window_q else qs.none()
         else:
@@ -2960,10 +4948,10 @@ def listar_billing(request):
 
     # ---------------- Filtros rápidos normales ----------------
     f = {
-        "date":   (request.GET.get("date") or "").strip(),
+        "date": (request.GET.get("date") or "").strip(),
         "projid": (request.GET.get("projid") or "").strip(),
-        "week":   (request.GET.get("week") or "").strip(),
-        "tech":   (request.GET.get("tech") or "").strip(),
+        "week": (request.GET.get("week") or "").strip(),
+        "tech": (request.GET.get("tech") or "").strip(),
         "client": (request.GET.get("client") or "").strip(),
         "status": (request.GET.get("status") or "").strip(),
     }
@@ -2982,15 +4970,22 @@ def listar_billing(request):
 
     if f["week"]:
         qs_filtered = qs_filtered.filter(
-            Q(semana_pago_proyectada__icontains=f["week"]) |
-            Q(semana_pago_real__icontains=f["week"])
+            Q(semana_pago_proyectada__icontains=f["week"])
+            | Q(semana_pago_real__icontains=f["week"])
+            | Q(pay_week_snapshots__semana_resultado__icontains=f["week"])
+            | Q(pay_week_snapshots__semana_base__icontains=f["week"])
+            | Q(discount_week__icontains=f["week"])
+            | Q(semana_descuento__icontains=f["week"])
         )
 
     if f["tech"]:
         qs_filtered = qs_filtered.filter(
-            Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"]) |
-            Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"]) |
-            Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
+            Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"])
+            | Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"])
+            | Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__first_name__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__last_name__icontains=f["tech"])
+            | Q(pay_week_snapshots__tecnico__username__icontains=f["tech"])
         )
 
     if f["client"]:
@@ -3003,9 +4998,18 @@ def listar_billing(request):
             qs_filtered = qs_filtered.filter(is_direct_discount=True)
         else:
             mapping = [
-                (("aprobado supervisor", "approved by supervisor"), Q(estado="aprobado_supervisor")),
-                (("rechazado supervisor", "rejected by supervisor"), Q(estado="rechazado_supervisor")),
-                (("en revision", "supervisor review", "in supervisor review"), Q(estado="en_revision_supervisor")),
+                (
+                    ("aprobado supervisor", "approved by supervisor"),
+                    Q(estado="aprobado_supervisor"),
+                ),
+                (
+                    ("rechazado supervisor", "rejected by supervisor"),
+                    Q(estado="rechazado_supervisor"),
+                ),
+                (
+                    ("en revision", "supervisor review", "in supervisor review"),
+                    Q(estado="en_revision_supervisor"),
+                ),
                 (("finalizado", "finished"), Q(estado="finalizado")),
                 (("en proceso", "in progress"), Q(estado="en_proceso")),
                 (("asignado", "assigned"), Q(estado="asignado")),
@@ -3031,13 +5035,7 @@ def listar_billing(request):
 
     qs_filtered = qs_filtered.distinct()
 
-    # ---------------- Filtros Excel globales ----------------
-    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
-    try:
-        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
-    except json.JSONDecodeError:
-        excel_filters = {}
-
+    # ---------------- Helpers ----------------
     def money_label(n):
         try:
             return f"${float(n or 0):.2f}"
@@ -3085,6 +5083,194 @@ def listar_billing(request):
             pass
         return ", ".join(v for v in vals if v)
 
+    def comments_label(sesion):
+        vals = []
+        try:
+            for st in sesion.tecnicos_sesion.all():
+                txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+                if txt:
+                    tech_name = st.tecnico.get_full_name() or st.tecnico.username
+                    vals.append(f"{tech_name}: {txt}")
+        except Exception:
+            pass
+        return " | ".join(vals) if vals else "—"
+
+    def legacy_paid_flag(s):
+        note = getattr(s, "finance_note", "") or ""
+        tech_ids = []
+
+        try:
+            tech_ids = list(
+                s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
+            )
+        except Exception:
+            tech_ids = []
+
+        possible_weeks = [
+            (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+            (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+            (getattr(s, "discount_week", "") or "").strip().upper(),
+            (getattr(s, "semana_descuento", "") or "").strip().upper(),
+        ]
+        possible_weeks = [w for w in possible_weeks if w]
+
+        for tech_id in tech_ids:
+            for wk in possible_weeks:
+                marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+                if marker in note:
+                    return True
+
+        return False
+
+    def build_payweek_groups(s):
+        groups = []
+        groups_map = {}
+
+        snaps = (
+            list(getattr(s, "pay_week_snapshots", []).all())
+            if hasattr(s, "pay_week_snapshots")
+            else []
+        )
+
+        # =========================================================
+        # SNAPSHOTS -> una línea por work type
+        # =========================================================
+        if snaps:
+            for snap in snaps:
+                tech_name = (
+                    snap.tecnico.get_full_name().strip()
+                    if getattr(snap, "tecnico", None) and snap.tecnico.get_full_name()
+                    else getattr(snap.tecnico, "username", "")
+                    or f"User {snap.tecnico_id}"
+                )
+
+                grp = groups_map.setdefault(
+                    tech_name,
+                    {
+                        "tech_name": tech_name,
+                        "weeks_summary": "",
+                        "lines": [],
+                    },
+                )
+
+                work_type = (
+                    (snap.tipo_trabajo or "").strip()
+                    or (getattr(snap.item, "tipo_trabajo", "") or "").strip()
+                    or "Legacy"
+                )
+
+                week = (
+                    (snap.semana_resultado or "").strip()
+                    or (snap.semana_base or "").strip()
+                    or (s.semana_pago_real or "").strip()
+                    or (s.semana_descuento or "").strip()
+                    or (s.discount_week or "").strip()
+                    or (s.semana_pago_proyectada or "").strip()
+                    or "—"
+                )
+
+                is_paid_line = (
+                    bool(getattr(snap, "paid_at", None) or getattr(snap, "is_paid", False))
+                    or (getattr(s, "finance_status", "") == "paid")
+                )
+
+                grp["lines"].append(
+                    {
+                        "work_type": work_type,
+                        "codigo_trabajo": (snap.codigo_trabajo or "").strip(),
+                        "week": week,
+                        "is_legacy": False,
+                        "snapshot_id": snap.id,
+                        "is_paid": is_paid_line,
+                    }
+                )
+
+            groups = list(groups_map.values())
+
+            for grp in groups:
+                weeks = []
+                for line in grp["lines"]:
+                    wk = (line.get("week") or "").strip()
+                    if wk and wk not in weeks:
+                        weeks.append(wk)
+                grp["weeks_summary"] = ", ".join(weeks) if weeks else "—"
+
+            return groups
+
+        # =========================================================
+        # LEGACY -> IGUAL QUE FACTURACIÓN: una sola línea por billing
+        # =========================================================
+        asignaciones = (
+            list(s.tecnicos_sesion.all()) if hasattr(s, "tecnicos_sesion") else []
+        )
+
+        base_week = (
+            (s.semana_pago_real or "").strip()
+            or (s.semana_descuento or "").strip()
+            or (s.discount_week or "").strip()
+            or (s.semana_pago_proyectada or "").strip()
+            or "—"
+        )
+
+        legacy_is_paid = legacy_paid_flag(s) or (getattr(s, "finance_status", "") == "paid")
+
+        tech_names = []
+        for asig in asignaciones:
+            tech_name = (
+                asig.tecnico.get_full_name().strip()
+                if getattr(asig, "tecnico", None) and asig.tecnico.get_full_name()
+                else getattr(asig.tecnico, "username", "") or f"User {asig.tecnico_id}"
+            )
+            if tech_name and tech_name not in tech_names:
+                tech_names.append(tech_name)
+
+        tech_label = ", ".join(tech_names) if tech_names else "—"
+
+        return [
+            {
+                "tech_name": tech_label,
+                "weeks_summary": base_week,
+                "lines": [
+                    {
+                        "work_type": "Legacy",
+                        "codigo_trabajo": "",
+                        "week": base_week,
+                        "is_legacy": True,
+                        "session_id": s.id,
+                        "dom_id": f"{s.id}-legacy",
+                        "is_paid": legacy_is_paid,
+                    }
+                ],
+            }
+        ]
+
+    def payweek_snapshot_label(sesion):
+        groups = build_payweek_groups(sesion)
+        if not groups:
+            return str(getattr(sesion, "semana_pago_real", "") or "—")
+
+        rows = []
+        for grp in groups:
+            tech_name = grp.get("tech_name") or "—"
+            for line in grp.get("lines", []):
+                work_type = (line.get("work_type") or "").strip() or "Work type"
+                week = (line.get("week") or "").strip() or "—"
+                suffix = " [Paid]" if line.get("is_paid") else ""
+                rows.append(f"{tech_name} — {work_type} → {week}{suffix}")
+
+        return (
+            " | ".join(rows)
+            if rows
+            else str(getattr(sesion, "semana_pago_real", "") or "—")
+        )
+
+    # ---------------- Filtros Excel globales ----------------
+    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+    try:
+        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
+    except json.JSONDecodeError:
+        excel_filters = {}
+
     def excel_value_for_billing(sesion, col):
         if col == "0":
             d = getattr(sesion, "creado_en", None)
@@ -3104,7 +5290,10 @@ def listar_billing(request):
         elif col == "7":
             return str(getattr(sesion, "ciudad", "") or "")
         elif col == "8":
-            return str(getattr(sesion, "proyecto_nombre", getattr(sesion, "proyecto", "")) or "")
+            return str(
+                getattr(sesion, "proyecto_nombre", getattr(sesion, "proyecto", ""))
+                or ""
+            )
         elif col == "9":
             return str(getattr(sesion, "oficina", "") or "")
         elif col == "10":
@@ -3130,21 +5319,14 @@ def listar_billing(request):
         elif col == "14":
             return finance_status_label(sesion)
         elif col == "15":
-            return str(getattr(sesion, "semana_pago_real", "") or "—")
+            return payweek_snapshot_label(sesion)
         elif col == "16":
-            comentarios = []
-            try:
-                for a in sesion.tecnicos_sesion.all():
-                    txt = (getattr(a, "tecnico_comentario", "") or "").strip()
-                    if txt:
-                        comentarios.append(txt)
-            except Exception:
-                pass
-            return " | ".join(comentarios) if comentarios else "—"
+            return comments_label(sesion)
         return ""
 
-    # mapear proyecto legible antes de filtros Excel
+    # ---------------- mapear proyecto legible antes de filtros Excel ----------------
     all_for_project_map = list(qs_filtered)
+
     proj_ids = set()
     for s in all_for_project_map:
         val = s.proyecto
@@ -3155,10 +5337,14 @@ def listar_billing(request):
         except (TypeError, ValueError):
             continue
 
-    proyectos_map = {
-        p.id: getattr(p, "nombre", str(p))
-        for p in Proyecto.objects.filter(id__in=proj_ids)
-    } if proj_ids else {}
+    proyectos_map = (
+        {
+            p.id: getattr(p, "nombre", str(p))
+            for p in Proyecto.objects.filter(id__in=proj_ids)
+        }
+        if proj_ids
+        else {}
+    )
 
     for s in all_for_project_map:
         val = s.proyecto
@@ -3169,6 +5355,7 @@ def listar_billing(request):
         else:
             s.proyecto_nombre = proyectos_map.get(key, val)
 
+    # ---------------- aplicar filtros Excel antes de paginar ----------------
     if excel_filters:
         filtered_list = []
         for s in all_for_project_map:
@@ -3185,8 +5372,10 @@ def listar_billing(request):
                 filtered_list.append(s)
         all_for_project_map = filtered_list
 
-    # comentarios_tecnicos
+    # ---------------- extras para template ----------------
     for s in all_for_project_map:
+        s.has_paid_work_type_lines = _session_is_paid_locked(s)
+
         comentarios = []
         try:
             for a in s.tecnicos_sesion.all():
@@ -3195,9 +5384,12 @@ def listar_billing(request):
                     comentarios.append(a)
         except Exception:
             comentarios = []
-        s.comentarios_tecnicos = comentarios
 
-    # globales para panel Excel
+        s.comentarios_tecnicos = comentarios
+        s.payweek_snapshot_label = payweek_snapshot_label(s)
+        s.payweek_groups = build_payweek_groups(s)
+
+    # ---------------- globales para panel Excel ----------------
     excel_global = {}
     for col in range(17):
         vals = set()
@@ -3232,8 +5424,21 @@ def listar_billing(request):
         getattr(request.user, "es_admin_general", False) or request.user.is_superuser
     )
 
-    # Mantener filtros al paginar / cambiar cantidad
+    # ---------------- Mantener filtros al paginar / cambiar cantidad ----------------
     keep_params = {}
+
+    if f["date"]:
+        keep_params["date"] = f["date"]
+    if f["projid"]:
+        keep_params["projid"] = f["projid"]
+    if f["week"]:
+        keep_params["week"] = f["week"]
+    if f["tech"]:
+        keep_params["tech"] = f["tech"]
+    if f["client"]:
+        keep_params["client"] = f["client"]
+    if f["status"]:
+        keep_params["status"] = f["status"]
 
     if cantidad:
         keep_params["cantidad"] = cantidad
@@ -3258,24 +5463,194 @@ def listar_billing(request):
     )
 
 @login_required
+@rol_requerido("admin", "pm", "facturacion")
+@csrf_protect
+@require_POST
+def billing_update_snapshot_week(request, snapshot_id: int):
+    """
+    Actualiza la semana_resultado de TODOS los snapshots de la misma sesión
+    para el mismo técnico + work type.
+
+    Reglas:
+    - Si hay pagos PAID relacionados, SOLO admin puede modificar.
+    - Excluye snapshots de ajuste si el modelo soporta esos campos.
+    - NO modifica semana_base aquí; solo semana_resultado.
+    - Recalcula semana_pago_real resumen de la sesión.
+    - Re-sincroniza WeeklyPayment para semanas viejas y nuevas.
+    - Responde SIEMPRE JSON.
+    """
+    try:
+        snap = get_object_or_404(
+            BillingPayWeekSnapshot.objects.select_related("sesion"),
+            pk=snapshot_id,
+        )
+
+        semana = (request.POST.get("semana") or "").strip().upper()
+        if not semana:
+            return JsonResponse({"ok": False, "error": "Week is required."}, status=400)
+
+        if not WEEK_RE.match(semana):
+            return JsonResponse(
+                {"ok": False, "error": "Invalid format. Use YYYY-W##"},
+                status=400,
+            )
+
+        year, week = _parse_iso_week(semana)
+        if not year or not week:
+            return JsonResponse(
+                {"ok": False, "error": "Invalid ISO week."},
+                status=400,
+            )
+
+        sesion = snap.sesion
+        is_admin = _is_admin(request.user)
+
+        # 🔒 Si hay pagos PAID relacionados, solo admin puede mover semanas
+        if _session_is_paid_locked(sesion) and not is_admin:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "LOCKED_PAID",
+                    "message": "This session has PAID weekly payments. Only admins can change the real pay week.",
+                },
+                status=403,
+            )
+
+        tecnico_id = snap.tecnico_id
+        tipo_trabajo = (getattr(snap, "tipo_trabajo", "") or "").strip()
+
+        snapshot_fields = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+        has_is_adjustment = "is_adjustment" in snapshot_fields
+        has_adjustment_of = "adjustment_of" in snapshot_fields
+
+        # Semanas antiguas afectadas por este grupo
+        old_weeks = set(
+            BillingPayWeekSnapshot.objects.filter(
+                sesion=sesion,
+                tecnico_id=tecnico_id,
+                tipo_trabajo=tipo_trabajo,
+            )
+            .exclude(semana_resultado__isnull=True)
+            .exclude(semana_resultado__exact="")
+            .values_list("semana_resultado", flat=True)
+        )
+
+        qs = BillingPayWeekSnapshot.objects.filter(
+            sesion=sesion,
+            tecnico_id=tecnico_id,
+            tipo_trabajo=tipo_trabajo,
+        )
+
+        if has_is_adjustment:
+            qs = qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            qs = qs.filter(adjustment_of__isnull=True)
+
+        snaps = list(qs)
+
+        changed_weeks = set()
+        updated_count = 0
+
+        with transaction.atomic():
+            for obj in snaps:
+                update_fields = []
+
+                if (obj.semana_resultado or "") != semana:
+                    obj.semana_resultado = semana
+                    update_fields.append("semana_resultado")
+
+                # ✅ IMPORTANTE:
+                # NO tocar semana_base aquí.
+                # semana_base representa la proyectada/origen, no la real editada línea a línea.
+
+                if update_fields:
+                    obj.save(update_fields=update_fields)
+                    updated_count += 1
+
+                if semana:
+                    changed_weeks.add(semana)
+
+            # Recalcular semana_pago_real resumen de la sesión
+            snaps_all = BillingPayWeekSnapshot.objects.filter(sesion=sesion)
+
+            if has_is_adjustment:
+                snaps_all = snaps_all.filter(is_adjustment=False)
+            elif has_adjustment_of:
+                snaps_all = snaps_all.filter(adjustment_of__isnull=True)
+
+            weeks_all = list(
+                snaps_all.exclude(semana_resultado__isnull=True)
+                .exclude(semana_resultado__exact="")
+                .values_list("semana_resultado", flat=True)
+            )
+
+            summary_week = ""
+            parsed = []
+
+            for w in weeks_all:
+                y, wk = _parse_iso_week(w)
+                if y and wk:
+                    parsed.append((y, wk, w))
+
+            if parsed:
+                parsed.sort(key=lambda x: (x[0], x[1]))
+                summary_week = parsed[-1][2]
+
+            update_fields = ["semana_pago_real"]
+            sesion.semana_pago_real = summary_week
+
+            if hasattr(sesion, "updated_at"):
+                update_fields.append("updated_at")
+
+            sesion.save(update_fields=update_fields)
+
+        # Re-sincronizar semanas afectadas
+        try:
+            weeks_to_sync = set(filter(None, old_weeks | changed_weeks))
+            for wk in weeks_to_sync:
+                _sync_weekly_totals(week=wk)
+        except Exception:
+            pass
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "semana": semana,
+                "summary_week": summary_week,
+                "updated_count": updated_count,
+            }
+        )
+
+    except Exception as e:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "SERVER_ERROR",
+                "message": str(e),
+            },
+            status=500,
+        )
+
+
+@login_required
 @require_POST
 def billing_item_update_qty(request, item_id: int):
     is_admin = bool(
         getattr(request.user, "es_admin_general", False) or request.user.is_superuser
     )
     if not is_admin:
-        return HttpResponseForbidden("Solo admin puede editar cantidades en línea.")
+        return HttpResponseForbidden("Only admin can edit quantities inline.")
 
     try:
         payload = json.loads(request.body.decode("utf-8"))
         cantidad = payload.get("cantidad", None)
         if cantidad is None:
-            return HttpResponseBadRequest("Falta 'cantidad'.")
+            return HttpResponseBadRequest("Missing 'cantidad'.")
         cantidad = Decimal(str(cantidad))
         if cantidad < 0:
-            return HttpResponseBadRequest("Cantidad inválida.")
+            return HttpResponseBadRequest("Invalid quantity.")
     except (json.JSONDecodeError, InvalidOperation):
-        return HttpResponseBadRequest("Payload inválido.")
+        return HttpResponseBadRequest("Invalid payload.")
 
     try:
         item = (
@@ -3284,9 +5659,24 @@ def billing_item_update_qty(request, item_id: int):
             .get(pk=item_id)
         )
     except ItemBilling.DoesNotExist:
-        return HttpResponseBadRequest("Item no existe.")
+        return HttpResponseBadRequest("Item does not exist.")
 
     sesion = item.sesion
+
+    # 🔒 Bloqueo contable absoluto:
+    # No permitir editar cantidades si el Billing ya tiene al menos una línea pagada.
+    if _session_is_paid_locked(sesion):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "LOCKED_PAID",
+                "message": (
+                    "This billing cannot be modified because at least one "
+                    "worker/work type line has already been marked as paid."
+                ),
+            },
+            status=403,
+        )
 
     payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
     if payment_mode not in ("split", "full"):
@@ -3329,6 +5719,7 @@ def billing_item_update_qty(request, item_id: int):
         items_qs = ItemBilling.objects.filter(sesion=sesion).only(
             "subtotal_tecnico", "subtotal_empresa"
         )
+
         total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))["s"] or Decimal(
             "0"
         )
@@ -3342,8 +5733,15 @@ def billing_item_update_qty(request, item_id: int):
         )
 
         sesion_refrescada = SesionBilling.objects.only(
-            "id", "subtotal_tecnico", "subtotal_empresa", "real_company_billing"
+            "id",
+            "subtotal_tecnico",
+            "subtotal_empresa",
+            "real_company_billing",
+            "semana_pago_real",
+            "semana_pago_proyectada",
         ).get(pk=sesion.pk)
+
+        snapshot_info = rebuild_billing_payweek_snapshot(sesion_refrescada)
 
         diff_text = "—"
         if sesion_refrescada.real_company_billing is not None:
@@ -3351,11 +5749,16 @@ def billing_item_update_qty(request, item_id: int):
                 sesion_refrescada.real_company_billing
                 - sesion_refrescada.subtotal_empresa
             )
+
             if diff < 0:
-                diff_text = f"<span class='font-semibold text-red-600'>- ${abs(diff):.2f}</span>"
+                diff_text = (
+                    f"<span class='font-semibold text-red-600'>"
+                    f"- ${abs(diff):.2f}</span>"
+                )
             elif diff > 0:
                 diff_text = (
-                    f"<span class='font-semibold text-green-600'>+ ${diff:.2f}</span>"
+                    f"<span class='font-semibold text-green-600'>"
+                    f"+ ${diff:.2f}</span>"
                 )
             else:
                 diff_text = "<span class='text-gray-700'>$0.00</span>"
@@ -3376,6 +5779,7 @@ def billing_item_update_qty(request, item_id: int):
                     if sesion_refrescada.real_company_billing is not None
                     else None
                 ),
+                "semana_pago_real": snapshot_info.get("summary_week", "") or "",
                 "diferencia_text": diff_text,
             },
         }
@@ -3387,157 +5791,162 @@ def billing_item_update_qty(request, item_id: int):
 
 @login_required
 def crear_billing(request):
-    # POST -> guardar y redirigir (PRG)
     if request.method == "POST":
-        # <-- ahora maneja "descuento directo"
         return _guardar_billing(request)
 
-    # Combos
     clientes = (
-        PrecioActividadTecnico.objects
-        .values_list("cliente", flat=True)
+        PrecioActividadTecnico.objects.values_list("cliente", flat=True)
         .distinct()
         .order_by("cliente")
     )
 
-    # ========= Proyectos visibles para este usuario =========
     proyectos_visibles = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
-        'id',
+        "id",
     )
 
-    # Técnicos con al menos una tarifa cargada
-    # PERO solo en proyectos a los que el usuario tiene acceso
     if proyectos_visibles.exists():
         tecnicos = (
-            Usuario.objects
-            .filter(
+            Usuario.objects.filter(
                 is_active=True,
                 precioactividadtecnico__isnull=False,
-                precioactividadtecnico__proyecto_id__in=proyectos_visibles
-                    .values_list("id", flat=True),
+                precioactividadtecnico__proyecto_id__in=proyectos_visibles.values_list(
+                    "id", flat=True
+                ),
             )
             .distinct()
             .order_by("first_name", "last_name", "username")
         )
     else:
-        # Si el usuario no tiene proyectos asociados, no ve técnicos
         tecnicos = Usuario.objects.none()
 
-    return render(request, "operaciones/billing_editar.html", {
-        "sesion": None,
-        "clientes": list(clientes),
-        "tecnicos": tecnicos,
-        "items": [],
-        "ids_tecnicos": [],
-    })
+    return render(
+        request,
+        "operaciones/billing_editar.html",
+        {
+            "is_edit": False,
+            "sesion": None,
+            "clientes": list(clientes),
+            "tecnicos": tecnicos,
+            "items": [],
+            "ids_tecnicos": [],
+            "proyecto_value": "",
+            "proyecto_label": "",
+        },
+    )
 
 
 @login_required
 def editar_billing(request, sesion_id: int):
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    # POST -> guardar y redirigir (PRG)
+    # 🔒 Si ya existe al menos una línea pagada, no se permite editar.
+    # Esto evita cambios contables después del pago.
+    if _session_is_paid_locked(sesion):
+        messages.error(
+            request,
+            (
+                "This billing cannot be edited because at least one worker/work type "
+                "line has already been marked as paid."
+            ),
+        )
+        return redirect("operaciones:listar_billing")
+
     if request.method == "POST":
         return _guardar_billing(request, sesion=sesion)
 
-    # Combos
     clientes = (
-        PrecioActividadTecnico.objects
-        .values_list("cliente", flat=True)
+        PrecioActividadTecnico.objects.values_list("cliente", flat=True)
         .distinct()
         .order_by("cliente")
     )
 
     tecnicos = (
-        Usuario.objects
-        .filter(precioactividadtecnico__isnull=False, is_active=True)
+        Usuario.objects.filter(precioactividadtecnico__isnull=False, is_active=True)
         .distinct()
         .order_by("first_name", "last_name", "username")
     )
 
-    items = (
-        sesion.items
-        .prefetch_related("desglose_tecnico__tecnico")
-        .order_by("id")
-    )
+    items = sesion.items.prefetch_related("desglose_tecnico__tecnico").order_by("id")
 
     ids_tecnicos = list(
-        sesion.tecnicos_sesion.filter(is_active=True).values_list("tecnico_id", flat=True)
+        sesion.tecnicos_sesion.filter(is_active=True).values_list(
+            "tecnico_id", flat=True
+        )
     )
 
-    # 🔒 Proyectos visibles para el usuario
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
         "id",
     )
 
-    # ========= Resolver proyecto seleccionado (para el select "Project") =========
     proyecto_sel = None
 
-    # ✅ IMPORTANTÍSIMO:
-    # Siempre definimos defaults para que el template JAMÁS quede sin
-    # proyecto_value / proyecto_label (esto evita "resets" raros por undefined).
-    raw_label = (getattr(sesion, "proyecto", None) or getattr(sesion, "proyecto_id", None) or "")
+    raw_label = (
+        getattr(sesion, "proyecto", None) or getattr(sesion, "proyecto_id", None) or ""
+    )
+
     raw_label = str(raw_label).strip()
 
     proyecto_value = raw_label
+
     proyecto_label = raw_label
 
-    # 1) Intentar resolver con sesion.proyecto (puede ser id numérico o nombre/código)
     raw = (getattr(sesion, "proyecto", "") or "").strip()
+
     if raw:
         try:
             pid = int(raw)
         except (TypeError, ValueError):
             proyecto_sel = proyectos_qs.filter(
-                Q(nombre__iexact=raw) |
-                Q(codigo__iexact=raw)
+                Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
             ).first()
         else:
             proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-    # 2) Si no se resolvió, intentar con sesion.proyecto_id (NB6790, etc.)
     if not proyecto_sel and getattr(sesion, "proyecto_id", None):
         code = str(sesion.proyecto_id).strip()
 
         if code:
-            # Primero por código exacto; luego por nombre (compatibilidad)
             proyecto_sel = proyectos_qs.filter(
-                Q(codigo__iexact=code) |
-                Q(nombre__iexact=code) |
-                Q(nombre__icontains=code)
+                Q(codigo__iexact=code)
+                | Q(nombre__iexact=code)
+                | Q(nombre__icontains=code)
             ).first()
 
-            # Además, por si proyecto_id viene numérico como texto
             if not proyecto_sel:
                 try:
                     pid2 = int(code)
                 except (TypeError, ValueError):
                     pid2 = None
+
                 if pid2 is not None:
                     proyecto_sel = proyectos_qs.filter(pk=pid2).first()
 
-    # 3) Normalizar value/label para el <select>
     if proyecto_sel:
-        proyecto_value = str(proyecto_sel.id)  # 👈 importante: string para calzar con <option value="...">
-        proyecto_label = (getattr(proyecto_sel, "nombre", "") or str(proyecto_sel)).strip()
+        proyecto_value = str(proyecto_sel.id)
+        proyecto_label = (
+            getattr(proyecto_sel, "nombre", "") or str(proyecto_sel)
+        ).strip()
 
-    # =========================================================================
-
-    return render(request, "operaciones/billing_editar.html", {
-        "sesion": sesion,
-        "clientes": list(clientes),
-        "tecnicos": tecnicos,
-        "items": items,
-        "ids_tecnicos": ids_tecnicos,
-        "proyectos": proyectos_qs,
-        "proyecto_sel": proyecto_sel,
-        "proyecto_value": proyecto_value,
-        "proyecto_label": proyecto_label,
-    })
+    return render(
+        request,
+        "operaciones/billing_editar.html",
+        {
+            "is_edit": True,
+            "sesion": sesion,
+            "clientes": list(clientes),
+            "tecnicos": tecnicos,
+            "items": items,
+            "ids_tecnicos": ids_tecnicos,
+            "proyectos": proyectos_qs,
+            "proyecto_sel": proyecto_sel,
+            "proyecto_value": proyecto_value,
+            "proyecto_label": proyecto_label,
+        },
+    )
 
 
 def _money(v) -> Decimal:
@@ -3549,30 +5958,40 @@ def _money(v) -> Decimal:
 
 def _tarifa_tecnico_lookup(tid, sesion, codigo) -> Decimal:
     """
-    Misma lógica que tu _guardar_billing.tarifa_tecnico(), pero reutilizable aquí.
+    Busca la tarifa técnica usando SIEMPRE el PK real de Proyecto.
     """
-    val = (PrecioActividadTecnico.objects
-           .filter(
-               tecnico_id=tid,
-               cliente=sesion.cliente,
-               ciudad=sesion.ciudad,
-               proyecto=sesion.proyecto,
-               oficina=sesion.oficina,
-               codigo_trabajo=codigo
-           )
-           .values_list("precio_tecnico", flat=True)
-           .first())
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(sesion)
+    if not proyecto_pk:
+        return _money(0)
+
+    val = (
+        PrecioActividadTecnico.objects
+        .filter(
+            tecnico_id=tid,
+            cliente=sesion.cliente,
+            ciudad=sesion.ciudad,
+            proyecto_id=proyecto_pk,
+            oficina=sesion.oficina,
+            codigo_trabajo=codigo,
+        )
+        .values_list("precio_tecnico", flat=True)
+        .first()
+    )
+
     if val is None:
-        val = (PrecioActividadTecnico.objects
-               .filter(
-                   cliente=sesion.cliente,
-                   ciudad=sesion.ciudad,
-                   proyecto=sesion.proyecto,
-                   oficina=sesion.oficina,
-                   codigo_trabajo=codigo
-               )
-               .values_list("precio_tecnico", flat=True)
-               .first())
+        val = (
+            PrecioActividadTecnico.objects
+            .filter(
+                cliente=sesion.cliente,
+                ciudad=sesion.ciudad,
+                proyecto_id=proyecto_pk,
+                oficina=sesion.oficina,
+                codigo_trabajo=codigo,
+            )
+            .values_list("precio_tecnico", flat=True)
+            .first()
+        )
+
     return _money(val or 0)
 
 
@@ -3783,12 +6202,33 @@ def billing_add_tecnico(request, sesion_id: int):
 
     return JsonResponse({"ok": True, "final_ids": final_ids})
 
+
 @login_required
+@require_POST
 @transaction.atomic
 def eliminar_billing(request, sesion_id: int):
-    get_object_or_404(SesionBilling, pk=sesion_id).delete()
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    # 🔒 Bloqueo contable absoluto:
+    # Si al menos una línea de algún trabajador ya fue pagada,
+    # el Billing no se puede eliminar.
+    if _session_is_paid_locked(sesion):
+        messages.error(
+            request,
+            (
+                "This billing cannot be deleted because at least one worker/work type "
+                "line has already been marked as paid."
+            ),
+        )
+        return HttpResponseRedirect(
+            request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
+        )
+
+    sesion.delete()
+
     messages.success(request, "Billing deleted.")
     return redirect("operaciones:listar_billing")
+
 
 @login_required
 @transaction.atomic
@@ -3933,8 +6373,25 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
 
 @transaction.atomic
 def _guardar_billing(request, sesion=None):
-    import json
     import re
+
+    if sesion is not None and _session_is_paid_locked(sesion):
+
+        messages.error(
+
+            request,
+
+            (
+
+                "This billing cannot be modified because at least one worker/work type "
+
+                "line has already been marked as paid."
+
+            ),
+
+        )
+
+        return redirect("operaciones:listar_billing")
 
     WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 
@@ -3944,12 +6401,12 @@ def _guardar_billing(request, sesion=None):
         except (InvalidOperation, ValueError, TypeError):
             return Decimal("0.00")
 
-    def meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
+    def meta_codigo(cliente, ciudad, proyecto_pk, oficina, codigo):
         return (
             PrecioActividadTecnico.objects.filter(
                 cliente=cliente,
                 ciudad=ciudad,
-                proyecto=proyecto,
+                proyecto_id=proyecto_pk,
                 oficina=oficina,
                 codigo_trabajo=codigo,
             )
@@ -3957,12 +6414,12 @@ def _guardar_billing(request, sesion=None):
             .first()
         )
 
-    def precio_empresa(cliente, ciudad, proyecto, oficina, codigo) -> Decimal:
+    def precio_empresa(cliente, ciudad, proyecto_pk, oficina, codigo) -> Decimal:
         val = (
             PrecioActividadTecnico.objects.filter(
                 cliente=cliente,
                 ciudad=ciudad,
-                proyecto=proyecto,
+                proyecto_id=proyecto_pk,
                 oficina=oficina,
                 codigo_trabajo=codigo,
             )
@@ -3971,13 +6428,13 @@ def _guardar_billing(request, sesion=None):
         )
         return money(val or 0)
 
-    def tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo) -> Decimal:
+    def tarifa_tecnico(tid, cliente, ciudad, proyecto_pk, oficina, codigo) -> Decimal:
         val = (
             PrecioActividadTecnico.objects.filter(
                 tecnico_id=tid,
                 cliente=cliente,
                 ciudad=ciudad,
-                proyecto=proyecto,
+                proyecto_id=proyecto_pk,
                 oficina=oficina,
                 codigo_trabajo=codigo,
             )
@@ -3989,7 +6446,7 @@ def _guardar_billing(request, sesion=None):
                 PrecioActividadTecnico.objects.filter(
                     cliente=cliente,
                     ciudad=ciudad,
-                    proyecto=proyecto,
+                    proyecto_id=proyecto_pk,
                     oficina=oficina,
                     codigo_trabajo=codigo,
                 )
@@ -3998,11 +6455,10 @@ def _guardar_billing(request, sesion=None):
             )
         return money(val or 0)
 
-    # ----------------------------- Header ------------------------------ #
-    proyecto_id = (request.POST.get("project_id") or "").strip()
+    project_code = (request.POST.get("project_id") or "").strip()
     cliente = (request.POST.get("client") or "").strip()
     ciudad = (request.POST.get("city") or "").strip()
-    proyecto = (request.POST.get("project") or "").strip()
+    project_pk_raw = (request.POST.get("project") or "").strip()
     oficina = (request.POST.get("office") or "").strip()
     ids = [int(x) for x in request.POST.getlist("tech_ids[]") if str(x).isdigit()]
 
@@ -4014,14 +6470,57 @@ def _guardar_billing(request, sesion=None):
     is_direct_discount = request.POST.get("direct_discount") == "1"
     is_cable_installation = request.POST.get("is_cable_installation") == "1"
 
-    # ✅ NUEVO: payment mode
     tech_payment_mode = (
         (request.POST.get("tech_payment_mode") or "split").strip().lower()
     )
     if tech_payment_mode not in ("split", "full"):
         tech_payment_mode = "split"
 
-    # ------------------------- Validaciones UX ------------------------- #
+    def build_post_items_context():
+        items_ctx = []
+
+        row_codes = request.POST.getlist("row_code[]")
+        row_amounts = request.POST.getlist("row_amount[]")
+
+        for code, amount in zip(row_codes, row_amounts):
+            code = (code or "").strip()
+
+            row_meta = None
+            company_price_val = ""
+            subtotal_company_val = ""
+            subtotal_tecnico_val = ""
+
+            if project_pk_raw.isdigit() and cliente and ciudad and oficina and code:
+                try:
+                    proyecto_pk_tmp = int(project_pk_raw)
+                    row_meta = meta_codigo(
+                        cliente, ciudad, proyecto_pk_tmp, oficina, code
+                    )
+                    if row_meta:
+                        cp = precio_empresa(
+                            cliente, ciudad, proyecto_pk_tmp, oficina, code
+                        )
+                        qty = money(amount)
+                        company_price_val = f"{cp:.2f}"
+                        subtotal_company_val = f"{money(cp * qty):.2f}"
+                except Exception:
+                    row_meta = None
+
+            items_ctx.append(
+                {
+                    "codigo_trabajo": code,
+                    "tipo_trabajo": row_meta["tipo_trabajo"] if row_meta else "",
+                    "descripcion": row_meta["descripcion"] if row_meta else "",
+                    "unidad_medida": row_meta["unidad_medida"] if row_meta else "",
+                    "cantidad": amount,
+                    "precio_empresa": company_price_val,
+                    "subtotal_empresa": subtotal_company_val,
+                    "subtotal_tecnico": subtotal_tecnico_val,
+                    "desglose_tecnico": [],
+                }
+            )
+        return items_ctx
+
     def render_with_data(error_msg=None):
         if error_msg:
             messages.error(request, error_msg)
@@ -4032,37 +6531,41 @@ def _guardar_billing(request, sesion=None):
             .order_by("cliente")
         )
 
-        tecnicos = (
-            Usuario.objects.filter(precioactividadtecnico__isnull=False, is_active=True)
-            .distinct()
-            .order_by("first_name", "last_name", "username")
+        proyectos_visibles = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            request.user,
+            "id",
         )
 
-        items_ctx = []
-        for raw in request.POST.getlist("items[]"):
-            try:
-                o = json.loads(raw)
-            except Exception:
-                continue
-            items_ctx.append(
-                {
-                    "codigo_trabajo": (o.get("code") or "").strip(),
-                    "tipo_trabajo": "",
-                    "descripcion": "",
-                    "unidad_medida": "",
-                    "cantidad": o.get("amount"),
-                    "precio_empresa": "",
-                    "subtotal_empresa": "",
-                    "subtotal_tecnico": "",
-                    "desglose_tecnico": [],
-                }
+        if proyectos_visibles.exists():
+            tecnicos = (
+                Usuario.objects.filter(
+                    is_active=True,
+                    precioactividadtecnico__isnull=False,
+                    precioactividadtecnico__proyecto_id__in=proyectos_visibles.values_list(
+                        "id", flat=True
+                    ),
+                )
+                .distinct()
+                .order_by("first_name", "last_name", "username")
             )
+        else:
+            tecnicos = Usuario.objects.none()
+
+        proyecto_value = project_pk_raw
+        proyecto_label = ""
+
+        if project_pk_raw.isdigit():
+            p = proyectos_visibles.filter(pk=int(project_pk_raw)).first()
+            if p:
+                proyecto_label = (getattr(p, "nombre", "") or str(p)).strip()
 
         sesion_ctx = {
-            "proyecto_id": proyecto_id,
+            "id": getattr(sesion, "id", None),
+            "proyecto_id": project_code,
             "cliente": cliente,
             "ciudad": ciudad,
-            "proyecto": proyecto,
+            "proyecto": project_pk_raw,
             "oficina": oficina,
             "direccion_proyecto": direccion_proyecto,
             "semana_pago_proyectada": semana_pago_proyectada,
@@ -4075,46 +6578,78 @@ def _guardar_billing(request, sesion=None):
             request,
             "operaciones/billing_editar.html",
             {
-                "sesion": sesion_ctx if not sesion else sesion,
+                "is_edit": bool(sesion),
+                "sesion": sesion_ctx,
                 "clientes": list(clientes),
                 "tecnicos": tecnicos,
-                "items": items_ctx,
+                "items": build_post_items_context(),
                 "ids_tecnicos": ids,
+                "proyecto_value": proyecto_value,
+                "proyecto_label": proyecto_label,
             },
         )
 
-    if not (proyecto_id and cliente and ciudad and proyecto and oficina):
+    if not (project_code and cliente and ciudad and project_pk_raw and oficina):
         return render_with_data("Complete all header fields.")
+
     if not ids:
         return render_with_data("Select at least one technician.")
 
-    # ------------------------------ Items ------------------------------ #
-    filas = []
-    raw_items = request.POST.getlist("items[]")
-    if not raw_items:
+    try:
+        proyecto_pk = int(project_pk_raw)
+    except (TypeError, ValueError):
+        return render_with_data("Invalid project.")
+
+    proyecto_obj = Proyecto.objects.filter(pk=proyecto_pk).first()
+    if not proyecto_obj:
+        return render_with_data("Selected project does not exist.")
+
+    proyecto_nombre = (getattr(proyecto_obj, "nombre", "") or "").strip()
+
+    row_codes = request.POST.getlist("row_code[]")
+    row_amounts = request.POST.getlist("row_amount[]")
+
+    if not row_codes:
         return render_with_data("Please add at least one item.")
 
-    for raw in raw_items:
-        try:
-            o = json.loads(raw)
-        except Exception:
-            return HttpResponseBadRequest("Items inválidos.")
-        cod = (o.get("code") or "").strip()
-        amt = o.get("amount")
+    if len(row_codes) != len(row_amounts):
+        return render_with_data("Invalid items data.")
+
+    filas = []
+    for cod, amt in zip(row_codes, row_amounts):
+        cod = (cod or "").strip()
+
         if not cod or amt in ("", None):
-            return HttpResponseBadRequest("Cada fila requiere Job Code y Amount.")
-        qty = Decimal(str(amt))
+            return render_with_data("Each row requires Job Code and Quantity.")
+
+        try:
+            qty = Decimal(str(amt))
+        except Exception:
+            return render_with_data(f"Invalid quantity for code '{cod}'.")
+
         if is_direct_discount and qty > 0:
             qty = -qty
-        filas.append({"codigo": cod, "cantidad": qty})
 
-    # --------------- Crear / actualizar la sesión base ----------------- #
+        meta = meta_codigo(cliente, ciudad, proyecto_pk, oficina, cod)
+        if not meta:
+            return render_with_data(
+                f"Code '{cod}' does not exist with the selected filters."
+            )
+
+        filas.append(
+            {
+                "codigo": cod,
+                "cantidad": qty,
+                "meta": meta,
+            }
+        )
+
     if sesion is None:
         sesion = SesionBilling.objects.create(
-            proyecto_id=proyecto_id,
+            proyecto_id=project_code,
             cliente=cliente,
             ciudad=ciudad,
-            proyecto=proyecto,
+            proyecto=proyecto_nombre,
             oficina=oficina,
             direccion_proyecto=direccion_proyecto,
             semana_pago_proyectada=semana_pago_proyectada,
@@ -4124,24 +6659,24 @@ def _guardar_billing(request, sesion=None):
             tech_payment_mode=tech_payment_mode,
         )
     else:
-        sesion.proyecto_id = proyecto_id
+        sesion.proyecto_id = project_code
         sesion.cliente = cliente
         sesion.ciudad = ciudad
-        sesion.proyecto = proyecto
+        sesion.proyecto = proyecto_nombre
         sesion.oficina = oficina
         sesion.direccion_proyecto = direccion_proyecto
         sesion.semana_pago_proyectada = semana_pago_proyectada
         if is_direct_discount:
             sesion.semana_pago_real = semana_pago_proyectada
+        else:
+            sesion.semana_pago_real = ""
         sesion.is_direct_discount = is_direct_discount
         sesion.is_cable_installation = is_cable_installation
         sesion.tech_payment_mode = tech_payment_mode
         sesion.save()
 
-    # ✅ Técnicos: SIEMPRE redistribuir al guardar (crear o editar)
     final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
 
-    # reconstruir mapa de porcentajes (después de redistribución)
     ts_rows = list(
         sesion.tecnicos_sesion.filter(tecnico_id__in=final_ids).values_list(
             "tecnico_id", "porcentaje"
@@ -4152,29 +6687,26 @@ def _guardar_billing(request, sesion=None):
     ids_def = final_ids
     partes_def = [pct_by_tid.get(tid, Decimal("0.00")) for tid in ids_def]
 
-    # -------------------- Rehacer items y totales ---------------------- #
     sesion.items.all().delete()
 
     total_emp = Decimal("0.00")
     total_tec = Decimal("0.00")
 
     for fila in filas:
-        meta = meta_codigo(cliente, ciudad, proyecto, oficina, fila["codigo"])
-        if not meta:
-            return HttpResponseBadRequest(
-                f"Código '{fila['codigo']}' no existe con los filtros."
-            )
+        cod = fila["codigo"]
+        qty = money(fila["cantidad"])
+        meta = fila["meta"]
 
-        p_emp = precio_empresa(cliente, ciudad, proyecto, oficina, fila["codigo"])
-        sub_emp = money(p_emp * fila["cantidad"])
+        p_emp = precio_empresa(cliente, ciudad, proyecto_pk, oficina, cod)
+        sub_emp = money(p_emp * qty)
 
         item = ItemBilling.objects.create(
             sesion=sesion,
-            codigo_trabajo=fila["codigo"],
+            codigo_trabajo=cod,
             tipo_trabajo=meta["tipo_trabajo"],
             descripcion=meta["descripcion"],
             unidad_medida=meta["unidad_medida"],
-            cantidad=money(fila["cantidad"]),
+            cantidad=qty,
             precio_empresa=p_emp,
             subtotal_empresa=sub_emp,
             subtotal_tecnico=Decimal("0.00"),
@@ -4183,9 +6715,7 @@ def _guardar_billing(request, sesion=None):
         sub_tecs = Decimal("0.00")
 
         for tid, pct in zip(ids_def, partes_def):
-            base = tarifa_tecnico(
-                tid, cliente, ciudad, proyecto, oficina, fila["codigo"]
-            )
+            base = tarifa_tecnico(tid, cliente, ciudad, proyecto_pk, oficina, cod)
 
             if tech_payment_mode == "full":
                 efectiva = money(base)
@@ -4225,6 +6755,8 @@ def _guardar_billing(request, sesion=None):
         ]
     )
 
+    rebuild_billing_payweek_snapshot(sesion)
+
     messages.success(
         request,
         (
@@ -4238,10 +6770,13 @@ def _guardar_billing(request, sesion=None):
 
 # ===== Búsquedas / AJAX =====
 def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
+    """
+    proyecto = PK real de facturacion.Proyecto
+    """
     q = PrecioActividadTecnico.objects.filter(
         cliente__iexact=cliente,
         ciudad__iexact=ciudad,
-        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        proyecto_id=proyecto,
         oficina__iexact=oficina or "-",
         codigo_trabajo__iexact=codigo,
     ).first()
@@ -4249,11 +6784,14 @@ def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):
 
 
 def _tarifa_tecnico(tecnico_id, cliente, ciudad, proyecto, oficina, codigo):
+    """
+    proyecto = PK real de facturacion.Proyecto
+    """
     q = PrecioActividadTecnico.objects.filter(
         tecnico_id=tecnico_id,
         cliente__iexact=cliente,
         ciudad__iexact=ciudad,
-        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        proyecto_id=proyecto,
         oficina__iexact=oficina or "-",
         codigo_trabajo__iexact=codigo,
     ).first()
@@ -4261,10 +6799,13 @@ def _tarifa_tecnico(tecnico_id, cliente, ciudad, proyecto, oficina, codigo):
 
 
 def _meta_codigo(cliente, ciudad, proyecto, oficina, codigo):
+    """
+    proyecto = PK real de facturacion.Proyecto
+    """
     p = PrecioActividadTecnico.objects.filter(
         cliente__iexact=cliente,
         ciudad__iexact=ciudad,
-        proyecto_id=proyecto,                  # ← antes proyecto__iexact
+        proyecto_id=proyecto,
         oficina__iexact=oficina or "-",
         codigo_trabajo__iexact=codigo,
     ).first()
@@ -4302,74 +6843,220 @@ def ajax_ciudades(request):
 
 @login_required
 def ajax_proyectos(request):
-    cliente  = request.GET.get("client", "")
-    ciudad   = request.GET.get("city", "")
+    from django.db.models import Count
+
+    cliente = (request.GET.get("client") or "").strip()
+    ciudad = (request.GET.get("city") or "").strip()
     tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
 
     data = []
 
-    if cliente and ciudad:
-        # 🔒 Proyectos a los que ESTE usuario tiene acceso
-        proyectos_visibles_qs = filter_queryset_by_access(
-            Proyecto.objects.all(),
-            request.user,
-            'id',
+    if not (cliente and ciudad):
+        return JsonResponse({"results": data})
+
+    proyectos_visibles_qs = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        "id",
+    )
+    visible_ids = list(proyectos_visibles_qs.values_list("id", flat=True))
+
+    if not visible_ids:
+        return JsonResponse({"results": []})
+
+    qs = PrecioActividadTecnico.objects.filter(
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id__in=visible_ids,
+    )
+
+    if tech_ids:
+        needed = len(set(tech_ids))
+
+        qs = (
+            qs.filter(tecnico_id__in=tech_ids)
+            .values("proyecto_id", "proyecto__nombre")
+            .annotate(match_count=Count("tecnico_id", distinct=True))
+            .filter(match_count=needed)
+            .order_by("proyecto__nombre", "proyecto_id")
         )
-        visible_ids = list(proyectos_visibles_qs.values_list("id", flat=True))
 
-        if visible_ids:
-            qs = (
-                PrecioActividadTecnico.objects
-                .filter(
-                    cliente__iexact=cliente,
-                    ciudad__iexact=ciudad,
-                    proyecto_id__in=visible_ids,  # 👈 solo proyectos visibles para el usuario
-                )
-                .select_related("proyecto")
-                .order_by("proyecto_id")
+        for row in qs:
+            if not row["proyecto_id"]:
+                continue
+            data.append(
+                {
+                    "id": row["proyecto_id"],
+                    "label": (
+                        row["proyecto__nombre"] or str(row["proyecto_id"])
+                    ).strip(),
+                }
             )
-
-            # 👉 si hay técnicos seleccionados, solo proyectos donde esos técnicos tengan precios
-            if tech_ids:
-                qs = qs.filter(tecnico_id__in=tech_ids)
-
-            seen = set()
-            for p in qs:
-                if not p.proyecto_id or p.proyecto_id in seen or p.proyecto is None:
-                    continue
-                seen.add(p.proyecto_id)
-                data.append({
-                    "id": p.proyecto_id,      # PK de facturacion.Proyecto
-                    "label": str(p.proyecto), # cómo se muestra (nombre del proyecto)
-                })
-        else:
-            # Usuario sin proyectos visibles → no hay opciones
-            data = []
+    else:
+        qs = (
+            qs.values("proyecto_id", "proyecto__nombre")
+            .distinct()
+            .order_by("proyecto__nombre", "proyecto_id")
+        )
+        for row in qs:
+            if not row["proyecto_id"]:
+                continue
+            data.append(
+                {
+                    "id": row["proyecto_id"],
+                    "label": (
+                        row["proyecto__nombre"] or str(row["proyecto_id"])
+                    ).strip(),
+                }
+            )
 
     return JsonResponse({"results": data})
 
 
 @login_required
 def ajax_oficinas(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    proyecto_id = request.GET.get("project", "")  # viene el PK del select
+    from django.db.models import Count
+
+    cliente = (request.GET.get("client") or "").strip()
+    ciudad = (request.GET.get("city") or "").strip()
+    proyecto_id = (request.GET.get("project") or "").strip()
+    tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
+
+    if not (cliente and ciudad and proyecto_id):
+        return JsonResponse({"results": []})
+
+    qs = PrecioActividadTecnico.objects.filter(
+        cliente__iexact=cliente,
+        ciudad__iexact=ciudad,
+        proyecto_id=proyecto_id,
+    )
 
     data = []
-    if cliente and ciudad and proyecto_id:
-        data = list(
-            PrecioActividadTecnico.objects.filter(
-                cliente__iexact=cliente,
-                ciudad__iexact=ciudad,
-                proyecto_id=proyecto_id,
-            )
-            .values_list("oficina", flat=True)
-            .distinct()
+
+    if tech_ids:
+        needed = len(set(tech_ids))
+        qs = (
+            qs.filter(tecnico_id__in=tech_ids)
+            .values("oficina")
+            .annotate(match_count=Count("tecnico_id", distinct=True))
+            .filter(match_count=needed)
             .order_by("oficina")
         )
+        data = [row["oficina"] for row in qs if (row["oficina"] or "").strip()]
+    else:
+        data = list(qs.values_list("oficina", flat=True).distinct().order_by("oficina"))
 
     return JsonResponse({"results": data})
 
+@login_required
+@require_POST
+def ajax_validate_billing_selection(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
+
+    client = (payload.get("client") or "").strip()
+    city = (payload.get("city") or "").strip()
+    project = str(payload.get("project") or "").strip()
+    office = (payload.get("office") or "").strip()
+    tech_ids = [int(x) for x in (payload.get("tech_ids") or []) if str(x).isdigit()]
+    items = payload.get("items") or []
+
+    if not client or not city or not project or not office:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "MISSING_HEADER",
+                "message": "Client, City, Project and Office are required.",
+            },
+            status=400,
+        )
+
+    if not tech_ids:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "MISSING_TECHS",
+                "message": "Select at least one technician.",
+            },
+            status=400,
+        )
+
+    tech_map = {
+        u.id: (u.get_full_name() or u.username or f"Tech {u.id}").strip()
+        for u in Usuario.objects.filter(id__in=tech_ids)
+    }
+
+    missing = []
+
+    # Validación de header: todos deben tener al menos una tarifa en ese header exacto
+    for tid in tech_ids:
+        exists_header = PrecioActividadTecnico.objects.filter(
+            tecnico_id=tid,
+            cliente__iexact=client,
+            ciudad__iexact=city,
+            proyecto_id=project,
+            oficina__iexact=office,
+        ).exists()
+
+        if not exists_header:
+            missing.append(
+                {
+                    "type": "header",
+                    "tecnico_id": tid,
+                    "tecnico_nombre": tech_map.get(tid, f"Tech {tid}"),
+                    "message": f"{tech_map.get(tid, f'Tech {tid}')} has no exact prices for Client / City / Project / Office.",
+                }
+            )
+
+    # Validación item por item: todos deben tener Work Type + Job Code exactos
+    for idx, item in enumerate(items, start=1):
+        code = (item.get("code") or "").strip()
+        work_type = (item.get("work_type") or "").strip()
+
+        if not code and not work_type:
+            continue
+
+        for tid in tech_ids:
+            exists_item = PrecioActividadTecnico.objects.filter(
+                tecnico_id=tid,
+                cliente__iexact=client,
+                ciudad__iexact=city,
+                proyecto_id=project,
+                oficina__iexact=office,
+                tipo_trabajo__iexact=work_type,
+                codigo_trabajo__iexact=code,
+            ).exists()
+
+            if not exists_item:
+                missing.append(
+                    {
+                        "type": "item",
+                        "row": idx,
+                        "code": code,
+                        "work_type": work_type,
+                        "tecnico_id": tid,
+                        "tecnico_nombre": tech_map.get(tid, f"Tech {tid}"),
+                        "message": (
+                            f"Row {idx}: {tech_map.get(tid, f'Tech {tid}')} "
+                            f"has no exact match for City / Project / Office / Client / Work Type / Job Code."
+                        ),
+                    }
+                )
+
+    if missing:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "MISSING_EXACT_MATCHES",
+                "message": "One or more selected technicians do not have exact matching prices.",
+                "missing": missing,
+            },
+            status=400,
+        )
+
+    return JsonResponse({"ok": True})
 
 @login_required
 def ajax_buscar_codigos(request):
@@ -4401,10 +7088,10 @@ def ajax_buscar_codigos(request):
 
 @login_required
 def ajax_detalle_codigo(request):
-    cliente = request.GET.get("client", "")
-    ciudad = request.GET.get("city", "")
-    proyecto = request.GET.get("project", "")  # PK
-    oficina = request.GET.get("office", "")
+    cliente = (request.GET.get("client") or "").strip()
+    ciudad = (request.GET.get("city") or "").strip()
+    proyecto = (request.GET.get("project") or "").strip()
+    oficina = (request.GET.get("office") or "").strip()
     codigo = (request.GET.get("code") or "").strip()
 
     if not (cliente and ciudad and proyecto and oficina and codigo):
@@ -4414,9 +7101,10 @@ def ajax_detalle_codigo(request):
     if not meta:
         return JsonResponse({"error": "not_found"}, status=404)
 
-    precio_emp = _precio_empresa(cliente, ciudad, proyecto, oficina, codigo)
+    tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
+    if not tech_ids:
+        return JsonResponse({"error": "missing_technicians"}, status=400)
 
-    # ✅ acepta ambos nombres por compatibilidad
     payment_mode = (
         (
             request.GET.get("payment_mode")
@@ -4426,22 +7114,60 @@ def ajax_detalle_codigo(request):
         .strip()
         .lower()
     )
-
     if payment_mode not in ("split", "full"):
         payment_mode = "split"
 
-    tech_ids = [int(x) for x in request.GET.getlist("tech_ids[]") if str(x).isdigit()]
-    partes = repartir_100(len(tech_ids)) if tech_ids else []
-
-    # nombres técnicos para mostrar en frontend
     tech_map = {
         u.id: (u.get_full_name() or u.username or f"Tech {u.id}").strip()
         for u in Usuario.objects.filter(id__in=tech_ids)
     }
 
+    exact_rows = []
+    missing = []
+
+    for tid in tech_ids:
+        row = PrecioActividadTecnico.objects.filter(
+            tecnico_id=tid,
+            cliente__iexact=cliente,
+            ciudad__iexact=ciudad,
+            proyecto_id=proyecto,
+            oficina__iexact=oficina,
+            codigo_trabajo__iexact=codigo,
+            tipo_trabajo__iexact=(meta["tipo_trabajo"] or "").strip(),
+        ).first()
+
+        if not row:
+            missing.append(
+                {
+                    "tecnico_id": tid,
+                    "tecnico_nombre": tech_map.get(tid, f"Tech {tid}"),
+                    "message": (
+                        f"{tech_map.get(tid, f'Tech {tid}')} has no exact price for "
+                        f"Client / City / Project / Office / Work Type / Job Code."
+                    ),
+                }
+            )
+            continue
+
+        exact_rows.append(row)
+
+    if missing:
+        return JsonResponse(
+            {
+                "error": "missing_exact_prices",
+                "message": "Exact prices are missing for one or more selected technicians.",
+                "missing": missing,
+            },
+            status=400,
+        )
+
+    precio_emp = money(exact_rows[0].precio_empresa or 0)
+    partes = repartir_100(len(tech_ids)) if tech_ids else []
+
     desglose = []
-    for tid, pct in zip(tech_ids, partes):
-        base = _tarifa_tecnico(tid, cliente, ciudad, proyecto, oficina, codigo)
+    for row, pct in zip(exact_rows, partes):
+        base = money(row.precio_tecnico or 0)
+        payment_weeks = int(getattr(row, "payment_weeks", 0) or 0)
 
         if payment_mode == "full":
             porcentaje = Decimal("100.00")
@@ -4452,11 +7178,14 @@ def ajax_detalle_codigo(request):
 
         desglose.append(
             {
-                "tecnico_id": tid,
-                "tecnico_nombre": tech_map.get(tid, f"Tech {tid}"),
+                "tecnico_id": row.tecnico_id,
+                "tecnico_nombre": tech_map.get(
+                    row.tecnico_id, f"Tech {row.tecnico_id}"
+                ),
                 "tarifa_base": f"{base:.2f}",
                 "porcentaje": f"{porcentaje:.2f}",
                 "tarifa_efectiva": f"{efectiva:.2f}",
+                "payment_weeks": payment_weeks,
             }
         )
 
@@ -4475,20 +7204,22 @@ ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
 
 @login_required
-@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
+@rol_requerido("admin", "supervisor", "pm", "facturacion")
 def produccion_admin(request):
     """
     Producción por técnico (vista Admin) con filtros + paginación.
-    - Lista sesiones aprobadas (o descuentos directos) desglosadas por técnico.
-    - Incluye también los ajustes manuales (bonus, advance, fixed_salary).
-    - En esta vista, **advance cuenta POSITIVO**.
-    - La semana usada para filtrar es la REAL:
-        sesiones -> 'semana_pago_real'
-        ajustes  -> 'week'
 
-    NOTA: Usuarios "privilegiados" (superuser o rol usuario_historial)
-    pueden ver TODO el historial (modo antiguo).
-    El resto se rige por asignación de proyectos + ventana de visibilidad (lógica nueva).
+    Incluye:
+    - sesiones con snapshots productivos
+    - sesiones legacy aprobadas sin snapshots productivos
+    - direct discounts
+    - ajustes manuales
+
+    Regla clave:
+    - la semana real visible se toma así:
+        * snapshots productivos -> semana_resultado
+        * legacy sin snapshots  -> sesion.semana_pago_real (fallback semana_pago_proyectada)
+        * ajustes               -> AdjustmentEntry.week
     """
     import re
     from decimal import Decimal
@@ -4500,12 +7231,14 @@ def produccion_admin(request):
     from django.utils import timezone
 
     from facturacion.models import Proyecto
-    from operaciones.models import SesionBilling
+    from operaciones.models import BillingPayWeekSnapshot, SesionBilling
+
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
         AdjustmentEntry = None
-    from usuarios.models import ProyectoAsignacion  # ventana de visibilidad
+
+    from usuarios.models import ProyectoAsignacion
 
     # ---------------- helpers ----------------
     def _iso_week_str(dt):
@@ -4520,11 +7253,11 @@ def produccion_admin(request):
         if not q:
             return (None, None)
         s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
-        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
+        m = re.fullmatch(r"(\d{4})-?W(\d{1,2})", s)
         if m:
             year, ww = int(m.group(1)), int(m.group(2))
             return (f"{year}-W{ww:02d}", None)
-        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
+        m = re.fullmatch(r"(?:W)?(\d{1,2})", s)
         if m:
             ww = int(m.group(1))
             return (None, f"W{ww:02d}")
@@ -4533,39 +7266,201 @@ def produccion_admin(request):
     def _normalize_week_str(s: str) -> str:
         if not s:
             return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = s.replace("\u2013", "-").replace("\u2014", "-")
         s = re.sub(r"\s+", "", s)
         return s.upper()
 
     def _week_sort_key(week_str: str):
-        """
-        Acepta variantes como '2025-W40', '2025W40', 'W40'.
-        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
-        """
         if not week_str:
             return (-1, -1)
 
         s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
-        # 1) YYYY-W##
-        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
+        m = re.search(r"(\d{4})-?W(\d{1,2})", s)
         if m:
             return (int(m.group(1)), int(m.group(2)))
-        # 2) Solo W##
-        m = re.search(r'W(\d{1,2})', s)
+        m = re.search(r"W(\d{1,2})", s)
         if m:
-            # Si no hay año, usamos 0 para que queden al final
             return (0, int(m.group(1)))
         return (-1, -1)
+
+    def _match_week_filter(
+        week_real: str, exact_week: str | None, week_token: str | None
+    ) -> bool:
+        wr = (week_real or "").strip().upper()
+        if not wr:
+            return False
+        if exact_week:
+            token = exact_week.split("-", 1)[-1].upper()
+            return wr == exact_week or token in wr
+        if week_token:
+            return week_token in wr
+        return True
+
+    def _match_tech_filter(user_obj, f_tech_value: str) -> bool:
+        if not f_tech_value:
+            return True
+        target = f_tech_value.lower()
+        full_name = (
+            (
+                (getattr(user_obj, "first_name", "") or "")
+                + " "
+                + (getattr(user_obj, "last_name", "") or "")
+            )
+            .strip()
+            .lower()
+        )
+        username = (getattr(user_obj, "username", "") or "").lower()
+        return target in full_name or target in username
+
+    def _session_project_label(session_obj):
+        raw = (getattr(session_obj, "proyecto", "") or "").strip()
+        if raw:
+            return raw
+        raw2 = getattr(session_obj, "proyecto_id", None)
+        return str(raw2 or "")
+
+    def _build_legacy_rows_for_session(s):
+        """
+        Fallback legacy:
+        - solo si NO hay snapshots productivos
+        - usa semana_pago_real (o semana_pago_proyectada)
+        - arma una fila por técnico
+        """
+        legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper() or (
+            getattr(s, "semana_pago_proyectada", "") or ""
+        ).strip().upper()
+
+        if not legacy_week:
+            return []
+
+        if not _match_week_filter(legacy_week, exact_week, week_token):
+            return []
+
+        try:
+            asignaciones = list(
+                s.tecnicos_sesion.select_related("tecnico").all().order_by("id")
+            )
+        except Exception:
+            asignaciones = []
+
+        if not asignaciones:
+            return []
+
+        out = []
+
+        for asig in asignaciones:
+            tecnico = getattr(asig, "tecnico", None)
+            if not tecnico:
+                continue
+
+            if not _match_tech_filter(tecnico, f_tech):
+                continue
+
+            detalle = []
+            total_tecnico = Decimal("0.00")
+
+            try:
+                items = list(
+                    s.items.prefetch_related("desglose_tecnico").all().order_by("id")
+                )
+            except Exception:
+                items = []
+
+            # 1) Intentar por desglose real
+            for item in items:
+                try:
+                    desglose_rows = [
+                        bd
+                        for bd in item.desglose_tecnico.all()
+                        if getattr(bd, "tecnico_id", None) == tecnico.id
+                    ]
+                except Exception:
+                    desglose_rows = []
+
+                for bd in desglose_rows:
+                    subtotal = getattr(bd, "subtotal", None)
+                    try:
+                        subtotal = (
+                            subtotal
+                            if isinstance(subtotal, Decimal)
+                            else Decimal(str(subtotal or 0))
+                        )
+                    except Exception:
+                        subtotal = Decimal("0.00")
+
+                    tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
+                    try:
+                        tarifa_efectiva = (
+                            tarifa_efectiva
+                            if isinstance(tarifa_efectiva, Decimal)
+                            else Decimal(str(tarifa_efectiva or 0))
+                        )
+                    except Exception:
+                        tarifa_efectiva = Decimal("0.00")
+
+                    detalle.append(
+                        {
+                            "codigo": getattr(item, "codigo_trabajo", "") or "",
+                            "tipo": getattr(item, "tipo_trabajo", "") or "",
+                            "desc": getattr(item, "descripcion", "") or "",
+                            "uom": getattr(item, "unidad_medida", "") or "",
+                            "qty": getattr(item, "cantidad", None),
+                            "rate_tec": tarifa_efectiva,
+                            "subtotal_tec": subtotal,
+                        }
+                    )
+                    total_tecnico += subtotal
+
+            # 2) Fallback extremo: si no hubo detalle, repartir subtotal_tecnico por porcentaje
+            if not detalle:
+                try:
+                    subtotal_sesion = getattr(s, "subtotal_tecnico", None)
+                    subtotal_sesion = (
+                        subtotal_sesion
+                        if isinstance(subtotal_sesion, Decimal)
+                        else Decimal(str(subtotal_sesion or 0))
+                    )
+                except Exception:
+                    subtotal_sesion = Decimal("0.00")
+
+                try:
+                    pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
+                except Exception:
+                    pct = Decimal("0.00")
+
+                total_tecnico = (subtotal_sesion * (pct / Decimal("100"))).quantize(
+                    Decimal("0.01")
+                )
+
+            out.append(
+                {
+                    "sesion": s,
+                    "tecnico": tecnico,
+                    "project_id": s.proyecto_id,
+                    "week": legacy_week or "—",
+                    "status": s.estado,
+                    "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                    "client": s.cliente,
+                    "city": s.ciudad,
+                    "project": s.proyecto,
+                    "office": s.oficina,
+                    "real_week": legacy_week or "—",
+                    "proj_week": s.semana_pago_proyectada or "—",
+                    "total_tecnico": total_tecnico,
+                    "detalle": detalle,
+                    "adjustment_type": "",
+                }
+            )
+
+        return out
 
     # ---------------- configuración ----------------
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     current_week = _iso_week_str(timezone.now())
 
-    # Usuarios privilegiados que pueden ver TODO el historial
     user = request.user
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
     )
 
     # ---------------- Filtros GET ----------------
@@ -4576,9 +7471,7 @@ def produccion_admin(request):
 
     exact_week, week_token = parse_week_query(f_week_input)
 
-    # ---------------- Proyectos visibles para el usuario ----------------
-    # Igual que en listar_billing: aquí ya se respeta "history" vs fecha_inicio.
-    # PERO si es usuario de historial o superuser, ve TODOS los proyectos.
+    # ---------------- Proyectos visibles ----------------
     try:
         base_proyectos = Proyecto.objects.all()
         if can_view_legacy_history:
@@ -4587,7 +7480,7 @@ def produccion_admin(request):
             proyectos_user = filter_queryset_by_access(
                 base_proyectos,
                 request.user,
-                'id',
+                "id",
             )
     except Exception:
         proyectos_user = Proyecto.objects.none()
@@ -4595,712 +7488,217 @@ def produccion_admin(request):
     if proyectos_user.exists():
         allowed_keys = set()
         for p in proyectos_user:
-            # nombre legible del proyecto
             nombre = (getattr(p, "nombre", "") or "").strip()
             if nombre:
                 allowed_keys.add(nombre)
 
-            # compatibilidad: código y id
             codigo = getattr(p, "codigo", None)
             if codigo:
                 allowed_keys.add(str(codigo).strip())
+
             allowed_keys.add(str(p.id).strip())
     else:
-        # sin proyectos asignados → no ve nada (para usuarios normales)
         allowed_keys = set()
 
-    # ---------------- Query base: Sesiones ----------------
+    # ---------------- Base sesiones ----------------
     qs = (
-        SesionBilling.objects
-        .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
+        SesionBilling.objects.filter(
+            Q(estado__in=estados_ok) | Q(is_direct_discount=True)
+        )
         .order_by("-creado_en")
         .prefetch_related(
             "tecnicos_sesion__tecnico",
+            "pay_week_snapshots__tecnico",
+            "pay_week_snapshots__item",
             "items__desglose_tecnico",
         )
         .distinct()
     )
 
-    # 🔒 limitar por proyectos asignados (campo texto "proyecto")
-    # SOLO para usuarios normales; los de historial ven todo.
+    # 🔒 limitar por proyectos asignados
     if not can_view_legacy_history:
         if allowed_keys:
             qs = qs.filter(proyecto__in=allowed_keys)
         else:
             qs = SesionBilling.objects.none()
 
-    # Semana REAL en sesiones (semana_pago_real)
-    if exact_week:
-        token = exact_week.split("-", 1)[-1].upper()  # 'W##'
-        qs = qs.filter(
-            Q(semana_pago_real__iexact=exact_week) |
-            Q(semana_pago_real__icontains=token)
-        )
-    elif week_token:
-        qs = qs.filter(semana_pago_real__icontains=week_token)
+    # ⚠️ IMPORTANTE:
+    # NO filtramos aquí por pay_week_snapshots__semana_resultado ni por técnico,
+    # porque eso excluiría las sesiones legacy sin snapshots.
 
-    # Otros filtros de sesiones
     if f_project:
-        qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
+        qs = qs.annotate(proyecto_id_str=Cast("proyecto_id", CharField()))
         qs = qs.filter(
-            Q(proyecto_id_str__icontains=f_project) |
-            Q(proyecto__icontains=f_project)
+            Q(proyecto_id_str__icontains=f_project) | Q(proyecto__icontains=f_project)
         )
+
     if f_client:
         qs = qs.filter(cliente__icontains=f_client)
+
+    qs = qs.distinct()
 
     # ---------------- Construcción de filas ----------------
     filas = []
 
-    # 1) Sesiones por técnico
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
     for s in qs:
-        for asig in s.tecnicos_sesion.all():
-            tecnico = asig.tecnico
+        snaps = list(s.pay_week_snapshots.all())
 
-            # Filtro por técnico (por fila)
-            if f_tech:
-                target = f_tech.lower()
-                full_name = ((tecnico.first_name or "") + " " +
-                             (tecnico.last_name or "")).strip().lower()
-                username = (tecnico.username or "").lower()
-                if target not in full_name and target not in username:
+        productive_snaps = []
+        for snap in snaps:
+            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+                continue
+            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+                continue
+            productive_snaps.append(snap)
+
+        # ---------- flujo nuevo ----------
+        if productive_snaps:
+            tech_rows = {}
+
+            for snap in productive_snaps:
+                tecnico = getattr(snap, "tecnico", None)
+                if not tecnico:
                     continue
 
-            detalle = []
-            total_tecnico = Decimal('0')
+                if not _match_tech_filter(tecnico, f_tech):
+                    continue
 
-            for it in s.items.all():
-                bd = next(
-                    (d for d in it.desglose_tecnico.all()
-                     if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
-                    None
+                week_real = (
+                    (getattr(snap, "semana_resultado", "") or "").strip().upper()
                 )
-                if not bd:
+                if not week_real:
                     continue
 
-                # rate y qty ya vienen con signo (qty negativa para descuento)
-                rate = bd.tarifa_efectiva if isinstance(
-                    bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
-                qty = it.cantidad if isinstance(
-                    it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
+                if not _match_week_filter(week_real, exact_week, week_token):
+                    continue
 
-                sub_tec = rate * qty
-                total_tecnico += sub_tec
+                key = (tecnico.id, week_real)
 
-                detalle.append({
-                    "codigo": it.codigo_trabajo,
-                    "tipo": it.tipo_trabajo,
-                    "desc": it.descripcion,
-                    "uom": it.unidad_medida,
-                    "qty": it.cantidad,
-                    "rate_tec": rate,
-                    "subtotal_tec": sub_tec,
-                })
+                if key not in tech_rows:
+                    tech_rows[key] = {
+                        "sesion": s,
+                        "tecnico": tecnico,
+                        "project_id": s.proyecto_id,
+                        "week": week_real or "—",
+                        "status": s.estado,
+                        "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                        "client": s.cliente,
+                        "city": s.ciudad,
+                        "project": s.proyecto,
+                        "office": s.oficina,
+                        "real_week": week_real or "—",
+                        "proj_week": s.semana_pago_proyectada or "—",
+                        "total_tecnico": Decimal("0"),
+                        "detalle": [],
+                        "adjustment_type": "",
+                    }
 
-            filas.append({
-                "sesion": s,
-                "tecnico": tecnico,
-                "project_id": s.proyecto_id,
-                "week": s.semana_pago_real or "—",  # columna principal = semana REAL
-                "status": s.estado,
-                "is_discount": bool(getattr(s, "is_direct_discount", False)),
-                "client": s.cliente,
-                "city": s.ciudad,
-                "project": s.proyecto,
-                "office": s.oficina,
-                "real_week": s.semana_pago_real or "—",
-                "proj_week": s.semana_pago_proyectada or "—",
-                "total_tecnico": total_tecnico,
-                "detalle": detalle,
-                "adjustment_type": "",
-            })
-
-    # 2) Ajustes manuales (si existe el modelo)
-    if AdjustmentEntry is not None:
-        adj_qs = AdjustmentEntry.objects.select_related("technician")
-
-        # 🔒 limitar ajustes a los proyectos asignados
-        if not can_view_legacy_history:
-            if allowed_keys:
-                adj_qs = adj_qs.filter(
-                    Q(project__in=allowed_keys) |
-                    Q(project_id__in=allowed_keys)
+                subtotal = (
+                    snap.subtotal
+                    if isinstance(snap.subtotal, Decimal)
+                    else Decimal(str(snap.subtotal or 0))
                 )
-            else:
-                adj_qs = AdjustmentEntry.objects.none()
-
-        # Semana real para ajustes (campo week)
-        if exact_week:
-            token = exact_week.split("-", 1)[-1].upper()  # 'W##'
-            adj_qs = adj_qs.filter(Q(week__iexact=exact_week)
-                                   | Q(week__icontains=token))
-        elif week_token:
-            adj_qs = adj_qs.filter(week__icontains=week_token)
-
-        # Filtros Project / Client / Tech para ajustes (campos “ligeros”)
-        if f_project:
-            adj_qs = adj_qs.annotate(project_id_str=Cast('project_id', CharField()))
-            adj_qs = adj_qs.filter(
-                Q(project_id_str__icontains=f_project) |
-                Q(project__icontains=f_project)
-            )
-        if f_client:
-            adj_qs = adj_qs.filter(client__icontains=f_client)
-        if f_tech:
-            target = f_tech
-            adj_qs = adj_qs.filter(
-                Q(technician__first_name__icontains=target) |
-                Q(technician__last_name__icontains=target) |
-                Q(technician__username__icontains=target)
-            )
-
-        for a in adj_qs:
-            t = a.technician
-            amt = a.amount if isinstance(
-                a.amount, Decimal) else Decimal(str(a.amount or 0))
-            # En esta vista, bonus/advance/fixed_salary SIEMPRE POSITIVOS
-            signed_amount = amt.copy_abs()
-
-            filas.append({
-                "sesion": None,
-                "tecnico": t,
-                "project_id": "-",
-                "week": a.week or "—",
-                "status": "",
-                "is_discount": False,
-                "client": a.client,
-                "city": a.city,
-                "project": a.project,
-                "office": a.office,
-                "real_week": a.week or "—",
-                "proj_week": a.week or "—",
-                "total_tecnico": signed_amount,
-                "detalle": [],
-                "adjustment_type": a.adjustment_type,
-                "adjustment_id": a.id,
-            })
-
-    # --------- Resolver label de proyecto (nombre) para cada fila ---------
-    # Igual que en billing: usamos SOLO los proyectos visibles (proyectos_user)
-    proyectos_list = list(proyectos_user)
-    by_id = {p.id: p for p in proyectos_list}
-    by_code = {
-        (p.codigo or "").strip().lower(): p
-        for p in proyectos_list
-        if getattr(p, "codigo", None)
-    }
-    by_name = {
-        (p.nombre or "").strip().lower(): p
-        for p in proyectos_list
-        if getattr(p, "nombre", None)
-    }
-
-    def _resolve_project_label(row):
-        s = row.get("sesion")
-        proj_text = None
-        proj_id = None
-
-        if s is not None:
-            proj_text = (getattr(s, "proyecto", "") or "").strip()
-            proj_id = getattr(s, "proyecto_id", None)
-        else:
-            proj_text = (row.get("project") or "").strip()
-            proj_id = row.get("project_id", None)
-
-        proyecto_sel = None
-
-        # 1) intentar interpretar proj_text como PK
-        if proj_text:
-            try:
-                pid = int(proj_text)
-            except (TypeError, ValueError):
-                key = proj_text.lower()
-                proyecto_sel = by_code.get(key) or by_name.get(key)
-            else:
-                proyecto_sel = by_id.get(pid)
-
-        # 2) si no, probar con project_id
-        if not proyecto_sel and proj_id not in (None, "", "-"):
-            try:
-                pid2 = int(proj_id)
-            except (TypeError, ValueError):
-                key2 = str(proj_id).strip().lower()
-                proyecto_sel = by_code.get(key2) or by_name.get(key2)
-            else:
-                proyecto_sel = by_id.get(pid2)
-
-        if proyecto_sel:
-            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
-
-        # Fallback: lo que ya teníamos
-        if proj_text:
-            return proj_text
-        if proj_id not in (None, "", "-"):
-            return str(proj_id)
-        return ""
-
-    for row in filas:
-        row["project_label"] = _resolve_project_label(row)
-
-    # --------- Filtro adicional por texto de Project (incluye project_label) ---------
-    if f_project:
-        needle = f_project.lower()
-
-        def _match_project_text(row):
-            return (
-                needle in str(row.get("project_id") or "").lower() or
-                needle in str(row.get("project") or "").lower() or
-                needle in str(row.get("project_label") or "").lower()
-            )
-
-        filas = [r for r in filas if _match_project_text(r)]
-
-    # --------------- Filtro defensivo por semana en memoria ---------------
-    if exact_week or week_token:
-        token = (week_token or exact_week.split("-", 1)[-1]).upper()  # 'W##'
-        exact_norm = exact_week.upper() if exact_week else None
-
-        def _match_row_real(r):
-            rw = _normalize_week_str(r["real_week"])
-            if exact_norm:
-                return (rw == exact_norm) or (token in rw)
-            return token in rw
-
-        filas = [r for r in filas if _match_row_real(r)]
-
-    # --------- Ventana de visibilidad por ProyectoAsignacion ---------
-    # Solo se aplica a usuarios "normales". Los de historial ven todo.
-    try:
-        asignaciones = list(
-            ProyectoAsignacion.objects
-            .filter(usuario=request.user, proyecto__in=proyectos_list)
-            .select_related("proyecto")
-        )
-    except Exception:
-        asignaciones = []
-
-    if asignaciones and not can_view_legacy_history:
-        # Mapa PK de proyecto -> reglas de acceso
-        access_by_pk = {}
-        for a in asignaciones:
-            if a.include_history or not a.start_at:
-                access_by_pk[a.proyecto_id] = {
-                    "include_history": True,
-                    "start_week": None,
-                }
-            else:
-                access_by_pk[a.proyecto_id] = {
-                    "include_history": False,
-                    # semana ISO a partir de la fecha de inicio de visibilidad
-                    "start_week": _iso_week_str(a.start_at),
-                }
-
-        def _project_pk_from_row(row):
-            """
-            Intenta obtener el PK de Proyecto para la fila, usando primero
-            sesion.proyecto_id y, si no, el nombre/código ya resuelto.
-            """
-            s = row.get("sesion")
-
-            # 1) intentar con proyecto_id de la sesión (charfield)
-            if s is not None:
-                raw = getattr(s, "proyecto_id", None)
-                if raw not in (None, "", "-"):
-                    try:
-                        return int(raw)
-                    except (TypeError, ValueError):
-                        pass
-
-            # 2) intentar por nombre/código usando los mapas by_name / by_code
-            text = (
-                str(row.get("project_label") or "").strip()
-                or str(row.get("project") or "").strip()
-            )
-            key = text.lower()
-            if key:
-                p = by_name.get(key)
-                if p:
-                    return p.id
-                p = by_code.get(key)
-                if p:
-                    return p.id
-            return None
-
-        def _row_allowed(row):
-            """
-            Devuelve True si el usuario puede ver esta fila
-            según include_history / start_at de ProyectoAsignacion.
-            """
-            pk = _project_pk_from_row(row)
-            if pk is None:
-                # fila sin proyecto asociado o no asignado al usuario
-                return False
-
-            access = access_by_pk.get(pk)
-            if not access:
-                return False
-
-            # Si tiene historial completo, no restringimos por semana
-            if access["include_history"] or access["start_week"] is None:
-                return True
-
-            # Comparar la semana REAL de la fila vs la semana de inicio
-            week_str = _normalize_week_str(row.get("real_week"))
-            if not week_str:
-                return False
-
-            return _week_sort_key(week_str) >= _week_sort_key(access["start_week"])
-
-        filas = [r for r in filas if _row_allowed(r)]
-
-    # --------------- Paginación ---------------
-    cantidad = request.GET.get("cantidad", "10")
-
-    # Solo aceptamos estos tamaños; cualquier otro valor cae a 10
-    allowed_page_sizes = {"5", "10", "20", "50", "100"}
-    if cantidad not in allowed_page_sizes:
-        cantidad = "10"
-
-    try:
-        per_page = int(cantidad)
-    except ValueError:
-        per_page = 10
-
-    paginator = Paginator(filas, per_page)
-    page_number = request.GET.get("page") or 1
-    pagina = paginator.get_page(page_number)
-
-    # QS de filtros
-    filters_dict = {
-        "f_project": f_project,
-        "f_week": f_week_input,
-        "f_tech": f_tech,
-        "f_client": f_client,
-        "cantidad": cantidad,
-    }
-    filters_qs = urlencode({k: v for k, v in filters_dict.items() if v})
-
-    return render(request, "operaciones/produccion_admin.html", {
-        "current_week": current_week,
-        "pagina": pagina,
-        "cantidad": cantidad,
-        "f_project": f_project,
-        "f_week_input": f_week_input,
-        "f_tech": f_tech,
-        "f_client": f_client,
-        "filters_qs": filters_qs,
-    })
-
-
-@login_required
-@rol_requerido('admin', 'supervisor', 'pm', 'facturacion')
-def Exportar_produccion_admin(request):
-    """
-    Exporta a Excel:
-      Project ID | Real pay week | Status | Technician | Client | City | Project | Office | Technical Billing
-
-    MUY IMPORTANTE:
-    - Usa EXACTAMENTE la misma lógica de filtros/visibilidad que produccion_admin
-      (proyectos asignados + ventana ProyectoAsignacion + rol usuario_historial).
-    - Por lo tanto, el número de filas exportadas SIEMPRE coincide con las que ve el usuario
-      en la vista Producción Admin (ignorando solo la paginación).
-    """
-    import re
-    from decimal import Decimal
-
-    from django.db.models import CharField, Q
-    from django.db.models.functions import Cast
-    from django.http import HttpResponse
-    from django.utils import timezone
-    from openpyxl import Workbook
-    from openpyxl.utils import get_column_letter
-
-    from facturacion.models import Proyecto
-    from operaciones.models import SesionBilling
-    try:
-        from operaciones.models import AdjustmentEntry
-    except Exception:
-        AdjustmentEntry = None
-
-    from usuarios.models import ProyectoAsignacion  # ventana de visibilidad
-
-    # ---------------- helpers (copiados de produccion_admin) ----------------
-    def _iso_week_str(dt):
-        y, w, _ = dt.isocalendar()
-        return f"{y}-W{int(w):02d}"
-
-    def parse_week_query(q: str):
-        """
-        Acepta: '34', 'w34', 'W34', '2025-W34', '2025W34'
-        Retorna (exact_iso, week_token)
-        """
-        if not q:
-            return (None, None)
-        s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
-        m = re.fullmatch(r'(\d{4})-?W(\d{1,2})', s)   # 2025-W34 ó 2025W34
-        if m:
-            year, ww = int(m.group(1)), int(m.group(2))
-            return (f"{year}-W{ww:02d}", None)
-        m = re.fullmatch(r'(?:W)?(\d{1,2})', s)       # W34 ó 34
-        if m:
-            ww = int(m.group(1))
-            return (None, f"W{ww:02d}")
-        return (None, None)
-
-    def _normalize_week_str(s: str) -> str:
-        if not s:
-            return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
-        s = re.sub(r"\s+", "", s)
-        return s.upper()
-
-    def _week_sort_key(week_str: str):
-        """
-        Acepta variantes como '2025-W40', '2025W40', 'W40'.
-        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
-        """
-        if not week_str:
-            return (-1, -1)
-
-        s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
-        # 1) YYYY-W##
-        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
-        if m:
-            return (int(m.group(1)), int(m.group(2)))
-        # 2) Solo W##
-        m = re.search(r'W(\d{1,2})', s)
-        if m:
-            # Si no hay año, usamos 0 para que queden al final
-            return (0, int(m.group(1)))
-        return (-1, -1)
-
-    def _status_label_export(sesion_estado: str, is_discount: bool) -> str:
-        """Etiqueta en inglés para el Excel."""
-        if is_discount:
-            return "Direct discount"
-        mapping = {
-            "aprobado_pm": "Approved by PM",
-            "aprobado_supervisor": "Approved by Supervisor",
-            "aprobado_finanzas": "Approved by Finance",
-            "rechazado_pm": "Rejected by PM",
-            "rechazado_supervisor": "Rejected by Supervisor",
-            "en_revision_supervisor": "In Supervisor Review",
-            "finalizado": "Finished (pending review)",
-            "en_proceso": "In Progress",
-            "asignado": "Assigned",
-        }
-        return mapping.get((sesion_estado or "").lower(), (sesion_estado or ""))
-
-    # ---------------- configuración (igual que produccion_admin) ----------------
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    current_week = _iso_week_str(timezone.now())
-
-    user = request.user
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
-    )
-
-    # ---------------- Filtros GET (igual que produccion_admin) ----------------
-    f_project = (request.GET.get("f_project") or "").strip()
-    f_week_input = (request.GET.get("f_week") or "").strip()
-    f_tech = (request.GET.get("f_tech") or "").strip()
-    f_client = (request.GET.get("f_client") or "").strip()
-
-    exact_week, week_token = parse_week_query(f_week_input)
-
-    # ---------------- Proyectos visibles para el usuario ----------------
-    try:
-        base_proyectos = Proyecto.objects.all()
-        if can_view_legacy_history:
-            proyectos_user = base_proyectos
-        else:
-            proyectos_user = filter_queryset_by_access(
-                base_proyectos,
-                request.user,
-                'id',
-            )
-    except Exception:
-        proyectos_user = Proyecto.objects.none()
-
-    if proyectos_user.exists():
-        allowed_keys = set()
-        for p in proyectos_user:
-            nombre = (getattr(p, "nombre", "") or "").strip()
-            if nombre:
-                allowed_keys.add(nombre)
-
-            codigo = getattr(p, "codigo", None)
-            if codigo:
-                allowed_keys.add(str(codigo).strip())
-            allowed_keys.add(str(p.id).strip())
-    else:
-        allowed_keys = set()
-
-    # ---------------- Query base: Sesiones ----------------
-    qs = (
-        SesionBilling.objects
-        .filter(Q(estado__in=estados_ok) | Q(is_direct_discount=True))
-        .order_by("-creado_en")
-        .prefetch_related(
-            "tecnicos_sesion__tecnico",
-            "items__desglose_tecnico",
-        )
-        .distinct()
-    )
-
-    # Igual que en produccion_admin: solo limitamos por proyectos si NO es historial
-    if not can_view_legacy_history:
-        if allowed_keys:
-            qs = qs.filter(proyecto__in=allowed_keys)
-        else:
-            qs = SesionBilling.objects.none()
-
-    # Semana REAL en sesiones (semana_pago_real)
-    if exact_week:
-        token = exact_week.split("-", 1)[-1].upper()
-        qs = qs.filter(
-            Q(semana_pago_real__iexact=exact_week) |
-            Q(semana_pago_real__icontains=token)
-        )
-    elif week_token:
-        qs = qs.filter(semana_pago_real__icontains=week_token)
-
-    if f_project:
-        qs = qs.annotate(proyecto_id_str=Cast('proyecto_id', CharField()))
-        qs = qs.filter(
-            Q(proyecto_id_str__icontains=f_project) |
-            Q(proyecto__icontains=f_project)
-        )
-    if f_client:
-        qs = qs.filter(cliente__icontains=f_client)
-
-    # ---------------- Construcción de filas (IGUAL QUE produccion_admin) ----------------
-    filas = []
-
-    # 1) Sesiones por técnico
-    for s in qs:
-        for asig in s.tecnicos_sesion.all():
-            tecnico = asig.tecnico
-
-            if f_tech:
-                target = f_tech.lower()
-                full_name = ((tecnico.first_name or "") + " " +
-                             (tecnico.last_name or "")).strip().lower()
-                username = (tecnico.username or "").lower()
-                if target not in full_name and target not in username:
-                    continue
-
-            detalle = []
-            total_tecnico = Decimal('0')
-
-            for it in s.items.all():
-                bd = next(
-                    (d for d in it.desglose_tecnico.all()
-                     if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
-                    None
+                tech_rows[key]["total_tecnico"] += subtotal
+
+                if subtotal < 0:
+                    tech_rows[key]["is_discount"] = True
+
+                item = getattr(snap, "item", None)
+
+                tech_rows[key]["detalle"].append(
+                    {
+                        "codigo": getattr(snap, "codigo_trabajo", "") or "",
+                        "tipo": getattr(snap, "tipo_trabajo", "") or "",
+                        "desc": getattr(item, "descripcion", "") if item else "",
+                        "uom": getattr(item, "unidad_medida", "") if item else "",
+                        "qty": getattr(item, "cantidad", None) if item else None,
+                        "rate_tec": (
+                            snap.tarifa_efectiva
+                            if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
+                            else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
+                        ),
+                        "subtotal_tec": subtotal,
+                    }
                 )
-                if not bd:
-                    continue
 
-                rate = bd.tarifa_efectiva if isinstance(
-                    bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
-                qty = it.cantidad if isinstance(
-                    it.cantidad, Decimal) else Decimal(str(it.cantidad or 0))
+            filas.extend(tech_rows.values())
 
-                sub_tec = rate * qty
-                total_tecnico += sub_tec
+        # ---------- fallback legacy ----------
+        else:
+            filas.extend(_build_legacy_rows_for_session(s))
 
-                detalle.append({
-                    "codigo": it.codigo_trabajo,
-                    "tipo": it.tipo_trabajo,
-                    "desc": it.descripcion,
-                    "uom": it.unidad_medida,
-                    "qty": it.cantidad,
-                    "rate_tec": rate,
-                    "subtotal_tec": sub_tec,
-                })
-
-            filas.append({
-                "sesion": s,
-                "tecnico": tecnico,
-                "project_id": s.proyecto_id,
-                "week": s.semana_pago_real or "—",
-                "status": s.estado,
-                "is_discount": bool(getattr(s, "is_direct_discount", False)),
-                "client": s.cliente,
-                "city": s.ciudad,
-                "project": s.proyecto,
-                "office": s.oficina,
-                "real_week": s.semana_pago_real or "—",
-                "proj_week": s.semana_pago_proyectada or "—",
-                "total_tecnico": total_tecnico,
-                "detalle": detalle,
-                "adjustment_type": "",
-            })
-
-    # 2) Ajustes manuales
+    # ---------------- Ajustes manuales ----------------
     if AdjustmentEntry is not None:
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
         if not can_view_legacy_history:
             if allowed_keys:
                 adj_qs = adj_qs.filter(
-                    Q(project__in=allowed_keys) |
-                    Q(project_id__in=allowed_keys)
+                    Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys)
                 )
             else:
                 adj_qs = AdjustmentEntry.objects.none()
 
         if exact_week:
             token = exact_week.split("-", 1)[-1].upper()
-            adj_qs = adj_qs.filter(Q(week__iexact=exact_week)
-                                   | Q(week__icontains=token))
+            adj_qs = adj_qs.filter(
+                Q(week__iexact=exact_week) | Q(week__icontains=token)
+            )
         elif week_token:
             adj_qs = adj_qs.filter(week__icontains=week_token)
 
         if f_project:
-            adj_qs = adj_qs.annotate(project_id_str=Cast('project_id', CharField()))
+            adj_qs = adj_qs.annotate(project_id_str=Cast("project_id", CharField()))
             adj_qs = adj_qs.filter(
-                Q(project_id_str__icontains=f_project) |
-                Q(project__icontains=f_project)
+                Q(project_id_str__icontains=f_project) | Q(project__icontains=f_project)
             )
+
         if f_client:
             adj_qs = adj_qs.filter(client__icontains=f_client)
+
         if f_tech:
             target = f_tech
             adj_qs = adj_qs.filter(
-                Q(technician__first_name__icontains=target) |
-                Q(technician__last_name__icontains=target) |
-                Q(technician__username__icontains=target)
+                Q(technician__first_name__icontains=target)
+                | Q(technician__last_name__icontains=target)
+                | Q(technician__username__icontains=target)
             )
 
         for a in adj_qs:
             t = a.technician
-            amt = a.amount if isinstance(
-                a.amount, Decimal) else Decimal(str(a.amount or 0))
-            signed_amount = amt.copy_abs()  # SIEMPRE POSITIVO
+            amt = (
+                a.amount
+                if isinstance(a.amount, Decimal)
+                else Decimal(str(a.amount or 0))
+            )
+            signed_amount = amt.copy_abs()
 
-            filas.append({
-                "sesion": None,
-                "tecnico": t,
-                "project_id": "-",
-                "week": a.week or "—",
-                "status": "",
-                "is_discount": False,
-                "client": a.client,
-                "city": a.city,
-                "project": a.project,
-                "office": a.office,
-                "real_week": a.week or "—",
-                "proj_week": a.week or "—",
-                "total_tecnico": signed_amount,
-                "detalle": [],
-                "adjustment_type": a.adjustment_type,
-                "adjustment_id": a.id,
-            })
+            filas.append(
+                {
+                    "sesion": None,
+                    "tecnico": t,
+                    "project_id": "-",
+                    "week": a.week or "—",
+                    "status": "",
+                    "is_discount": False,
+                    "client": a.client,
+                    "city": a.city,
+                    "project": a.project,
+                    "office": a.office,
+                    "real_week": a.week or "—",
+                    "proj_week": a.week or "—",
+                    "total_tecnico": signed_amount,
+                    "detalle": [],
+                    "adjustment_type": a.adjustment_type,
+                    "adjustment_id": a.id,
+                }
+            )
 
-    # --------- Resolver label de proyecto (igual que produccion_admin) ---------
+    # --------- Resolver label de proyecto ---------
     proyectos_list = list(proyectos_user)
     by_id = {p.id: p for p in proyectos_list}
     by_code = {
@@ -5364,32 +7762,19 @@ def Exportar_produccion_admin(request):
 
         def _match_project_text(row):
             return (
-                needle in str(row.get("project_id") or "").lower() or
-                needle in str(row.get("project") or "").lower() or
-                needle in str(row.get("project_label") or "").lower()
+                needle in str(row.get("project_id") or "").lower()
+                or needle in str(row.get("project") or "").lower()
+                or needle in str(row.get("project_label") or "").lower()
             )
 
         filas = [r for r in filas if _match_project_text(r)]
 
-    # --------- Filtro defensivo por semana ---------
-    if exact_week or week_token:
-        token = (week_token or exact_week.split("-", 1)[-1]).upper()
-        exact_norm = exact_week.upper() if exact_week else None
-
-        def _match_row_real(r):
-            rw = _normalize_week_str(r["real_week"])
-            if exact_norm:
-                return (rw == exact_norm) or (token in rw)
-            return token in rw
-
-        filas = [r for r in filas if _match_row_real(r)]
-
     # --------- Ventana de visibilidad por ProyectoAsignacion ---------
     try:
         asignaciones = list(
-            ProyectoAsignacion.objects
-            .filter(usuario=request.user, proyecto__in=proyectos_list)
-            .select_related("proyecto")
+            ProyectoAsignacion.objects.filter(
+                usuario=request.user, proyecto__in=proyectos_list
+            ).select_related("proyecto")
         )
     except Exception:
         asignaciones = []
@@ -5453,18 +7838,641 @@ def Exportar_produccion_admin(request):
 
         filas = [r for r in filas if _row_allowed(r)]
 
-    # --------------- Orden por semana real (misma que vista) ---------------
-    filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
+    # --------------- orden final ---------------
+    filas.sort(
+        key=lambda r: (
+            _week_sort_key(r.get("real_week") or r.get("week") or ""),
+            str(getattr(r.get("tecnico"), "first_name", "") or ""),
+            str(getattr(r.get("tecnico"), "last_name", "") or ""),
+            str(getattr(r.get("tecnico"), "username", "") or ""),
+        ),
+        reverse=True,
+    )
 
-    # ============ A PARTIR DE AQUÍ SOLO GENERAMOS EL EXCEL ============
+    # --------------- Paginación ---------------
+    cantidad = request.GET.get("cantidad", "10")
+    allowed_page_sizes = {"5", "10", "20", "50", "100"}
+    if cantidad not in allowed_page_sizes:
+        cantidad = "10"
+
+    try:
+        per_page = int(cantidad)
+    except ValueError:
+        per_page = 10
+
+    paginator = Paginator(filas, per_page)
+    page_number = request.GET.get("page") or 1
+    pagina = paginator.get_page(page_number)
+
+    filters_dict = {
+        "f_project": f_project,
+        "f_week": f_week_input,
+        "f_tech": f_tech,
+        "f_client": f_client,
+        "cantidad": cantidad,
+    }
+    filters_qs = urlencode({k: v for k, v in filters_dict.items() if v})
+
+    return render(
+        request,
+        "operaciones/produccion_admin.html",
+        {
+            "current_week": current_week,
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "f_project": f_project,
+            "f_week_input": f_week_input,
+            "f_tech": f_tech,
+            "f_client": f_client,
+            "filters_qs": filters_qs,
+        },
+    )
+
+
+@login_required
+@rol_requerido("admin", "supervisor", "pm", "facturacion")
+def Exportar_produccion_admin(request):
+    """
+    Exporta exactamente la misma lógica de produccion_admin:
+    - snapshots productivos
+    - legacy sin snapshots
+    - ajustes
+    """
+    import re
+    from decimal import Decimal
+
+    from django.db.models import CharField, Q
+    from django.db.models.functions import Cast
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    from facturacion.models import Proyecto
+    from operaciones.models import BillingPayWeekSnapshot, SesionBilling
+
+    try:
+        from operaciones.models import AdjustmentEntry
+    except Exception:
+        AdjustmentEntry = None
+
+    from usuarios.models import ProyectoAsignacion
+
+    def _iso_week_str(dt):
+        y, w, _ = dt.isocalendar()
+        return f"{y}-W{int(w):02d}"
+
+    def parse_week_query(q: str):
+        if not q:
+            return (None, None)
+        s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
+        m = re.fullmatch(r"(\d{4})-?W(\d{1,2})", s)
+        if m:
+            year, ww = int(m.group(1)), int(m.group(2))
+            return (f"{year}-W{ww:02d}", None)
+        m = re.fullmatch(r"(?:W)?(\d{1,2})", s)
+        if m:
+            ww = int(m.group(1))
+            return (None, f"W{ww:02d}")
+        return (None, None)
+
+    def _normalize_week_str(s: str) -> str:
+        if not s:
+            return ""
+        s = s.replace("\u2013", "-").replace("\u2014", "-")
+        s = re.sub(r"\s+", "", s)
+        return s.upper()
+
+    def _week_sort_key(week_str: str):
+        if not week_str:
+            return (-1, -1)
+        s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
+        m = re.search(r"(\d{4})-?W(\d{1,2})", s)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        m = re.search(r"W(\d{1,2})", s)
+        if m:
+            return (0, int(m.group(1)))
+        return (-1, -1)
+
+    def _match_week_filter(
+        week_real: str, exact_week: str | None, week_token: str | None
+    ) -> bool:
+        wr = (week_real or "").strip().upper()
+        if not wr:
+            return False
+        if exact_week:
+            token = exact_week.split("-", 1)[-1].upper()
+            return wr == exact_week or token in wr
+        if week_token:
+            return week_token in wr
+        return True
+
+    def _match_tech_filter(user_obj, f_tech_value: str) -> bool:
+        if not f_tech_value:
+            return True
+        target = f_tech_value.lower()
+        full_name = (
+            (
+                (getattr(user_obj, "first_name", "") or "")
+                + " "
+                + (getattr(user_obj, "last_name", "") or "")
+            )
+            .strip()
+            .lower()
+        )
+        username = (getattr(user_obj, "username", "") or "").lower()
+        return target in full_name or target in username
+
+    def _status_label_export(
+        sesion_estado: str, is_discount: bool, adjustment_type: str = ""
+    ) -> str:
+        if adjustment_type:
+            return {
+                "bonus": "Bonus",
+                "advance": "Advance",
+                "fixed_salary": "Fixed salary",
+            }.get(adjustment_type, adjustment_type)
+
+        if is_discount:
+            return "Direct discount"
+
+        mapping = {
+            "aprobado_pm": "Approved by PM",
+            "aprobado_supervisor": "Approved by Supervisor",
+            "aprobado_finanzas": "Approved by Finance",
+            "rechazado_pm": "Rejected by PM",
+            "rechazado_supervisor": "Rejected by Supervisor",
+            "en_revision_supervisor": "In Supervisor Review",
+            "finalizado": "Finished (pending review)",
+            "en_proceso": "In Progress",
+            "asignado": "Assigned",
+        }
+        return mapping.get((sesion_estado or "").lower(), (sesion_estado or ""))
+
+    def _build_legacy_rows_for_session(s):
+        legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper() or (
+            getattr(s, "semana_pago_proyectada", "") or ""
+        ).strip().upper()
+
+        if not legacy_week:
+            return []
+
+        if not _match_week_filter(legacy_week, exact_week, week_token):
+            return []
+
+        try:
+            asignaciones = list(
+                s.tecnicos_sesion.select_related("tecnico").all().order_by("id")
+            )
+        except Exception:
+            asignaciones = []
+
+        if not asignaciones:
+            return []
+
+        out = []
+
+        for asig in asignaciones:
+            tecnico = getattr(asig, "tecnico", None)
+            if not tecnico:
+                continue
+
+            if not _match_tech_filter(tecnico, f_tech):
+                continue
+
+            total_tecnico = Decimal("0.00")
+
+            try:
+                items = list(
+                    s.items.prefetch_related("desglose_tecnico").all().order_by("id")
+                )
+            except Exception:
+                items = []
+
+            for item in items:
+                try:
+                    desglose_rows = [
+                        bd
+                        for bd in item.desglose_tecnico.all()
+                        if getattr(bd, "tecnico_id", None) == tecnico.id
+                    ]
+                except Exception:
+                    desglose_rows = []
+
+                for bd in desglose_rows:
+                    subtotal = getattr(bd, "subtotal", None)
+                    try:
+                        subtotal = (
+                            subtotal
+                            if isinstance(subtotal, Decimal)
+                            else Decimal(str(subtotal or 0))
+                        )
+                    except Exception:
+                        subtotal = Decimal("0.00")
+                    total_tecnico += subtotal
+
+            if total_tecnico == 0:
+                try:
+                    subtotal_sesion = getattr(s, "subtotal_tecnico", None)
+                    subtotal_sesion = (
+                        subtotal_sesion
+                        if isinstance(subtotal_sesion, Decimal)
+                        else Decimal(str(subtotal_sesion or 0))
+                    )
+                except Exception:
+                    subtotal_sesion = Decimal("0.00")
+
+                try:
+                    pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
+                except Exception:
+                    pct = Decimal("0.00")
+
+                total_tecnico = (subtotal_sesion * (pct / Decimal("100"))).quantize(
+                    Decimal("0.01")
+                )
+
+            out.append(
+                {
+                    "sesion": s,
+                    "tecnico": tecnico,
+                    "project_id": s.proyecto_id,
+                    "week": legacy_week or "—",
+                    "status": s.estado,
+                    "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                    "client": s.cliente,
+                    "city": s.ciudad,
+                    "project": s.proyecto,
+                    "office": s.oficina,
+                    "real_week": legacy_week or "—",
+                    "total_tecnico": total_tecnico,
+                    "adjustment_type": "",
+                }
+            )
+
+        return out
+
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    user = request.user
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
+    )
+
+    f_project = (request.GET.get("f_project") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_client = (request.GET.get("f_client") or "").strip()
+
+    exact_week, week_token = parse_week_query(f_week_input)
+
+    try:
+        base_proyectos = Proyecto.objects.all()
+        if can_view_legacy_history:
+            proyectos_user = base_proyectos
+        else:
+            proyectos_user = filter_queryset_by_access(
+                base_proyectos,
+                request.user,
+                "id",
+            )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    if proyectos_user.exists():
+        allowed_keys = set()
+        for p in proyectos_user:
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+
+            allowed_keys.add(str(p.id).strip())
+    else:
+        allowed_keys = set()
+
+    qs = (
+        SesionBilling.objects.filter(
+            Q(estado__in=estados_ok) | Q(is_direct_discount=True)
+        )
+        .order_by("-creado_en")
+        .prefetch_related(
+            "tecnicos_sesion__tecnico",
+            "pay_week_snapshots__tecnico",
+            "pay_week_snapshots__item",
+            "items__desglose_tecnico",
+        )
+        .distinct()
+    )
+
+    if not can_view_legacy_history:
+        if allowed_keys:
+            qs = qs.filter(proyecto__in=allowed_keys)
+        else:
+            qs = SesionBilling.objects.none()
+
+    if f_project:
+        qs = qs.annotate(proyecto_id_str=Cast("proyecto_id", CharField()))
+        qs = qs.filter(
+            Q(proyecto_id_str__icontains=f_project) | Q(proyecto__icontains=f_project)
+        )
+
+    if f_client:
+        qs = qs.filter(cliente__icontains=f_client)
+
+    qs = qs.distinct()
+
+    filas = []
+
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
+    for s in qs:
+        snaps = list(s.pay_week_snapshots.all())
+
+        productive_snaps = []
+        for snap in snaps:
+            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+                continue
+            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+                continue
+            productive_snaps.append(snap)
+
+        if productive_snaps:
+            tech_rows = {}
+
+            for snap in productive_snaps:
+                tecnico = getattr(snap, "tecnico", None)
+                if not tecnico:
+                    continue
+
+                if not _match_tech_filter(tecnico, f_tech):
+                    continue
+
+                week_real = (
+                    (getattr(snap, "semana_resultado", "") or "").strip().upper()
+                )
+                if not week_real:
+                    continue
+
+                if not _match_week_filter(week_real, exact_week, week_token):
+                    continue
+
+                key = (tecnico.id, week_real)
+
+                if key not in tech_rows:
+                    tech_rows[key] = {
+                        "sesion": s,
+                        "tecnico": tecnico,
+                        "project_id": s.proyecto_id,
+                        "week": week_real or "—",
+                        "status": s.estado,
+                        "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                        "client": s.cliente,
+                        "city": s.ciudad,
+                        "project": s.proyecto,
+                        "office": s.oficina,
+                        "real_week": week_real or "—",
+                        "total_tecnico": Decimal("0"),
+                        "adjustment_type": "",
+                    }
+
+                subtotal = (
+                    snap.subtotal
+                    if isinstance(snap.subtotal, Decimal)
+                    else Decimal(str(snap.subtotal or 0))
+                )
+                tech_rows[key]["total_tecnico"] += subtotal
+
+                if subtotal < 0:
+                    tech_rows[key]["is_discount"] = True
+
+            filas.extend(tech_rows.values())
+
+        else:
+            filas.extend(_build_legacy_rows_for_session(s))
+
+    if AdjustmentEntry is not None:
+        adj_qs = AdjustmentEntry.objects.select_related("technician")
+
+        if not can_view_legacy_history:
+            if allowed_keys:
+                adj_qs = adj_qs.filter(
+                    Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys)
+                )
+            else:
+                adj_qs = AdjustmentEntry.objects.none()
+
+        if exact_week:
+            token = exact_week.split("-", 1)[-1].upper()
+            adj_qs = adj_qs.filter(
+                Q(week__iexact=exact_week) | Q(week__icontains=token)
+            )
+        elif week_token:
+            adj_qs = adj_qs.filter(week__icontains=week_token)
+
+        if f_project:
+            adj_qs = adj_qs.annotate(project_id_str=Cast("project_id", CharField()))
+            adj_qs = adj_qs.filter(
+                Q(project_id_str__icontains=f_project) | Q(project__icontains=f_project)
+            )
+
+        if f_client:
+            adj_qs = adj_qs.filter(client__icontains=f_client)
+
+        if f_tech:
+            target = f_tech
+            adj_qs = adj_qs.filter(
+                Q(technician__first_name__icontains=target)
+                | Q(technician__last_name__icontains=target)
+                | Q(technician__username__icontains=target)
+            )
+
+        for a in adj_qs:
+            t = a.technician
+            amt = (
+                a.amount
+                if isinstance(a.amount, Decimal)
+                else Decimal(str(a.amount or 0))
+            )
+            signed_amount = amt.copy_abs()
+
+            filas.append(
+                {
+                    "sesion": None,
+                    "tecnico": t,
+                    "project_id": "-",
+                    "week": a.week or "—",
+                    "status": "",
+                    "is_discount": False,
+                    "client": a.client,
+                    "city": a.city,
+                    "project": a.project,
+                    "office": a.office,
+                    "real_week": a.week or "—",
+                    "total_tecnico": signed_amount,
+                    "adjustment_type": a.adjustment_type,
+                    "adjustment_id": a.id,
+                }
+            )
+
+    proyectos_list = list(proyectos_user)
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    def _resolve_project_label(row):
+        s = row.get("sesion")
+        proj_text = None
+        proj_id = None
+
+        if s is not None:
+            proj_text = (getattr(s, "proyecto", "") or "").strip()
+            proj_id = getattr(s, "proyecto_id", None)
+        else:
+            proj_text = (row.get("project") or "").strip()
+            proj_id = row.get("project_id", None)
+
+        proyecto_sel = None
+
+        if proj_text:
+            try:
+                pid = int(proj_text)
+            except (TypeError, ValueError):
+                key = proj_text.lower()
+                proyecto_sel = by_code.get(key) or by_name.get(key)
+            else:
+                proyecto_sel = by_id.get(pid)
+
+        if not proyecto_sel and proj_id not in (None, "", "-"):
+            try:
+                pid2 = int(proj_id)
+            except (TypeError, ValueError):
+                key2 = str(proj_id).strip().lower()
+                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+            else:
+                proyecto_sel = by_id.get(pid2)
+
+        if proyecto_sel:
+            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        if proj_text:
+            return proj_text
+        if proj_id not in (None, "", "-"):
+            return str(proj_id)
+        return ""
+
+    for row in filas:
+        row["project_label"] = _resolve_project_label(row)
+
+    if f_project:
+        needle = f_project.lower()
+
+        def _match_project_text(row):
+            return (
+                needle in str(row.get("project_id") or "").lower()
+                or needle in str(row.get("project") or "").lower()
+                or needle in str(row.get("project_label") or "").lower()
+            )
+
+        filas = [r for r in filas if _match_project_text(r)]
+
+    try:
+        asignaciones = list(
+            ProyectoAsignacion.objects.filter(
+                usuario=request.user, proyecto__in=proyectos_list
+            ).select_related("proyecto")
+        )
+    except Exception:
+        asignaciones = []
+
+    if asignaciones and not can_view_legacy_history:
+        access_by_pk = {}
+        for a in asignaciones:
+            if a.include_history or not a.start_at:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": True,
+                    "start_week": None,
+                }
+            else:
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": False,
+                    "start_week": _iso_week_str(a.start_at),
+                }
+
+        def _project_pk_from_row(row):
+            s = row.get("sesion")
+
+            if s is not None:
+                raw = getattr(s, "proyecto_id", None)
+                if raw not in (None, "", "-"):
+                    try:
+                        return int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            text = (
+                str(row.get("project_label") or "").strip()
+                or str(row.get("project") or "").strip()
+            )
+            key = text.lower()
+            if key:
+                p = by_name.get(key)
+                if p:
+                    return p.id
+                p = by_code.get(key)
+                if p:
+                    return p.id
+            return None
+
+        def _row_allowed(row):
+            pk = _project_pk_from_row(row)
+            if pk is None:
+                return False
+
+            access = access_by_pk.get(pk)
+            if not access:
+                return False
+
+            if access["include_history"] or access["start_week"] is None:
+                return True
+
+            week_str = _normalize_week_str(row.get("real_week"))
+            if not week_str:
+                return False
+
+            return _week_sort_key(week_str) >= _week_sort_key(access["start_week"])
+
+        filas = [r for r in filas if _row_allowed(r)]
+
+    filas.sort(key=lambda r: _week_sort_key(r["real_week"]), reverse=True)
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Production"
 
     headers = [
-        "Project ID", "Real pay week", "Status", "Technician",
-        "Client", "City", "Project", "Office", "Technical Billing"
+        "Project ID",
+        "Real pay week",
+        "Status",
+        "Technician",
+        "Client",
+        "City",
+        "Project",
+        "Office",
+        "Technical Billing",
     ]
     ws.append(headers)
 
@@ -5475,35 +8483,28 @@ def Exportar_produccion_admin(request):
         except Exception:
             tech_name = getattr(tech, "username", "") or ""
 
-        # Status: sesiones vs ajustes
-        if r.get("adjustment_type"):
-            status = {
-                "bonus": "Bonus",
-                "advance": "Advance",
-                "fixed_salary": "Fixed salary",
-            }.get(r["adjustment_type"], r["adjustment_type"])
-        else:
-            status = _status_label_export(r.get("status", ""), r.get("is_discount", False))
-
-        project_cell = (
-            r.get("project_label")
-            or r.get("project")
-            or "-"
+        status = _status_label_export(
+            r.get("status", ""),
+            r.get("is_discount", False),
+            r.get("adjustment_type", ""),
         )
 
-        ws.append([
-            r.get("project_id", "-") or "-",
-            r.get("week", "") or r.get("real_week", ""),
-            status or "",
-            tech_name,
-            r.get("client", "-") or "-",
-            r.get("city", "-") or "-",
-            project_cell,
-            r.get("office", "-") or "-",
-            float(r.get("total_tecnico") or 0.0),
-        ])
+        project_cell = r.get("project_label") or r.get("project") or "-"
 
-    # Auto ancho + formato numérico
+        ws.append(
+            [
+                r.get("project_id", "-") or "-",
+                r.get("week", "") or r.get("real_week", ""),
+                status or "",
+                tech_name,
+                r.get("client", "-") or "-",
+                r.get("city", "-") or "-",
+                project_cell,
+                r.get("office", "-") or "-",
+                float(r.get("total_tecnico") or 0.0),
+            ]
+        )
+
     for col in ws.columns:
         max_len = 0
         letter = get_column_letter(col[0].column)
@@ -5514,13 +8515,12 @@ def Exportar_produccion_admin(request):
                 pass
         ws.column_dimensions[letter].width = min(max(10, max_len + 2), 50)
 
-    # Columna de monto
     last_col = len(headers)
     for col_cells in ws.iter_cols(
         min_col=last_col, max_col=last_col, min_row=2, values_only=False
     ):
         for c in col_cells:
-            c.number_format = '#,##0.00'
+            c.number_format = "#,##0.00"
 
     resp = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -5531,15 +8531,16 @@ def Exportar_produccion_admin(request):
 
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 def produccion_usuario(request):
     """
     Producción del técnico logueado.
-    - sesiones aprobadas (Supervisor/PM/Finanzas)
-    - descuentos directos (is_direct_discount=True)
-    - sesiones con línea negativa del técnico
-    - ajustes (Bonus/Advance/Fixed salary) SIEMPRE positivos
-    - orden: semana actual, luego pasadas (W40,W39,...) descendente, luego futuras y sin semana
+    Incluye:
+    - snapshots productivos
+    - legacy sin snapshots productivos
+    - ajustes (Bonus / Advance / Fixed salary)
+    - descuentos directos
+    - orden: semana actual, luego pasadas, luego futuras, luego sin semana
     - paginación: ?cantidad=5|10|20|todos y ?page=N
     """
     import re
@@ -5550,14 +8551,17 @@ def produccion_usuario(request):
     from django.db.models import Q
     from django.utils import timezone
 
+    from facturacion.models import Proyecto
+    from operaciones.models import (AdjustmentEntry, BillingPayWeekSnapshot,
+                                    SesionBilling)
+
     tecnico = request.user
 
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
 
-    def _parse_iso_week(s: str):
-        """Devuelve (year, week) o None (si no es válido)."""
+    def _parse_iso_week_local(s: str):
         if not s:
             return None
         s = s.strip().upper().replace(" ", "")
@@ -5566,129 +8570,276 @@ def produccion_usuario(request):
             return None
         return (int(m.group(1)), int(m.group(2)))
 
+    def _week_match(week_value: str, weeks_wanted_set):
+        if weeks_wanted_set is None:
+            return True
+        return (week_value or "").strip().upper() in weeks_wanted_set
+
+    def _build_legacy_rows_for_session(s, weeks_wanted_set=None):
+        """
+        Fallback legacy para sesiones sin snapshots productivos.
+        Solo arma fila del técnico logueado.
+        """
+        legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper() or (
+            getattr(s, "semana_pago_proyectada", "") or ""
+        ).strip().upper()
+
+        if not legacy_week:
+            return []
+
+        if not _week_match(legacy_week, weeks_wanted_set):
+            return []
+
+        try:
+            asig = (
+                s.tecnicos_sesion.select_related("tecnico")
+                .filter(tecnico_id=tecnico.id)
+                .first()
+            )
+        except Exception:
+            asig = None
+
+        if not asig:
+            return []
+
+        detalle = []
+        total_tecnico = Decimal("0.00")
+
+        try:
+            items = list(
+                s.items.prefetch_related("desglose_tecnico").all().order_by("id")
+            )
+        except Exception:
+            items = []
+
+        # 1) Intentar por desglose real
+        for item in items:
+            try:
+                desglose_rows = [
+                    bd
+                    for bd in item.desglose_tecnico.all()
+                    if getattr(bd, "tecnico_id", None) == tecnico.id
+                ]
+            except Exception:
+                desglose_rows = []
+
+            for bd in desglose_rows:
+                subtotal = getattr(bd, "subtotal", None)
+                try:
+                    subtotal = (
+                        subtotal
+                        if isinstance(subtotal, Decimal)
+                        else Decimal(str(subtotal or 0))
+                    )
+                except Exception:
+                    subtotal = Decimal("0.00")
+
+                tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
+                try:
+                    tarifa_efectiva = (
+                        tarifa_efectiva
+                        if isinstance(tarifa_efectiva, Decimal)
+                        else Decimal(str(tarifa_efectiva or 0))
+                    )
+                except Exception:
+                    tarifa_efectiva = Decimal("0.00")
+
+                detalle.append(
+                    {
+                        "codigo": getattr(item, "codigo_trabajo", "") or "",
+                        "tipo": getattr(item, "tipo_trabajo", "") or "",
+                        "desc": getattr(item, "descripcion", "") or "",
+                        "uom": getattr(item, "unidad_medida", "") or "",
+                        "qty": getattr(item, "cantidad", None),
+                        "rate_tec": tarifa_efectiva,
+                        "subtotal_tec": subtotal,
+                    }
+                )
+                total_tecnico += subtotal
+
+        # 2) Fallback por porcentaje
+        if not detalle:
+            try:
+                subtotal_sesion = getattr(s, "subtotal_tecnico", None)
+                subtotal_sesion = (
+                    subtotal_sesion
+                    if isinstance(subtotal_sesion, Decimal)
+                    else Decimal(str(subtotal_sesion or 0))
+                )
+            except Exception:
+                subtotal_sesion = Decimal("0.00")
+
+            try:
+                pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
+            except Exception:
+                pct = Decimal("0.00")
+
+            total_tecnico = (subtotal_sesion * (pct / Decimal("100"))).quantize(
+                Decimal("0.01")
+            )
+
+        return [
+            {
+                "sesion": s,
+                "project_id": s.proyecto_id,
+                "week": legacy_week or "—",
+                "status": s.estado,
+                "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": legacy_week or "—",
+                "total_tecnico": total_tecnico,
+                "detalle": detalle,
+                "adjustment_type": "",
+                "adjustment_label": "",
+            }
+        ]
+
     estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
     current_week = _iso_week_str(timezone.now())
-    current_tuple = _parse_iso_week(current_week)
+    current_tuple = _parse_iso_week_local(current_week)
 
-    # filtro por semana REAL: "all" o "YYYY-W##"
     week_filter = (request.GET.get("week") or "all").strip()
-    weeks_wanted = None if week_filter.lower() == "all" else {
-        week_filter.upper()}
+    weeks_wanted = None if week_filter.lower() == "all" else {week_filter.upper()}
 
     filas = []
     total_semana_actual = Decimal("0")
 
-    # -------- Sesiones de producción --------
     qs = (
-        SesionBilling.objects
-        .filter(items__desglose_tecnico__tecnico=tecnico)
-        .filter(
-            Q(estado__in=estados_ok)
-            | Q(is_direct_discount=True)
-            | Q(items__desglose_tecnico__subtotal__lt=0)
+        SesionBilling.objects.filter(
+            Q(estado__in=estados_ok) | Q(is_direct_discount=True)
         )
-        .prefetch_related("items__desglose_tecnico")
+        .prefetch_related(
+            "pay_week_snapshots__tecnico",
+            "pay_week_snapshots__item",
+            "tecnicos_sesion__tecnico",
+            "items__desglose_tecnico",
+        )
         .order_by("-creado_en")
         .distinct()
     )
 
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
     for s in qs:
-        rw = (s.semana_pago_real or "").upper()
-        if weeks_wanted is not None and rw not in weeks_wanted:
-            continue
+        snaps = list(s.pay_week_snapshots.all())
 
-        detalle = []
-        total_tecnico = Decimal("0")
-        tiene_linea_negativa = False
-
-        for it in s.items.all():
-            bd = next(
-                (d for d in it.desglose_tecnico.all()
-                 if getattr(d, "tecnico_id", None) == getattr(tecnico, "id", None)),
-                None
-            )
-            if not bd:
+        productive_snaps = []
+        for snap in snaps:
+            if getattr(snap, "tecnico_id", None) != tecnico.id:
                 continue
+            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
+                continue
+            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
+                continue
+            productive_snaps.append(snap)
 
-            rate = bd.tarifa_efectiva if isinstance(
-                bd.tarifa_efectiva, Decimal) else Decimal(str(bd.tarifa_efectiva or 0))
-            qty = it.cantidad if isinstance(
-                it.cantidad,        Decimal) else Decimal(str(it.cantidad or 0))
+        # ---------- flujo nuevo ----------
+        if productive_snaps:
+            week_rows = {}
 
-            sub_tec = rate * qty
-            total_tecnico += sub_tec
-            if sub_tec < 0:
-                tiene_linea_negativa = True
+            for snap in productive_snaps:
+                rw = (getattr(snap, "semana_resultado", "") or "").strip().upper()
+                if not rw:
+                    continue
 
-            detalle.append({
-                "codigo": it.codigo_trabajo,
-                "tipo": it.tipo_trabajo,
-                "desc": it.descripcion,
-                "uom": it.unidad_medida,
-                "qty": it.cantidad,
-                "rate_tec": rate,
-                "subtotal_tec": sub_tec,
-            })
+                if not _week_match(rw, weeks_wanted):
+                    continue
 
-        if not detalle:
-            continue
+                if rw not in week_rows:
+                    week_rows[rw] = {
+                        "sesion": s,
+                        "project_id": s.proyecto_id,
+                        "week": rw or "—",
+                        "status": s.estado,
+                        "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                        "client": s.cliente,
+                        "city": s.ciudad,
+                        "project": s.proyecto,
+                        "office": s.oficina,
+                        "real_week": rw or "—",
+                        "total_tecnico": Decimal("0"),
+                        "detalle": [],
+                        "adjustment_type": "",
+                        "adjustment_label": "",
+                    }
 
-        is_discount_row = bool(
-            getattr(s, "is_direct_discount", False) or tiene_linea_negativa)
+                subtotal = (
+                    snap.subtotal
+                    if isinstance(snap.subtotal, Decimal)
+                    else Decimal(str(snap.subtotal or 0))
+                )
+                week_rows[rw]["total_tecnico"] += subtotal
 
-        if rw == current_week:
-            total_semana_actual += total_tecnico  # incluye negativos
+                if subtotal < 0:
+                    week_rows[rw]["is_discount"] = True
 
-        filas.append({
-            "sesion": s,
-            "project_id": s.proyecto_id,
-            "week": s.semana_pago_proyectada or "—",
-            "status": s.estado,
-            "is_discount": is_discount_row,
-            "client": s.cliente,
-            "city": s.ciudad,
-            "project": s.proyecto,
-            "office": s.oficina,
-            "real_week": s.semana_pago_real or "—",
-            "total_tecnico": total_tecnico,
-            "detalle": detalle,
-            "adjustment_type": "",
-            "adjustment_label": "",
-        })
+                item = getattr(snap, "item", None)
 
-    # -------- Ajustes (Bonus / Advance / Fixed salary) --------
+                week_rows[rw]["detalle"].append(
+                    {
+                        "codigo": getattr(snap, "codigo_trabajo", "") or "",
+                        "tipo": getattr(snap, "tipo_trabajo", "") or "",
+                        "desc": getattr(item, "descripcion", "") if item else "",
+                        "uom": getattr(item, "unidad_medida", "") if item else "",
+                        "qty": getattr(item, "cantidad", None) if item else None,
+                        "rate_tec": (
+                            snap.tarifa_efectiva
+                            if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
+                            else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
+                        ),
+                        "subtotal_tec": subtotal,
+                    }
+                )
+
+            for rw, row in week_rows.items():
+                if rw == current_week:
+                    total_semana_actual += row["total_tecnico"]
+                filas.append(row)
+
+        # ---------- fallback legacy ----------
+        else:
+            legacy_rows = _build_legacy_rows_for_session(s, weeks_wanted)
+            for row in legacy_rows:
+                if row["real_week"] == current_week:
+                    total_semana_actual += row["total_tecnico"]
+                filas.append(row)
+
+    # ---------- ajustes ----------
     adj_qs = AdjustmentEntry.objects.filter(technician=tecnico)
     if weeks_wanted is not None:
         adj_qs = adj_qs.filter(week__in=weeks_wanted)
 
     for a in adj_qs:
-        amt = a.amount if isinstance(
-            a.amount, Decimal) else Decimal(str(a.amount or 0))
-        amt_pos = abs(amt)  # SIEMPRE positivo
+        amt = a.amount if isinstance(a.amount, Decimal) else Decimal(str(a.amount or 0))
+        amt_pos = abs(amt)
         rw = (a.week or "—").upper()
 
         if rw == current_week:
             total_semana_actual += amt_pos
 
-        filas.append({
-            "sesion": None,
-            "project_id": a.project_id or "",
-            "week": a.week or "—",
-            "status": "",
-            "is_discount": False,
-            "client": a.client or "-",
-            "city": a.city or "-",
-            "project": a.project or "-",
-            "office": a.office or "-",
-            "real_week": rw,
-            "total_tecnico": amt_pos,
-            "detalle": [],
-            "adjustment_type": a.adjustment_type,
-            "adjustment_label": a.get_adjustment_type_display(),
-        })
-
-    # -------- Resolver label de proyecto (nombre amigable, igual que admin) --------
-    from facturacion.models import Proyecto
+        filas.append(
+            {
+                "sesion": None,
+                "project_id": a.project_id or "",
+                "week": a.week or "—",
+                "status": "",
+                "is_discount": False,
+                "client": a.client or "-",
+                "city": a.city or "-",
+                "project": a.project or "-",
+                "office": a.office or "-",
+                "real_week": rw,
+                "total_tecnico": amt_pos,
+                "detalle": [],
+                "adjustment_type": a.adjustment_type,
+                "adjustment_label": a.get_adjustment_type_display(),
+            }
+        )
 
     proyectos_list = list(Proyecto.objects.all())
     by_id = {p.id: p for p in proyectos_list}
@@ -5717,7 +8868,6 @@ def produccion_usuario(request):
 
         proyecto_sel = None
 
-        # 1) intentar interpretar proj_text como PK
         if proj_text:
             try:
                 pid = int(proj_text)
@@ -5727,7 +8877,6 @@ def produccion_usuario(request):
             else:
                 proyecto_sel = by_id.get(pid)
 
-        # 2) si no, probar con project_id
         if not proyecto_sel and proj_id not in (None, "", "-"):
             try:
                 pid2 = int(proj_id)
@@ -5740,7 +8889,6 @@ def produccion_usuario(request):
         if proyecto_sel:
             return getattr(proyecto_sel, "nombre", str(proyecto_sel))
 
-        # Fallback
         if proj_text:
             return proj_text
         if proj_id not in (None, "", "-"):
@@ -5750,20 +8898,18 @@ def produccion_usuario(request):
     for row in filas:
         row["project_label"] = _resolve_project_label(row)
 
-    # -------- Orden requerido --------
     def sort_key(row):
-        t = _parse_iso_week(row["real_week"])
+        t = _parse_iso_week_local(row["real_week"])
         if t is None:
-            return (3, 9999, 99)          # sin semana
+            return (3, 9999, 99)
         if t == current_tuple:
-            return (0, 0, 0)              # actual arriba
+            return (0, 0, 0)
         if t < current_tuple:
-            return (1, -t[0], -t[1])      # pasadas: descendente (W40,W39,...)
-        return (2, t[0], t[1])            # futuras
+            return (1, -t[0], -t[1])
+        return (2, t[0], t[1])
 
     filas.sort(key=sort_key)
 
-    # -------- Paginación (igual Admin) --------
     cantidad = (request.GET.get("cantidad") or "10").strip().lower()
     if cantidad != "todos":
         try:
@@ -5775,6 +8921,7 @@ def produccion_usuario(request):
         page_number = request.GET.get("page") or 1
         pagina = paginator.get_page(page_number)
     else:
+
         class _OnePage:
             number = 1
             has_previous = False
@@ -5784,22 +8931,28 @@ def produccion_usuario(request):
             def paginator(self):
                 class P:
                     num_pages = 1
+
                 return P()
+
             object_list = filas
+
         pagina = _OnePage()
 
-    # mantener filtros en los links
     keep = {"week": week_filter, "cantidad": cantidad}
     filters_qs = urlencode({k: v for k, v in keep.items() if v})
 
-    return render(request, "operaciones/produccion_usuario.html", {
-        "pagina": pagina,
-        "cantidad": cantidad,
-        "current_week": current_week,
-        "total_semana_actual": total_semana_actual,
-        "week_filter": week_filter,
-        "filters_qs": filters_qs,
-    })
+    return render(
+        request,
+        "operaciones/produccion_usuario.html",
+        {
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "current_week": current_week,
+            "total_semana_actual": total_semana_actual,
+            "week_filter": week_filter,
+            "filters_qs": filters_qs,
+        },
+    )
 
 
 def _s3_client():
@@ -5826,37 +8979,75 @@ ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 @transaction.atomic
 def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -> dict:
     """
-    Sincroniza WeeklyPayment con la producción **y** ajustes:
-    - amount = (producción aprobada + líneas negativas) + (bonus/advance/fixed_salary)
-    - Si cambia el monto: pasa a pending_payment cuando estaba approved_user.
-    - Elimina registros sin producción/ajustes (total == 0) si no están pagados.
-    - create_missing=True crea los que faltan (solo si total != 0).
+    Sincroniza WeeklyPayment usando:
+    - BillingPayWeekSnapshot SOLO si el billing está aprobado por supervisor/PM/finanzas
+      o si es direct discount.
+    - sesiones legacy sin snapshots productivos aprobadas o direct discount
+    - ajustes manuales
+
+    Regla importante:
+    - Un billing normal con semana real Wxx NO cuenta como producción si todavía está:
+      asignado, en_proceso, finalizado, en_revision_supervisor, rechazado_*, etc.
     """
-    # ===== 1) PRODUCCIÓN (ItemBillingTecnico) =====
-    base_items = (
-        ItemBillingTecnico.objects
-        .filter(item__sesion__semana_pago_real__gt="")
-        .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
+
+    dec0 = Value(
+        Decimal("0.00"),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
     )
+
+    ESTADOS_OK_SYNC = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    # ==========================================================
+    # 1) PRODUCCIÓN NUEVA (BillingPayWeekSnapshot)
+    #    SOLO billings aprobados o direct discount
+    # ==========================================================
+    snap_qs = snapshot_model.objects.filter(
+        semana_resultado__gt="",
+        sesion__isnull=False,
+    )
+
     if week:
-        base_items = base_items.filter(item__sesion__semana_pago_real=week)
+        snap_qs = snap_qs.filter(semana_resultado=week)
 
-    dec0 = Value(Decimal("0.00"), output_field=DecimalField(
-        max_digits=18, decimal_places=2))
+    if has_is_adjustment:
+        snap_qs = snap_qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        snap_qs = snap_qs.filter(adjustment_of__isnull=True)
 
-    agg_items = (
-        base_items
-        .values("tecnico_id", "item__sesion__semana_pago_real")
-        .annotate(total=Coalesce(Sum("subtotal"), dec0,
-                                 output_field=DecimalField(max_digits=18, decimal_places=2)))
+    # ✅ FIX CLAVE:
+    # No contar snapshots de billings normales si el billing no está aprobado.
+    snap_qs = snap_qs.filter(
+        Q(sesion__estado__in=ESTADOS_OK_SYNC) | Q(sesion__is_direct_discount=True)
+    )
+
+    agg_snaps = snap_qs.values("tecnico_id", "semana_resultado").annotate(
+        total=Coalesce(
+            Sum("subtotal"),
+            dec0,
+            output_field=DecimalField(max_digits=18, decimal_places=2),
+        )
     )
 
     items_totals = {
-        (r["tecnico_id"], r["item__sesion__semana_pago_real"]): (r["total"] or Decimal("0.00"))
-        for r in agg_items
+        (r["tecnico_id"], r["semana_resultado"]): (r["total"] or Decimal("0.00"))
+        for r in agg_snaps
     }
 
-    # ===== 2) AJUSTES (AdjustmentEntry) =====
+    # ==========================================================
+    # 2) PRODUCCIÓN LEGACY
+    #    Tu helper ya filtra aprobados o direct discount
+    # ==========================================================
+    legacy_totals = _legacy_session_totals_without_snapshots(week=week)
+
+    # ==========================================================
+    # 3) AJUSTES MANUALES
+    # ==========================================================
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
@@ -5865,56 +9056,79 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
     adj_totals = {}
     if AdjustmentEntry is not None:
         adj_qs = AdjustmentEntry.objects.all()
+
         if week:
             adj_qs = adj_qs.filter(week=week)
 
-        agg_adj = (
-            adj_qs
-            .values("technician_id", "week")
-            .annotate(total=Coalesce(Sum("amount"), dec0,
-                                     output_field=DecimalField(max_digits=18, decimal_places=2)))
+        agg_adj = adj_qs.values("technician_id", "week").annotate(
+            total=Coalesce(
+                Sum("amount"),
+                dec0,
+                output_field=DecimalField(max_digits=18, decimal_places=2),
+            )
         )
+
         adj_totals = {
             (r["technician_id"], r["week"]): (r["total"] or Decimal("0.00"))
             for r in agg_adj
         }
 
-    # ===== 3) SUMA (producción + ajustes) POR (tecnico, week) =====
+    # ==========================================================
+    # 4) SUMA FINAL POR (technician, week)
+    # ==========================================================
     from collections import defaultdict
+
     merged = defaultdict(lambda: Decimal("0.00"))
+
     for k, v in items_totals.items():
         merged[k] += v
+
+    for k, v in legacy_totals.items():
+        merged[k] += v
+
     for k, v in adj_totals.items():
         merged[k] += v
 
-    # descarta exactamente 0
     prod_totals = {k: v for k, v in merged.items() if v != 0}
 
-    updated = deleted = created = 0
+    updated = 0
+    deleted = 0
+    created = 0
 
-    # ===== 4) Actualiza / elimina existentes =====
-    for wp in WeeklyPayment.objects.select_for_update():
-        if week and wp.week != week:
-            continue
+    # ==========================================================
+    # 5) ACTUALIZA / ELIMINA EXISTENTES
+    # ==========================================================
+    weekly_qs = WeeklyPayment.objects.select_for_update()
 
+    if week:
+        weekly_qs = weekly_qs.filter(week=week)
+
+    for wp in weekly_qs:
         key = (wp.technician_id, wp.week)
+
         if key not in prod_totals:
+            # Si todavía no está pagado, se elimina porque ya no tiene producción válida.
             if wp.status != "paid":
                 wp.delete()
                 deleted += 1
             continue
 
         total = prod_totals.pop(key)
+
         if wp.amount != total:
             wp.amount = total
             save_fields = ["amount", "updated_at"]
+
             if wp.status == "approved_user":
                 wp.status = "pending_payment"
                 save_fields.append("status")
+
             wp.save(update_fields=save_fields)
             updated += 1
 
-    # ===== 5) Crea faltantes =====
+    # ==========================================================
+    # 6) CREA FALTANTES
+    # ==========================================================
     if create_missing and prod_totals:
         to_create = [
             WeeklyPayment(
@@ -5926,102 +9140,43 @@ def _sync_weekly_totals(week: str | None = None, create_missing: bool = False) -
             for (tech_id, w), total in prod_totals.items()
             if (not week) or (w == week)
         ]
+
         WeeklyPayment.objects.bulk_create(to_create, ignore_conflicts=True)
         created = len(to_create)
 
-    return {"updated": updated, "deleted": deleted, "created": created}
-
-# ================================ ADMIN / PM ================================ #
-
-
-# ...
-
-# ================================ ADMIN / PM ================================ #
-
-def _visible_tech_ids_for_user(user):
-    """
-    Devuelve:
-      - None  => sin restricción (ve a todos)
-      - set() => IDs de técnicos que el usuario puede ver
-
-    Regla:
-      - admin / superuser -> todos
-      - facturación SIN ser pm/supervisor -> todos
-      - pm / supervisor (aunque tengan facturación) -> solo usuarios
-        que comparten al menos un proyecto con ellos (+ ellos mismos)
-      - otros -> solo ellos mismos
-    """
-    from usuarios.models import \
-        ProyectoAsignacion  # import local para evitar ciclos
-
-    # Siempre puede verse a sí mismo
-    ids = {user.id}
-
-    tiene_rol = getattr(user, "tiene_rol", None)
-    if not callable(tiene_rol):
-        # Por seguridad: si no tenemos helper de roles, solo él mismo
-        return ids
-
-    # 1) Admin / superuser -> sin filtro
-    if user.is_superuser or getattr(user, "es_admin_general", False):
-        return None
-
-    # 2) Facturación pura (NO pm/supervisor) -> sin filtro
-    if getattr(user, "es_facturacion", False) and not (
-        tiene_rol("pm") or tiene_rol("supervisor")
-    ):
-        return None
-
-    # 3) Si NO es pm ni supervisor -> sólo él mismo
-    if not (tiene_rol("pm") or tiene_rol("supervisor")):
-        return ids
-
-    # 4) pm / supervisor -> técnicos con proyectos en común
-    my_project_ids = ProyectoAsignacion.objects.filter(
-        usuario=user
-    ).values_list("proyecto_id", flat=True)
-
-    if not my_project_ids:
-        return ids  # sólo él mismo si no tiene proyectos asignados
-
-    others = ProyectoAsignacion.objects.filter(
-        proyecto_id__in=my_project_ids
-    ).values_list("usuario_id", flat=True).distinct()
-
-    ids.update(others)
-    return ids
+    return {
+        "updated": updated,
+        "deleted": deleted,
+        "created": created,
+    }
 
 
 @login_required
-@rol_requerido('admin', 'pm', 'facturacion')
+@rol_requerido("admin", "pm", "facturacion")
 @never_cache
 def admin_weekly_payments(request):
     """
     Pagos semanales:
-    - TOP: NO pagados (hasta la semana actual, incluye semanas anteriores). Muestra desglose por proyecto y
-      además líneas para Direct discount y para ajustes (Fixed salary/Bonus/Advance).
-    - Bottom (Paid): historial con filtros + paginación y el mismo desglose.
+    - TOP: NO pagados (hasta la semana actual, incluye semanas anteriores). Muestra desglose dinámico.
+    - Bottom (Paid): historial con filtros + paginación.
 
-    ⚠️ Visibilidad:
-      - Admin / superuser -> todos los técnicos
-      - Facturación sola -> todos los técnicos
-      - PM / Supervisor -> solo técnicos que comparten proyecto con él (+ él mismo)
-      - Otros -> solo él mismo
+    IMPORTANTE:
+    - Para PAID history, el monto y desglose deben salir del snapshot congelado
+      del WeeklyPayment, no de billings vivos.
     """
     import re
-    from collections import defaultdict
     from decimal import Decimal
     from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
-    from django.db.models import DecimalField, F, Q, Sum, Value
+    from django.db.models import DecimalField, Q, Sum, Value
     from django.db.models.functions import Coalesce
     from django.utils import timezone
 
     from facturacion.models import Proyecto
+    from operaciones.models import BillingPayWeekSnapshot, WeeklyPayment
     from usuarios.models import ProyectoAsignacion
 
-    # ========= Helpers locales =========
     def _norm_week_input(raw: str) -> str:
         s = (raw or "").strip().upper()
         if not s:
@@ -6051,28 +9206,23 @@ def admin_weekly_payments(request):
     def _normalize_week_str(s: str) -> str:
         if not s:
             return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")  # – — -> -
+        s = s.replace("\u2013", "-").replace("\u2014", "-")
         s = re.sub(r"\s+", "", s)
         return s.upper()
 
     def _week_sort_key(week_str: str):
-        """
-        Acepta variantes como '2025-W40', '2025W40', 'W40'.
-        Devuelve (año, semana) para ordenar. Si no hay dato, (-inf).
-        """
         if not week_str:
             return (-1, -1)
 
         s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
-        m = re.search(r'(\d{4})-?W(\d{1,2})', s)
+        m = re.search(r"(\d{4})-?W(\d{1,2})", s)
         if m:
             return (int(m.group(1)), int(m.group(2)))
-        m = re.search(r'W(\d{1,2})', s)
+        m = re.search(r"W(\d{1,2})", s)
         if m:
             return (0, int(m.group(1)))
         return (-1, -1)
 
-    # Etiquetas legibles para ajustes
     ADJ_LABEL = {
         "fixed_salary": "Fixed salary",
         "bonus": "Bonus",
@@ -6080,25 +9230,18 @@ def admin_weekly_payments(request):
     }
     ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
-    # ========= Semana actual + sync =========
     y, w, _ = timezone.localdate().isocalendar()
     current_week = f"{y}-W{int(w):02d}"
 
-    # Crea/ajusta weekly payments para la semana actual (incluye ajustes)
-    # (Esto lo dejamos tal cual lo tenías; el bug era de visualización del TOP)
     _sync_weekly_totals(week=current_week, create_missing=True)
 
-    # ========= Visibilidad por usuario =========
     visible_tech_ids = _visible_tech_ids_for_user(request.user)
 
-    # ========= NUEVO: limitar por proyecto + ventana de visibilidad (misma lógica) =========
     user = request.user
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
     )
 
-    # Proyectos visibles para el usuario (igual patrón que produccion_admin)
     try:
         base_proyectos = Proyecto.objects.all()
         if can_view_legacy_history:
@@ -6107,7 +9250,7 @@ def admin_weekly_payments(request):
             proyectos_user = filter_queryset_by_access(
                 base_proyectos,
                 request.user,
-                'id',
+                "id",
             )
     except Exception:
         proyectos_user = Proyecto.objects.none()
@@ -6138,12 +9281,11 @@ def admin_weekly_payments(request):
         if getattr(p, "nombre", None)
     }
 
-    # Ventana de visibilidad por ProyectoAsignacion (igual que produccion_admin)
     try:
         asignaciones = list(
-            ProyectoAsignacion.objects
-            .filter(usuario=request.user, proyecto__in=proyectos_list)
-            .select_related("proyecto")
+            ProyectoAsignacion.objects.filter(
+                usuario=request.user, proyecto__in=proyectos_list
+            ).select_related("proyecto")
         )
     except Exception:
         asignaciones = []
@@ -6152,12 +9294,17 @@ def admin_weekly_payments(request):
     if asignaciones and not can_view_legacy_history:
         for a in asignaciones:
             if a.include_history or not a.start_at:
-                access_by_pk[a.proyecto_id] = {"include_history": True, "start_week": None}
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": True,
+                    "start_week": None,
+                }
             else:
-                access_by_pk[a.proyecto_id] = {"include_history": False, "start_week": _iso_week_str(a.start_at)}
+                access_by_pk[a.proyecto_id] = {
+                    "include_history": False,
+                    "start_week": _iso_week_str(a.start_at),
+                }
 
     def _project_pk_from_any(raw_proj_id, raw_proj_text):
-        # 1) si viene id numérico
         if raw_proj_id not in (None, "", "-"):
             try:
                 pid = int(raw_proj_id)
@@ -6167,7 +9314,6 @@ def admin_weekly_payments(request):
                 if pid in by_id:
                     return pid
 
-        # 2) si viene texto (nombre/código)
         key = (str(raw_proj_text or "").strip()).lower()
         if key:
             p = by_name.get(key) or by_code.get(key)
@@ -6192,53 +9338,60 @@ def admin_weekly_payments(request):
             return False
         return _week_sort_key(wk) >= _week_sort_key(access["start_week"])
 
-    # ========= TOP (NO pagados hasta semana actual) =========
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
+    # ==========================================================
+    # TOP (NO PAID) -> dinámico
+    # ==========================================================
     top_qs = (
-        WeeklyPayment.objects
-        .filter(week__lte=current_week, amount__gt=0)   # sólo pagables y no futuras
+        WeeklyPayment.objects.filter(week__lte=current_week, amount__gt=0)
         .exclude(status="paid")
         .select_related("technician")
         .order_by("-week", "status", "technician__first_name", "technician__last_name")
     )
 
-    # Limitar por técnicos visibles
     if visible_tech_ids is not None:
         top_qs = top_qs.filter(technician_id__in=visible_tech_ids)
 
     top = list(top_qs)
 
-    # ---- Desglose (TOP): producción + ajustes (para TODAS las semanas del TOP)
     tech_ids_top = {wp.technician_id for wp in top}
     weeks_top = {wp.week for wp in top}
     details_map_top: dict[tuple[int, str], list] = {}
 
-    # 1) Producción por proyecto, separando si fue "descuento directo"
     if tech_ids_top and weeks_top:
-        det_prod = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id__in=tech_ids_top,
-                item__sesion__semana_pago_real__in=weeks_top,
-            )
-            .filter(
-                Q(item__sesion__estado__in=ESTADOS_OK) |
-                Q(subtotal__lt=0)
-            )
+        snap_qs = BillingPayWeekSnapshot.objects.filter(
+            tecnico_id__in=tech_ids_top,
+            semana_resultado__in=weeks_top,
+            sesion__isnull=False,
+        ).select_related("sesion")
+
+        if has_is_adjustment:
+            snap_qs = snap_qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            snap_qs = snap_qs.filter(adjustment_of__isnull=True)
+
+        snap_qs = snap_qs.filter(
+            Q(sesion__estado__in=ESTADOS_OK)
+            | Q(sesion__is_direct_discount=True)
+            | Q(subtotal__lt=0)
         )
+
         if not can_view_legacy_history:
             if allowed_keys:
-                det_prod = det_prod.filter(item__sesion__proyecto__in=allowed_keys)
+                snap_qs = snap_qs.filter(sesion__proyecto__in=allowed_keys)
             else:
-                det_prod = ItemBillingTecnico.objects.none()
+                snap_qs = BillingPayWeekSnapshot.objects.none()
 
         det_prod = (
-            det_prod
-            .values(
+            snap_qs.values(
                 "tecnico_id",
-                "item__sesion__semana_pago_real",
-                "item__sesion__proyecto_id",
-                "item__sesion__proyecto",
-                is_discount=F("item__sesion__is_direct_discount"),
+                "semana_resultado",
+                "sesion__proyecto_id",
+                "sesion__proyecto",
+                "sesion__is_direct_discount",
             )
             .annotate(
                 subtotal=Coalesce(
@@ -6247,18 +9400,22 @@ def admin_weekly_payments(request):
                     output_field=DecimalField(max_digits=18, decimal_places=2),
                 )
             )
-            .order_by("item__sesion__semana_pago_real", "item__sesion__proyecto_id")
+            .order_by("semana_resultado", "sesion__proyecto_id")
         )
 
         for r in det_prod:
-            week_real = r["item__sesion__semana_pago_real"]
-            proj_pk = _project_pk_from_any(r.get("item__sesion__proyecto_id"), r.get("item__sesion__proyecto"))
+            week_real = r["semana_resultado"]
+            proj_pk = _project_pk_from_any(
+                r.get("sesion__proyecto_id"), r.get("sesion__proyecto")
+            )
             if not _allowed_by_window(proj_pk, week_real):
                 continue
 
             key = (r["tecnico_id"], week_real)
-            label = "Direct discount" if r["is_discount"] else (
-                r["item__sesion__proyecto_id"] or "—"
+            label = (
+                "Direct discount"
+                if r["sesion__is_direct_discount"]
+                else (r["sesion__proyecto_id"] or "—")
             )
             details_map_top.setdefault(key, []).append(
                 {
@@ -6267,29 +9424,61 @@ def admin_weekly_payments(request):
                 }
             )
 
-    # 2) Ajustes (Fixed salary / Bonus / Advance) para las semanas del TOP
+    if tech_ids_top and weeks_top:
+        legacy_top = _legacy_weekly_payment_details(
+            tech_ids=tech_ids_top,
+            weeks=weeks_top,
+            allowed_project_keys=allowed_keys,
+            can_view_all_projects=can_view_legacy_history,
+        )
+
+        for key, rows in legacy_top.items():
+            tech_id, wk = key
+            visible_rows = []
+
+            for row in rows:
+                proj_pk = _project_pk_from_any(
+                    row.get("project_lookup_id"),
+                    row.get("project_lookup_text"),
+                )
+
+                if row.get("project_label") == "Direct discount" or _allowed_by_window(
+                    proj_pk, wk
+                ):
+                    visible_rows.append(
+                        {
+                            "project_label": row.get("project_label"),
+                            "subtotal": row.get("subtotal") or Decimal("0.00"),
+                        }
+                    )
+
+            if visible_rows:
+                details_map_top.setdefault(key, []).extend(visible_rows)
+
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
         AdjustmentEntry = None
 
     if AdjustmentEntry is not None and tech_ids_top and weeks_top:
-        det_adj = AdjustmentEntry.objects.filter(technician_id__in=tech_ids_top, week__in=weeks_top)
+        det_adj = AdjustmentEntry.objects.filter(
+            technician_id__in=tech_ids_top, week__in=weeks_top
+        )
         if not can_view_legacy_history:
             if allowed_keys:
-                det_adj = det_adj.filter(Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys))
+                det_adj = det_adj.filter(
+                    Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys)
+                )
             else:
                 det_adj = AdjustmentEntry.objects.none()
 
-        det_adj = (
-            det_adj
-            .values("technician_id", "week", "adjustment_type", "project_id", "project")
-            .annotate(
-                total=Coalesce(
-                    Sum("amount"),
-                    _dec0(),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
-                )
+        det_adj = det_adj.values(
+            "technician_id", "week", "adjustment_type", "project_id", "project"
+        ).annotate(
+            total=Coalesce(
+                Sum("amount"),
+                _dec0(),
+                output_field=DecimalField(max_digits=18, decimal_places=2),
             )
         )
 
@@ -6308,51 +9497,49 @@ def admin_weekly_payments(request):
                 }
             )
 
-    # adjuntar al objeto + ajustar monto visible + filtrar filas que no queden con nada visible
     top_filtered = []
     for wp in top:
         wp.details = details_map_top.get((wp.technician_id, wp.week), [])
-        visible_total = sum((d.get("subtotal") or Decimal("0.00")) for d in wp.details) if wp.details else Decimal("0.00")
+        visible_total = (
+            sum((d.get("subtotal") or Decimal("0.00")) for d in wp.details)
+            if wp.details
+            else Decimal("0.00")
+        )
         wp.amount = visible_total
         if visible_total > 0:
             top_filtered.append(wp)
     top = top_filtered
 
-    # ========= BOTTOM (historial Paid) =========
+    # ==========================================================
+    # BOTTOM (PAID HISTORY) -> snapshot congelado
+    # ==========================================================
     f_tech = (request.GET.get("f_tech") or "").strip()
     f_week_input = (request.GET.get("f_week") or "").strip()
     f_paid_week_input = (request.GET.get("f_paid_week") or "").strip()
-    f_receipt = (request.GET.get("f_receipt") or "").strip()   # "", "with", "without"
+    f_receipt = (request.GET.get("f_receipt") or "").strip()
 
     f_week = _norm_week_input(f_week_input)
     f_paid_week = _norm_week_input(f_paid_week_input)
 
-    bottom_qs = WeeklyPayment.objects.filter(
-        status="paid"
-    ).select_related("technician")
+    bottom_qs = WeeklyPayment.objects.filter(status="paid").select_related("technician")
 
-    # Limitar por técnicos visibles
     if visible_tech_ids is not None:
         bottom_qs = bottom_qs.filter(technician_id__in=visible_tech_ids)
 
     if f_tech:
         bottom_qs = bottom_qs.filter(
-            Q(technician__first_name__icontains=f_tech) |
-            Q(technician__last_name__icontains=f_tech) |
-            Q(technician__username__icontains=f_tech)
+            Q(technician__first_name__icontains=f_tech)
+            | Q(technician__last_name__icontains=f_tech)
+            | Q(technician__username__icontains=f_tech)
         )
     if f_week:
         bottom_qs = bottom_qs.filter(week=f_week)
     if f_paid_week:
         bottom_qs = bottom_qs.filter(paid_week=f_paid_week)
     if f_receipt == "with":
-        bottom_qs = bottom_qs.exclude(
-            Q(receipt__isnull=True) | Q(receipt="")
-        )
+        bottom_qs = bottom_qs.exclude(Q(receipt__isnull=True) | Q(receipt=""))
     elif f_receipt == "without":
-        bottom_qs = bottom_qs.filter(
-            Q(receipt__isnull=True) | Q(receipt="")
-        )
+        bottom_qs = bottom_qs.filter(Q(receipt__isnull=True) | Q(receipt=""))
 
     bottom_qs = bottom_qs.order_by(
         "-paid_week",
@@ -6361,7 +9548,6 @@ def admin_weekly_payments(request):
         "technician__last_name",
     )
 
-    # ========= Paginación =========
     cantidad = (request.GET.get("cantidad") or "10").strip().lower()
     page_number = request.GET.get("page") or "1"
 
@@ -6376,128 +9562,33 @@ def admin_weekly_payments(request):
         paginator = Paginator(bottom_qs, per_page)
         pagina = paginator.get_page(page_number)
 
-    # ---- Desglose (Paid): producción + ajustes
     wp_list = list(pagina) if not isinstance(pagina, list) else pagina
-    tech_ids_bottom = {wp.technician_id for wp in wp_list}
-    weeks_bottom = {wp.week for wp in wp_list}
 
-    details_map_bottom: dict[tuple[int, str], list] = {}
-    if tech_ids_bottom and weeks_bottom:
-        # Producción
-        det_b_prod = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id__in=tech_ids_bottom,
-                item__sesion__semana_pago_real__in=weeks_bottom,
-            )
-            .filter(
-                Q(item__sesion__estado__in=ESTADOS_OK) |
-                Q(subtotal__lt=0)
-            )
-        )
-        if not can_view_legacy_history:
-            if allowed_keys:
-                det_b_prod = det_b_prod.filter(item__sesion__proyecto__in=allowed_keys)
-            else:
-                det_b_prod = ItemBillingTecnico.objects.none()
-
-        det_b_prod = (
-            det_b_prod
-            .values(
-                "tecnico_id",
-                "item__sesion__semana_pago_real",
-                "item__sesion__proyecto_id",
-                "item__sesion__proyecto",
-                is_discount=F("item__sesion__is_direct_discount"),
-            )
-            .annotate(
-                subtotal=Coalesce(
-                    Sum("subtotal"),
-                    _dec0(),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
-                )
-            )
-            .order_by(
-                "item__sesion__semana_pago_real",
-                "item__sesion__proyecto_id",
-            )
-        )
-
-        for r in det_b_prod:
-            week_real = r["item__sesion__semana_pago_real"]
-            proj_pk = _project_pk_from_any(r.get("item__sesion__proyecto_id"), r.get("item__sesion__proyecto"))
-            if not _allowed_by_window(proj_pk, week_real):
-                continue
-
-            key = (r["tecnico_id"], week_real)
-            label = "Direct discount" if r["is_discount"] else (
-                r["item__sesion__proyecto_id"] or "—"
-            )
-            details_map_bottom.setdefault(key, []).append(
-                {
-                    "project_label": str(label),
-                    "subtotal": r["subtotal"] or Decimal("0.00"),
-                }
-            )
-
-        # Ajustes
-        if AdjustmentEntry is not None:
-            det_b_adj = AdjustmentEntry.objects.filter(
-                technician_id__in=tech_ids_bottom,
-                week__in=weeks_bottom,
-            )
-            if not can_view_legacy_history:
-                if allowed_keys:
-                    det_b_adj = det_b_adj.filter(Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys))
-                else:
-                    det_b_adj = AdjustmentEntry.objects.none()
-
-            det_b_adj = (
-                det_b_adj
-                .values("technician_id", "week", "adjustment_type", "project_id", "project")
-                .annotate(
-                    total=Coalesce(
-                        Sum("amount"),
-                        _dec0(),
-                        output_field=DecimalField(max_digits=18, decimal_places=2),
-                    )
-                )
-            )
-
-            for r in det_b_adj:
-                wk = r["week"]
-                proj_pk = _project_pk_from_any(r.get("project_id"), r.get("project"))
-                if not _allowed_by_window(proj_pk, wk):
-                    continue
-
-                key = (r["technician_id"], wk)
-                label = ADJ_LABEL.get(
-                    r["adjustment_type"],
-                    r["adjustment_type"],
-                )
-                details_map_bottom.setdefault(key, []).append(
+    for wp in wp_list:
+        snapshot_lines = []
+        if hasattr(wp, "paid_breakdown_snapshot") and wp.paid_breakdown_snapshot:
+            for row in wp.paid_breakdown_snapshot or []:
+                snapshot_lines.append(
                     {
-                        "project_label": label,
-                        "subtotal": r["total"] or Decimal("0.00"),
+                        "project_label": row.get("project_label") or "—",
+                        "subtotal": _deserialize_decimal_from_json(row.get("subtotal")),
+                        "source": row.get("source") or "",
                     }
                 )
 
-    # aplicar detalles + ajustar monto visible + filtrar filas que no queden con nada visible
-    wp_list_filtered = []
-    for wp in wp_list:
-        wp.details = details_map_bottom.get((wp.technician_id, wp.week), [])
-        visible_total = sum((d.get("subtotal") or Decimal("0.00")) for d in wp.details) if wp.details else Decimal("0.00")
-        wp.amount = visible_total
-        if visible_total > 0:
-            wp_list_filtered.append(wp)
+        wp.details = snapshot_lines
 
-    # si pagina es Page, reemplazamos la lista interna para render (sin tocar paginator)
+        if hasattr(wp, "paid_amount_snapshot") and wp.paid_amount_snapshot is not None:
+            wp.amount = wp.paid_amount_snapshot
+        else:
+            # fallback defensivo para registros viejos sin snapshot
+            wp.amount = wp.amount or Decimal("0.00")
+
     if isinstance(pagina, list):
-        pagina = wp_list_filtered
+        pagina = wp_list
     else:
-        pagina.object_list = wp_list_filtered
+        pagina.object_list = wp_list
 
-    # ========= Querystring para mantener filtros =========
     keep = {
         "f_tech": f_tech,
         "f_week": f_week_input,
@@ -6507,40 +9598,40 @@ def admin_weekly_payments(request):
     }
     filters_qs = urlencode({k: v for k, v in keep.items() if v})
 
-    return render(request, "operaciones/pagos_admin_list.html", {
-        "current_week": current_week,
-        "top": top,
-        "pagina": pagina,
-        "cantidad": cantidad,
-        "filters_qs": filters_qs,
-        "f_tech": f_tech,
-        "f_week_input": f_week_input,
-        "f_paid_week_input": f_paid_week_input,
-        "f_receipt": f_receipt,
-    })
+    return render(
+        request,
+        "operaciones/pagos_admin_list.html",
+        {
+            "current_week": current_week,
+            "top": top,
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "filters_qs": filters_qs,
+            "f_tech": f_tech,
+            "f_week_input": f_week_input,
+            "f_paid_week_input": f_paid_week_input,
+            "f_receipt": f_receipt,
+        },
+    )
 
 
 @login_required
-@rol_requerido('admin', 'pm', 'facturacion')
+@rol_requerido("admin", "pm", "facturacion")
 @require_POST
 @transaction.atomic
 def admin_unpay(request, pk: int):
-    """
-    Quita el comprobante y mueve el registro a 'pending_payment'.
-    Mantiene el historial (no borra el registro).
-    """
     wp = get_object_or_404(WeeklyPayment, pk=pk)
 
     if wp.status != "paid":
         messages.info(request, "Only PAID items can be reverted.")
         return redirect("operaciones:admin_weekly_payments")
 
-    # borra archivo del storage (si existe) sin guardar el modelo todavía
+    _unmark_billings_paid_for_weekly_payment(wp)
+
     try:
         if wp.receipt:
             wp.receipt.delete(save=False)
     except Exception:
-        # no interrumpir si no se pudo borrar físicamente
         pass
 
     wp.receipt = None
@@ -6553,63 +9644,281 @@ def admin_unpay(request, pk: int):
 
 
 def _is_admin(user) -> bool:
-    # Adecuado a tu modelo de usuario
-    return getattr(user, "rol", "") == "admin" or getattr(user, "is_superuser", False)
+    """
+    Admin real del sistema.
+    Compatible con:
+    - superuser
+    - es_admin_general
+    - rol == 'admin'
+    """
+    if not user:
+        return False
+
+    if getattr(user, "is_superuser", False):
+        return True
+
+    if getattr(user, "es_admin_general", False):
+        return True
+
+    if (getattr(user, "rol", "") or "").strip().lower() == "admin":
+        return True
+
+    return False
 
 
 def _session_is_paid_locked(sesion) -> bool:
     """
-    Queda bloqueada si existe al menos un WeeklyPayment en estado 'paid'
-    para (técnico de la sesión, semana real de la sesión).
+    Bloqueo contable del Billing.
+
+    Regla:
+    - Si existe al menos una línea productiva de BillingPayWeekSnapshot
+      marcada como paid para esta sesión, el Billing queda bloqueado.
+    - También queda bloqueado si existe un WeeklyPayment paid asociado
+      a algún técnico + semana efectiva de esta sesión.
+    - Compatibilidad legacy:
+      si no hay snapshots productivos, usa semana_pago_real /
+      semana_pago_proyectada / discount_week y también revisa markers antiguos
+      en finance_note.
+
+    Importante:
+    - Este bloqueo aplica para reabrir, eliminar y editar.
+    - No depende de que finance_status del Billing sea "paid".
     """
-    week = (sesion.semana_pago_real or "").upper()
-    if not week:
+
+    if not sesion:
         return False
-    tech_ids = list(sesion.tecnicos_sesion.values_list(
-        "tecnico_id", flat=True))
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+    has_payment_status = "payment_status" in snapshot_fields
+    has_paid_at = "paid_at" in snapshot_fields
+    has_weekly_payment = "weekly_payment" in snapshot_fields
+
+    # ==========================================================
+    # 1) Snapshots productivos de esta sesión
+    # ==========================================================
+    snaps_qs = snapshot_model.objects.filter(sesion=sesion)
+
+    if has_is_adjustment:
+        snaps_qs = snaps_qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        snaps_qs = snaps_qs.filter(adjustment_of__isnull=True)
+
+    # 1.1) Bloqueo directo por payment_status='paid'
+    if has_payment_status:
+        if snaps_qs.filter(payment_status="paid").exists():
+            return True
+
+    # 1.2) Bloqueo por paid_at
+    if has_paid_at:
+        if snaps_qs.exclude(paid_at__isnull=True).exists():
+            return True
+
+    # 1.3) Bloqueo por WeeklyPayment relacionado al snapshot
+    if has_weekly_payment:
+        if snaps_qs.filter(weekly_payment__status="paid").exists():
+            return True
+
+    # ==========================================================
+    # 2) WeeklyPayment paid por técnico + semana efectiva
+    # ==========================================================
+    tech_ids = list(
+        sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
+    )
+
     if not tech_ids:
         return False
-    return WeeklyPayment.objects.filter(
-        week=week, technician_id__in=tech_ids, status="paid"
-    ).exists()
+
+    weeks = list(
+        snaps_qs.exclude(semana_resultado__isnull=True)
+        .exclude(semana_resultado__exact="")
+        .values_list("semana_resultado", flat=True)
+        .distinct()
+    )
+
+    # Compatibilidad legacy: si no hay snapshots productivos
+    if not weeks:
+        possible_weeks = [
+            (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
+            (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
+            (getattr(sesion, "discount_week", "") or "").strip().upper(),
+            (getattr(sesion, "semana_descuento", "") or "").strip().upper(),
+        ]
+        weeks = [w for w in possible_weeks if w]
+
+    if weeks:
+        if WeeklyPayment.objects.filter(
+            technician_id__in=tech_ids,
+            week__in=weeks,
+            status="paid",
+        ).exists():
+            return True
+
+    # ==========================================================
+    # 3) Compatibilidad legacy por marker en finance_note
+    # ==========================================================
+    note = getattr(sesion, "finance_note", "") or ""
+
+    for tech_id in tech_ids:
+        for wk in weeks:
+            marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+            if marker in note:
+                return True
+
+    return False
 
 
 @login_required
+@rol_requerido("admin", "pm", "facturacion")
+@csrf_protect
 @require_POST
 def billing_set_real_week(request, pk: int):
     """
-    Actualiza 'semana_pago_real' de una SesionBilling.
+    Actualiza la semana real efectiva de una sesión moviendo los
+    BillingPayWeekSnapshot.semana_resultado de la sesión.
+
     - Si hay pagos PAID relacionados, SOLO admin puede modificar.
-    - Re-sincroniza totales semanales alrededor del cambio.
+    - Recalcula sesion.semana_pago_real como semana resumen.
+    - Re-sincroniza WeeklyPayment alrededor del cambio.
     """
     sesion = get_object_or_404(SesionBilling, pk=pk)
     new_week = (request.POST.get("week") or "").strip().upper()
     if not new_week:
         return JsonResponse({"ok": False, "error": "MISSING_WEEK"}, status=400)
 
+    if not WEEK_RE.match(new_week):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "INVALID_WEEK_FORMAT",
+                "message": "Invalid format. Use YYYY-W##.",
+            },
+            status=400,
+        )
+
+    year, week = _parse_iso_week(new_week)
+    if not year or not week:
+        return JsonResponse(
+            {"ok": False, "error": "INVALID_ISO_WEEK", "message": "Invalid ISO week."},
+            status=400,
+        )
+
     is_admin = _is_admin(request.user)
 
     # ¿Bloqueada por pagos 'PAID'?
     if _session_is_paid_locked(sesion) and not is_admin:
-        return JsonResponse({
-            "ok": False,
-            "error": "LOCKED_PAID",
-            "message": "This session has PAID weekly payments. Only admins can change the real pay week."
-        }, status=403)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "LOCKED_PAID",
+                "message": "This session has PAID weekly payments. Only admins can change the real pay week.",
+            },
+            status=403,
+        )
 
-    old_week = (sesion.semana_pago_real or "").upper()
-    sesion.semana_pago_real = new_week
-    sesion.save(update_fields=["semana_pago_real", "updated_at"])
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
 
-    # Re-sincroniza los totales semanales de ambas semanas
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    def _productivo_qs():
+        qs = snapshot_model.objects.filter(sesion=sesion)
+        if has_is_adjustment:
+            qs = qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            qs = qs.filter(adjustment_of__isnull=True)
+        return qs
+
+    # semanas anteriores afectadas para resincronizar
+    old_weeks = set(
+        snapshot_model.objects.filter(sesion=sesion)
+        .exclude(semana_resultado__isnull=True)
+        .exclude(semana_resultado__exact="")
+        .values_list("semana_resultado", flat=True)
+    )
+
+    snaps = list(_productivo_qs())
+
+    # Compatibilidad legacy si no existen snapshots productivos
+    if not snaps:
+        old_week = (sesion.semana_pago_real or "").upper()
+        sesion.semana_pago_real = new_week
+        sesion.save(update_fields=["semana_pago_real"])
+
+        try:
+            weeks_to_sync = set(filter(None, [old_week, new_week]))
+            for wk in weeks_to_sync:
+                _sync_weekly_totals(week=wk)
+        except Exception:
+            pass
+
+        return JsonResponse({"ok": True, "week": new_week})
+
+    changed_weeks = set()
+
+    with transaction.atomic():
+        for snap in snaps:
+            payment_weeks = int(getattr(snap, "payment_weeks", 0) or 0)
+            recalculated_week = _add_weeks_to_iso_week(new_week, payment_weeks)
+
+            update_fields = []
+
+            if (snap.semana_base or "") != new_week:
+                snap.semana_base = new_week
+                update_fields.append("semana_base")
+
+            if (snap.semana_resultado or "") != recalculated_week:
+                snap.semana_resultado = recalculated_week
+                update_fields.append("semana_resultado")
+
+            if update_fields:
+                snap.save(update_fields=update_fields)
+
+            if recalculated_week:
+                changed_weeks.add(recalculated_week)
+
+        # semana resumen = semana_resultado más alta de snapshots productivos
+        summary_week = ""
+        parsed = []
+
+        all_result_weeks = list(
+            _productivo_qs()
+            .exclude(semana_resultado__isnull=True)
+            .exclude(semana_resultado__exact="")
+            .values_list("semana_resultado", flat=True)
+        )
+
+        for w in all_result_weeks:
+            y, wk = _parse_iso_week(w)
+            if y and wk:
+                parsed.append((y, wk, w))
+
+        if parsed:
+            parsed.sort(key=lambda x: (x[0], x[1]))
+            summary_week = parsed[-1][2]
+
+        sesion.semana_pago_real = summary_week
+        sesion.save(update_fields=["semana_pago_real"])
+
+    # resincronizar semanas viejas y nuevas
     try:
-        if old_week:
-            _sync_weekly_totals(week=old_week)
-        _sync_weekly_totals(week=new_week)
+        weeks_to_sync = set(filter(None, old_weeks | changed_weeks))
+        for wk in weeks_to_sync:
+            _sync_weekly_totals(week=wk)
     except Exception:
         pass
 
-    return JsonResponse({"ok": True, "week": new_week})
+    return JsonResponse(
+        {
+            "ok": True,
+            "week": new_week,
+            "summary_week": sesion.semana_pago_real or "",
+        }
+    )
 
 
 @require_POST
@@ -6663,6 +9972,10 @@ def confirm_receipt(request, pk: int):
     """
     Confirma la subida directa: guarda key en FileField y marca 'paid'.
     No re-sube el archivo; solo enlaza el objeto S3 ya subido.
+
+    IMPORTANTE:
+    - Congela snapshot del desglose pagado para que el historial no dependa
+      de billings/snapshots vivos.
     """
     wp = get_object_or_404(WeeklyPayment, pk=pk)
     key = request.POST.get("key")
@@ -6673,26 +9986,50 @@ def confirm_receipt(request, pk: int):
         messages.error(request, "This item is not approved by the worker yet.")
         return redirect("operaciones:admin_weekly_payments")
 
-    # Enlaza el objeto subido en S3 (Wasabi)
+    paid_snapshot = _build_paid_breakdown_snapshot_for_weekly_payment(wp)
+
     wp.receipt.name = key
     y, w, _ = timezone.localdate().isocalendar()
     wp.paid_week = f"{y}-W{int(w):02d}"
     wp.status = "paid"
-    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
+
+    update_fields = ["receipt", "paid_week", "status", "updated_at"]
+
+    if hasattr(wp, "paid_breakdown_snapshot"):
+        wp.paid_breakdown_snapshot = paid_snapshot.get("lines", [])
+        update_fields.append("paid_breakdown_snapshot")
+
+    if hasattr(wp, "paid_amount_snapshot"):
+        wp.paid_amount_snapshot = _deserialize_decimal_from_json(
+            paid_snapshot.get("total")
+        )
+        update_fields.append("paid_amount_snapshot")
+
+    if hasattr(wp, "paid_snapshot_at"):
+        wp.paid_snapshot_at = timezone.now()
+        update_fields.append("paid_snapshot_at")
+
+    wp.save(update_fields=update_fields)
+
+    _mark_billings_paid_for_weekly_payment(wp)
 
     messages.success(request, "Payment marked as PAID.")
     return redirect("operaciones:admin_weekly_payments")
 
 
-# (Opcional) Respaldo de flujo clásico con multipart a Django
 @login_required
-@rol_requerido('admin', 'pm', 'facturacion')
+@rol_requerido("admin", "pm", "facturacion")
 @transaction.atomic
 def admin_mark_paid(request, pk: int):
     """
     Alternativa si no quieres presigned: sube via Django, guarda y marca 'paid'.
+
+    IMPORTANTE:
+    - Congela snapshot del desglose pagado para que el historial no dependa
+      de billings/snapshots vivos.
     """
     wp = get_object_or_404(WeeklyPayment, pk=pk)
+
     if wp.status not in ("approved_user", "pending_payment"):
         messages.error(request, "This item is not approved by the worker yet.")
         return redirect("operaciones:admin_weekly_payments")
@@ -6702,11 +10039,33 @@ def admin_mark_paid(request, pk: int):
         messages.error(request, "Receipt is required.")
         return redirect("operaciones:admin_weekly_payments")
 
-    form.save()  # guarda receipt en Wasabi via DEFAULT_FILE_STORAGE
+    form.save()
+
+    paid_snapshot = _build_paid_breakdown_snapshot_for_weekly_payment(wp)
+
     y, w, _ = timezone.localdate().isocalendar()
     wp.paid_week = f"{y}-W{int(w):02d}"
     wp.status = "paid"
-    wp.save(update_fields=["paid_week", "status", "updated_at"])
+
+    update_fields = ["paid_week", "status", "updated_at"]
+
+    if hasattr(wp, "paid_breakdown_snapshot"):
+        wp.paid_breakdown_snapshot = paid_snapshot.get("lines", [])
+        update_fields.append("paid_breakdown_snapshot")
+
+    if hasattr(wp, "paid_amount_snapshot"):
+        wp.paid_amount_snapshot = _deserialize_decimal_from_json(
+            paid_snapshot.get("total")
+        )
+        update_fields.append("paid_amount_snapshot")
+
+    if hasattr(wp, "paid_snapshot_at"):
+        wp.paid_snapshot_at = timezone.now()
+        update_fields.append("paid_snapshot_at")
+
+    wp.save(update_fields=update_fields)
+
+    _mark_billings_paid_for_weekly_payment(wp)
 
     messages.success(request, "Payment marked as PAID.")
     return redirect("operaciones:admin_weekly_payments")
@@ -6720,137 +10079,224 @@ def admin_mark_paid(request, pk: int):
 def user_weekly_payments(request):
     """
     Vista del trabajador:
-    - Sincroniza sus registros (sin crear nuevos).
-    - Crea (si faltan) y actualiza WeeklyPayment por cada semana donde tenga
-      producción o ajustes (igual que hace admin con create_missing=True).
-    - Lista sus WeeklyPayment.
-    - Adjunta 'details' (producción + ajustes) y 'display_amount' por semana.
+    - Sincroniza sus registros.
+    - Crea/actualiza WeeklyPayment por semanas con producción nueva, legacy o ajustes.
+    - NO borra weeks legacy por error.
+    - Adjunta details y display_amount por semana.
     """
-    from django.db.models.functions import Upper  # (no imprescindible)
+    from decimal import Decimal
+
+    from django.db.models import Exists, F, OuterRef, Q, Sum
+
+    from operaciones.models import (AdjustmentEntry, BillingPayWeekSnapshot,
+                                    WeeklyPayment)
 
     user_id = request.user.id
 
-    # =========================================
-    # ⛔ Saltar sincronización si venimos de aprobar
-    # =========================================
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
+    # ---------------------------------------------------------
+    # 1) Sync / create de weeks reales
+    # ---------------------------------------------------------
+    legacy_totals_all = _legacy_session_totals_without_snapshots(None)
+    legacy_weeks = {
+        wk
+        for (tid, wk), amt in legacy_totals_all.items()
+        if int(tid) == int(user_id) and (amt or Decimal("0.00")) != 0
+    }
+
     if request.GET.get("skip_sync") != "1":
-        # 0) Sincroniza SOLO este técnico, sin crear weeklies (tu lógica original)
         sync_weekly_totals_no_create(technician_id=user_id)
 
-        # 0.1) Detectar TODAS las semanas relevantes de este técnico
-        #      (producción real y ajustes), y crear las faltantes como hace admin.
+        weeks_prod_qs = BillingPayWeekSnapshot.objects.filter(
+            tecnico_id=user_id,
+            semana_resultado__gt="",
+            sesion__isnull=False,
+        ).filter(
+            Q(sesion__estado__in=ESTADOS_OK)
+            | Q(sesion__is_direct_discount=True)
+            | Q(subtotal__lt=0)
+        )
+
+        if has_is_adjustment:
+            weeks_prod_qs = weeks_prod_qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            weeks_prod_qs = weeks_prod_qs.filter(adjustment_of__isnull=True)
+
         weeks_prod = set(
-            ItemBillingTecnico.objects
-            .filter(tecnico_id=user_id, item__sesion__semana_pago_real__gt="")
-            .values_list("item__sesion__semana_pago_real", flat=True)
-            .distinct()
+            weeks_prod_qs.values_list("semana_resultado", flat=True).distinct()
         )
 
         weeks_adj_raw = set(
-            AdjustmentEntry.objects
-            .filter(technician_id=user_id)
+            AdjustmentEntry.objects.filter(technician_id=user_id)
             .exclude(amount=0)
             .values_list("week", flat=True)
             .distinct()
         )
 
-        # Nota: algunos ajustes pueden venir como 'W40' y otros como '2025-W40'.
-        # No normalizamos aquí para no tocar datos; pedimos sync por cada string tal cual.
-        weeks_to_sync = set(filter(None, weeks_prod.union(weeks_adj_raw)))
+        weeks_to_sync = set(
+            filter(None, weeks_prod.union(legacy_weeks).union(weeks_adj_raw))
+        )
 
-        # 0.2) Crear/actualizar WeeklyPayment por cada semana detectada
-        #      (replica la idea del admin con create_missing=True)
         for wk in weeks_to_sync:
             try:
                 _sync_weekly_totals(week=str(wk), create_missing=True)
             except Exception:
-                # no abortar por una semana malformada
                 pass
 
-    # 1) Semana actual (solo para mostrar arriba)
+    # ---------------------------------------------------------
+    # 2) Semana actual
+    # ---------------------------------------------------------
     y, w, _ = timezone.localdate().isocalendar()
     current_week = f"{y}-W{int(w):02d}"
 
-    ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    # ---------------------------------------------------------
+    # 3) Detectores de existencia real
+    #    (nuevo + ajustes; legacy lo preservamos aparte por week)
+    # ---------------------------------------------------------
+    prod_exists = BillingPayWeekSnapshot.objects.filter(
+        tecnico_id=user_id,
+        semana_resultado=OuterRef("week"),
+        sesion__isnull=False,
+    ).filter(
+        Q(sesion__estado__in=ESTADOS_OK)
+        | Q(sesion__is_direct_discount=True)
+        | Q(subtotal__lt=0)
+    )
 
-    # --------- Subqueries para decidir qué semanas mostrar ----------
-    # Producción (aprobada o descuentos) con total != 0
+    if has_is_adjustment:
+        prod_exists = prod_exists.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        prod_exists = prod_exists.filter(adjustment_of__isnull=True)
+
     prod_exists = (
-        ItemBillingTecnico.objects
-        .filter(
-            tecnico_id=user_id,
-            item__sesion__semana_pago_real=OuterRef("week"),
-        )
-        .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-        .values("tecnico_id")
+        prod_exists.values("tecnico_id")
         .annotate(total=Sum("subtotal"))
         .exclude(total=0)
     )
 
-    # Ajustes presentes (monto ≠ 0) en la misma semana exacta
     adj_exists = (
-        AdjustmentEntry.objects
-        .filter(technician_id=user_id, week=OuterRef("week"))
+        AdjustmentEntry.objects.filter(technician_id=user_id, week=OuterRef("week"))
         .exclude(amount=0)
         .values("id")[:1]
     )
 
-    # Borra weeklies huérfanos (no paid) sin producción ni ajustes vigentes
-    (WeeklyPayment.objects
-        .filter(technician_id=user_id)
+    # ---------------------------------------------------------
+    # 4) Limpieza: NO borrar weeks legacy
+    # ---------------------------------------------------------
+    delete_qs = (
+        WeeklyPayment.objects.filter(technician_id=user_id)
         .annotate(has_prod=Exists(prod_exists), has_adj=Exists(adj_exists))
         .filter(has_prod=False, has_adj=False)
         .exclude(status="paid")
-        .delete())
+    )
 
-    # Lista solo los que sí tienen producción o ajustes
+    if legacy_weeks:
+        delete_qs = delete_qs.exclude(week__in=legacy_weeks)
+
+    delete_qs.delete()
+
+    # ---------------------------------------------------------
+    # 5) Lista principal
+    # ---------------------------------------------------------
     mine_qs = (
-        WeeklyPayment.objects
-        .filter(technician_id=user_id)
+        WeeklyPayment.objects.filter(technician_id=user_id)
         .annotate(has_prod=Exists(prod_exists), has_adj=Exists(adj_exists))
-        .filter(Q(has_prod=True) | Q(has_adj=True))
+        .filter(
+            Q(has_prod=True)
+            | Q(has_adj=True)
+            | Q(amount__gt=0)
+            | Q(week__in=legacy_weeks)
+        )
         .select_related("technician")
         .order_by("-week")
     )
     mine = list(mine_qs)
 
-    # --------- Desglose y total por semana ----------
     weeks = {wp.week for wp in mine}
     details_map = {}
     totals_map = {}
 
-    # 1) Producción (por Project ID)
+    # ---------------------------------------------------------
+    # 6) Detalle producción nueva
+    # ---------------------------------------------------------
     if weeks:
+        snap_qs = BillingPayWeekSnapshot.objects.filter(
+            tecnico_id=user_id,
+            semana_resultado__in=weeks,
+            sesion__isnull=False,
+        )
+
+        if has_is_adjustment:
+            snap_qs = snap_qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            snap_qs = snap_qs.filter(adjustment_of__isnull=True)
+
+        snap_qs = snap_qs.filter(
+            Q(sesion__estado__in=ESTADOS_OK)
+            | Q(sesion__is_direct_discount=True)
+            | Q(subtotal__lt=0)
+        )
+
         det_prod = (
-            ItemBillingTecnico.objects
-            .filter(
-                tecnico_id=user_id,
-                item__sesion__semana_pago_real__in=weeks,
-            )
-            .filter(Q(item__sesion__estado__in=ESTADOS_OK) | Q(subtotal__lt=0))
-            .values(
-                "item__sesion__semana_pago_real",
-                project_id=F("item__sesion__proyecto_id"),
+            snap_qs.values(
+                "semana_resultado",
+                project_id=F("sesion__proyecto_id"),
+                is_discount=F("sesion__is_direct_discount"),
             )
             .annotate(subtotal=Sum("subtotal"))
-            .order_by("item__sesion__semana_pago_real", "project_id")
+            .order_by("semana_resultado", "project_id")
         )
+
         for r in det_prod:
-            week = r["item__sesion__semana_pago_real"]
+            week = r["semana_resultado"]
             sub = r["subtotal"] or Decimal("0")
-            details_map.setdefault(week, []).append({
-                "project_id": r["project_id"],
-                "subtotal": sub,
-            })
+            project_label = "Direct discount" if r["is_discount"] else r["project_id"]
+            details_map.setdefault(week, []).append(
+                {
+                    "project_id": project_label,
+                    "subtotal": sub,
+                }
+            )
             totals_map[week] = totals_map.get(week, Decimal("0")) + sub
 
-    # 2) Ajustes (bonos / salario / advance) — considerar montos ≠ 0
-    LABEL = {"bonus": "Bonus",
-             "fixed_salary": "Fixed salary", "advance": "Advance"}
+        # ---------------------------------------------------------
+        # 7) Detalle legacy
+        # ---------------------------------------------------------
+        legacy_details = _legacy_weekly_payment_details(
+            tech_ids=[user_id],
+            weeks=weeks,
+            allowed_project_keys=None,
+            can_view_all_projects=True,
+        )
+        for (tid, week), rows in legacy_details.items():
+            if int(tid) != int(user_id):
+                continue
+            for row in rows:
+                details_map.setdefault(week, []).append(
+                    {
+                        "project_id": row.get("project_label") or "—",
+                        "subtotal": row.get("subtotal") or Decimal("0.00"),
+                    }
+                )
+                totals_map[week] = totals_map.get(week, Decimal("0")) + (
+                    row.get("subtotal") or Decimal("0.00")
+                )
+
+    # ---------------------------------------------------------
+    # 8) Ajustes
+    # ---------------------------------------------------------
+    LABEL = {
+        "bonus": "Bonus",
+        "fixed_salary": "Fixed salary",
+        "advance": "Advance",
+    }
+
     if weeks:
         det_adj = list(
-            AdjustmentEntry.objects
-            .filter(technician_id=user_id, week__in=weeks)
+            AdjustmentEntry.objects.filter(technician_id=user_id, week__in=weeks)
             .exclude(amount=0)
             .values("week", "adjustment_type", "amount", "project_id")
         )
@@ -6860,26 +10306,38 @@ def user_weekly_payments(request):
     for a in det_adj:
         week = a["week"]
         amt = Decimal(a["amount"] or 0)
-        # Mostrar ajustes en positivo en esta vista
         amt = abs(amt)
-        details_map.setdefault(week, []).append({
-            "project_id": a.get("project_id") or "-",
-            "label": LABEL.get(a["adjustment_type"], a["adjustment_type"]),
-            "subtotal": amt,
-        })
+        details_map.setdefault(week, []).append(
+            {
+                "project_id": a.get("project_id") or "-",
+                "label": LABEL.get(a["adjustment_type"], a["adjustment_type"]),
+                "subtotal": amt,
+            }
+        )
         totals_map[week] = totals_map.get(week, Decimal("0")) + amt
 
-    # Adjuntar a cada WP
+    # ---------------------------------------------------------
+    # 9) Aplicar display_amount final
+    # ---------------------------------------------------------
+    filtered_mine = []
     for wp in mine:
         wp.details = details_map.get(wp.week, [])
         wp.display_amount = totals_map.get(wp.week, Decimal("0"))
+        if wp.display_amount > 0:
+            filtered_mine.append(wp)
 
-    return render(request, "operaciones/pagos_user_list.html", {
-        "current_week": current_week,
-        "mine": mine,
-        "approve_form": PaymentApproveForm(),
-        "reject_form": PaymentRejectForm(),
-    })
+    mine = filtered_mine
+
+    return render(
+        request,
+        "operaciones/pagos_user_list.html",
+        {
+            "current_week": current_week,
+            "mine": mine,
+            "approve_form": PaymentApproveForm(),
+            "reject_form": PaymentRejectForm(),
+        },
+    )
 
 
 @login_required
@@ -7798,7 +11256,7 @@ def bulk_delete_evidencias(request, sesion_id):
 
 
 @login_required
-@rol_requerido('admin', 'pm', 'supervisor')
+@rol_requerido("admin", "pm", "supervisor")
 @csrf_protect
 def billing_update_creado_en(request, sesion_id: int):
     if request.method != "POST":
@@ -7808,37 +11266,221 @@ def billing_update_creado_en(request, sesion_id: int):
 
     raw = (request.POST.get("creado_en") or "").strip()
     if not raw:
-        return JsonResponse({"ok": False, "error": "Date/time is required."}, status=400)
+        return JsonResponse({"ok": False, "error": "Date is required."}, status=400)
 
-    # Acepta: "YYYY-MM-DD HH:MM"
     try:
         from datetime import datetime
-        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+
+        d = datetime.strptime(raw, "%Y-%m-%d").date()
     except Exception:
         return JsonResponse(
-            {"ok": False, "error": "Invalid format. Use: YYYY-MM-DD HH:MM"},
-            status=400
+            {"ok": False, "error": "Invalid format. Use: YYYY-MM-DD"}, status=400
         )
 
-    # Aware en TZ actual
-    try:
-        tz = timezone.get_current_timezone()
-        if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, tz)
-        else:
-            dt = timezone.localtime(dt, tz)
-    except Exception:
-        return JsonResponse({"ok": False, "error": "Invalid date/time."}, status=400)
+    tz = timezone.get_current_timezone()
+
+    current_local = timezone.localtime(s.creado_en, tz) if s.creado_en else None
+    if current_local:
+        dt = datetime.combine(d, current_local.time().replace(second=0, microsecond=0))
+    else:
+        dt = datetime.combine(d, datetime.min.time())
+
+    dt = timezone.make_aware(dt, tz)
 
     s.creado_en = dt
     s.save(update_fields=["creado_en"])
 
-    display = timezone.localtime(s.creado_en).strftime("%Y-%m-%d %H:%M")
+    display = timezone.localtime(s.creado_en, tz).strftime("%Y-%m-%d")
+    return JsonResponse(
+        {
+            "ok": True,
+            "display": display,
+            "search_value": display,
+        }
+    )
+
+@login_required
+@rol_requerido('admin', 'pm', 'supervisor')
+@csrf_protect
+def billing_update_project_id(request, sesion_id: int):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    proyecto_id = (request.POST.get("proyecto_id") or "").strip()
+    if not proyecto_id:
+        return JsonResponse({"ok": False, "error": "Project ID is required."}, status=400)
+
+    s.proyecto_id = proyecto_id
+    s.save(update_fields=["proyecto_id"])
+
     return JsonResponse({
         "ok": True,
-        "display": display,
-        "search_value": display,
+        "proyecto_id": s.proyecto_id,
     })
+
+
+@login_required
+@rol_requerido("admin", "pm", "supervisor", "facturacion")
+@csrf_protect
+def billing_update_project_week(request, sesion_id: int):
+    """
+    Cambio REAL de week desde listados (Billing List / Invoice List).
+
+    Regla:
+    - Cambia semana_pago_proyectada
+    - Si la sesión tiene snapshots productivos:
+        * mueve semana_base a la nueva week
+        * recalcula semana_resultado = semana_base + payment_weeks
+        * recalcula semana_pago_real resumen
+    - Si la sesión es legacy (sin snapshots productivos):
+        * mueve semana_pago_real a la nueva week
+    - Re-sincroniza WeeklyPayment en semanas viejas y nuevas
+
+    Importante:
+    - No permite cambios si hay weekly payments PAID, salvo admin real.
+    - Responde siempre JSON.
+    """
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    semana = (request.POST.get("semana_pago_proyectada") or "").strip().upper()
+    if not semana:
+        return JsonResponse({"ok": False, "error": "Week is required."}, status=400)
+
+    if not WEEK_RE.match(semana):
+        return JsonResponse(
+            {"ok": False, "error": "Invalid format. Use YYYY-W##"},
+            status=400,
+        )
+
+    year, week = _parse_iso_week(semana)
+    if not year or not week:
+        return JsonResponse(
+            {"ok": False, "error": "Invalid ISO week."},
+            status=400,
+        )
+
+    is_admin = _is_admin(request.user)
+
+    # 🔒 bloqueo real por pagos PAID
+    if _session_is_paid_locked(s) and not is_admin:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "LOCKED_PAID",
+                "message": "This session has PAID weekly payments. Only admins can change the pay week.",
+            },
+            status=403,
+        )
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    def _productivo_qs():
+        qs = snapshot_model.objects.filter(sesion=s)
+        if has_is_adjustment:
+            qs = qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            qs = qs.filter(adjustment_of__isnull=True)
+        return qs
+
+    # semanas anteriores afectadas
+    old_weeks = set(
+        snapshot_model.objects.filter(sesion=s)
+        .exclude(semana_resultado__isnull=True)
+        .exclude(semana_resultado__exact="")
+        .values_list("semana_resultado", flat=True)
+    )
+
+    old_legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper()
+    if old_legacy_week:
+        old_weeks.add(old_legacy_week)
+
+    snaps = list(_productivo_qs())
+    changed_weeks = set()
+    summary_week = ""
+
+    with transaction.atomic():
+        # siempre guardar la proyectada/base
+        s.semana_pago_proyectada = semana
+
+        # ---------------------------------------
+        # CASO 1: sesión con snapshots productivos
+        # ---------------------------------------
+        if snaps:
+            for snap in snaps:
+                payment_weeks = int(getattr(snap, "payment_weeks", 0) or 0)
+                recalculated_week = _add_weeks_to_iso_week(semana, payment_weeks)
+
+                update_fields = []
+
+                if (snap.semana_base or "") != semana:
+                    snap.semana_base = semana
+                    update_fields.append("semana_base")
+
+                if (snap.semana_resultado or "") != recalculated_week:
+                    snap.semana_resultado = recalculated_week
+                    update_fields.append("semana_resultado")
+
+                if update_fields:
+                    snap.save(update_fields=update_fields)
+
+                if recalculated_week:
+                    changed_weeks.add(recalculated_week)
+
+            # semana resumen = mayor semana_resultado de snapshots productivos
+            all_result_weeks = list(
+                _productivo_qs()
+                .exclude(semana_resultado__isnull=True)
+                .exclude(semana_resultado__exact="")
+                .values_list("semana_resultado", flat=True)
+            )
+
+            parsed = []
+            for w in all_result_weeks:
+                y, wk = _parse_iso_week(w)
+                if y and wk:
+                    parsed.append((y, wk, w))
+
+            if parsed:
+                parsed.sort(key=lambda x: (x[0], x[1]))
+                summary_week = parsed[-1][2]
+
+            s.semana_pago_real = summary_week
+
+        # ---------------------------------------
+        # CASO 2: sesión legacy sin snapshots
+        # ---------------------------------------
+        else:
+            s.semana_pago_real = semana
+            summary_week = semana
+            changed_weeks.add(semana)
+
+        s.save(update_fields=["semana_pago_proyectada", "semana_pago_real"])
+
+    # resincronizar weeks afectadas
+    try:
+        weeks_to_sync = set(filter(None, old_weeks | changed_weeks))
+        for wk in weeks_to_sync:
+            _sync_weekly_totals(week=wk)
+    except Exception:
+        pass
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "semana_pago_proyectada": s.semana_pago_proyectada or "",
+            "semana_pago_real": s.semana_pago_real or "",
+            "summary_week": summary_week or "",
+        }
+    )
 
 
 @login_required

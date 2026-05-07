@@ -1,0 +1,165 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Preview Technician Prices{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow mt-6" id="preview-root">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4">📥 Preview of Imported Technician Prices</h2>
+
+  <div class="mb-4">
+    <h3 class="text-lg font-semibold text-gray-700">Technicians Selected:</h3>
+    <ul class="list-disc pl-5">
+      {% for tecnico in tecnicos %}
+        <li>{{ tecnico.get_full_name }}</li>
+      {% empty %}
+        <li class="text-gray-500">No technicians selected.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Table Preview -->
+  <div class="overflow-x-auto bg-white rounded-xl shadow">
+    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1100px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+        <tr>
+          <th class="p-2 border">City</th>
+          <th class="p-2 border">Project</th>
+          <th class="p-2 border">Office</th>
+          <th class="p-2 border">Client</th>
+          <th class="p-2 border">Work Type</th>
+          <th class="p-2 border">Job Code</th>
+          <th class="p-2 border">Description</th>
+          <th class="p-2 border">UOM</th>
+          <th class="p-2 border">Tech Price</th>
+          <th class="p-2 border">Company Price</th>
+          <th class="p-2 border">Errors</th>
+        </tr>
+      </thead>
+      <tbody class="text-center">
+        {% for row in preview_data %}
+          <tr class="border-t {% if row.error %}bg-red-50{% endif %}">
+            <td class="p-2 border">{{ row.ciudad }}</td>
+            <td class="p-2 border">{{ row.proyecto }}</td>
+            <td class="p-2 border">{{ row.oficina }}</td>
+            <td class="p-2 border">{{ row.cliente }}</td>
+            <td class="p-2 border">{{ row.tipo_trabajo }}</td>
+            <td class="p-2 border">{{ row.codigo_trabajo }}</td>
+            <td class="p-2 border">{{ row.descripcion }}</td>
+            <td class="p-2 border">{{ row.uom }}</td>
+            <td class="p-2 border text-right">
+              {% if row.precio_tecnico is not None %}${{ row.precio_tecnico }}{% else %}-{% endif %}
+            </td>
+            <td class="p-2 border text-right">
+              {% if row.precio_empresa is not None %}${{ row.precio_empresa }}{% else %}-{% endif %}
+            </td>
+            <td class="p-2 border">
+              {% if row.error %}
+                <span class="text-red-600">{{ row.error }}</span>
+              {% else %}
+                <span class="text-green-600">Valid</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="11" class="p-4 text-center text-gray-500">No data to preview.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Buttons -->
+  <div class="flex justify-end mt-6 space-x-4">
+    <a href="{% url 'operaciones:importar_precios' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded">Back</a>
+    <button type="button" onclick="openConfirmationModal()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded">Confirm Import</button>
+  </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmation-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+  <div class="bg-white p-6 rounded-xl w-full max-w-lg shadow">
+    <h2 class="text-lg font-bold text-gray-800 mb-4">Confirm Import</h2>
+    <p class="text-gray-700 mb-4">Are you sure you want to assign prices to the selected technicians?</p>
+
+    <ul class="text-sm text-gray-600 mb-4 list-disc list-inside">
+      {% for tecnico in tecnicos %}
+        <li>{{ tecnico.get_full_name }}</li>
+      {% endfor %}
+    </ul>
+
+    {% if has_conflicts %}
+      <div class="mb-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 text-sm">
+        Some technicians already have prices for the same City/Project/Office/Client.  
+        You can replace those existing records if you continue.
+      </div>
+
+      <div class="flex items-center mb-4">
+        <input type="checkbox" name="replace" value="yes" id="replace-check" class="rounded">
+        <label for="replace-check" class="ml-2 text-gray-700">Replace existing records</label>
+      </div>
+    {% endif %}
+
+    <div class="flex justify-end space-x-2">
+      <button type="button" onclick="closeModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">Cancel</button>
+      <form method="post" action="{% url 'operaciones:confirmar_importar_precios' %}">
+        {% csrf_token %}
+        {% if has_conflicts %}
+          <input type="hidden" name="replace" id="replace-input" value="no">
+        {% endif %}
+        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Continue</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Error Modal boni -->
+<div id="error-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+  <div class="mx-4 max-w-md w-full rounded-2xl border shadow-xl bg-red-50 border-red-200 text-red-800">
+    <div class="p-5">
+      <div class="flex items-start gap-3">
+        <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/70">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0zM12 9v4m0 4h.01"/>
+          </svg>
+        </span>
+        <div class="flex-1">
+          <p id="error-text" class="text-base font-semibold leading-6"></p>
+          <div class="mt-4 flex justify-end">
+            <button type="button" class="px-4 py-2 rounded-xl bg-white/80 hover:bg-white text-gray-800 font-medium"
+                    onclick="hideError()">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openConfirmationModal() {
+    // si todo el preview viene desde importar_precios, ya tenemos los técnicos y la lista renderizada
+    document.getElementById('confirmation-modal').classList.remove('hidden');
+  }
+  function closeModal() {
+    document.getElementById('confirmation-modal').classList.add('hidden');
+  }
+
+  // Conectar checkbox -> hidden input (solo si existe)
+  const replaceCheck = document.getElementById('replace-check');
+  if (replaceCheck) {
+    replaceCheck.addEventListener('change', function () {
+      const input = document.getElementById('replace-input');
+      if (input) input.value = this.checked ? 'yes' : 'no';
+    });
+  }
+
+  function showError(text) {
+    document.getElementById('error-text').textContent = text;
+    document.getElementById('error-modal').classList.remove('hidden');
+  }
+  function hideError() {
+    document.getElementById('error-modal').classList.add('hidden');
+  }
+</script>
+{% endblock %}

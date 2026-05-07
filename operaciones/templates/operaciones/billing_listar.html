@@ -382,22 +382,67 @@ else %}asignado assigned{% endif %}"
     data-session-id="{{ s.id }}"
     data-update-url="{% url 'operaciones:billing_update_creado_en' s.id %}">
 
-  <span class="dt-view" id="dt-view-{{ s.id }}">{{ s.creado_en|date:"Y-m-d H:i" }}</span>
+  <span class="dt-view" id="dt-view-{{ s.id }}">{{ s.creado_en|date:"Y-m-d" }}</span>
 
   <input type="text"
-         class="dt-input hidden border rounded px-2 py-1 text-sm w-44"
+         class="dt-input hidden border rounded px-2 py-1 text-sm w-32"
          id="dt-input-{{ s.id }}"
-         value="{{ s.creado_en|date:'Y-m-d H:i' }}"
+         value="{{ s.creado_en|date:'Y-m-d' }}"
          autocomplete="off">
 
-  <!-- ✅ lapicito -->
+ {% if s.is_accounting_locked %}
+  <button type="button"
+          class="text-xs text-gray-400 cursor-not-allowed"
+          title="This billing has paid work types. Date cannot be edited.">
+    🔒
+  </button>
+{% else %}
   <button type="button"
           class="dt-edit text-xs text-blue-600 underline"
           data-id="{{ s.id }}">
     ✏️
   </button>
+{% endif %}
 </td>
-          <td class="p-2 border">{{ s.proyecto_id }}</td>
+          <td class="p-2 border"
+    data-col="project-id"
+    data-session-id="{{ s.id }}"
+    data-update-url="{% url 'operaciones:billing_update_project_id' s.id %}">
+
+  <span class="pid-view" id="pid-view-{{ s.id }}">{{ s.proyecto_id|default:"—" }}</span>
+
+  <input type="text"
+         class="pid-input hidden border rounded px-2 py-1 text-sm w-36"
+         id="pid-input-{{ s.id }}"
+         value="{{ s.proyecto_id|default:'' }}"
+         autocomplete="off">
+
+  {% if s.is_accounting_locked %}
+
+  <button type="button"
+
+          class="text-xs text-gray-400 cursor-not-allowed"
+
+          title="This billing has paid work types. Project ID cannot be edited.">
+
+    🔒
+
+  </button>
+
+{% else %}
+
+  <button type="button"
+
+          class="pid-edit text-xs text-blue-600 underline"
+
+          data-id="{{ s.id }}">
+
+    ✏️
+
+  </button>
+
+{% endif %}
+</td>
 
           <!-- Project address -->
           <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;">
@@ -412,7 +457,34 @@ else %}asignado assigned{% endif %}"
           </td>
 
           <!-- Weeks -->
-          <td class="p-2 border">{{ s.semana_pago_proyectada|default:"—" }}</td>
+          <td class="p-2 border"
+    data-col="project-week"
+    data-session-id="{{ s.id }}"
+    data-update-url="{% url 'operaciones:billing_update_project_week' s.id %}">
+
+  <span class="pw-view" id="pw-view-{{ s.id }}">{{ s.semana_pago_proyectada|default:"—" }}</span>
+
+  <input type="text"
+         class="pw-input hidden border rounded px-2 py-1 text-sm w-24"
+         id="pw-input-{{ s.id }}"
+         value="{{ s.semana_pago_proyectada|default:'' }}"
+         placeholder="YYYY-W##"
+         autocomplete="off">
+
+{% if s.is_accounting_locked %}
+  <button type="button"
+          class="text-xs text-gray-400 cursor-not-allowed"
+          title="This billing has paid work types. The projected week cannot be edited.">
+    🔒
+  </button>
+{% else %}
+  <button type="button"
+          class="pw-edit text-xs text-blue-600 underline"
+          data-id="{{ s.id }}">
+    ✏️
+  </button>
+{% endif %}
+</td>
 
           <!-- Project status -->
           <td class="p-2 border" data-status-cell>
@@ -503,27 +575,109 @@ else %}asignado assigned{% endif %}"
           </td>
 
           {# --- Real pay week (con candado para roles sin permiso) --- #}
-          <td class="p-2 border" data-col="semana-real">
-  <span class="sr-view" id="sr-view-{{ s.id }}">{{ s.semana_pago_real|default:"—" }}</span>
+<td class="p-2 border align-top min-w-[360px] max-w-[560px] whitespace-normal break-words" data-col="semana-real">
+  {% if s.payweek_groups %}
+    <div class="space-y-2">
+      {% for grp in s.payweek_groups %}
+        <details class="rounded border border-gray-200 bg-gray-50">
+          <summary class="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-gray-800">
+                {{ grp.tech_name }}
+              </div>
+              <div class="text-xs text-gray-600">
+                {{ grp.weeks_summary|default:"—" }}
+              </div>
+            </div>
+            <span class="text-xs text-gray-500">▼</span>
+          </summary>
 
-  {% if not can_edit_real_week %}
-    <button type="button"
-            class="sr-edit-locked text-xs text-gray-400 cursor-not-allowed"
-            title="Only PM/Finance/Admin can edit the real pay week.">
-      🔒
-    </button>
+          <div class="px-3 pb-3 pt-1 space-y-2">
+            {% for line in grp.lines %}
+              {% ifchanged line.work_type line.week %}
+                <div class="flex items-center justify-between gap-2 border-t pt-2 first:border-t-0 first:pt-0">
+                  <div class="min-w-0">
+                    <div class="text-xs font-medium text-gray-700">
+                      {{ line.work_type|default:"—" }}
+                    </div>
+                  </div>
+
+                  {% if line.is_paid %}
+                    <div class="text-xs text-gray-700 flex items-center gap-2">
+                      <span>{{ line.week|default:"—" }}</span>
+
+                      <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800 text-[11px]">
+                        Paid
+                      </span>
+
+                      <button type="button"
+                              class="sr-line-edit-locked text-xs text-gray-400 cursor-not-allowed"
+                              title="You cannot edit the pay week because this line was already paid.">
+                        🔒
+                      </button>
+                    </div>
+
+                  {% elif not can_edit_real_week %}
+                    <div class="text-xs text-gray-700 flex items-center gap-2">
+                      <span>{{ line.week|default:"—" }}</span>
+                      <button type="button"
+                              class="sr-line-edit-locked text-xs text-gray-400 cursor-not-allowed"
+                              title="Only PM/Finance/Admin can edit the real pay week.">
+                        🔒
+                      </button>
+                    </div>
+
+                  {% else %}
+                    <div class="flex items-center gap-2">
+                      {% if line.is_legacy %}
+                        <span class="sr-line-view text-xs text-gray-700"
+                              id="sr-line-view-legacy-{{ line.dom_id }}">
+                          {{ line.week|default:"—" }}
+                        </span>
+
+                        <input type="text"
+                               id="sr-line-input-legacy-{{ line.dom_id }}"
+                               class="sr-line-input sr-line-input-legacy hidden border rounded px-2 py-1 text-xs w-24"
+                               value="{{ line.week|default:'' }}"
+                               placeholder="YYYY-W##" />
+
+                        <button type="button"
+                                class="sr-line-edit-legacy text-xs text-blue-600 underline"
+                                data-dom-id="{{ line.dom_id }}"
+                                data-session-id="{{ line.session_id }}"
+                                data-url="{% url 'operaciones:billing_set_real_week' line.session_id %}">
+                          ✏️
+                        </button>
+                      {% else %}
+                        <span class="sr-line-view text-xs text-gray-700"
+                              id="sr-line-view-{{ line.snapshot_id }}">
+                          {{ line.week|default:"—" }}
+                        </span>
+
+                        <input type="text"
+                               id="sr-line-input-{{ line.snapshot_id }}"
+                               class="sr-line-input hidden border rounded px-2 py-1 text-xs w-24"
+                               value="{{ line.week|default:'' }}"
+                               placeholder="YYYY-W##" />
+
+                        <button type="button"
+                                class="sr-line-edit text-xs text-blue-600 underline"
+                                data-snapshot-id="{{ line.snapshot_id }}"
+                                data-url="{% url 'operaciones:billing_update_snapshot_week' line.snapshot_id %}">
+                          ✏️
+                        </button>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                </div>
+              {% endifchanged %}
+            {% endfor %}
+          </div>
+        </details>
+      {% endfor %}
+    </div>
   {% else %}
-    <input type="text"
-          id="sr-input-{{ s.id }}"
-          class="sr-input hidden border rounded px-2 py-1 text-sm w-28"
-          value="{{ s.semana_pago_real|default:'' }}"
-          placeholder="YYYY-W##" />
-    <button type="button"
-            class="sr-edit text-xs text-blue-600 underline"
-            data-id="{{ s.id }}"
-            data-url="{% url 'operaciones:billing_update_semana' s.id %}">
-      ✏️
-    </button>
+    <span class="text-gray-400">—</span>
   {% endif %}
 </td>
 
@@ -541,9 +695,31 @@ else %}asignado assigned{% endif %}"
     <span class="text-gray-400">—</span>
   {% endif %}
 </td>
+          
           <!-- Actions -->
-          <td class="p-2 border text-center">
-  {% if s.estado == "aprobado_supervisor" or s.estado == "aprobado_pm" or s.estado == "aprobado_finanzas" %}
+<td class="p-2 border text-center">
+
+  {% if s.is_accounting_locked %}
+    <div class="flex flex-col items-center justify-center gap-1">
+      <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700 border text-xs"
+            title="This billing has at least one paid work type and cannot be edited, deleted, or reopened.">
+        🔒 Accounting locked
+      </span>
+
+      {% if s.is_cable_installation %}
+        <a class="text-gray-700 hover:underline text-xs"
+           href="{% url 'cable_installation:review_requirements' s.id %}">
+          Review
+        </a>
+      {% else %}
+        <a class="text-gray-700 hover:underline text-xs"
+           href="{% url 'operaciones:revisar_sesion' s.id %}">
+          Review
+        </a>
+      {% endif %}
+    </div>
+
+  {% elif s.can_reopen_billing %}
     <form method="post" action="{% url 'operaciones:billing_reopen_asignado' s.id %}" class="inline">
       {% csrf_token %}
       <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded"
@@ -551,6 +727,7 @@ else %}asignado assigned{% endif %}"
         Renew to Assigned
       </button>
     </form>
+
   {% else %}
     <div class="flex items-center justify-center gap-3">
       <a class="text-blue-600 hover:underline" href="{% url 'operaciones:editar_billing' s.id %}">Edit</a>
@@ -568,22 +745,29 @@ else %}asignado assigned{% endif %}"
         Add technician
       </button>
 
-      <button type="button"
-              class="btn-open-delete text-red-600 hover:underline"
-              data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
-              data-label="#{{ s.id }} – {{ s.proyecto_id }}">
-        Delete
-      </button>
+      {% if s.can_delete_billing %}
+        <button type="button"
+                class="btn-open-delete text-red-600 hover:underline"
+                data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
+                data-label="#{{ s.id }} – {{ s.proyecto_id }}">
+          Delete
+        </button>
+      {% else %}
+        <span class="text-gray-400 cursor-not-allowed"
+              title="This billing cannot be deleted because it has paid work types.">
+          Delete
+        </span>
+      {% endif %}
 
-     {% if s.is_cable_installation %}
-  <a class="text-gray-700 hover:underline" href="{% url 'cable_installation:review_requirements' s.id %}">Review</a>
-{% else %}
-  <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
-{% endif %}
+      {% if s.is_cable_installation %}
+        <a class="text-gray-700 hover:underline" href="{% url 'cable_installation:review_requirements' s.id %}">Review</a>
+      {% else %}
+        <a class="text-gray-700 hover:underline" href="{% url 'operaciones:revisar_sesion' s.id %}">Review</a>
+      {% endif %}
     </div>
   {% endif %}
 
-  {% if s.finance_status == "rejected" %}
+  {% if s.finance_status == "rejected" and not s.is_accounting_locked %}
     <form method="post"
           action="{% url 'operaciones:billing_mark_in_review' s.id %}"
           class="inline form-inreview">
@@ -601,8 +785,8 @@ else %}asignado assigned{% endif %}"
         <tr id="detalle-{{ s.id }}" class="hidden">
           <td class="border"></td>  <!-- caret -->
           <td class="border"></td>  <!-- checkbox -->
-          <!-- 18 cols total -> detail colspan = 16 -->
-          <td class="p-3 border bg-gray-50" colspan="17">
+          <!-- 20 cols total -> detail row uses 2 fixed cells + colspan 18 -->
+          <td class="p-3 border bg-gray-50" colspan="18">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -634,17 +818,23 @@ else %}asignado assigned{% endif %}"
                         data-update-url="{% url 'operaciones:billing_item_update_qty' it.id %}">
                       <span class="qty-view" id="qty-view-{{ it.id }}">{{ it.cantidad|floatformat:2 }}</span>
 
-                      {% if can_edit_items %}
-                        <input type="number" step="0.01" min="0"
-                              id="qty-input-{{ it.id }}"
-                              class="qty-input hidden border rounded px-2 py-1 text-sm w-24 text-right"
-                              value="{{ it.cantidad|floatformat:2 }}" />
-                        <button type="button"
-                                class="qty-edit text-xs text-blue-600 underline align-middle"
-                                data-id="{{ it.id }}">
-                          ✏️
-                        </button>
-                      {% endif %}
+                      {% if can_edit_items and not s.is_accounting_locked %}
+  <input type="number" step="0.01" min="0"
+        id="qty-input-{{ it.id }}"
+        class="qty-input hidden border rounded px-2 py-1 text-sm w-24 text-right"
+        value="{{ it.cantidad|floatformat:2 }}" />
+  <button type="button"
+          class="qty-edit text-xs text-blue-600 underline align-middle"
+          data-id="{{ it.id }}">
+    ✏️
+  </button>
+{% elif s.is_accounting_locked %}
+  <button type="button"
+          class="text-xs text-gray-400 cursor-not-allowed align-middle"
+          title="This billing has paid work types. Quantity cannot be edited.">
+    🔒
+  </button>
+{% endif %}
                     </td>
                     {# ====== /Quantity editable ====== #}
 
@@ -679,12 +869,19 @@ else %}asignado assigned{% endif %}"
             <div class="mt-6">
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
-{% if s.is_cable_installation %}
-  <a href="{% url 'cable_installation:configure_requirements' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+{% if s.is_accounting_locked %}
+  <span class="text-xs bg-gray-100 text-gray-500 border px-3 py-1 rounded cursor-not-allowed"
+        title="This billing has paid work types. Requirements cannot be changed.">
+    🔒 Configure Requirements
+  </span>
+{% elif s.is_cable_installation %}
+  <a href="{% url 'cable_installation:configure_requirements' s.id %}"
+     class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
     Configure Requirements
   </a>
 {% else %}
-  <a href="{% url 'operaciones:configurar_requisitos' s.id %}" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+  <a href="{% url 'operaciones:configurar_requisitos' s.id %}"
+     class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
     Configure Requirements
   </a>
 {% endif %}
@@ -756,7 +953,7 @@ else %}asignado assigned{% endif %}"
         </tr>
         {% empty %}
         <tr>
-          <td colspan="18" class="p-4 text-center text-gray-500">No billings yet.</td>
+          <td colspan="20" class="p-4 text-center text-gray-500">No billings yet.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -1441,138 +1638,6 @@ document.addEventListener('click', function(e){
 
 
 
-<!-- Inline edit "real week" -->
-<script>
-(function(){
-  const CAN_EDIT_REAL_WEEK = {{ can_edit_real_week|yesno:"true,false" }};
-
-  function toast(msg, type='error'){
-    const bg = type === 'success' ? 'bg-green-600' : (type === 'info' ? 'bg-blue-600' : 'bg-red-600');
-    const el = document.createElement('div');
-    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(()=> el.remove(), 2500);
-  }
-
-  // --- CSRF helpers: meta first (works with HttpOnly cookies), fallback to cookie ---
-  function getMetaCsrf(){
-    return document.querySelector('meta[name="csrf-token"]')?.content || '';
-  }
-  function getCookie(name){
-    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-    return m ? decodeURIComponent(m[2]) : null;
-  }
-  const csrftoken = getMetaCsrf() || getCookie('csrftoken') || '';
-
-  function toEdit(id){
-    const view  = document.getElementById(`sr-view-${id}`);
-    const input = document.getElementById(`sr-input-${id}`);
-    if (!input) return;
-    view.classList.add("hidden");
-    input.classList.remove("hidden");
-    input.focus();
-  }
-
-  function toView(id, text){
-    const view  = document.getElementById(`sr-view-${id}`);
-    const input = document.getElementById(`sr-input-${id}`);
-    if (view){ view.textContent = text || "—"; view.classList.remove("hidden"); }
-    if (input){ input.classList.add("hidden"); }
-  }
-
-  async function save(id, url, value){
-    const form = new FormData();
-    form.append("semana", value);
-
-    const resp = await fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json"
-      },
-      body: form
-    });
-
-    // Si el middleware expira en AJAX: 401 JSON
-    if (resp.status === 401){
-      throw new Error("Your session has expired. Please sign in again.");
-    }
-
-    // Si el servidor devolvió HTML (por ejemplo, página de login o error de CSRF)
-    const ct = (resp.headers.get("content-type") || "").toLowerCase();
-    if (!ct.includes("application/json")){
-      const txt = await resp.text().catch(()=> "");
-      if (/csrf/i.test(txt)) {
-        throw new Error("Invalid or expired CSRF token. Please refresh the page.");
-      }
-      if (/login/i.test(txt)) {
-        throw new Error("Your session has expired. Please sign in again.");
-      }
-      throw new Error(`Invalid server response (HTTP ${resp.status}).`);
-    }
-
-    let data = null;
-    try { data = await resp.json(); } catch(_) {}
-
-    if (resp.status === 403){
-      throw new Error((data && (data.error || data.message)) || "Locked (PAID) or no permission.");
-    }
-    if (!resp.ok){
-      throw new Error((data && (data.error || data.message)) || `Save failed (HTTP ${resp.status}).`);
-    }
-    if (!data || data.ok !== true){
-      throw new Error((data && (data.error || data.message)) || "Save failed.");
-    }
-    return data.semana ?? "";
-  }
-
-  document.addEventListener("click", function(e){
-    const btn = e.target.closest(".sr-edit");
-    if (btn) { toEdit(btn.dataset.id); return; }
-
-    const lock = e.target.closest(".sr-edit-locked");
-    if (lock){ toast("Locked (PAID). Only admins can edit.", "error"); }
-  });
-
-  document.addEventListener("keydown", async function(e){
-    const input = e.target.closest(".sr-input");
-    if(!input || input.classList.contains("hidden")) return;
-
-    const id  = input.id.replace("sr-input-","");
-    const btn = document.querySelector(`.sr-edit[data-id="${id}"]`);
-    const url = btn ? btn.dataset.url : null;
-
-    if(e.key === "Escape"){
-      toView(id, input.value);
-      return;
-    }
-    if(e.key === "Enter"){
-      e.preventDefault();
-      if (!url){
-        toast("Configuration error: missing update URL.", "error");
-        return;
-      }
-
-      try{
-        const saved = await save(id, url, input.value.trim());
-        toast("Saved.", "success");
-        toView(id, saved);
-      }catch(err){
-        toast(err.message || "Save failed", "error");
-        if (/sign in again/i.test(err.message || "")) {
-          // Si quieres, redirige al login:
-          // window.location.href = "{{ LOGIN_URL|default:'/usuarios/login/' }}";
-        }
-        input.focus();
-      }
-    }
-  });
-})();
-</script>
-
 
 
 <!-- Inline qty edit -->
@@ -1933,7 +1998,6 @@ document.addEventListener('click', function(e){
 (function(){
   if (!window.flatpickr) return;
 
-  // CSRF helper (cookie)
   function getCookie(name){
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : null;
@@ -1949,7 +2013,7 @@ document.addEventListener('click', function(e){
     setTimeout(()=> el.remove(), 2200);
   }
 
-  async function saveDatetime(url, value){
+  async function saveDate(url, value){
     const form = new FormData();
     form.append('creado_en', value);
 
@@ -1981,16 +2045,14 @@ document.addEventListener('click', function(e){
     if (input._dtPickerReady) return;
 
     const fp = flatpickr(input, {
-      enableTime: true,
-      time_24hr: false,
-      dateFormat: "Y-m-d H:i",      // backend
-      altInput: true,               // UI bonita
-      altFormat: "F j, Y h:i K",     // English + AM/PM
+      enableTime: false,
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "F j, Y",
       locale: "en",
       allowInput: true,
 
       onOpen: function(){
-        // Si quieres seleccionar todo al abrir:
         try { fp.altInput && fp.altInput.select(); } catch(_){}
       },
 
@@ -1999,22 +2061,19 @@ document.addEventListener('click', function(e){
         if(!v) return;
 
         try{
-          const data = await saveDatetime(url, v);
+          const data = await saveDate(url, v);
 
           const view = document.getElementById(`dt-view-${sid}`);
           if(view) view.textContent = data.display || v;
 
-          // actualizar dataset para filtros
           const tr = input.closest('tr[data-row="main"]');
           if(tr) tr.dataset.date = (data.search_value || v).toLowerCase();
 
-          // mantener input.value sincronizado (para revert)
           input.value = (data.search_value || v);
 
           toast('Saved.', 'success');
         }catch(err){
           toast(err.message || 'Save failed', 'error');
-          // revertir a lo que tenía
           fp.setDate(input.value, false);
         }
       }
@@ -2038,7 +2097,6 @@ document.addEventListener('click', function(e){
     if(fp) fp.open();
   }
 
-  // ✅ Click en lapicito
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.dt-edit');
     if(!btn) return;
@@ -2050,13 +2108,11 @@ document.addEventListener('click', function(e){
     openPickerFromTd(td);
   });
 
-  // ✅ Doble click en la celda
   document.addEventListener('dblclick', function(e){
     const td = e.target.closest('td[data-col="creado-en"]');
     if(!td) return;
     openPickerFromTd(td);
   });
-
 })();
 </script>
 
@@ -2916,6 +2972,446 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     }
     if (window.billingRefreshBulkActions) {
       window.billingRefreshBulkActions();
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  function toast(msg, type='error'){
+    const bg = type === 'success'
+      ? 'bg-green-600'
+      : (type === 'info' ? 'bg-blue-600' : 'bg-red-600');
+
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2500);
+  }
+
+  function getMetaCsrf(){
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
+
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+
+  const csrftoken = getMetaCsrf() || getCookie('csrftoken') || '';
+
+  function toSnapshotEdit(snapshotId){
+    const view  = document.getElementById(`sr-line-view-${snapshotId}`);
+    const input = document.getElementById(`sr-line-input-${snapshotId}`);
+    if (!input) return;
+
+    if (view) view.classList.add('hidden');
+    input.classList.remove('hidden');
+    input.focus();
+    input.select();
+  }
+
+  function toSnapshotView(snapshotId, text){
+    const view  = document.getElementById(`sr-line-view-${snapshotId}`);
+    const input = document.getElementById(`sr-line-input-${snapshotId}`);
+
+    if (view){
+      view.textContent = text || "—";
+      view.classList.remove('hidden');
+    }
+    if (input){
+      input.classList.add('hidden');
+    }
+  }
+
+function toLegacyEdit(domId){
+  const view  = document.getElementById(`sr-line-view-legacy-${domId}`);
+  const input = document.getElementById(`sr-line-input-legacy-${domId}`);
+  if (!input) return;
+
+  if (view) view.classList.add('hidden');
+  input.classList.remove('hidden');
+  input.focus();
+  input.select();
+}
+
+function toLegacyView(domId, text){
+  const view  = document.getElementById(`sr-line-view-legacy-${domId}`);
+  const input = document.getElementById(`sr-line-input-legacy-${domId}`);
+
+  if (view){
+    view.textContent = text || "—";
+    view.classList.remove('hidden');
+  }
+  if (input){
+    input.classList.add('hidden');
+  }
+}
+
+  async function postForm(url, formData){
+    const resp = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRFToken": csrftoken,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json"
+      },
+      body: formData
+    });
+
+    let data = null;
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+
+    if (ct.includes("application/json")){
+      try { data = await resp.json(); } catch(_) {}
+    } else {
+      const txt = await resp.text().catch(() => "");
+      throw new Error(
+        txt?.trim()
+          ? `Server returned HTML instead of JSON (HTTP ${resp.status}).`
+          : `Invalid server response (HTTP ${resp.status}).`
+      );
+    }
+
+    if (resp.status === 401){
+      throw new Error(data?.message || "Your session has expired. Please sign in again.");
+    }
+
+    if (!resp.ok || !data || data.ok !== true){
+      throw new Error(
+        (data && (data.message || data.error)) || `Save failed (HTTP ${resp.status}).`
+      );
+    }
+
+    return data;
+  }
+
+  async function saveSnapshotWeek(url, value){
+    const form = new FormData();
+    form.append("semana", value);
+    const data = await postForm(url, form);
+    return data.semana ?? value;
+  }
+
+  async function saveLegacyWeek(url, value){
+    const form = new FormData();
+    form.append("week", value);
+    const data = await postForm(url, form);
+    return data.summary_week || data.week || value;
+  }
+
+  document.addEventListener("click", function(e){
+    const btnSnapshot = e.target.closest(".sr-line-edit");
+    if (btnSnapshot){
+      toSnapshotEdit(btnSnapshot.dataset.snapshotId);
+      return;
+    }
+
+    const btnLegacy = e.target.closest(".sr-line-edit-legacy");
+
+if (btnLegacy){
+
+  toLegacyEdit(btnLegacy.dataset.domId);
+
+  return;
+
+}
+
+    const lock = e.target.closest(".sr-line-edit-locked");
+    if (lock){
+      const msg = lock.getAttribute("title") || "This field cannot be edited.";
+      toast(msg, "error");
+    }
+  });
+
+  document.addEventListener("keydown", async function(e){
+    const snapshotInput = e.target.closest(".sr-line-input:not(.sr-line-input-legacy)");
+    if(snapshotInput && !snapshotInput.classList.contains("hidden")){
+      const snapshotId = snapshotInput.id.replace("sr-line-input-","");
+      const btn = document.querySelector(`.sr-line-edit[data-snapshot-id="${snapshotId}"]`);
+      const url = btn ? btn.dataset.url : null;
+
+      if(e.key === "Escape"){
+        const current = document.getElementById(`sr-line-view-${snapshotId}`)?.textContent || snapshotInput.value;
+        toSnapshotView(snapshotId, current);
+        return;
+      }
+
+      if(e.key === "Enter"){
+        e.preventDefault();
+
+        if (!url){
+          toast("Configuration error: missing update URL.", "error");
+          return;
+        }
+
+        try{
+          const saved = await saveSnapshotWeek(url, snapshotInput.value.trim().toUpperCase());
+          toast("Saved.", "success");
+          toSnapshotView(snapshotId, saved);
+        }catch(err){
+          toast(err.message || "Save failed", "error");
+          snapshotInput.focus();
+        }
+        return;
+      }
+    }
+
+ const legacyInput = e.target.closest(".sr-line-input-legacy");
+if(legacyInput && !legacyInput.classList.contains("hidden")){
+  const domId = legacyInput.id.replace("sr-line-input-legacy-","");
+  const btn = document.querySelector(`.sr-line-edit-legacy[data-dom-id="${domId}"]`);
+  const url = btn ? btn.dataset.url : null;
+
+  if(e.key === "Escape"){
+    const current = document.getElementById(`sr-line-view-legacy-${domId}`)?.textContent || legacyInput.value;
+    toLegacyView(domId, current);
+    return;
+  }
+
+  if(e.key === "Enter"){
+    e.preventDefault();
+
+    if (!url){
+      toast("Configuration error: missing update URL.", "error");
+      return;
+    }
+
+    try{
+      const saved = await saveLegacyWeek(url, legacyInput.value.trim().toUpperCase());
+      toast("Saved.", "success");
+      toLegacyView(domId, saved);
+    }catch(err){
+      toast(err.message || "Save failed", "error");
+      legacyInput.focus();
+    }
+  }
+}
+  });
+})();
+</script>
+<script>
+(function(){
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2000);
+  }
+
+  async function saveProjectId(url, value){
+    const form = new FormData();
+    form.append('proyecto_id', value);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json'
+      },
+      body: form
+    });
+
+    let data = null;
+    try { data = await resp.json(); } catch(_){}
+
+    if(resp.status === 401){
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `Save failed (HTTP ${resp.status})`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function toEdit(id){
+    document.getElementById(`pid-view-${id}`)?.classList.add('hidden');
+    const input = document.getElementById(`pid-input-${id}`);
+    if(input){
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+  }
+
+  function toView(id, text){
+    const view = document.getElementById(`pid-view-${id}`);
+    const input = document.getElementById(`pid-input-${id}`);
+    if(view){
+      view.textContent = text || '—';
+      view.classList.remove('hidden');
+    }
+    if(input){
+      input.classList.add('hidden');
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.pid-edit');
+    if(!btn) return;
+    toEdit(btn.dataset.id);
+  });
+
+  document.addEventListener('keydown', async function(e){
+    const input = e.target.closest('.pid-input');
+    if(!input || input.classList.contains('hidden')) return;
+
+    const id = input.id.replace('pid-input-','');
+    const td = input.closest('td[data-col="project-id"]');
+    const url = td?.getAttribute('data-update-url');
+
+    if(e.key === 'Escape'){
+      const current = document.getElementById(`pid-view-${id}`)?.textContent || input.value;
+      toView(id, current);
+      return;
+    }
+
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+
+    const value = (input.value || '').trim();
+    if(!value){
+      toast('Project ID is required.', 'error');
+      input.focus();
+      return;
+    }
+
+    try{
+      const data = await saveProjectId(url, value);
+      toView(id, data.proyecto_id || value);
+
+      const tr = input.closest('tr[data-row="main"]');
+      if(tr) tr.dataset.projid = (data.proyecto_id || value).toLowerCase();
+
+      toast('Saved.', 'success');
+    }catch(err){
+      toast(err.message || 'Save failed', 'error');
+      input.focus();
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+  const csrftoken = getCookie('csrftoken') || '';
+
+  function toast(msg, type='info'){
+    const bg = type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600');
+    const el = document.createElement('div');
+    el.className = `fixed top-5 left-1/2 -translate-x-1/2 ${bg} text-white px-3 py-2 rounded shadow z-50`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=> el.remove(), 2000);
+  }
+
+  async function saveProjectWeek(url, value){
+    const form = new FormData();
+    form.append('semana_pago_proyectada', value);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json'
+      },
+      body: form
+    });
+
+    let data = null;
+    try { data = await resp.json(); } catch(_){}
+
+    if(resp.status === 401){
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+    if(!resp.ok || !data || data.ok !== true){
+      const msg = (data && (data.error || data.message)) || `Save failed (HTTP ${resp.status})`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function toEdit(id){
+    document.getElementById(`pw-view-${id}`)?.classList.add('hidden');
+    const input = document.getElementById(`pw-input-${id}`);
+    if(input){
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+  }
+
+  function toView(id, text){
+    const view = document.getElementById(`pw-view-${id}`);
+    const input = document.getElementById(`pw-input-${id}`);
+    if(view){
+      view.textContent = text || '—';
+      view.classList.remove('hidden');
+    }
+    if(input){
+      input.classList.add('hidden');
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.pw-edit');
+    if(!btn) return;
+    toEdit(btn.dataset.id);
+  });
+
+  document.addEventListener('keydown', async function(e){
+    const input = e.target.closest('.pw-input');
+    if(!input || input.classList.contains('hidden')) return;
+
+    const id = input.id.replace('pw-input-','');
+    const td = input.closest('td[data-col="project-week"]');
+    const url = td?.getAttribute('data-update-url');
+
+    if(e.key === 'Escape'){
+      const current = document.getElementById(`pw-view-${id}`)?.textContent || input.value;
+      toView(id, current);
+      return;
+    }
+
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+
+    const value = (input.value || '').trim().toUpperCase();
+    if(!value){
+      toast('Week is required.', 'error');
+      input.focus();
+      return;
+    }
+
+    try{
+      const data = await saveProjectWeek(url, value);
+      toView(id, data.semana_pago_proyectada || value);
+
+      const tr = input.closest('tr[data-row="main"]');
+      if(tr) tr.dataset.week = (data.semana_pago_proyectada || value).toLowerCase();
+
+      toast('Saved.', 'success');
+    }catch(err){
+      toast(err.message || 'Save failed', 'error');
+      input.focus();
     }
   });
 })();

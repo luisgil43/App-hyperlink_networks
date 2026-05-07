@@ -1,0 +1,27 @@
+{% extends "dashboard_admin/base.html" %}
+{% load widget_tweaks %}
+
+{% block title %}Edit Price{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">✏️ Edit Price</h1>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+      <div class="mb-4">
+        <label class="block text-gray-700 font-medium mb-1">{{ field.label }}</label>
+        {{ field|add_class:"w-full border px-3 py-2 rounded-lg" }}
+        {% if field.errors %}
+          <p class="text-red-500 text-sm">{{ field.errors.0 }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+    <div class="flex justify-end gap-2">
+      <a href="{% url 'operaciones:listar_precios_tecnico' %}" class="px-4 py-2 bg-gray-300 rounded">Cancel</a>
+      <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -79,7 +79,7 @@
 
     <!-- Table -->
      <div class="overflow-x-auto">
-    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1200px]" style="white-space: nowrap;">
+    <table class="table-auto w-full text-sm min-w-full sm:min-w-[1350px]" style="white-space: nowrap;">
         <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
           <tr>
             <th class="p-2 border">
@@ -96,6 +96,7 @@
             <th class="p-2 border">Job Code</th>
             <th class="p-2 border">Description</th>
             <th class="p-2 border">UOM</th>
+            <th class="p-2 border text-center">Payment Weeks</th>
             <th class="p-2 border text-right">Tech Price</th>
             <th class="p-2 border text-right">Company Price</th>
             <th class="p-2 border">Actions</th>
@@ -111,7 +112,6 @@
             <td class="p-2 border">{{ price.fecha_creacion|date:"d/m/Y" }}</td>
             <td class="p-2 border">{{ price.tecnico.get_full_name }}</td>
             <td class="p-2 border">{{ price.ciudad }}</td>
-            <!-- Si es FK: muestra 'proyecto.nombre'; si es texto: muestra 'proyecto' -->
             <td class="p-2 border">{{ price.proyecto.nombre|default:price.proyecto }}</td>
             <td class="p-2 border">{{ price.oficina }}</td>
             <td class="p-2 border">{{ price.cliente }}</td>
@@ -119,6 +119,7 @@
             <td class="p-2 border">{{ price.codigo_trabajo }}</td>
             <td class="p-2 border text-left">{{ price.descripcion }}</td>
             <td class="p-2 border">{{ price.unidad_medida }}</td>
+            <td class="p-2 border">{{ price.payment_weeks|default:0 }}</td>
             <td class="p-2 border text-right">${{ price.precio_tecnico|floatformat:2 }}</td>
             <td class="p-2 border text-right">${{ price.precio_empresa|floatformat:2 }}</td>
             <td class="p-2 border">
@@ -128,7 +129,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="15" class="p-4 text-center text-gray-500">
+            <td colspan="16" class="p-4 text-center text-gray-500">
               No prices available.
               <a href="{% url 'operaciones:importar_precios' %}" class="text-blue-600 hover:underline">Import Prices</a>
             </td>
@@ -225,7 +226,6 @@
     }
     enableBulkBtn(anyChecked());
 
-    // Delegación de eventos para checkboxes
     table.addEventListener('change', (e) => {
       const t = e.target;
       if (t === selectAll){
@@ -241,7 +241,6 @@
       }
     });
 
-    // Abrir modal
     bulkBtn.addEventListener('click', () => {
       if (!anyChecked()) return;
       selectedCnt.textContent = countChecked();
@@ -255,7 +254,6 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal(); });
     modalConfirm.addEventListener('click', () => { modalConfirm.disabled = true; form.submit(); });
 
-    // === Persistencia de foco/cursor al filtrar ===
     const FOCUS_KEY = 'techPricesFilterFocus:' + location.pathname;
 
     function saveFocusState(){
@@ -288,10 +286,8 @@
       } catch(_) {}
     }
 
-    // Restaurar foco apenas cargue
     restoreFocusState();
 
-    // --- Auto-filtrado (debounce) ---
     const filterInputs = document.querySelectorAll('.filter-input');
     let debounceTimer = null;
 
@@ -304,7 +300,6 @@
         else url.searchParams.delete(inp.name);
       });
 
-      // Guardar foco antes de redirigir
       saveFocusState();
       window.location.href = url.toString();
     }
@@ -320,7 +315,6 @@
     });
   });
 
-  // Sort helper
   function sortTable(colIndex) {
     const rows = document.querySelectorAll("table tbody tr");
     const sortedRows = Array.from(rows).sort((a, b) => {

@@ -1,14 +1,23 @@
 {% extends "dashboard_admin/base.html" %}
+
 {% load static %}
-{% block title %}{% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}{% endblock %}
+
+{% block title %}{% if is_edit %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}{% endblock %}
 
 {% block dashboard_content %}
+
 <div class="max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6">
+
   <div class="flex items-center justify-between gap-3 flex-wrap">
-    <h1 class="text-2xl font-bold">🧾 {% if sesion %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}</h1>
+
+    <h1 class="text-2xl font-bold">🧾 {% if is_edit %}Edit Billing #{{ sesion.id }}{% else %}New Billing{% endif %}</h1>
+
     <div class="flex items-center gap-2">
+
       <a href="{% url 'operaciones:listar_billing' %}" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Back</a>
+
     </div>
+
   </div>
 
   <form id="billing-form" method="post" class="mt-4">
@@ -191,7 +200,7 @@
                 <tr class="border-t">
                   <td class="p-2">
                     <div class="relative">
-                      <input class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
+                      <input name="row_code[]" class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
                       <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
                     </div>
                   </td>
@@ -199,7 +208,7 @@
                   <td class="p-2"><input class="desc-input w-64 border rounded p-1" value="{{ it.descripcion }}" readonly /></td>
                   <td class="p-2"><input class="uom-input w-24 border rounded p-1" value="{{ it.unidad_medida }}" readonly /></td>
                   <td class="p-2 text-right">
-                    <input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}" />
+                    <input name="row_amount[]" type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}" />
                   </td>
                   <td class="p-2">
                     <div class="tech-price-cell text-xs">
@@ -283,6 +292,46 @@
   </div>
 </div>
 
+<!-- Modal de validación / error bonito -->
+<div id="nice-alert-modal" class="fixed inset-0 hidden z-[70]">
+  <div class="absolute inset-0 bg-black/50" data-alert-backdrop="1"></div>
+
+  <div class="relative z-10 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b bg-red-50">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-xl">
+            ⚠️
+          </div>
+          <div>
+            <h3 id="nice-alert-title" class="text-lg font-semibold text-gray-900">
+  Selected technician cannot be added
+</h3>
+<p class="text-sm text-gray-500">
+  This technician does not have the required prices for the current billing.
+</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-4">
+        <div id="nice-alert-message"
+             class="text-sm text-gray-700 whitespace-pre-line break-words leading-6">
+          Message
+        </div>
+      </div>
+
+      <div class="px-5 py-4 border-t bg-gray-50 flex justify-end">
+        <button type="button"
+                id="nice-alert-ok"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ================== JS ================== -->
 <script>
 /* === Estado front === */
@@ -297,6 +346,7 @@ const urls = {
   oficinas: "{% url 'operaciones:ajax_oficinas' %}",
   buscarCodigos: "{% url 'operaciones:ajax_buscar_codigos' %}",
   detalleCodigo: "{% url 'operaciones:ajax_detalle_codigo' %}",
+  validateSelection: "{% url 'operaciones:billing_validate_selection' %}",
 };
 
 /* === Referencias header === */
@@ -358,9 +408,52 @@ modal.addEventListener('click', (e) => {
 
 document.getElementById('btn-apply-tech').onclick = async () => {
   const checks = [...document.querySelectorAll('.tech-check:checked')];
-  state.techIds = checks.map(c => parseInt(c.value, 10));
+  const newTechIds = checks.map(c => parseInt(c.value, 10));
+
+  if (!newTechIds.length) {
+    showToast(
+      'Select at least one technician.',
+      'Technician selection required'
+    );
+    return;
+  }
+
+  const headerComplete = !!(
+    clientSel.value &&
+    citySel.value &&
+    projectSel.value &&
+    officeSel.value
+  );
+
+  // ✅ PRIMERO guardar técnicos siempre
+  state.techIds = newTechIds;
   renderTechSummary();
   rebuildTechHidden();
+
+  // ✅ Si aún no está completo el header, no validamos precios todavía
+  if (!headerComplete) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  // ✅ Solo si ya existe header completo, validar precios exactos
+  try {
+    const validation = await validateSelectedTechniciansAgainstCurrentBilling(newTechIds);
+
+    if (!validation.ok) {
+      showToast(
+        buildValidationMessage(validation),
+        'Selected technician cannot be added'
+      );
+      return;
+    }
+  } catch (err) {
+    showToast(
+      'Could not validate technician prices.',
+      'Validation error'
+    );
+    return;
+  }
 
   const prevProject = projectSel.value;
   const prevOffice = officeSel.value;
@@ -374,19 +467,33 @@ document.getElementById('btn-apply-tech').onclick = async () => {
 
     await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
 
-    const projectStillValid = !![...projectSel.options].find(op => op.value === prevProject);
+    const projectStillValid = !![...projectSel.options].find(
+      op => op.value === prevProject
+    );
 
     if (projectStillValid) {
       projectSel.value = prevProject;
 
+      const officeParams = new URLSearchParams({
+        client: clientSel.value || "",
+        city: citySel.value || "",
+        project: projectSel.value || "",
+      });
+      state.techIds.forEach(id => officeParams.append("tech_ids[]", id));
+
       await loadOptions(
         officeSel,
-        `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
+        `${urls.oficinas}?${officeParams.toString()}`
       );
 
-      const officeStillValid = !![...officeSel.options].find(op => op.value === prevOffice);
+      const officeStillValid = !![...officeSel.options].find(
+        op => op.value === prevOffice
+      );
+
       if (officeStillValid) {
         officeSel.value = prevOffice;
+      } else {
+        clearSelect(officeSel);
       }
     } else {
       clearSelect(officeSel);
@@ -442,14 +549,19 @@ citySel.addEventListener('change', async () => {
 });
 
 projectSel.addEventListener('change', async () => {
+  const params = new URLSearchParams({
+    client: clientSel.value || "",
+    city: citySel.value || "",
+    project: projectSel.value || "",
+  });
+  state.techIds.forEach(id => params.append("tech_ids[]", id));
+
   await loadOptions(
     officeSel,
-    `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
+    `${urls.oficinas}?${params.toString()}`
   );
 });
 
-/* ✅ AQUÍ ESTÁ EL FIX IMPORTANTE:
-   al cambiar Full/Split, rehidrata por AJAX todas las filas con código */
 if (techPaymentModeSel) {
   techPaymentModeSel.addEventListener('change', async () => {
     await recalcAllRows();
@@ -457,32 +569,140 @@ if (techPaymentModeSel) {
 }
 
 async function loadOptions(selectEl, url) {
+  const currentValue = selectEl.value;
   selectEl.innerHTML = `<option selected disabled>Loading…</option>`;
-  const r = await fetch(url);
-  const data = await r.json();
 
-  selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
+  try {
+    const r = await fetch(url);
+    const data = await r.json();
 
-  (data.results || []).forEach(v => {
-    let value, label;
+    selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
 
-    if (v && typeof v === "object") {
-      value = v.id;
-      label = v.label || String(v.id);
-    } else {
-      value = v;
-      label = v;
+    if (!r.ok) return;
+
+    (data.results || []).forEach(v => {
+      let value, label;
+
+      if (v && typeof v === "object") {
+        value = String(v.id);
+        label = v.label || String(v.id);
+      } else {
+        value = String(v);
+        label = String(v);
+      }
+
+      const op = document.createElement('option');
+      op.value = value;
+      op.textContent = label;
+      selectEl.appendChild(op);
+    });
+
+    const stillExists = [...selectEl.options].some(op => op.value === String(currentValue));
+    if (stillExists) {
+      selectEl.value = String(currentValue);
     }
-
-    const op = document.createElement('option');
-    op.value = value;
-    op.textContent = label;
-    selectEl.appendChild(op);
-  });
+  } catch (err) {
+    selectEl.innerHTML = `<option value="" disabled selected>Select…</option>`;
+  }
 }
 
 function clearSelect(el) {
   el.innerHTML = `<option value="" disabled selected>Select…</option>`;
+}
+
+function getCsrfToken() {
+  const m = document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[2]) : "";
+}
+
+function getCurrentItemsForValidation() {
+  return [...document.querySelectorAll('#items-table tbody tr')].map(tr => ({
+    code: (tr.querySelector('.code-input')?.value || '').trim(),
+    work_type: (tr.querySelector('.worktype-input')?.value || '').trim(),
+  })).filter(x => x.code || x.work_type);
+}
+
+async function validateSelectedTechniciansAgainstCurrentBilling(techIds) {
+  // ✅ Si el header no está completo todavía, no bloqueamos la selección de técnicos
+  if (!clientSel.value || !citySel.value || !projectSel.value || !officeSel.value) {
+    return {
+      ok: true,
+      skipped: true,
+    };
+  }
+
+  const payload = {
+    client: clientSel.value,
+    city: citySel.value,
+    project: projectSel.value,
+    office: officeSel.value,
+    tech_ids: techIds || [],
+    items: getCurrentItemsForValidation(),
+  };
+
+  let resp;
+  try {
+    resp = await fetch(urls.validateSelection, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken(),
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: "NETWORK_ERROR",
+      message: "Could not validate technician prices. Please try again.",
+    };
+  }
+
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (err) {
+    return {
+      ok: false,
+      error: "INVALID_RESPONSE",
+      message: "Could not validate technician prices. Invalid server response.",
+    };
+  }
+
+  if (!resp.ok) {
+    return {
+      ok: false,
+      error: data?.error || "VALIDATION_ERROR",
+      message: data?.message || "The selected technician cannot be added because the required prices are missing.",
+      missing: data?.missing || [],
+    };
+  }
+
+  return data;
+}
+
+function buildValidationMessage(data) {
+  if (!data) {
+    return 'The selected technician cannot be added because the required prices could not be validated.';
+  }
+
+  if (data.missing && data.missing.length) {
+    const lines = data.missing.map(x => `• ${x.message}`);
+    return [
+      'The selected technician cannot be added to this billing.',
+      '',
+      'They do not have exact prices configured for the current Client, City, Project, Office, Work Type, or Job Code.',
+      '',
+      ...lines
+    ].join('\n');
+  }
+
+  if (data.message) {
+    return data.message;
+  }
+
+  return 'The selected technician cannot be added because the required prices are missing.';
 }
 
 /* === Tabla Items === */
@@ -533,7 +753,6 @@ function wireRow(tr) {
     const ok = validateHeaderSelected();
     if (!ok) {
       showToast('Please select Client, City, Project, Office and Technicians first.');
-      codeInput.value = "";
       if (suggestions) {
         suggestions.classList.add('hidden');
         suggestions.innerHTML = "";
@@ -589,17 +808,61 @@ function wireRow(tr) {
 }
 
 function validateHeaderSelected() {
+
   return !!(
+
     clientSel.value &&
+
     citySel.value &&
+
     projectSel.value &&
+
     officeSel.value &&
+
     state.techIds.length > 0
+
   );
+
 }
 
-function showToast(msg) {
-  alert(msg);
+const niceAlertModal = document.getElementById('nice-alert-modal');
+const niceAlertTitle = document.getElementById('nice-alert-title');
+const niceAlertMessage = document.getElementById('nice-alert-message');
+const niceAlertOk = document.getElementById('nice-alert-ok');
+
+function openNiceAlert(message, title = 'Selected technician cannot be added') {
+  if (!niceAlertModal) return;
+
+  niceAlertTitle.textContent = title;
+  niceAlertMessage.textContent = message || 'An unexpected error occurred.';
+  niceAlertModal.classList.remove('hidden');
+}
+
+function closeNiceAlert() {
+  if (!niceAlertModal) return;
+  niceAlertModal.classList.add('hidden');
+}
+
+if (niceAlertOk) {
+  niceAlertOk.addEventListener('click', closeNiceAlert);
+}
+
+const niceAlertBackdrop = document.querySelector('#nice-alert-modal [data-alert-backdrop]');
+
+if (niceAlertBackdrop) {
+
+  niceAlertBackdrop.addEventListener('click', closeNiceAlert);
+
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && niceAlertModal && !niceAlertModal.classList.contains('hidden')) {
+    closeNiceAlert();
+  }
+});
+
+function showToast(msg, title = 'Selected technician cannot be added') {
+  openNiceAlert(msg, title);
 }
 
 function enc(s) {
@@ -610,13 +873,23 @@ async function hydratePrices(tr) {
   const code = tr.querySelector('.code-input').value.trim();
   if (!validateHeaderSelected() || !code) return;
 
+  const previous = {
+    worktype: tr.querySelector('.worktype-input').value,
+    desc: tr.querySelector('.desc-input').value,
+    uom: tr.querySelector('.uom-input').value,
+    company: tr.querySelector('.company-price-input').value,
+    techHtml: tr.querySelector('.tech-price-cell').innerHTML,
+    techSubtotal: tr.querySelector('.tech-subtotal-input').value,
+    companySubtotal: tr.querySelector('.company-subtotal-input').value,
+  };
+
   const params = new URLSearchParams({
     client: clientSel.value,
     city: citySel.value,
     project: projectSel.value,
     office: officeSel.value,
     code: code,
-    payment_mode: techPaymentModeSel ? techPaymentModeSel.value : "full",   // ✅ FIX
+    payment_mode: techPaymentModeSel ? techPaymentModeSel.value : "full",
   });
 
   state.techIds.forEach(id => params.append('tech_ids[]', id));
@@ -624,8 +897,20 @@ async function hydratePrices(tr) {
   const r = await fetch(`${urls.detalleCodigo}?${params.toString()}`);
   const data = await r.json();
 
-  if (data.error) {
-    showToast("Code not found for selected filters.");
+  if (!r.ok || data.error) {
+    tr.querySelector('.worktype-input').value = previous.worktype;
+    tr.querySelector('.desc-input').value = previous.desc;
+    tr.querySelector('.uom-input').value = previous.uom;
+    tr.querySelector('.company-price-input').value = previous.company;
+    tr.querySelector('.tech-price-cell').innerHTML = previous.techHtml;
+    tr.querySelector('.tech-subtotal-input').value = previous.techSubtotal;
+    tr.querySelector('.company-subtotal-input').value = previous.companySubtotal;
+    recomputeTotals();
+
+    showToast(
+      buildValidationMessage(data) ||
+      "This Job Code does not have exact prices for all selected technicians."
+    );
     return;
   }
 
@@ -692,60 +977,123 @@ function recomputeTotals() {
   document.getElementById('total-company').textContent = (tComp || 0).toFixed(2);
 }
 
-/* === Inicializar edición === */
+/* === NUEVO: empacar rows en hidden inputs antes del submit === */
+function rebuildItemsHiddenForSubmit() {
+  const box = document.getElementById('items-hidden');
+  box.innerHTML = "";
+
+  const rows = [...document.querySelectorAll('#items-table tbody tr')];
+
+  rows.forEach(tr => {
+    const code = (tr.querySelector('.code-input')?.value || '').trim();
+    const amount = (tr.querySelector('.amount-input')?.value || '').trim();
+
+    const inputCode = document.createElement('input');
+    inputCode.type = 'hidden';
+    inputCode.name = 'row_code[]';
+    inputCode.value = code;
+    box.appendChild(inputCode);
+
+    const inputAmount = document.createElement('input');
+    inputAmount.type = 'hidden';
+    inputAmount.name = 'row_amount[]';
+    inputAmount.value = amount;
+    box.appendChild(inputAmount);
+  });
+}
+
+/* === Inicialización === */
 document.querySelectorAll('#items-table tbody tr').forEach(tr => {
   wireRow(tr);
 });
 syncDirectDiscountUI();
 recomputeTotals();
 
-{% if sesion %}
-(async function initEditCombos() {
+(async function initBillingForm() {
   try {
-    if (clientSel.value && citySel.value && state.techIds.length > 0) {
-      const params = new URLSearchParams({
+    const selectedProjectValue = "{{ proyecto_value|default:''|escapejs }}";
+    const selectedProjectLabel = "{{ proyecto_label|default:''|escapejs }}";
+    const selectedOfficeValue = "{{ sesion.oficina|default:''|escapejs }}";
+
+    if (clientSel.value && citySel.value) {
+      const projectParams = new URLSearchParams({
         client: clientSel.value || "",
         city: citySel.value || "",
       });
-      state.techIds.forEach(id => params.append("tech_ids[]", id));
+      state.techIds.forEach(id => projectParams.append("tech_ids[]", id));
 
-      await loadOptions(projectSel, `${urls.proyectos}?${params.toString()}`);
-      projectSel.value = "{{ proyecto_value }}";
+      await loadOptions(projectSel, `${urls.proyectos}?${projectParams.toString()}`);
 
-      await loadOptions(
-        officeSel,
-        `${urls.oficinas}?client=${encodeURIComponent(clientSel.value)}&city=${encodeURIComponent(citySel.value)}&project=${encodeURIComponent(projectSel.value)}`
-      );
+      if (selectedProjectValue) {
+        let hasProject = [...projectSel.options].some(
+          op => op.value === String(selectedProjectValue)
+        );
 
-      officeSel.value = "{{ sesion.oficina }}";
+        if (!hasProject) {
+          const op = document.createElement("option");
+          op.value = String(selectedProjectValue);
+          op.textContent = selectedProjectLabel || String(selectedProjectValue);
+          projectSel.appendChild(op);
+          hasProject = true;
+        }
+
+        if (hasProject) {
+          projectSel.value = String(selectedProjectValue);
+        }
+      }
+
+      if (projectSel.value) {
+        const officeParams = new URLSearchParams({
+          client: clientSel.value || "",
+          city: citySel.value || "",
+          project: projectSel.value || "",
+        });
+        state.techIds.forEach(id => officeParams.append("tech_ids[]", id));
+
+        await loadOptions(officeSel, `${urls.oficinas}?${officeParams.toString()}`);
+
+        if (selectedOfficeValue) {
+          let hasOffice = [...officeSel.options].some(
+            op => op.value === String(selectedOfficeValue)
+          );
+
+          if (!hasOffice) {
+            const op = document.createElement("option");
+            op.value = String(selectedOfficeValue);
+            op.textContent = String(selectedOfficeValue);
+            officeSel.appendChild(op);
+            hasOffice = true;
+          }
+
+          if (hasOffice) {
+            officeSel.value = String(selectedOfficeValue);
+          }
+        }
+      }
     }
 
-    // ✅ rehidrata filas al cargar edición para que respete el payment mode guardado
     await recalcAllRows();
   } catch (err) {
-    console.error('Error inicializando combos en edición:', err);
+    console.error("Error initializing billing form:", err);
   }
 })();
-{% else %}
-(async function initNewRows() {
-  await recalcAllRows();
-})();
-{% endif %}
 
-/* === Empaquetar items para el POST === */
-document.getElementById('billing-form').addEventListener('submit', (e) => {
+/* === Submit === */
+const billingForm = document.getElementById('billing-form');
+let billingSubmitting = false;
+
+billingForm.addEventListener('submit', async (e) => {
+  if (billingSubmitting) return;
+
+  e.preventDefault();
+
   if (!validateHeaderSelected()) {
-    e.preventDefault();
     showToast('Please select technicians and all header filters.');
     return;
   }
 
-  const hidden = document.getElementById('items-hidden');
-  hidden.innerHTML = "";
-
-  const rows = document.querySelectorAll('#items-table tbody tr');
+  const rows = [...document.querySelectorAll('#items-table tbody tr')];
   if (!rows.length) {
-    e.preventDefault();
     showToast('Please add at least one item.');
     return;
   }
@@ -754,11 +1102,11 @@ document.getElementById('billing-form').addEventListener('submit', (e) => {
   let missingCode = false;
 
   rows.forEach(tr => {
-    const code = tr.querySelector('.code-input').value.trim();
+    const code = (tr.querySelector('.code-input')?.value || '').trim();
     const amountInput = tr.querySelector('.amount-input');
     normalizeAmountForDirectDiscount(amountInput);
 
-    const amount = amountInput.value;
+    const amount = amountInput?.value || '';
 
     if (!code) {
       missingCode = true;
@@ -769,26 +1117,33 @@ document.getElementById('billing-form').addEventListener('submit', (e) => {
       invalidDirectDiscount = true;
       return;
     }
-
-    const payload = JSON.stringify({ code, amount });
-    const inp = document.createElement('input');
-    inp.type = 'hidden';
-    inp.name = 'items[]';
-    inp.value = payload;
-    hidden.appendChild(inp);
   });
 
   if (missingCode) {
-    e.preventDefault();
     showToast('All rows must have a Job Code.');
     return;
   }
 
   if (invalidDirectDiscount) {
-    e.preventDefault();
     showToast('In direct discount mode, all quantities must be negative.');
     return;
   }
+
+  try {
+    const validation = await validateSelectedTechniciansAgainstCurrentBilling(state.techIds);
+    if (!validation.ok) {
+      showToast(buildValidationMessage(validation));
+      return;
+    }
+  } catch (err) {
+    showToast('Could not validate technician prices before saving.');
+    return;
+  }
+
+  rebuildItemsHiddenForSubmit();
+
+  billingSubmitting = true;
+  HTMLFormElement.prototype.submit.call(billingForm);
 });
 </script>
 

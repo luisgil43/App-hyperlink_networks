@@ -29,7 +29,7 @@ class Customer(models.Model):
 
     def __str__(self):
         return self.name
-    
+
 # invoicing/models.py
 import os
 from uuid import uuid4
@@ -183,7 +183,7 @@ class ItemCode(models.Model):
 
     def __str__(self):
         return f"{self.job_code} — {self.description or 'Item'}"
-    
+
 
 from decimal import Decimal
 from uuid import uuid4
@@ -207,19 +207,19 @@ def upload_to_invoice_pdf(instance, filename: str) -> str:
 
 
 class Invoice(models.Model):
-    STATUS_PENDING = "pending"   # Emitida pendiente
-    STATUS_OVERDUE = "overdue"   # Vencida (se debe cobrar)
-    STATUS_PAID    = "paid"      # Pagada
-    STATUS_VOID    = "void"      # Eliminada/Anulada
+    STATUS_PENDING = "pending"
+    STATUS_OVERDUE = "overdue"
+    STATUS_PAID = "paid"
+    STATUS_VOID = "void"
 
     STATUS_CHOICES = [
         (STATUS_PENDING, "Issued (Pending)"),
         (STATUS_OVERDUE, "Overdue — Collect"),
-        (STATUS_PAID,    "Paid"),
-        (STATUS_VOID,    "Void"),
+        (STATUS_PAID, "Paid"),
+        (STATUS_VOID, "Void"),
     ]
 
-    owner    = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="invoices",
@@ -230,10 +230,17 @@ class Invoice(models.Model):
         related_name="invoices",
     )
 
-    number     = models.CharField(max_length=40)   # p.ej. CCU-000012
+    billing_session = models.ForeignKey(
+        "operaciones.SesionBilling",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invoices",
+    )
+
+    number = models.CharField(max_length=40)
     issue_date = models.DateField(default=timezone.now)
 
-    # === NUEVOS CAMPOS DE TOTALES ===
     subtotal = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -262,7 +269,7 @@ class Invoice(models.Model):
         default=Decimal("0.00"),
     )
 
-    pdf   = models.FileField(
+    pdf = models.FileField(
         upload_to=upload_to_invoice_pdf,
         storage=wasabi_storage,
         blank=True,
@@ -270,7 +277,6 @@ class Invoice(models.Model):
     )
     lines = models.JSONField(default=list, blank=True)
 
-    # branding/template usados al emitir
     branding_profile = models.ForeignKey(
         "BrandingProfile",
         null=True,
@@ -280,11 +286,11 @@ class Invoice(models.Model):
     )
     template_key = models.CharField(max_length=30, blank=True, default="classic")
 
-    due_date  = models.DateField(null=True, blank=True)
-    status    = models.CharField(
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default=STATUS_PENDING,  # 👈 pequeño fix, antes usaba la lista entera
+        default=STATUS_PENDING,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -294,10 +300,11 @@ class Invoice(models.Model):
 
     class Meta:
         ordering = ["-issue_date", "-id"]
-        indexes  = [
+        indexes = [
             models.Index(fields=["owner", "number"]),
             models.Index(fields=["owner", "issue_date"]),
             models.Index(fields=["owner", "status"]),
+            models.Index(fields=["billing_session"]),
         ]
         unique_together = [("owner", "number")]
 
@@ -311,17 +318,11 @@ class Invoice(models.Model):
         except Exception:
             return ""
 
-    # === NUEVO: recálculo de totales desde self.lines ===
     def recompute_totals(self):
-        """
-        Lee los montos desde self.lines (lista de dicts) y recalcula:
-        subtotal, tax_amount y total (restando discount_amount).
-        Espera que cada línea tenga una clave 'amount'.
-        """
         q = Decimal("0.01")
         subtotal = Decimal("0.00")
 
-        for row in (self.lines or []):
+        for row in self.lines or []:
             try:
                 amt = Decimal(str(row.get("amount", "0") or "0"))
             except Exception:

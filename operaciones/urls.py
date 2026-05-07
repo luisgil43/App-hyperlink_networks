@@ -409,5 +409,29 @@ urlpatterns = [
         b.bulk_export_light_levels_xlsx,
         name="bulk_export_light_levels_xlsx",
     ),
-   
+    path(
+        "precios/template/",
+        views.descargar_template_precios,
+        name="descargar_template_precios",
+    ),
+    path(
+        "billing/<int:sesion_id>/update-project-id/",
+        views.billing_update_project_id,
+        name="billing_update_project_id",
+    ),
+    path(
+        "billing/<int:sesion_id>/update-project-week/",
+        views.billing_update_project_week,
+        name="billing_update_project_week",
+    ),
+    path(
+        "billing/snapshot/<int:snapshot_id>/update-week/",
+        views.billing_update_snapshot_week,
+        name="billing_update_snapshot_week",
+    ),
+    path(
+        "billing/ajax/validate-selection/",
+        views.ajax_validate_billing_selection,
+        name="billing_validate_selection",
+    ),
 ]
