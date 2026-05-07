@@ -1068,7 +1068,6 @@ def build_payweek_groups(sesion):
             (getattr(snap, "semana_resultado", "") or "").strip().upper()
             or (getattr(snap, "semana_base", "") or "").strip().upper()
             or (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
-            or (getattr(sesion, "semana_descuento", "") or "").strip().upper()
             or (getattr(sesion, "discount_week", "") or "").strip().upper()
             or (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper()
             or ""
@@ -1226,7 +1225,6 @@ def build_payweek_groups(sesion):
     # ==========================================================
     legacy_week = (
         (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
-        or (getattr(sesion, "semana_descuento", "") or "").strip().upper()
         or (getattr(sesion, "discount_week", "") or "").strip().upper()
         or (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper()
     )
@@ -4969,13 +4967,19 @@ def listar_billing(request):
         qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
 
     if f["week"]:
+
         qs_filtered = qs_filtered.filter(
+
             Q(semana_pago_proyectada__icontains=f["week"])
+
             | Q(semana_pago_real__icontains=f["week"])
+
             | Q(pay_week_snapshots__semana_resultado__icontains=f["week"])
+
             | Q(pay_week_snapshots__semana_base__icontains=f["week"])
+
             | Q(discount_week__icontains=f["week"])
-            | Q(semana_descuento__icontains=f["week"])
+
         )
 
     if f["tech"]:
@@ -5107,11 +5111,14 @@ def listar_billing(request):
             tech_ids = []
 
         possible_weeks = [
+
             (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+
             (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+
             (getattr(s, "discount_week", "") or "").strip().upper(),
-            (getattr(s, "semana_descuento", "") or "").strip().upper(),
-        ]
+
+        ]   
         possible_weeks = [w for w in possible_weeks if w]
 
         for tech_id in tech_ids:
@@ -5160,12 +5167,11 @@ def listar_billing(request):
                 )
 
                 week = (
-                    (snap.semana_resultado or "").strip()
-                    or (snap.semana_base or "").strip()
-                    or (s.semana_pago_real or "").strip()
-                    or (s.semana_descuento or "").strip()
-                    or (s.discount_week or "").strip()
-                    or (s.semana_pago_proyectada or "").strip()
+                    (getattr(snap, "semana_resultado", "") or "").strip()
+                    or (getattr(snap, "semana_base", "") or "").strip()
+                    or (getattr(s, "semana_pago_real", "") or "").strip()
+                    or (getattr(s, "discount_week", "") or "").strip()
+                    or (getattr(s, "semana_pago_proyectada", "") or "").strip()
                     or "—"
                 )
 
@@ -5205,11 +5211,15 @@ def listar_billing(request):
         )
 
         base_week = (
-            (s.semana_pago_real or "").strip()
-            or (s.semana_descuento or "").strip()
-            or (s.discount_week or "").strip()
-            or (s.semana_pago_proyectada or "").strip()
+
+            (getattr(s, "semana_pago_real", "") or "").strip()
+
+            or (getattr(s, "discount_week", "") or "").strip()
+
+            or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+
             or "—"
+
         )
 
         legacy_is_paid = legacy_paid_flag(s) or (getattr(s, "finance_status", "") == "paid")
@@ -9745,7 +9755,7 @@ def _session_is_paid_locked(sesion) -> bool:
             (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
             (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
             (getattr(sesion, "discount_week", "") or "").strip().upper(),
-            (getattr(sesion, "semana_descuento", "") or "").strip().upper(),
+            
         ]
         weeks = [w for w in possible_weeks if w]
 
