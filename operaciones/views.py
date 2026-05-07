@@ -4795,15 +4795,14 @@ def listar_billing(request):
     Visibilidad en Operaciones:
       - Descuento directo (is_direct_discount=True):
           mostrar SOLO si AÚN NO se ha enviado -> finance_sent_at IS NULL.
-          (si ya fue enviado, ya no debe verse aquí)
       - Resto:
           ocultar si finance_status ∈ {'sent','pending','paid','in_review'}.
 
-    Además:
-      - Soporta filtros rápidos normales por GET
-      - Soporta filtros tipo Excel globales vía GET['excel_filters']
-      - Los filtros Excel se aplican ANTES de paginar
-      - excel_global_json se construye con TODO el queryset filtrado, no solo con la página actual
+    PERFORMANCE:
+      - Primero filtra con queryset liviano.
+      - Aplica filtros rápidos y filtros Excel antes de paginar.
+      - Pagina IDs.
+      - Carga items/evidencias/desgloses SOLO para la página visible.
     """
     import json
     from datetime import date as _date
@@ -4834,47 +4833,11 @@ def listar_billing(request):
         & ~Q(finance_status__in=["sent", "pending", "paid", "in_review"])
     )
 
-    qs = (
-        SesionBilling.objects.filter(visible_filter)
-        .order_by("-creado_en")
-        .prefetch_related(
-            Prefetch(
-                "items",
-                queryset=ItemBilling.objects.prefetch_related(
-                    Prefetch(
-                        "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
-                    )
-                ),
-            ),
-            Prefetch(
-                "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related(
-                    "tecnico"
-                ).prefetch_related(
-                    Prefetch(
-                        "evidencias",
-                        queryset=EvidenciaFotoBilling.objects.only(
-                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
-                        ).order_by("-id"),
-                    )
-                ),
-            ),
-            Prefetch(
-                "pay_week_snapshots",
-                queryset=BillingPayWeekSnapshot.objects.select_related(
-                    "tecnico", "item"
-                ).order_by(
-                    "tecnico__first_name",
-                    "tecnico__last_name",
-                    "tecnico__username",
-                    "tipo_trabajo",
-                    "codigo_trabajo",
-                    "id",
-                ),
-            ),
-        )
-    )
+    # ============================================================
+    # Query base LIVIANA.
+    # Importante: aquí NO hacemos prefetch de items/evidencias.
+    # ============================================================
+    qs = SesionBilling.objects.filter(visible_filter).order_by("-creado_en")
 
     # ---------------- Restricción por proyectos ----------------
     if not can_view_legacy_history:
@@ -4907,7 +4870,8 @@ def listar_billing(request):
                 if ProyectoAsignacion is not None:
                     asignaciones = list(
                         ProyectoAsignacion.objects.filter(
-                            usuario=request.user, proyecto__in=proyectos_user
+                            usuario=request.user,
+                            proyecto__in=proyectos_user,
                         ).select_related("proyecto")
                     )
                 else:
@@ -4917,12 +4881,14 @@ def listar_billing(request):
 
             if asignaciones:
                 window_q = Q()
+
                 for a in asignaciones:
                     p = getattr(a, "proyecto", None)
                     if not p:
                         continue
 
                     keys = set()
+
                     nombre = (getattr(p, "nombre", "") or "").strip()
                     if nombre:
                         keys.add(nombre)
@@ -4967,19 +4933,12 @@ def listar_billing(request):
         qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
 
     if f["week"]:
-
         qs_filtered = qs_filtered.filter(
-
             Q(semana_pago_proyectada__icontains=f["week"])
-
             | Q(semana_pago_real__icontains=f["week"])
-
             | Q(pay_week_snapshots__semana_resultado__icontains=f["week"])
-
             | Q(pay_week_snapshots__semana_base__icontains=f["week"])
-
             | Q(discount_week__icontains=f["week"])
-
         )
 
     if f["tech"]:
@@ -4996,9 +4955,9 @@ def listar_billing(request):
         qs_filtered = qs_filtered.filter(cliente__icontains=f["client"])
 
     if f["status"]:
-        s = f["status"].lower().strip()
+        status_txt = f["status"].lower().strip()
 
-        if any(k in s for k in ("direct", "descuento", "discount")):
+        if any(k in status_txt for k in ("direct", "descuento", "discount")):
             qs_filtered = qs_filtered.filter(is_direct_discount=True)
         else:
             mapping = [
@@ -5020,26 +4979,30 @@ def listar_billing(request):
                 (("aprobado pm", "approved by pm"), Q(estado="aprobado_pm")),
                 (("rechazado pm", "rejected by pm"), Q(estado="rechazado_pm")),
             ]
+
             applied = False
+
             for keys, cond in mapping:
-                if any(k in s for k in keys):
+                if any(k in status_txt for k in keys):
                     qs_filtered = qs_filtered.filter(cond)
                     applied = True
                     break
 
             if not applied:
-                if "aprobado" in s or "approved" in s:
+                if "aprobado" in status_txt or "approved" in status_txt:
                     qs_filtered = qs_filtered.filter(
                         estado__in=["aprobado_supervisor", "aprobado_pm"]
                     )
-                elif "rechazado" in s or "rejected" in s:
+                elif "rechazado" in status_txt or "rejected" in status_txt:
                     qs_filtered = qs_filtered.filter(
                         estado__in=["rechazado_supervisor", "rechazado_pm"]
                     )
 
     qs_filtered = qs_filtered.distinct()
 
-    # ---------------- Helpers ----------------
+    # ============================================================
+    # Helpers
+    # ============================================================
     def money_label(n):
         try:
             return f"${float(n or 0):.2f}"
@@ -5047,7 +5010,7 @@ def listar_billing(request):
             return "$0.00"
 
     def status_label(sesion):
-        if sesion.is_direct_discount:
+        if getattr(sesion, "is_direct_discount", False):
             return "Direct discount"
         if sesion.estado == "aprobado_pm":
             return "Approved by PM"
@@ -5080,28 +5043,35 @@ def listar_billing(request):
 
     def techs_label(sesion):
         vals = []
+
         try:
             for st in sesion.tecnicos_sesion.all():
+                if not getattr(st, "tecnico", None):
+                    continue
+
                 vals.append(st.tecnico.get_full_name() or st.tecnico.username)
         except Exception:
             pass
+
         return ", ".join(v for v in vals if v)
 
     def comments_label(sesion):
         vals = []
+
         try:
             for st in sesion.tecnicos_sesion.all():
                 txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+
                 if txt:
                     tech_name = st.tecnico.get_full_name() or st.tecnico.username
                     vals.append(f"{tech_name}: {txt}")
         except Exception:
             pass
+
         return " | ".join(vals) if vals else "—"
 
     def legacy_paid_flag(s):
         note = getattr(s, "finance_note", "") or ""
-        tech_ids = []
 
         try:
             tech_ids = list(
@@ -5111,14 +5081,10 @@ def listar_billing(request):
             tech_ids = []
 
         possible_weeks = [
-
             (getattr(s, "semana_pago_real", "") or "").strip().upper(),
-
             (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
-
             (getattr(s, "discount_week", "") or "").strip().upper(),
-
-        ]   
+        ]
         possible_weeks = [w for w in possible_weeks if w]
 
         for tech_id in tech_ids:
@@ -5130,7 +5096,6 @@ def listar_billing(request):
         return False
 
     def build_payweek_groups(s):
-        groups = []
         groups_map = {}
 
         snaps = (
@@ -5175,10 +5140,9 @@ def listar_billing(request):
                     or "—"
                 )
 
-                is_paid_line = (
-                    bool(getattr(snap, "paid_at", None) or getattr(snap, "is_paid", False))
-                    or (getattr(s, "finance_status", "") == "paid")
-                )
+                is_paid_line = bool(
+                    getattr(snap, "paid_at", None) or getattr(snap, "is_paid", False)
+                ) or (getattr(s, "finance_status", "") == "paid")
 
                 grp["lines"].append(
                     {
@@ -5195,42 +5159,44 @@ def listar_billing(request):
 
             for grp in groups:
                 weeks = []
+
                 for line in grp["lines"]:
                     wk = (line.get("week") or "").strip()
+
                     if wk and wk not in weeks:
                         weeks.append(wk)
+
                 grp["weeks_summary"] = ", ".join(weeks) if weeks else "—"
 
             return groups
 
         # =========================================================
-        # LEGACY -> IGUAL QUE FACTURACIÓN: una sola línea por billing
+        # LEGACY -> una sola línea por billing
         # =========================================================
         asignaciones = (
             list(s.tecnicos_sesion.all()) if hasattr(s, "tecnicos_sesion") else []
         )
 
         base_week = (
-
             (getattr(s, "semana_pago_real", "") or "").strip()
-
             or (getattr(s, "discount_week", "") or "").strip()
-
             or (getattr(s, "semana_pago_proyectada", "") or "").strip()
-
             or "—"
-
         )
 
-        legacy_is_paid = legacy_paid_flag(s) or (getattr(s, "finance_status", "") == "paid")
+        legacy_is_paid = legacy_paid_flag(s) or (
+            getattr(s, "finance_status", "") == "paid"
+        )
 
         tech_names = []
+
         for asig in asignaciones:
             tech_name = (
                 asig.tecnico.get_full_name().strip()
                 if getattr(asig, "tecnico", None) and asig.tecnico.get_full_name()
                 else getattr(asig.tecnico, "username", "") or f"User {asig.tecnico_id}"
             )
+
             if tech_name and tech_name not in tech_names:
                 tech_names.append(tech_name)
 
@@ -5256,12 +5222,15 @@ def listar_billing(request):
 
     def payweek_snapshot_label(sesion):
         groups = build_payweek_groups(sesion)
+
         if not groups:
             return str(getattr(sesion, "semana_pago_real", "") or "—")
 
         rows = []
+
         for grp in groups:
             tech_name = grp.get("tech_name") or "—"
+
             for line in grp.get("lines", []):
                 work_type = (line.get("work_type") or "").strip() or "Work type"
                 week = (line.get("week") or "").strip() or "—"
@@ -5274,122 +5243,355 @@ def listar_billing(request):
             else str(getattr(sesion, "semana_pago_real", "") or "—")
         )
 
-    # ---------------- Filtros Excel globales ----------------
-    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
-    try:
-        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
-    except json.JSONDecodeError:
-        excel_filters = {}
+    def resolve_project_labels_for_sessions(sessions):
+        proj_ids = set()
+        proj_texts = set()
+
+        for s in sessions:
+            raw_proyecto = getattr(s, "proyecto", None)
+            if raw_proyecto not in (None, "", "-"):
+                txt = str(raw_proyecto).strip()
+
+                if txt:
+                    proj_texts.add(txt)
+                    try:
+                        proj_ids.add(int(txt))
+                    except Exception:
+                        pass
+
+            raw_proyecto_id = getattr(s, "proyecto_id", None)
+            if raw_proyecto_id not in (None, "", "-"):
+                txt2 = str(raw_proyecto_id).strip()
+
+                if txt2:
+                    proj_texts.add(txt2)
+                    try:
+                        proj_ids.add(int(txt2))
+                    except Exception:
+                        pass
+
+        proj_q = Q()
+
+        if proj_ids:
+            proj_q |= Q(id__in=proj_ids)
+
+        if proj_texts:
+            proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
+
+        if proj_q:
+            proyectos = Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+        else:
+            proyectos = Proyecto.objects.none()
+
+        by_id = {str(p.id): p.nombre for p in proyectos}
+        by_code = {
+            (p.codigo or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "codigo", None)
+        }
+        by_name = {
+            (p.nombre or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "nombre", None)
+        }
+
+        for s in sessions:
+            raw = str(getattr(s, "proyecto", "") or "").strip()
+            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+
+            label = ""
+
+            if raw:
+                label = (
+                    by_id.get(raw)
+                    or by_code.get(raw.lower())
+                    or by_name.get(raw.lower())
+                    or raw
+                )
+
+            if not label and raw_id:
+                label = (
+                    by_id.get(raw_id)
+                    or by_code.get(raw_id.lower())
+                    or by_name.get(raw_id.lower())
+                    or raw_id
+                )
+
+            s.proyecto_nombre = label
+            s.project_label = label
+
+        return sessions
+
+    # ============================================================
+    # Query liviana para Excel + paginación.
+    # Aquí sí cargamos técnicos y snapshots, pero NO items/evidencias.
+    # ============================================================
+    light_qs = qs_filtered.only(
+        "id",
+        "creado_en",
+        "proyecto_id",
+        "direccion_proyecto",
+        "semana_pago_proyectada",
+        "semana_pago_real",
+        "discount_week",
+        "estado",
+        "is_direct_discount",
+        "cliente",
+        "ciudad",
+        "proyecto",
+        "oficina",
+        "subtotal_tecnico",
+        "subtotal_empresa",
+        "real_company_billing",
+        "finance_status",
+        "finance_note",
+    ).prefetch_related(
+        Prefetch(
+            "tecnicos_sesion",
+            queryset=SesionBillingTecnico.objects.select_related("tecnico").only(
+                "id",
+                "sesion_id",
+                "tecnico_id",
+                "porcentaje",
+                "tecnico_comentario",
+                "aceptado_en",
+                "finalizado_en",
+                "supervisor_revisado_en",
+                "tecnico__id",
+                "tecnico__first_name",
+                "tecnico__last_name",
+                "tecnico__username",
+            ),
+        ),
+        Prefetch(
+            "pay_week_snapshots",
+            queryset=BillingPayWeekSnapshot.objects.select_related(
+                "tecnico",
+                "item",
+            ).order_by(
+                "tecnico__first_name",
+                "tecnico__last_name",
+                "tecnico__username",
+                "tipo_trabajo",
+                "codigo_trabajo",
+                "id",
+            ),
+        ),
+    )
+
+    light_rows = list(light_qs)
+    resolve_project_labels_for_sessions(light_rows)
 
     def excel_value_for_billing(sesion, col):
         if col == "0":
             d = getattr(sesion, "creado_en", None)
             return d.strftime("%Y-%m-%d %H:%M") if d else ""
-        elif col == "1":
+
+        if col == "1":
             return str(getattr(sesion, "proyecto_id", "") or "")
-        elif col == "2":
+
+        if col == "2":
             return str(getattr(sesion, "direccion_proyecto", "") or "")
-        elif col == "3":
+
+        if col == "3":
             return str(getattr(sesion, "semana_pago_proyectada", "") or "—")
-        elif col == "4":
+
+        if col == "4":
             return status_label(sesion)
-        elif col == "5":
+
+        if col == "5":
             return techs_label(sesion) or "—"
-        elif col == "6":
+
+        if col == "6":
             return str(getattr(sesion, "cliente", "") or "")
-        elif col == "7":
+
+        if col == "7":
             return str(getattr(sesion, "ciudad", "") or "")
-        elif col == "8":
+
+        if col == "8":
             return str(
                 getattr(sesion, "proyecto_nombre", getattr(sesion, "proyecto", ""))
                 or ""
             )
-        elif col == "9":
+
+        if col == "9":
             return str(getattr(sesion, "oficina", "") or "")
-        elif col == "10":
+
+        if col == "10":
             return money_label(getattr(sesion, "subtotal_tecnico", 0))
-        elif col == "11":
+
+        if col == "11":
             return money_label(getattr(sesion, "subtotal_empresa", 0))
-        elif col == "12":
+
+        if col == "12":
             real = getattr(sesion, "real_company_billing", None)
             return "—" if real is None else money_label(real)
-        elif col == "13":
+
+        if col == "13":
             diff = getattr(sesion, "diferencia", None)
+
             if diff is None:
-                return "—"
+                real = getattr(sesion, "real_company_billing", None)
+                subtotal = getattr(sesion, "subtotal_empresa", None)
+
+                if real is None or subtotal is None:
+                    return "—"
+
+                try:
+                    diff = float(subtotal or 0) - float(real or 0)
+                except Exception:
+                    return "—"
+
             try:
                 diff = float(diff)
             except Exception:
                 return "—"
+
             if diff > 0:
                 return f"+ ${abs(diff):.2f}"
             if diff < 0:
                 return f"- ${abs(diff):.2f}"
             return "$0.00"
-        elif col == "14":
+
+        if col == "14":
             return finance_status_label(sesion)
-        elif col == "15":
+
+        if col == "15":
             return payweek_snapshot_label(sesion)
-        elif col == "16":
+
+        if col == "16":
             return comments_label(sesion)
+
         return ""
 
-    # ---------------- mapear proyecto legible antes de filtros Excel ----------------
-    all_for_project_map = list(qs_filtered)
+    # ---------------- Filtros Excel globales ----------------
+    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
 
-    proj_ids = set()
-    for s in all_for_project_map:
-        val = s.proyecto
-        if val is None:
-            continue
-        try:
-            proj_ids.add(int(val))
-        except (TypeError, ValueError):
-            continue
+    try:
+        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
+    except json.JSONDecodeError:
+        excel_filters = {}
 
-    proyectos_map = (
-        {
-            p.id: getattr(p, "nombre", str(p))
-            for p in Proyecto.objects.filter(id__in=proj_ids)
-        }
-        if proj_ids
-        else {}
-    )
-
-    for s in all_for_project_map:
-        val = s.proyecto
-        try:
-            key = int(val)
-        except (TypeError, ValueError):
-            s.proyecto_nombre = val
-        else:
-            s.proyecto_nombre = proyectos_map.get(key, val)
-
-    # ---------------- aplicar filtros Excel antes de paginar ----------------
     if excel_filters:
-        filtered_list = []
-        for s in all_for_project_map:
+        filtered_light_rows = []
+
+        for s in light_rows:
             ok = True
+
             for col, values in excel_filters.items():
                 values_set = set(values or [])
+
                 if not values_set:
                     continue
+
                 label = excel_value_for_billing(s, col)
+
                 if label not in values_set:
                     ok = False
                     break
-            if ok:
-                filtered_list.append(s)
-        all_for_project_map = filtered_list
 
-    # ---------------- extras para template ----------------
-    for s in all_for_project_map:
+            if ok:
+                filtered_light_rows.append(s)
+
+        light_rows = filtered_light_rows
+
+    # ---------------- Globales para panel Excel ----------------
+    excel_global = {}
+
+    for col in range(17):
+        vals = set()
+
+        for s in light_rows:
+            vals.add(excel_value_for_billing(s, str(col)) or "(Vacías)")
+
+        excel_global[col] = sorted(vals)
+
+    excel_global_json = json.dumps(excel_global)
+
+    # ---------------- Paginación sobre IDs ----------------
+    cantidad = request.GET.get("cantidad", "10")
+
+    try:
+        per_page = int(cantidad)
+    except (TypeError, ValueError):
+        per_page = 10
+
+    if per_page < 1:
+        per_page = 10
+
+    if per_page > 100:
+        per_page = 100
+
+    cantidad = str(per_page)
+
+    filtered_ids = [s.id for s in light_rows]
+
+    paginator = Paginator(filtered_ids, per_page)
+    pagina_ids = paginator.get_page(request.GET.get("page"))
+
+    page_ids = list(pagina_ids.object_list)
+    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
+
+    # ============================================================
+    # Cargar relaciones PESADAS solo para la página visible.
+    # ============================================================
+    page_rows = list(
+        SesionBilling.objects.filter(id__in=page_ids).prefetch_related(
+            Prefetch(
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                    )
+                ),
+            ),
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related(
+                    "tecnico"
+                ).prefetch_related(
+                    Prefetch(
+                        "evidencias",
+                        queryset=EvidenciaFotoBilling.objects.only(
+                            "id",
+                            "imagen",
+                            "tecnico_sesion_id",
+                            "requisito_id",
+                        ).order_by("-id"),
+                    )
+                ),
+            ),
+            Prefetch(
+                "pay_week_snapshots",
+                queryset=BillingPayWeekSnapshot.objects.select_related(
+                    "tecnico",
+                    "item",
+                ).order_by(
+                    "tecnico__first_name",
+                    "tecnico__last_name",
+                    "tecnico__username",
+                    "tipo_trabajo",
+                    "codigo_trabajo",
+                    "id",
+                ),
+            ),
+        )
+    )
+
+    page_rows.sort(key=lambda s: order_map.get(s.id, 999999))
+    resolve_project_labels_for_sessions(page_rows)
+
+    # ---------------- Extras para template SOLO página visible ----------------
+    for s in page_rows:
         s.has_paid_work_type_lines = _session_is_paid_locked(s)
 
         comentarios = []
+
         try:
             for a in s.tecnicos_sesion.all():
                 txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+
                 if txt:
                     comentarios.append(a)
         except Exception:
@@ -5399,37 +5601,17 @@ def listar_billing(request):
         s.payweek_snapshot_label = payweek_snapshot_label(s)
         s.payweek_groups = build_payweek_groups(s)
 
-    # ---------------- globales para panel Excel ----------------
-    excel_global = {}
-    for col in range(17):
-        vals = set()
-        for s in all_for_project_map:
-            vals.add(excel_value_for_billing(s, str(col)) or "(Vacías)")
-        excel_global[col] = sorted(vals)
+    pagina_ids.object_list = page_rows
+    pagina = pagina_ids
 
-    excel_global_json = json.dumps(excel_global)
-
-    # ---------------- Paginación ----------------
-    cantidad = request.GET.get("cantidad", "10")
-    try:
-        per_page = int(cantidad)
-    except (TypeError, ValueError):
-        per_page = 10
-
-    if per_page < 1:
-        per_page = 10
-    if per_page > 100:
-        per_page = 100
-
-    cantidad = str(per_page)
-    pagina = Paginator(all_for_project_map, per_page).get_page(request.GET.get("page"))
-
+    # ---------------- Permisos ----------------
     can_edit_real_week = (
         getattr(request.user, "es_pm", False)
         or getattr(request.user, "es_facturacion", False)
         or getattr(request.user, "es_admin_general", False)
         or request.user.is_superuser
     )
+
     can_edit_items = bool(
         getattr(request.user, "es_admin_general", False) or request.user.is_superuser
     )
@@ -5439,14 +5621,19 @@ def listar_billing(request):
 
     if f["date"]:
         keep_params["date"] = f["date"]
+
     if f["projid"]:
         keep_params["projid"] = f["projid"]
+
     if f["week"]:
         keep_params["week"] = f["week"]
+
     if f["tech"]:
         keep_params["tech"] = f["tech"]
+
     if f["client"]:
         keep_params["client"] = f["client"]
+
     if f["status"]:
         keep_params["status"] = f["status"]
 
@@ -5472,13 +5659,15 @@ def listar_billing(request):
         },
     )
 
+
 @login_required
 @rol_requerido("admin", "pm", "facturacion")
 @csrf_protect
 @require_POST
 def billing_update_snapshot_week(request, snapshot_id: int):
     """
-    Actualiza la semana_resultado de TODOS los snapshots de la misma sesión
+    Actualiza la semana_resultado de TODOS los snapshots
+      de la misma sesión
     para el mismo técnico + work type.
 
     Reglas:
@@ -7225,18 +7414,17 @@ def produccion_admin(request):
     - direct discounts
     - ajustes manuales
 
-    Regla clave:
-    - la semana real visible se toma así:
-        * snapshots productivos -> semana_resultado
-        * legacy sin snapshots  -> sesion.semana_pago_real (fallback semana_pago_proyectada)
-        * ajustes               -> AdjustmentEntry.week
+    PERFORMANCE:
+    - Los snapshots se leen directo desde BillingPayWeekSnapshot, no cargando todas las sesiones.
+    - Las sesiones legacy se cargan aparte, solo si NO tienen snapshots productivos.
+    - items/desglose_tecnico se prefetchean solo para legacy, donde realmente se necesitan.
     """
     import re
     from decimal import Decimal
     from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
-    from django.db.models import CharField, Q
+    from django.db.models import CharField, Exists, OuterRef, Q
     from django.db.models.functions import Cast
     from django.utils import timezone
 
@@ -7250,7 +7438,9 @@ def produccion_admin(request):
 
     from usuarios.models import ProyectoAsignacion
 
-    # ---------------- helpers ----------------
+    # ============================================================
+    # Helpers
+    # ============================================================
     def _iso_week_str(dt):
         y, w, _ = dt.isocalendar()
         return f"{y}-W{int(w):02d}"
@@ -7262,22 +7452,28 @@ def produccion_admin(request):
         """
         if not q:
             return (None, None)
+
         s = q.strip().upper().replace("WEEK", "W").replace(" ", "")
+
         m = re.fullmatch(r"(\d{4})-?W(\d{1,2})", s)
         if m:
             year, ww = int(m.group(1)), int(m.group(2))
             return (f"{year}-W{ww:02d}", None)
+
         m = re.fullmatch(r"(?:W)?(\d{1,2})", s)
         if m:
             ww = int(m.group(1))
             return (None, f"W{ww:02d}")
+
         return (None, None)
 
     def _normalize_week_str(s: str) -> str:
         if not s:
             return ""
-        s = s.replace("\u2013", "-").replace("\u2014", "-")
+
+        s = str(s).replace("\u2013", "-").replace("\u2014", "-")
         s = re.sub(r"\s+", "", s)
+
         return s.upper()
 
     def _week_sort_key(week_str: str):
@@ -7285,31 +7481,40 @@ def produccion_admin(request):
             return (-1, -1)
 
         s = str(week_str).upper().replace("WEEK", "W").replace(" ", "")
+
         m = re.search(r"(\d{4})-?W(\d{1,2})", s)
         if m:
             return (int(m.group(1)), int(m.group(2)))
+
         m = re.search(r"W(\d{1,2})", s)
         if m:
             return (0, int(m.group(1)))
+
         return (-1, -1)
 
     def _match_week_filter(
         week_real: str, exact_week: str | None, week_token: str | None
     ) -> bool:
         wr = (week_real or "").strip().upper()
+
         if not wr:
             return False
+
         if exact_week:
             token = exact_week.split("-", 1)[-1].upper()
             return wr == exact_week or token in wr
+
         if week_token:
             return week_token in wr
+
         return True
 
     def _match_tech_filter(user_obj, f_tech_value: str) -> bool:
         if not f_tech_value:
             return True
+
         target = f_tech_value.lower()
+
         full_name = (
             (
                 (getattr(user_obj, "first_name", "") or "")
@@ -7319,21 +7524,296 @@ def produccion_admin(request):
             .strip()
             .lower()
         )
+
         username = (getattr(user_obj, "username", "") or "").lower()
+
         return target in full_name or target in username
 
-    def _session_project_label(session_obj):
-        raw = (getattr(session_obj, "proyecto", "") or "").strip()
-        if raw:
-            return raw
-        raw2 = getattr(session_obj, "proyecto_id", None)
-        return str(raw2 or "")
+    # ============================================================
+    # Configuración / filtros
+    # ============================================================
+    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+    current_week = _iso_week_str(timezone.now())
+
+    user = request.user
+    can_view_legacy_history = user.is_superuser or getattr(
+        user, "es_usuario_historial", False
+    )
+
+    f_project = (request.GET.get("f_project") or "").strip()
+    f_week_input = (request.GET.get("f_week") or "").strip()
+    f_tech = (request.GET.get("f_tech") or "").strip()
+    f_client = (request.GET.get("f_client") or "").strip()
+
+    exact_week, week_token = parse_week_query(f_week_input)
+
+    # ============================================================
+    # Proyectos visibles
+    # ============================================================
+    try:
+        base_proyectos = Proyecto.objects.all()
+
+        if can_view_legacy_history:
+            proyectos_user = base_proyectos
+        else:
+            proyectos_user = filter_queryset_by_access(
+                base_proyectos,
+                request.user,
+                "id",
+            )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    proyectos_list = list(proyectos_user)
+
+    if proyectos_list:
+        allowed_keys = set()
+
+        for p in proyectos_list:
+            nombre = (getattr(p, "nombre", "") or "").strip()
+            if nombre:
+                allowed_keys.add(nombre)
+
+            codigo = getattr(p, "codigo", None)
+            if codigo:
+                allowed_keys.add(str(codigo).strip())
+
+            allowed_keys.add(str(p.id).strip())
+    else:
+        allowed_keys = set()
+
+    by_id = {p.id: p for p in proyectos_list}
+    by_code = {
+        (p.codigo or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "codigo", None)
+    }
+    by_name = {
+        (p.nombre or "").strip().lower(): p
+        for p in proyectos_list
+        if getattr(p, "nombre", None)
+    }
+
+    # ============================================================
+    # Detectar campos opcionales del snapshot
+    # ============================================================
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
+    def _productive_snapshot_filter():
+        q = Q()
+
+        if has_is_adjustment:
+            q &= Q(is_adjustment=False)
+
+        if has_adjustment_of:
+            q &= Q(adjustment_of__isnull=True)
+
+        return q
+
+    # ============================================================
+    # 1) Flujo nuevo: leer snapshots productivos directamente
+    # ============================================================
+    filas = []
+
+    snap_qs = (
+        BillingPayWeekSnapshot.objects.select_related("sesion", "tecnico", "item")
+        .filter(
+            _productive_snapshot_filter(),
+            Q(sesion__estado__in=estados_ok) | Q(sesion__is_direct_discount=True),
+        )
+        .order_by(
+            "-semana_resultado",
+            "tecnico__first_name",
+            "tecnico__last_name",
+            "tecnico__username",
+            "id",
+        )
+    )
+
+    # Visibilidad por proyectos
+    if not can_view_legacy_history:
+        if allowed_keys:
+            snap_qs = snap_qs.filter(sesion__proyecto__in=allowed_keys)
+        else:
+            snap_qs = BillingPayWeekSnapshot.objects.none()
+
+    # Filtro project
+    if f_project:
+        snap_qs = snap_qs.annotate(
+            sesion_proyecto_id_str=Cast("sesion__proyecto_id", CharField())
+        ).filter(
+            Q(sesion_proyecto_id_str__icontains=f_project)
+            | Q(sesion__proyecto__icontains=f_project)
+        )
+
+    # Filtro client
+    if f_client:
+        snap_qs = snap_qs.filter(sesion__cliente__icontains=f_client)
+
+    # Filtro technician
+    if f_tech:
+        snap_qs = snap_qs.filter(
+            Q(tecnico__first_name__icontains=f_tech)
+            | Q(tecnico__last_name__icontains=f_tech)
+            | Q(tecnico__username__icontains=f_tech)
+        )
+
+    # Filtro week
+    if exact_week:
+        token = exact_week.split("-", 1)[-1].upper()
+        snap_qs = snap_qs.filter(
+            Q(semana_resultado__iexact=exact_week)
+            | Q(semana_resultado__icontains=token)
+        )
+    elif week_token:
+        snap_qs = snap_qs.filter(semana_resultado__icontains=week_token)
+
+    tech_rows = {}
+
+    for snap in snap_qs:
+        s = getattr(snap, "sesion", None)
+        tecnico = getattr(snap, "tecnico", None)
+
+        if not s or not tecnico:
+            continue
+
+        week_real = (getattr(snap, "semana_resultado", "") or "").strip().upper()
+
+        if not week_real:
+            continue
+
+        if not _match_week_filter(week_real, exact_week, week_token):
+            continue
+
+        if not _match_tech_filter(tecnico, f_tech):
+            continue
+
+        key = (s.id, tecnico.id, week_real)
+
+        if key not in tech_rows:
+            tech_rows[key] = {
+                "sesion": s,
+                "tecnico": tecnico,
+                "project_id": s.proyecto_id,
+                "week": week_real or "—",
+                "status": s.estado,
+                "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": week_real or "—",
+                "proj_week": s.semana_pago_proyectada or "—",
+                "total_tecnico": Decimal("0.00"),
+                "detalle": [],
+                "adjustment_type": "",
+            }
+
+        try:
+            subtotal = (
+                snap.subtotal
+                if isinstance(snap.subtotal, Decimal)
+                else Decimal(str(snap.subtotal or 0))
+            )
+        except Exception:
+            subtotal = Decimal("0.00")
+
+        tech_rows[key]["total_tecnico"] += subtotal
+
+        if subtotal < 0:
+            tech_rows[key]["is_discount"] = True
+
+        item = getattr(snap, "item", None)
+
+        try:
+            rate_tec = (
+                snap.tarifa_efectiva
+                if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
+                else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
+            )
+        except Exception:
+            rate_tec = Decimal("0.00")
+
+        tech_rows[key]["detalle"].append(
+            {
+                "codigo": getattr(snap, "codigo_trabajo", "") or "",
+                "tipo": getattr(snap, "tipo_trabajo", "") or "",
+                "desc": getattr(item, "descripcion", "") if item else "",
+                "uom": getattr(item, "unidad_medida", "") if item else "",
+                "qty": getattr(item, "cantidad", None) if item else None,
+                "rate_tec": rate_tec,
+                "subtotal_tec": subtotal,
+            }
+        )
+
+    filas.extend(tech_rows.values())
+
+    # ============================================================
+    # 2) Legacy: solo sesiones SIN snapshots productivos
+    # ============================================================
+    productive_snap_exists = BillingPayWeekSnapshot.objects.filter(
+        _productive_snapshot_filter(),
+        sesion_id=OuterRef("pk"),
+    )
+
+    legacy_qs = (
+        SesionBilling.objects.filter(
+            Q(estado__in=estados_ok) | Q(is_direct_discount=True)
+        )
+        .annotate(has_productive_snap=Exists(productive_snap_exists))
+        .filter(has_productive_snap=False)
+        .order_by("-creado_en")
+        .prefetch_related(
+            "tecnicos_sesion__tecnico",
+            "items__desglose_tecnico",
+        )
+        .distinct()
+    )
+
+    if not can_view_legacy_history:
+        if allowed_keys:
+            legacy_qs = legacy_qs.filter(proyecto__in=allowed_keys)
+        else:
+            legacy_qs = SesionBilling.objects.none()
+
+    if f_project:
+        legacy_qs = legacy_qs.annotate(
+            proyecto_id_str=Cast("proyecto_id", CharField())
+        ).filter(
+            Q(proyecto_id_str__icontains=f_project) | Q(proyecto__icontains=f_project)
+        )
+
+    if f_client:
+        legacy_qs = legacy_qs.filter(cliente__icontains=f_client)
+
+    if f_tech:
+        legacy_qs = legacy_qs.filter(
+            Q(tecnicos_sesion__tecnico__first_name__icontains=f_tech)
+            | Q(tecnicos_sesion__tecnico__last_name__icontains=f_tech)
+            | Q(tecnicos_sesion__tecnico__username__icontains=f_tech)
+        )
+
+    if exact_week:
+        token = exact_week.split("-", 1)[-1].upper()
+        legacy_qs = legacy_qs.filter(
+            Q(semana_pago_real__iexact=exact_week)
+            | Q(semana_pago_real__icontains=token)
+            | Q(semana_pago_proyectada__iexact=exact_week)
+            | Q(semana_pago_proyectada__icontains=token)
+        )
+    elif week_token:
+        legacy_qs = legacy_qs.filter(
+            Q(semana_pago_real__icontains=week_token)
+            | Q(semana_pago_proyectada__icontains=week_token)
+        )
 
     def _build_legacy_rows_for_session(s):
         """
         Fallback legacy:
         - solo si NO hay snapshots productivos
-        - usa semana_pago_real (o semana_pago_proyectada)
+        - usa semana_pago_real o semana_pago_proyectada
         - arma una fila por técnico
         """
         legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper() or (
@@ -7356,10 +7836,18 @@ def produccion_admin(request):
         if not asignaciones:
             return []
 
+        try:
+            items = list(
+                s.items.prefetch_related("desglose_tecnico").all().order_by("id")
+            )
+        except Exception:
+            items = []
+
         out = []
 
         for asig in asignaciones:
             tecnico = getattr(asig, "tecnico", None)
+
             if not tecnico:
                 continue
 
@@ -7368,13 +7856,6 @@ def produccion_admin(request):
 
             detalle = []
             total_tecnico = Decimal("0.00")
-
-            try:
-                items = list(
-                    s.items.prefetch_related("desglose_tecnico").all().order_by("id")
-                )
-            except Exception:
-                items = []
 
             # 1) Intentar por desglose real
             for item in items:
@@ -7389,6 +7870,7 @@ def produccion_admin(request):
 
                 for bd in desglose_rows:
                     subtotal = getattr(bd, "subtotal", None)
+
                     try:
                         subtotal = (
                             subtotal
@@ -7399,6 +7881,7 @@ def produccion_admin(request):
                         subtotal = Decimal("0.00")
 
                     tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
+
                     try:
                         tarifa_efectiva = (
                             tarifa_efectiva
@@ -7419,6 +7902,7 @@ def produccion_admin(request):
                             "subtotal_tec": subtotal,
                         }
                     )
+
                     total_tecnico += subtotal
 
             # 2) Fallback extremo: si no hubo detalle, repartir subtotal_tecnico por porcentaje
@@ -7464,184 +7948,12 @@ def produccion_admin(request):
 
         return out
 
-    # ---------------- configuración ----------------
-    estados_ok = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
-    current_week = _iso_week_str(timezone.now())
+    for s in legacy_qs:
+        filas.extend(_build_legacy_rows_for_session(s))
 
-    user = request.user
-    can_view_legacy_history = user.is_superuser or getattr(
-        user, "es_usuario_historial", False
-    )
-
-    # ---------------- Filtros GET ----------------
-    f_project = (request.GET.get("f_project") or "").strip()
-    f_week_input = (request.GET.get("f_week") or "").strip()
-    f_tech = (request.GET.get("f_tech") or "").strip()
-    f_client = (request.GET.get("f_client") or "").strip()
-
-    exact_week, week_token = parse_week_query(f_week_input)
-
-    # ---------------- Proyectos visibles ----------------
-    try:
-        base_proyectos = Proyecto.objects.all()
-        if can_view_legacy_history:
-            proyectos_user = base_proyectos
-        else:
-            proyectos_user = filter_queryset_by_access(
-                base_proyectos,
-                request.user,
-                "id",
-            )
-    except Exception:
-        proyectos_user = Proyecto.objects.none()
-
-    if proyectos_user.exists():
-        allowed_keys = set()
-        for p in proyectos_user:
-            nombre = (getattr(p, "nombre", "") or "").strip()
-            if nombre:
-                allowed_keys.add(nombre)
-
-            codigo = getattr(p, "codigo", None)
-            if codigo:
-                allowed_keys.add(str(codigo).strip())
-
-            allowed_keys.add(str(p.id).strip())
-    else:
-        allowed_keys = set()
-
-    # ---------------- Base sesiones ----------------
-    qs = (
-        SesionBilling.objects.filter(
-            Q(estado__in=estados_ok) | Q(is_direct_discount=True)
-        )
-        .order_by("-creado_en")
-        .prefetch_related(
-            "tecnicos_sesion__tecnico",
-            "pay_week_snapshots__tecnico",
-            "pay_week_snapshots__item",
-            "items__desglose_tecnico",
-        )
-        .distinct()
-    )
-
-    # 🔒 limitar por proyectos asignados
-    if not can_view_legacy_history:
-        if allowed_keys:
-            qs = qs.filter(proyecto__in=allowed_keys)
-        else:
-            qs = SesionBilling.objects.none()
-
-    # ⚠️ IMPORTANTE:
-    # NO filtramos aquí por pay_week_snapshots__semana_resultado ni por técnico,
-    # porque eso excluiría las sesiones legacy sin snapshots.
-
-    if f_project:
-        qs = qs.annotate(proyecto_id_str=Cast("proyecto_id", CharField()))
-        qs = qs.filter(
-            Q(proyecto_id_str__icontains=f_project) | Q(proyecto__icontains=f_project)
-        )
-
-    if f_client:
-        qs = qs.filter(cliente__icontains=f_client)
-
-    qs = qs.distinct()
-
-    # ---------------- Construcción de filas ----------------
-    filas = []
-
-    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
-    has_is_adjustment = "is_adjustment" in snapshot_field_names
-    has_adjustment_of = "adjustment_of" in snapshot_field_names
-
-    for s in qs:
-        snaps = list(s.pay_week_snapshots.all())
-
-        productive_snaps = []
-        for snap in snaps:
-            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
-                continue
-            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
-                continue
-            productive_snaps.append(snap)
-
-        # ---------- flujo nuevo ----------
-        if productive_snaps:
-            tech_rows = {}
-
-            for snap in productive_snaps:
-                tecnico = getattr(snap, "tecnico", None)
-                if not tecnico:
-                    continue
-
-                if not _match_tech_filter(tecnico, f_tech):
-                    continue
-
-                week_real = (
-                    (getattr(snap, "semana_resultado", "") or "").strip().upper()
-                )
-                if not week_real:
-                    continue
-
-                if not _match_week_filter(week_real, exact_week, week_token):
-                    continue
-
-                key = (tecnico.id, week_real)
-
-                if key not in tech_rows:
-                    tech_rows[key] = {
-                        "sesion": s,
-                        "tecnico": tecnico,
-                        "project_id": s.proyecto_id,
-                        "week": week_real or "—",
-                        "status": s.estado,
-                        "is_discount": bool(getattr(s, "is_direct_discount", False)),
-                        "client": s.cliente,
-                        "city": s.ciudad,
-                        "project": s.proyecto,
-                        "office": s.oficina,
-                        "real_week": week_real or "—",
-                        "proj_week": s.semana_pago_proyectada or "—",
-                        "total_tecnico": Decimal("0"),
-                        "detalle": [],
-                        "adjustment_type": "",
-                    }
-
-                subtotal = (
-                    snap.subtotal
-                    if isinstance(snap.subtotal, Decimal)
-                    else Decimal(str(snap.subtotal or 0))
-                )
-                tech_rows[key]["total_tecnico"] += subtotal
-
-                if subtotal < 0:
-                    tech_rows[key]["is_discount"] = True
-
-                item = getattr(snap, "item", None)
-
-                tech_rows[key]["detalle"].append(
-                    {
-                        "codigo": getattr(snap, "codigo_trabajo", "") or "",
-                        "tipo": getattr(snap, "tipo_trabajo", "") or "",
-                        "desc": getattr(item, "descripcion", "") if item else "",
-                        "uom": getattr(item, "unidad_medida", "") if item else "",
-                        "qty": getattr(item, "cantidad", None) if item else None,
-                        "rate_tec": (
-                            snap.tarifa_efectiva
-                            if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
-                            else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
-                        ),
-                        "subtotal_tec": subtotal,
-                    }
-                )
-
-            filas.extend(tech_rows.values())
-
-        # ---------- fallback legacy ----------
-        else:
-            filas.extend(_build_legacy_rows_for_session(s))
-
-    # ---------------- Ajustes manuales ----------------
+    # ============================================================
+    # 3) Ajustes manuales
+    # ============================================================
     if AdjustmentEntry is not None:
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
@@ -7662,8 +7974,9 @@ def produccion_admin(request):
             adj_qs = adj_qs.filter(week__icontains=week_token)
 
         if f_project:
-            adj_qs = adj_qs.annotate(project_id_str=Cast("project_id", CharField()))
-            adj_qs = adj_qs.filter(
+            adj_qs = adj_qs.annotate(
+                project_id_str=Cast("project_id", CharField())
+            ).filter(
                 Q(project_id_str__icontains=f_project) | Q(project__icontains=f_project)
             )
 
@@ -7671,20 +7984,24 @@ def produccion_admin(request):
             adj_qs = adj_qs.filter(client__icontains=f_client)
 
         if f_tech:
-            target = f_tech
             adj_qs = adj_qs.filter(
-                Q(technician__first_name__icontains=target)
-                | Q(technician__last_name__icontains=target)
-                | Q(technician__username__icontains=target)
+                Q(technician__first_name__icontains=f_tech)
+                | Q(technician__last_name__icontains=f_tech)
+                | Q(technician__username__icontains=f_tech)
             )
 
         for a in adj_qs:
             t = a.technician
-            amt = (
-                a.amount
-                if isinstance(a.amount, Decimal)
-                else Decimal(str(a.amount or 0))
-            )
+
+            try:
+                amt = (
+                    a.amount
+                    if isinstance(a.amount, Decimal)
+                    else Decimal(str(a.amount or 0))
+                )
+            except Exception:
+                amt = Decimal("0.00")
+
             signed_amount = amt.copy_abs()
 
             filas.append(
@@ -7708,20 +8025,9 @@ def produccion_admin(request):
                 }
             )
 
-    # --------- Resolver label de proyecto ---------
-    proyectos_list = list(proyectos_user)
-    by_id = {p.id: p for p in proyectos_list}
-    by_code = {
-        (p.codigo or "").strip().lower(): p
-        for p in proyectos_list
-        if getattr(p, "codigo", None)
-    }
-    by_name = {
-        (p.nombre or "").strip().lower(): p
-        for p in proyectos_list
-        if getattr(p, "nombre", None)
-    }
-
+    # ============================================================
+    # Resolver label de proyecto
+    # ============================================================
     def _resolve_project_label(row):
         s = row.get("sesion")
         proj_text = None
@@ -7759,14 +8065,18 @@ def produccion_admin(request):
 
         if proj_text:
             return proj_text
+
         if proj_id not in (None, "", "-"):
             return str(proj_id)
+
         return ""
 
     for row in filas:
         row["project_label"] = _resolve_project_label(row)
 
-    # --------- Filtro adicional por texto de Project ---------
+    # ============================================================
+    # Filtro adicional por texto de Project
+    # ============================================================
     if f_project:
         needle = f_project.lower()
 
@@ -7779,11 +8089,14 @@ def produccion_admin(request):
 
         filas = [r for r in filas if _match_project_text(r)]
 
-    # --------- Ventana de visibilidad por ProyectoAsignacion ---------
+    # ============================================================
+    # Ventana de visibilidad por ProyectoAsignacion
+    # ============================================================
     try:
         asignaciones = list(
             ProyectoAsignacion.objects.filter(
-                usuario=request.user, proyecto__in=proyectos_list
+                usuario=request.user,
+                proyecto__in=proyectos_list,
             ).select_related("proyecto")
         )
     except Exception:
@@ -7791,6 +8104,7 @@ def produccion_admin(request):
 
     if asignaciones and not can_view_legacy_history:
         access_by_pk = {}
+
         for a in asignaciones:
             if a.include_history or not a.start_at:
                 access_by_pk[a.proyecto_id] = {
@@ -7808,6 +8122,7 @@ def produccion_admin(request):
 
             if s is not None:
                 raw = getattr(s, "proyecto_id", None)
+
                 if raw not in (None, "", "-"):
                     try:
                         return int(raw)
@@ -7818,22 +8133,28 @@ def produccion_admin(request):
                 str(row.get("project_label") or "").strip()
                 or str(row.get("project") or "").strip()
             )
+
             key = text.lower()
+
             if key:
                 p = by_name.get(key)
                 if p:
                     return p.id
+
                 p = by_code.get(key)
                 if p:
                     return p.id
+
             return None
 
         def _row_allowed(row):
             pk = _project_pk_from_row(row)
+
             if pk is None:
                 return False
 
             access = access_by_pk.get(pk)
+
             if not access:
                 return False
 
@@ -7841,6 +8162,7 @@ def produccion_admin(request):
                 return True
 
             week_str = _normalize_week_str(row.get("real_week"))
+
             if not week_str:
                 return False
 
@@ -7848,7 +8170,9 @@ def produccion_admin(request):
 
         filas = [r for r in filas if _row_allowed(r)]
 
-    # --------------- orden final ---------------
+    # ============================================================
+    # Orden final
+    # ============================================================
     filas.sort(
         key=lambda r: (
             _week_sort_key(r.get("real_week") or r.get("week") or ""),
@@ -7859,9 +8183,12 @@ def produccion_admin(request):
         reverse=True,
     )
 
-    # --------------- Paginación ---------------
+    # ============================================================
+    # Paginación
+    # ============================================================
     cantidad = request.GET.get("cantidad", "10")
     allowed_page_sizes = {"5", "10", "20", "50", "100"}
+
     if cantidad not in allowed_page_sizes:
         cantidad = "10"
 
@@ -7881,6 +8208,7 @@ def produccion_admin(request):
         "f_client": f_client,
         "cantidad": cantidad,
     }
+
     filters_qs = urlencode({k: v for k, v in filters_dict.items() if v})
 
     return render(
