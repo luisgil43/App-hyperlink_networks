@@ -881,12 +881,19 @@ def _legacy_weekly_payment_details(
 
     return dict(details)
 
-def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
+
+def _legacy_session_totals_without_snapshots(
+    week: str | None = None, tech_ids=None
+) -> dict:
     """
     Retorna totales legacy por (technician_id, week) para sesiones antiguas que:
     - sí tienen semana_pago_real
     - están aprobadas o son direct discount
     - NO tienen snapshots productivos
+
+    Optimización:
+    - Si se pasa tech_ids, solo calcula esos técnicos.
+    - Evita cargar legacy de todos los usuarios cuando solo se necesita uno.
 
     Salida:
       {
@@ -902,18 +909,31 @@ def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
     has_is_adjustment = "is_adjustment" in snapshot_fields
     has_adjustment_of = "adjustment_of" in snapshot_fields
 
-    base_qs = SesionBilling.objects.filter(
-        Q(estado__in=ESTADOS_OK_SYNC) | Q(is_direct_discount=True)
-    ).exclude(semana_pago_real__isnull=True).exclude(semana_pago_real__exact="")
+    tech_ids_set = None
+    if tech_ids is not None:
+        tech_ids_set = {int(t) for t in (tech_ids or []) if str(t).isdigit()}
+        if not tech_ids_set:
+            return {}
+
+    base_qs = (
+        SesionBilling.objects.filter(
+            Q(estado__in=ESTADOS_OK_SYNC) | Q(is_direct_discount=True)
+        )
+        .exclude(semana_pago_real__isnull=True)
+        .exclude(semana_pago_real__exact="")
+    )
 
     if week:
         base_qs = base_qs.filter(semana_pago_real=week)
+
+    if tech_ids_set is not None:
+        base_qs = base_qs.filter(tecnicos_sesion__tecnico_id__in=tech_ids_set)
 
     base_qs = base_qs.prefetch_related(
         "items__desglose_tecnico",
         "tecnicos_sesion",
         "pay_week_snapshots",
-    )
+    ).distinct()
 
     totals = defaultdict(lambda: Decimal("0.00"))
 
@@ -929,7 +949,7 @@ def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
             productive_exists = True
             break
 
-        # si ya tiene snapshots productivos, ya entra por el flujo nuevo
+        # Si ya tiene snapshots productivos, ya entra por el flujo nuevo
         if productive_exists:
             continue
 
@@ -937,13 +957,17 @@ def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
         if not week_real:
             continue
 
-        # 1) Intentar usar el desglose real por item/técnico
         tech_totals = {}
+
+        # 1) Intentar usar desglose real por item/técnico
         try:
             for item in sesion.items.all():
                 for bd in item.desglose_tecnico.all():
                     tid = getattr(bd, "tecnico_id", None)
                     if not tid:
+                        continue
+
+                    if tech_ids_set is not None and int(tid) not in tech_ids_set:
                         continue
 
                     subtotal = getattr(bd, "subtotal", None)
@@ -956,7 +980,9 @@ def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
                     except Exception:
                         subtotal = Decimal("0.00")
 
-                    tech_totals[tid] = tech_totals.get(tid, Decimal("0.00")) + subtotal
+                    tech_totals[int(tid)] = (
+                        tech_totals.get(int(tid), Decimal("0.00")) + subtotal
+                    )
         except Exception:
             tech_totals = {}
 
@@ -981,18 +1007,22 @@ def _legacy_session_totals_without_snapshots(week: str | None = None) -> dict:
                 tid = getattr(asig, "tecnico_id", None)
                 if not tid:
                     continue
+
+                if tech_ids_set is not None and int(tid) not in tech_ids_set:
+                    continue
+
                 try:
                     pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
                 except Exception:
                     pct = Decimal("0.00")
 
-                tech_totals[tid] = (subtotal_tecnico * (pct / Decimal("100"))).quantize(
-                    Decimal("0.01")
-                )
+                tech_totals[int(tid)] = (
+                    subtotal_tecnico * (pct / Decimal("100"))
+                ).quantize(Decimal("0.01"))
 
         for tid, amount in tech_totals.items():
             if amount:
-                totals[(tid, week_real)] += amount
+                totals[(int(tid), week_real)] += amount
 
     return dict(totals)
 
@@ -8873,20 +8903,19 @@ def Exportar_produccion_admin(request):
 def produccion_usuario(request):
     """
     Producción del técnico logueado.
-    Incluye:
-    - snapshots productivos
-    - legacy sin snapshots productivos
-    - ajustes (Bonus / Advance / Fixed salary)
-    - descuentos directos
-    - orden: semana actual, luego pasadas, luego futuras, luego sin semana
-    - paginación: ?cantidad=5|10|20|todos y ?page=N
+
+    Optimizado:
+    - Lee snapshots productivos directo desde BillingPayWeekSnapshot.
+    - No carga todas las sesiones con todos sus items/snapshots al abrir.
+    - Legacy se carga aparte y solo para el técnico logueado.
+    - Ajustes se cargan directo.
     """
     import re
     from decimal import Decimal
     from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
-    from django.db.models import Q
+    from django.db.models import Exists, OuterRef, Q
     from django.utils import timezone
 
     from facturacion.models import Proyecto
@@ -9043,15 +9072,133 @@ def produccion_usuario(request):
     weeks_wanted = None if week_filter.lower() == "all" else {week_filter.upper()}
 
     filas = []
-    total_semana_actual = Decimal("0")
+    total_semana_actual = Decimal("0.00")
 
-    qs = (
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_field_names
+    has_adjustment_of = "adjustment_of" in snapshot_field_names
+
+    def _productive_snapshot_filter():
+        q = Q()
+        if has_is_adjustment:
+            q &= Q(is_adjustment=False)
+        if has_adjustment_of:
+            q &= Q(adjustment_of__isnull=True)
+        return q
+
+    # ==========================================================
+    # 1) Flujo nuevo: snapshots del técnico directo
+    # ==========================================================
+    snap_qs = (
+        BillingPayWeekSnapshot.objects.select_related("sesion", "item")
+        .filter(
+            _productive_snapshot_filter(),
+            tecnico_id=tecnico.id,
+            sesion__isnull=False,
+        )
+        .filter(
+            Q(sesion__estado__in=estados_ok)
+            | Q(sesion__is_direct_discount=True)
+            | Q(subtotal__lt=0)
+        )
+        .order_by("-semana_resultado", "-id")
+    )
+
+    if weeks_wanted is not None:
+        snap_qs = snap_qs.filter(semana_resultado__in=weeks_wanted)
+
+    week_rows = {}
+
+    for snap in snap_qs:
+        s = getattr(snap, "sesion", None)
+        if not s:
+            continue
+
+        rw = (getattr(snap, "semana_resultado", "") or "").strip().upper()
+        if not rw:
+            continue
+
+        if not _week_match(rw, weeks_wanted):
+            continue
+
+        key = (s.id, rw)
+
+        if key not in week_rows:
+            week_rows[key] = {
+                "sesion": s,
+                "project_id": s.proyecto_id,
+                "week": rw or "—",
+                "status": s.estado,
+                "is_discount": bool(getattr(s, "is_direct_discount", False)),
+                "client": s.cliente,
+                "city": s.ciudad,
+                "project": s.proyecto,
+                "office": s.oficina,
+                "real_week": rw or "—",
+                "total_tecnico": Decimal("0.00"),
+                "detalle": [],
+                "adjustment_type": "",
+                "adjustment_label": "",
+            }
+
+        try:
+            subtotal = (
+                snap.subtotal
+                if isinstance(snap.subtotal, Decimal)
+                else Decimal(str(snap.subtotal or 0))
+            )
+        except Exception:
+            subtotal = Decimal("0.00")
+
+        week_rows[key]["total_tecnico"] += subtotal
+
+        if subtotal < 0:
+            week_rows[key]["is_discount"] = True
+
+        item = getattr(snap, "item", None)
+
+        try:
+            rate_tec = (
+                snap.tarifa_efectiva
+                if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
+                else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
+            )
+        except Exception:
+            rate_tec = Decimal("0.00")
+
+        week_rows[key]["detalle"].append(
+            {
+                "codigo": getattr(snap, "codigo_trabajo", "") or "",
+                "tipo": getattr(snap, "tipo_trabajo", "") or "",
+                "desc": getattr(item, "descripcion", "") if item else "",
+                "uom": getattr(item, "unidad_medida", "") if item else "",
+                "qty": getattr(item, "cantidad", None) if item else None,
+                "rate_tec": rate_tec,
+                "subtotal_tec": subtotal,
+            }
+        )
+
+    for row in week_rows.values():
+        if row["real_week"] == current_week:
+            total_semana_actual += row["total_tecnico"]
+        filas.append(row)
+
+    # ==========================================================
+    # 2) Legacy: solo sesiones sin snapshots productivos y del técnico
+    # ==========================================================
+    productive_snap_exists = BillingPayWeekSnapshot.objects.filter(
+        _productive_snapshot_filter(),
+        sesion_id=OuterRef("pk"),
+    )
+
+    legacy_qs = (
         SesionBilling.objects.filter(
             Q(estado__in=estados_ok) | Q(is_direct_discount=True)
         )
+        .filter(tecnicos_sesion__tecnico_id=tecnico.id)
+        .annotate(has_productive_snap=Exists(productive_snap_exists))
+        .filter(has_productive_snap=False)
         .prefetch_related(
-            "pay_week_snapshots__tecnico",
-            "pay_week_snapshots__item",
             "tecnicos_sesion__tecnico",
             "items__desglose_tecnico",
         )
@@ -9059,101 +9206,38 @@ def produccion_usuario(request):
         .distinct()
     )
 
-    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
-    has_is_adjustment = "is_adjustment" in snapshot_field_names
-    has_adjustment_of = "adjustment_of" in snapshot_field_names
+    if weeks_wanted is not None:
+        legacy_qs = legacy_qs.filter(
+            Q(semana_pago_real__in=weeks_wanted)
+            | Q(semana_pago_proyectada__in=weeks_wanted)
+        )
 
-    for s in qs:
-        snaps = list(s.pay_week_snapshots.all())
+    for s in legacy_qs:
+        legacy_rows = _build_legacy_rows_for_session(s, weeks_wanted)
 
-        productive_snaps = []
-        for snap in snaps:
-            if getattr(snap, "tecnico_id", None) != tecnico.id:
-                continue
-            if has_is_adjustment and bool(getattr(snap, "is_adjustment", False)):
-                continue
-            if has_adjustment_of and getattr(snap, "adjustment_of_id", None):
-                continue
-            productive_snaps.append(snap)
+        for row in legacy_rows:
+            if row["real_week"] == current_week:
+                total_semana_actual += row["total_tecnico"]
+            filas.append(row)
 
-        # ---------- flujo nuevo ----------
-        if productive_snaps:
-            week_rows = {}
-
-            for snap in productive_snaps:
-                rw = (getattr(snap, "semana_resultado", "") or "").strip().upper()
-                if not rw:
-                    continue
-
-                if not _week_match(rw, weeks_wanted):
-                    continue
-
-                if rw not in week_rows:
-                    week_rows[rw] = {
-                        "sesion": s,
-                        "project_id": s.proyecto_id,
-                        "week": rw or "—",
-                        "status": s.estado,
-                        "is_discount": bool(getattr(s, "is_direct_discount", False)),
-                        "client": s.cliente,
-                        "city": s.ciudad,
-                        "project": s.proyecto,
-                        "office": s.oficina,
-                        "real_week": rw or "—",
-                        "total_tecnico": Decimal("0"),
-                        "detalle": [],
-                        "adjustment_type": "",
-                        "adjustment_label": "",
-                    }
-
-                subtotal = (
-                    snap.subtotal
-                    if isinstance(snap.subtotal, Decimal)
-                    else Decimal(str(snap.subtotal or 0))
-                )
-                week_rows[rw]["total_tecnico"] += subtotal
-
-                if subtotal < 0:
-                    week_rows[rw]["is_discount"] = True
-
-                item = getattr(snap, "item", None)
-
-                week_rows[rw]["detalle"].append(
-                    {
-                        "codigo": getattr(snap, "codigo_trabajo", "") or "",
-                        "tipo": getattr(snap, "tipo_trabajo", "") or "",
-                        "desc": getattr(item, "descripcion", "") if item else "",
-                        "uom": getattr(item, "unidad_medida", "") if item else "",
-                        "qty": getattr(item, "cantidad", None) if item else None,
-                        "rate_tec": (
-                            snap.tarifa_efectiva
-                            if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
-                            else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
-                        ),
-                        "subtotal_tec": subtotal,
-                    }
-                )
-
-            for rw, row in week_rows.items():
-                if rw == current_week:
-                    total_semana_actual += row["total_tecnico"]
-                filas.append(row)
-
-        # ---------- fallback legacy ----------
-        else:
-            legacy_rows = _build_legacy_rows_for_session(s, weeks_wanted)
-            for row in legacy_rows:
-                if row["real_week"] == current_week:
-                    total_semana_actual += row["total_tecnico"]
-                filas.append(row)
-
-    # ---------- ajustes ----------
+    # ==========================================================
+    # 3) Ajustes del técnico
+    # ==========================================================
     adj_qs = AdjustmentEntry.objects.filter(technician=tecnico)
+
     if weeks_wanted is not None:
         adj_qs = adj_qs.filter(week__in=weeks_wanted)
 
     for a in adj_qs:
-        amt = a.amount if isinstance(a.amount, Decimal) else Decimal(str(a.amount or 0))
+        try:
+            amt = (
+                a.amount
+                if isinstance(a.amount, Decimal)
+                else Decimal(str(a.amount or 0))
+            )
+        except Exception:
+            amt = Decimal("0.00")
+
         amt_pos = abs(amt)
         rw = (a.week or "—").upper()
 
@@ -9179,6 +9263,9 @@ def produccion_usuario(request):
             }
         )
 
+    # ==========================================================
+    # Resolver Project label
+    # ==========================================================
     proyectos_list = list(Proyecto.objects.all())
     by_id = {p.id: p for p in proyectos_list}
     by_code = {
@@ -9238,23 +9325,29 @@ def produccion_usuario(request):
 
     def sort_key(row):
         t = _parse_iso_week_local(row["real_week"])
+
         if t is None:
             return (3, 9999, 99)
-        if t == current_tuple:
+
+        if current_tuple and t == current_tuple:
             return (0, 0, 0)
-        if t < current_tuple:
+
+        if current_tuple and t < current_tuple:
             return (1, -t[0], -t[1])
+
         return (2, t[0], t[1])
 
     filas.sort(key=sort_key)
 
     cantidad = (request.GET.get("cantidad") or "10").strip().lower()
+
     if cantidad != "todos":
         try:
             per_page = max(5, min(int(cantidad), 100))
         except ValueError:
             per_page = 10
             cantidad = "10"
+
         paginator = Paginator(filas, per_page)
         page_number = request.GET.get("page") or 1
         pagina = paginator.get_page(page_number)
@@ -9264,6 +9357,7 @@ def produccion_usuario(request):
             number = 1
             has_previous = False
             has_next = False
+            object_list = filas
 
             @property
             def paginator(self):
@@ -9271,8 +9365,6 @@ def produccion_usuario(request):
                     num_pages = 1
 
                 return P()
-
-            object_list = filas
 
         pagina = _OnePage()
 
@@ -10421,6 +10513,10 @@ def user_weekly_payments(request):
     - Crea/actualiza WeeklyPayment por semanas con producción nueva, legacy o ajustes.
     - NO borra weeks legacy por error.
     - Adjunta details y display_amount por semana.
+
+    Optimización:
+    - El legacy se calcula solo para el usuario actual.
+    - Evita _legacy_session_totals_without_snapshots(None) para todos los técnicos.
     """
     from decimal import Decimal
 
@@ -10438,10 +10534,14 @@ def user_weekly_payments(request):
     # ---------------------------------------------------------
     # 1) Sync / create de weeks reales
     # ---------------------------------------------------------
-    legacy_totals_all = _legacy_session_totals_without_snapshots(None)
+    legacy_totals_user = _legacy_session_totals_without_snapshots(
+        week=None,
+        tech_ids=[user_id],
+    )
+
     legacy_weeks = {
         wk
-        for (tid, wk), amt in legacy_totals_all.items()
+        for (tid, wk), amt in legacy_totals_user.items()
         if int(tid) == int(user_id) and (amt or Decimal("0.00")) != 0
     }
 
@@ -10492,7 +10592,6 @@ def user_weekly_payments(request):
 
     # ---------------------------------------------------------
     # 3) Detectores de existencia real
-    #    (nuevo + ajustes; legacy lo preservamos aparte por week)
     # ---------------------------------------------------------
     prod_exists = BillingPayWeekSnapshot.objects.filter(
         tecnico_id=user_id,
@@ -10551,6 +10650,7 @@ def user_weekly_payments(request):
         .select_related("technician")
         .order_by("-week")
     )
+
     mine = list(mine_qs)
 
     weeks = {wp.week for wp in mine}
@@ -10590,18 +10690,20 @@ def user_weekly_payments(request):
 
         for r in det_prod:
             week = r["semana_resultado"]
-            sub = r["subtotal"] or Decimal("0")
+            sub = r["subtotal"] or Decimal("0.00")
             project_label = "Direct discount" if r["is_discount"] else r["project_id"]
+
             details_map.setdefault(week, []).append(
                 {
                     "project_id": project_label,
                     "subtotal": sub,
                 }
             )
-            totals_map[week] = totals_map.get(week, Decimal("0")) + sub
+
+            totals_map[week] = totals_map.get(week, Decimal("0.00")) + sub
 
         # ---------------------------------------------------------
-        # 7) Detalle legacy
+        # 7) Detalle legacy solo del usuario
         # ---------------------------------------------------------
         legacy_details = _legacy_weekly_payment_details(
             tech_ids=[user_id],
@@ -10609,19 +10711,22 @@ def user_weekly_payments(request):
             allowed_project_keys=None,
             can_view_all_projects=True,
         )
+
         for (tid, week), rows in legacy_details.items():
             if int(tid) != int(user_id):
                 continue
+
             for row in rows:
+                subtotal = row.get("subtotal") or Decimal("0.00")
+
                 details_map.setdefault(week, []).append(
                     {
                         "project_id": row.get("project_label") or "—",
-                        "subtotal": row.get("subtotal") or Decimal("0.00"),
+                        "subtotal": subtotal,
                     }
                 )
-                totals_map[week] = totals_map.get(week, Decimal("0")) + (
-                    row.get("subtotal") or Decimal("0.00")
-                )
+
+                totals_map[week] = totals_map.get(week, Decimal("0.00")) + subtotal
 
     # ---------------------------------------------------------
     # 8) Ajustes
@@ -10643,8 +10748,14 @@ def user_weekly_payments(request):
 
     for a in det_adj:
         week = a["week"]
-        amt = Decimal(a["amount"] or 0)
+
+        try:
+            amt = Decimal(a["amount"] or 0)
+        except Exception:
+            amt = Decimal("0.00")
+
         amt = abs(amt)
+
         details_map.setdefault(week, []).append(
             {
                 "project_id": a.get("project_id") or "-",
@@ -10652,15 +10763,18 @@ def user_weekly_payments(request):
                 "subtotal": amt,
             }
         )
-        totals_map[week] = totals_map.get(week, Decimal("0")) + amt
+
+        totals_map[week] = totals_map.get(week, Decimal("0.00")) + amt
 
     # ---------------------------------------------------------
     # 9) Aplicar display_amount final
     # ---------------------------------------------------------
     filtered_mine = []
+
     for wp in mine:
         wp.details = details_map.get(wp.week, [])
-        wp.display_amount = totals_map.get(wp.week, Decimal("0"))
+        wp.display_amount = totals_map.get(wp.week, Decimal("0.00"))
+
         if wp.display_amount > 0:
             filtered_mine.append(wp)
 
