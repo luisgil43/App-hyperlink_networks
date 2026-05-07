@@ -910,14 +910,10 @@ else %}asignado assigned{% endif %}"
                       <td class="p-2">{{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}</td>
 
                       <td class="p-2">
-                        <div class="flex gap-1">
-                          {% for ev in asig.evidencias.all|slice:":3" %}
-                            <img src="{{ ev.imagen.url }}" class="w-10 h-10 object-cover rounded border" loading="lazy" alt="photo">
-                          {% empty %}
-                            <span class="text-gray-400">—</span>
-                          {% endfor %}
-                        </div>
-                      </td>
+
+  <span class="text-gray-400">View in Review</span>
+
+</td>
 
                       <td class="p-2 text-center">
                         {% if s.reporte_fotografico %}
