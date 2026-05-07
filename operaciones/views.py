@@ -7428,28 +7428,34 @@ def produccion_admin(request):
     - ajustes manuales
 
     PERFORMANCE:
-    - Los snapshots se leen directo desde BillingPayWeekSnapshot, no cargando todas las sesiones.
-    - Las sesiones legacy se cargan aparte, solo si NO tienen snapshots productivos.
-    - items/desglose_tecnico se prefetchean solo para legacy, donde realmente se necesitan.
+    - Snapshots se leen directo desde BillingPayWeekSnapshot.
+    - Legacy NO carga items/desglose antes de paginar.
+    - El detalle legacy se arma SOLO para las filas visibles de la página.
     """
     import re
     from decimal import Decimal
     from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
-    from django.db.models import CharField, Exists, OuterRef, Q
+    from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
     from django.db.models.functions import Cast
     from django.utils import timezone
 
+    from core.permissions import filter_queryset_by_access
     from facturacion.models import Proyecto
-    from operaciones.models import BillingPayWeekSnapshot, SesionBilling
+    from operaciones.models import (BillingPayWeekSnapshot, ItemBilling,
+                                    ItemBillingTecnico, SesionBilling,
+                                    SesionBillingTecnico)
 
     try:
         from operaciones.models import AdjustmentEntry
     except Exception:
         AdjustmentEntry = None
 
-    from usuarios.models import ProyectoAsignacion
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
 
     # ============================================================
     # Helpers
@@ -7542,6 +7548,14 @@ def produccion_admin(request):
 
         return target in full_name or target in username
 
+    def _to_decimal(value):
+        try:
+            if isinstance(value, Decimal):
+                return value
+            return Decimal(str(value or 0))
+        except Exception:
+            return Decimal("0.00")
+
     # ============================================================
     # Configuración / filtros
     # ============================================================
@@ -7571,7 +7585,7 @@ def produccion_admin(request):
         else:
             proyectos_user = filter_queryset_by_access(
                 base_proyectos,
-                request.user,
+                user,
                 "id",
             )
     except Exception:
@@ -7626,7 +7640,7 @@ def produccion_admin(request):
         return q
 
     # ============================================================
-    # 1) Flujo nuevo: leer snapshots productivos directamente
+    # 1) Flujo nuevo: snapshots productivos
     # ============================================================
     filas = []
 
@@ -7635,6 +7649,35 @@ def produccion_admin(request):
         .filter(
             _productive_snapshot_filter(),
             Q(sesion__estado__in=estados_ok) | Q(sesion__is_direct_discount=True),
+        )
+        .only(
+            "id",
+            "sesion_id",
+            "tecnico_id",
+            "item_id",
+            "codigo_trabajo",
+            "tipo_trabajo",
+            "semana_base",
+            "semana_resultado",
+            "tarifa_efectiva",
+            "subtotal",
+            "sesion__id",
+            "sesion__proyecto_id",
+            "sesion__estado",
+            "sesion__is_direct_discount",
+            "sesion__cliente",
+            "sesion__ciudad",
+            "sesion__proyecto",
+            "sesion__oficina",
+            "sesion__semana_pago_proyectada",
+            "tecnico__id",
+            "tecnico__first_name",
+            "tecnico__last_name",
+            "tecnico__username",
+            "item__id",
+            "item__descripcion",
+            "item__unidad_medida",
+            "item__cantidad",
         )
         .order_by(
             "-semana_resultado",
@@ -7685,7 +7728,7 @@ def produccion_admin(request):
 
     tech_rows = {}
 
-    for snap in snap_qs:
+    for snap in snap_qs.iterator(chunk_size=1000):
         s = getattr(snap, "sesion", None)
         tecnico = getattr(snap, "tecnico", None)
 
@@ -7707,6 +7750,7 @@ def produccion_admin(request):
 
         if key not in tech_rows:
             tech_rows[key] = {
+                "_source": "snapshot",
                 "sesion": s,
                 "tecnico": tecnico,
                 "project_id": s.proyecto_id,
@@ -7724,30 +7768,14 @@ def produccion_admin(request):
                 "adjustment_type": "",
             }
 
-        try:
-            subtotal = (
-                snap.subtotal
-                if isinstance(snap.subtotal, Decimal)
-                else Decimal(str(snap.subtotal or 0))
-            )
-        except Exception:
-            subtotal = Decimal("0.00")
-
+        subtotal = _to_decimal(getattr(snap, "subtotal", 0))
         tech_rows[key]["total_tecnico"] += subtotal
 
         if subtotal < 0:
             tech_rows[key]["is_discount"] = True
 
         item = getattr(snap, "item", None)
-
-        try:
-            rate_tec = (
-                snap.tarifa_efectiva
-                if isinstance(getattr(snap, "tarifa_efectiva", 0), Decimal)
-                else Decimal(str(getattr(snap, "tarifa_efectiva", 0) or 0))
-            )
-        except Exception:
-            rate_tec = Decimal("0.00")
+        rate_tec = _to_decimal(getattr(snap, "tarifa_efectiva", 0))
 
         tech_rows[key]["detalle"].append(
             {
@@ -7764,7 +7792,8 @@ def produccion_admin(request):
     filas.extend(tech_rows.values())
 
     # ============================================================
-    # 2) Legacy: solo sesiones SIN snapshots productivos
+    # 2) Legacy: sesiones SIN snapshots productivos
+    #    Importante: NO carga items/desglose aquí.
     # ============================================================
     productive_snap_exists = BillingPayWeekSnapshot.objects.filter(
         _productive_snapshot_filter(),
@@ -7777,11 +7806,36 @@ def produccion_admin(request):
         )
         .annotate(has_productive_snap=Exists(productive_snap_exists))
         .filter(has_productive_snap=False)
-        .order_by("-creado_en")
-        .prefetch_related(
-            "tecnicos_sesion__tecnico",
-            "items__desglose_tecnico",
+        .only(
+            "id",
+            "proyecto_id",
+            "estado",
+            "is_direct_discount",
+            "cliente",
+            "ciudad",
+            "proyecto",
+            "oficina",
+            "semana_pago_real",
+            "semana_pago_proyectada",
+            "subtotal_tecnico",
+            "creado_en",
         )
+        .prefetch_related(
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related("tecnico").only(
+                    "id",
+                    "sesion_id",
+                    "tecnico_id",
+                    "porcentaje",
+                    "tecnico__id",
+                    "tecnico__first_name",
+                    "tecnico__last_name",
+                    "tecnico__username",
+                ),
+            )
+        )
+        .order_by("-creado_en")
         .distinct()
     )
 
@@ -7822,12 +7876,12 @@ def produccion_admin(request):
             | Q(semana_pago_proyectada__icontains=week_token)
         )
 
-    def _build_legacy_rows_for_session(s):
+    def _build_legacy_light_rows_for_session(s):
         """
-        Fallback legacy:
-        - solo si NO hay snapshots productivos
-        - usa semana_pago_real o semana_pago_proyectada
-        - arma una fila por técnico
+        Legacy liviano:
+        - NO arma detalle aquí.
+        - Calcula total inicial por subtotal_tecnico * porcentaje.
+        - En la página visible se recalcula con items/desglose real.
         """
         legacy_week = (getattr(s, "semana_pago_real", "") or "").strip().upper() or (
             getattr(s, "semana_pago_proyectada", "") or ""
@@ -7840,21 +7894,14 @@ def produccion_admin(request):
             return []
 
         try:
-            asignaciones = list(
-                s.tecnicos_sesion.select_related("tecnico").all().order_by("id")
-            )
+            asignaciones = list(s.tecnicos_sesion.all())
         except Exception:
             asignaciones = []
 
         if not asignaciones:
             return []
 
-        try:
-            items = list(
-                s.items.prefetch_related("desglose_tecnico").all().order_by("id")
-            )
-        except Exception:
-            items = []
+        subtotal_sesion = _to_decimal(getattr(s, "subtotal_tecnico", 0))
 
         out = []
 
@@ -7867,80 +7914,14 @@ def produccion_admin(request):
             if not _match_tech_filter(tecnico, f_tech):
                 continue
 
-            detalle = []
-            total_tecnico = Decimal("0.00")
-
-            # 1) Intentar por desglose real
-            for item in items:
-                try:
-                    desglose_rows = [
-                        bd
-                        for bd in item.desglose_tecnico.all()
-                        if getattr(bd, "tecnico_id", None) == tecnico.id
-                    ]
-                except Exception:
-                    desglose_rows = []
-
-                for bd in desglose_rows:
-                    subtotal = getattr(bd, "subtotal", None)
-
-                    try:
-                        subtotal = (
-                            subtotal
-                            if isinstance(subtotal, Decimal)
-                            else Decimal(str(subtotal or 0))
-                        )
-                    except Exception:
-                        subtotal = Decimal("0.00")
-
-                    tarifa_efectiva = getattr(bd, "tarifa_efectiva", None)
-
-                    try:
-                        tarifa_efectiva = (
-                            tarifa_efectiva
-                            if isinstance(tarifa_efectiva, Decimal)
-                            else Decimal(str(tarifa_efectiva or 0))
-                        )
-                    except Exception:
-                        tarifa_efectiva = Decimal("0.00")
-
-                    detalle.append(
-                        {
-                            "codigo": getattr(item, "codigo_trabajo", "") or "",
-                            "tipo": getattr(item, "tipo_trabajo", "") or "",
-                            "desc": getattr(item, "descripcion", "") or "",
-                            "uom": getattr(item, "unidad_medida", "") or "",
-                            "qty": getattr(item, "cantidad", None),
-                            "rate_tec": tarifa_efectiva,
-                            "subtotal_tec": subtotal,
-                        }
-                    )
-
-                    total_tecnico += subtotal
-
-            # 2) Fallback extremo: si no hubo detalle, repartir subtotal_tecnico por porcentaje
-            if not detalle:
-                try:
-                    subtotal_sesion = getattr(s, "subtotal_tecnico", None)
-                    subtotal_sesion = (
-                        subtotal_sesion
-                        if isinstance(subtotal_sesion, Decimal)
-                        else Decimal(str(subtotal_sesion or 0))
-                    )
-                except Exception:
-                    subtotal_sesion = Decimal("0.00")
-
-                try:
-                    pct = Decimal(str(getattr(asig, "porcentaje", 0) or 0))
-                except Exception:
-                    pct = Decimal("0.00")
-
-                total_tecnico = (subtotal_sesion * (pct / Decimal("100"))).quantize(
-                    Decimal("0.01")
-                )
+            pct = _to_decimal(getattr(asig, "porcentaje", 0))
+            total_tecnico = (subtotal_sesion * (pct / Decimal("100"))).quantize(
+                Decimal("0.01")
+            )
 
             out.append(
                 {
+                    "_source": "legacy",
                     "sesion": s,
                     "tecnico": tecnico,
                     "project_id": s.proyecto_id,
@@ -7954,15 +7935,15 @@ def produccion_admin(request):
                     "real_week": legacy_week or "—",
                     "proj_week": s.semana_pago_proyectada or "—",
                     "total_tecnico": total_tecnico,
-                    "detalle": detalle,
+                    "detalle": [],
                     "adjustment_type": "",
                 }
             )
 
         return out
 
-    for s in legacy_qs:
-        filas.extend(_build_legacy_rows_for_session(s))
+    for s in legacy_qs.iterator(chunk_size=500):
+        filas.extend(_build_legacy_light_rows_for_session(s))
 
     # ============================================================
     # 3) Ajustes manuales
@@ -8003,22 +7984,15 @@ def produccion_admin(request):
                 | Q(technician__username__icontains=f_tech)
             )
 
-        for a in adj_qs:
+        for a in adj_qs.iterator(chunk_size=500):
             t = a.technician
 
-            try:
-                amt = (
-                    a.amount
-                    if isinstance(a.amount, Decimal)
-                    else Decimal(str(a.amount or 0))
-                )
-            except Exception:
-                amt = Decimal("0.00")
-
+            amt = _to_decimal(getattr(a, "amount", 0))
             signed_amount = amt.copy_abs()
 
             filas.append(
                 {
+                    "_source": "adjustment",
                     "sesion": None,
                     "tecnico": t,
                     "project_id": "-",
@@ -8105,15 +8079,18 @@ def produccion_admin(request):
     # ============================================================
     # Ventana de visibilidad por ProyectoAsignacion
     # ============================================================
-    try:
-        asignaciones = list(
-            ProyectoAsignacion.objects.filter(
-                usuario=request.user,
-                proyecto__in=proyectos_list,
-            ).select_related("proyecto")
-        )
-    except Exception:
-        asignaciones = []
+    asignaciones = []
+
+    if ProyectoAsignacion is not None:
+        try:
+            asignaciones = list(
+                ProyectoAsignacion.objects.filter(
+                    usuario=user,
+                    proyecto__in=proyectos_list,
+                ).select_related("proyecto")
+            )
+        except Exception:
+            asignaciones = []
 
     if asignaciones and not can_view_legacy_history:
         access_by_pk = {}
@@ -8214,6 +8191,98 @@ def produccion_admin(request):
     page_number = request.GET.get("page") or 1
     pagina = paginator.get_page(page_number)
 
+    # ============================================================
+    # Enriquecer SOLO legacy visible con detalle real
+    # ============================================================
+    visible_rows = list(pagina.object_list)
+
+    legacy_session_ids = {
+        row["sesion"].id
+        for row in visible_rows
+        if row.get("_source") == "legacy" and row.get("sesion") is not None
+    }
+
+    legacy_sessions_map = {}
+
+    if legacy_session_ids:
+        legacy_full_qs = SesionBilling.objects.filter(
+            id__in=legacy_session_ids
+        ).prefetch_related(
+            Prefetch(
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                    )
+                ).order_by("id"),
+            )
+        )
+
+        legacy_sessions_map = {s.id: s for s in legacy_full_qs}
+
+    def _rebuild_legacy_detail_for_row(row):
+        s_light = row.get("sesion")
+        tecnico = row.get("tecnico")
+
+        if not s_light or not tecnico:
+            return row
+
+        s = legacy_sessions_map.get(s_light.id)
+        if not s:
+            return row
+
+        detalle = []
+        total_tecnico = Decimal("0.00")
+
+        try:
+            items = list(s.items.all())
+        except Exception:
+            items = []
+
+        for item in items:
+            try:
+                desglose_rows = [
+                    bd
+                    for bd in item.desglose_tecnico.all()
+                    if getattr(bd, "tecnico_id", None) == tecnico.id
+                ]
+            except Exception:
+                desglose_rows = []
+
+            for bd in desglose_rows:
+                subtotal = _to_decimal(getattr(bd, "subtotal", 0))
+                tarifa_efectiva = _to_decimal(getattr(bd, "tarifa_efectiva", 0))
+
+                detalle.append(
+                    {
+                        "codigo": getattr(item, "codigo_trabajo", "") or "",
+                        "tipo": getattr(item, "tipo_trabajo", "") or "",
+                        "desc": getattr(item, "descripcion", "") or "",
+                        "uom": getattr(item, "unidad_medida", "") or "",
+                        "qty": getattr(item, "cantidad", None),
+                        "rate_tec": tarifa_efectiva,
+                        "subtotal_tec": subtotal,
+                    }
+                )
+
+                total_tecnico += subtotal
+
+        if detalle:
+            row["detalle"] = detalle
+            row["total_tecnico"] = total_tecnico
+
+        return row
+
+    for row in visible_rows:
+        if row.get("_source") == "legacy":
+            _rebuild_legacy_detail_for_row(row)
+
+    pagina.object_list = visible_rows
+
+    # ============================================================
+    # Querystring filtros
+    # ============================================================
     filters_dict = {
         "f_project": f_project,
         "f_week": f_week_input,
