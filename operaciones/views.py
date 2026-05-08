@@ -5097,15 +5097,15 @@ def listar_billing(request):
       - Resto:
           ocultar si finance_status ∈ {'sent','pending','paid','in_review'}.
 
-    PERFORMANCE:
-      - Primero filtra con queryset liviano.
-      - Aplica filtros rápidos antes de paginar.
-      - Pagina directo sobre queryset liviano.
-      - Carga items/desgloses/snapshots SOLO para la página visible.
-      - NO carga evidencias/fotos en el listado; esas deben verse en Review.
+    Mantiene filtros Excel del template:
+      - Construye excel_global_json.
+      - Lee excel_filters desde GET.
+      - Aplica filtros Excel antes de paginar.
+      - Mantiene paginación AJAX.
     """
     import json
     from datetime import date as _date
+    from decimal import Decimal
     from urllib.parse import urlencode
 
     from django.core.paginator import Paginator
@@ -5143,7 +5143,6 @@ def listar_billing(request):
         & ~Q(finance_status__in=["sent", "pending", "paid", "in_review"])
     )
 
-    # Query base liviana. NO prefetch aquí.
     qs = SesionBilling.objects.filter(visible_filter).order_by("-creado_en")
 
     # ============================================================
@@ -5320,184 +5319,76 @@ def listar_billing(request):
     qs_filtered = qs_filtered.distinct()
 
     # ============================================================
-    # Query liviana SOLO para paginar.
-    # No convertir todo el queryset a list().
+    # Helpers generales
     # ============================================================
-    light_qs = qs_filtered.only(
-        "id",
-        "creado_en",
-        "proyecto_id",
-        "direccion_proyecto",
-        "semana_pago_proyectada",
-        "semana_pago_real",
-        "discount_week",
-        "estado",
-        "is_direct_discount",
-        "cliente",
-        "ciudad",
-        "proyecto",
-        "oficina",
-        "subtotal_tecnico",
-        "subtotal_empresa",
-        "real_company_billing",
-        "finance_status",
-    )
+    def money_value(value):
+        if value in (None, ""):
+            return "—"
 
-    # ============================================================
-    # Paginación directa sobre queryset liviano
-    # ============================================================
-    cantidad = request.GET.get("cantidad", "10")
+        try:
+            return f"${Decimal(value):.2f}"
+        except Exception:
+            return str(value)
 
-    try:
-        per_page = int(cantidad)
-    except (TypeError, ValueError):
-        per_page = 10
+    def status_label(s):
+        if getattr(s, "is_direct_discount", False):
+            return "Direct discount"
 
-    if per_page < 5:
-        per_page = 5
+        estado = getattr(s, "estado", "") or ""
 
-    if per_page > 50:
-        per_page = 50
-
-    cantidad = str(per_page)
-
-    paginator = Paginator(light_qs, per_page)
-    pagina_light = paginator.get_page(request.GET.get("page"))
-
-    page_ids = [s.id for s in pagina_light.object_list]
-    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
-
-    # Mantengo la variable para que el HTML no falle.
-    # Los filtros Excel globales quedan vacíos para evitar cargar todos los Billing al abrir.
-    excel_filters_raw = ""
-    excel_global_json = json.dumps({})
-
-    # ============================================================
-    # Helper para resolver nombre de proyecto SOLO página visible
-    # ============================================================
-    def resolve_project_labels_for_sessions(sessions):
-        proj_ids = set()
-        proj_texts = set()
-
-        for s in sessions:
-            raw_proyecto = getattr(s, "proyecto", None)
-            if raw_proyecto not in (None, "", "-"):
-                txt = str(raw_proyecto).strip()
-                if txt:
-                    proj_texts.add(txt)
-                    try:
-                        proj_ids.add(int(txt))
-                    except Exception:
-                        pass
-
-            raw_proyecto_id = getattr(s, "proyecto_id", None)
-            if raw_proyecto_id not in (None, "", "-"):
-                txt2 = str(raw_proyecto_id).strip()
-                if txt2:
-                    proj_texts.add(txt2)
-                    try:
-                        proj_ids.add(int(txt2))
-                    except Exception:
-                        pass
-
-        proj_q = Q()
-
-        if proj_ids:
-            proj_q |= Q(id__in=proj_ids)
-
-        if proj_texts:
-            proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
-
-        proyectos = (
-            Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
-            if proj_q
-            else Proyecto.objects.none()
-        )
-
-        by_id = {str(p.id): p.nombre for p in proyectos}
-        by_code = {
-            (p.codigo or "").strip().lower(): p.nombre
-            for p in proyectos
-            if getattr(p, "codigo", None)
-        }
-        by_name = {
-            (p.nombre or "").strip().lower(): p.nombre
-            for p in proyectos
-            if getattr(p, "nombre", None)
+        labels = {
+            "aprobado_pm": "Approved by PM",
+            "rechazado_pm": "Rejected by PM",
+            "aprobado_supervisor": "Approved by supervisor",
+            "rechazado_supervisor": "Rejected by supervisor",
+            "en_revision_supervisor": "In supervisor review",
+            "finalizado": "Finished (pending review)",
+            "en_proceso": "In progress",
+            "asignado": "Assigned",
         }
 
-        for s in sessions:
-            raw = str(getattr(s, "proyecto", "") or "").strip()
-            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+        return labels.get(estado, "Assigned")
 
-            label = ""
+    def finance_status_label(s):
+        finance_status = getattr(s, "finance_status", "") or ""
 
-            if raw:
-                label = (
-                    by_id.get(raw)
-                    or by_code.get(raw.lower())
-                    or by_name.get(raw.lower())
-                    or raw
-                )
+        labels = {
+            "sent": "Sent to Finance",
+            "in_review": "In review",
+            "rejected": "Rejected",
+            "pending": "Pending payment",
+            "paid": "Paid",
+            "review_discount": "Review discount",
+            "discount_applied": "Discount applied",
+            "none": "—",
+            "": "—",
+            None: "—",
+        }
 
-            if not label and raw_id:
-                label = (
-                    by_id.get(raw_id)
-                    or by_code.get(raw_id.lower())
-                    or by_name.get(raw_id.lower())
-                    or raw_id
-                )
+        return labels.get(finance_status, "—")
 
-            s.proyecto_nombre = label
-            s.project_label = label
+    def diff_label(s):
+        real = getattr(s, "real_company_billing", None)
+        subtotal = getattr(s, "subtotal_empresa", None)
 
-        return sessions
+        if real in (None, "") or subtotal in (None, ""):
+            return "—"
 
-    # ============================================================
-    # Cargar relaciones pesadas solo para la página visible.
-    # IMPORTANTE: no se cargan evidencias/fotos aquí.
-    # ============================================================
-    page_rows = list(
-        SesionBilling.objects.filter(id__in=page_ids).prefetch_related(
-            Prefetch(
-                "items",
-                queryset=ItemBilling.objects.prefetch_related(
-                    Prefetch(
-                        "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
-                    )
-                ),
-            ),
-            Prefetch(
-                "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
-            ),
-            Prefetch(
-                "pay_week_snapshots",
-                queryset=BillingPayWeekSnapshot.objects.select_related(
-                    "tecnico",
-                    "item",
-                    "weekly_payment",
-                )
-                .filter(is_adjustment=False)
-                .order_by(
-                    "tecnico__first_name",
-                    "tecnico__last_name",
-                    "tecnico__username",
-                    "tipo_trabajo",
-                    "codigo_trabajo",
-                    "id",
-                ),
-            ),
-        )
-    )
+        try:
+            real_d = Decimal(real)
+            sub_d = Decimal(subtotal)
+            diff = real_d - sub_d
+        except Exception:
+            return "—"
 
-    page_rows.sort(key=lambda s: order_map.get(s.id, 999999))
-    resolve_project_labels_for_sessions(page_rows)
+        if diff == 0:
+            return "$0.00"
 
-    # ============================================================
-    # Helpers pesados SOLO para página visible
-    # ============================================================
+        if diff < 0:
+            return f"- ${abs(diff):.2f}"
+
+        return f"+ ${diff:.2f}"
+
     def techs_label(sesion):
         vals = []
 
@@ -5510,7 +5401,7 @@ def listar_billing(request):
         except Exception:
             pass
 
-        return ", ".join(v for v in vals if v)
+        return ", ".join(v for v in vals if v) or "—"
 
     def legacy_paid_flag(s):
         note = getattr(s, "finance_note", "") or ""
@@ -5687,6 +5578,372 @@ def listar_billing(request):
             else str(getattr(sesion, "semana_pago_real", "") or "—")
         )
 
+    def comments_label(s):
+        vals = []
+
+        try:
+            for a in s.tecnicos_sesion.all():
+                txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+
+                if not txt:
+                    continue
+
+                tech_name = (
+                    a.tecnico.get_full_name() if getattr(a, "tecnico", None) else ""
+                ) or (
+                    getattr(a.tecnico, "username", "")
+                    if getattr(a, "tecnico", None)
+                    else ""
+                )
+
+                if tech_name:
+                    vals.append(f"{tech_name}: {txt}")
+                else:
+                    vals.append(txt)
+        except Exception:
+            pass
+
+        return " | ".join(vals) if vals else "—"
+
+    def resolve_project_labels_for_sessions(sessions):
+        proj_ids = set()
+        proj_texts = set()
+
+        for s in sessions:
+            raw_proyecto = getattr(s, "proyecto", None)
+            if raw_proyecto not in (None, "", "-"):
+                txt = str(raw_proyecto).strip()
+                if txt:
+                    proj_texts.add(txt)
+                    try:
+                        proj_ids.add(int(txt))
+                    except Exception:
+                        pass
+
+            raw_proyecto_id = getattr(s, "proyecto_id", None)
+            if raw_proyecto_id not in (None, "", "-"):
+                txt2 = str(raw_proyecto_id).strip()
+                if txt2:
+                    proj_texts.add(txt2)
+                    try:
+                        proj_ids.add(int(txt2))
+                    except Exception:
+                        pass
+
+        proj_q = Q()
+
+        if proj_ids:
+            proj_q |= Q(id__in=proj_ids)
+
+        if proj_texts:
+            proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
+
+        proyectos = (
+            Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+            if proj_q
+            else Proyecto.objects.none()
+        )
+
+        by_id = {str(p.id): p.nombre for p in proyectos}
+        by_code = {
+            (p.codigo or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "codigo", None)
+        }
+        by_name = {
+            (p.nombre or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "nombre", None)
+        }
+
+        for s in sessions:
+            raw = str(getattr(s, "proyecto", "") or "").strip()
+            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+
+            label = ""
+
+            if raw:
+                label = (
+                    by_id.get(raw)
+                    or by_code.get(raw.lower())
+                    or by_name.get(raw.lower())
+                    or raw
+                )
+
+            if not label and raw_id:
+                label = (
+                    by_id.get(raw_id)
+                    or by_code.get(raw_id.lower())
+                    or by_name.get(raw_id.lower())
+                    or raw_id
+                )
+
+            s.proyecto_nombre = label
+            s.project_label = label
+
+        return sessions
+
+    def excel_value_for_session(s, key):
+        key = str(key)
+
+        if key == "0":
+            return (
+                s.creado_en.strftime("%Y-%m-%d")
+                if getattr(s, "creado_en", None)
+                else "—"
+            )
+
+        if key == "1":
+            return str(getattr(s, "proyecto_id", "") or "—")
+
+        if key == "2":
+            return str(getattr(s, "direccion_proyecto", "") or "—")
+
+        if key == "3":
+            return str(getattr(s, "semana_pago_proyectada", "") or "—")
+
+        if key == "4":
+            return status_label(s)
+
+        if key == "5":
+            return techs_label(s)
+
+        if key == "6":
+            return str(getattr(s, "cliente", "") or "—")
+
+        if key == "7":
+            return str(getattr(s, "ciudad", "") or "—")
+
+        if key == "8":
+            return str(
+                getattr(s, "proyecto_nombre", "")
+                or getattr(s, "project_label", "")
+                or getattr(s, "proyecto", "")
+                or "—"
+            )
+
+        if key == "9":
+            return str(getattr(s, "oficina", "") or "—")
+
+        if key == "10":
+            return money_value(getattr(s, "subtotal_tecnico", None))
+
+        if key == "11":
+            return money_value(getattr(s, "subtotal_empresa", None))
+
+        if key == "12":
+            return money_value(getattr(s, "real_company_billing", None))
+
+        if key == "13":
+            return diff_label(s)
+
+        if key == "14":
+            return finance_status_label(s)
+
+        if key == "15":
+            groups = getattr(s, "payweek_groups", None)
+            return payweek_snapshot_label(s, groups)
+
+        if key == "16":
+            return comments_label(s)
+
+        return "—"
+
+    # ============================================================
+    # Filtros Excel
+    # ============================================================
+    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+
+    try:
+        parsed_excel_filters = (
+            json.loads(excel_filters_raw) if excel_filters_raw else {}
+        )
+    except Exception:
+        parsed_excel_filters = {}
+
+    excel_filters = {}
+
+    if isinstance(parsed_excel_filters, dict):
+        for k, vals in parsed_excel_filters.items():
+            if isinstance(vals, list):
+                clean_vals = set(str(v) for v in vals if str(v).strip() != "")
+                if clean_vals:
+                    excel_filters[str(k)] = clean_vals
+
+    # Para mantener los filtros Excel como están en el HTML, necesitamos
+    # construir los valores globales antes de paginar.
+    excel_qs = qs_filtered.only(
+        "id",
+        "creado_en",
+        "proyecto_id",
+        "direccion_proyecto",
+        "semana_pago_proyectada",
+        "semana_pago_real",
+        "discount_week",
+        "estado",
+        "is_direct_discount",
+        "cliente",
+        "ciudad",
+        "proyecto",
+        "oficina",
+        "subtotal_tecnico",
+        "subtotal_empresa",
+        "real_company_billing",
+        "finance_status",
+        "finance_note",
+    ).prefetch_related(
+        Prefetch(
+            "tecnicos_sesion",
+            queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+        ),
+        Prefetch(
+            "pay_week_snapshots",
+            queryset=BillingPayWeekSnapshot.objects.select_related(
+                "tecnico",
+                "item",
+                "weekly_payment",
+            )
+            .filter(is_adjustment=False)
+            .order_by(
+                "tecnico__first_name",
+                "tecnico__last_name",
+                "tecnico__username",
+                "tipo_trabajo",
+                "codigo_trabajo",
+                "id",
+            ),
+        ),
+    )
+
+    excel_sessions = list(excel_qs)
+    resolve_project_labels_for_sessions(excel_sessions)
+
+    for s in excel_sessions:
+        s.payweek_groups = build_payweek_groups(s)
+        s.payweek_snapshot_label = payweek_snapshot_label(s, s.payweek_groups)
+        s.techs_label = techs_label(s)
+
+    excel_global = {str(i): set() for i in range(17)}
+
+    for s in excel_sessions:
+        for key in excel_global.keys():
+            val = excel_value_for_session(s, key)
+            excel_global[key].add(str(val or "—"))
+
+    excel_global_json = json.dumps(
+        {k: sorted(list(v), key=lambda x: x.lower()) for k, v in excel_global.items()}
+    )
+
+    if excel_filters:
+        allowed_ids = []
+
+        for s in excel_sessions:
+            keep = True
+
+            for key, allowed_values in excel_filters.items():
+                current_value = str(excel_value_for_session(s, key) or "—")
+
+                if current_value not in allowed_values:
+                    keep = False
+                    break
+
+            if keep:
+                allowed_ids.append(s.id)
+
+        qs_filtered = qs_filtered.filter(id__in=allowed_ids)
+
+    qs_filtered = qs_filtered.distinct()
+
+    # ============================================================
+    # Query liviana para paginar
+    # ============================================================
+    light_qs = qs_filtered.only(
+        "id",
+        "creado_en",
+        "proyecto_id",
+        "direccion_proyecto",
+        "semana_pago_proyectada",
+        "semana_pago_real",
+        "discount_week",
+        "estado",
+        "is_direct_discount",
+        "cliente",
+        "ciudad",
+        "proyecto",
+        "oficina",
+        "subtotal_tecnico",
+        "subtotal_empresa",
+        "real_company_billing",
+        "finance_status",
+        "finance_note",
+    ).order_by("-creado_en")
+
+    # ============================================================
+    # Paginación
+    # ============================================================
+    cantidad = request.GET.get("cantidad", "10")
+
+    try:
+        per_page = int(cantidad)
+    except (TypeError, ValueError):
+        per_page = 10
+
+    if per_page < 5:
+        per_page = 5
+
+    if per_page > 50:
+        per_page = 50
+
+    cantidad = str(per_page)
+
+    paginator = Paginator(light_qs, per_page)
+    pagina_light = paginator.get_page(request.GET.get("page"))
+
+    page_ids = [s.id for s in pagina_light.object_list]
+    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
+
+    # ============================================================
+    # Cargar relaciones pesadas solo para página visible.
+    # IMPORTANTE: no se cargan evidencias/fotos aquí.
+    # ============================================================
+    page_rows = list(
+        SesionBilling.objects.filter(id__in=page_ids).prefetch_related(
+            Prefetch(
+                "items",
+                queryset=ItemBilling.objects.prefetch_related(
+                    Prefetch(
+                        "desglose_tecnico",
+                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                    )
+                ),
+            ),
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+            ),
+            Prefetch(
+                "pay_week_snapshots",
+                queryset=BillingPayWeekSnapshot.objects.select_related(
+                    "tecnico",
+                    "item",
+                    "weekly_payment",
+                )
+                .filter(is_adjustment=False)
+                .order_by(
+                    "tecnico__first_name",
+                    "tecnico__last_name",
+                    "tecnico__username",
+                    "tipo_trabajo",
+                    "codigo_trabajo",
+                    "id",
+                ),
+            ),
+        )
+    )
+
+    page_rows.sort(key=lambda s: order_map.get(s.id, 999999))
+    resolve_project_labels_for_sessions(page_rows)
+
     # ============================================================
     # Extras para template SOLO página visible
     # ============================================================
@@ -5746,6 +6003,9 @@ def listar_billing(request):
 
     if f["status"]:
         keep_params["status"] = f["status"]
+
+    if excel_filters_raw:
+        keep_params["excel_filters"] = excel_filters_raw
 
     if cantidad:
         keep_params["cantidad"] = cantidad
