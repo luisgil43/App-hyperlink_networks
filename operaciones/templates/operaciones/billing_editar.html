@@ -211,7 +211,7 @@
                 <tr class="border-t">
                   <td class="p-2">
                     <div class="relative">
-                      <input name="row_code[]" class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
+                      <input class="code-input w-40 border rounded p-1" value="{{ it.codigo_trabajo }}" />
                       <div class="suggestions hidden absolute z-10 bg-white border rounded shadow mt-1 w-64 max-h-56 overflow-auto"></div>
                     </div>
                   </td>
@@ -219,7 +219,7 @@
                   <td class="p-2"><input class="desc-input w-64 border rounded p-1" value="{{ it.descripcion }}" readonly /></td>
                   <td class="p-2"><input class="uom-input w-24 border rounded p-1" value="{{ it.unidad_medida }}" readonly /></td>
                   <td class="p-2 text-right">
-                    <input name="row_amount[]" type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}" />
+                    <input type="number" step="0.01" class="amount-input w-28 border rounded p-1 text-right" value="{{ it.cantidad }}" />
                   </td>
                   {% if can_view_technical_billing_amounts %}
   <td class="p-2">
