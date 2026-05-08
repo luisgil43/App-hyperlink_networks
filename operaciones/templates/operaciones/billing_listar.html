@@ -2771,8 +2771,11 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
   const btnClear = document.getElementById('excelFilterClearAll');
   const btnClearAll = document.getElementById('btnExcelClearAll');
 
+  const EXCEL_OPTIONS_URL = "{% url 'operaciones:billing_excel_options' %}";
+
   let currentKey = null;
   let activeFilters = loadFilters();
+  let excelOptionsLoading = false;
 
   function loadFilters(){
     try{
@@ -2803,6 +2806,10 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     }
   }
 
+  function setExcelGlobal(obj){
+    zona.dataset.excelGlobal = JSON.stringify(obj || {});
+  }
+
   function updateHeaderStates(){
     activeFilters = loadFilters();
 
@@ -2813,12 +2820,73 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     });
   }
 
+  function buildOptionsParams(){
+    const p = new URLSearchParams(location.search);
+
+    // Para construir las opciones, no mandamos excel_filters.
+    // Así los valores disponibles corresponden a los filtros rápidos,
+    // no a la selección Excel ya aplicada.
+    p.delete('excel_filters');
+    p.delete('page');
+
+    const cantidadSelect = document.getElementById('cantidad');
+    if (cantidadSelect && cantidadSelect.value) {
+      p.set('cantidad', cantidadSelect.value);
+    }
+
+    return p;
+  }
+
+  async function loadExcelOptions(){
+    if (excelOptionsLoading) return;
+
+    excelOptionsLoading = true;
+
+    try{
+      const params = buildOptionsParams();
+      const url = `${EXCEL_OPTIONS_URL}?${params.toString()}`;
+
+      const resp = await fetch(url, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await resp.json();
+
+      if(!resp.ok || !data || data.ok !== true){
+        throw new Error((data && (data.error || data.message)) || `HTTP ${resp.status}`);
+      }
+
+      setExcelGlobal(data.excel_global || {});
+
+      if (currentKey !== null && !panel.classList.contains('hidden')) {
+        renderOptions(currentKey);
+      }
+
+    }catch(err){
+      console.error('Error loading Excel filter options:', err);
+      setExcelGlobal({});
+    }finally{
+      excelOptionsLoading = false;
+    }
+  }
+
   function renderOptions(key){
     const globalVals = getExcelGlobal();
     const values = Array.from(globalVals[key] || []).sort((a,b) => String(a).localeCompare(String(b)));
     const selected = activeFilters[key];
 
     optionsBox.innerHTML = '';
+
+    if (!values.length) {
+      const empty = document.createElement('div');
+      empty.className = 'text-xs text-gray-500 py-2';
+      empty.textContent = excelOptionsLoading ? 'Loading filters...' : 'No values available yet.';
+      optionsBox.appendChild(empty);
+      return;
+    }
 
     const allWrap = document.createElement('label');
     allWrap.className = 'flex items-center gap-2 mb-2';
@@ -2841,15 +2909,18 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
 
     const selectAll = document.getElementById('excel-select-all');
     const opts = Array.from(optionsBox.querySelectorAll('.excel-opt'));
-    selectAll.checked = !selected || selected.size === values.length;
 
-    selectAll.addEventListener('change', () => {
-      opts.forEach(o => {
-        const row = o.closest('[data-option-label]');
-        if (row && row.style.display === 'none' && searchInput.value.trim()) return;
-        o.checked = selectAll.checked;
+    if (selectAll) {
+      selectAll.checked = !selected || selected.size === values.length;
+
+      selectAll.addEventListener('change', () => {
+        opts.forEach(o => {
+          const row = o.closest('[data-option-label]');
+          if (row && row.style.display === 'none' && searchInput.value.trim()) return;
+          o.checked = selectAll.checked;
+        });
       });
-    });
+    }
   }
 
   function filterOptionList(q){
@@ -2873,7 +2944,15 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     titleEl.textContent = th.innerText.trim();
 
     activeFilters = loadFilters();
-    renderOptions(currentKey);
+
+    const globalVals = getExcelGlobal();
+
+    if (!globalVals || !Object.keys(globalVals).length) {
+      optionsBox.innerHTML = '<div class="text-xs text-gray-500 py-2">Loading filters...</div>';
+      loadExcelOptions();
+    } else {
+      renderOptions(currentKey);
+    }
 
     const scrollBox = zona.querySelector('.overflow-x-auto');
     const thRect = th.getBoundingClientRect();
@@ -2950,7 +3029,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     }
 
     zona.innerHTML = nuevaZona.innerHTML;
-    zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+    zona.dataset.excelGlobal = '{}';
     zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
 
     updateBillingTotalCount();
@@ -2966,6 +3045,9 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     if (window.billingRefreshBulkActions) {
       window.billingRefreshBulkActions();
     }
+
+    // La tabla ya se actualizó. Ahora recargamos opciones Excel en segundo plano.
+    loadExcelOptions();
   }
 
   function bindHeaders(){
@@ -2979,6 +3061,9 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
 
   bindHeaders();
   updateHeaderStates();
+
+  // Carga inicial de filtros Excel después de que la tabla ya está visible.
+  loadExcelOptions();
 
   searchInput.addEventListener('input', () => filterOptionList(searchInput.value));
 
@@ -3001,6 +3086,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     });
 
     const total = new Set(getExcelGlobal()[currentKey] || []);
+
     if(selected.size === 0 || selected.size === total.size){
       delete activeFilters[currentKey];
     }else{
@@ -3038,6 +3124,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     const a = e.target.closest('#pager a[href]');
     if (a) {
       e.preventDefault();
+
       const url = new URL(a.href, location.origin);
       history.replaceState(null, '', url.toString());
 
@@ -3052,7 +3139,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
       }
 
       zona.innerHTML = nuevaZona.innerHTML;
-      zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+      zona.dataset.excelGlobal = '{}';
       zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
 
       updateBillingTotalCount();
@@ -3068,21 +3155,24 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
       if (window.billingRefreshBulkActions) {
         window.billingRefreshBulkActions();
       }
+
+      // Después de paginar, refrescamos los filtros en segundo plano.
+      loadExcelOptions();
       return;
     }
 
     if(panel.classList.contains('hidden')) return;
     if(panel.contains(e.target)) return;
     if(e.target.closest('.excel-header-btn')) return;
+
     panel.classList.add('hidden');
   });
 
-  // ✅ dejar funciones globales para reutilizarlas desde otros scripts
   window.billingExcelRebindHeaders = bindHeaders;
   window.billingExcelUpdateHeaderStates = updateHeaderStates;
+  window.billingExcelLoadOptions = loadExcelOptions;
 })();
 </script>
-
 <script>
 (function () {
   document.addEventListener('change', async function (e) {
@@ -3110,7 +3200,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     }
 
     zona.innerHTML = nuevaZona.innerHTML;
-    zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+    zona.dataset.excelGlobal = '{}';    
     zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
 
     updateBillingTotalCount();
@@ -3130,6 +3220,11 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     }
     if (window.billingRefreshBulkActions) {
       window.billingRefreshBulkActions();
+    }
+    if (window.billingExcelLoadOptions) {
+
+      window.billingExcelLoadOptions();
+
     }
   });
 })();

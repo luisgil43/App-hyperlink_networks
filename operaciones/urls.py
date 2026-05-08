@@ -60,6 +60,11 @@ urlpatterns = [
         name="reasignar_tecnicos",
     ),
     path("billing/listar/", v.listar_billing, name="listar_billing"),
+    path(
+        "billing/excel-options/",
+        v.billing_excel_options,
+        name="billing_excel_options",
+    ),
     # AJAX dependientes
     path("billing/ajax/clientes/", v.ajax_clientes, name="ajax_clientes"),
     path("billing/ajax/ciudades/", v.ajax_ciudades, name="ajax_ciudades"),
