@@ -123,6 +123,10 @@ urlpatterns = [
         "ombording/",
         include(("ombording.urls", "ombording_legacy"), namespace="ombording_legacy"),
     ),
+    path(
+        "access-control/",
+        include(("access_control.urls", "access_control"), namespace="access_control"),
+    ),
 ]
 
 # Archivos estáticos y media (solo en DEBUG)

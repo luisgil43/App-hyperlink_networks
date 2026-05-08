@@ -1,0 +1,90 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Access Matrix{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="bg-white shadow mt-3 rounded-2xl px-4 py-5 sm:p-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        🔐 Access Matrix
+      </h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Configure what each role can view inside the Hyperlink Networks Platform.
+      </p>
+    </div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="border rounded-xl overflow-x-auto">
+      <table class="w-full min-w-[900px] text-sm">
+        <thead class="bg-gray-100 text-gray-800">
+          <tr>
+            <th class="p-3 text-left border">Permission</th>
+
+            {% for role in roles %}
+              <th class="p-3 text-center border">
+                {{ role.label }}
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for row in matrix_rows %}
+            <tr class="border-t">
+              <td class="p-3 border align-top">
+                <div class="font-semibold text-gray-800">
+                  {{ row.permission.label }}
+                </div>
+
+                <div class="text-xs text-gray-500 mt-1">
+                  {{ row.permission.key }}
+                </div>
+
+                {% if row.permission.description %}
+                  <div class="text-xs text-gray-500 mt-1">
+                    {{ row.permission.description }}
+                  </div>
+                {% endif %}
+              </td>
+
+              {% for role in row.roles %}
+                <td class="p-3 border text-center align-middle">
+                  <label class="inline-flex items-center justify-center cursor-pointer">
+                    <input type="checkbox"
+                           name="perm_{{ row.permission.id }}_{{ role.key }}"
+                           class="h-5 w-5 rounded border-gray-300 text-blue-600"
+                           {% if role.enabled %}checked{% endif %}>
+                  </label>
+                </td>
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{{ roles|length|add:1 }}" class="p-4 text-center text-gray-500">
+                No permissions configured yet.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-5 flex items-center justify-between gap-3 flex-wrap">
+      <p class="text-xs text-gray-500">
+        Changes made here will be used by Billing List, New Billing and Edit Billing.
+      </p>
+
+      <button type="submit"
+              class="px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm shadow">
+        Save Access Matrix
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

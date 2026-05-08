@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "dashboard",
     "borelogs",
     "core",
+    "access_control",
     "fleet",
     "notifications",
     "operaciones",

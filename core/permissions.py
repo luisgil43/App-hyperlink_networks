@@ -5,6 +5,7 @@ from typing import Iterable, Optional, Set
 
 from django.apps import apps
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models
 from django.db import models as dj_models
 from django.utils import timezone
@@ -29,6 +30,8 @@ PROJECT_PARAM_NAMES: Iterable[str] = getattr(
     "CORE_PROJECT_PARAM_NAMES",
     ("proyecto_id", "project_id", "proyecto"),
 )
+
+ACCESS_CONTROL_CACHE_SECONDS = 60 * 5
 
 
 def _user_has_role(user, role_names: Iterable[str]) -> bool:
@@ -74,12 +77,17 @@ def user_has_project_access(user, proyecto_id: Optional[int]) -> bool:
     if ProyectoAsignacion is not None:
         now = timezone.now()
         try:
-            exists = ProyectoAsignacion.objects.filter(
-                usuario=user, proyecto_id=proyecto_id
-            ).filter(
-                models.Q(include_history=True)
-                | models.Q(include_history=False, start_at__lte=now)
-            ).exists()
+            exists = (
+                ProyectoAsignacion.objects.filter(
+                    usuario=user,
+                    proyecto_id=proyecto_id,
+                )
+                .filter(
+                    models.Q(include_history=True)
+                    | models.Q(include_history=False, start_at__lte=now)
+                )
+                .exists()
+            )
             if exists:
                 return True
         except Exception:
@@ -87,7 +95,10 @@ def user_has_project_access(user, proyecto_id: Optional[int]) -> bool:
 
     # M2M directo en el usuario
     try:
-        if hasattr(user, "proyectos") and user.proyectos.filter(id=proyecto_id).exists():
+        if (
+            hasattr(user, "proyectos")
+            and user.proyectos.filter(id=proyecto_id).exists()
+        ):
             return True
     except Exception:
         pass
@@ -115,12 +126,14 @@ def projects_ids_for_user(user) -> Set[int]:
     if ProyectoAsignacion is not None:
         now = timezone.now()
         try:
-            asign_ids = ProyectoAsignacion.objects.filter(
-                usuario=user
-            ).filter(
-                models.Q(include_history=True)
-                | models.Q(include_history=False, start_at__lte=now)
-            ).values_list("proyecto_id", flat=True)
+            asign_ids = (
+                ProyectoAsignacion.objects.filter(usuario=user)
+                .filter(
+                    models.Q(include_history=True)
+                    | models.Q(include_history=False, start_at__lte=now)
+                )
+                .values_list("proyecto_id", flat=True)
+            )
             ids.update(asign_ids)
         except Exception:
             pass
@@ -149,8 +162,6 @@ def filter_queryset_by_access(qs, user, project_lookup: str) -> models.QuerySet:
         return qs.none()
     return qs.filter(**{f"{project_lookup}__in": list(allowed)})
 
-from functools import wraps
-
 
 def _extract_project_id_from_request(request, kwargs, param_names) -> int | None:
     """Busca un proyecto_id en kwargs o GET/POST usando los nombres configurados."""
@@ -164,10 +175,12 @@ def _extract_project_id_from_request(request, kwargs, param_names) -> int | None
     return None
 
 
-def _extract_project_id_from_object(object_kw: str | None,
-                                    model_label: str | None,
-                                    project_attr: str,
-                                    kwargs) -> int | None:
+def _extract_project_id_from_object(
+    object_kw: str | None,
+    model_label: str | None,
+    project_attr: str,
+    kwargs,
+) -> int | None:
     """
     Si se pasa object_kw y model_label, carga la instancia y devuelve el project id.
     - model_label: 'app_label.ModelName'
@@ -197,11 +210,14 @@ def _extract_project_id_from_object(object_kw: str | None,
         return None
 
 
-def project_object_access_required(_view_func=None, *,
-                                   model: str | None = None,
-                                   object_kw: str | None = None,
-                                   project_attr: str = "proyecto_id",
-                                   request_param_names=PROJECT_PARAM_NAMES):
+def project_object_access_required(
+    _view_func=None,
+    *,
+    model: str | None = None,
+    object_kw: str | None = None,
+    project_attr: str = "proyecto_id",
+    request_param_names=PROJECT_PARAM_NAMES,
+):
     """
     Decorador compatible con:
       @project_object_access_required
@@ -212,6 +228,7 @@ def project_object_access_required(_view_func=None, *,
       validamos con user_has_project_access. Si NO tiene acceso -> 403.
     - Si no podemos deducir proyecto_id, dejamos pasar (las vistas de listados deberían filtrar vía filter_queryset_by_access).
     """
+
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped(request, *args, **kwargs):
@@ -222,19 +239,33 @@ def project_object_access_required(_view_func=None, *,
             proyecto_id = None
 
             # 1) Intentar desde objeto (detalle/edición)
-            proyecto_id = _extract_project_id_from_object(object_kw, model, project_attr, kwargs)
+            proyecto_id = _extract_project_id_from_object(
+                object_kw,
+                model,
+                project_attr,
+                kwargs,
+            )
 
             # 2) Intentar desde parámetros (listados u otras vistas)
             if proyecto_id is None:
-                proyecto_id = _extract_project_id_from_request(request, kwargs, request_param_names)
+                proyecto_id = _extract_project_id_from_request(
+                    request,
+                    kwargs,
+                    request_param_names,
+                )
 
             # 3) Validar acceso si tenemos un id concreto
-            if proyecto_id is not None and not user_has_project_access(request.user, proyecto_id):
+            if proyecto_id is not None and not user_has_project_access(
+                request.user,
+                proyecto_id,
+            ):
                 from django.http import HttpResponseForbidden
+
                 return HttpResponseForbidden("You don't have access to this project.")
 
             # 4) Si no hay proyecto deducible, dejar pasar (la vista aplicará filtro a nivel de queryset)
             return view_func(request, *args, **kwargs)
+
         return _wrapped
 
     # Uso sin paréntesis: @project_object_access_required
@@ -245,13 +276,12 @@ def project_object_access_required(_view_func=None, *,
     return decorator
 
 
-from django.db.models import Q
-from django.utils import timezone
-
-from usuarios.models import ProyectoAsignacion
-
-
-def filter_queryset_by_assignment_history(qs, user, project_field: str, date_field: str):
+def filter_queryset_by_assignment_history(
+    qs,
+    user,
+    project_field: str,
+    date_field: str,
+):
     """
     Restringe un queryset por asignaciones ProyectoAsignacion:
       - include_history=True  -> ve todo el historial del proyecto
@@ -261,6 +291,7 @@ def filter_queryset_by_assignment_history(qs, user, project_field: str, date_fie
     date_field:    nombre del campo fecha en el modelo qs (ej: 'fecha' o 'creado_en')
     """
     asignaciones = ProyectoAsignacion.objects.filter(usuario=user)
+
     if not asignaciones.exists():
         return qs.none()
 
@@ -269,13 +300,14 @@ def filter_queryset_by_assignment_history(qs, user, project_field: str, date_fie
     field = model._meta.get_field(date_field)
     is_datefield = field.get_internal_type() == "DateField"
 
-    cond = Q()
+    cond = models.Q()
+
     for a in asignaciones:
         pid = a.proyecto_id
 
         # history completo
         if a.include_history or not a.start_at:
-            cond |= Q(**{project_field: pid})
+            cond |= models.Q(**{project_field: pid})
             continue
 
         # desde start_at
@@ -283,9 +315,108 @@ def filter_queryset_by_assignment_history(qs, user, project_field: str, date_fie
         if is_datefield:
             start_val = start_val.date()
 
-        cond |= Q(**{
-            project_field: pid,
-            f"{date_field}__gte": start_val,
-        })
+        cond |= models.Q(
+            **{
+                project_field: pid,
+                f"{date_field}__gte": start_val,
+            }
+        )
 
     return qs.filter(cond)
+
+
+# ==========================================================
+# Access Matrix permissions
+# ==========================================================
+
+
+def normalize_access_role_name(role_name):
+    return str(role_name or "").strip().lower()
+
+
+def get_user_access_role_names(user):
+    """
+    Devuelve los roles reales del usuario en minúscula.
+    Usa el M2M user.roles -> Rol.nombre.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return []
+
+    role_names = []
+
+    try:
+        if hasattr(user, "roles"):
+            for role in user.roles.all():
+                name = (
+                    getattr(role, "nombre", None)
+                    or getattr(role, "name", None)
+                    or str(role)
+                )
+                name = normalize_access_role_name(name)
+
+                if name:
+                    role_names.append(name)
+    except Exception:
+        role_names = []
+
+    return role_names
+
+
+def user_can(user, permission_key):
+    """
+    Consulta central de permisos desde Access Matrix.
+
+    Reglas:
+    - Superuser siempre puede.
+    - Admin general siempre puede.
+    - Si algún rol del usuario tiene el permiso enabled=True, puede.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+
+    if getattr(user, "is_superuser", False):
+        return True
+
+    if getattr(user, "es_admin_general", False):
+        return True
+
+    permission_key = str(permission_key or "").strip()
+
+    if not permission_key:
+        return False
+
+    role_names = get_user_access_role_names(user)
+
+    if not role_names:
+        return False
+
+    cache_key = "access_control:user_can:{}:{}:{}".format(
+        getattr(user, "pk", "anon"),
+        permission_key,
+        ",".join(sorted(role_names)),
+    )
+
+    cached = cache.get(cache_key)
+
+    if cached is not None:
+        return bool(cached)
+
+    try:
+        from access_control.models import RoleAccessPermission
+
+        allowed = RoleAccessPermission.objects.filter(
+            permission__key=permission_key,
+            permission__is_active=True,
+            role_name__in=role_names,
+            enabled=True,
+        ).exists()
+    except Exception:
+        allowed = False
+
+    cache.set(cache_key, allowed, ACCESS_CONTROL_CACHE_SECONDS)
+
+    return allowed
+
+
+def clear_access_control_cache():
+    cache.clear()

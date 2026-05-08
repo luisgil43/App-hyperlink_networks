@@ -7,7 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta id="meta-csrf" name="csrf-token" content="">
 
-
 <!-- iOS / Apple Touch Icons -->
 <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
 <link rel="apple-touch-icon" sizes="120x120" href="{% static 'icons/apple-touch-icon-120x120.png' %}">
@@ -217,7 +216,6 @@
 </style>
 </head>
 
-
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
 <!-- HEADER SUPERIOR FIJO -->
@@ -329,12 +327,22 @@
             <span class="flecha transition-transform duration-200">▶</span>
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
-          <li><a href="#">Overtime</a></li>
-          <li><a href="{% url 'operaciones:produccion_admin'%}">Salaries & Productions</a></li>
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li><a href="{% url 'operaciones:produccion_admin'%}">Salaries & Productions</a></li>
+          {% endif %}
+
           <li><a href="{% url 'operaciones:vista_rendiciones' %}">Expense Reports</a></li>
-          <li><a href="{% url 'operaciones:listar_precios_tecnico' %}">Technician Pricing Table</a></li>
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li><a href="{% url 'operaciones:listar_precios_tecnico' %}">Technician Pricing Table</a></li>
+          {% endif %}
+
           <li><a href="{% url 'operaciones:listar_billing' %}">Create Billing</a></li>
-          <li><a href="{% url 'operaciones:resumen_operativo' %}">Operational Summary</a></li>
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li><a href="{% url 'operaciones:resumen_operativo' %}">Operational Summary</a></li>
+          {% endif %}
         </ul>
       </li>
       {% endif %}
@@ -359,7 +367,7 @@
 {% endif %}
 
       <!-- SECCIÓN: Subcontract -->
-      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm or request.user.es_supervisor %}
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm %}
       <li class="group">
           <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
               <span class="flex items-center gap-2">🤝 Subcontractors</span>
@@ -392,7 +400,7 @@
       {% endif %}
 
       <!-- SECCIÓN: Fleet -->
-      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_supervisor or request.user.es_flota %}
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_flota %}
       <li class="group">
         <div class="flex justify-between items-center cursor-pointer"
              onclick="toggleMenu(this)">
@@ -429,7 +437,7 @@
       {% endif %}
 
       <!-- SECCIÓN: Finance -->
-      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      {% if request.user.es_admin_general or request.user.es_facturacion %}
       <li class="group">
           <div class="flex justify-between items-center cursor-pointer"
               onclick="toggleMenu(this)">
@@ -462,22 +470,29 @@
       </li>
       {% endif %}
 
-      {% if request.user.is_authenticated %}
-      <li class="group">
-          <div class="flex justify-between items-center cursor-pointer"
-               onclick="toggleMenu(this)">
-              <span class="flex items-center gap-2">🔐 Security</span>
-              <span class="flecha transition-transform duration-200">▶</span>
-          </div>
-          <ul class="ml-4 submenu space-y-1 hidden">
-              <li>
-                  <a href="{% url 'usuarios:two_factor_setup' %}">
-                      Two-factor authentication & devices
-                  </a>
-              </li>
-          </ul>
-      </li>
-      {% endif %}
+    {% if request.user.es_admin_general %}
+<li class="group">
+    <div class="flex justify-between items-center cursor-pointer"
+         onclick="toggleMenu(this)">
+        <span class="flex items-center gap-2">🔐 Security</span>
+        <span class="flecha transition-transform duration-200">▶</span>
+    </div>
+
+    <ul class="ml-4 submenu space-y-1 hidden">
+        <li>
+            <a href="{% url 'access_control:matrix' %}">
+                Permissions Matrix
+            </a>
+        </li>
+
+        <li>
+            <a href="{% url 'usuarios:two_factor_setup' %}">
+                Two-factor authentication & devices
+            </a>
+        </li>
+    </ul>
+</li>
+{% endif %}
 
       <!-- SECCIÓN: User Management -->
       {% if request.user.es_admin_general %}
@@ -508,7 +523,6 @@
   </main>
 </div>
 
-
 {# Toasts globales para ADMIN, igual que en usuario #}
 {% if messages %}
 <div id="mensajes-admin" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
@@ -530,7 +544,6 @@
   }, 5000);
 </script>
 {% endif %}
-
 
 <!-- SCRIPTS -->
 <script>
@@ -573,7 +586,6 @@
 <script src="https://unpkg.com/lucide@latest"></script>
 <script> lucide.createIcons(); </script>
 
-
 <!-- Semilla CSRF: fuerza que Django genere token/cookie -->
 <form class="hidden">{% csrf_token %}</form>
 
@@ -613,7 +625,6 @@
   window.addEventListener('orientationchange', applyHeaderOffset);
 })();
 </script>
-
 
 </body>
 </html>

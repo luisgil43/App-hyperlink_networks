@@ -72,6 +72,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
                                 Table, TableStyle)
 
+from access_control.services import user_can as access_user_can
 from core.decorators import project_object_access_required
 from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
@@ -127,6 +128,60 @@ RECEIPT_MAX_MB = int(getattr(settings, "RECEIPT_DIRECT_UPLOADS_MAX_MB", 25))
 RECEIPTS_SAFE_PREFIX = getattr(
     settings, "DIRECT_UPLOADS_RECEIPTS_PREFIX", "operaciones/rendiciones/"
 )
+
+
+def _billing_access_context(user):
+    """
+    Permisos visuales configurados desde Access Matrix.
+    """
+
+    can_create_billing = access_user_can(user, "billing.create_billing")
+    can_edit_billing = access_user_can(user, "billing.edit_billing")
+
+    can_view_technical_billing_amounts = access_user_can(
+        user,
+        "billing.view_technical_amounts",
+    )
+
+    can_view_company_billing_amounts = access_user_can(
+        user,
+        "billing.view_company_amounts",
+    )
+
+    can_view_real_company_billing = access_user_can(
+        user,
+        "billing.view_real_company_billing",
+    )
+
+    can_view_billing_difference = access_user_can(
+        user,
+        "billing.view_billing_difference",
+    )
+
+    can_edit_real_week = access_user_can(
+        user,
+        "billing.edit_real_week",
+    )
+    can_delete_billing = access_user_can(
+        user,
+        "billing.delete_billing",
+    )
+
+    return {
+        "can_create_billing": can_create_billing,
+        "can_edit_billing": can_edit_billing,
+        "can_edit_items": can_edit_billing,
+        "can_edit_real_week": can_edit_real_week,
+        "can_delete_billing": can_delete_billing,
+        "can_view_technical_billing_amounts": can_view_technical_billing_amounts,
+        "can_view_company_billing_amounts": can_view_company_billing_amounts,
+        "can_view_real_company_billing": can_view_real_company_billing,
+        "can_view_billing_difference": can_view_billing_difference,
+        # Alias por retrocompatibilidad
+        "can_view_technical_amounts": can_view_technical_billing_amounts,
+        "can_view_company_amounts": can_view_company_billing_amounts,
+    }
+
 
 def _attach_accounting_lock_flags_to_sessions(sessions):
     """
@@ -5972,14 +6027,11 @@ def listar_billing(request):
     # ============================================================
     # Permisos
     # ============================================================
-    can_edit_real_week = (
-        getattr(user, "es_pm", False)
-        or getattr(user, "es_facturacion", False)
-        or getattr(user, "es_admin_general", False)
-        or user.is_superuser
-    )
+    access_ctx = _billing_access_context(request.user)
 
-    can_edit_items = bool(getattr(user, "es_admin_general", False) or user.is_superuser)
+    can_edit_real_week = access_ctx["can_edit_real_week"]
+
+    can_edit_items = access_ctx["can_edit_items"]
 
     # ============================================================
     # Mantener filtros al paginar / cambiar cantidad
@@ -6012,18 +6064,22 @@ def listar_billing(request):
 
     qs_keep = urlencode(keep_params)
 
+    context = {
+        "pagina": pagina,
+        "cantidad": cantidad,
+        "can_edit_real_week": can_edit_real_week,
+        "can_edit_items": can_edit_items,
+        "f": f,
+        "qs_keep": qs_keep,
+        "excel_global_json": excel_global_json,
+    }
+
+    context.update(access_ctx)
+
     return render(
         request,
         "operaciones/billing_listar.html",
-        {
-            "pagina": pagina,
-            "cantidad": cantidad,
-            "can_edit_real_week": can_edit_real_week,
-            "can_edit_items": can_edit_items,
-            "f": f,
-            "qs_keep": qs_keep,
-            "excel_global_json": excel_global_json,
-        },
+        context,
     )
 
 
@@ -6069,6 +6125,17 @@ def billing_update_snapshot_week(request, snapshot_id: int):
             )
 
         sesion = snap.sesion
+
+        if not access_user_can(request.user, "billing.edit_real_week"):
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "FORBIDDEN",
+                    "message": "You do not have permission to edit the real pay week.",
+                },
+                status=403,
+            )
+
         is_admin = _is_admin(request.user)
 
         # 🔒 Si hay pagos PAID relacionados, solo admin puede mover semanas
@@ -6357,6 +6424,10 @@ def billing_item_update_qty(request, item_id: int):
 
 @login_required
 def crear_billing(request):
+    if not access_user_can(request.user, "billing.create_billing"):
+        messages.error(request, "You do not have permission to create billings.")
+        return redirect("operaciones:listar_billing")
+
     if request.method == "POST":
         return _guardar_billing(request)
 
@@ -6387,28 +6458,34 @@ def crear_billing(request):
     else:
         tecnicos = Usuario.objects.none()
 
+    context = {
+        "is_edit": False,
+        "sesion": None,
+        "clientes": list(clientes),
+        "tecnicos": tecnicos,
+        "items": [],
+        "ids_tecnicos": [],
+        "proyecto_value": "",
+        "proyecto_label": "",
+    }
+
+    context.update(_billing_access_context(request.user))
+
     return render(
         request,
         "operaciones/billing_editar.html",
-        {
-            "is_edit": False,
-            "sesion": None,
-            "clientes": list(clientes),
-            "tecnicos": tecnicos,
-            "items": [],
-            "ids_tecnicos": [],
-            "proyecto_value": "",
-            "proyecto_label": "",
-        },
+        context,
     )
 
 
 @login_required
 def editar_billing(request, sesion_id: int):
+    if not access_user_can(request.user, "billing.edit_billing"):
+        messages.error(request, "You do not have permission to edit billings.")
+        return redirect("operaciones:listar_billing")
+
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    # 🔒 Si ya existe al menos una línea pagada, no se permite editar.
-    # Esto evita cambios contables después del pago.
     if _session_is_paid_locked(sesion):
         messages.error(
             request,
@@ -6453,11 +6530,9 @@ def editar_billing(request, sesion_id: int):
     raw_label = (
         getattr(sesion, "proyecto", None) or getattr(sesion, "proyecto_id", None) or ""
     )
-
     raw_label = str(raw_label).strip()
 
     proyecto_value = raw_label
-
     proyecto_label = raw_label
 
     raw = (getattr(sesion, "proyecto", "") or "").strip()
@@ -6497,21 +6572,25 @@ def editar_billing(request, sesion_id: int):
             getattr(proyecto_sel, "nombre", "") or str(proyecto_sel)
         ).strip()
 
+    context = {
+        "is_edit": True,
+        "sesion": sesion,
+        "clientes": list(clientes),
+        "tecnicos": tecnicos,
+        "items": items,
+        "ids_tecnicos": ids_tecnicos,
+        "proyectos": proyectos_qs,
+        "proyecto_sel": proyecto_sel,
+        "proyecto_value": proyecto_value,
+        "proyecto_label": proyecto_label,
+    }
+
+    context.update(_billing_access_context(request.user))
+
     return render(
         request,
         "operaciones/billing_editar.html",
-        {
-            "is_edit": True,
-            "sesion": sesion,
-            "clientes": list(clientes),
-            "tecnicos": tecnicos,
-            "items": items,
-            "ids_tecnicos": ids_tecnicos,
-            "proyectos": proyectos_qs,
-            "proyecto_sel": proyecto_sel,
-            "proyecto_value": proyecto_value,
-            "proyecto_label": proyecto_label,
-        },
+        context,
     )
 
 
@@ -6773,6 +6852,12 @@ def billing_add_tecnico(request, sesion_id: int):
 @require_POST
 @transaction.atomic
 def eliminar_billing(request, sesion_id: int):
+    if not access_user_can(request.user, "billing.delete_billing"):
+        messages.error(request, "You do not have permission to delete billings.")
+        return HttpResponseRedirect(
+            request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
+        )
+
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
 
     # 🔒 Bloqueo contable absoluto:
@@ -6941,20 +7026,30 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
 def _guardar_billing(request, sesion=None):
     import re
 
+    if sesion is None:
+
+        if not access_user_can(request.user, "billing.create_billing"):
+
+            messages.error(request, "You do not have permission to create billings.")
+
+            return redirect("operaciones:listar_billing")
+
+    else:
+
+        if not access_user_can(request.user, "billing.create_billing"):
+
+            messages.error(request, "You do not have permission to edit billings.")
+
+            return redirect("operaciones:listar_billing")
+
     if sesion is not None and _session_is_paid_locked(sesion):
 
         messages.error(
-
             request,
-
             (
-
                 "This billing cannot be modified because at least one worker/work type "
-
                 "line has already been marked as paid."
-
             ),
-
         )
 
         return redirect("operaciones:listar_billing")
@@ -7140,19 +7235,23 @@ def _guardar_billing(request, sesion=None):
             "tech_payment_mode": tech_payment_mode,
         }
 
+        context = {
+            "is_edit": bool(sesion),
+            "sesion": sesion_ctx,
+            "clientes": list(clientes),
+            "tecnicos": tecnicos,
+            "items": build_post_items_context(),
+            "ids_tecnicos": ids,
+            "proyecto_value": proyecto_value,
+            "proyecto_label": proyecto_label,
+        }
+
+        context.update(_billing_access_context(request.user))
+
         return render(
             request,
             "operaciones/billing_editar.html",
-            {
-                "is_edit": bool(sesion),
-                "sesion": sesion_ctx,
-                "clientes": list(clientes),
-                "tecnicos": tecnicos,
-                "items": build_post_items_context(),
-                "ids_tecnicos": ids,
-                "proyecto_value": proyecto_value,
-                "proyecto_label": proyecto_label,
-            },
+            context,
         )
 
     if not (project_code and cliente and ciudad and project_pk_raw and oficina):
@@ -10516,6 +10615,17 @@ def billing_set_real_week(request, pk: int):
     - Re-sincroniza WeeklyPayment alrededor del cambio.
     """
     sesion = get_object_or_404(SesionBilling, pk=pk)
+
+    if not access_user_can(request.user, "billing.edit_real_week"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "FORBIDDEN",
+                "message": "You do not have permission to edit the real pay week.",
+            },
+            status=403,
+        )
+
     new_week = (request.POST.get("week") or "").strip().upper()
     if not new_week:
         return JsonResponse({"ok": False, "error": "MISSING_WEEK"}, status=400)
@@ -12099,6 +12209,16 @@ def billing_update_project_week(request, sesion_id: int):
         return HttpResponseNotAllowed(["POST"])
 
     s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    if not access_user_can(request.user, "billing.edit_real_week"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "FORBIDDEN",
+                "message": "You do not have permission to edit the real pay week.",
+            },
+            status=403,
+        )
 
     semana = (request.POST.get("semana_pago_proyectada") or "").strip().upper()
     if not semana:
