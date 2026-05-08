@@ -9,30 +9,262 @@
 <style>
   /* === Estilos de tabla y filtros (como el ledger) === */
   .campo-filtro{
-    border:2px solid #1f2937;padding:.25rem .75rem;border-radius:.75rem;font-size:.875rem;height:2.25rem;background:#fff;transition:border-color .2s
+    border:2px solid #1f2937;
+    padding:.25rem .75rem;
+    border-radius:.75rem;
+    font-size:.875rem;
+    height:2.25rem;
+    background:#fff;
+    transition:border-color .2s, box-shadow .2s, background-color .2s;
   }
-  .campo-filtro:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.3);outline:none}
-  .filtros-compactos .campo-filtro{width:auto;min-width:8.5rem;max-width:12rem}
-  @media (max-width:640px){.filtros-compactos .campo-filtro{max-width:10.5rem}}
-  .tabla-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%}
-  .tabla-responsive table{white-space:nowrap;min-width:1200px}
+
+  .campo-filtro:focus{
+    border-color:#3b82f6;
+    box-shadow:0 0 0 2px rgba(59,130,246,.3);
+    outline:none;
+  }
+
+  .filtros-compactos .campo-filtro{
+    width:auto;
+    min-width:8.5rem;
+    max-width:12rem;
+  }
+
+  @media (max-width:640px){
+    .filtros-compactos .campo-filtro{
+      max-width:10.5rem;
+    }
+  }
+
+  .tabla-responsive{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    width:100%;
+    max-width:100%;
+  }
+
+  .tabla-responsive table{
+    white-space:nowrap;
+    min-width:1200px;
+  }
+
+  /* === Mejoras visuales tabla usuarios === */
+  .users-table{
+    border-collapse:separate;
+    border-spacing:0;
+    overflow:hidden;
+  }
+
+  .users-table thead th{
+    position:sticky;
+    top:0;
+    z-index:1;
+    background:#f3f4f6;
+    color:#1f2937;
+    font-weight:700;
+    font-size:.82rem;
+    text-transform:none;
+    letter-spacing:.01em;
+  }
+
+  .users-table tbody tr{
+    transition:background-color .15s ease;
+  }
+
+  .users-table tbody tr:hover{
+    background:#f9fafb;
+  }
+
+  .users-table td,
+  .users-table th{
+    border-color:#e5e7eb;
+  }
+
+  .users-main-cell{
+    font-weight:600;
+    color:#111827;
+  }
+
+  .users-muted{
+    color:#9ca3af;
+    font-size:.82rem;
+    font-weight:600;
+  }
+
+  /* === Celdas compactas para Roles y Projects === */
+  .chips-cell{
+    white-space:normal !important;
+    vertical-align:top;
+    min-width:230px;
+    max-width:340px;
+    width:280px;
+  }
+
+  .chips-wrap{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    align-items:flex-start;
+    gap:.35rem;
+    max-height:4.85rem;
+    overflow-y:auto;
+    overflow-x:hidden;
+    padding:.15rem .2rem;
+    scrollbar-width:thin;
+  }
+
+  .chips-wrap::-webkit-scrollbar{
+    width:6px;
+  }
+
+  .chips-wrap::-webkit-scrollbar-thumb{
+    background:#cbd5e1;
+    border-radius:999px;
+  }
+
+  .chips-wrap::-webkit-scrollbar-track{
+    background:transparent;
+  }
+
+  .chip-role,
+  .chip-project{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    max-width:100%;
+    border-radius:9999px;
+    font-size:.72rem;
+    font-weight:700;
+    line-height:1.05rem;
+    padding:.25rem .6rem;
+    white-space:normal;
+    word-break:break-word;
+    text-align:center;
+    border:1px solid transparent;
+  }
+
+  .chip-role{
+    background:#e0e7ff;
+    color:#4338ca;
+    border-color:#c7d2fe;
+  }
+
+  .chip-project{
+    background:#f1f5f9;
+    color:#334155;
+    border-color:#e2e8f0;
+  }
+
+  .chip-project-history{
+    background:#eef2ff;
+    color:#3730a3;
+    border-color:#c7d2fe;
+  }
+
+  .chip-project-limited{
+    background:#fff7ed;
+    color:#9a3412;
+    border-color:#fed7aa;
+  }
+
+  .chip-status{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:9999px;
+    font-size:.72rem;
+    font-weight:800;
+    line-height:1rem;
+    padding:.3rem .7rem;
+    white-space:nowrap;
+  }
+
+  .chip-2fa-enabled{
+    background:#dcfce7;
+    color:#047857;
+  }
+
+  .chip-2fa-disabled{
+    background:#f1f5f9;
+    color:#64748b;
+  }
+
+  .chip-active-yes{
+    background:#dcfce7;
+    color:#15803d;
+  }
+
+  .chip-active-no{
+    background:#fee2e2;
+    color:#b91c1c;
+  }
+
+  .action-pill{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:9999px;
+    font-size:.72rem;
+    font-weight:800;
+    line-height:1rem;
+    padding:.35rem .75rem;
+    transition:background-color .15s ease, transform .15s ease;
+    white-space:nowrap;
+  }
+
+  .action-pill:hover{
+    transform:translateY(-1px);
+  }
+
+  .action-edit{
+    background:#dbeafe;
+    color:#1d4ed8;
+  }
+
+  .action-edit:hover{
+    background:#bfdbfe;
+  }
+
+  .action-delete{
+    background:#fee2e2;
+    color:#b91c1c;
+  }
+
+  .action-delete:hover{
+    background:#fecaca;
+  }
+
+  .action-2fa{
+    background:#fef3c7;
+    color:#92400e;
+  }
+
+  .action-2fa:hover{
+    background:#fde68a;
+  }
 </style>
 
 <!-- Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
   <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👤 User List</h2>
-  <div class="flex gap-2">
+
+  <div class="flex flex-wrap gap-2">
     <button id="btn-export-new-user-docx"
             type="button"
             class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm shadow">
       ⬇ New user form (Word)
     </button>
+
     <button id="btn-export-users"
             type="button"
             class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm shadow">
       ⬇ Export
     </button>
-    <a href="{% url 'dashboard_admin:crear_usuario' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">➕ Add User</a>
+
+    <a href="{% url 'dashboard_admin:crear_usuario' %}"
+       class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      ➕ Add User
+    </a>
   </div>
 </div>
 
@@ -59,7 +291,10 @@
       {% endfor %}
     </select>
 
-    <a href="{% url 'dashboard_admin:listar_usuarios' %}" class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">❌ Clear</a>
+    <a href="{% url 'dashboard_admin:listar_usuarios' %}"
+       class="bg-red-100 hover:bg-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-full shadow flex-none">
+      ❌ Clear
+    </a>
 
     <input type="hidden" name="cantidad" value="{{ cantidad|default:per_page }}">
   </div>
@@ -71,7 +306,7 @@
   {% with base_qs=querystring|default:request.GET.urlencode %}
 
   <div class="rounded-xl border border-gray-200 tabla-responsive">
-    <table class="table-auto border border-gray-300 rounded-xl text-sm w-full">
+    <table class="users-table table-auto border border-gray-300 rounded-xl text-sm w-full">
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
         <tr>
           <th class="p-2 border">Username</th>
@@ -86,68 +321,73 @@
           <th class="p-2 border">Actions</th>
         </tr>
       </thead>
+
       <tbody class="text-center">
         {% for usuario in pagina %}
         <tr class="border-t">
-          <td class="p-2 border">{{ usuario.username }}</td>
+          <td class="p-2 border users-main-cell">{{ usuario.username }}</td>
           <td class="p-2 border">{{ usuario.first_name }}</td>
           <td class="p-2 border">{{ usuario.last_name }}</td>
           <td class="p-2 border">{{ usuario.identidad }}</td>
           <td class="p-2 border">{{ usuario.email }}</td>
 
           <!-- Roles -->
-          <td class="p-2 border">
-            {% for rol in usuario.roles.all %}
-              <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
-                {{ rol.label_en|default:rol.nombre }}
-              </span>
-            {% empty %}
-              <span class="text-gray-400 text-sm">No roles</span>
-            {% endfor %}
+          <td class="p-2 border chips-cell">
+            <div class="chips-wrap">
+              {% for rol in usuario.roles.all %}
+                <span class="chip-role">
+                  {{ rol.label_en|default:rol.nombre }}
+                </span>
+              {% empty %}
+                <span class="users-muted">No roles</span>
+              {% endfor %}
+            </div>
           </td>
 
           <!-- Proyectos -->
-          <td class="p-2 border">
-            {% with pas=usuario.proyectoasignacion_set.all %}
-              {% if pas %}
-                {% for a in pas %}
-                  <span class="inline-block bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
-                    {{ a.proyecto.nombre }}
-                    {% if not a.include_history %}
-                      (from {{ a.start_at|date:"Y-m-d" }})
+          <td class="p-2 border chips-cell">
+            <div class="chips-wrap">
+              {% with pas=usuario.proyectoasignacion_set.all %}
+                {% if pas %}
+                  {% for a in pas %}
+                    <span class="chip-project {% if a.include_history %}chip-project-history{% else %}chip-project-limited{% endif %}">
+                      {{ a.proyecto.nombre }}
+                      {% if not a.include_history %}
+                        (from {{ a.start_at|date:"Y-m-d" }})
+                      {% else %}
+                        (history)
+                      {% endif %}
+                    </span>
+                  {% empty %}
+                    <span class="users-muted">—</span>
+                  {% endfor %}
+                {% else %}
+                  {% with pms=usuario.proyectos.all %}
+                    {% if pms %}
+                      {% for p in pms %}
+                        <span class="chip-project">
+                          {{ p.nombre }}
+                        </span>
+                      {% empty %}
+                        <span class="users-muted">—</span>
+                      {% endfor %}
                     {% else %}
-                      (history)
+                      <span class="users-muted">—</span>
                     {% endif %}
-                  </span>
-                {% empty %}
-                  <span class="text-gray-400 text-sm">—</span>
-                {% endfor %}
-              {% else %}
-                {% with pms=usuario.proyectos.all %}
-                  {% if pms %}
-                    {% for p in pms %}
-                      <span class="inline-block bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 rounded-full mr-1">
-                        {{ p.nombre }}
-                      </span>
-                    {% empty %}
-                      <span class="text-gray-400 text-sm">—</span>
-                    {% endfor %}
-                  {% else %}
-                    <span class="text-gray-400 text-sm">—</span>
-                  {% endif %}
-                {% endwith %}
-              {% endif %}
-            {% endwith %}
+                  {% endwith %}
+                {% endif %}
+              {% endwith %}
+            </div>
           </td>
 
           <!-- 2FA -->
           <td class="p-2 border">
             {% if usuario.two_factor_enabled %}
-              <span class="inline-block bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full">
+              <span class="chip-status chip-2fa-enabled">
                 Enabled
               </span>
             {% else %}
-              <span class="inline-block bg-slate-100 text-slate-500 text-xs font-semibold px-2 py-1 rounded-full">
+              <span class="chip-status chip-2fa-disabled">
                 Disabled
               </span>
             {% endif %}
@@ -156,9 +396,9 @@
           <!-- Active -->
           <td class="p-2 border">
             {% if usuario.is_active %}
-              <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">✔ Yes</span>
+              <span class="chip-status chip-active-yes">✔ Yes</span>
             {% else %}
-              <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full">✖ No</span>
+              <span class="chip-status chip-active-no">✖ No</span>
             {% endif %}
           </td>
 
@@ -167,13 +407,13 @@
             <div class="flex flex-col sm:flex-row gap-1 justify-center">
               <!-- Edit -->
               <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
-                 class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">
+                 class="action-pill action-edit">
                 ✏️ Edit
               </a>
 
               <!-- Delete -->
               <a href="#" onclick="openModal('{{ usuario.id }}','{{ usuario.username }}')"
-                 class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">
+                 class="action-pill action-delete">
                 🗑️ Delete
               </a>
 
@@ -181,15 +421,18 @@
               {% if usuario.two_factor_enabled %}
               <button type="button"
                       onclick="openReset2faModal('{{ usuario.id }}','{{ usuario.username }}')"
-                      class="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-yellow-200 transition">
+                      class="action-pill action-2fa">
                 🔄 Reset 2FA
               </button>
               {% endif %}
             </div>
           </td>
         </tr>
+
         {% empty %}
-        <tr><td colspan="10" class="p-4 text-center">No users registered.</td></tr>
+        <tr>
+          <td colspan="10" class="p-4 text-center">No users registered.</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -227,6 +470,7 @@
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page=1">« First</a>
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.previous_page_number }}">‹ Previous</a>
     {% endif %}
+
     {% if pagina.has_next %}
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.next_page_number }}">Next ›</a>
       <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.paginator.num_pages }}">Last »</a>
@@ -242,10 +486,12 @@
   <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
     <h2 class="text-xl font-semibold mb-4">Confirm Deletion</h2>
     <p id="modalMessage" class="mb-6 text-gray-700"></p>
+
     <div class="flex justify-end space-x-4">
       <button onclick="closeModal()" class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
         Cancel
       </button>
+
       <form id="deleteForm" method="POST">
         {% csrf_token %}
         <button type="submit" name="delete_user"
@@ -262,15 +508,18 @@
   <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
     <h2 class="text-xl font-semibold mb-4">Reset Two-Factor Authentication</h2>
     <p id="reset2faMessage" class="mb-6 text-gray-700"></p>
+
     <div class="flex justify-end space-x-4">
       <button type="button"
               onclick="closeReset2faModal()"
               class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
         Cancel
       </button>
+
       <form id="reset2faForm" method="POST">
         {% csrf_token %}
         <input type="hidden" name="user_id" id="reset2faUserId">
+
         <button type="submit" name="reset_2fa"
                 class="px-4 py-2 rounded-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold">
           Reset 2FA
@@ -298,22 +547,42 @@
   let debounceTimer = null, controller = null;
 
   const SCROLL_KEY = 'usersScrollX:' + location.pathname;
-  function getScrollBox(){ return zona.querySelector('.tabla-responsive'); }
-  function readSavedX(){ return Number(sessionStorage.getItem(SCROLL_KEY) || 0); }
-  function saveX(x){ sessionStorage.setItem(SCROLL_KEY, String(x)); }
+
+  function getScrollBox(){
+    return zona.querySelector('.tabla-responsive');
+  }
+
+  function readSavedX(){
+    return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
+  }
+
+  function saveX(x){
+    sessionStorage.setItem(SCROLL_KEY, String(x));
+  }
+
   function hookScrollSaver(){
     const box = getScrollBox();
     if(!box) return;
+
     let t=null;
+
     box.addEventListener('scroll', ()=>{
       if(t) return;
-      t=setTimeout(()=>{ t=null; saveX(box.scrollLeft); }, 120);
+
+      t=setTimeout(()=>{
+        t=null;
+        saveX(box.scrollLeft);
+      }, 120);
     }, {passive:true});
   }
+
   function restoreX(x){
     const box = getScrollBox();
     if(!box) return;
-    requestAnimationFrame(()=>{ box.scrollLeft = x; });
+
+    requestAnimationFrame(()=>{
+      box.scrollLeft = x;
+    });
   }
 
   function paramsFromFilters(resetPage){
@@ -327,15 +596,22 @@
     saveX(prevX);
 
     const url = `${location.pathname}?${qs}`;
-    if (push) history.replaceState(null, '', url);
 
-    if (controller) controller.abort();
+    if (push) {
+      history.replaceState(null, '', url);
+    }
+
+    if (controller) {
+      controller.abort();
+    }
+
     controller = new AbortController();
 
     const resp = await fetch(url, { signal: controller.signal });
     const html = await resp.text();
     const doc  = new DOMParser().parseFromString(html, 'text/html');
     const nuevaZona = doc.getElementById('zonaTabla');
+
     if (!nuevaZona) return;
 
     zona.innerHTML = nuevaZona.innerHTML;
@@ -349,6 +625,7 @@
 
   function refiltrar(resetPage=true){
     clearTimeout(debounceTimer);
+
     debounceTimer = setTimeout(()=>{
       const p = paramsFromFilters(resetPage);
       cargarTablaCon(p.toString(), true);
@@ -357,9 +634,14 @@
 
   filtrosForm.querySelectorAll('.filtro, #rol').forEach(el=>{
     const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+
     el.addEventListener(evt, ()=>refiltrar(true));
+
     el.addEventListener('keydown', e=>{
-      if(e.key==='Enter'){ e.preventDefault(); refiltrar(true); }
+      if(e.key==='Enter'){
+        e.preventDefault();
+        refiltrar(true);
+      }
     });
   });
 
@@ -367,9 +649,12 @@
     zona.querySelectorAll('a.pg-link').forEach(a=>{
       a.addEventListener('click', ev=>{
         ev.preventDefault();
+
         const href = new URL(a.getAttribute('href'), location.href);
         const p = paramsFromFilters(false);
+
         p.set('page', href.searchParams.get('page') || '1');
+
         cargarTablaCon(p.toString(), true);
       });
     });
@@ -378,17 +663,23 @@
   function engancharCantidad(){
     const sel = zona.querySelector('#cantidad');
     if(!sel) return;
+
     sel.addEventListener('change', ()=>{
       const val = sel.value;
       const hidden = filtrosForm.querySelector('input[name="cantidad"]');
-      if (hidden) hidden.value = val;
+
+      if (hidden) {
+        hidden.value = val;
+      }
 
       const p = paramsFromFilters(true);
+
       if (val === 'todos') {
         p.set('per_page', 'all');
       } else {
         p.set('per_page', val);
       }
+
       p.set('cantidad', val);
 
       cargarTablaCon(p.toString(), true);
@@ -403,9 +694,12 @@
 
 function openModal(userId, username) {
   const modal = document.getElementById('confirmModal');
+
   document.getElementById('modalMessage').textContent =
     `Are you sure you want to delete the user "${username}"?`;
+
   document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
+
   modal.classList.remove('hidden');
 }
 
@@ -429,16 +723,19 @@ function closeReset2faModal() {
 }
 
 const btnExport = document.getElementById('btn-export-users');
+
 if (btnExport) {
   btnExport.addEventListener('click', function () {
     const base = "{% url 'dashboard_admin:exportar_usuarios' %}";
     const qs = window.location.search;
     const url = qs ? (base + qs) : base;
+
     window.location.href = url;
   });
 }
 
 const btnNewUserDocx = document.getElementById('btn-export-new-user-docx');
+
 if (btnNewUserDocx) {
   btnNewUserDocx.addEventListener('click', function () {
     const url = "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
