@@ -128,6 +128,275 @@ RECEIPTS_SAFE_PREFIX = getattr(
     settings, "DIRECT_UPLOADS_RECEIPTS_PREFIX", "operaciones/rendiciones/"
 )
 
+def _attach_accounting_lock_flags_to_sessions(sessions):
+    """
+    Optimización para listados.
+
+    Marca en cada sesión:
+      - has_paid_work_type_lines
+      - can_reopen_billing_fast
+      - can_delete_billing_fast
+      - can_edit_billing_fast
+
+    Importante:
+    - NO reemplaza _session_is_paid_locked() para acciones POST.
+    - Solo evita N consultas por fila en listar_billing().
+    - Usa relaciones prefetched:
+        pay_week_snapshots
+        tecnicos_sesion
+        weekly_payment dentro del snapshot
+    """
+
+    sessions = list(sessions or [])
+    if not sessions:
+        return sessions
+
+    # ------------------------------------------------------------
+    # 1) Primera pasada en memoria usando snapshots ya prefetched
+    # ------------------------------------------------------------
+    by_session_id = {}
+    candidate_tech_ids = set()
+    candidate_weeks = set()
+    session_candidate_pairs = {}
+
+    for s in sessions:
+        by_session_id[s.id] = s
+
+        is_locked = False
+        snaps = []
+
+        try:
+            snaps = list(s.pay_week_snapshots.all())
+        except Exception:
+            snaps = []
+
+        # IDs de técnicos de la sesión, ya prefetched
+        tech_ids = []
+        try:
+            tech_ids = [
+                int(x)
+                for x in s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
+                if x
+            ]
+        except Exception:
+            try:
+                tech_ids = [
+                    int(a.tecnico_id)
+                    for a in s.tecnicos_sesion.all()
+                    if getattr(a, "tecnico_id", None)
+                ]
+            except Exception:
+                tech_ids = []
+
+        weeks = set()
+
+        for snap in snaps:
+            # En listar_billing ya prefetcheas is_adjustment=False,
+            # pero dejamos esta defensa por si cambias el prefetch.
+            if getattr(snap, "is_adjustment", False):
+                continue
+
+            if getattr(snap, "adjustment_of_id", None):
+                continue
+
+            payment_status = (
+                (getattr(snap, "payment_status", "") or "").strip().lower()
+            )
+
+            if payment_status == "paid":
+                is_locked = True
+                break
+
+            if getattr(snap, "paid_at", None):
+                is_locked = True
+                break
+
+            wp = getattr(snap, "weekly_payment", None)
+            if wp and (getattr(wp, "status", "") or "").strip().lower() == "paid":
+                is_locked = True
+                break
+
+            week_value = (
+                (getattr(snap, "semana_resultado", "") or "").strip().upper()
+            )
+            if week_value:
+                weeks.add(week_value)
+
+        # Legacy / fallback si no hay semanas desde snapshots
+        if not weeks:
+            possible_weeks = [
+                (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+                (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+                (getattr(s, "discount_week", "") or "").strip().upper(),
+            ]
+            weeks = {w for w in possible_weeks if w}
+
+        s.has_paid_work_type_lines = bool(is_locked)
+
+        # Si todavía no quedó bloqueada por snapshot directo,
+        # guardamos pares técnico/semana para una consulta global.
+        if not is_locked and tech_ids and weeks:
+            pairs = set()
+            for tid in tech_ids:
+                candidate_tech_ids.add(tid)
+                for wk in weeks:
+                    candidate_weeks.add(wk)
+                    pairs.add((tid, wk))
+
+            session_candidate_pairs[s.id] = pairs
+
+    # ------------------------------------------------------------
+    # 2) Consulta global única a WeeklyPayment paid
+    # ------------------------------------------------------------
+    paid_pairs = set()
+
+    if candidate_tech_ids and candidate_weeks:
+        paid_pairs = set(
+            WeeklyPayment.objects.filter(
+                technician_id__in=candidate_tech_ids,
+                week__in=candidate_weeks,
+                status="paid",
+            ).values_list("technician_id", "week")
+        )
+
+    # ------------------------------------------------------------
+    # 3) Aplicar paid_pairs + markers legacy en finance_note
+    # ------------------------------------------------------------
+    for s in sessions:
+        if getattr(s, "has_paid_work_type_lines", False):
+            locked = True
+        else:
+            locked = False
+
+            pairs = session_candidate_pairs.get(s.id, set())
+
+            if paid_pairs and pairs:
+                if any(pair in paid_pairs for pair in pairs):
+                    locked = True
+
+            if not locked:
+                note = getattr(s, "finance_note", "") or ""
+                for tech_id, wk in pairs:
+                    marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+                    if marker in note:
+                        locked = True
+                        break
+
+        s.has_paid_work_type_lines = bool(locked)
+        s.can_reopen_billing_fast = (
+            s.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
+            and not locked
+        )
+        s.can_delete_billing_fast = not locked
+        s.can_edit_billing_fast = not locked
+
+    return sessions
+
+def _session_is_paid_locked(sesion) -> bool:
+    """
+    Bloqueo contable del Billing.
+
+    Regla:
+    - Si existe al menos una línea productiva de BillingPayWeekSnapshot
+      marcada como paid para esta sesión, el Billing queda bloqueado.
+    - También queda bloqueado si existe un WeeklyPayment paid asociado
+      a algún técnico + semana efectiva de esta sesión.
+    - Compatibilidad legacy:
+      si no hay snapshots productivos, usa semana_pago_real /
+      semana_pago_proyectada / discount_week y también revisa markers antiguos
+      en finance_note.
+
+    Importante:
+    - Este bloqueo aplica para reabrir, eliminar y editar.
+    - No depende de que finance_status del Billing sea "paid".
+    """
+
+    if not sesion:
+        return False
+
+    snapshot_model = BillingPayWeekSnapshot
+    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
+
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+    has_payment_status = "payment_status" in snapshot_fields
+    has_paid_at = "paid_at" in snapshot_fields
+    has_weekly_payment = "weekly_payment" in snapshot_fields
+
+    # ==========================================================
+    # 1) Snapshots productivos de esta sesión
+    # ==========================================================
+    snaps_qs = snapshot_model.objects.filter(sesion=sesion)
+
+    if has_is_adjustment:
+        snaps_qs = snaps_qs.filter(is_adjustment=False)
+    elif has_adjustment_of:
+        snaps_qs = snaps_qs.filter(adjustment_of__isnull=True)
+
+    # 1.1) Bloqueo directo por payment_status='paid'
+    if has_payment_status:
+        if snaps_qs.filter(payment_status="paid").exists():
+            return True
+
+    # 1.2) Bloqueo por paid_at
+    if has_paid_at:
+        if snaps_qs.exclude(paid_at__isnull=True).exists():
+            return True
+
+    # 1.3) Bloqueo por WeeklyPayment relacionado al snapshot
+    if has_weekly_payment:
+        if snaps_qs.filter(weekly_payment__status="paid").exists():
+            return True
+
+    # ==========================================================
+    # 2) WeeklyPayment paid por técnico + semana efectiva
+    # ==========================================================
+    tech_ids = list(
+        sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
+    )
+
+    if not tech_ids:
+        return False
+
+    weeks = list(
+        snaps_qs.exclude(semana_resultado__isnull=True)
+        .exclude(semana_resultado__exact="")
+        .values_list("semana_resultado", flat=True)
+        .distinct()
+    )
+
+    # Compatibilidad legacy: si no hay snapshots productivos
+    if not weeks:
+        possible_weeks = [
+            (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
+            (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
+            (getattr(sesion, "discount_week", "") or "").strip().upper(),
+            
+        ]
+        weeks = [w for w in possible_weeks if w]
+
+    if weeks:
+        if WeeklyPayment.objects.filter(
+            technician_id__in=tech_ids,
+            week__in=weeks,
+            status="paid",
+        ).exists():
+            return True
+
+    # ==========================================================
+    # 3) Compatibilidad legacy por marker en finance_note
+    # ==========================================================
+    note = getattr(sesion, "finance_note", "") or ""
+
+    for tech_id in tech_ids:
+        for wk in weeks:
+            marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+            if marker in note:
+                return True
+
+    return False
+
+
 def _serialize_decimal_for_json(value) -> str:
     try:
         if isinstance(value, Decimal):
@@ -4830,9 +5099,9 @@ def listar_billing(request):
 
     PERFORMANCE:
       - Primero filtra con queryset liviano.
-      - Aplica filtros rápidos y filtros Excel antes de paginar.
-      - Pagina IDs.
-      - Carga items/desgloses SOLO para la página visible.
+      - Aplica filtros rápidos antes de paginar.
+      - Pagina directo sobre queryset liviano.
+      - Carga items/desgloses/snapshots SOLO para la página visible.
       - NO carga evidencias/fotos en el listado; esas deben verse en Review.
     """
     import json
@@ -4908,9 +5177,6 @@ def listar_billing(request):
 
             qs = qs.filter(proyecto__in=allowed_keys)
 
-            # Ventana por ProyectoAsignacion:
-            # include_history=True => todo el historial.
-            # include_history=False + start_at => desde start_at.
             asignaciones = []
 
             if ProyectoAsignacion is not None:
@@ -5054,46 +5320,61 @@ def listar_billing(request):
     qs_filtered = qs_filtered.distinct()
 
     # ============================================================
-    # Helpers livianos
+    # Query liviana SOLO para paginar.
+    # No convertir todo el queryset a list().
     # ============================================================
-    def money_label(n):
-        try:
-            return f"${float(n or 0):.2f}"
-        except Exception:
-            return "$0.00"
+    light_qs = qs_filtered.only(
+        "id",
+        "creado_en",
+        "proyecto_id",
+        "direccion_proyecto",
+        "semana_pago_proyectada",
+        "semana_pago_real",
+        "discount_week",
+        "estado",
+        "is_direct_discount",
+        "cliente",
+        "ciudad",
+        "proyecto",
+        "oficina",
+        "subtotal_tecnico",
+        "subtotal_empresa",
+        "real_company_billing",
+        "finance_status",
+    )
 
-    def status_label(sesion):
-        if getattr(sesion, "is_direct_discount", False):
-            return "Direct discount"
-        if sesion.estado == "aprobado_pm":
-            return "Approved by PM"
-        if sesion.estado == "rechazado_pm":
-            return "Rejected by PM"
-        if sesion.estado == "aprobado_supervisor":
-            return "Approved by supervisor"
-        if sesion.estado == "rechazado_supervisor":
-            return "Rejected by supervisor"
-        if sesion.estado == "en_revision_supervisor":
-            return "In supervisor review"
-        if sesion.estado == "finalizado":
-            return "Finished (pending review)"
-        if sesion.estado == "en_proceso":
-            return "In progress"
-        return "Assigned"
+    # ============================================================
+    # Paginación directa sobre queryset liviano
+    # ============================================================
+    cantidad = request.GET.get("cantidad", "10")
 
-    def finance_status_label(sesion):
-        if sesion.finance_status == "sent":
-            return "Sent to Finance"
-        if sesion.finance_status == "in_review":
-            return "In review"
-        if sesion.finance_status == "rejected":
-            return "Rejected"
-        if sesion.finance_status == "pending":
-            return "Pending payment"
-        if sesion.finance_status == "paid":
-            return "Paid"
-        return "—"
+    try:
+        per_page = int(cantidad)
+    except (TypeError, ValueError):
+        per_page = 10
 
+    if per_page < 5:
+        per_page = 5
+
+    if per_page > 50:
+        per_page = 50
+
+    cantidad = str(per_page)
+
+    paginator = Paginator(light_qs, per_page)
+    pagina_light = paginator.get_page(request.GET.get("page"))
+
+    page_ids = [s.id for s in pagina_light.object_list]
+    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
+
+    # Mantengo la variable para que el HTML no falle.
+    # Los filtros Excel globales quedan vacíos para evitar cargar todos los Billing al abrir.
+    excel_filters_raw = ""
+    excel_global_json = json.dumps({})
+
+    # ============================================================
+    # Helper para resolver nombre de proyecto SOLO página visible
+    # ============================================================
     def resolve_project_labels_for_sessions(sessions):
         proj_ids = set()
         proj_texts = set()
@@ -5171,187 +5452,6 @@ def listar_billing(request):
             s.project_label = label
 
         return sessions
-
-    # ============================================================
-    # Query liviana REAL para Excel + paginación.
-    # No carga items, técnicos, snapshots ni evidencias.
-    # ============================================================
-    light_qs = qs_filtered.only(
-        "id",
-        "creado_en",
-        "proyecto_id",
-        "direccion_proyecto",
-        "semana_pago_proyectada",
-        "semana_pago_real",
-        "discount_week",
-        "estado",
-        "is_direct_discount",
-        "cliente",
-        "ciudad",
-        "proyecto",
-        "oficina",
-        "subtotal_tecnico",
-        "subtotal_empresa",
-        "real_company_billing",
-        "finance_status",
-    )
-
-    light_rows = list(light_qs)
-    resolve_project_labels_for_sessions(light_rows)
-
-    def excel_value_for_billing_light(sesion, col):
-        if col == "0":
-            d = getattr(sesion, "creado_en", None)
-            return d.strftime("%Y-%m-%d %H:%M") if d else ""
-
-        if col == "1":
-            return str(getattr(sesion, "proyecto_id", "") or "")
-
-        if col == "2":
-            return str(getattr(sesion, "direccion_proyecto", "") or "")
-
-        if col == "3":
-            return str(getattr(sesion, "semana_pago_proyectada", "") or "—")
-
-        if col == "4":
-            return status_label(sesion)
-
-        if col == "5":
-            return "—"
-
-        if col == "6":
-            return str(getattr(sesion, "cliente", "") or "")
-
-        if col == "7":
-            return str(getattr(sesion, "ciudad", "") or "")
-
-        if col == "8":
-            return str(
-                getattr(sesion, "proyecto_nombre", getattr(sesion, "proyecto", ""))
-                or ""
-            )
-
-        if col == "9":
-            return str(getattr(sesion, "oficina", "") or "")
-
-        if col == "10":
-            return money_label(getattr(sesion, "subtotal_tecnico", 0))
-
-        if col == "11":
-            return money_label(getattr(sesion, "subtotal_empresa", 0))
-
-        if col == "12":
-            real = getattr(sesion, "real_company_billing", None)
-            return "—" if real is None else money_label(real)
-
-        if col == "13":
-            real = getattr(sesion, "real_company_billing", None)
-            subtotal = getattr(sesion, "subtotal_empresa", None)
-
-            if real is None or subtotal is None:
-                return "—"
-
-            try:
-                diff = float(subtotal or 0) - float(real or 0)
-            except Exception:
-                return "—"
-
-            if diff > 0:
-                return f"+ ${abs(diff):.2f}"
-            if diff < 0:
-                return f"- ${abs(diff):.2f}"
-            return "$0.00"
-
-        if col == "14":
-            return finance_status_label(sesion)
-
-        if col == "15":
-            week = (
-                (getattr(sesion, "semana_pago_real", "") or "").strip()
-                or (getattr(sesion, "discount_week", "") or "").strip()
-                or (getattr(sesion, "semana_pago_proyectada", "") or "").strip()
-                or "—"
-            )
-            return week
-
-        if col == "16":
-            return "—"
-
-        return ""
-
-    # ============================================================
-    # Filtros Excel globales
-    # ============================================================
-    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
-
-    try:
-        excel_filters = json.loads(excel_filters_raw) if excel_filters_raw else {}
-    except json.JSONDecodeError:
-        excel_filters = {}
-
-    if excel_filters:
-        filtered_light_rows = []
-
-        for s in light_rows:
-            ok = True
-
-            for col, values in excel_filters.items():
-                values_set = set(values or [])
-
-                if not values_set:
-                    continue
-
-                label = excel_value_for_billing_light(s, col)
-
-                if label not in values_set:
-                    ok = False
-                    break
-
-            if ok:
-                filtered_light_rows.append(s)
-
-        light_rows = filtered_light_rows
-
-    # ============================================================
-    # Globales para panel Excel
-    # ============================================================
-    excel_global = {}
-
-    for col in range(17):
-        vals = set()
-
-        for s in light_rows:
-            vals.add(excel_value_for_billing_light(s, str(col)) or "(Vacías)")
-
-        excel_global[col] = sorted(vals)
-
-    excel_global_json = json.dumps(excel_global)
-
-    # ============================================================
-    # Paginación sobre IDs
-    # ============================================================
-    cantidad = request.GET.get("cantidad", "10")
-
-    try:
-        per_page = int(cantidad)
-    except (TypeError, ValueError):
-        per_page = 10
-
-    if per_page < 5:
-        per_page = 5
-
-    if per_page > 100:
-        per_page = 100
-
-    cantidad = str(per_page)
-
-    filtered_ids = [s.id for s in light_rows]
-
-    paginator = Paginator(filtered_ids, per_page)
-    pagina_ids = paginator.get_page(request.GET.get("page"))
-
-    page_ids = list(pagina_ids.object_list)
-    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
 
     # ============================================================
     # Cargar relaciones pesadas solo para la página visible.
@@ -5564,8 +5664,8 @@ def listar_billing(request):
             }
         ]
 
-    def payweek_snapshot_label(sesion):
-        groups = build_payweek_groups(sesion)
+    def payweek_snapshot_label(sesion, groups=None):
+        groups = groups if groups is not None else build_payweek_groups(sesion)
 
         if not groups:
             return str(getattr(sesion, "semana_pago_real", "") or "—")
@@ -5590,12 +5690,9 @@ def listar_billing(request):
     # ============================================================
     # Extras para template SOLO página visible
     # ============================================================
-    for s in page_rows:
-        try:
-            s.has_paid_work_type_lines = _session_is_paid_locked(s)
-        except Exception:
-            s.has_paid_work_type_lines = False
+    _attach_accounting_lock_flags_to_sessions(page_rows)
 
+    for s in page_rows:
         comentarios = []
 
         try:
@@ -5608,12 +5705,12 @@ def listar_billing(request):
             comentarios = []
 
         s.comentarios_tecnicos = comentarios
-        s.payweek_snapshot_label = payweek_snapshot_label(s)
         s.payweek_groups = build_payweek_groups(s)
+        s.payweek_snapshot_label = payweek_snapshot_label(s, s.payweek_groups)
         s.techs_label = techs_label(s)
 
-    pagina_ids.object_list = page_rows
-    pagina = pagina_ids
+    pagina_light.object_list = page_rows
+    pagina = pagina_light
 
     # ============================================================
     # Permisos
@@ -5652,9 +5749,6 @@ def listar_billing(request):
 
     if cantidad:
         keep_params["cantidad"] = cantidad
-
-    if excel_filters_raw:
-        keep_params["excel_filters"] = excel_filters_raw
 
     qs_keep = urlencode(keep_params)
 
@@ -10144,111 +10238,6 @@ def _is_admin(user) -> bool:
 
     if (getattr(user, "rol", "") or "").strip().lower() == "admin":
         return True
-
-    return False
-
-
-def _session_is_paid_locked(sesion) -> bool:
-    """
-    Bloqueo contable del Billing.
-
-    Regla:
-    - Si existe al menos una línea productiva de BillingPayWeekSnapshot
-      marcada como paid para esta sesión, el Billing queda bloqueado.
-    - También queda bloqueado si existe un WeeklyPayment paid asociado
-      a algún técnico + semana efectiva de esta sesión.
-    - Compatibilidad legacy:
-      si no hay snapshots productivos, usa semana_pago_real /
-      semana_pago_proyectada / discount_week y también revisa markers antiguos
-      en finance_note.
-
-    Importante:
-    - Este bloqueo aplica para reabrir, eliminar y editar.
-    - No depende de que finance_status del Billing sea "paid".
-    """
-
-    if not sesion:
-        return False
-
-    snapshot_model = BillingPayWeekSnapshot
-    snapshot_fields = {f.name for f in snapshot_model._meta.get_fields()}
-
-    has_is_adjustment = "is_adjustment" in snapshot_fields
-    has_adjustment_of = "adjustment_of" in snapshot_fields
-    has_payment_status = "payment_status" in snapshot_fields
-    has_paid_at = "paid_at" in snapshot_fields
-    has_weekly_payment = "weekly_payment" in snapshot_fields
-
-    # ==========================================================
-    # 1) Snapshots productivos de esta sesión
-    # ==========================================================
-    snaps_qs = snapshot_model.objects.filter(sesion=sesion)
-
-    if has_is_adjustment:
-        snaps_qs = snaps_qs.filter(is_adjustment=False)
-    elif has_adjustment_of:
-        snaps_qs = snaps_qs.filter(adjustment_of__isnull=True)
-
-    # 1.1) Bloqueo directo por payment_status='paid'
-    if has_payment_status:
-        if snaps_qs.filter(payment_status="paid").exists():
-            return True
-
-    # 1.2) Bloqueo por paid_at
-    if has_paid_at:
-        if snaps_qs.exclude(paid_at__isnull=True).exists():
-            return True
-
-    # 1.3) Bloqueo por WeeklyPayment relacionado al snapshot
-    if has_weekly_payment:
-        if snaps_qs.filter(weekly_payment__status="paid").exists():
-            return True
-
-    # ==========================================================
-    # 2) WeeklyPayment paid por técnico + semana efectiva
-    # ==========================================================
-    tech_ids = list(
-        sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
-    )
-
-    if not tech_ids:
-        return False
-
-    weeks = list(
-        snaps_qs.exclude(semana_resultado__isnull=True)
-        .exclude(semana_resultado__exact="")
-        .values_list("semana_resultado", flat=True)
-        .distinct()
-    )
-
-    # Compatibilidad legacy: si no hay snapshots productivos
-    if not weeks:
-        possible_weeks = [
-            (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
-            (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
-            (getattr(sesion, "discount_week", "") or "").strip().upper(),
-            
-        ]
-        weeks = [w for w in possible_weeks if w]
-
-    if weeks:
-        if WeeklyPayment.objects.filter(
-            technician_id__in=tech_ids,
-            week__in=weeks,
-            status="paid",
-        ).exists():
-            return True
-
-    # ==========================================================
-    # 3) Compatibilidad legacy por marker en finance_note
-    # ==========================================================
-    note = getattr(sesion, "finance_note", "") or ""
-
-    for tech_id in tech_ids:
-        for wk in weeks:
-            marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
-            if marker in note:
-                return True
 
     return False
 

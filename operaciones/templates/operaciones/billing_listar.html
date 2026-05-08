@@ -390,7 +390,7 @@ else %}asignado assigned{% endif %}"
          value="{{ s.creado_en|date:'Y-m-d' }}"
          autocomplete="off">
 
- {% if s.is_accounting_locked %}
+{% if s.has_paid_work_type_lines %}
   <button type="button"
           class="text-xs text-gray-400 cursor-not-allowed"
           title="This billing has paid work types. Date cannot be edited.">
@@ -417,7 +417,7 @@ else %}asignado assigned{% endif %}"
          value="{{ s.proyecto_id|default:'' }}"
          autocomplete="off">
 
-  {% if s.is_accounting_locked %}
+  {% if s.has_paid_work_type_lines %}
 
   <button type="button"
 
@@ -471,7 +471,7 @@ else %}asignado assigned{% endif %}"
          placeholder="YYYY-W##"
          autocomplete="off">
 
-{% if s.is_accounting_locked %}
+{% if s.has_paid_work_type_lines %}
   <button type="button"
           class="text-xs text-gray-400 cursor-not-allowed"
           title="This billing has paid work types. The projected week cannot be edited.">
@@ -699,7 +699,7 @@ else %}asignado assigned{% endif %}"
           <!-- Actions -->
 <td class="p-2 border text-center">
 
-  {% if s.is_accounting_locked %}
+{% if s.has_paid_work_type_lines %}
     <div class="flex flex-col items-center justify-center gap-1">
       <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700 border text-xs"
             title="This billing has at least one paid work type and cannot be edited, deleted, or reopened.">
@@ -745,7 +745,7 @@ else %}asignado assigned{% endif %}"
         Add technician
       </button>
 
-      {% if s.can_delete_billing %}
+     {% if s.can_delete_billing_fast %}
         <button type="button"
                 class="btn-open-delete text-red-600 hover:underline"
                 data-delete-url="{% url 'operaciones:eliminar_billing' s.id %}"
@@ -869,7 +869,7 @@ else %}asignado assigned{% endif %}"
             <div class="mt-6">
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
-{% if s.is_accounting_locked %}
+{% if s.has_paid_work_type_lines %}
   <span class="text-xs bg-gray-100 text-gray-500 border px-3 py-1 rounded cursor-not-allowed"
         title="This billing has paid work types. Requirements cannot be changed.">
     🔒 Configure Requirements
