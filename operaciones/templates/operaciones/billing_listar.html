@@ -641,22 +641,29 @@ else %}asignado assigned{% endif %}"
           <td class="p-2 border">{{ s.proyecto_nombre }}</td>
           <td class="p-2 border">{{ s.oficina }}</td>
 
-          {% if can_view_technical_billing_amounts %}
-  <td class="p-2 border text-right">${{ s.subtotal_tecnico|floatformat:2 }}</td>
-{% endif %}
+{% if can_view_technical_billing_amounts %}
 
+  <td class="p-2 border text-right" data-main-subtotal-tech="{{ s.id }}">
+
+    ${{ s.subtotal_tecnico|floatformat:2 }}
+
+  </td>
+
+{% endif %}
 {% if can_view_company_billing_amounts %}
-  <td class="p-2 border text-right">${{ s.subtotal_empresa|floatformat:2 }}</td>
+  <td class="p-2 border text-right" data-main-subtotal-company="{{ s.id }}">
+    ${{ s.subtotal_empresa|floatformat:2 }}
+  </td>
 {% endif %}
 
 {% if can_view_real_company_billing %}
-  <td class="p-2 border text-right">
+  <td class="p-2 border text-right" data-main-real-company="{{ s.id }}">
     {% if s.real_company_billing %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
   </td>
 {% endif %}
 
 {% if can_view_billing_difference %}
-  <td class="p-2 border text-right">
+  <td class="p-2 border text-right" data-main-difference="{{ s.id }}">
     {% if s.diferencia is not None and s.real_company_billing and s.subtotal_empresa %}
       {% if s.real_company_billing < s.subtotal_empresa %}
         <span class="font-semibold text-red-600">
@@ -1007,11 +1014,15 @@ else %}asignado assigned{% endif %}"
 {% endif %}
 
 {% if can_view_technical_billing_amounts %}
-  <td class="p-2 text-right">{{ it.subtotal_tecnico|floatformat:2 }}</td>
+  <td class="p-2 text-right" id="it-subt-tec-{{ it.id }}">
+    {{ it.subtotal_tecnico|floatformat:2 }}
+  </td>
 {% endif %}
 
 {% if can_view_company_billing_amounts %}
-  <td class="p-2 text-right">{{ it.subtotal_empresa|floatformat:2 }}</td>
+  <td class="p-2 text-right" id="it-subt-emp-{{ it.id }}">
+    {{ it.subtotal_empresa|floatformat:2 }}
+  </td>
 {% endif %}
                   </tr>
                   {% empty %}
@@ -1881,26 +1892,32 @@ document.addEventListener('click', function(e){
         if(celEmp) celEmp.textContent = Number(data.subtotal_empresa).toFixed(2);
       }
 
-      if(data.parent){
-        const sid = String(data.parent.id || td.closest('tr[data-parent-session]')?.dataset.parentSession || '');
-        const mainRow = document.querySelector(`tr[data-row="main"] input.row-chk[value="${sid}"]`)?.closest('tr');
-        if(mainRow){
-          const tdTec  = mainRow.querySelector('td:nth-child(13)');
-          const tdEmp  = mainRow.querySelector('td:nth-child(14)');
-          const tdReal = mainRow.querySelector('td:nth-child(15)');
-          const tdDiff = mainRow.querySelector('td:nth-child(16)');
+      if (data.parent) {
+  const sid = String(data.parent.id || '');
 
-          if(tdTec && typeof data.parent.subtotal_tecnico !== 'undefined')
-            tdTec.textContent = '$' + Number(data.parent.subtotal_tecnico).toFixed(2);
-          if(tdEmp && typeof data.parent.subtotal_empresa !== 'undefined')
-            tdEmp.textContent = '$' + Number(data.parent.subtotal_empresa).toFixed(2);
-          if(tdReal && typeof data.parent.real_company_billing !== 'undefined')
-            tdReal.textContent = data.parent.real_company_billing === null ? '—' : ('$' + Number(data.parent.real_company_billing).toFixed(2));
-          if(tdDiff && typeof data.parent.diferencia_text !== 'undefined'){
-            tdDiff.innerHTML = data.parent.diferencia_text;
-          }
-        }
-      }
+  const tdTec = document.querySelector(`[data-main-subtotal-tech="${sid}"]`);
+  const tdEmp = document.querySelector(`[data-main-subtotal-company="${sid}"]`);
+  const tdReal = document.querySelector(`[data-main-real-company="${sid}"]`);
+  const tdDiff = document.querySelector(`[data-main-difference="${sid}"]`);
+
+  if (tdTec && typeof data.parent.subtotal_tecnico !== 'undefined') {
+    tdTec.textContent = '$' + Number(data.parent.subtotal_tecnico || 0).toFixed(2);
+  }
+
+  if (tdEmp && typeof data.parent.subtotal_empresa !== 'undefined') {
+    tdEmp.textContent = '$' + Number(data.parent.subtotal_empresa || 0).toFixed(2);
+  }
+
+  if (tdReal && typeof data.parent.real_company_billing !== 'undefined') {
+    tdReal.textContent = data.parent.real_company_billing === null
+      ? '—'
+      : ('$' + Number(data.parent.real_company_billing || 0).toFixed(2));
+  }
+
+  if (tdDiff && typeof data.parent.diferencia_text !== 'undefined') {
+    tdDiff.innerHTML = data.parent.diferencia_text || '—';
+  }
+}
 
       toast('Saved', 'success');
 

@@ -6851,38 +6851,122 @@ def billing_update_snapshot_week(request, snapshot_id: int):
 
 
 @login_required
+@rol_requerido("admin", "pm", "supervisor", "facturacion")
 @require_POST
+@transaction.atomic
 def billing_item_update_qty(request, item_id: int):
-    is_admin = bool(
-        getattr(request.user, "es_admin_general", False) or request.user.is_superuser
-    )
-    if not is_admin:
-        return HttpResponseForbidden("Only admin can edit quantities inline.")
+    """
+    Actualiza Quantity en línea desde Billing List.
+
+    Permitido para:
+      - admin
+      - pm
+      - supervisor
+      - facturacion
+
+    Recalcula:
+      - ItemBilling.cantidad
+      - ItemBilling.subtotal_empresa
+      - ItemBilling.subtotal_tecnico
+      - ItemBillingTecnico.tarifa_efectiva
+      - ItemBillingTecnico.subtotal
+      - SesionBilling.subtotal_empresa
+      - SesionBilling.subtotal_tecnico
+      - BillingPayWeekSnapshot
+
+    Bloquea:
+      - sesiones con líneas ya pagadas
+      - cantidades negativas salvo direct discount
+    """
+
+    if not access_user_can(request.user, "billing.edit_billing"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "FORBIDDEN",
+                "message": "You do not have permission to edit billing quantities.",
+            },
+            status=403,
+        )
 
     try:
-        payload = json.loads(request.body.decode("utf-8"))
-        cantidad = payload.get("cantidad", None)
-        if cantidad is None:
-            return HttpResponseBadRequest("Missing 'cantidad'.")
-        cantidad = Decimal(str(cantidad))
-        if cantidad < 0:
-            return HttpResponseBadRequest("Invalid quantity.")
-    except (json.JSONDecodeError, InvalidOperation):
-        return HttpResponseBadRequest("Invalid payload.")
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "INVALID_JSON",
+                "message": "Invalid payload.",
+            },
+            status=400,
+        )
+
+    cantidad_raw = payload.get("cantidad", None)
+
+    if cantidad_raw in (None, ""):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "MISSING_QUANTITY",
+                "message": "Missing quantity.",
+            },
+            status=400,
+        )
+
+    try:
+        cantidad = Decimal(str(cantidad_raw)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError, TypeError):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "INVALID_QUANTITY",
+                "message": "Invalid quantity.",
+            },
+            status=400,
+        )
 
     try:
         item = (
             ItemBilling.objects.select_related("sesion")
             .prefetch_related("desglose_tecnico")
+            .select_for_update()
             .get(pk=item_id)
         )
     except ItemBilling.DoesNotExist:
-        return HttpResponseBadRequest("Item does not exist.")
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "ITEM_NOT_FOUND",
+                "message": "Item does not exist.",
+            },
+            status=404,
+        )
 
     sesion = item.sesion
 
-    # 🔒 Bloqueo contable absoluto:
-    # No permitir editar cantidades si el Billing ya tiene al menos una línea pagada.
+    # Seguridad por proyecto visible
+    proyectos_visibles = filter_queryset_by_access(
+        Proyecto.objects.all(),
+        request.user,
+        "id",
+    )
+
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(
+        sesion,
+        proyectos_qs=proyectos_visibles,
+    )
+
+    if not proyecto_pk:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "FORBIDDEN_PROJECT",
+                "message": "You do not have access to this billing project.",
+            },
+            status=403,
+        )
+
+    # Bloqueo contable
     if _session_is_paid_locked(sesion):
         return JsonResponse(
             {
@@ -6896,9 +6980,21 @@ def billing_item_update_qty(request, item_id: int):
             status=403,
         )
 
-    payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
-    if payment_mode not in ("split", "full"):
-        payment_mode = "split"
+    is_direct_discount = bool(getattr(sesion, "is_direct_discount", False))
+
+    if is_direct_discount:
+        if cantidad > 0:
+            cantidad = -cantidad
+    else:
+        if cantidad < 0:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "INVALID_QUANTITY",
+                    "message": "Quantity cannot be negative unless this is a direct discount.",
+                },
+                status=400,
+            )
 
     def _money(v) -> Decimal:
         try:
@@ -6906,80 +7002,78 @@ def billing_item_update_qty(request, item_id: int):
         except (InvalidOperation, ValueError, TypeError):
             return Decimal("0.00")
 
-    with transaction.atomic():
-        subtotal_empresa = _money((item.precio_empresa or Decimal("0")) * cantidad)
+    payment_mode = (getattr(sesion, "tech_payment_mode", "") or "split").strip().lower()
 
-        subtotal_tecnico = Decimal("0")
-        for bd in item.desglose_tecnico.all():
-            base = _money(getattr(bd, "tarifa_base", 0) or 0)
-            pct = _money(getattr(bd, "porcentaje", 0) or 0)
+    if payment_mode not in ("split", "full"):
+        payment_mode = "split"
 
-            if payment_mode == "full":
-                tarifa_efectiva = _money(base)
-            else:
-                tarifa_efectiva = _money(base * (pct / Decimal("100")))
+    subtotal_empresa = _money((item.precio_empresa or Decimal("0.00")) * cantidad)
 
-            sub = _money(tarifa_efectiva * cantidad)
+    subtotal_tecnico = Decimal("0.00")
 
-            ItemBillingTecnico.objects.filter(pk=bd.pk).update(
-                tarifa_efectiva=tarifa_efectiva,
-                subtotal=sub,
+    for bd in item.desglose_tecnico.all():
+        base = _money(getattr(bd, "tarifa_base", 0) or 0)
+        pct = _money(getattr(bd, "porcentaje", 0) or 0)
+
+        if payment_mode == "full":
+            tarifa_efectiva = _money(base)
+        else:
+            tarifa_efectiva = _money(base * (pct / Decimal("100")))
+
+        sub = _money(tarifa_efectiva * cantidad)
+
+        ItemBillingTecnico.objects.filter(pk=bd.pk).update(
+            tarifa_efectiva=tarifa_efectiva,
+            subtotal=sub,
+        )
+
+        subtotal_tecnico += sub
+
+    ItemBilling.objects.filter(pk=item.pk).update(
+        cantidad=cantidad,
+        subtotal_empresa=subtotal_empresa,
+        subtotal_tecnico=subtotal_tecnico,
+    )
+
+    items_qs = ItemBilling.objects.filter(sesion=sesion).only(
+        "subtotal_tecnico",
+        "subtotal_empresa",
+    )
+
+    total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))["s"] or Decimal(
+        "0.00"
+    )
+    total_empresa = items_qs.aggregate(s=Sum("subtotal_empresa"))["s"] or Decimal(
+        "0.00"
+    )
+
+    SesionBilling.objects.filter(pk=sesion.pk).update(
+        subtotal_tecnico=_money(total_tecnico),
+        subtotal_empresa=_money(total_empresa),
+    )
+
+    sesion_refrescada = SesionBilling.objects.get(pk=sesion.pk)
+
+    snapshot_info = rebuild_billing_payweek_snapshot(sesion_refrescada)
+
+    diff_text = "—"
+
+    if sesion_refrescada.real_company_billing is not None:
+        diff = _money(sesion_refrescada.real_company_billing) - _money(
+            sesion_refrescada.subtotal_empresa
+        )
+
+        if diff < 0:
+            diff_text = (
+                f"<span class='font-semibold text-red-600'>"
+                f"- ${abs(diff):.2f}</span>"
             )
-
-            subtotal_tecnico += sub
-
-        ItemBilling.objects.filter(pk=item.pk).update(
-            cantidad=cantidad,
-            subtotal_empresa=subtotal_empresa,
-            subtotal_tecnico=subtotal_tecnico,
-        )
-
-        items_qs = ItemBilling.objects.filter(sesion=sesion).only(
-            "subtotal_tecnico", "subtotal_empresa"
-        )
-
-        total_tecnico = items_qs.aggregate(s=Sum("subtotal_tecnico"))["s"] or Decimal(
-            "0"
-        )
-        total_empresa = items_qs.aggregate(s=Sum("subtotal_empresa"))["s"] or Decimal(
-            "0"
-        )
-
-        SesionBilling.objects.filter(pk=sesion.pk).update(
-            subtotal_tecnico=_money(total_tecnico),
-            subtotal_empresa=_money(total_empresa),
-        )
-
-        sesion_refrescada = SesionBilling.objects.only(
-            "id",
-            "subtotal_tecnico",
-            "subtotal_empresa",
-            "real_company_billing",
-            "semana_pago_real",
-            "semana_pago_proyectada",
-        ).get(pk=sesion.pk)
-
-        snapshot_info = rebuild_billing_payweek_snapshot(sesion_refrescada)
-
-        diff_text = "—"
-        if sesion_refrescada.real_company_billing is not None:
-            diff = (
-                sesion_refrescada.real_company_billing
-                - sesion_refrescada.subtotal_empresa
+        elif diff > 0:
+            diff_text = (
+                f"<span class='font-semibold text-green-600'>" f"+ ${diff:.2f}</span>"
             )
-
-            if diff < 0:
-                diff_text = (
-                    f"<span class='font-semibold text-red-600'>"
-                    f"- ${abs(diff):.2f}</span>"
-                )
-            elif diff > 0:
-                diff_text = (
-                    f"<span class='font-semibold text-green-600'>"
-                    f"+ ${diff:.2f}</span>"
-                )
-            else:
-                diff_text = "<span class='text-gray-700'>$0.00</span>"
+        else:
+            diff_text = "<span class='text-gray-700'>$0.00</span>"
 
     return JsonResponse(
         {
