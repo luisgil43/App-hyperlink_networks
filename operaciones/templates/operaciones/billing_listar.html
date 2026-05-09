@@ -159,37 +159,105 @@
 
 </h1>
 
-      <!-- Toolbar (left): Bulk actions -->
-      <div class="flex items-center gap-2">
-        <!-- Actions dropdown -->
-        <div class="relative" id="bulk-actions">
-          <button type="button" id="btn-actions"
-                  class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled>
-            Actions ▾
-          </button>
-          <div id="menu-actions"
-            class="hidden absolute left-0 mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
-            <button type="button" data-action="export"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export selected</button>
-            <button type="button" data-action="send"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Send to Finance</button>
-            <button type="button" data-action="both"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Export &amp; Send to Finance</button>
-            <button type="button" data-action="bulk_import_requirements"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Import requirements to selected</button>
-            <button type="button" data-action="merge_xlsx"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Merge Excel reports</button>
-            <button type="button" data-action="bulk_light_levels"
-                    class="block w-full text-left px-4 py-2 hover:bg-gray-100">Download selected light levels</button>
-          </div>
-        </div>
+<!-- Toolbar (left): Bulk actions -->
 
-        <!-- Hidden export form (kept for server export endpoint) -->
-        <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
-          {% csrf_token %}
-          <input type="hidden" name="ids" id="export-ids">
-        </form>
+<div class="flex items-center gap-2">
+
+  <!-- Actions dropdown -->
+
+  <div class="relative" id="bulk-actions">
+
+    <button type="button" id="btn-actions"
+
+            class="bg-blue-600 text-white px-4 py-2 rounded-full text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+
+            disabled>
+
+      Actions ▾
+
+    </button>
+
+    <div id="menu-actions"
+
+      class="hidden absolute left-0 mt-2 w-56 sm:w-64 max-w-[90vw] bg-white border rounded-xl shadow-lg z-50 overflow-hidden">
+
+      {% if can_export_billing %}
+
+        <button type="button" data-action="export"
+
+                class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+          Export selected
+
+        </button>
+
+      {% endif %}
+
+      {% if can_send_billing_to_finance %}
+
+        <button type="button" data-action="send"
+
+                class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+          Send to Finance
+
+        </button>
+
+      {% endif %}
+
+      {% if can_export_billing and can_send_billing_to_finance %}
+
+        <button type="button" data-action="both"
+
+                class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+          Export &amp; Send to Finance
+
+        </button>
+
+      {% endif %}
+
+      <button type="button" data-action="bulk_import_requirements"
+
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+        Import requirements to selected
+
+      </button>
+
+      <button type="button" data-action="merge_xlsx"
+
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+        Merge Excel reports
+
+      </button>
+
+      <button type="button" data-action="bulk_light_levels"
+
+              class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+        Download selected light levels
+
+      </button>
+
+    </div>
+
+  </div>
+
+      {% if can_export_billing %}
+
+  <!-- Hidden export form (kept for server export endpoint) -->
+
+  <form id="export-form" method="post" action="{% url 'operaciones:billing_export' %}" class="hidden">
+
+    {% csrf_token %}
+
+    <input type="hidden" name="ids" id="export-ids">
+
+  </form>
+
+{% endif %}
 
 {% if can_create_billing %}
   <a href="{% url 'operaciones:crear_billing' %}"
@@ -1580,10 +1648,15 @@ document.addEventListener('click', function(e){
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
 
+  const CAN_EXPORT_BILLING = {{ can_export_billing|yesno:"true,false" }};
+  const CAN_SEND_BILLING_TO_FINANCE = {{ can_send_billing_to_finance|yesno:"true,false" }};
+
   function openFinanceModal(ids, mode){
     const modal  = document.getElementById('modal-finance');
     const title  = document.getElementById('finance-title');
     const submit = document.getElementById('finance-submit');
+
+    if (!modal || !title || !submit) return;
 
     document.getElementById('finance-ids-hidden').value = (ids || []).join(',');
     document.getElementById('finance-mode').value = mode || 'send';
@@ -1595,8 +1668,9 @@ document.addEventListener('click', function(e){
       title.textContent  = 'Send to Finance';
       submit.textContent = 'Send';
     }
+
     modal.classList.remove('hidden');
-    document.getElementById('finance-note').focus();
+    document.getElementById('finance-note')?.focus();
   }
 
   menu?.addEventListener('click', (e)=>{
@@ -1607,44 +1681,71 @@ document.addEventListener('click', function(e){
 
     menu.classList.add('hidden');
 
-    const ids = Array.from(document.querySelectorAll('tr[data-row="main"] input.row-chk:checked')).map(x => x.value);
+    const ids = Array.from(
+      document.querySelectorAll('tr[data-row="main"] input.row-chk:checked')
+    ).map(x => x.value);
+
     if(!ids.length) return;
 
     const action = btn.getAttribute('data-action');
 
-    // ✅ 1) BULK IMPORT REQS -> NO toca validación de finance
+    // ✅ Estas acciones NO dependen de export ni send finance
     if(action === 'bulk_import_requirements'){
       if(window.openBulkReqModal) window.openBulkReqModal(ids);
       return;
     }
 
-    // ✅ 2) MERGE
     if(action === 'merge_xlsx'){
-      if (window.mergeExcelReports) window.mergeExcelReports(ids);
+      if(window.mergeExcelReports) window.mergeExcelReports(ids);
       return;
     }
 
-    // ✅ 2.1) BULK LIGHT LEVELS
     if(action === 'bulk_light_levels'){
-      if (window.downloadBulkLightLevels) window.downloadBulkLightLevels(ids);
+      if(window.downloadBulkLightLevels) window.downloadBulkLightLevels(ids);
       return;
     }
 
-   
-
-    // ✅ 3) EXPORT
+    // ✅ Export selected: solo si tiene permiso
     if(action === 'export'){
+      if(!CAN_EXPORT_BILLING || !exportForm || !exportIdsInp){
+        window.openInfo && window.openInfo(
+          'You do not have permission to export billing records.',
+          'Permission denied'
+        );
+        return;
+      }
+
       exportIdsInp.value = ids.join(',');
       exportForm.submit();
       return;
     }
 
-    // ✅ 4) SEND/BOTH -> validación de estado
+    // ✅ Send to Finance: solo si tiene permiso
+    if(action === 'send' && !CAN_SEND_BILLING_TO_FINANCE){
+      window.openInfo && window.openInfo(
+        'You do not have permission to send billings to Finance.',
+        'Permission denied'
+      );
+      return;
+    }
+
+    // ✅ Export & Send: requiere ambos permisos
+    if(action === 'both' && (!CAN_EXPORT_BILLING || !CAN_SEND_BILLING_TO_FINANCE)){
+      window.openInfo && window.openInfo(
+        'You do not have permission to export and send billings to Finance.',
+        'Permission denied'
+      );
+      return;
+    }
+
+    // ✅ SEND/BOTH -> validación de estado
     function rowCanSendToFinance(tr){
       const txt  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
       const code = (tr?.dataset?.status || '').toLowerCase();
+
       const isApprovedSupervisor = /approved by supervisor/.test(txt);
       const isDirectDiscount     = /direct discount/.test(txt) || code.includes('discount');
+
       return isApprovedSupervisor || isDirectDiscount;
     }
 
@@ -1660,8 +1761,12 @@ document.addEventListener('click', function(e){
 
     if(action === 'send'){
       openFinanceModal(ids, 'send');
-    }else if(action === 'both'){
+      return;
+    }
+
+    if(action === 'both'){
       openFinanceModal(ids, 'both');
+      return;
     }
   });
 })();
@@ -1709,29 +1814,35 @@ document.addEventListener('click', function(e){
 </script>
 <script>
 (function(){
-  const modal   = document.getElementById('modal-finance');
-  const form    = document.getElementById('finance-form');
-  const noteEl  = document.getElementById('finance-note');
-  const dailyEl = document.getElementById('finance-daily');
+  const modal    = document.getElementById('modal-finance');
+  const form     = document.getElementById('finance-form');
+  const noteEl   = document.getElementById('finance-note');
+  const dailyEl  = document.getElementById('finance-daily');
   const finishEl = document.getElementById('finance-finish');
-  const modeEl  = document.getElementById('finance-mode');
-  const idsEl   = document.getElementById('finance-ids-hidden');
+  const modeEl   = document.getElementById('finance-mode');
+  const idsEl    = document.getElementById('finance-ids-hidden');
   const finishErrorEl = document.getElementById('finance-finish-error');
 
   const exportForm   = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
 
-    function closeFinanceModal(){
+  const CAN_EXPORT_BILLING = {{ can_export_billing|yesno:"true,false" }};
+  const CAN_SEND_BILLING_TO_FINANCE = {{ can_send_billing_to_finance|yesno:"true,false" }};
+
+  function closeFinanceModal(){
+    if (!modal) return;
+
     modal.classList.add('hidden');
-    noteEl.value = '';
-    if (dailyEl)  dailyEl.value  = '';
+
+    if (noteEl) noteEl.value = '';
+    if (dailyEl) dailyEl.value = '';
     if (finishEl) finishEl.value = '';
 
-    // 🔄 limpiar estados de error
     if (finishErrorEl) {
       finishErrorEl.textContent = '';
       finishErrorEl.classList.add('hidden');
     }
+
     if (finishEl) {
       finishEl.classList.remove('border-red-500','focus:ring-red-500','focus:border-red-500');
     }
@@ -1741,25 +1852,39 @@ document.addEventListener('click', function(e){
     e.preventDefault();
     closeFinanceModal();
   });
+
   modal?.addEventListener('click', (e)=> {
     if (e.target.hasAttribute('data-close-finance')) closeFinanceModal();
   });
+
   document.addEventListener('keydown', (e)=> {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeFinanceModal();
+    if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+      closeFinanceModal();
+    }
   });
 
-   form.addEventListener('submit', async (e)=>{
+  form?.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const ids  = idsEl.value ? idsEl.value.split(',') : [];
-    const mode = modeEl.value;
 
-        const finish = (finishEl?.value || '').trim();
+    const ids  = idsEl?.value ? idsEl.value.split(',') : [];
+    const mode = modeEl?.value || 'send';
+    const finish = (finishEl?.value || '').trim();
 
-    // limpiar error previo
+    if (!CAN_SEND_BILLING_TO_FINANCE) {
+      alert('You do not have permission to send billings to Finance.');
+      return;
+    }
+
+    if (mode === 'both' && !CAN_EXPORT_BILLING) {
+      alert('You do not have permission to export billing records.');
+      return;
+    }
+
     if (finishErrorEl) {
       finishErrorEl.textContent = '';
       finishErrorEl.classList.add('hidden');
     }
+
     if (finishEl) {
       finishEl.classList.remove('border-red-500','focus:ring-red-500','focus:border-red-500');
     }
@@ -1769,27 +1894,36 @@ document.addEventListener('click', function(e){
         finishErrorEl.textContent = 'Finish date is required.';
         finishErrorEl.classList.remove('hidden');
       }
+
       if (finishEl) {
         finishEl.classList.add('border-red-500','focus:ring-red-500','focus:border-red-500');
         finishEl.focus();
       }
+
       return;
     }
 
     try{
       await window.sendToFinance(
         ids,
-        noteEl.value.trim(),
+        noteEl?.value.trim() || "",
         dailyEl?.value.trim() || "",
-        finish                 // 👈 ahora enviamos la fecha
+        finish
       );
+
       if(mode === 'both'){
+        if (!exportForm || !exportIdsInp) {
+          throw new Error('Export form is not available.');
+        }
+
         exportIdsInp.value = ids.join(',');
         exportForm.submit();
+
         setTimeout(()=> location.reload(), 1200);
       }else{
         location.reload();
       }
+
     }catch(err){
       alert(err.message || 'Unexpected error');
     }finally{
@@ -1798,11 +1932,6 @@ document.addEventListener('click', function(e){
   });
 })();
 </script>
-
-
-
-
-
 <!-- Inline qty edit -->
 <script>
 (function(){

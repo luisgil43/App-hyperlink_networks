@@ -166,6 +166,14 @@ def _billing_access_context(user):
         user,
         "billing.delete_billing",
     )
+    can_send_billing_to_finance = access_user_can(
+        user,
+        "billing.send_finance",
+    )
+    can_export_billing = access_user_can(
+        user,
+        "billing.export_billing",
+    )
 
     return {
         "can_create_billing": can_create_billing,
@@ -173,6 +181,8 @@ def _billing_access_context(user):
         "can_edit_items": can_edit_billing,
         "can_edit_real_week": can_edit_real_week,
         "can_delete_billing": can_delete_billing,
+        "can_send_billing_to_finance": can_send_billing_to_finance,
+        "can_export_billing": can_export_billing,
         "can_view_technical_billing_amounts": can_view_technical_billing_amounts,
         "can_view_company_billing_amounts": can_view_company_billing_amounts,
         "can_view_real_company_billing": can_view_real_company_billing,
@@ -4545,6 +4555,7 @@ def recomputar_estado_desde_asignaciones(self, save: bool = True) -> str:
 
 
 @login_required
+@rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")
 @require_POST
 def exportar_billing_excel(request):
     """
@@ -4557,6 +4568,12 @@ def exportar_billing_excel(request):
     - Fila Total: 'Total' en Qty (col I) y monto en Subtotal Company (col J)
     - Líneas de cuadricula DESACTIVADAS
     """
+    if not access_user_can(request.user, "billing.export_billing"):
+        return HttpResponseForbidden(
+            "You do not have permission to export billing records."
+        )
+
+
 
     # ========= Estilos locales =========
     HDR_FILL = PatternFill("solid", fgColor="374151")   # gris oscuro
@@ -4841,26 +4858,45 @@ def _norm(txt: str) -> str:
 from datetime import datetime  # 👈 si no lo tienes ya, agrégalo arriba
 
 
-@require_POST
 @login_required
-@rol_requerido("admin", "pm")
+@require_POST
+@rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")
 @transaction.atomic
 def billing_send_finance(request):
     """
     Enviar a Finanzas SOLO si:
-      - is_direct_discount == True             -> finance_status = 'review_discount'
-      - estado == 'aprobado_supervisor' (normalizado) -> finance_status = 'sent'
+      - is_direct_discount == True -> finance_status = 'review_discount'
+      - estado == 'aprobado_supervisor' o 'aprobado_pm' -> finance_status = 'sent'
 
     Nunca 400 por mezcla: procesa lo permitido y devuelve 'skipped' con motivo.
-    Responde SIEMPRE JSON (nada de HTML).
+    Responde SIEMPRE JSON.
 
-    FIXES:
-      - Sellar finance_sent_at también cuando new_status='review_discount'.
-      - Permitir re-sellar si ya está en 'review_discount' PERO sin finance_sent_at (intentos previos).
+    FIX:
+      - Usa la misma lógica de visibilidad que listar_billing():
+        compara proyecto por nombre / código / id.
+      - No compara solo contra Proyecto.id, porque SesionBilling.proyecto
+        guarda normalmente el nombre del proyecto.
+      - Supervisor y PM pueden enviar si el billing está dentro de sus proyectos visibles.
     """
-    # ---- parseo ids + nota + daily_number + finish_date ----
-    ids, note, daily_number = [], "", ""
+    if not access_user_can(request.user, "billing.send_finance"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "FORBIDDEN",
+                "message": "You do not have permission to send billings to Finance.",
+            },
+            status=403,
+        )
+
+    # ------------------------------------------------------------
+    # Parseo ids + nota + daily_number + finish_date
+    # ------------------------------------------------------------
+    ids = []
+    note = ""
+    daily_number = ""
     finish_date = None
+    finish_str = ""
+
     ctype = (request.content_type or "").lower()
 
     if "application/json" in ctype:
@@ -4868,52 +4904,136 @@ def billing_send_finance(request):
             payload = json.loads(request.body.decode("utf-8") or "{}")
         except Exception:
             return JsonResponse({"ok": False, "error": "INVALID_JSON"}, status=400)
+
         ids = [int(x) for x in (payload.get("ids") or []) if str(x).isdigit()]
         note = (payload.get("note") or "").strip()
         daily_number = (payload.get("daily_number") or "").strip()
         finish_str = (payload.get("finish_date") or "").strip()
     else:
         raw = (request.POST.get("ids") or "").strip()
-        ids = [int(x) for x in raw.split(",") if x.isdigit()]
+        ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
         note = (request.POST.get("note") or "").strip()
         daily_number = (request.POST.get("daily_number") or "").strip()
         finish_str = (request.POST.get("finish_date") or "").strip()
 
-    # 👉 parsear finish_date si viene
     if finish_str:
         try:
-            # formato esperado: YYYY-MM-DD (lo que envía el JS con flatpickr)
             finish_date = datetime.fromisoformat(finish_str).date()
         except ValueError:
             try:
-                # fallback por si alguna vez llega como dd/mm/YYYY
                 finish_date = datetime.strptime(finish_str, "%d/%m/%Y").date()
             except ValueError:
                 return JsonResponse(
-                    {"ok": False, "error": "INVALID_FINISH_DATE"},
+                    {
+                        "ok": False,
+                        "error": "INVALID_FINISH_DATE",
+                        "message": "Invalid finish date format.",
+                    },
                     status=400,
                 )
 
     if not ids:
-        return JsonResponse({"ok": False, "error": "NO_IDS"}, status=400)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "NO_IDS",
+                "message": "No billing records were selected.",
+            },
+            status=400,
+        )
 
-    # ---- reglas permitidas ----
-    allowed_supervisor_norms = {
+    def _norm(value):
+        return (
+            str(value or "")
+            .strip()
+            .lower()
+            .replace("_", "")
+            .replace("-", "")
+            .replace(" ", "")
+        )
+
+    def _clean(value):
+        return str(value or "").strip()
+
+    def _billing_project_keys(s):
+        """
+        Devuelve todas las llaves posibles del proyecto guardadas en SesionBilling.
+
+        En tu flujo actual:
+          - s.proyecto      = nombre del proyecto
+          - s.proyecto_id   = Project ID / código operativo del billing
+
+        Por eso no sirve comparar solo contra Proyecto.id.
+        """
+        keys = set()
+
+        raw_proyecto = getattr(s, "proyecto", None)
+        raw_proyecto_id = getattr(s, "proyecto_id", None)
+
+        if raw_proyecto not in (None, ""):
+            # Si algún día proyecto fuera FK, soportarlo igual.
+            if hasattr(raw_proyecto, "id"):
+                keys.add(_clean(getattr(raw_proyecto, "id", "")))
+                keys.add(_clean(getattr(raw_proyecto, "nombre", "")))
+                keys.add(_clean(getattr(raw_proyecto, "codigo", "")))
+            else:
+                keys.add(_clean(raw_proyecto))
+
+        if raw_proyecto_id not in (None, ""):
+            keys.add(_clean(raw_proyecto_id))
+
+        return {k for k in keys if k}
+
+    def _project_keys_from_proyecto(p):
+        """
+        Llaves permitidas desde facturacion.Proyecto.
+        Deben calzar con lo que guarda SesionBilling.proyecto.
+        """
+        keys = set()
+
+        keys.add(_clean(getattr(p, "id", "")))
+        keys.add(_clean(getattr(p, "nombre", "")))
+
+        codigo = getattr(p, "codigo", None)
+        if codigo not in (None, ""):
+            keys.add(_clean(codigo))
+
+        return {k for k in keys if k}
+
+    # ------------------------------------------------------------
+    # Reglas permitidas
+    # ------------------------------------------------------------
+    allowed_approved_norms = {
         "aprobadosupervisor",
         "approvedsupervisor",
         "approvedbysupervisor",
         "aprobadoporsupervisor",
+        # Lo agrego porque indicas que debe funcionar para PM también.
+        "aprobadopm",
+        "approvedpm",
+        "approvedbypm",
+        "aprobadoporpm",
     }
 
-    # Estados de finanzas que BLOQUEAN reenvío.
-    # OJO: dejaremos pasar 'review_discount' SI NO TIENE finance_sent_at (para reestampar).
     blocked_fin = {
-        "sent", "senttofinance",
-        "reviewdiscount", "discountapplied",
-        "inreview", "pending", "readyforpayment",
-        "paid", "rejected", "cancelled", "canceled",
-        "enviado", "enrevision", "pendiente", "listoparapago",
-        "pagado", "rechazado", "cancelado",
+        "sent",
+        "senttofinance",
+        "reviewdiscount",
+        "discountapplied",
+        "inreview",
+        "pending",
+        "readyforpayment",
+        "paid",
+        "rejected",
+        "cancelled",
+        "canceled",
+        "enviado",
+        "enrevision",
+        "pendiente",
+        "listoparapago",
+        "pagado",
+        "rechazado",
+        "cancelado",
     }
 
     rows = list(SesionBilling.objects.filter(id__in=ids))
@@ -4922,147 +5042,226 @@ def billing_send_finance(request):
     updated = 0
     updated_rows = []
     skipped = []
-    plan = []  # (id, new_finance_status)
-
-    # --- Seguridad extra: solo billings de proyectos a los que el usuario tiene acceso ---
-    # Admin/superuser puede enviar todo; PM queda restringido a sus proyectos visibles.
+    plan = []
     forbidden_ids = set()
-    if not request.user.is_superuser:
-        proyectos_visibles = filter_queryset_by_access(
-            Proyecto.objects.all(),
-            request.user,
-            "id",
-        )
-        if proyectos_visibles.exists():
-            allowed_proj_ids = {
-                str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
-            }
 
-            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
-            asignaciones = []
+    # ------------------------------------------------------------
+    # Seguridad extra por proyecto
+    # Misma idea que listar_billing:
+    # Proyecto visible puede calzar por nombre / código / id.
+    # ------------------------------------------------------------
+    can_view_legacy_history = request.user.is_superuser or getattr(
+        request.user,
+        "es_usuario_historial",
+        False,
+    )
+
+    if not can_view_legacy_history:
+        try:
+            proyectos_visibles = filter_queryset_by_access(
+                Proyecto.objects.all(),
+                request.user,
+                "id",
+            )
+        except Exception:
+            proyectos_visibles = Proyecto.objects.none()
+
+        proyectos_visibles_list = list(proyectos_visibles)
+
+        if proyectos_visibles_list:
+            allowed_keys = set()
+
+            for p in proyectos_visibles_list:
+                allowed_keys.update(_project_keys_from_proyecto(p))
+
+            # Mapa para ventana por fecha.
+            # Guardamos acceso por cada key posible del proyecto.
+            access_by_key = {}
+
             try:
-                if ProyectoAsignacion is not None:
-                    asignaciones = list(
-                        ProyectoAsignacion.objects
-                        .filter(usuario=request.user, proyecto__in=proyectos_visibles)
-                        .select_related("proyecto")
+                asignaciones = (
+                    list(
+                        ProyectoAsignacion.objects.filter(
+                            usuario=request.user,
+                            proyecto__in=proyectos_visibles_list,
+                        ).select_related("proyecto")
                     )
+                    if ProyectoAsignacion is not None
+                    else []
+                )
             except Exception:
                 asignaciones = []
 
-            asign_by_pid = {}
-            if asignaciones:
-                for a in asignaciones:
-                    p = getattr(a, "proyecto", None)
-                    if not p:
-                        continue
-                    asign_by_pid[str(getattr(p, "id", "")).strip()] = a
+            for a in asignaciones:
+                p = getattr(a, "proyecto", None)
+                if not p:
+                    continue
+
+                if getattr(a, "include_history", False) or not getattr(
+                    a, "start_at", None
+                ):
+                    access = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
+                else:
+                    access = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
+
+                for key in _project_keys_from_proyecto(p):
+                    access_by_key[key] = access
 
             filtered_rows = []
+
             for s in rows:
-                # En SesionBilling guardamos el PK del proyecto en s.proyecto (como string)
-                sp = getattr(s, "proyecto", None)
-                if sp in allowed_proj_ids:
-                    # Si hay asignaciones, aplicar corte por fecha
-                    if asign_by_pid:
-                        a = asign_by_pid.get(str(sp).strip())
-                        if a and (not getattr(a, "include_history", False)) and getattr(a, "start_at", None):
-                            if getattr(s, "creado_en", None) and s.creado_en < a.start_at:
-                                forbidden_ids.add(s.id)
-                                continue
-                    filtered_rows.append(s)
-                else:
+                session_keys = _billing_project_keys(s)
+
+                matched_key = None
+                for k in session_keys:
+                    if k in allowed_keys:
+                        matched_key = k
+                        break
+
+                if not matched_key:
                     forbidden_ids.add(s.id)
+                    continue
+
+                # Si hay ventana por fecha, aplicarla.
+                # Si no hay access_by_key, mantenemos acceso por proyecto visible.
+                if access_by_key:
+                    access = access_by_key.get(matched_key)
+
+                    if not access:
+                        forbidden_ids.add(s.id)
+                        continue
+
+                    if not access["include_history"] and access["start_at"] is not None:
+                        creado_en = getattr(s, "creado_en", None)
+
+                        if creado_en and creado_en < access["start_at"]:
+                            forbidden_ids.add(s.id)
+                            continue
+
+                filtered_rows.append(s)
+
             rows = filtered_rows
+
         else:
-            # Si el usuario no tiene proyectos visibles, ningún billing es enviable
             forbidden_ids = {s.id for s in rows}
             rows = []
 
-    def _norm(s: str) -> str:
-        return (s or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
-
-    # Primera pasada: decidir plan
+    # ------------------------------------------------------------
+    # Primera pasada: decidir qué se puede enviar
+    # ------------------------------------------------------------
     for s in rows:
         estado_norm = _norm(getattr(s, "estado", ""))
         fin_norm = _norm(getattr(s, "finance_status", ""))
         fin_sent = getattr(s, "finance_sent_at", None)
 
-        # Si está bloqueado en finanzas...
         if fin_norm in blocked_fin:
-            # ...EXCEPCIÓN: permitir reestampar si está en review_discount PERO sin finance_sent_at
+            # Excepción: permitir re-sellar review_discount si quedó sin finance_sent_at
             if fin_norm == "reviewdiscount" and not fin_sent:
                 plan.append((s.id, "review_discount"))
                 continue
 
-            skipped.append({
-                "id": s.id, "estado": s.estado,
-                "is_direct_discount": bool(s.is_direct_discount),
-                "finance_status": s.finance_status,
-                "skip_reason": "FINANCE_STATUS_BLOCKED",
-            })
+            skipped.append(
+                {
+                    "id": s.id,
+                    "estado": getattr(s, "estado", None),
+                    "is_direct_discount": bool(getattr(s, "is_direct_discount", False)),
+                    "finance_status": getattr(s, "finance_status", None),
+                    "skip_reason": "FINANCE_STATUS_BLOCKED",
+                }
+            )
             continue
 
-        # Flujo normal
         if getattr(s, "is_direct_discount", False) is True:
             plan.append((s.id, "review_discount"))
-        elif estado_norm in allowed_supervisor_norms:
+        elif estado_norm in allowed_approved_norms:
             plan.append((s.id, "sent"))
         else:
-            skipped.append({
-                "id": s.id, "estado": s.estado,
-                "is_direct_discount": bool(s.is_direct_discount),
-                "finance_status": s.finance_status,
-                "skip_reason": "NOT_ALLOWED_STATUS",
-            })
+            skipped.append(
+                {
+                    "id": s.id,
+                    "estado": getattr(s, "estado", None),
+                    "is_direct_discount": bool(getattr(s, "is_direct_discount", False)),
+                    "finance_status": getattr(s, "finance_status", None),
+                    "skip_reason": "NOT_ALLOWED_STATUS",
+                }
+            )
 
-    # Agregar también los billings que se intentaron enviar pero pertenecen a proyectos no autorizados
     for bid in forbidden_ids:
-        skipped.append({
-            "id": bid,
-            "estado": None,
-            "is_direct_discount": None,
-            "finance_status": None,
-            "skip_reason": "FORBIDDEN_PROJECT",
-        })
+        skipped.append(
+            {
+                "id": bid,
+                "estado": None,
+                "is_direct_discount": None,
+                "finance_status": None,
+                "skip_reason": "FORBIDDEN_PROJECT",
+            }
+        )
 
-    # aplicar updates con lock
+    # ------------------------------------------------------------
+    # Aplicar updates con lock
+    # ------------------------------------------------------------
     by_id_new = {i: st for (i, st) in plan}
-    if by_id_new:
-        for s in SesionBilling.objects.select_for_update().filter(id__in=by_id_new.keys()):
-            new_status = by_id_new[s.id]
-            s.finance_status = new_status
 
+    if by_id_new:
+        for s in SesionBilling.objects.select_for_update().filter(
+            id__in=by_id_new.keys()
+        ):
+            new_status = by_id_new[s.id]
+
+            s.finance_status = new_status
             touched_fields = ["finance_status"]
 
             if hasattr(s, "finance_updated_at"):
                 s.finance_updated_at = now
                 touched_fields.append("finance_updated_at")
 
-            if hasattr(s, "finance_sent_at") and new_status in ("sent", "review_discount"):
+            if hasattr(s, "finance_sent_at") and new_status in (
+                "sent",
+                "review_discount",
+            ):
                 s.finance_sent_at = now
                 touched_fields.append("finance_sent_at")
 
-            # 👇 Guardar Daily Number (mismo para todos los seleccionados)
-            if daily_number:
+            if daily_number and hasattr(s, "finance_daily_number"):
                 s.finance_daily_number = daily_number
                 touched_fields.append("finance_daily_number")
 
-            # 👇 NUEVO: guardar fecha de término si viene
-            if finish_date is not None:
+            if finish_date is not None and hasattr(s, "finance_finish_date"):
                 s.finance_finish_date = finish_date
                 touched_fields.append("finance_finish_date")
 
-            if note:
+            if note and hasattr(s, "finance_note"):
                 prefix = f"{now:%Y-%m-%d %H:%M} Ops: "
-                s.finance_note = ((s.finance_note + "\n") if s.finance_note else "") + prefix + note
+                s.finance_note = (
+                    ((s.finance_note + "\n") if s.finance_note else "") + prefix + note
+                )
                 touched_fields.append("finance_note")
 
             s.save(update_fields=touched_fields)
-            updated += 1
-            updated_rows.append({"id": s.id, "finance_status": s.finance_status})
 
-    return JsonResponse({"ok": True, "count": updated, "updated": updated_rows, "skipped": skipped})
+            updated += 1
+            updated_rows.append(
+                {
+                    "id": s.id,
+                    "finance_status": s.finance_status,
+                }
+            )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "count": updated,
+            "updated": updated_rows,
+            "skipped": skipped,
+        }
+    )
+
 
 @login_required
 @rol_requerido('admin', 'pm')

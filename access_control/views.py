@@ -121,6 +121,34 @@ BILLING_PERMISSION_SEED = [
             "emision_facturacion": False,
         },
     },
+    {
+        "key": "billing.send_finance",
+        "label": "Send billing to Finance",
+        "description": "Allows sending approved billings and direct discounts to Finance.",
+        "module": "Billing",
+        "order": 70,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": False,
+            "facturacion": False,
+            "emision_facturacion": False,
+        },
+    },
+    {
+        "key": "billing.export_billing",
+        "label": "Export billing",
+        "description": "Allows exporting billing records to Excel.",
+        "module": "Billing",
+        "order": 80,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": True,
+            "facturacion": True,
+            "emision_facturacion": False,
+        },
+    },
 ]
 
 
