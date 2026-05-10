@@ -137,10 +137,24 @@ BILLING_PERMISSION_SEED = [
     },
     {
         "key": "billing.export_billing",
-        "label": "Export billing",
-        "description": "Allows exporting billing records to Excel.",
+        "label": "Export client billing",
+        "description": "Allows exporting client billing records with company amounts.",
         "module": "Billing",
         "order": 80,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": False,
+            "facturacion": True,
+            "emision_facturacion": False,
+        },
+    },
+    {
+        "key": "billing.export_operational_billing",
+        "label": "Export operational billing",
+        "description": "Allows exporting operational billing records without prices or subtotals.",
+        "module": "Billing",
+        "order": 81,
         "defaults": {
             "admin": True,
             "pm": True,

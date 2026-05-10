@@ -183,15 +183,27 @@
 
       {% if can_export_billing %}
 
-        <button type="button" data-action="export"
+  <button type="button" data-action="export"
 
-                class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+          class="block w-full text-left px-4 py-2 hover:bg-gray-100">
 
-          Export selected
+    Export client report
 
-        </button>
+  </button>
 
-      {% endif %}
+{% endif %}
+
+{% if can_export_operational_billing %}
+
+  <button type="button" data-action="export_operational"
+
+          class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+    Export operational report
+
+  </button>
+
+{% endif %}
 
       {% if can_send_billing_to_finance %}
 
@@ -254,6 +266,22 @@
     {% csrf_token %}
 
     <input type="hidden" name="ids" id="export-ids">
+
+  </form>
+
+{% endif %}
+{% if can_export_operational_billing %}
+
+  <!-- Hidden operational export form: no prices -->
+
+  <form id="export-operational-form"
+        method="post"
+        action="{% url 'operaciones:exportar_billing_operational_excel' %}"
+        class="hidden">
+
+    {% csrf_token %}
+
+    <input type="hidden" name="ids" id="export-operational-ids">
 
   </form>
 
@@ -400,8 +428,8 @@
 
   <!-- Table -->
  <div id="zonaTabla"
-     data-excel-global='{{ excel_global_json|safe }}'
-     data-total-count="{{ pagina.paginator.count }}">
+    data-excel-global='{}'
+    data-total-count="{{ pagina.paginator.count }}">
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
   <table id="billing-table"
          data-columns-table="billing"     
@@ -1644,11 +1672,16 @@ document.addEventListener('click', function(e){
 
 <script>
 (function(){
-  const menu         = document.getElementById('menu-actions');
-  const exportForm   = document.getElementById('export-form');
+  const menu = document.getElementById('menu-actions');
+
+  const exportForm = document.getElementById('export-form');
   const exportIdsInp = document.getElementById('export-ids');
 
+  const exportOperationalForm = document.getElementById('export-operational-form');
+  const exportOperationalIdsInp = document.getElementById('export-operational-ids');
+
   const CAN_EXPORT_BILLING = {{ can_export_billing|yesno:"true,false" }};
+  const CAN_EXPORT_OPERATIONAL_BILLING = {{ can_export_operational_billing|yesno:"true,false" }};
   const CAN_SEND_BILLING_TO_FINANCE = {{ can_send_billing_to_finance|yesno:"true,false" }};
 
   function openFinanceModal(ids, mode){
@@ -1689,7 +1722,6 @@ document.addEventListener('click', function(e){
 
     const action = btn.getAttribute('data-action');
 
-    // ✅ Estas acciones NO dependen de export ni send finance
     if(action === 'bulk_import_requirements'){
       if(window.openBulkReqModal) window.openBulkReqModal(ids);
       return;
@@ -1705,11 +1737,10 @@ document.addEventListener('click', function(e){
       return;
     }
 
-    // ✅ Export selected: solo si tiene permiso
     if(action === 'export'){
       if(!CAN_EXPORT_BILLING || !exportForm || !exportIdsInp){
         window.openInfo && window.openInfo(
-          'You do not have permission to export billing records.',
+          'You do not have permission to export client billing reports.',
           'Permission denied'
         );
         return;
@@ -1720,7 +1751,20 @@ document.addEventListener('click', function(e){
       return;
     }
 
-    // ✅ Send to Finance: solo si tiene permiso
+    if(action === 'export_operational'){
+      if(!CAN_EXPORT_OPERATIONAL_BILLING || !exportOperationalForm || !exportOperationalIdsInp){
+        window.openInfo && window.openInfo(
+          'You do not have permission to export operational billing reports.',
+          'Permission denied'
+        );
+        return;
+      }
+
+      exportOperationalIdsInp.value = ids.join(',');
+      exportOperationalForm.submit();
+      return;
+    }
+
     if(action === 'send' && !CAN_SEND_BILLING_TO_FINANCE){
       window.openInfo && window.openInfo(
         'You do not have permission to send billings to Finance.',
@@ -1729,7 +1773,6 @@ document.addEventListener('click', function(e){
       return;
     }
 
-    // ✅ Export & Send: requiere ambos permisos
     if(action === 'both' && (!CAN_EXPORT_BILLING || !CAN_SEND_BILLING_TO_FINANCE)){
       window.openInfo && window.openInfo(
         'You do not have permission to export and send billings to Finance.',
@@ -1738,13 +1781,12 @@ document.addEventListener('click', function(e){
       return;
     }
 
-    // ✅ SEND/BOTH -> validación de estado
     function rowCanSendToFinance(tr){
       const txt  = (tr?.querySelector('td[data-status-cell]')?.textContent || '').toLowerCase();
       const code = (tr?.dataset?.status || '').toLowerCase();
 
       const isApprovedSupervisor = /approved by supervisor/.test(txt);
-      const isDirectDiscount     = /direct discount/.test(txt) || code.includes('discount');
+      const isDirectDiscount = /direct discount/.test(txt) || code.includes('discount');
 
       return isApprovedSupervisor || isDirectDiscount;
     }
@@ -1876,7 +1918,7 @@ document.addEventListener('click', function(e){
     }
 
     if (mode === 'both' && !CAN_EXPORT_BILLING) {
-      alert('You do not have permission to export billing records.');
+      alert('You do not have permission to export client billing reports.');
       return;
     }
 
@@ -2925,7 +2967,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
 
   function loadFilters(){
     try{
-      const raw = sessionStorage.getItem('excelFilters:' + location.pathname);
+      const raw = sessionStorage.getItem('excelFiltersBilling:' + location.pathname);
       if(!raw) return {};
       const obj = JSON.parse(raw);
       const out = {};
@@ -2941,7 +2983,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     Object.entries(activeFilters).forEach(([k,v]) => {
       plain[k] = Array.from(v);
     });
-    sessionStorage.setItem('excelFilters:' + location.pathname, JSON.stringify(plain));
+    sessionStorage.setItem('excelFiltersBilling:' + location.pathname, JSON.stringify(plain));
   }
 
   function getExcelGlobal(){
@@ -3368,9 +3410,7 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
       window.billingRefreshBulkActions();
     }
     if (window.billingExcelLoadOptions) {
-
       window.billingExcelLoadOptions();
-
     }
   });
 })();

@@ -162,17 +162,27 @@ def _billing_access_context(user):
         user,
         "billing.edit_real_week",
     )
+
     can_delete_billing = access_user_can(
         user,
         "billing.delete_billing",
     )
+
     can_send_billing_to_finance = access_user_can(
         user,
         "billing.send_finance",
     )
+
+    # Export actual: reporte cliente. NO tocar lógica.
     can_export_billing = access_user_can(
         user,
         "billing.export_billing",
+    )
+
+    # Nuevo export operativo: sin precios.
+    can_export_operational_billing = access_user_can(
+        user,
+        "billing.export_operational_billing",
     )
 
     return {
@@ -182,7 +192,10 @@ def _billing_access_context(user):
         "can_edit_real_week": can_edit_real_week,
         "can_delete_billing": can_delete_billing,
         "can_send_billing_to_finance": can_send_billing_to_finance,
+        # Export cliente actual
         "can_export_billing": can_export_billing,
+        # Export operativo nuevo
+        "can_export_operational_billing": can_export_operational_billing,
         "can_view_technical_billing_amounts": can_view_technical_billing_amounts,
         "can_view_company_billing_amounts": can_view_company_billing_amounts,
         "can_view_real_company_billing": can_view_real_company_billing,
@@ -4553,6 +4566,599 @@ def recomputar_estado_desde_asignaciones(self, save: bool = True) -> str:
             self.save(update_fields=["estado"])
     return self.estado
 
+@login_required
+@rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")
+@require_POST
+def exportar_billing_operational_excel(request):
+    """
+    Export operativo de Billing.
+
+    Objetivo:
+    - Mantener el export actual del cliente intacto.
+    - Este export NO muestra precios ni subtotales.
+    - Puede ser entregado a supervisor / PM / admin según permiso Matrix.
+    - Respeta visibilidad por proyecto y ventana ProyectoAsignacion.
+
+    Columnas SIN precios:
+    - Project ID
+    - Date
+    - Projected Week
+    - Real Pay Week
+    - Project Address
+    - Client
+    - City
+    - Project
+    - Office
+    - Status
+    - Finance Status
+    - Technicians
+    - Work Type
+    - Job Code
+    - Description
+    - Qty
+    - UOM
+    - Technician Comments
+    """
+
+    if not access_user_can(request.user, "billing.export_operational_billing"):
+        return HttpResponseForbidden(
+            "You do not have permission to export operational billing records."
+        )
+
+    from io import BytesIO
+
+    from django.db.models import Prefetch, Q
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    # ============================================================
+    # Estilos
+    # ============================================================
+    HDR_FILL = PatternFill("solid", fgColor="1F2937")
+    HDR_FONT = Font(bold=True, color="FFFFFF")
+    HDR_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    CELL_ALIGN_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    CELL_ALIGN_LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    CELL_ALIGN_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    CELL_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=False)
+
+    THIN = Side(style="thin", color="D1D5DB")
+    BORDER_ALL = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+
+    ZEBRA_GRAY = "F3F4F6"
+    ZEBRA_WHITE = "FFFFFF"
+
+    # ============================================================
+    # Helpers locales
+    # ============================================================
+    def _xlsx_response(workbook):
+        bio = BytesIO()
+        workbook.save(bio)
+        bio.seek(0)
+
+        ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+        resp = HttpResponse(
+            bio.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp["Content-Disposition"] = (
+            f'attachment; filename="billing_operational_export_{ts}.xlsx"'
+        )
+        return resp
+
+    def _status_label(s):
+        if getattr(s, "is_direct_discount", False):
+            return "Direct discount"
+
+        labels = {
+            "aprobado_pm": "Approved by PM",
+            "rechazado_pm": "Rejected by PM",
+            "aprobado_supervisor": "Approved by supervisor",
+            "rechazado_supervisor": "Rejected by supervisor",
+            "en_revision_supervisor": "In supervisor review",
+            "finalizado": "Finished (pending review)",
+            "en_proceso": "In progress",
+            "asignado": "Assigned",
+            "aprobado_finanzas": "Approved by Finance",
+        }
+
+        return labels.get((getattr(s, "estado", "") or "").strip(), getattr(s, "estado", "") or "")
+
+    def _finance_status_label(s):
+        labels = {
+            "sent": "Sent to Finance",
+            "in_review": "In review",
+            "rejected": "Rejected",
+            "pending": "Pending payment",
+            "paid": "Paid",
+            "review_discount": "Review discount",
+            "discount_applied": "Discount applied",
+            "none": "—",
+            "": "—",
+            None: "—",
+        }
+
+        return labels.get(getattr(s, "finance_status", None), "—")
+
+    def _techs_label(s):
+        vals = []
+
+        try:
+            for ts in s.tecnicos_sesion.all():
+                tech = getattr(ts, "tecnico", None)
+                if not tech:
+                    continue
+
+                vals.append((tech.get_full_name() or tech.username or "").strip())
+        except Exception:
+            pass
+
+        return ", ".join(v for v in vals if v) or "—"
+
+    def _comments_label(s):
+        vals = []
+
+        try:
+            for ts in s.tecnicos_sesion.all():
+                txt = (getattr(ts, "tecnico_comentario", "") or "").strip()
+                if not txt:
+                    continue
+
+                tech = getattr(ts, "tecnico", None)
+                tech_name = ""
+
+                if tech:
+                    tech_name = (tech.get_full_name() or tech.username or "").strip()
+
+                if tech_name:
+                    vals.append(f"{tech_name}: {txt}")
+                else:
+                    vals.append(txt)
+        except Exception:
+            pass
+
+        return " | ".join(vals) if vals else "—"
+
+    def _get_address_from_session(s):
+        return (
+            getattr(s, "direccion_proyecto", None)
+            or getattr(s, "direccion", None)
+            or getattr(s, "project_address", None)
+            or getattr(s, "direccion_obra", None)
+            or ""
+        )
+
+    def _get_address_from_item_or_session(it, s):
+        return (
+            getattr(it, "direccion", None)
+            or getattr(it, "project_address", None)
+            or getattr(it, "direccion_obra", None)
+            or _get_address_from_session(s)
+            or ""
+        )
+
+    def _clean(value):
+        return str(value or "").strip()
+
+    def _billing_project_keys(s):
+        keys = set()
+
+        raw_proyecto = getattr(s, "proyecto", None)
+        raw_proyecto_id = getattr(s, "proyecto_id", None)
+
+        if raw_proyecto not in (None, ""):
+            if hasattr(raw_proyecto, "id"):
+                keys.add(_clean(getattr(raw_proyecto, "id", "")))
+                keys.add(_clean(getattr(raw_proyecto, "nombre", "")))
+                keys.add(_clean(getattr(raw_proyecto, "codigo", "")))
+            else:
+                keys.add(_clean(raw_proyecto))
+
+        if raw_proyecto_id not in (None, ""):
+            keys.add(_clean(raw_proyecto_id))
+
+        return {k for k in keys if k}
+
+    def _project_keys_from_proyecto(p):
+        keys = set()
+
+        keys.add(_clean(getattr(p, "id", "")))
+        keys.add(_clean(getattr(p, "nombre", "")))
+
+        codigo = getattr(p, "codigo", None)
+        if codigo not in (None, ""):
+            keys.add(_clean(codigo))
+
+        return {k for k in keys if k}
+
+    def _resolve_project_labels_for_sessions(sessions):
+        proj_ids = set()
+        proj_texts = set()
+
+        for s in sessions:
+            raw_proyecto = getattr(s, "proyecto", None)
+            if raw_proyecto not in (None, "", "-"):
+                txt = str(raw_proyecto).strip()
+                if txt:
+                    proj_texts.add(txt)
+                    try:
+                        proj_ids.add(int(txt))
+                    except Exception:
+                        pass
+
+            raw_proyecto_id = getattr(s, "proyecto_id", None)
+            if raw_proyecto_id not in (None, "", "-"):
+                txt2 = str(raw_proyecto_id).strip()
+                if txt2:
+                    proj_texts.add(txt2)
+                    try:
+                        proj_ids.add(int(txt2))
+                    except Exception:
+                        pass
+
+        proj_q = Q()
+
+        if proj_ids:
+            proj_q |= Q(id__in=proj_ids)
+
+        if proj_texts:
+            proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
+
+        proyectos = (
+            Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+            if proj_q
+            else Proyecto.objects.none()
+        )
+
+        by_id = {str(p.id): p.nombre for p in proyectos}
+        by_code = {
+            (p.codigo or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "codigo", None)
+        }
+        by_name = {
+            (p.nombre or "").strip().lower(): p.nombre
+            for p in proyectos
+            if getattr(p, "nombre", None)
+        }
+
+        for s in sessions:
+            raw = str(getattr(s, "proyecto", "") or "").strip()
+            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+
+            label = ""
+
+            if raw:
+                label = (
+                    by_id.get(raw)
+                    or by_code.get(raw.lower())
+                    or by_name.get(raw.lower())
+                    or raw
+                )
+
+            if not label and raw_id:
+                label = (
+                    by_id.get(raw_id)
+                    or by_code.get(raw_id.lower())
+                    or by_name.get(raw_id.lower())
+                    or raw_id
+                )
+
+            s.proyecto_nombre = label
+            s.project_label = label
+
+        return sessions
+
+    def _apply_styles(ws):
+        max_row = ws.max_row
+        max_col = ws.max_column
+
+        for col in range(1, max_col + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = HDR_FILL
+            cell.font = HDR_FONT
+            cell.alignment = HDR_ALIGN
+            cell.border = BORDER_ALL
+
+        fill_gray = PatternFill("solid", fgColor=ZEBRA_GRAY)
+        fill_white = PatternFill("solid", fgColor=ZEBRA_WHITE)
+
+        for r in range(2, max_row + 1):
+            fill = fill_gray if (r - 2) % 2 == 0 else fill_white
+
+            for c in range(1, max_col + 1):
+                cell = ws.cell(row=r, column=c)
+                cell.fill = fill
+                cell.border = BORDER_ALL
+
+                if c in (5, 15, 18):
+                    cell.alignment = CELL_ALIGN_LEFT_WRAP
+                elif c == 16:
+                    cell.alignment = CELL_ALIGN_RIGHT
+                else:
+                    cell.alignment = CELL_ALIGN_LEFT
+
+        ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
+        ws.freeze_panes = "A2"
+        ws.sheet_view.showGridLines = False
+        ws.print_options.gridLines = False
+
+    def _set_widths(ws):
+        widths = {
+            1: 14,   # Project ID
+            2: 12,   # Date
+            3: 14,   # Projected Week
+            4: 14,   # Real Pay Week
+            5: 38,   # Address
+            6: 18,   # Client
+            7: 16,   # City
+            8: 24,   # Project
+            9: 18,   # Office
+            10: 22,  # Status
+            11: 20,  # Finance Status
+            12: 30,  # Technicians
+            13: 18,  # Work Type
+            14: 16,  # Job Code
+            15: 40,  # Description
+            16: 10,  # Qty
+            17: 10,  # UOM
+            18: 45,  # Comments
+        }
+
+        for idx, width in widths.items():
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+    # ============================================================
+    # 1) Parsear IDs
+    # ============================================================
+    raw = (request.POST.get("ids") or "").strip()
+    ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Operational Billing"
+
+    headers = [
+        "Project ID",
+        "Date",
+        "Projected Week",
+        "Real Pay Week",
+        "Project Address",
+        "Client",
+        "City",
+        "Project",
+        "Office",
+        "Status",
+        "Finance Status",
+        "Technicians",
+        "Work Type",
+        "Job Code",
+        "Description",
+        "Qty",
+        "UOM",
+        "Technician Comments",
+    ]
+
+    ws.append(headers)
+
+    if not ids:
+        _set_widths(ws)
+        _apply_styles(ws)
+        return _xlsx_response(wb)
+
+    # ============================================================
+    # 2) Query base
+    # ============================================================
+    sesiones = list(
+        SesionBilling.objects.filter(id__in=ids)
+        .prefetch_related(
+            Prefetch("items", queryset=ItemBilling.objects.order_by("id")),
+            Prefetch(
+                "tecnicos_sesion",
+                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+            ),
+        )
+        .order_by("id")
+    )
+
+    # ============================================================
+    # 3) Seguridad por proyectos visibles
+    # ============================================================
+    can_view_legacy_history = request.user.is_superuser or getattr(
+        request.user,
+        "es_usuario_historial",
+        False,
+    )
+
+    if not can_view_legacy_history:
+        try:
+            proyectos_visibles = filter_queryset_by_access(
+                Proyecto.objects.all(),
+                request.user,
+                "id",
+            )
+        except Exception:
+            proyectos_visibles = Proyecto.objects.none()
+
+        proyectos_visibles_list = list(proyectos_visibles)
+
+        if proyectos_visibles_list:
+            allowed_keys = set()
+
+            for p in proyectos_visibles_list:
+                allowed_keys.update(_project_keys_from_proyecto(p))
+
+            access_by_key = {}
+
+            asignaciones = []
+            if ProyectoAsignacion is not None:
+                try:
+                    asignaciones = list(
+                        ProyectoAsignacion.objects.filter(
+                            usuario=request.user,
+                            proyecto__in=proyectos_visibles_list,
+                        ).select_related("proyecto")
+                    )
+                except Exception:
+                    asignaciones = []
+
+            for a in asignaciones:
+                p = getattr(a, "proyecto", None)
+                if not p:
+                    continue
+
+                if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                    access = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
+                else:
+                    access = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
+
+                for key in _project_keys_from_proyecto(p):
+                    access_by_key[key] = access
+
+            filtered = []
+
+            for s in sesiones:
+                session_keys = _billing_project_keys(s)
+
+                matched_key = None
+                for k in session_keys:
+                    if k in allowed_keys:
+                        matched_key = k
+                        break
+
+                if not matched_key:
+                    continue
+
+                if access_by_key:
+                    access = access_by_key.get(matched_key)
+
+                    if not access:
+                        continue
+
+                    if not access["include_history"] and access["start_at"] is not None:
+                        creado_en = getattr(s, "creado_en", None)
+
+                        if creado_en and creado_en < access["start_at"]:
+                            continue
+
+                filtered.append(s)
+
+            sesiones = filtered
+        else:
+            sesiones = []
+
+    _resolve_project_labels_for_sessions(sesiones)
+
+    # ============================================================
+    # 4) Escribir filas
+    # ============================================================
+    tz = timezone.get_current_timezone()
+
+    for s in sesiones:
+        dt = getattr(s, "creado_en", None)
+        date_str = timezone.localtime(dt, tz).strftime("%Y-%m-%d") if dt else ""
+
+        project_id = getattr(s, "proyecto_id", "") or ""
+        projected_week = getattr(s, "semana_pago_proyectada", "") or ""
+        real_week = (
+            getattr(s, "semana_pago_real", "") or
+            getattr(s, "discount_week", "") or
+            projected_week or
+            ""
+        )
+
+        client = getattr(s, "cliente", "") or ""
+        city = getattr(s, "ciudad", "") or ""
+        project_label = (
+            getattr(s, "proyecto_nombre", "") or
+            getattr(s, "project_label", "") or
+            getattr(s, "proyecto", "") or
+            ""
+        )
+        office = getattr(s, "oficina", "") or ""
+
+        status = _status_label(s)
+        finance_status = _finance_status_label(s)
+        techs = _techs_label(s)
+        comments = _comments_label(s)
+
+        items = list(s.items.all())
+
+        if not items:
+            ws.append(
+                [
+                    project_id,
+                    date_str,
+                    projected_week,
+                    real_week,
+                    _get_address_from_session(s),
+                    client,
+                    city,
+                    project_label,
+                    office,
+                    status,
+                    finance_status,
+                    techs,
+                    "",
+                    "",
+                    "",
+                    0,
+                    "",
+                    comments,
+                ]
+            )
+            continue
+
+        for it in items:
+            ws.append(
+                [
+                    project_id,
+                    date_str,
+                    projected_week,
+                    real_week,
+                    _get_address_from_item_or_session(it, s),
+                    client,
+                    city,
+                    project_label,
+                    office,
+                    status,
+                    finance_status,
+                    techs,
+                    getattr(it, "tipo_trabajo", "") or "",
+                    getattr(it, "codigo_trabajo", "") or "",
+                    getattr(it, "descripcion", "") or "",
+                    float(getattr(it, "cantidad", 0) or 0),
+                    getattr(it, "unidad_medida", "") or "",
+                    comments,
+                ]
+            )
+
+    # ============================================================
+    # 5) Formato
+    # ============================================================
+    _set_widths(ws)
+    _apply_styles(ws)
+
+    for col_cells in ws.iter_cols(min_col=16, max_col=16, min_row=2, values_only=False):
+        for c in col_cells:
+            c.number_format = "#,##0.00"
+
+    return _xlsx_response(wb)
 
 @login_required
 @rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")

@@ -65,6 +65,11 @@ urlpatterns = [
         v.billing_excel_options,
         name="billing_excel_options",
     ),
+    path(
+        "billing/export-operational-excel/",
+        views.exportar_billing_operational_excel,
+        name="exportar_billing_operational_excel",
+    ),
     # AJAX dependientes
     path("billing/ajax/clientes/", v.ajax_clientes, name="ajax_clientes"),
     path("billing/ajax/ciudades/", v.ajax_ciudades, name="ajax_ciudades"),
