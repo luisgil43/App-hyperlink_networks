@@ -1,0 +1,212 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Bulk Billing Import{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="max-w-5xl mx-auto mt-6">
+  <div class="bg-white rounded-2xl shadow p-5 sm:p-6">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">🧾 Bulk Billing Import</h1>
+        <p class="text-sm text-gray-500 mt-1">
+          Upload an Excel file, validate every billing, and create all records only if the full file is correct.
+        </p>
+      </div>
+
+      <a href="{% url 'operaciones:listar_billing' %}"
+         class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+        Back
+      </a>
+    </div>
+
+    <div class="mt-5 grid md:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+        <h2 class="font-semibold text-blue-900">1. Download the template</h2>
+        <p class="text-sm text-blue-800 mt-1">
+          Use the official format to avoid structure errors.
+        </p>
+
+        <a href="{{ template_url }}"
+           class="mt-4 inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-semibold">
+          Download template
+        </a>
+      </div>
+
+      <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+        <h2 class="font-semibold text-emerald-900">2. Upload and preview</h2>
+        <p class="text-sm text-emerald-800 mt-1">
+          No billing will be created until the preview has no errors and you confirm.
+        </p>
+
+        <form method="post" enctype="multipart/form-data" class="mt-4 space-y-4">
+          {% csrf_token %}
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Excel file (.xlsx)
+            </label>
+
+            <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-white/70 px-4 py-3">
+              <input
+                id="bulk-file-input"
+                name="archivo"
+                type="file"
+                accept=".xlsx"
+                class="hidden"
+                required
+              >
+
+              <label
+                for="bulk-file-input"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 cursor-pointer text-sm font-semibold shadow-sm"
+              >
+                Choose file
+              </label>
+
+              <span id="bulk-file-name" class="text-sm text-gray-600">
+                No file chosen
+              </span>
+            </div>
+
+            <p id="bulk-file-error" class="mt-1 text-xs text-red-600 hidden"></p>
+
+            {% if form.archivo.errors %}
+              <div class="mt-1 text-xs text-red-600">
+                {{ form.archivo.errors|join:", " }}
+              </div>
+            {% endif %}
+          </div>
+
+          <button type="submit"
+                  id="bulk-submit-btn"
+                  class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-semibold">
+            Validate file
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="mt-6 rounded-2xl border border-gray-200 p-4">
+      <h2 class="font-semibold text-gray-800">Important rules</h2>
+
+      <ul class="mt-2 text-sm text-gray-600 space-y-1 list-disc pl-5">
+        <li>Job Code must match exactly. Example: <b>C-123</b> is not the same as <b>C.123</b>.</li>
+        <li>Only spaces at the beginning or end of a cell are cleaned.</li>
+        <li>Quantity cannot be zero.</li>
+        <li>Direct discounts require negative quantities.</li>
+        <li>Normal billings require positive quantities.</li>
+        <li>Every selected technician must have exact prices for the same Client, City, Project, Office and Job Code.</li>
+        <li>If one row has an error, no billing will be created.</li>
+      </ul>
+
+      <div class="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+        <h3 class="font-semibold text-blue-900">
+          Technician payment mode
+        </h3>
+
+        <p class="mt-1 text-sm text-blue-800">
+          In the Excel template, use the column <b>tech_payment_mode</b>.
+          The value must be exactly <b>full</b> or <b>split</b>.
+        </p>
+
+        <div class="mt-4 grid md:grid-cols-2 gap-3">
+          <div class="rounded-xl bg-white border border-blue-100 p-3">
+            <div class="text-sm font-semibold text-gray-900">
+              full — Full amount for each technician
+            </div>
+
+            <p class="mt-1 text-xs text-gray-600 leading-5">
+              Use <b>full</b> when every selected technician must receive their full technical rate.
+              Example: if there are 2 technicians, quantity is 1, and each technician rate is 100,
+              each technician receives 100. Technical total = 200.
+            </p>
+          </div>
+
+          <div class="rounded-xl bg-white border border-blue-100 p-3">
+            <div class="text-sm font-semibold text-gray-900">
+              split — Split between technicians
+            </div>
+
+            <p class="mt-1 text-xs text-gray-600 leading-5">
+              Use <b>split</b> when the technical amount must be divided between the selected technicians.
+              Example: if there are 2 technicians, quantity is 1, and the technician rate is 100,
+              each technician receives 50%. Technical total = 100.
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Do not write “Full amount”, “Split between technicians”, “yes”, “no”, or any other text in this column.
+          Only <b>full</b> or <b>split</b> are valid.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const input = document.getElementById('bulk-file-input');
+  const nameEl = document.getElementById('bulk-file-name');
+  const errorEl = document.getElementById('bulk-file-error');
+  const form = input ? input.closest('form') : null;
+  const submitBtn = document.getElementById('bulk-submit-btn');
+
+  if (!input || !nameEl || !form) return;
+
+  function clearError() {
+    if (!errorEl) return;
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+  }
+
+  function showError(message) {
+    if (!errorEl) return;
+    errorEl.textContent = message || '';
+    errorEl.classList.remove('hidden');
+  }
+
+  input.addEventListener('change', function () {
+    clearError();
+
+    if (input.files && input.files.length) {
+      const fileName = input.files[0].name || '';
+      nameEl.textContent = fileName;
+
+      if (!fileName.toLowerCase().endsWith('.xlsx')) {
+        showError('Please choose an Excel .xlsx file.');
+      }
+    } else {
+      nameEl.textContent = 'No file chosen';
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    clearError();
+
+    if (!input.files || !input.files.length) {
+      e.preventDefault();
+      showError('Please choose an Excel .xlsx file.');
+      return;
+    }
+
+    const fileName = input.files[0].name || '';
+
+    if (!fileName.toLowerCase().endsWith('.xlsx')) {
+      e.preventDefault();
+      showError('Please choose an Excel .xlsx file.');
+      return;
+    }
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Validating...';
+      submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
+    }
+  });
+});
+</script>
+
+{% endblock %}

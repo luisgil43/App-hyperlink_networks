@@ -1,0 +1,460 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Bulk Billing Preview{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="max-w-7xl mx-auto mt-6">
+
+  <div class="bg-white rounded-2xl shadow p-4 sm:p-6">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">Bulk Billing Preview</h1>
+        <p class="text-sm text-gray-500 mt-1">
+          Review all validations before creating records.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a href="{{ template_url }}"
+           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+          Download template
+        </a>
+
+        <a href="{% url 'operaciones:billing_masivo_upload' %}"
+           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+          Upload another file
+        </a>
+      </div>
+    </div>
+
+    <div class="mt-5 grid sm:grid-cols-4 gap-3">
+      <div class="rounded-xl border bg-gray-50 p-3">
+        <div class="text-xs text-gray-500">Billings</div>
+        <div class="text-xl font-bold">{{ payload.summary.billing_count }}</div>
+      </div>
+
+      <div class="rounded-xl border bg-gray-50 p-3">
+        <div class="text-xs text-gray-500">Technician rows</div>
+        <div class="text-xl font-bold">{{ payload.summary.technician_count }}</div>
+      </div>
+
+      <div class="rounded-xl border bg-gray-50 p-3">
+        <div class="text-xs text-gray-500">Items</div>
+        <div class="text-xl font-bold">{{ payload.summary.item_count }}</div>
+      </div>
+
+      <div class="rounded-xl border {% if has_errors %}bg-red-50 border-red-200{% else %}bg-emerald-50 border-emerald-200{% endif %} p-3">
+        <div class="text-xs {% if has_errors %}text-red-600{% else %}text-emerald-700{% endif %}">
+          Status
+        </div>
+        <div class="text-xl font-bold {% if has_errors %}text-red-700{% else %}text-emerald-700{% endif %}">
+          {% if has_errors %}Has errors{% else %}Ready{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if payload.global_errors %}
+      <div class="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+        <h2 class="font-semibold text-red-800">Workbook errors</h2>
+
+        <div class="mt-2 space-y-2">
+          {% for e in payload.global_errors %}
+            <div class="text-sm text-red-700">
+              <b>{{ e.sheet }}</b> row {{ e.row }} — <b>{{ e.field }}</b>: {{ e.message }}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="mt-6 space-y-5">
+      {% for b in payload.billings %}
+
+        <div class="rounded-2xl border {% if b.errors %}border-red-300 bg-red-50{% else %}border-gray-200 bg-white{% endif %} overflow-hidden">
+
+          <div class="px-4 py-3 border-b {% if b.errors %}bg-red-100{% else %}bg-gray-50{% endif %}">
+            <div class="flex flex-wrap justify-between gap-3">
+              <div>
+                <h2 class="font-bold text-gray-900">
+                  {{ b.bulk_key }} — {{ b.project_id }}
+                </h2>
+                <p class="text-xs text-gray-600">
+                  Billing sheet row {{ b.source_row }}
+                </p>
+              </div>
+
+              <div class="text-sm text-right">
+  {% if payload.permissions.can_view_tech_prices %}
+    <div>
+      <b>Tech total:</b> ${{ b.subtotal_tecnico }}
+    </div>
+  {% endif %}
+
+  {% if payload.permissions.can_view_company_prices %}
+    <div>
+      <b>Company total:</b> ${{ b.subtotal_empresa }}
+    </div>
+  {% endif %}
+</div>
+            </div>
+          </div>
+
+          <div class="p-4">
+
+            <div class="overflow-x-auto rounded-xl border">
+              <table class="min-w-[1200px] w-full text-xs">
+                <thead class="bg-gray-100 text-gray-700">
+                  <tr>
+                    <th class="p-2 text-left">Field</th>
+                    <th class="p-2 text-left">Value</th>
+                    <th class="p-2 text-left">Validation</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">project_id</td>
+                    <td class="p-2">{{ b.project_id|default:"—" }}</td>
+                    <td class="p-2">
+                      {% with has_field_error=False %}
+                        {% for e in b.errors %}
+                          {% if e.field == "project_id" %}
+                            <div class="text-xs text-red-700">{{ e.message }}</div>
+                          {% endif %}
+                        {% endfor %}
+                      {% endwith %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">client</td>
+                    <td class="p-2">{{ b.client|default:"—" }}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "client" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">city</td>
+                    <td class="p-2">{{ b.city|default:"—" }}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "city" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+
+  <td class="p-2 font-semibold">project</td>
+
+  <td class="p-2">{{ b.project|default:"—" }}</td>
+
+  <td class="p-2">
+
+    {% for e in b.errors %}
+
+      {% if e.field == "project" %}
+
+        <div class="text-xs text-red-700">{{ e.message }}</div>
+
+      {% endif %}
+
+    {% endfor %}
+
+  </td>
+
+</tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">office</td>
+                    <td class="p-2">{{ b.office|default:"—" }}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "office" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">projected_week</td>
+                    <td class="p-2">{{ b.projected_week|default:"—" }}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "projected_week" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">tech_payment_mode</td>
+                    <td class="p-2">{{ b.tech_payment_mode|default:"—" }}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "tech_payment_mode" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">direct_discount</td>
+                    <td class="p-2">{% if b.direct_discount %}YES{% else %}NO{% endif %}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "direct_discount" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">cable_installation</td>
+                    <td class="p-2">{% if b.cable_installation %}YES{% else %}NO{% endif %}</td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "cable_installation" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {% if b.errors %}
+              <div class="mt-3 rounded-xl border border-red-200 bg-red-50 p-3">
+                <h3 class="font-semibold text-red-800 text-sm">Billing errors</h3>
+                <div class="mt-2 space-y-1">
+                  {% for e in b.errors %}
+                    <div class="text-xs text-red-700">
+                      <b>{{ e.sheet }}</b> row {{ e.row }} — <b>{{ e.field }}</b>: {{ e.message }}
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            <div class="mt-5 grid lg:grid-cols-2 gap-4">
+
+              <div>
+                <h3 class="font-semibold text-gray-800 mb-2">Technicians</h3>
+
+                <div class="overflow-x-auto rounded-xl border">
+                  <table class="min-w-[500px] w-full text-xs">
+                    <thead class="bg-gray-100">
+                      <tr>
+                        <th class="p-2 text-left">Row</th>
+                        <th class="p-2 text-left">Username</th>
+                        <th class="p-2 text-left">Name</th>
+                        <th class="p-2 text-left">Validation</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {% for t in b.technicians %}
+                        <tr class="border-t">
+                          <td class="p-2">{{ t.source_row }}</td>
+                          <td class="p-2 font-semibold">
+                            {{ t.username|default:"—" }}
+                          </td>
+                          <td class="p-2">{{ t.display_name|default:"—" }}</td>
+                          <td class="p-2">
+  {% for e in b.errors %}
+    {% if e.sheet == "Technicians" and e.row == t.source_row %}
+      <div class="text-xs text-red-700">
+        <b>{{ e.field }}:</b> {{ e.message }}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if t.user_id %}
+    <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+      OK
+    </span>
+  {% else %}
+    <span class="inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800">
+      Invalid technician
+    </span>
+  {% endif %}
+</td>
+                        </tr>
+                      {% empty %}
+                        <tr>
+                          <td colspan="4" class="p-3 text-center text-gray-500">No technicians.</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="font-semibold text-gray-800 mb-2">Items</h3>
+
+                <div class="overflow-x-auto rounded-xl border">
+                  <table class="min-w-[900px] w-full text-xs">
+                    <thead class="bg-gray-100">
+                      <tr>
+                        <th class="p-2 text-left">Row</th>
+                        <th class="p-2 text-left">Job Code</th>
+                        <th class="p-2 text-right">Qty</th>
+                        <th class="p-2 text-left">Work Type</th>
+                        <th class="p-2 text-left">Description</th>
+                        {% if payload.permissions.can_view_tech_prices %}
+  <th class="p-2 text-right">Tech Subtotal</th>
+{% endif %}
+
+{% if payload.permissions.can_view_company_prices %}
+  <th class="p-2 text-right">Company Subtotal</th>
+{% endif %}
+                        <th class="p-2 text-left">Validation</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {% for item in b.items %}
+                        <tr class="border-t {% if item.errors %}bg-red-50{% endif %}">
+                          <td class="p-2">{{ item.source_row }}</td>
+
+                          <td class="p-2 font-semibold align-top">
+                            {{ item.job_code|default:"—" }}
+
+                            {% for e in item.errors %}
+                              {% if e.field == "job_code" %}
+                                <div class="mt-1 text-[11px] text-red-700 leading-4">
+                                  {{ e.message }}
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          </td>
+
+                          <td class="p-2 text-right align-top">
+                            {{ item.quantity_raw|default:"—" }}
+
+                            {% for e in item.errors %}
+                              {% if e.field == "quantity" %}
+                                <div class="mt-1 text-[11px] text-red-700 leading-4 text-left">
+                                  {{ e.message }}
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          </td>
+
+                          <td class="p-2">{{ item.tipo_trabajo|default:"—" }}</td>
+                          <td class="p-2 whitespace-normal max-w-[260px]">{{ item.descripcion|default:"—" }}</td>
+                          {% if payload.permissions.can_view_tech_prices %}
+  <td class="p-2 text-right">${{ item.subtotal_tecnico }}</td>
+{% endif %}
+
+{% if payload.permissions.can_view_company_prices %}
+  <td class="p-2 text-right">${{ item.subtotal_empresa }}</td>
+{% endif %}
+
+                          <td class="p-2 align-top">
+                            {% if item.errors %}
+                              <div class="space-y-1">
+                                {% for e in item.errors %}
+                                  <div class="text-red-700">
+                                    <b>{{ e.field }}:</b> {{ e.message }}
+                                  </div>
+                                {% endfor %}
+                              </div>
+                            {% else %}
+                              <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                OK
+                              </span>
+                            {% endif %}
+                          </td>
+                        </tr>
+
+                      {% if item.desglose_tecnico and payload.permissions.can_view_tech_prices %}
+  <tr class="border-t bg-gray-50">
+    <td></td>
+
+    {% if payload.permissions.can_view_company_prices %}
+      <td colspan="7" class="p-2">
+    {% else %}
+      <td colspan="6" class="p-2">
+    {% endif %}
+        <div class="flex flex-wrap gap-2">
+          {% for d in item.desglose_tecnico %}
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border text-xs">
+              <b>{{ d.tecnico_nombre }}</b>
+              {{ d.tarifa_base }} × {{ d.porcentaje }}% = {{ d.tarifa_efectiva }}
+              / subtotal {{ d.subtotal }}
+            </span>
+          {% endfor %}
+        </div>
+      </td>
+  </tr>
+{% endif %}
+                      {% empty %}
+                        <tr>
+                          <td colspan="8" class="p-3 text-center text-gray-500">No items.</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      {% empty %}
+        <div class="rounded-xl border p-6 text-center text-gray-500">
+          No billings found in the file.
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="mt-6 flex flex-wrap justify-between items-center gap-3 border-t pt-4">
+      <div>
+        {% if has_errors %}
+          <div class="text-sm text-red-700 font-semibold">
+            Fix the errors in the Excel file and upload it again. No billing can be created yet.
+          </div>
+        {% else %}
+          <div class="text-sm text-emerald-700 font-semibold">
+            All validations passed. You can create all billings now.
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a href="{% url 'operaciones:billing_masivo_upload' %}"
+           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
+          Cancel
+        </a>
+
+        <form method="post" action="{% url 'operaciones:billing_masivo_confirm' %}">
+          {% csrf_token %}
+          <button type="submit"
+                  {% if has_errors %}disabled{% endif %}
+                  class="px-5 py-2 rounded-lg text-white font-semibold {% if has_errors %}bg-gray-400 cursor-not-allowed{% else %}bg-blue-600 hover:bg-blue-700{% endif %}">
+            Create all billings
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

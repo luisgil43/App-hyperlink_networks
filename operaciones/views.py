@@ -878,19 +878,27 @@ def _validate_paid_locked_existing_items(sesion, filas) -> str | None:
 
 def _unmark_billings_paid_for_weekly_payment(wp):
     """
+    Revierte SOLO las marcas de pago técnico asociadas a un WeeklyPayment.
 
-    Revierte SOLO las marcas de pago técnico (pay week).
+    Al hacer Unpay debe limpiar:
+      - is_paid
+      - paid_at
+      - payment_status
+      - weekly_payment
+
+    Esto es lo que desbloquea correctamente:
+      - edición
+      - delete
+      - reopen
+      - acciones normales en Billing List
 
     NO toca finance_status ni notas visibles de finanzas.
-
     """
 
     week = (getattr(wp, "week", "") or "").strip().upper()
-
     technician_id = getattr(wp, "technician_id", None)
 
     if not week or not technician_id:
-
         return
 
     snapshot_qs = BillingPayWeekSnapshot.objects.filter(
@@ -901,37 +909,41 @@ def _unmark_billings_paid_for_weekly_payment(wp):
     snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
 
     if "is_adjustment" in snapshot_field_names:
-
         snapshot_qs = snapshot_qs.filter(is_adjustment=False)
-
     elif "adjustment_of" in snapshot_field_names:
-
         snapshot_qs = snapshot_qs.filter(adjustment_of__isnull=True)
 
-    # 1) flujo nuevo: snapshots
-
-    for snap in snapshot_qs:
-
+    # 1) Flujo nuevo: limpiar snapshots
+    for snap in snapshot_qs.select_related("weekly_payment"):
         changed = []
 
         if hasattr(snap, "is_paid") and getattr(snap, "is_paid", False):
-
             snap.is_paid = False
-
             changed.append("is_paid")
 
         if hasattr(snap, "paid_at") and getattr(snap, "paid_at", None):
-
             snap.paid_at = None
-
             changed.append("paid_at")
 
-        if changed:
+        if hasattr(snap, "payment_status"):
+            current_status = (getattr(snap, "payment_status", "") or "").strip().lower()
+            if current_status == "paid":
+                snap.payment_status = "pending"
+                changed.append("payment_status")
 
+        if hasattr(snap, "weekly_payment_id") and getattr(
+            snap, "weekly_payment_id", None
+        ):
+            # Limpiamos solo si estaba asociado a este WeeklyPayment.
+            # Si por alguna razón apunta a otro pago, no lo tocamos.
+            if int(snap.weekly_payment_id) == int(wp.id):
+                snap.weekly_payment = None
+                changed.append("weekly_payment")
+
+        if changed:
             snap.save(update_fields=changed)
 
-    # 2) fallback legacy
-
+    # 2) Fallback legacy: limpiar marker antiguo en finance_note
     marker = f"[TECH_WEEKLY_PAYMENT_PAID:{technician_id}:{week}]"
 
     legacy_sessions = SesionBilling.objects.filter(
@@ -939,17 +951,14 @@ def _unmark_billings_paid_for_weekly_payment(wp):
     ).distinct()
 
     for s in legacy_sessions:
-
         note = (getattr(s, "finance_note", "") or "").strip()
 
         if not note or marker not in note:
-
             continue
 
         lines = [ln for ln in note.splitlines() if ln.strip() and ln.strip() != marker]
 
         s.finance_note = "\n".join(lines).strip()
-
         s.save(update_fields=["finance_note", "finance_updated_at"])
 
 
@@ -12045,18 +12054,36 @@ def admin_unpay(request, pk: int):
         messages.info(request, "Only PAID items can be reverted.")
         return redirect("operaciones:admin_weekly_payments")
 
+    # 1) Primero limpiar marcas contables de snapshots / legacy
     _unmark_billings_paid_for_weekly_payment(wp)
 
+    # 2) Borrar comprobante si existe
     try:
         if wp.receipt:
             wp.receipt.delete(save=False)
     except Exception:
         pass
 
+    # 3) Volver el WeeklyPayment a pendiente
     wp.receipt = None
     wp.paid_week = ""
     wp.status = "pending_payment"
-    wp.save(update_fields=["receipt", "paid_week", "status", "updated_at"])
+
+    update_fields = ["receipt", "paid_week", "status", "updated_at"]
+
+    # Opcional pero recomendable:
+    # NO borramos paid_breakdown_snapshot ni paid_amount_snapshot.
+    # Sirven como historial técnico de lo que se pagó alguna vez.
+    # Si prefieres borrarlos también, se puede hacer, pero no es necesario
+    # para desbloquear acciones.
+
+    wp.save(update_fields=update_fields)
+
+    # 4) Resincronizar la semana para recalcular totales visibles
+    try:
+        _sync_weekly_totals(week=wp.week)
+    except Exception:
+        pass
 
     messages.success(request, "Payment reverted. It is now pending again.")
     return redirect("operaciones:admin_weekly_payments")

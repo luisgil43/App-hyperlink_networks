@@ -7,7 +7,7 @@ from . import views as v
 from . import views_adjustments
 from . import views_billing_camera as cam  # ✅ NUEVO
 from . import views_billing_exec as b
-from . import views_fotos_zip, views_plans, views_resumen
+from . import views_billing_masivo, views_fotos_zip, views_plans, views_resumen
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -443,5 +443,26 @@ urlpatterns = [
         "billing/ajax/validate-selection/",
         views.ajax_validate_billing_selection,
         name="billing_validate_selection",
+    ),
+    # Masivo
+    path(
+        "billing/bulk/template/",
+        views_billing_masivo.billing_masivo_template,
+        name="billing_masivo_template",
+    ),
+    path(
+        "billing/bulk/upload/",
+        views_billing_masivo.billing_masivo_upload,
+        name="billing_masivo_upload",
+    ),
+    path(
+        "billing/bulk/preview/",
+        views_billing_masivo.billing_masivo_preview,
+        name="billing_masivo_preview",
+    ),
+    path(
+        "billing/bulk/confirm/",
+        views_billing_masivo.billing_masivo_confirm,
+        name="billing_masivo_confirm",
     ),
 ]
