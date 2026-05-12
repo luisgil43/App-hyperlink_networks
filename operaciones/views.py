@@ -976,7 +976,6 @@ def _unmark_billings_paid_for_weekly_payment(wp):
         except Exception:
             pass
 
-
 def _mark_billings_paid_for_weekly_payment(wp):
     """
     Marca como pagados los snapshots / legacy vinculados al WeeklyPayment,
@@ -987,7 +986,125 @@ def _mark_billings_paid_for_weekly_payment(wp):
     - Direct discount: sí puede marcarse.
     - Nunca marca snapshots de billings en asignado, en proceso,
       finalizado, en revisión supervisor, rechazado, etc.
+    - Además deja asociado el snapshot al WeeklyPayment que lo pagó.
     """
+
+    from django.utils import timezone
+
+    ESTADOS_OK_SYNC = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
+
+    week = (getattr(wp, "week", "") or "").strip().upper()
+    technician_id = getattr(wp, "technician_id", None)
+
+    if not week or not technician_id:
+        return
+
+    now = timezone.now()
+
+    snapshot_qs = BillingPayWeekSnapshot.objects.filter(
+        tecnico_id=technician_id,
+        semana_resultado=week,
+        sesion__isnull=False,
+    )
+
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+
+    if "is_adjustment" in snapshot_field_names:
+        snapshot_qs = snapshot_qs.filter(is_adjustment=False)
+    elif "adjustment_of" in snapshot_field_names:
+        snapshot_qs = snapshot_qs.filter(adjustment_of__isnull=True)
+
+    # Solo marcar como paid snapshots de billings aprobados o direct discount.
+    snapshot_qs = snapshot_qs.filter(
+        Q(sesion__estado__in=ESTADOS_OK_SYNC)
+        | Q(sesion__is_direct_discount=True)
+    )
+
+    # 1) Flujo nuevo: snapshots
+    for snap in snapshot_qs.select_related("sesion"):
+        changed = []
+
+        if hasattr(snap, "is_paid") and not getattr(snap, "is_paid", False):
+            snap.is_paid = True
+            changed.append("is_paid")
+
+        if hasattr(snap, "paid_at") and not getattr(snap, "paid_at", None):
+            snap.paid_at = now
+            changed.append("paid_at")
+
+        if hasattr(snap, "payment_status"):
+            current_status = (getattr(snap, "payment_status", "") or "").strip().lower()
+            if current_status != "paid":
+                snap.payment_status = "paid"
+                changed.append("payment_status")
+
+        # Importante:
+        # Asociar el snapshot al WeeklyPayment que lo pagó.
+        # Esto permite que el unpay limpie exactamente las líneas vinculadas a ese pago.
+        if hasattr(snap, "weekly_payment_id"):
+            current_wp_id = getattr(snap, "weekly_payment_id", None)
+
+            if current_wp_id != wp.id:
+                snap.weekly_payment = wp
+                changed.append("weekly_payment")
+
+        if changed:
+            snap.save(update_fields=changed)
+
+    # 2) Fallback legacy: sesiones sin snapshots productivos
+    legacy_sessions = (
+        SesionBilling.objects
+        .filter(
+            tecnicos_sesion__tecnico_id=technician_id,
+        )
+        .filter(
+            Q(estado__in=ESTADOS_OK_SYNC)
+            | Q(is_direct_discount=True)
+        )
+        .distinct()
+    )
+
+    snapshot_fields = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+    has_is_adjustment = "is_adjustment" in snapshot_fields
+    has_adjustment_of = "adjustment_of" in snapshot_fields
+
+    for s in legacy_sessions:
+        productive_qs = BillingPayWeekSnapshot.objects.filter(
+            sesion=s,
+            tecnico_id=technician_id,
+            semana_resultado=week,
+        )
+
+        if has_is_adjustment:
+            productive_qs = productive_qs.filter(is_adjustment=False)
+        elif has_adjustment_of:
+            productive_qs = productive_qs.filter(adjustment_of__isnull=True)
+
+        has_productive_snapshot = productive_qs.exists()
+
+        if has_productive_snapshot:
+            continue
+
+        session_week = (
+            (getattr(s, "semana_pago_real", "") or "").strip().upper()
+            or (getattr(s, "semana_pago_proyectada", "") or "").strip().upper()
+            or (getattr(s, "discount_week", "") or "").strip().upper()
+        )
+
+        if session_week != week:
+            continue
+
+        note = (getattr(s, "finance_note", "") or "").strip()
+        marker = f"[TECH_WEEKLY_PAYMENT_PAID:{technician_id}:{week}]"
+
+        if marker not in note:
+            s.finance_note = f"{note}\n{marker}".strip() if note else marker
+            s.save(update_fields=["finance_note", "finance_updated_at"])
+
+
+"""
+def _mark_billings_paid_for_weekly_payment(wp):
+
 
     from django.utils import timezone
 
@@ -1078,7 +1195,7 @@ def _mark_billings_paid_for_weekly_payment(wp):
         if marker not in note:
             s.finance_note = f"{note}\n{marker}".strip() if note else marker
             s.save(update_fields=["finance_note", "finance_updated_at"])
-
+"""
 
 def _legacy_weekly_payment_details(
     *,
