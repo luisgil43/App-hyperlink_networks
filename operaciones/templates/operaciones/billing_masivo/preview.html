@@ -443,18 +443,59 @@
           Cancel
         </a>
 
-        <form method="post" action="{% url 'operaciones:billing_masivo_confirm' %}">
-          {% csrf_token %}
-          <button type="submit"
-                  {% if has_errors %}disabled{% endif %}
-                  class="px-5 py-2 rounded-lg text-white font-semibold {% if has_errors %}bg-gray-400 cursor-not-allowed{% else %}bg-blue-600 hover:bg-blue-700{% endif %}">
-            Create all billings
-          </button>
-        </form>
+        <form method="post"
+
+      action="{% url 'operaciones:billing_masivo_confirm' %}"
+
+      id="bulk-confirm-form">
+
+  {% csrf_token %}
+
+  <button type="submit"
+
+          id="bulk-confirm-btn"
+
+          {% if has_errors %}disabled{% endif %}
+
+          class="px-5 py-2 rounded-lg text-white font-semibold {% if has_errors %}bg-gray-400 cursor-not-allowed{% else %}bg-blue-600 hover:bg-blue-700{% endif %}">
+
+    Create all billings
+
+  </button>
+
+</form>
       </div>
     </div>
 
   </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('bulk-confirm-form');
+  const btn = document.getElementById('bulk-confirm-btn');
 
+  if (!form || !btn) return;
+
+  let submitting = false;
+
+  form.addEventListener('submit', function (e) {
+    if (submitting) {
+      e.preventDefault();
+      return false;
+    }
+
+    submitting = true;
+
+    btn.disabled = true;
+    btn.textContent = 'Creating billings...';
+    btn.classList.remove('hover:bg-blue-700');
+    btn.classList.add('opacity-70', 'cursor-not-allowed', 'pointer-events-none');
+
+    form.querySelectorAll('button[type="submit"]').forEach(function (button) {
+      button.disabled = true;
+      button.classList.add('opacity-70', 'cursor-not-allowed', 'pointer-events-none');
+    });
+  });
+});
+</script>
 {% endblock %}
