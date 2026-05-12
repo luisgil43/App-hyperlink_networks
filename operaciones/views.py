@@ -866,19 +866,10 @@ def _unmark_billings_paid_for_weekly_payment(wp):
     """
     Revierte SOLO las marcas de pago técnico asociadas a un WeeklyPayment.
 
-    Al hacer Unpay debe limpiar:
-      - is_paid
-      - paid_at
-      - payment_status
-      - weekly_payment
-
-    Esto es lo que desbloquea correctamente:
-      - edición
-      - delete
-      - reopen
-      - acciones normales en Billing List
-
-    NO toca finance_status ni notas visibles de finanzas.
+    Fix importante:
+    - Después de limpiar el estado PAID, reconstruye los snapshots de las sesiones afectadas.
+    - Esto permite que snapshots que estaban protegidos por estar paid en una semana vieja
+      se muevan a la semana actual correcta del billing.
     """
 
     week = (getattr(wp, "week", "") or "").strip().upper()
@@ -887,20 +878,25 @@ def _unmark_billings_paid_for_weekly_payment(wp):
     if not week or not technician_id:
         return
 
+    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
+
     snapshot_qs = BillingPayWeekSnapshot.objects.filter(
         tecnico_id=technician_id,
         semana_resultado=week,
     )
-
-    snapshot_field_names = {f.name for f in BillingPayWeekSnapshot._meta.get_fields()}
 
     if "is_adjustment" in snapshot_field_names:
         snapshot_qs = snapshot_qs.filter(is_adjustment=False)
     elif "adjustment_of" in snapshot_field_names:
         snapshot_qs = snapshot_qs.filter(adjustment_of__isnull=True)
 
+    affected_session_ids = set()
+
     # 1) Flujo nuevo: limpiar snapshots
-    for snap in snapshot_qs.select_related("weekly_payment"):
+    for snap in snapshot_qs.select_related("weekly_payment", "sesion"):
+        if getattr(snap, "sesion_id", None):
+            affected_session_ids.add(snap.sesion_id)
+
         changed = []
 
         if hasattr(snap, "is_paid") and getattr(snap, "is_paid", False):
@@ -920,8 +916,6 @@ def _unmark_billings_paid_for_weekly_payment(wp):
         if hasattr(snap, "weekly_payment_id") and getattr(
             snap, "weekly_payment_id", None
         ):
-            # Limpiamos solo si estaba asociado a este WeeklyPayment.
-            # Si por alguna razón apunta a otro pago, no lo tocamos.
             if int(snap.weekly_payment_id) == int(wp.id):
                 snap.weekly_payment = None
                 changed.append("weekly_payment")
@@ -942,10 +936,45 @@ def _unmark_billings_paid_for_weekly_payment(wp):
         if not note or marker not in note:
             continue
 
+        affected_session_ids.add(s.id)
+
         lines = [ln for ln in note.splitlines() if ln.strip() and ln.strip() != marker]
 
         s.finance_note = "\n".join(lines).strip()
         s.save(update_fields=["finance_note", "finance_updated_at"])
+
+    # 3) FIX CLAVE:
+    # Una vez desbloqueados los snapshots, reconstruimos las sesiones afectadas.
+    # Así los snapshots que quedaron en W19 por estar protegidos se recalculan a W23.
+    weeks_to_sync = {week}
+
+    for sesion in SesionBilling.objects.filter(id__in=affected_session_ids):
+        try:
+            old_real_week = (
+                (getattr(sesion, "semana_pago_real", "") or "").strip().upper()
+            )
+
+            info = rebuild_billing_payweek_snapshot(sesion)
+
+            new_real_week = (info.get("summary_week") or "").strip().upper() or (
+                getattr(sesion, "semana_pago_real", "") or ""
+            ).strip().upper()
+
+            if old_real_week:
+                weeks_to_sync.add(old_real_week)
+
+            if new_real_week:
+                weeks_to_sync.add(new_real_week)
+
+        except Exception:
+            pass
+
+    # 4) Re-sincronizar semana vieja y nueva
+    for wk in list(filter(None, weeks_to_sync)):
+        try:
+            _sync_weekly_totals(week=wk)
+        except Exception:
+            pass
 
 
 def _mark_billings_paid_for_weekly_payment(wp):
