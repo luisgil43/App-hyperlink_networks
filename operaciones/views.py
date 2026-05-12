@@ -216,22 +216,17 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
       - can_delete_billing_fast
       - can_edit_billing_fast
 
-    Importante:
-    - NO reemplaza _session_is_paid_locked() para acciones POST.
-    - Solo evita N consultas por fila en listar_billing().
-    - Usa relaciones prefetched:
-        pay_week_snapshots
-        tecnicos_sesion
-        weekly_payment dentro del snapshot
+    Regla correcta:
+    - Si la sesión tiene snapshots productivos, el lock se evalúa SOLO contra
+      esos snapshots.
+    - No se debe usar semana_pago_proyectada como fallback cuando ya existen
+      snapshots productivos, porque puede ser una semana antigua ya pagada.
     """
 
     sessions = list(sessions or [])
     if not sessions:
         return sessions
 
-    # ------------------------------------------------------------
-    # 1) Primera pasada en memoria usando snapshots ya prefetched
-    # ------------------------------------------------------------
     by_session_id = {}
     candidate_tech_ids = set()
     candidate_weeks = set()
@@ -248,7 +243,19 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
         except Exception:
             snaps = []
 
-        # IDs de técnicos de la sesión, ya prefetched
+        productive_snaps = []
+
+        for snap in snaps:
+            if getattr(snap, "is_adjustment", False):
+                continue
+
+            if getattr(snap, "adjustment_of_id", None):
+                continue
+
+            productive_snaps.append(snap)
+
+        has_productive_snapshots = bool(productive_snaps)
+
         tech_ids = []
         try:
             tech_ids = [
@@ -268,18 +275,8 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
 
         weeks = set()
 
-        for snap in snaps:
-            # En listar_billing ya prefetcheas is_adjustment=False,
-            # pero dejamos esta defensa por si cambias el prefetch.
-            if getattr(snap, "is_adjustment", False):
-                continue
-
-            if getattr(snap, "adjustment_of_id", None):
-                continue
-
-            payment_status = (
-                (getattr(snap, "payment_status", "") or "").strip().lower()
-            )
+        for snap in productive_snaps:
+            payment_status = (getattr(snap, "payment_status", "") or "").strip().lower()
 
             if payment_status == "paid":
                 is_locked = True
@@ -294,38 +291,35 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
                 is_locked = True
                 break
 
-            week_value = (
-                (getattr(snap, "semana_resultado", "") or "").strip().upper()
-            )
+            week_value = (getattr(snap, "semana_resultado", "") or "").strip().upper()
             if week_value:
                 weeks.add(week_value)
 
-        # Legacy / fallback si no hay semanas desde snapshots
-        if not weeks:
-            possible_weeks = [
-                (getattr(s, "semana_pago_real", "") or "").strip().upper(),
-                (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
-                (getattr(s, "discount_week", "") or "").strip().upper(),
-            ]
-            weeks = {w for w in possible_weeks if w}
+        # ✅ Fallback legacy SOLO si NO hay snapshots productivos.
+        # Si hay snapshots, no mirar semana_pago_proyectada antigua.
+        if not has_productive_snapshots:
+            if not weeks:
+                possible_weeks = [
+                    (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+                    (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+                    (getattr(s, "discount_week", "") or "").strip().upper(),
+                ]
+                weeks = {w for w in possible_weeks if w}
 
         s.has_paid_work_type_lines = bool(is_locked)
 
-        # Si todavía no quedó bloqueada por snapshot directo,
-        # guardamos pares técnico/semana para una consulta global.
         if not is_locked and tech_ids and weeks:
             pairs = set()
+
             for tid in tech_ids:
                 candidate_tech_ids.add(tid)
+
                 for wk in weeks:
                     candidate_weeks.add(wk)
                     pairs.add((tid, wk))
 
             session_candidate_pairs[s.id] = pairs
 
-    # ------------------------------------------------------------
-    # 2) Consulta global única a WeeklyPayment paid
-    # ------------------------------------------------------------
     paid_pairs = set()
 
     if candidate_tech_ids and candidate_weeks:
@@ -337,56 +331,45 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
             ).values_list("technician_id", "week")
         )
 
-    # ------------------------------------------------------------
-    # 3) Aplicar paid_pairs + markers legacy en finance_note
-    # ------------------------------------------------------------
     for s in sessions:
-        if getattr(s, "has_paid_work_type_lines", False):
-            locked = True
-        else:
-            locked = False
+        locked = bool(getattr(s, "has_paid_work_type_lines", False))
 
-            pairs = session_candidate_pairs.get(s.id, set())
+        pairs = session_candidate_pairs.get(s.id, set())
 
-            if paid_pairs and pairs:
-                if any(pair in paid_pairs for pair in pairs):
+        if not locked and paid_pairs and pairs:
+            if any(pair in paid_pairs for pair in pairs):
+                locked = True
+
+        if not locked:
+            note = getattr(s, "finance_note", "") or ""
+
+            for tech_id, wk in pairs:
+                marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+                if marker in note:
                     locked = True
-
-            if not locked:
-                note = getattr(s, "finance_note", "") or ""
-                for tech_id, wk in pairs:
-                    marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
-                    if marker in note:
-                        locked = True
-                        break
+                    break
 
         s.has_paid_work_type_lines = bool(locked)
+
         s.can_reopen_billing_fast = (
             s.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
             and not locked
         )
+
         s.can_delete_billing_fast = not locked
         s.can_edit_billing_fast = not locked
 
     return sessions
 
+
 def _session_is_paid_locked(sesion) -> bool:
     """
     Bloqueo contable del Billing.
 
-    Regla:
-    - Si existe al menos una línea productiva de BillingPayWeekSnapshot
-      marcada como paid para esta sesión, el Billing queda bloqueado.
-    - También queda bloqueado si existe un WeeklyPayment paid asociado
-      a algún técnico + semana efectiva de esta sesión.
-    - Compatibilidad legacy:
-      si no hay snapshots productivos, usa semana_pago_real /
-      semana_pago_proyectada / discount_week y también revisa markers antiguos
-      en finance_note.
-
-    Importante:
-    - Este bloqueo aplica para reabrir, eliminar y editar.
-    - No depende de que finance_status del Billing sea "paid".
+    Regla correcta:
+    - Si hay snapshots productivos, el lock se evalúa SOLO con esos snapshots.
+    - NO se usa semana_pago_proyectada como fallback cuando ya existen snapshots.
+    - Si NO hay snapshots productivos, entonces se usa fallback legacy.
     """
 
     if not sesion:
@@ -401,9 +384,6 @@ def _session_is_paid_locked(sesion) -> bool:
     has_paid_at = "paid_at" in snapshot_fields
     has_weekly_payment = "weekly_payment" in snapshot_fields
 
-    # ==========================================================
-    # 1) Snapshots productivos de esta sesión
-    # ==========================================================
     snaps_qs = snapshot_model.objects.filter(sesion=sesion)
 
     if has_is_adjustment:
@@ -411,24 +391,20 @@ def _session_is_paid_locked(sesion) -> bool:
     elif has_adjustment_of:
         snaps_qs = snaps_qs.filter(adjustment_of__isnull=True)
 
-    # 1.1) Bloqueo directo por payment_status='paid'
+    has_productive_snapshots = snaps_qs.exists()
+
     if has_payment_status:
         if snaps_qs.filter(payment_status="paid").exists():
             return True
 
-    # 1.2) Bloqueo por paid_at
     if has_paid_at:
         if snaps_qs.exclude(paid_at__isnull=True).exists():
             return True
 
-    # 1.3) Bloqueo por WeeklyPayment relacionado al snapshot
     if has_weekly_payment:
         if snaps_qs.filter(weekly_payment__status="paid").exists():
             return True
 
-    # ==========================================================
-    # 2) WeeklyPayment paid por técnico + semana efectiva
-    # ==========================================================
     tech_ids = list(
         sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
     )
@@ -436,22 +412,22 @@ def _session_is_paid_locked(sesion) -> bool:
     if not tech_ids:
         return False
 
-    weeks = list(
-        snaps_qs.exclude(semana_resultado__isnull=True)
-        .exclude(semana_resultado__exact="")
-        .values_list("semana_resultado", flat=True)
-        .distinct()
-    )
-
-    # Compatibilidad legacy: si no hay snapshots productivos
-    if not weeks:
+    if has_productive_snapshots:
+        weeks = list(
+            snaps_qs.exclude(semana_resultado__isnull=True)
+            .exclude(semana_resultado__exact="")
+            .values_list("semana_resultado", flat=True)
+            .distinct()
+        )
+    else:
         possible_weeks = [
             (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
             (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
             (getattr(sesion, "discount_week", "") or "").strip().upper(),
-            
         ]
         weeks = [w for w in possible_weeks if w]
+
+    weeks = [str(w).strip().upper() for w in weeks if str(w).strip()]
 
     if weeks:
         if WeeklyPayment.objects.filter(
@@ -461,9 +437,6 @@ def _session_is_paid_locked(sesion) -> bool:
         ).exists():
             return True
 
-    # ==========================================================
-    # 3) Compatibilidad legacy por marker en finance_note
-    # ==========================================================
     note = getattr(sesion, "finance_note", "") or ""
 
     for tech_id in tech_ids:
@@ -473,7 +446,6 @@ def _session_is_paid_locked(sesion) -> bool:
                 return True
 
     return False
-
 
 def _serialize_decimal_for_json(value) -> str:
     try:
