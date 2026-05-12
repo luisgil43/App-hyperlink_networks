@@ -219,24 +219,22 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
     Regla correcta:
     - Si la sesión tiene snapshots productivos, el lock se evalúa SOLO contra
       esos snapshots.
-    - No se debe usar semana_pago_proyectada como fallback cuando ya existen
-      snapshots productivos, porque puede ser una semana antigua ya pagada.
+    - NO se bloquea por WeeklyPayment genérico del técnico/semana cuando ya
+      existen snapshots productivos, porque eso puede bloquear sesiones movidas
+      de una semana vieja a una nueva.
+    - Si NO hay snapshots productivos, se usa fallback legacy.
     """
 
     sessions = list(sessions or [])
     if not sessions:
         return sessions
 
-    by_session_id = {}
-    candidate_tech_ids = set()
-    candidate_weeks = set()
-    session_candidate_pairs = {}
+    legacy_candidate_tech_ids = set()
+    legacy_candidate_weeks = set()
+    legacy_session_candidate_pairs = {}
 
     for s in sessions:
-        by_session_id[s.id] = s
-
         is_locked = False
-        snaps = []
 
         try:
             snaps = list(s.pay_week_snapshots.all())
@@ -256,77 +254,86 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
 
         has_productive_snapshots = bool(productive_snaps)
 
-        tech_ids = []
-        try:
-            tech_ids = [
-                int(x)
-                for x in s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
-                if x
-            ]
-        except Exception:
+        # ======================================================
+        # CASO NUEVO: con snapshots productivos
+        # ======================================================
+        if has_productive_snapshots:
+            for snap in productive_snaps:
+                payment_status = (
+                    (getattr(snap, "payment_status", "") or "").strip().lower()
+                )
+
+                if payment_status == "paid":
+                    is_locked = True
+                    break
+
+                if getattr(snap, "paid_at", None):
+                    is_locked = True
+                    break
+
+                if bool(getattr(snap, "is_paid", False)):
+                    is_locked = True
+                    break
+
+                wp = getattr(snap, "weekly_payment", None)
+                if wp and (getattr(wp, "status", "") or "").strip().lower() == "paid":
+                    is_locked = True
+                    break
+
+            s.has_paid_work_type_lines = bool(is_locked)
+
+        # ======================================================
+        # CASO LEGACY: sin snapshots productivos
+        # ======================================================
+        else:
             try:
                 tech_ids = [
-                    int(a.tecnico_id)
-                    for a in s.tecnicos_sesion.all()
-                    if getattr(a, "tecnico_id", None)
+                    int(x)
+                    for x in s.tecnicos_sesion.all().values_list(
+                        "tecnico_id", flat=True
+                    )
+                    if x
                 ]
             except Exception:
-                tech_ids = []
+                try:
+                    tech_ids = [
+                        int(a.tecnico_id)
+                        for a in s.tecnicos_sesion.all()
+                        if getattr(a, "tecnico_id", None)
+                    ]
+                except Exception:
+                    tech_ids = []
 
-        weeks = set()
+            possible_weeks = [
+                (getattr(s, "semana_pago_real", "") or "").strip().upper(),
+                (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
+                (getattr(s, "discount_week", "") or "").strip().upper(),
+            ]
 
-        for snap in productive_snaps:
-            payment_status = (getattr(snap, "payment_status", "") or "").strip().lower()
+            weeks = {w for w in possible_weeks if w}
 
-            if payment_status == "paid":
-                is_locked = True
-                break
-
-            if getattr(snap, "paid_at", None):
-                is_locked = True
-                break
-
-            wp = getattr(snap, "weekly_payment", None)
-            if wp and (getattr(wp, "status", "") or "").strip().lower() == "paid":
-                is_locked = True
-                break
-
-            week_value = (getattr(snap, "semana_resultado", "") or "").strip().upper()
-            if week_value:
-                weeks.add(week_value)
-
-        # ✅ Fallback legacy SOLO si NO hay snapshots productivos.
-        # Si hay snapshots, no mirar semana_pago_proyectada antigua.
-        if not has_productive_snapshots:
-            if not weeks:
-                possible_weeks = [
-                    (getattr(s, "semana_pago_real", "") or "").strip().upper(),
-                    (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
-                    (getattr(s, "discount_week", "") or "").strip().upper(),
-                ]
-                weeks = {w for w in possible_weeks if w}
-
-        s.has_paid_work_type_lines = bool(is_locked)
-
-        if not is_locked and tech_ids and weeks:
             pairs = set()
 
             for tid in tech_ids:
-                candidate_tech_ids.add(tid)
+                legacy_candidate_tech_ids.add(tid)
 
                 for wk in weeks:
-                    candidate_weeks.add(wk)
+                    legacy_candidate_weeks.add(wk)
                     pairs.add((tid, wk))
 
-            session_candidate_pairs[s.id] = pairs
+            legacy_session_candidate_pairs[s.id] = pairs
+            s.has_paid_work_type_lines = False
 
+    # ==========================================================
+    # Buscar WeeklyPayment pagados SOLO para sesiones legacy
+    # ==========================================================
     paid_pairs = set()
 
-    if candidate_tech_ids and candidate_weeks:
+    if legacy_candidate_tech_ids and legacy_candidate_weeks:
         paid_pairs = set(
             WeeklyPayment.objects.filter(
-                technician_id__in=candidate_tech_ids,
-                week__in=candidate_weeks,
+                technician_id__in=legacy_candidate_tech_ids,
+                week__in=legacy_candidate_weeks,
                 status="paid",
             ).values_list("technician_id", "week")
         )
@@ -334,13 +341,14 @@ def _attach_accounting_lock_flags_to_sessions(sessions):
     for s in sessions:
         locked = bool(getattr(s, "has_paid_work_type_lines", False))
 
-        pairs = session_candidate_pairs.get(s.id, set())
+        # Solo aplica fallback legacy si esa sesión NO tenía snapshots productivos
+        pairs = legacy_session_candidate_pairs.get(s.id, set())
 
-        if not locked and paid_pairs and pairs:
+        if not locked and pairs and paid_pairs:
             if any(pair in paid_pairs for pair in pairs):
                 locked = True
 
-        if not locked:
+        if not locked and pairs:
             note = getattr(s, "finance_note", "") or ""
 
             for tech_id, wk in pairs:
@@ -368,7 +376,7 @@ def _session_is_paid_locked(sesion) -> bool:
 
     Regla correcta:
     - Si hay snapshots productivos, el lock se evalúa SOLO con esos snapshots.
-    - NO se usa semana_pago_proyectada como fallback cuando ya existen snapshots.
+    - NO se usa WeeklyPayment genérico por técnico/semana cuando ya existen snapshots.
     - Si NO hay snapshots productivos, entonces se usa fallback legacy.
     """
 
@@ -383,6 +391,7 @@ def _session_is_paid_locked(sesion) -> bool:
     has_payment_status = "payment_status" in snapshot_fields
     has_paid_at = "paid_at" in snapshot_fields
     has_weekly_payment = "weekly_payment" in snapshot_fields
+    has_is_paid = "is_paid" in snapshot_fields
 
     snaps_qs = snapshot_model.objects.filter(sesion=sesion)
 
@@ -393,18 +402,31 @@ def _session_is_paid_locked(sesion) -> bool:
 
     has_productive_snapshots = snaps_qs.exists()
 
-    if has_payment_status:
-        if snaps_qs.filter(payment_status="paid").exists():
-            return True
+    # ======================================================
+    # CASO NUEVO: con snapshots productivos
+    # ======================================================
+    if has_productive_snapshots:
+        if has_payment_status:
+            if snaps_qs.filter(payment_status="paid").exists():
+                return True
 
-    if has_paid_at:
-        if snaps_qs.exclude(paid_at__isnull=True).exists():
-            return True
+        if has_paid_at:
+            if snaps_qs.exclude(paid_at__isnull=True).exists():
+                return True
 
-    if has_weekly_payment:
-        if snaps_qs.filter(weekly_payment__status="paid").exists():
-            return True
+        if has_is_paid:
+            if snaps_qs.filter(is_paid=True).exists():
+                return True
 
+        if has_weekly_payment:
+            if snaps_qs.filter(weekly_payment__status="paid").exists():
+                return True
+
+        return False
+
+    # ======================================================
+    # CASO LEGACY: sin snapshots productivos
+    # ======================================================
     tech_ids = list(
         sesion.tecnicos_sesion.values_list("tecnico_id", flat=True)
     )
@@ -412,22 +434,13 @@ def _session_is_paid_locked(sesion) -> bool:
     if not tech_ids:
         return False
 
-    if has_productive_snapshots:
-        weeks = list(
-            snaps_qs.exclude(semana_resultado__isnull=True)
-            .exclude(semana_resultado__exact="")
-            .values_list("semana_resultado", flat=True)
-            .distinct()
-        )
-    else:
-        possible_weeks = [
-            (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
-            (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
-            (getattr(sesion, "discount_week", "") or "").strip().upper(),
-        ]
-        weeks = [w for w in possible_weeks if w]
+    possible_weeks = [
+        (getattr(sesion, "semana_pago_real", "") or "").strip().upper(),
+        (getattr(sesion, "semana_pago_proyectada", "") or "").strip().upper(),
+        (getattr(sesion, "discount_week", "") or "").strip().upper(),
+    ]
 
-    weeks = [str(w).strip().upper() for w in weeks if str(w).strip()]
+    weeks = [w for w in possible_weeks if w]
 
     if weeks:
         if WeeklyPayment.objects.filter(
@@ -446,6 +459,7 @@ def _session_is_paid_locked(sesion) -> bool:
                 return True
 
     return False
+
 
 def _serialize_decimal_for_json(value) -> str:
     try:
