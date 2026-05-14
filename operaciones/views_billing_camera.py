@@ -26,8 +26,6 @@ def _is_asig_active(asig) -> bool:
     return getattr(asig, "is_active", True) is True
 
 
-
-
 def _safe_wasabi_key(key: str) -> bool:
     return isinstance(key, str) and key.startswith(SAFE_PREFIX) and ".." not in key and not key.startswith("/")
 
@@ -202,23 +200,44 @@ def camera_create_evidence_from_key(request, asig_id: int):
         "client_taken_at": "ISO",
         "address": "...."
       }
+
+    FIX:
+    - Además de crear la evidencia, si corresponde a POWER PORT,
+      ejecuta la extracción automática de potencia dBm igual que el upload normal.
     """
     a = get_object_or_404(SesionBillingTecnico, pk=asig_id, tecnico=request.user)
-    if not _is_asig_active(a):
-        return JsonResponse({"ok": False, "error": "Assignment no longer available."}, status=404)
 
-    puede_subir = (a.estado == "en_proceso") or (a.estado == "rechazado_supervisor" and a.reintento_habilitado)
+    if not _is_asig_active(a):
+        return JsonResponse(
+            {"ok": False, "error": "Assignment no longer available."},
+            status=404,
+        )
+
+    puede_subir = (a.estado == "en_proceso") or (
+        a.estado == "rechazado_supervisor" and a.reintento_habilitado
+    )
+
     if not puede_subir:
-        return JsonResponse({"ok": False, "error": "Assignment not open for uploads."}, status=403)
+        return JsonResponse(
+            {"ok": False, "error": "Assignment not open for uploads."},
+            status=403,
+        )
 
     try:
         payload = json.loads(request.body.decode("utf-8"))
     except Exception:
-        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "Invalid JSON."},
+            status=400,
+        )
 
     key = (payload.get("key") or "").strip()
+
     if not _safe_wasabi_key(key):
-        return JsonResponse({"ok": False, "error": "Invalid key."}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "Invalid key."},
+            status=400,
+        )
 
     req_id = payload.get("req_id") or None
     nota = (payload.get("nota") or "").strip()
@@ -229,24 +248,45 @@ def camera_create_evidence_from_key(request, asig_id: int):
 
     taken = (payload.get("client_taken_at") or "").strip()
     taken_dt = None
+
     if taken:
         try:
-            taken_dt = timezone.make_aware(datetime.fromisoformat(taken.replace("Z", "+00:00")))
+            taken_dt = timezone.make_aware(
+                datetime.fromisoformat(taken.replace("Z", "+00:00"))
+            )
             taken_dt = timezone.localtime(taken_dt)
         except Exception:
             taken_dt = None
 
     address = (payload.get("address") or "").strip()
 
-    # Si es requisito: validar que exista y que NO esté locked por equipo (misma regla)
+    req = None
+
+    # Si es requisito: validar que exista y que NO esté locked por equipo.
     if req_id:
-        req = get_object_or_404(RequisitoFotoBilling, pk=int(req_id), tecnico_sesion=a)
+        try:
+            req_id = int(req_id)
+        except Exception:
+            return JsonResponse(
+                {"ok": False, "error": "Invalid requirement."},
+                status=400,
+            )
+
+        req = get_object_or_404(
+            RequisitoFotoBilling,
+            pk=req_id,
+            tecnico_sesion=a,
+        )
 
         locked_set = _team_locked_titles_for_session(a)
+
         if _norm_title(req.titulo) in locked_set:
             return JsonResponse(
-                {"ok": False, "error": "This requirement is already covered by the team."},
-                status=409
+                {
+                    "ok": False,
+                    "error": "This requirement is already covered by the team.",
+                },
+                status=409,
             )
 
     ev = _create_evidencia_from_key(
@@ -262,19 +302,76 @@ def camera_create_evidence_from_key(request, asig_id: int):
         direccion_manual=address,
     )
 
-    titulo = ev.requisito.titulo if ev.requisito_id else (ev.titulo_manual or "Extra")
-    fecha_txt = timezone.localtime(ev.client_taken_at or ev.tomada_en).strftime("%Y-%m-%d %H:%M")
+    auto_power = {
+        "attempted": False,
+        "ok": False,
+        "power_dbm": "",
+        "port_no": None,
+        "error": "",
+    }
 
-    return JsonResponse({
-        "ok": True,
-        "evidencia": {
-            "id": ev.id,
-            "url": ev.imagen.url,
-            "titulo": titulo,
-            "fecha": fecha_txt,
-            "lat": str(ev.lat) if ev.lat is not None else None,
-            "lng": str(ev.lng) if ev.lng is not None else None,
-            "acc": str(ev.gps_accuracy_m) if ev.gps_accuracy_m is not None else None,
-            "req_id": ev.requisito_id,
+    try:
+        should_try_auto_power = False
+
+        if ev.requisito_id:
+            req = ev.requisito
+            titulo_req = (req.titulo or "").strip().upper()
+
+            should_try_auto_power = bool(
+                getattr(req, "needs_power_reading", False)
+            ) or titulo_req.startswith("POWER PORT")
+        else:
+            extra_hint = f"{ev.titulo_manual or ''} {nota or ''}".strip().lower()
+            should_try_auto_power = any(
+                x in extra_hint
+                for x in ["power", "port", "dbm", "opm", "light level", "light"]
+            )
+
+        if should_try_auto_power:
+            # Import local para evitar problemas de import circular.
+            from .views import _extract_power_dbm_for_evidence
+
+            auto_power["attempted"] = True
+
+            result = _extract_power_dbm_for_evidence(
+                ev,
+                user=request.user,
+            )
+
+            auto_power["ok"] = True
+            auto_power["power_dbm"] = result.get("power_dbm", "")
+            auto_power["port_no"] = result.get("port_no")
+
+    except Exception as e:
+        # No bloquea la subida de la foto.
+        # La evidencia queda guardada y se puede extraer manualmente/backfill.
+        auto_power["ok"] = False
+        auto_power["error"] = str(e)[:255]
+
+    ev.refresh_from_db()
+
+    titulo = ev.requisito.titulo if ev.requisito_id else (ev.titulo_manual or "Extra")
+
+    fecha_txt = timezone.localtime(ev.client_taken_at or ev.tomada_en).strftime(
+        "%Y-%m-%d %H:%M"
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "evidencia": {
+                "id": ev.id,
+                "url": ev.imagen.url,
+                "titulo": titulo,
+                "fecha": fecha_txt,
+                "lat": str(ev.lat) if ev.lat is not None else None,
+                "lng": str(ev.lng) if ev.lng is not None else None,
+                "acc": (
+                    str(ev.gps_accuracy_m) if ev.gps_accuracy_m is not None else None
+                ),
+                "req_id": ev.requisito_id,
+                "power_dbm": f"{ev.power_dbm:.2f}" if ev.power_dbm is not None else "",
+            },
+            "auto_power": auto_power,
         }
-    })
+    )
