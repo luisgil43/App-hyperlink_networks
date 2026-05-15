@@ -1,0 +1,38 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Delete Tool{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <h2 class="text-2xl font-bold text-gray-800 mb-2">🗑️ Delete Tool</h2>
+
+  <p class="text-sm text-gray-600 mb-4">
+    You are about to delete:
+    <span class="font-semibold">{{ obj.nombre }}</span>
+    (Serial: {{ obj.serial|default:"—" }})
+  </p>
+
+  <div class="border rounded-2xl p-4 bg-red-50">
+    <p class="text-sm text-red-800">
+      ⚠️ This action will also delete associated photos and inventory history.
+      <br>
+      Only the <b>General Admin</b> can delete tools.
+    </p>
+
+    <form method="post" class="mt-4 flex flex-col sm:flex-row gap-2">
+      {% csrf_token %}
+
+      <a href="{% url 'logistica:herramientas_list' %}"
+         class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 text-center">
+        Cancel
+      </a>
+
+      <button type="submit"
+              class="px-4 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700">
+        Delete permanently
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

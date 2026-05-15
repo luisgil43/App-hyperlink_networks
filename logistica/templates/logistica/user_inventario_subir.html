@@ -1,0 +1,282 @@
+{% extends "dashboard/base.html" %}
+{% load humanize %}
+{% load custom_filters %}
+
+{% block title %}Tool Inventory - {{ herramienta.nombre }}{% endblock %}
+
+{% block content %}
+<div class="min-h-[calc(100vh-90px)] flex justify-center px-3 sm:px-6 py-6">
+
+  <div class="w-full max-w-4xl">
+
+    <!-- Header -->
+    <div class="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2">
+          📸 Tool Inventory
+        </h1>
+        <p class="text-sm text-gray-500 mt-1">
+          Upload a clear photo of the assigned tool so Logistics can review it.
+        </p>
+      </div>
+
+      <a href="{% url 'logistica:mis_herramientas' %}"
+         class="inline-flex items-center justify-center px-4 py-2 rounded-full text-sm font-semibold border bg-white hover:bg-gray-50 shadow-sm text-gray-700">
+        ← Back to My Tools
+      </a>
+    </div>
+
+    <!-- Main card -->
+    <div class="bg-white rounded-3xl shadow border border-gray-100 overflow-hidden">
+
+      <!-- Tool summary -->
+      <div class="bg-gradient-to-r from-blue-50 to-white px-5 sm:px-7 py-5 border-b">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+          <div class="min-w-0">
+            <div class="flex items-start gap-3">
+              <div class="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-xl shadow-sm shrink-0">
+                🧰
+              </div>
+
+              <div class="min-w-0">
+                <h2 class="text-xl font-bold text-gray-900 truncate">
+                  {{ herramienta.nombre }}
+                </h2>
+
+                <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+                  <span>
+                    <span class="font-semibold text-gray-700">Serial:</span>
+                    {{ herramienta.serial|default:"—" }}
+                  </span>
+
+                  <span>
+                    <span class="font-semibold text-gray-700">Value:</span>
+                    {% if herramienta.valor_comercial != None %}
+                      ${{ herramienta.valor_comercial|floatformat:2|intcomma }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-white border px-4 py-3 shadow-sm">
+            <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Review status
+            </div>
+            <div class="mt-1 text-sm font-bold text-blue-700">
+              Pending upload
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form method="post"
+            enctype="multipart/form-data"
+            class="p-5 sm:p-7 space-y-6"
+            id="inventoryForm">
+        {% csrf_token %}
+
+        <!-- Upload area -->
+        <div class="rounded-3xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+
+          <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+
+            <div>
+              <label class="block text-base font-bold text-gray-800">
+                Inventory Photo <span class="text-red-600">*</span>
+              </label>
+
+              <p class="text-sm text-gray-500 mt-1 max-w-xl">
+                Take or upload a photo where the tool is clearly visible. If the serial exists, try to include it in the photo.
+              </p>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2 shrink-0">
+              <button type="button"
+                      onclick="openCameraInput()"
+                      class="inline-flex items-center justify-center px-5 py-2.5 rounded-full text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow">
+                📷 Take Photo
+              </button>
+
+              <button type="button"
+                      onclick="openGalleryInput()"
+                      class="inline-flex items-center justify-center px-5 py-2.5 rounded-full text-sm font-semibold border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 shadow-sm">
+                🖼️ Choose from Gallery
+              </button>
+            </div>
+
+          </div>
+
+          <input type="file"
+                 id="cameraInput"
+                 name="foto"
+                 accept="image/*"
+                 capture="environment"
+                 class="hidden">
+
+          <input type="file"
+                 id="galleryInput"
+                 name="foto"
+                 accept="image/*"
+                 class="hidden">
+
+          <!-- Selected file / preview -->
+          <div id="selectedFileBox"
+               class="hidden mt-5 rounded-3xl border border-blue-100 bg-white p-4 shadow-sm">
+
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div class="text-sm text-gray-700">
+                <span class="font-bold">Selected file:</span>
+                <span id="selectedFileName" class="text-gray-600">—</span>
+              </div>
+
+              <button type="button"
+                      onclick="clearSelectedPhoto()"
+                      class="inline-flex items-center justify-center px-3 py-1.5 rounded-full text-xs font-semibold border bg-white hover:bg-gray-50 text-gray-700">
+                Clear
+              </button>
+            </div>
+
+            <div class="mt-4 flex justify-center">
+              <img id="previewImage"
+                   src=""
+                   alt="Preview"
+                   class="hidden max-h-[420px] w-full rounded-2xl border bg-white object-contain">
+            </div>
+          </div>
+
+          {% if form.foto.errors %}
+            <div class="text-sm text-red-600 mt-3">{{ form.foto.errors }}</div>
+          {% endif %}
+
+          <div class="mt-4 rounded-2xl bg-white border px-4 py-3 text-xs text-gray-500">
+            <span class="font-semibold text-gray-700">Tip:</span>
+            On mobile, use “Take Photo” to open the camera. On desktop, you can choose an image from your files.
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+
+          <a href="{% url 'logistica:mis_herramientas' %}"
+             class="inline-flex items-center justify-center px-5 py-2.5 rounded-full text-sm font-semibold border bg-white hover:bg-gray-50 text-gray-700 shadow-sm">
+            Cancel
+          </a>
+
+          <button type="submit"
+                  id="submitInventoryBtn"
+                  class="inline-flex items-center justify-center px-6 py-2.5 rounded-full text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow">
+            📤 Submit Inventory
+          </button>
+
+        </div>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  const cameraInput = document.getElementById('cameraInput');
+  const galleryInput = document.getElementById('galleryInput');
+  const selectedFileBox = document.getElementById('selectedFileBox');
+  const selectedFileName = document.getElementById('selectedFileName');
+  const previewImage = document.getElementById('previewImage');
+  const form = document.getElementById('inventoryForm');
+
+  window.openCameraInput = function(){
+    if (galleryInput) galleryInput.value = '';
+    cameraInput?.click();
+  }
+
+  window.openGalleryInput = function(){
+    if (cameraInput) cameraInput.value = '';
+    galleryInput?.click();
+  }
+
+  window.clearSelectedPhoto = function(){
+    if (cameraInput) cameraInput.value = '';
+    if (galleryInput) galleryInput.value = '';
+
+    selectedFileBox?.classList.add('hidden');
+
+    if (selectedFileName) {
+      selectedFileName.textContent = '—';
+    }
+
+    if (previewImage) {
+      previewImage.src = '';
+      previewImage.classList.add('hidden');
+    }
+  }
+
+  function handleSelectedFile(input){
+    const file = input?.files && input.files[0] ? input.files[0] : null;
+
+    if (!file) {
+      window.clearSelectedPhoto();
+      return;
+    }
+
+    if (selectedFileBox) {
+      selectedFileBox.classList.remove('hidden');
+    }
+
+    if (selectedFileName) {
+      selectedFileName.textContent = file.name || 'photo.jpg';
+    }
+
+    if (file.type && file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+
+      if (previewImage) {
+        previewImage.src = url;
+        previewImage.classList.remove('hidden');
+      }
+    }
+  }
+
+  cameraInput?.addEventListener('change', function(){
+    if (this.files && this.files.length) {
+      if (galleryInput) galleryInput.value = '';
+    }
+
+    handleSelectedFile(this);
+  });
+
+  galleryInput?.addEventListener('change', function(){
+    if (this.files && this.files.length) {
+      if (cameraInput) cameraInput.value = '';
+    }
+
+    handleSelectedFile(this);
+  });
+
+  form?.addEventListener('submit', function(e){
+    const hasCameraFile = cameraInput?.files && cameraInput.files.length > 0;
+    const hasGalleryFile = galleryInput?.files && galleryInput.files.length > 0;
+
+    if (!hasCameraFile && !hasGalleryFile) {
+      e.preventDefault();
+      alert('You must take or select a photo before submitting.');
+      return;
+    }
+
+    const btn = document.getElementById('submitInventoryBtn');
+
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('opacity-60', 'cursor-not-allowed');
+      btn.textContent = 'Submitting...';
+    }
+  });
+})();
+</script>
+{% endblock %}

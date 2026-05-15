@@ -1,101 +1,279 @@
 {% extends 'dashboard/base.html' %}
 {% load static %}
 
+{% block title %}My Digital Signature{% endblock %}
+
 {% block content %}
-<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-md mt-4">
-  <h2 class="text-2xl font-bold text-gray-800 mb-4">
-    {% if solo_lectura %}
-      Tu Firma Digital
-    {% else %}
-      Crear Firma Digital
-    {% endif %}
-  </h2>
+<div class="min-h-[calc(100vh-90px)]">
+  <div class="max-w-4xl mx-auto mt-4 sm:mt-8">
 
-  {% if tecnico.firma_digital and tecnico.firma_digital.url %}
-    <div class="mb-4">
-      <p class="text-gray-600 mb-1">Tu firma registrada:</p>
-      <div class="border border-gray-300 p-2 inline-block rounded bg-gray-100">
-        <img src="{{ tecnico.firma_digital.url }}" alt="Firma digital" class="max-h-24">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          ✍️ My Digital Signature
+        </h1>
+        <p class="text-sm text-gray-500 mt-1">
+          Your signature is used to accept assigned tools and documents.
+        </p>
       </div>
-    </div>
-  {% endif %}
 
-  {% if firmar_documento and tecnico.firma_digital %}
-    <div class="flex justify-between items-center mt-4">
-      <a href="{% url 'liquidaciones:listar' %}" class="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">
-        ← Volver
+      <a href="{% url 'logistica:mis_herramientas' %}"
+         class="inline-flex items-center justify-center px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm text-gray-700">
+        ← Back to My Tools
       </a>
-
-      <form method="post">
-        {% csrf_token %}
-        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-          ✍️ Firmar Liquidación
-        </button>
-      </form>
     </div>
-  {% endif %}
 
-  {% if not solo_lectura and not tecnico.firma_digital %}
-    <p class="text-gray-600 mb-4">Firma dentro del recuadro y haz clic en "Guardar Firma".</p>
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
 
-    <canvas id="canvas" width="400" height="150" class="border border-gray-300 rounded"></canvas>
-    <button type="button" onclick="clearCanvas()" class="mt-2 text-blue-600 hover:underline">Limpiar</button>
+      <!-- Top banner -->
+      <div class="px-5 sm:px-6 py-5 border-b bg-gradient-to-r from-blue-50 to-white">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-xl shrink-0">
+            ✍️
+          </div>
 
-    <form method="post" class="mt-4" id="firmaForm">
-      {% csrf_token %}
-      <input type="hidden" name="firma_digital" id="firmaInput">
-      <div class="flex justify-end">
-        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-          Guardar Firma
-        </button>
+          <div>
+            <h2 class="text-lg sm:text-xl font-bold text-gray-900">
+              {% if solo_lectura %}
+                Registered Signature
+              {% elif tecnico.firma_digital %}
+                Signature Already Registered
+              {% else %}
+                Create Digital Signature
+              {% endif %}
+            </h2>
+
+            <p class="text-sm text-gray-600 mt-1">
+              {% if solo_lectura %}
+                Your signature is already registered and cannot be modified from here.
+              {% elif tecnico.firma_digital %}
+                A signature is already registered for your account.
+              {% else %}
+                Draw your signature inside the box below and save it.
+              {% endif %}
+            </p>
+          </div>
+        </div>
       </div>
-    </form>
-  {% elif solo_lectura %}
-    <p class="text-gray-600 italic">
-      Tu firma ya fue registrada y no puede ser modificada. Si necesitas actualizarla, contacta a Recursos Humanos.
-    </p>
-  {% elif tecnico.firma_digital %}
-    <p class="text-gray-600 italic">
-      Ya tienes una firma registrada. Si deseas reemplazarla, contacta a RRHH o al Administrador General.
-    </p>
-  {% endif %}
+
+      <div class="p-5 sm:p-6 space-y-5">
+
+        {% if tecnico.firma_digital and tecnico.firma_digital.url %}
+          <!-- Current signature -->
+          <div class="rounded-2xl border bg-gray-50 p-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-gray-800">Current signature</p>
+                <p class="text-xs text-gray-500 mt-1">
+                  This is the signature currently saved in your profile.
+                </p>
+              </div>
+
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 w-fit">
+                Registered
+              </span>
+            </div>
+
+            <div class="mt-4 border rounded-2xl bg-white p-4 flex items-center justify-center min-h-[120px]">
+              <img src="{{ tecnico.firma_digital.url }}"
+                   alt="Digital signature"
+                   class="max-h-28 object-contain">
+            </div>
+          </div>
+        {% endif %}
+
+        {% if firmar_documento and tecnico.firma_digital %}
+          <!-- Sign payroll/document action -->
+          <div class="rounded-2xl border bg-blue-50 p-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-gray-900">Ready to sign</p>
+                <p class="text-xs text-gray-600 mt-1">
+                  Your registered signature will be used to sign this document.
+                </p>
+              </div>
+
+              <form method="post" class="flex flex-col sm:flex-row gap-2">
+                {% csrf_token %}
+
+                <a href="{% url 'liquidaciones:listar' %}"
+                   class="inline-flex items-center justify-center px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 text-gray-700">
+                  Cancel
+                </a>
+
+                <button type="submit"
+                        class="inline-flex items-center justify-center px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+                  ✍️ Sign Payroll
+                </button>
+              </form>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if not solo_lectura and not tecnico.firma_digital %}
+          <!-- Draw signature -->
+          <div class="rounded-2xl border bg-white p-4">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+              <div>
+                <label class="block text-sm font-semibold text-gray-800">
+                  Draw your signature
+                </label>
+                <p class="text-xs text-gray-500 mt-1">
+                  Use your finger, trackpad, or mouse. Make sure the signature is clear before saving.
+                </p>
+              </div>
+
+              <button type="button"
+                      onclick="clearCanvas()"
+                      class="inline-flex items-center justify-center px-3 py-1.5 rounded-full text-xs border bg-white hover:bg-gray-50 text-gray-700 w-fit">
+                🧽 Clear
+              </button>
+            </div>
+
+            <div class="rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 p-2">
+              <canvas id="canvas"
+                      width="700"
+                      height="220"
+                      class="w-full h-[220px] bg-white rounded-xl border border-gray-200 touch-none"></canvas>
+            </div>
+
+            <div class="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+              <div class="text-amber-600">⚠️</div>
+              <p class="text-xs text-amber-800">
+                By saving this signature, it may be used to confirm acceptance of assigned tools and related responsibilities.
+              </p>
+            </div>
+
+            <form method="post" class="mt-5" id="firmaForm">
+              {% csrf_token %}
+              <input type="hidden" name="firma_digital" id="firmaInput">
+
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                <a href="{% url 'logistica:mis_herramientas' %}"
+                   class="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 text-gray-700">
+                  Cancel
+                </a>
+
+                <button type="submit"
+                        class="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow">
+                  💾 Save Signature
+                </button>
+              </div>
+            </form>
+          </div>
+
+        {% elif solo_lectura %}
+          <div class="rounded-2xl border bg-gray-50 p-4">
+            <p class="text-sm text-gray-700">
+              Your signature has already been registered and cannot be modified from here.
+              If you need to update it, please contact Human Resources.
+            </p>
+
+            <div class="mt-4">
+              <a href="{% url 'logistica:mis_herramientas' %}"
+                 class="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+                Back to My Tools
+              </a>
+            </div>
+          </div>
+
+        {% elif tecnico.firma_digital %}
+          <div class="rounded-2xl border bg-gray-50 p-4">
+            <p class="text-sm text-gray-700">
+              You already have a registered signature. If you need to replace it, please contact Human Resources or the General Admin.
+            </p>
+
+            <div class="mt-4">
+              <a href="{% url 'logistica:mis_herramientas' %}"
+                 class="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+                Back to My Tools
+              </a>
+            </div>
+          </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
   const canvas = document.getElementById('canvas');
+
   if (canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const firmaInput = document.getElementById('firmaInput');
+    const firmaForm = document.getElementById('firmaForm');
+
     let painting = false;
     let hasDrawn = false;
 
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+
+      const oldImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(220 * dpr);
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#111827';
+
+      try {
+        if (hasDrawn) {
+          ctx.putImageData(oldImage, 0, 0);
+        }
+      } catch (_) {}
+    }
+
+    function getPoint(e) {
+      const rect = canvas.getBoundingClientRect();
+
+      if (e.touches && e.touches.length > 0) {
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top
+        };
+      }
+
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
     function startPosition(e) {
+      e.preventDefault();
+
       painting = true;
-      draw(e);
+      hasDrawn = true;
+
+      const point = getPoint(e);
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
     }
 
     function endPosition() {
+      if (!painting) return;
       painting = false;
       ctx.beginPath();
     }
 
     function draw(e) {
       if (!painting) return;
-      hasDrawn = true;
-
-      const rect = canvas.getBoundingClientRect();
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = 'black';
-
-      const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-      const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
 
       e.preventDefault();
+
+      const point = getPoint(e);
+      ctx.lineTo(point.x, point.y);
+      ctx.stroke();
     }
 
     function clearCanvas() {
@@ -103,29 +281,33 @@
       hasDrawn = false;
     }
 
-    document.getElementById('firmaForm').addEventListener('submit', function (e) {
-      if (!hasDrawn) {
-        alert("Por favor dibuja tu firma antes de guardar.");
-        e.preventDefault();
-        return;
-      }
+    window.clearCanvas = clearCanvas;
 
-      try {
-        const dataURL = canvas.toDataURL('image/png');
-        document.getElementById('firmaInput').value = dataURL;
-      } catch (error) {
-        alert("Error al procesar la firma: " + error);
-        e.preventDefault();
-      }
-    });
+    if (firmaForm) {
+      firmaForm.addEventListener('submit', function (e) {
+        if (!hasDrawn) {
+          alert("Please draw your signature before saving.");
+          e.preventDefault();
+          return;
+        }
+
+        try {
+          firmaInput.value = canvas.toDataURL('image/png');
+        } catch (error) {
+          alert("Error processing the signature: " + error);
+          e.preventDefault();
+        }
+      });
+    }
 
     canvas.addEventListener('mousedown', startPosition);
-    canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', endPosition);
+    canvas.addEventListener('mouseleave', endPosition);
 
     canvas.addEventListener('touchstart', startPosition, { passive: false });
-    canvas.addEventListener('touchend', endPosition, { passive: false });
     canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', endPosition, { passive: false });
 
     document.addEventListener("touchstart", function (e) {
       if (e.target.closest("canvas")) {
@@ -133,9 +315,15 @@
       }
     }, { passive: false });
 
-    document.addEventListener("touchend", function (e) {
+    document.addEventListener("touchend", function () {
       document.body.style.overflow = "";
     }, { passive: false });
+
+    window.addEventListener('load', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', resizeCanvas);
+
+    setTimeout(resizeCanvas, 50);
   }
 </script>
 {% endblock %}

@@ -1,0 +1,407 @@
+{# logistica/templates/logistica/admin_herramienta_form.html #}
+{% extends "dashboard_admin/base.html" %}
+{% load custom_filters %}
+
+{% block title %}
+  {% if mode == "edit" %}Edit Tool{% else %}Create Tool{% endif %}
+{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <style>
+    .campo{
+      width:100%;
+      border:2px solid #e5e7eb;
+      border-radius:1rem;
+      padding:.65rem .85rem;
+      font-size:.95rem;
+      background:#fff;
+      transition:border-color .15s, box-shadow .15s;
+      outline:none;
+    }
+    .campo:focus{
+      border-color:#3b82f6;
+      box-shadow:0 0 0 3px rgba(59,130,246,.20);
+    }
+    .campo-error{
+      border-color:#ef4444 !important;
+      box-shadow:0 0 0 3px rgba(239,68,68,.15) !important;
+    }
+    .help{
+      font-size:.75rem;
+      color:#6b7280;
+      margin-top:.25rem;
+    }
+  </style>
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <h2 class="text-2xl font-bold text-gray-800">
+      {% if mode == "edit" %}✏️ Edit Tool{% else %}➕ Create Tool{% endif %}
+    </h2>
+
+    <div class="flex gap-2 flex-wrap">
+      <button type="button"
+              class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm"
+              onclick="openImportModal()">
+        📥 Import
+      </button>
+
+      <a href="{% url 'logistica:herramientas_list' %}"
+         class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm">
+        ← Back
+      </a>
+    </div>
+  </div>
+
+  {% if mode != "edit" %}
+    <div class="border rounded-2xl p-4 bg-blue-50 mb-4">
+      <div class="font-semibold text-gray-800">💡 Recommendations for creating tools</div>
+      <ul class="mt-2 text-sm text-gray-700 list-disc pl-5 space-y-1">
+        <li><b>Name:</b> use a clear and short name, for example “Hammer drill”.</li>
+        <li><b>Serial:</b> must be <b>unique</b>. Ideally copy the exact serial from the equipment.</li>
+        <li><b>Quantity:</b> initial stock quantity for this item.</li>
+        <li><b>Commercial value:</b> reference value, without symbols. The system will format it.</li>
+        <li><b>Warehouse:</b> select where the item will be initially stored.</li>
+        <li><b>Photo:</b> helps identify the item quickly. Optional.</li>
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% csrf_token %}
+
+    <!-- Details -->
+    <div class="border rounded-2xl p-4 bg-white shadow-sm space-y-3">
+      <h3 class="text-lg font-bold text-gray-800">Details</h3>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Name</label>
+        <div class="mt-1">
+          {{ form.nombre }}
+        </div>
+        <div class="help">Example: Drill, Grinder, Cutting machine, Harness, etc.</div>
+        {% if form.nombre.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.nombre.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Description</label>
+        <div class="mt-1">
+          {{ form.descripcion }}
+        </div>
+        <div class="help">Optional. You can include brand, model, accessories, or general condition.</div>
+        {% if form.descripcion.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.descripcion.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Serial</label>
+        <div class="mt-1">
+          {{ form.serial }}
+        </div>
+
+        <div class="mt-2 flex items-center gap-2">
+          {{ form.sin_serial }}
+          <label for="{{ form.sin_serial.id_for_label }}" class="text-sm text-gray-700">
+            No serial / Not applicable
+          </label>
+        </div>
+
+        <div class="help">If the item does not have a serial number, check this box and the system will generate one automatically.</div>
+        <div class="help">Must be unique. Example: 234235325253 or “SN-AX12-8890”.</div>
+
+        {% if form.serial.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.serial.errors }}</div>
+        {% endif %}
+        {% if form.sin_serial.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.sin_serial.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Quantity</label>
+        <div class="mt-1">
+          {{ form.cantidad }}
+        </div>
+        <div class="help">Initial quantity. Example: 1, 2, 10…</div>
+        {% if form.cantidad.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.cantidad.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Commercial value</label>
+        <div class="mt-1">
+          {{ form.valor_comercial }}
+        </div>
+        <div class="help">Reference value for the equipment. Example: 500</div>
+        {% if form.valor_comercial.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.valor_comercial.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Warehouse</label>
+        <div class="mt-1">
+          {{ form.bodega }}
+        </div>
+        <div class="help">Defines where the item is stored or available.</div>
+        {% if form.bodega.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.bodega.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Photo (optional)</label>
+        <div class="mt-1">
+          {{ form.foto }}
+        </div>
+        <div class="help">Ideally upload a photo showing the full item and the serial if possible.</div>
+
+        {% if form.foto.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.foto.errors }}</div>
+        {% endif %}
+
+        {% if mode == "edit" and obj.foto %}
+          <div class="mt-2">
+            <a href="{{ obj.foto.url }}" target="_blank"
+               class="text-sm text-blue-600 hover:text-blue-800">
+              📷 View current photo
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="border rounded-2xl p-4 bg-white shadow-sm space-y-3">
+      <h3 class="text-lg font-bold text-gray-800">Status</h3>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Status</label>
+        <div class="mt-1">
+          {{ form.status }}
+        </div>
+        <div class="help">If the item will remain stored, you can leave it as “Warehouse”.</div>
+        {% if form.status.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.status.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-gray-700">Justification</label>
+        <div class="mt-1">
+          {{ form.status_justificacion }}
+        </div>
+        {% if form.status_justificacion.errors %}
+          <div class="text-sm text-red-600 mt-1">{{ form.status_justificacion.errors }}</div>
+        {% endif %}
+        <div class="help">
+          Required if the status is damaged / lost / stolen.
+        </div>
+      </div>
+
+      <div class="pt-2 flex flex-col sm:flex-row gap-2">
+        <button type="submit"
+                class="px-5 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+          💾 Save
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Import Modal -->
+<div id="importModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl p-5">
+      <h3 class="text-lg font-bold text-gray-800">📥 Import Tools</h3>
+
+      <p class="text-sm text-gray-600 mt-1">
+        Download the template, complete it, and upload it here.
+      </p>
+
+      <div class="mt-4 flex flex-col sm:flex-row gap-2">
+        <a href="{% url 'logistica:herramientas_importar_plantilla' %}"
+           class="px-4 py-2 rounded-full text-sm bg-emerald-600 text-white hover:bg-emerald-700 text-center">
+          ⬇️ Download template
+        </a>
+
+        <button type="button"
+                class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50"
+                onclick="closeImportModal()">
+          Cancel
+        </button>
+      </div>
+
+      <form method="post"
+            enctype="multipart/form-data"
+            action="{% url 'logistica:herramientas_importar' %}"
+            class="mt-4 space-y-3"
+            id="importToolsForm">
+        {% csrf_token %}
+
+        <div>
+          <label class="text-sm font-medium text-gray-700">File</label>
+
+          <!-- Native file input hidden to avoid browser/system language text -->
+          <input type="file"
+                 id="toolsImportFile"
+                 name="archivo"
+                 accept=".xlsx,.xlsm"
+                 class="hidden"
+                 required>
+
+          <div class="mt-1 flex flex-col sm:flex-row gap-2">
+            <button type="button"
+                    onclick="document.getElementById('toolsImportFile').click()"
+                    class="px-4 py-2 rounded-xl text-sm border bg-white hover:bg-gray-50 text-gray-800">
+              Choose file
+            </button>
+
+            <div id="toolsImportFileName"
+                 class="flex-1 px-4 py-2 rounded-xl border bg-gray-50 text-sm text-gray-500 truncate">
+              No file selected
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-500 mt-1">Format: Excel (.xlsx)</div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="submit"
+                  id="toolsImportSubmitBtn"
+                  class="px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700">
+            📤 Import
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const inputs = document.querySelectorAll(
+      'input[type="text"], input[type="number"], input[type="email"], input[type="date"], input[type="datetime-local"], input[type="file"], select, textarea'
+    );
+
+    inputs.forEach(el=>{
+      const cls = (el.getAttribute('class') || '').trim();
+
+      if(el.id === 'toolsImportFile'){
+        return;
+      }
+
+      if(!cls){
+        el.classList.add('campo');
+      }else{
+        el.classList.add('border','rounded-xl','px-3','py-2');
+      }
+    });
+
+    function setPH(sel, value){
+      const el = document.querySelector(sel);
+      if(!el) return;
+      if(!(el.getAttribute('placeholder') || '').trim()){
+        el.setAttribute('placeholder', value);
+      }
+    }
+
+    setPH('input[name="nombre"]', 'Example: Hammer drill');
+    setPH('input[name="serial"]', 'Example: 234235325253 / SN-AX12-8890');
+    setPH('input[name="cantidad"]', 'Example: 1');
+    setPH('input[name="valor_comercial"]', 'Example: 500');
+    setPH('textarea[name="descripcion"]', 'Example: Brand/model, accessories, notes...');
+    setPH('textarea[name="status_justificacion"]', 'Explain the reason for the selected status...');
+
+    document.querySelectorAll('.text-red-600').forEach(err=>{
+      const wrap = err.closest('div');
+      if(!wrap) return;
+      const field = wrap.querySelector('input, select, textarea');
+      if(field) field.classList.add('campo-error');
+    });
+  })();
+
+  function openImportModal(){
+    document.getElementById('importModal')?.classList.remove('hidden');
+  }
+
+  function closeImportModal(){
+    document.getElementById('importModal')?.classList.add('hidden');
+  }
+
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') closeImportModal();
+  });
+
+  document.getElementById('importModal')?.addEventListener('click', (e)=>{
+    if(e.target.id === 'importModal'){
+      closeImportModal();
+    }
+  });
+
+  (function(){
+    const chk = document.querySelector('input[name="sin_serial"]');
+    const serial = document.querySelector('input[name="serial"]');
+
+    if(!chk || !serial) return;
+
+    function sync(){
+      const on = chk.checked;
+
+      if(on){
+        serial.value = '';
+        serial.disabled = true;
+        serial.classList.add('opacity-60');
+      }else{
+        serial.disabled = false;
+        serial.classList.remove('opacity-60');
+      }
+    }
+
+    chk.addEventListener('change', sync);
+    sync();
+  })();
+
+  (function(){
+    const input = document.getElementById('toolsImportFile');
+    const nameBox = document.getElementById('toolsImportFileName');
+    const form = document.getElementById('importToolsForm');
+    const btn = document.getElementById('toolsImportSubmitBtn');
+
+    if(input && nameBox){
+      input.addEventListener('change', function(){
+        const file = this.files && this.files[0] ? this.files[0] : null;
+
+        nameBox.textContent = file ? file.name : 'No file selected';
+        nameBox.classList.toggle('text-gray-800', !!file);
+        nameBox.classList.toggle('text-gray-500', !file);
+      });
+    }
+
+    if(form){
+      form.addEventListener('submit', function(e){
+        const file = input && input.files && input.files[0] ? input.files[0] : null;
+
+        if(!file){
+          e.preventDefault();
+          alert('Please select an Excel file before importing.');
+          return;
+        }
+
+        if(btn){
+          btn.disabled = true;
+          btn.classList.add('opacity-60', 'cursor-not-allowed');
+          btn.textContent = 'Importing...';
+        }
+      });
+    }
+  })();
+</script>
+{% endblock %}

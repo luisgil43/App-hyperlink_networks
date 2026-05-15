@@ -317,15 +317,29 @@
         </ul>
       </li>
 
-      <li data-toggle class="group">
-        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">📦 Logistics <span class="arrow">▶</span></span>
-        <ul class="submenu ml-4 space-y-1 hidden">
-          <li><a href="#">Material Request</a></li>
-          <li><a href="#">Material Return</a></li>
-          <li><a href="#">My Assigned Equipment</a></li>
-          <li><a href="#">My Assigned PPE</a></li>
-        </ul>
-      </li>
+     <li data-toggle class="group">
+
+  <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
+
+    📦 Logistics <span class="arrow">▶</span>
+
+  </span>
+
+  <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+
+    <li>
+
+      <a href="{% url 'logistica:mis_herramientas' %}">
+
+        My Assigned Tools
+
+      </a>
+
+    </li>
+
+  </ul>
+
+</li>
 
       <li data-toggle class="group">
         <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>

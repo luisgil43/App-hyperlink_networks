@@ -1,0 +1,1209 @@
+{% extends "dashboard_admin/base.html" %}
+{% load custom_filters %}
+
+{% block title %}Tool Assignments{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <h2 class="text-2xl font-bold text-gray-800">👥 Tool Assignments</h2>
+
+    <a href="{% url 'logistica:herramientas_list' %}"
+       class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm">
+      ← Back to Tools
+    </a>
+  </div>
+
+  <form method="get" class="mb-4">
+    <div class="flex flex-col sm:flex-row gap-2 items-stretch">
+      <input type="text" name="q" value="{{ q }}" placeholder="Search worker / tool / serial..."
+             class="border rounded-xl px-3 py-2 w-full">
+      <button type="submit"
+              class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">
+        🔎 Search
+      </button>
+      <a href="{% url 'logistica:herramientas_asignaciones_panel' %}"
+         class="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50">
+        ❌ Clear
+      </a>
+    </div>
+  </form>
+
+  {% if not grouped_rows %}
+    <div class="p-4 bg-gray-50 border rounded-xl text-gray-700">
+      No assignments found.
+    </div>
+  {% else %}
+
+    <div class="space-y-3">
+      {% for row in grouped_rows %}
+  {% with uid=row.uid u=row.user assignments=row.assignments %}
+  <details class="border rounded-2xl overflow-hidden js-user-details" data-user-id="{{ uid }}">
+    <summary class="cursor-pointer px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between">
+      <div class="font-semibold text-gray-800">
+        {{ u.get_full_name|default:u.username }}
+        <span class="text-xs text-gray-500 ml-2">@{{ u.username }}</span>
+      </div>
+      <div class="text-sm text-gray-600">
+        {{ assignments|length }} assignment(s)
+      </div>
+    </summary>
+
+          <div class="p-4">
+            <div class="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 border rounded-xl px-3 py-2">
+              <div class="text-sm text-gray-700">
+                <span class="font-semibold">Bulk actions:</span>
+                select one or more tools for this worker.
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700"
+                        onclick="openBulkInventoryConfirmModal('{{ uid }}')">
+                  📸 Request inventory for selected
+                </button>
+
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded-full bg-red-600 text-white hover:bg-red-700"
+                        onclick="openBulkCloseModal('{{ uid }}')">
+                  ✅ Close selected
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm min-w-[1200px]">
+                <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+                  <tr>
+                    <th class="p-2 border text-center w-[48px]">
+                      <input type="checkbox"
+                             class="js-check-all"
+                             data-user-id="{{ uid }}">
+                    </th>
+                    <th class="p-2 border text-left">Tool</th>
+                    <th class="p-2 border">Serial</th>
+                    <th class="p-2 border">Quantity</th>
+                    <th class="p-2 border">Warehouse</th>
+                    <th class="p-2 border">Assignment Status</th>
+                    <th class="p-2 border">Assigned By</th>
+                    <th class="p-2 border">Date</th>
+                    <th class="p-2 border">Inventory</th>
+                    <th class="p-2 border">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {% for a in assignments %}
+                    <tr class="border-t hover:bg-gray-50 text-center">
+                      <td class="p-2 border text-center">
+                        {% if a.active %}
+                          <input type="checkbox"
+                                 class="js-asig-check"
+                                 data-user-id="{{ uid }}"
+                                 data-asig-id="{{ a.id }}"
+                                 data-tool-name="{{ a.herramienta.nombre|escape }}"
+                                 data-serial="{{ a.herramienta.serial|escape }}"
+                                 data-cantidad="{{ a.cantidad_entregada }}">
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+
+                      <td class="p-2 border text-left">
+                        <div class="font-semibold text-gray-800">{{ a.herramienta.nombre }}</div>
+                        {% if a.herramienta.descripcion %}
+                          <div class="text-xs text-gray-500">{{ a.herramienta.descripcion }}</div>
+                        {% endif %}
+
+                        <div class="mt-2 text-[11px] text-gray-500">
+                          <span class="font-semibold">Last update:</span>
+                          {% if a.last_edit %}
+                            {{ a.last_edit.get_accion_display }}
+                            • {{ a.last_edit.created_at|date:"m/d/Y H:i" }}
+                            • {% if a.last_edit.by_user %}{{ a.last_edit.by_user.get_full_name|default:a.last_edit.by_user.username }}{% else %}—{% endif %}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+
+                        <div id="logsBox-{{ a.id }}" class="hidden">
+                          {% if a.logs_list %}
+                            <div class="space-y-2">
+                              {% for lg in a.logs_list %}
+                                <div class="border rounded-xl p-3 bg-gray-50">
+                                  <div class="font-semibold text-gray-800 text-sm">
+                                    {{ lg.get_accion_display }} • {{ lg.created_at|date:"m/d/Y H:i" }}
+                                  </div>
+                                  <div class="text-[11px] text-gray-600">
+                                    By: {% if lg.by_user %}{{ lg.by_user.get_full_name|default:lg.by_user.username }}{% else %}—{% endif %}
+                                  </div>
+
+                                  {% if lg.cambios %}
+                                    <div class="mt-2 text-[12px] text-gray-700 space-y-1">
+                                      {% if lg.cambios.snapshot %}
+                                        <div class="font-semibold text-gray-800">Snapshot</div>
+                                        <div class="grid grid-cols-1 gap-1">
+                                          {% for k,v in lg.cambios.snapshot.items %}
+                                            <div class="flex gap-2">
+                                              <span class="text-gray-500 min-w-[140px]">{{ k }}:</span>
+                                              <span class="text-gray-900">{{ v }}</span>
+                                            </div>
+                                          {% endfor %}
+                                        </div>
+                                      {% endif %}
+
+                                      {% for campo, val in lg.cambios.items %}
+                                        {% if campo != "snapshot" %}
+                                          <div class="flex gap-2">
+                                            <span class="text-gray-500 min-w-[140px]">{{ campo }}:</span>
+
+                                            {% if val.from != None or val.to != None %}
+                                              <span class="text-gray-900">
+                                                <span class="px-2 py-0.5 rounded bg-gray-100">{{ val.from }}</span>
+                                                <span class="mx-1 text-gray-400">→</span>
+                                                <span class="px-2 py-0.5 rounded bg-emerald-50">{{ val.to }}</span>
+                                              </span>
+                                            {% else %}
+                                              <span class="text-gray-900">{{ val }}</span>
+                                            {% endif %}
+                                          </div>
+                                        {% endif %}
+                                      {% endfor %}
+                                    </div>
+                                  {% endif %}
+
+                                  {% if lg.nota %}
+                                    <div class="mt-2 text-[11px] text-gray-700">
+                                      <b>Note:</b> {{ lg.nota }}
+                                    </div>
+                                  {% endif %}
+                                </div>
+                              {% endfor %}
+                            </div>
+                          {% else %}
+                            <div class="text-sm text-gray-600">No change history recorded.</div>
+                          {% endif %}
+                        </div>
+                      </td>
+
+                      <td class="p-2 border">{{ a.herramienta.serial }}</td>
+
+                      <td class="p-2 border">
+                        <div class="font-semibold">{{ a.cantidad_entregada }}</div>
+                        {% if not a.active and a.cantidad_devuelta != None %}
+                          <div class="text-[11px] text-gray-500">Returned: {{ a.cantidad_devuelta }}</div>
+                        {% endif %}
+                      </td>
+
+                      <td class="p-2 border">{{ a.herramienta.bodega.nombre|default:"—" }}</td>
+
+                      <td class="p-2 border">
+                        <div id="estadoCell-{{ a.id }}" class="flex flex-col items-center gap-1">
+
+                          {% if not a.active %}
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200">
+                              Closed
+                            </span>
+
+                            {% if a.closed_at %}
+                              <div class="text-[11px] text-gray-500 mt-1">
+                                {{ a.closed_at|date:"m/d/Y H:i" }}
+                              </div>
+                            {% endif %}
+
+                          {% elif a.estado == "aceptada" %}
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              Accepted by worker
+                            </span>
+
+                            {% if a.aceptado_at %}
+                              <div class="text-[11px] text-emerald-700 mt-1">
+                                {{ a.aceptado_at|date:"m/d/Y H:i" }}
+                              </div>
+                            {% endif %}
+
+                          {% elif a.estado == "rechazada" %}
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+                              Rejected by worker
+                            </span>
+
+                            {% if a.rechazado_at %}
+                              <div class="text-[11px] text-red-700 mt-1">
+                                {{ a.rechazado_at|date:"m/d/Y H:i" }}
+                              </div>
+                            {% endif %}
+
+                            {% if a.comentario_rechazo %}
+                              <div class="text-[11px] text-gray-600 mt-1 max-w-[220px] whitespace-normal text-left">
+                                <b>Reason:</b> {{ a.comentario_rechazo }}
+                              </div>
+                            {% endif %}
+
+                          {% else %}
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
+                              Pending worker acceptance
+                            </span>
+                          {% endif %}
+
+                        </div>
+                      </td>
+
+                      <td class="p-2 border">
+                        {{ a.asignado_por.get_full_name|default:a.asignado_por.username|default:"—" }}
+                      </td>
+
+                      <td class="p-2 border">{{ a.asignado_at|date:"m/d/Y H:i" }}</td>
+
+                      <td class="p-2 border">
+                        <div id="invCell-{{ a.id }}"
+                             data-asig-id="{{ a.id }}"
+                             data-next="{{ request.get_full_path|urlencode }}"
+                             class="flex flex-col items-center gap-2">
+
+                          {% if a.last_inv %}
+                            {% if a.last_inv.estado == "pendiente" %}
+                              <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                Pending review
+                              </span>
+
+                              <div class="flex flex-wrap justify-center gap-2">
+                                {% if a.last_inv.foto %}
+                                  <a href="{{ a.last_inv.foto.url }}" target="_blank"
+                                     class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50">
+                                    🔎 View photo
+                                  </a>
+                                {% endif %}
+
+                                <form method="post"
+                                      class="js-ajax-inv"
+                                      data-kind="aprobar"
+                                      action="{% url 'logistica:aprobar_inventario' a.last_inv.id %}?next={{ request.get_full_path|urlencode }}">
+                                  {% csrf_token %}
+                                  <button type="submit"
+                                          class="px-3 py-1 text-xs rounded-full bg-emerald-600 text-white hover:bg-emerald-700">
+                                    ✅ Approve
+                                  </button>
+                                </form>
+
+                                <a href="{% url 'logistica:rechazar_inventario' a.last_inv.id %}?next={{ request.get_full_path|urlencode }}"
+                                   class="px-3 py-1 text-xs rounded-full bg-red-600 text-white hover:bg-red-700">
+                                  ❌ Reject
+                                </a>
+                              </div>
+
+                            {% elif a.last_inv.estado == "rechazado" %}
+                              <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+                                Inventory rejected
+                              </span>
+
+                              {% if a.last_inv.motivo_rechazo %}
+                                <div class="text-[11px] text-gray-600 text-left max-w-[260px] whitespace-normal">
+                                  <span class="font-semibold">Reason:</span> {{ a.last_inv.motivo_rechazo }}
+                                </div>
+                              {% endif %}
+
+                            {% else %}
+                              <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                Inventory approved
+                              </span>
+                            {% endif %}
+                          {% else %}
+                            {% if a.herramienta.inventory_required %}
+                              <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                                Requested
+                              </span>
+                            {% else %}
+                              <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                                Not requested
+                              </span>
+                            {% endif %}
+                          {% endif %}
+
+                          {% if not a.last_inv or a.last_inv.estado != "pendiente" %}
+                            <form method="post"
+                                  class="js-ajax-inv"
+                                  data-kind="solicitar"
+                                  action="{% url 'logistica:solicitar_inventario_asignacion' a.id %}?next={{ request.get_full_path|urlencode }}">
+                              {% csrf_token %}
+                              <button type="submit"
+                                      class="px-3 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700">
+                                📸 Request
+                              </button>
+                            </form>
+                          {% endif %}
+
+                          <a href="{% url 'logistica:inventario_historial_asignacion_admin' a.id %}?next={{ request.get_full_path|urlencode }}"
+                             class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50">
+                            🗂 History
+                          </a>
+
+                          <span class="text-[11px] text-gray-500">
+                            Next: {% if a.herramienta.next_inventory_due %}{{ a.herramienta.next_inventory_due|date:"m/d/Y" }}{% else %}—{% endif %}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td class="p-2 border whitespace-nowrap">
+                        <div class="flex justify-center gap-2 flex-wrap">
+
+                          {% if a.active %}
+                            <a href="{% url 'logistica:herramientas_asignacion_cerrar' a.id %}?next={{ request.get_full_path|urlencode }}"
+                               class="px-3 py-1 text-xs rounded-full bg-red-600 text-white hover:bg-red-700">
+                              ✅ Close
+                            </a>
+
+                            <form method="post"
+                                  class="js-ajax-reset"
+                                  data-asig-id="{{ a.id }}"
+                                  action="{% url 'logistica:herramientas_asignacion_reiniciar' a.id %}">
+                              {% csrf_token %}
+                              <button type="submit"
+                                      class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50">
+                                🔄 Reset status
+                              </button>
+                            </form>
+                          {% else %}
+                            <button type="button"
+                                    class="px-3 py-1 text-xs rounded-full bg-white border opacity-60 cursor-not-allowed">
+                              Closed
+                            </button>
+                          {% endif %}
+
+                          <button type="button"
+                                  class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50"
+                                  onclick="openLogsModal('{{ a.id }}', '{{ a.herramienta.nombre|escapejs }}')">
+                            🧾 Changes
+                          </button>
+
+                          {% if can_edit %}
+                            <button type="button"
+                                    class="px-3 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700"
+                                    onclick="openEditModal(
+                                      '{{ a.id }}',
+                                      '{{ a.asignado_a_id }}',
+                                      '{{ a.asignado_at|date:"Y-m-d\\TH:i" }}',
+                                      '{{ a.cantidad_entregada }}'
+                                    )">
+                              ✏️ Edit
+                            </button>
+                          {% endif %}
+
+                          {% if can_delete %}
+                            <button type="button"
+                                    class="px-3 py-1 text-xs rounded-full bg-gray-900 text-white hover:bg-black"
+                                    onclick="openDeleteModal('{{ a.id }}')">
+                              🗑️ Delete
+                            </button>
+                          {% endif %}
+                        </div>
+
+                        {% if not a.active and a.comentario_cierre or not a.active and a.justificacion_diferencia %}
+                          <div class="text-left text-xs text-gray-600 mt-2 whitespace-normal max-w-[360px]">
+                            {% if a.comentario_cierre %}<div><b>Comment:</b> {{ a.comentario_cierre }}</div>{% endif %}
+                            {% if a.justificacion_diferencia %}<div><b>Justification:</b> {{ a.justificacion_diferencia }}</div>{% endif %}
+                          </div>
+                        {% endif %}
+                      </td>
+
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </details>
+        {% endwith %}
+      {% endfor %}
+    </div>
+
+  {% endif %}
+</div>
+
+<div id="ajaxToast" class="fixed top-5 left-1/2 -translate-x-1/2 hidden z-[9999]">
+  <div id="ajaxToastBox" class="bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+    <span id="ajaxToastText" class="text-sm font-medium">Done</span>
+    <button type="button" class="text-white/90 hover:text-white" onclick="hideAjaxToast()">✕</button>
+  </div>
+</div>
+
+<div id="bulkInventoryConfirmModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border">
+      <div class="px-5 py-4 border-b flex items-start gap-3">
+        <div class="w-11 h-11 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl shrink-0">
+          📸
+        </div>
+
+        <div class="flex-1">
+          <h3 class="text-lg font-bold text-gray-800">
+            Request inventory
+          </h3>
+          <p class="text-sm text-gray-500 mt-1" id="bulkInventoryConfirmText">
+            Do you want to request inventory for the selected assignments?
+          </p>
+        </div>
+
+        <button type="button"
+                class="text-gray-400 hover:text-gray-700 text-xl leading-none"
+                onclick="closeBulkInventoryConfirmModal()">
+          ×
+        </button>
+      </div>
+
+      <div class="px-5 py-4">
+        <div class="rounded-xl bg-gray-50 border px-4 py-3 text-sm text-gray-700">
+          This action will enable the inventory request for each selected tool.
+        </div>
+      </div>
+
+      <div class="px-5 py-4 border-t bg-gray-50 flex justify-end gap-2">
+        <button type="button"
+                class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-100"
+                onclick="closeBulkInventoryConfirmModal()">
+          Cancel
+        </button>
+
+        <button type="button"
+                id="bulkInventoryConfirmBtn"
+                class="px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+          Yes, request
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="logsModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden">
+      <div class="px-5 py-4 border-b flex items-start justify-between gap-3">
+        <div>
+          <h3 class="text-lg font-bold text-gray-800">🧾 Change History</h3>
+          <p class="text-sm text-gray-500 mt-1" id="logsTitle"></p>
+        </div>
+        <button type="button"
+                class="px-3 py-1.5 rounded-full text-sm border bg-white hover:bg-gray-50"
+                onclick="closeLogsModal()">
+          ✕ Close
+        </button>
+      </div>
+      <div class="p-5 max-h-[70vh] overflow-y-auto" id="logsBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="bulkCloseModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden">
+      <div class="px-5 py-4 border-b flex items-start justify-between gap-3">
+        <div>
+          <h3 class="text-lg font-bold text-gray-800">✅ Close selected assignments</h3>
+          <p class="text-sm text-gray-500 mt-1">
+            Enter the returned quantity for each tool. If less is returned, a justification is required.
+          </p>
+        </div>
+
+        <button type="button"
+                class="px-3 py-1.5 rounded-full text-sm border bg-white hover:bg-gray-50"
+                onclick="closeBulkCloseModal()">
+          ✕ Close
+        </button>
+      </div>
+
+      <form id="bulkCloseForm" method="post" class="p-5 space-y-4"
+            action="{% url 'logistica:herramientas_asignaciones_cerrar_masivo' %}">
+        {% csrf_token %}
+
+        <div id="bulkCloseRows" class="space-y-3 max-h-[65vh] overflow-y-auto"></div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button"
+                  class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50"
+                  onclick="closeBulkCloseModal()">
+            Cancel
+          </button>
+
+          <button type="submit"
+                  class="px-4 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700">
+            Close selected
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="editModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl p-5">
+      <h3 class="text-lg font-bold text-gray-800">✏️ Edit Assignment</h3>
+      <p class="text-sm text-gray-600 mt-1">Only Logistics/Admin can edit. Changes are recorded.</p>
+
+      <form method="post" id="editForm" class="mt-4 space-y-3">
+        {% csrf_token %}
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Assigned to</label>
+          <select name="asignado_a" id="edit_asignado_a" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm">
+            {% for u in users_qs %}
+              <option value="{{ u.id }}">{{ u.get_full_name|default:u.username }} (@{{ u.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Assignment date</label>
+          <input type="datetime-local" name="asignado_at" id="edit_asignado_at"
+                 class="w-full mt-1 border rounded-xl px-3 py-2 text-sm">
+        </div>
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Delivered quantity</label>
+          <input type="number" min="1" name="cantidad_entregada" id="edit_cantidad"
+                 class="w-full mt-1 border rounded-xl px-3 py-2 text-sm">
+        </div>
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Note (optional)</label>
+          <textarea name="nota" rows="3" class="w-full mt-1 border rounded-xl p-3 text-sm"
+                    placeholder="Reason for the change, internal comment..."></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button"
+                  class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50"
+                  onclick="closeEditModal()">
+            Cancel
+          </button>
+          <button type="submit"
+                  class="px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700">
+            Save changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="deleteModal" class="fixed inset-0 hidden z-50">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-5">
+      <h3 class="text-lg font-bold text-gray-800">🗑️ Delete Assignment</h3>
+      <p class="text-sm text-gray-600 mt-2">
+        This deletes the record. If the assignment is active, the system returns the quantity to stock.
+      </p>
+
+      <form method="post" id="deleteForm" class="mt-4 space-y-3">
+        {% csrf_token %}
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Note (optional)</label>
+          <textarea name="nota" rows="3" class="w-full mt-1 border rounded-xl p-3 text-sm"
+                    placeholder="Reason for deletion..."></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button"
+                  class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50"
+                  onclick="closeDeleteModal()">
+            Cancel
+          </button>
+          <button type="submit"
+                  class="px-4 py-2 rounded-full text-sm bg-gray-900 text-white hover:bg-black">
+            Yes, delete
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openLogsModal(asigId, toolName){
+    const modal = document.getElementById('logsModal');
+    const title = document.getElementById('logsTitle');
+    const body  = document.getElementById('logsBody');
+
+    title.textContent = `Assignment #${asigId} • ${toolName}`;
+    const src = document.getElementById(`logsBox-${asigId}`);
+    body.innerHTML = src ? src.innerHTML : '<div class="text-sm text-gray-600">No history.</div>';
+
+    modal.classList.remove('hidden');
+  }
+  function closeLogsModal(){ document.getElementById('logsModal')?.classList.add('hidden'); }
+
+  function openEditModal(asigId, asignadoAId, asignadoAt, cantidad){
+    const modal = document.getElementById('editModal');
+    const form  = document.getElementById('editForm');
+
+    form.action = "{% url 'logistica:herramientas_asignacion_editar' 0 %}".replace('/0/', `/${asigId}/`);
+
+    const selUser = document.getElementById('edit_asignado_a');
+    const dt      = document.getElementById('edit_asignado_at');
+    const qty     = document.getElementById('edit_cantidad');
+
+    if(selUser) selUser.value = String(asignadoAId || '');
+    if(dt) dt.value = asignadoAt || '';
+    if(qty) qty.value = cantidad || '';
+
+    modal.classList.remove('hidden');
+  }
+  function closeEditModal(){ document.getElementById('editModal')?.classList.add('hidden'); }
+
+  function openDeleteModal(asigId){
+    const modal = document.getElementById('deleteModal');
+    const form  = document.getElementById('deleteForm');
+    form.action = "{% url 'logistica:herramientas_asignacion_eliminar' 0 %}".replace('/0/', `/${asigId}/`);
+    modal.classList.remove('hidden');
+  }
+  function closeDeleteModal(){ document.getElementById('deleteModal')?.classList.add('hidden'); }
+
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape'){
+      closeLogsModal();
+      closeEditModal();
+      closeDeleteModal();
+    }
+  });
+
+  document.getElementById('logsModal')?.addEventListener('click', (e)=>{ if(e.target.id === 'logsModal') closeLogsModal(); });
+  document.getElementById('editModal')?.addEventListener('click', (e)=>{ if(e.target.id === 'editModal') closeEditModal(); });
+  document.getElementById('deleteModal')?.addEventListener('click', (e)=>{ if(e.target.id === 'deleteModal') closeDeleteModal(); });
+</script>
+
+<script>
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return '';
+}
+
+let _toastTimer = null;
+function showAjaxToast(msg, ok=true){
+  const wrap = document.getElementById('ajaxToast');
+  const box  = document.getElementById('ajaxToastBox');
+  const txt  = document.getElementById('ajaxToastText');
+  if(!wrap || !box || !txt) return;
+
+  txt.textContent = msg || 'Done';
+  box.classList.toggle('bg-emerald-600', !!ok);
+  box.classList.toggle('bg-red-600', !ok);
+
+  wrap.classList.remove('hidden');
+
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => wrap.classList.add('hidden'), 2600);
+}
+function hideAjaxToast(){
+  document.getElementById('ajaxToast')?.classList.add('hidden');
+}
+
+function escHtml(s){
+  return (s || '').replace(/[&<>"']/g, (m) => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+  })[m]);
+}
+
+function buildInvHtml(data, nextUrlEncoded){
+  const inv = data.inv;
+  const prox = data.prox_due || '';
+  const nextPart = nextUrlEncoded ? `?next=${encodeURIComponent(decodeURIComponent(nextUrlEncoded))}` : '';
+
+  let html = '';
+
+  if(inv){
+    if(inv.estado === 'pendiente'){
+      html += `
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
+          Pending review
+        </span>
+        <div class="flex flex-wrap justify-center gap-2">
+          ${inv.foto_url ? `<a href="${escHtml(inv.foto_url)}" target="_blank"
+              class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50">🔎 View photo</a>` : ``}
+
+          <form method="post" class="js-ajax-inv" data-kind="aprobar"
+                action="${escHtml(inv.aprobar_url)}${nextPart}">
+            <button type="submit"
+                    class="px-3 py-1 text-xs rounded-full bg-emerald-600 text-white hover:bg-emerald-700">
+              ✅ Approve
+            </button>
+          </form>
+
+          <a href="${escHtml(inv.rechazar_url)}${nextPart}"
+             class="px-3 py-1 text-xs rounded-full bg-red-600 text-white hover:bg-red-700">
+            ❌ Reject
+          </a>
+        </div>
+      `;
+    } else if(inv.estado === 'rechazado'){
+      html += `
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+          Inventory rejected
+        </span>
+        ${inv.motivo_rechazo ? `
+          <div class="text-[11px] text-gray-600 text-left max-w-[260px] whitespace-normal">
+            <span class="font-semibold">Reason:</span> ${escHtml(inv.motivo_rechazo)}
+          </div>` : ``}
+      `;
+    } else {
+      html += `
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+          Inventory approved
+        </span>
+      `;
+    }
+  } else {
+    html += `
+      <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+        Requested
+      </span>
+    `;
+  }
+
+  if(data.puede_solicitar){
+    html += `
+      <form method="post" class="js-ajax-inv" data-kind="solicitar"
+            action="${escHtml(data.solicitar_url)}${nextPart}">
+        <button type="submit"
+                class="px-3 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700">
+          📸 Request
+        </button>
+      </form>
+    `;
+  }
+
+  html += `
+    <a href="${escHtml(data.historial_url)}${nextPart}"
+       class="px-3 py-1 text-xs rounded-full bg-white border hover:bg-gray-50">
+      🗂 History
+    </a>
+    <span class="text-[11px] text-gray-500">
+      Next: ${prox ? escHtml(prox) : '—'}
+    </span>
+  `;
+
+  return html;
+}
+
+async function ajaxPostForm(form){
+  const cell = form.closest('[id^="invCell-"]');
+  const nextUrlEncoded = cell?.dataset?.next || '';
+
+  const csrftoken = getCookie('csrftoken');
+  const fd = new FormData(form);
+
+  const res = await fetch(form.action, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': csrftoken,
+    },
+    body: fd,
+    credentials: 'same-origin',
+  });
+
+  let data = null;
+  try { data = await res.json(); } catch(e){}
+
+  if(!res.ok || !data || data.ok !== true){
+    const err = (data && (data.error || data.detail)) ? (data.error || data.detail) : 'Error executing action.';
+    showAjaxToast(err, false);
+    return;
+  }
+
+  const asigId = data.asig_id;
+  const target = document.getElementById(`invCell-${asigId}`);
+  if(target){
+    target.innerHTML = buildInvHtml(data, nextUrlEncoded);
+  }
+
+  showAjaxToast(data.message || 'Done', true);
+}
+
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  if(form && form.classList && form.classList.contains('js-ajax-inv')){
+    e.preventDefault();
+    ajaxPostForm(form);
+  }
+});
+</script>
+
+<script>
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  if (form && form.classList && form.classList.contains('js-ajax-reset')) {
+    e.preventDefault();
+
+    const csrftoken = getCookie('csrftoken');
+    const fd = new FormData(form);
+
+    fetch(form.action, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrftoken,
+      },
+      body: fd,
+      credentials: 'same-origin',
+    })
+    .then(async (res) => {
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+
+      if (!res.ok || !data || data.ok !== true) {
+        const err = (data && (data.error || data.detail)) ? (data.error || data.detail) : 'Error resetting status.';
+        showAjaxToast(err, false);
+        return;
+      }
+
+      const cell = document.getElementById(`estadoCell-${data.asig_id}`);
+      if (cell && data.estado_html) {
+        cell.innerHTML = data.estado_html;
+      }
+
+      showAjaxToast(data.message || 'Done', true);
+    })
+    .catch(() => showAjaxToast('Network error.', false));
+  }
+});
+</script>
+
+<script>
+const DETAILS_STORAGE_KEY = 'logisticaHerramientasAsignacionesOpenUsers';
+
+function getOpenUsers(){
+  try {
+    return JSON.parse(localStorage.getItem(DETAILS_STORAGE_KEY) || '[]');
+  } catch(e) {
+    return [];
+  }
+}
+
+function setOpenUsers(ids){
+  localStorage.setItem(DETAILS_STORAGE_KEY, JSON.stringify(ids || []));
+}
+
+function rememberDetailsState(){
+  const openIds = [];
+  document.querySelectorAll('.js-user-details').forEach((d) => {
+    if (d.open && d.dataset.userId) {
+      openIds.push(String(d.dataset.userId));
+    }
+  });
+  setOpenUsers(openIds);
+}
+
+function restoreDetailsState(){
+  const openIds = getOpenUsers().map(String);
+  document.querySelectorAll('.js-user-details').forEach((d) => {
+    if (openIds.includes(String(d.dataset.userId))) {
+      d.open = true;
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  restoreDetailsState();
+
+  document.querySelectorAll('.js-user-details').forEach((d) => {
+    d.addEventListener('toggle', rememberDetailsState);
+  });
+});
+
+window.addEventListener('beforeunload', rememberDetailsState);
+</script>
+
+<script>
+function getSelectedAssignments(userId){
+  return Array.from(
+    document.querySelectorAll(`.js-asig-check[data-user-id="${userId}"]:checked`)
+  ).map((el) => ({
+    id: el.dataset.asigId,
+    toolName: el.dataset.toolName || '',
+    serial: el.dataset.serial || '',
+    cantidad: parseInt(el.dataset.cantidad || '1', 10) || 1,
+  }));
+}
+
+function toggleUserChecks(userId, checked){
+  document.querySelectorAll(`.js-asig-check[data-user-id="${userId}"]`).forEach((el) => {
+    el.checked = !!checked;
+  });
+}
+
+function syncUserCheckAll(userId){
+  const allChecks = Array.from(
+    document.querySelectorAll(`.js-asig-check[data-user-id="${userId}"]`)
+  );
+
+  const checkAll = document.querySelector(`.js-check-all[data-user-id="${userId}"]`);
+
+  if (!checkAll) return;
+
+  if (!allChecks.length) {
+    checkAll.checked = false;
+    checkAll.indeterminate = false;
+    return;
+  }
+
+  const checkedCount = allChecks.filter((el) => el.checked).length;
+
+  checkAll.checked = checkedCount === allChecks.length;
+  checkAll.indeterminate = checkedCount > 0 && checkedCount < allChecks.length;
+}
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+
+  if (el && el.classList && el.classList.contains('js-asig-check')) {
+    const userId = el.dataset.userId;
+    syncUserCheckAll(userId);
+  }
+
+  if (el && el.classList && el.classList.contains('js-check-all')) {
+    const userId = el.dataset.userId;
+    toggleUserChecks(userId, el.checked);
+    syncUserCheckAll(userId);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.js-check-all').forEach((el) => {
+    if (el.dataset.userId) {
+      syncUserCheckAll(el.dataset.userId);
+    }
+  });
+});
+</script>
+
+<script>
+let bulkInventoryUserId = null;
+
+function openBulkInventoryConfirmModal(userId){
+  const selected = getSelectedAssignments(userId);
+
+  if (!selected.length) {
+    showAjaxToast('Select at least one tool.', false);
+    return;
+  }
+
+  bulkInventoryUserId = userId;
+  rememberDetailsState();
+
+  const modal = document.getElementById('bulkInventoryConfirmModal');
+  const text = document.getElementById('bulkInventoryConfirmText');
+
+  if (text) {
+    text.textContent = `Do you want to request inventory for ${selected.length} assignment(s)?`;
+  }
+
+  modal?.classList.remove('hidden');
+}
+
+function closeBulkInventoryConfirmModal(){
+  document.getElementById('bulkInventoryConfirmModal')?.classList.add('hidden');
+  bulkInventoryUserId = null;
+}
+
+async function executeBulkRequestInventory(){
+  const userId = bulkInventoryUserId;
+  const selected = getSelectedAssignments(userId);
+
+  if (!selected.length) {
+    closeBulkInventoryConfirmModal();
+    showAjaxToast('Select at least one tool.', false);
+    return;
+  }
+
+  rememberDetailsState();
+
+  const btn = document.getElementById('bulkInventoryConfirmBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('opacity-60', 'cursor-not-allowed');
+    btn.textContent = 'Requesting...';
+  }
+
+  const fd = new FormData();
+  selected.forEach((item) => fd.append('asignaciones', item.id));
+
+  const csrftoken = getCookie('csrftoken');
+
+  try {
+    const res = await fetch("{% url 'logistica:solicitar_inventario_asignaciones_masivo' %}", {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrftoken,
+      },
+      body: fd,
+      credentials: 'same-origin',
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch(e) {}
+
+    if (!res.ok || !data || data.ok !== true) {
+      showAjaxToast((data && data.error) ? data.error : 'Error requesting inventory.', false);
+      return;
+    }
+
+    closeBulkInventoryConfirmModal();
+    showAjaxToast(data.message || 'Inventory requested.', true);
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 700);
+
+  } catch(e) {
+    showAjaxToast('Network error.', false);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-60', 'cursor-not-allowed');
+      btn.textContent = 'Yes, request';
+    }
+  }
+}
+
+document.getElementById('bulkInventoryConfirmBtn')?.addEventListener('click', executeBulkRequestInventory);
+
+document.getElementById('bulkInventoryConfirmModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'bulkInventoryConfirmModal') {
+    closeBulkInventoryConfirmModal();
+  }
+});
+</script>
+
+<script>
+let bulkCloseUserId = null;
+
+function openBulkCloseModal(userId){
+  const selected = getSelectedAssignments(userId);
+
+  if (!selected.length) {
+    showAjaxToast('Select at least one tool.', false);
+    return;
+  }
+
+  bulkCloseUserId = userId;
+  rememberDetailsState();
+
+  const rows = document.getElementById('bulkCloseRows');
+  const modal = document.getElementById('bulkCloseModal');
+
+  if (!rows || !modal) return;
+
+  rows.innerHTML = selected.map((item) => {
+    const safeName = escHtml(item.toolName);
+    const safeSerial = escHtml(item.serial);
+    const id = escHtml(item.id);
+    const cantidad = item.cantidad || 1;
+
+    return `
+      <div class="border rounded-2xl p-4 bg-gray-50">
+        <input type="hidden" name="asignaciones" value="${id}">
+
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+          <div class="min-w-[220px]">
+            <div class="font-semibold text-gray-800">${safeName}</div>
+            <div class="text-xs text-gray-500">Serial: ${safeSerial || '—'}</div>
+            <div class="text-xs text-gray-500">Delivered quantity: ${cantidad}</div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1">
+            <div>
+              <label class="text-xs font-semibold text-gray-700">Returned quantity</label>
+              <input type="number"
+                     min="0"
+                     max="${cantidad}"
+                     name="dev_${id}"
+                     value="${cantidad}"
+                     class="w-full mt-1 border rounded-xl px-3 py-2 text-sm">
+            </div>
+
+            <div>
+              <label class="text-xs font-semibold text-gray-700">Comment</label>
+              <textarea name="comentario_${id}"
+                        rows="2"
+                        class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                        placeholder="Closing comment..."></textarea>
+            </div>
+
+            <div>
+              <label class="text-xs font-semibold text-gray-700">Justification if less is returned</label>
+              <textarea name="justificacion_${id}"
+                        rows="2"
+                        class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                        placeholder="Missing / damage / loss..."></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  modal.classList.remove('hidden');
+}
+
+function closeBulkCloseModal(){
+  document.getElementById('bulkCloseModal')?.classList.add('hidden');
+  bulkCloseUserId = null;
+}
+
+document.getElementById('bulkCloseModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'bulkCloseModal') closeBulkCloseModal();
+});
+
+document.getElementById('bulkCloseForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const form = e.target;
+  const fd = new FormData(form);
+  const csrftoken = getCookie('csrftoken');
+
+  rememberDetailsState();
+
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrftoken,
+      },
+      body: fd,
+      credentials: 'same-origin',
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch(e) {}
+
+    if (!res.ok || !data || data.ok !== true) {
+      showAjaxToast((data && data.error) ? data.error : 'Error closing assignments.', false);
+      return;
+    }
+
+    closeBulkCloseModal();
+    showAjaxToast(data.message || 'Assignments closed.', true);
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 700);
+
+  } catch(e) {
+    showAjaxToast('Network error.', false);
+  }
+});
+</script>
+{% endblock %}

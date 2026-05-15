@@ -1,0 +1,299 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Reject Inventory{% endblock %}
+
+{% block dashboard_content %}
+
+<style>
+  .campo{
+    width:100%;
+    border:2px solid #e5e7eb;
+    border-radius:1rem;
+    padding:.65rem .85rem;
+    font-size:.95rem;
+    background:#fff;
+    transition:border-color .15s, box-shadow .15s;
+    outline:none;
+  }
+
+  .campo:focus{
+    border-color:#ef4444;
+    box-shadow:0 0 0 3px rgba(239,68,68,.18);
+  }
+
+  .campo-error{
+    border-color:#ef4444 !important;
+    box-shadow:0 0 0 3px rgba(239,68,68,.18) !important;
+  }
+
+  .reject-page-backdrop{
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .reject-modal-shell{
+    pointer-events: auto;
+  }
+</style>
+
+{# Fallback URL if next is not present #}
+{% url 'logistica:herramientas_list' as fallback_back_url %}
+
+{% if next %}
+  {% with back_url=next %}
+    <div id="rejectInvModal" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 reject-page-backdrop"></div>
+
+      <div class="relative min-h-full flex items-center justify-center p-4">
+        <div class="reject-modal-shell bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+
+          <!-- Header -->
+          <div class="px-5 py-4 border-b flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-xl sm:text-2xl font-bold text-gray-800">❌ Reject Inventory</h2>
+              <p class="text-sm text-gray-500 mt-1">
+                This will re-enable the inventory request so the user can upload a new photo.
+              </p>
+            </div>
+
+            <a href="{{ back_url }}"
+               class="shrink-0 px-3 py-1.5 rounded-full text-sm border bg-white hover:bg-gray-50">
+              ✕ Close
+            </a>
+          </div>
+
+          <!-- Body -->
+          <div class="p-5 space-y-4">
+
+            <div class="border rounded-2xl p-4 bg-gray-50">
+              <div class="text-sm text-gray-700">
+                Tool:
+                <span class="font-semibold">
+                  {{ inv.herramienta.nombre }}
+                </span>
+
+                • User:
+                <span class="font-semibold">
+                  {{ inv.asignacion.asignado_a.get_full_name|default:inv.asignacion.asignado_a.username }}
+                </span>
+
+                • Submitted:
+                <span class="font-semibold">
+                  {{ inv.created_at|date:"m/d/Y H:i" }}
+                </span>
+              </div>
+
+              {% if inv.foto %}
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <a href="{{ inv.foto.url }}"
+                     target="_blank"
+                     class="px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700">
+                    🔍 View Submitted Photo
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+
+            <form method="post"
+                  class="space-y-3"
+                  action="?next={{ back_url|urlencode }}">
+              {% csrf_token %}
+
+              <div>
+                <label class="text-sm font-semibold text-gray-700">
+                  Rejection reason <span class="text-red-600">*</span>
+                </label>
+
+                <div class="mt-1">
+                  {{ form.motivo_rechazo }}
+                </div>
+
+                {% if form.motivo_rechazo.errors %}
+                  <div class="text-sm text-red-600 mt-1">
+                    {{ form.motivo_rechazo.errors }}
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                <a href="{{ back_url }}"
+                   class="px-5 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 text-center">
+                  Cancel
+                </a>
+
+                <button type="submit"
+                        class="px-5 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700 shadow">
+                  Reject Inventory
+                </button>
+              </div>
+
+              <div class="text-xs text-gray-500">
+                * When rejected, the user will see the inventory upload button again.
+              </div>
+            </form>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function(){
+        const el = document.querySelector('textarea[name="motivo_rechazo"]');
+        if(!el) return;
+
+        const hasClass = (el.getAttribute('class') || '').trim().length > 0;
+
+        if(!hasClass){
+          el.classList.add('campo');
+        }else{
+          el.classList.add('border','rounded-xl','px-3','py-2');
+        }
+
+        const err = el.closest('div')?.parentElement?.querySelector('.text-red-600');
+        if(err) {
+          el.classList.add('campo-error');
+        }
+      })();
+
+      function closeRejectInvModal(){
+        window.location.href = "{{ back_url|escapejs }}";
+      }
+
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') {
+          closeRejectInvModal();
+        }
+      });
+    </script>
+  {% endwith %}
+{% else %}
+  {% with back_url=fallback_back_url %}
+    <div id="rejectInvModal" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 reject-page-backdrop"></div>
+
+      <div class="relative min-h-full flex items-center justify-center p-4">
+        <div class="reject-modal-shell bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+
+          <!-- Header -->
+          <div class="px-5 py-4 border-b flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-xl sm:text-2xl font-bold text-gray-800">❌ Reject Inventory</h2>
+              <p class="text-sm text-gray-500 mt-1">
+                This will re-enable the inventory request so the user can upload a new photo.
+              </p>
+            </div>
+
+            <a href="{{ back_url }}"
+               class="shrink-0 px-3 py-1.5 rounded-full text-sm border bg-white hover:bg-gray-50">
+              ✕ Close
+            </a>
+          </div>
+
+          <!-- Body -->
+          <div class="p-5 space-y-4">
+
+            <div class="border rounded-2xl p-4 bg-gray-50">
+              <div class="text-sm text-gray-700">
+                Tool:
+                <span class="font-semibold">
+                  {{ inv.herramienta.nombre }}
+                </span>
+
+                • User:
+                <span class="font-semibold">
+                  {{ inv.asignacion.asignado_a.get_full_name|default:inv.asignacion.asignado_a.username }}
+                </span>
+
+                • Submitted:
+                <span class="font-semibold">
+                  {{ inv.created_at|date:"m/d/Y H:i" }}
+                </span>
+              </div>
+
+              {% if inv.foto %}
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <a href="{{ inv.foto.url }}"
+                     target="_blank"
+                     class="px-4 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700">
+                    🔍 View Submitted Photo
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+
+            <form method="post"
+                  class="space-y-3"
+                  action="">
+              {% csrf_token %}
+
+              <div>
+                <label class="text-sm font-semibold text-gray-700">
+                  Rejection reason <span class="text-red-600">*</span>
+                </label>
+
+                <div class="mt-1">
+                  {{ form.motivo_rechazo }}
+                </div>
+
+                {% if form.motivo_rechazo.errors %}
+                  <div class="text-sm text-red-600 mt-1">
+                    {{ form.motivo_rechazo.errors }}
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                <a href="{{ back_url }}"
+                   class="px-5 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 text-center">
+                  Cancel
+                </a>
+
+                <button type="submit"
+                        class="px-5 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700 shadow">
+                  Reject Inventory
+                </button>
+              </div>
+
+              <div class="text-xs text-gray-500">
+                * When rejected, the user will see the inventory upload button again.
+              </div>
+            </form>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function(){
+        const el = document.querySelector('textarea[name="motivo_rechazo"]');
+        if(!el) return;
+
+        const hasClass = (el.getAttribute('class') || '').trim().length > 0;
+
+        if(!hasClass){
+          el.classList.add('campo');
+        }else{
+          el.classList.add('border','rounded-xl','px-3','py-2');
+        }
+
+        const err = el.closest('div')?.parentElement?.querySelector('.text-red-600');
+        if(err) {
+          el.classList.add('campo-error');
+        }
+      })();
+
+      function closeRejectInvModal(){
+        window.location.href = "{{ back_url|escapejs }}";
+      }
+
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') {
+          closeRejectInvModal();
+        }
+      });
+    </script>
+  {% endwith %}
+{% endif %}
+
+{% endblock %}

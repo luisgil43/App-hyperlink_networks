@@ -1,0 +1,127 @@
+{% extends "dashboard_admin/base.html" %}
+{% load custom_filters %}
+
+{% block title %}Close Assignment{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="max-w-4xl mx-auto w-full">
+
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">✅ Close Assignment</h2>
+
+      <a href="{% if next %}{{ next }}{% else %}{% url 'logistica:herramientas_asignaciones_panel' %}{% endif %}"
+         class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm">
+        ← Back
+      </a>
+    </div>
+
+    <div class="border rounded-2xl p-4 bg-gray-50 mb-4">
+      <div class="font-semibold text-gray-800">{{ asignacion.herramienta.nombre }}</div>
+      <div class="text-sm text-gray-600">Serial: {{ asignacion.herramienta.serial }}</div>
+      <div class="text-sm text-gray-600">
+        Assigned to: <b>{{ asignacion.asignado_a.get_full_name|default:asignacion.asignado_a.username }}</b>
+      </div>
+      <div class="text-sm text-gray-600">
+        Quantity assigned: <b>{{ asignacion.cantidad_entregada }}</b>
+      </div>
+    </div>
+
+    <form method="post" class="space-y-4" id="closeAssignForm">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+
+      <div class="border rounded-2xl p-5 bg-white shadow-sm space-y-4">
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Quantity returned</label>
+          <div class="mt-1">
+            {{ form.cantidad_devuelta }}
+          </div>
+          {% if form.cantidad_devuelta.errors %}
+            <div class="text-sm text-red-600 mt-1">{{ form.cantidad_devuelta.errors }}</div>
+          {% endif %}
+          <div class="text-xs text-gray-500 mt-1">
+            If the returned quantity is lower than the assigned quantity, you must provide a justification.
+          </div>
+        </div>
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Justification (if returning less)</label>
+          <div class="mt-1">
+            {{ form.justificacion_diferencia }}
+          </div>
+          {% if form.justificacion_diferencia.errors %}
+            <div class="text-sm text-red-600 mt-1">{{ form.justificacion_diferencia.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700">Comment</label>
+          <div class="mt-1">
+            {{ form.comentario_cierre }}
+          </div>
+          {% if form.comentario_cierre.errors %}
+            <div class="text-sm text-red-600 mt-1">{{ form.comentario_cierre.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div class="pt-2 flex flex-wrap gap-2">
+          <button type="submit"
+                  class="px-5 py-2 rounded-full text-sm bg-red-600 text-white hover:bg-red-700 shadow">
+            ✅ Close and Update Stock
+          </button>
+
+          <a href="{% if next %}{{ next }}{% else %}{% url 'logistica:herramientas_asignaciones_panel' %}{% endif %}"
+             class="px-5 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow">
+            Cancel
+          </a>
+        </div>
+
+      </div>
+    </form>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  const form = document.getElementById('closeAssignForm');
+  if(!form) return;
+
+  const base =
+    ['w-full','border','border-gray-300','rounded-xl','px-3','py-2','text-sm',
+     'bg-white','outline-none','transition','focus:border-blue-500',
+     'focus:ring-2','focus:ring-blue-200'];
+
+  const textAreaExtra = ['min-h-[110px]'];
+
+  const elems = form.querySelectorAll('input, select, textarea');
+
+  elems.forEach(el => {
+    if (el.type === 'hidden') return;
+
+    base.forEach(c => el.classList.add(c));
+
+    if (el.tagName === 'TEXTAREA') {
+      textAreaExtra.forEach(c => el.classList.add(c));
+    }
+
+    if (el.tagName === 'INPUT' && el.type === 'number') {
+      el.classList.add('max-w-[260px]');
+    }
+
+    const hasError =
+      el.closest('div')?.parentElement?.querySelector('.text-red-600') ||
+      el.closest('div')?.querySelector('.text-red-600');
+
+    if (hasError) {
+      el.classList.remove('border-gray-300','focus:border-blue-500','focus:ring-blue-200');
+      el.classList.add('border-red-500','focus:border-red-500','focus:ring-red-200');
+    }
+  });
+})();
+</script>
+
+{% endblock %}

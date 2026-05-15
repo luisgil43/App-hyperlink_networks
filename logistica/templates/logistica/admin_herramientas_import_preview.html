@@ -1,0 +1,159 @@
+{% extends "dashboard_admin/base.html" %}
+{% load custom_filters %}
+
+{% block title %}Import Preview - Tools{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <h2 class="text-2xl font-bold text-gray-800">📥 Tools Import Preview</h2>
+    <a href="{% url 'logistica:herramientas_list' %}"
+       class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm">
+      ← Back
+    </a>
+  </div>
+
+  <div class="bg-gray-50 border rounded-2xl p-4 mb-4 text-sm text-gray-700">
+    <div>Rows detected: <b>{{ preview_rows|length }}</b></div>
+    <div>Matches found (will be updated): <b>{{ coincidencias }}</b></div>
+  </div>
+
+  <form method="post" action="{% url 'logistica:herramientas_importar' %}">
+    {% csrf_token %}
+    <input type="hidden" name="confirmar" value="1">
+    <input type="hidden" name="token" value="{{ token }}">
+
+    <!-- DEFAULT WAREHOUSE -->
+    <div class="border rounded-2xl p-4 bg-white shadow-sm mb-4">
+      <div class="font-semibold text-gray-800 mb-2">🏬 Default Warehouse</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+        <div class="md:col-span-2">
+          <label class="text-xs text-gray-600">Select the warehouse to use by default</label>
+          <select name="bodega_default" class="w-full border rounded-xl px-3 py-2">
+            <option value="">— No warehouse —</option>
+            {% for b in bodegas %}
+              <option value="{{ b.id }}">{{ b.nombre }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-xs text-gray-500 mt-1">
+            This will be used for new tools, and optionally for existing tools.
+          </div>
+        </div>
+
+        <label class="inline-flex items-center gap-2">
+          <input type="checkbox" name="aplicar_default_a_existentes" value="1">
+          <span class="text-sm text-gray-700">Also apply to existing tools</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Quantity mode -->
+    <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center mb-4">
+      <div class="font-semibold text-gray-800">What should happen with quantity if the tool already exists?</div>
+
+      <label class="inline-flex items-center gap-2">
+        <input type="radio" name="modo" value="reemplazar" checked>
+        <span>Replace with Excel quantity</span>
+      </label>
+
+      <label class="inline-flex items-center gap-2">
+        <input type="radio" name="modo" value="sumar">
+        <span>Add to current quantity</span>
+      </label>
+    </div>
+
+    <div class="overflow-x-auto border rounded-2xl">
+      <table class="w-full text-sm min-w-[1100px]">
+        <thead class="bg-gray-100 text-gray-800 font-semibold">
+          <tr>
+            <th class="p-2 border text-left">Name</th>
+            <th class="p-2 border">Serial</th>
+            <th class="p-2 border">Quantity (Excel)</th>
+            <th class="p-2 border">Exists</th>
+            <th class="p-2 border">Current Quantity</th>
+            <th class="p-2 border">Current Warehouse</th>
+            <th class="p-2 border">Warehouse to Use</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in preview_rows %}
+          <tr class="border-t {% if r.existe %}bg-amber-50{% endif %}">
+            <td class="p-2 border text-left">
+              <div class="font-semibold text-gray-800">{{ r.nombre }}</div>
+              {% if r.descripcion %}
+                <div class="text-xs text-gray-600">{{ r.descripcion }}</div>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border text-center">{{ r.serial }}</td>
+            <td class="p-2 border text-center">{{ r.cantidad }}</td>
+
+            <td class="p-2 border text-center">
+              {% if r.existe %}
+                <span class="px-2 py-1 rounded-full text-xs bg-amber-200 text-amber-900">Yes</span>
+              {% else %}
+                <span class="px-2 py-1 rounded-full text-xs bg-emerald-200 text-emerald-900">No</span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border text-center">
+              {% if r.existe %}{{ r.existe_cantidad }}{% else %}—{% endif %}
+            </td>
+
+            <td class="p-2 border">
+              {% if r.existe_bodega %}
+                {{ r.existe_bodega }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+
+            <td class="p-2 border">
+              {% if r.existe %}
+                <select name="bodega_mode_{{ forloop.counter0 }}" class="w-full border rounded-xl px-3 py-2">
+                  <option value="keep" selected>— Keep current warehouse —</option>
+                  <option value="default">Use default warehouse</option>
+                  <option value="custom">Choose another warehouse…</option>
+                </select>
+
+                <div class="mt-2">
+                  <select name="bodega_sel_{{ forloop.counter0 }}" class="w-full border rounded-xl px-3 py-2">
+                    <option value="">— No warehouse —</option>
+                    {% for b in bodegas %}
+                      <option value="{{ b.id }}">{{ b.nombre }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="text-xs text-gray-500 mt-1">
+                  Tip: if you choose “Use default warehouse”, you do not need to change the dropdown.
+                </div>
+              {% else %}
+                <div class="text-sm text-gray-600">
+                  The <b>default warehouse</b> will be used.
+                </div>
+                <input type="hidden" name="bodega_mode_{{ forloop.counter0 }}" value="default">
+                <input type="hidden" name="bodega_sel_{{ forloop.counter0 }}" value="">
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-4 flex justify-end gap-2">
+      <a href="{% url 'logistica:herramientas_list' %}"
+         class="px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50">
+        Cancel
+      </a>
+
+      <button type="submit"
+              class="px-5 py-2 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow">
+        ✅ Confirm Import
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -380,24 +380,30 @@
       </li>
       {% endif %}
 
-      <!-- SECCIÓN: Logistics -->
-      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
-      <li class="group">
-          <div class="flex justify-between items-center cursor-pointer"
-              onclick="toggleMenu(this)">
-              <span class="flex items-center gap-2">📦 Logistics</span>
-              <span class="flecha transition-transform duration-200">▶</span>
-          </div>
-          <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="#">Material Return</a></li>
-              <li><a href="#">Material Delivery</a></li>
-              <li><a href="#">Material Transfer</a></li>
-              <li><a href="#">Material Receiving</a></li>
-              <li><a href="#">Equipment Assignment</a></li>
-              <li><a href="#">Assigned PPE</a></li>
-          </ul>
-      </li>
-      {% endif %}
+    <!-- SECCIÓN: Logistics -->
+{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer"
+       onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">📦 Logistics</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+
+  <ul class="ml-4 submenu space-y-1 hidden">
+    <li>
+      <a href="{% url 'logistica:herramientas_list' %}">
+        Equipment & Tools
+      </a>
+    </li>
+
+    <li>
+      <a href="{% url 'logistica:herramientas_asignaciones_panel' %}">
+        Tool Assignments
+      </a>
+    </li>
+  </ul>
+</li>
+{% endif %}
 
       <!-- SECCIÓN: Fleet -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_flota %}

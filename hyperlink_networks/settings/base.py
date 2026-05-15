@@ -206,10 +206,9 @@ USE_TZ = True
 # ==============================
 # STATIC & MEDIA
 # ==============================
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
@@ -240,25 +239,28 @@ LOGOUT_REDIRECT_URL = '/usuarios/login/'
 # ==============================
 # STORAGE (Wasabi S3)
 # ==============================
-AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = os.environ.get(
-    'AWS_STORAGE_BUCKET_NAME', 'hyperlink-networks')
+    "AWS_STORAGE_BUCKET_NAME",
+    "hyperlink-networks",
+)
 AWS_S3_ENDPOINT_URL = os.environ.get(
-    'AWS_S3_ENDPOINT_URL', 'https://s3.us-east-1.wasabisys.com')
-AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+    "AWS_S3_ENDPOINT_URL",
+    "https://s3.us-east-1.wasabisys.com",
+)
+AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "us-east-1")
 
 AWS_DEFAULT_ACL = None
-DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 AWS_S3_FILE_OVERWRITE = False
 
 # Recomendado para Wasabi
 AWS_S3_SIGNATURE_VERSION = "s3v4"
-AWS_S3_ADDRESSING_STYLE = "path"  # Wasabi funciona mejor con path-style
+AWS_S3_ADDRESSING_STYLE = "path"
 AWS_S3_USE_SSL = True
 AWS_S3_VERIFY = True
 
-# URLs firmadas (recursos privados)
+# URLs firmadas para archivos privados
 AWS_QUERYSTRING_AUTH = True
 
 # Parámetros por defecto para objetos subidos desde Django
@@ -266,6 +268,20 @@ AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": "max-age=31536000, public",
 }
 
+# Django 4.2+/5.x usa STORAGES.
+# Esto hace que FileField/ImageField, incluyendo firma_digital, suba a Wasabi.
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# Compatibilidad con código antiguo
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # ==============================
 # DIRECT UPLOADS (feature flags)
 # ==============================

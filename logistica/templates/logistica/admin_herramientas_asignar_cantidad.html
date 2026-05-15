@@ -1,0 +1,300 @@
+{% extends "dashboard_admin/base.html" %}
+{% load custom_filters %}
+
+{% block title %}Assign Quantity{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <style>
+    .assign-input {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 0.9rem;
+      padding: 0.72rem 0.95rem;
+      font-size: 0.95rem;
+      background: #fff;
+      color: #111827;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+
+    .assign-input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .16);
+      background: #fff;
+    }
+
+    .assign-error {
+      border-color: #ef4444 !important;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, .14) !important;
+    }
+
+    .mini-label {
+      font-size: .78rem;
+      font-weight: 700;
+      color: #374151;
+      margin-bottom: .35rem;
+      display: block;
+    }
+
+    .hint-text {
+      font-size: .75rem;
+      color: #6b7280;
+      margin-top: .35rem;
+    }
+  </style>
+
+  <div class="max-w-5xl mx-auto w-full">
+
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+      <div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2">
+          <span class="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+            👤
+          </span>
+          Assign Tool
+        </h2>
+        <p class="text-sm text-gray-500 mt-1">
+          Assign a quantity from the available stock to a worker.
+        </p>
+      </div>
+
+      <a href="{% url 'logistica:herramientas_asignaciones_panel' %}"
+         class="inline-flex items-center justify-center px-4 py-2 rounded-full text-sm border bg-white hover:bg-gray-50 shadow-sm">
+        ← Back
+      </a>
+    </div>
+
+    <!-- Tool summary -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+
+      <div class="lg:col-span-2 border rounded-3xl p-5 bg-gradient-to-br from-gray-50 to-white shadow-sm">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-gray-500 font-bold">
+              Selected tool
+            </div>
+
+            <div class="text-xl font-extrabold text-gray-900 mt-1">
+              {{ herramienta.nombre }}
+            </div>
+
+            {% if herramienta.descripcion %}
+              <div class="text-sm text-gray-500 mt-1">
+                {{ herramienta.descripcion }}
+              </div>
+            {% endif %}
+          </div>
+
+          {% if herramienta.foto %}
+            <a href="{{ herramienta.foto.url }}" target="_blank"
+               class="shrink-0 px-3 py-1.5 rounded-full text-xs bg-white border hover:bg-gray-50">
+              📷 View photo
+            </a>
+          {% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+          <div class="rounded-2xl border bg-white px-4 py-3">
+            <div class="text-xs text-gray-500 font-semibold">Serial</div>
+            <div class="text-sm font-bold text-gray-800 mt-1">
+              {{ herramienta.serial|default:"—" }}
+            </div>
+          </div>
+
+          <div class="rounded-2xl border bg-white px-4 py-3">
+            <div class="text-xs text-gray-500 font-semibold">Warehouse</div>
+            <div class="text-sm font-bold text-gray-800 mt-1">
+              {{ herramienta.bodega.nombre|default:"—" }}
+            </div>
+          </div>
+
+          <div class="rounded-2xl border bg-white px-4 py-3">
+            <div class="text-xs text-gray-500 font-semibold">Status</div>
+            <div class="text-sm font-bold text-gray-800 mt-1">
+              {{ herramienta.get_status_display }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="border rounded-3xl p-5 bg-blue-600 text-white shadow-sm">
+        <div class="text-sm text-blue-100 font-semibold">Available stock</div>
+        <div class="text-5xl font-extrabold mt-2">
+          {{ herramienta.cantidad }}
+        </div>
+        <div class="text-xs text-blue-100 mt-3">
+          The assignment cannot exceed this quantity.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Form card -->
+    <form method="post" id="assignQtyForm" class="border rounded-3xl bg-white shadow-sm overflow-hidden">
+      {% csrf_token %}
+      {{ form.herramienta_id }}
+
+      <div class="px-5 py-4 border-b bg-gray-50">
+        <h3 class="text-lg font-extrabold text-gray-900">Assignment Details</h3>
+        <p class="text-sm text-gray-500 mt-1">
+          Select the worker, quantity, date, and whether inventory should be requested.
+        </p>
+      </div>
+
+      <div class="p-5 space-y-5">
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+          <div>
+            <label class="mini-label">Assign to</label>
+            {{ form.asignado_a }}
+
+            {% if form.asignado_a.errors %}
+              <div class="text-sm text-red-600 mt-1">{{ form.asignado_a.errors }}</div>
+            {% endif %}
+
+            <div class="hint-text">
+              Choose the worker who will receive this tool.
+            </div>
+          </div>
+
+          <div>
+            <label class="mini-label">Quantity to deliver</label>
+            {{ form.cantidad_entregada }}
+
+            {% if form.cantidad_entregada.errors %}
+              <div class="text-sm text-red-600 mt-1">{{ form.cantidad_entregada.errors }}</div>
+            {% endif %}
+
+            <div class="hint-text">
+              Maximum available: {{ herramienta.cantidad }}.
+            </div>
+          </div>
+
+          <div>
+            <label class="mini-label">Assignment date</label>
+            {{ form.asignado_at }}
+
+            {% if form.asignado_at.errors %}
+              <div class="text-sm text-red-600 mt-1">{{ form.asignado_at.errors }}</div>
+            {% endif %}
+
+            <div class="hint-text">
+              Date and time when the tool is delivered.
+            </div>
+          </div>
+
+          <div>
+            <label class="mini-label">Inventory request</label>
+
+            <label class="flex items-start gap-3 rounded-2xl border bg-gray-50 hover:bg-gray-100 px-4 py-3 cursor-pointer">
+              {{ form.solicitar_inventario }}
+
+              <span>
+                <span class="block text-sm font-bold text-gray-800">
+                  Request inventory when assigning
+                </span>
+                <span class="block text-xs text-gray-500 mt-0.5">
+                  The worker will be asked to upload a photo after accepting the assignment.
+                </span>
+              </span>
+            </label>
+
+            {% if form.solicitar_inventario.errors %}
+              <div class="text-sm text-red-600 mt-1">{{ form.solicitar_inventario.errors }}</div>
+            {% endif %}
+          </div>
+
+        </div>
+
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t">
+          <div class="text-xs text-gray-500">
+            Stock will be deducted automatically after creating the assignment.
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <a href="{% url 'logistica:herramientas_asignaciones_panel' %}"
+               class="px-5 py-2.5 rounded-full text-sm border bg-white hover:bg-gray-50 text-center">
+              Cancel
+            </a>
+
+            <button type="submit"
+                    class="px-6 py-2.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 shadow font-semibold">
+              ✅ Create Assignment
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </form>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  const form = document.getElementById('assignQtyForm');
+  if(!form) return;
+
+  const fields = form.querySelectorAll('input, select, textarea');
+
+  fields.forEach(el => {
+    if (el.type === 'hidden') return;
+
+    if (el.type === 'checkbox') {
+      el.classList.add(
+        'mt-0.5',
+        'h-5',
+        'w-5',
+        'rounded',
+        'border-gray-300',
+        'text-blue-600',
+        'focus:ring-blue-200'
+      );
+      return;
+    }
+
+    el.classList.add('assign-input');
+
+    if (el.tagName === 'INPUT' && el.type === 'number') {
+      el.setAttribute('min', '1');
+      el.setAttribute('max', '{{ herramienta.cantidad }}');
+      el.setAttribute('placeholder', 'Example: 1');
+    }
+
+    const wrap = el.closest('div');
+    const hasError =
+      wrap?.querySelector('.text-red-600') ||
+      wrap?.parentElement?.querySelector('.text-red-600');
+
+    if (hasError) {
+      el.classList.add('assign-error');
+    }
+  });
+
+  const qty = form.querySelector('input[name="cantidad_entregada"]');
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const maxStock = parseInt('{{ herramienta.cantidad|default:0 }}', 10) || 0;
+
+  if(qty && submitBtn){
+    function validateQty(){
+      const value = parseInt(qty.value || '0', 10) || 0;
+      const invalid = value <= 0 || value > maxStock;
+
+      qty.classList.toggle('assign-error', invalid && qty.value !== '');
+      submitBtn.disabled = invalid && qty.value !== '';
+      submitBtn.classList.toggle('opacity-60', submitBtn.disabled);
+      submitBtn.classList.toggle('cursor-not-allowed', submitBtn.disabled);
+    }
+
+    qty.addEventListener('input', validateQty);
+    qty.addEventListener('change', validateQty);
+    validateQty();
+  }
+})();
+</script>
+
+{% endblock %}
