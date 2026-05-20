@@ -174,16 +174,38 @@ TEMPLATES = [
 # ==============================
 # DATABASE
 # ==============================
-DATABASES = {
-    'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
-    )
-}
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-# Opciones para SQLite (más tolerancia a bloqueos)
-if 'sqlite' in DATABASES['default']['ENGINE']:
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS'].setdefault('timeout', 30)  # segundos
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "60")),
+            conn_health_checks=True,
+        )
+    }
+else:
+    DATABASES = {
+        "default": dj_database_url.config(
+            default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+            conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "60")),
+            conn_health_checks=True,
+        )
+    }
+
+# PostgreSQL: evitar conexiones colgadas por demasiado tiempo
+if "postgresql" in DATABASES["default"]["ENGINE"]:
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"].update(
+        {
+            "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "10")),
+        }
+    )
+
+# SQLite local: más tolerancia a bloqueos
+if "sqlite" in DATABASES["default"]["ENGINE"]:
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"].setdefault("timeout", 30)
 
 # ==============================
 # PASSWORD VALIDATION
