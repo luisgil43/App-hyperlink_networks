@@ -419,3 +419,146 @@ def enqueue_cable_photo_report(job_id: int):
         )
     else:
         _run_in_thread(procesar_cable_photo_report_job, job_id)
+
+
+def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False):
+    """
+    Procesa en segundo plano las fotos del billing para extraer light levels.
+
+    Se usa cuando el técnico presiona Finish:
+    - No bloquea al usuario.
+    - No cambia estados.
+    - No borra fotos.
+    - Solo completa metadata:
+        power_dbm
+        power_extract_note
+        power_extracted_at
+        power_extracted_by
+    """
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+    try:
+        from django.contrib.auth import get_user_model
+
+        from operaciones.views_billing_exec import (
+            _extract_power_dbm_for_evidence, _power_meta_from_title,
+            _power_port_no_from_evidence)
+
+        user = None
+        if user_id:
+            try:
+                User = get_user_model()
+                user = User.objects.filter(pk=user_id).first()
+            except Exception:
+                user = None
+
+        s = SesionBilling.objects.get(pk=sesion_id)
+
+        evidencias = (
+            EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion=s,
+            )
+            .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
+            .order_by("id")
+        )
+
+        for ev in evidencias:
+            try:
+                # Si ya tiene potencia y puerto, no gastamos IA salvo que venga force=True.
+                if (
+                    not force
+                    and ev.power_dbm is not None
+                    and _power_port_no_from_evidence(ev)
+                ):
+                    continue
+
+                should_try = False
+
+                if ev.requisito_id:
+                    titulo_req = (ev.requisito.titulo or "").strip()
+                    needs_power, _port_no = _power_meta_from_title(titulo_req)
+
+                    should_try = (
+                        bool(getattr(ev.requisito, "needs_power_reading", False))
+                        or needs_power
+                        or titulo_req.upper().startswith("POWER PORT")
+                    )
+                else:
+                    titulo_manual = (ev.titulo_manual or "").strip()
+                    nota = (ev.nota or "").strip()
+                    hint = f"{titulo_manual} {nota}".lower()
+
+                    should_try = (
+                        force
+                        or ev.power_dbm is not None
+                        or titulo_manual.lower() in {"", "extra"}
+                        or any(
+                            x in hint
+                            for x in [
+                                "power",
+                                "port",
+                                "dbm",
+                                "opm",
+                                "light level",
+                                "light",
+                            ]
+                        )
+                    )
+
+                if not should_try:
+                    continue
+
+                _extract_power_dbm_for_evidence(
+                    ev,
+                    user=user,
+                    allow_extra=True,
+                    allow_locked=True,
+                )
+
+            except Exception:
+                continue
+
+    except Exception:
+        try:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Light levels backfill failed for SesionBilling %s",
+                sesion_id,
+            )
+        except Exception:
+            pass
+
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+
+def enqueue_light_levels_backfill(sesion_id: int, user_id=None, force=False):
+    """
+    Encola el backfill de light levels en background.
+
+    Se llama desde finish_assignment después del transaction.on_commit().
+    Si APScheduler está disponible, lo usa.
+    Si no, cae a un thread daemon para no bloquear el request.
+    """
+    scheduler = getattr(settings, "APP_SCHEDULER", None)
+
+    if scheduler:
+        scheduler.add_job(
+            func=procesar_light_levels_backfill_job,
+            args=[sesion_id, user_id, force],
+            id=f"light-levels-backfill-{sesion_id}",
+            replace_existing=True,
+            misfire_grace_time=300,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=timezone.now(),
+        )
+    else:
+        _run_in_thread(procesar_light_levels_backfill_job, sesion_id, user_id, force)

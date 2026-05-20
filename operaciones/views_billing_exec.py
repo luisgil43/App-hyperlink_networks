@@ -1804,8 +1804,137 @@ def finish_assignment(request, pk):
         s.estado = "en_revision_supervisor"
         s.save(update_fields=["estado"])
 
+        # ✅ NUEVO: lanzar backfill de light levels en segundo plano después del commit.
+        # No bloquea al técnico. Si el scheduler aún no existe o falla, no rompe producción.
+        def _enqueue_light_levels_backfill():
+            try:
+                from usuarios.schedulers import enqueue_light_levels_backfill
+                enqueue_light_levels_backfill(
+                    sesion_id=s.id,
+                    user_id=request.user.id,
+                    force=False,
+                )
+            except Exception:
+                log.exception(
+                    "Could not enqueue light levels backfill for SesionBilling %s",
+                    s.id,
+                )
+
+        transaction.on_commit(_enqueue_light_levels_backfill)
+
     messages.success(request, "Submitted for supervisor review for all assignees.")
     return redirect("operaciones:mis_assignments")
+
+"""
+@login_required
+@rol_requerido('usuario')
+def f
+    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+
+    # ✅ NUEVO: bloquear si la asignación está inactiva
+    if not _is_asig_active(a):
+        messages.error(request, "This assignment is no longer available.")
+        return redirect("operaciones:mis_assignments")
+
+    if a.estado != "en_proceso":
+        messages.error(request, "This assignment is not in progress.")
+        return redirect("operaciones:mis_assignments")
+
+    # ✅ NUEVO (comentario obligatorio desde el modal)
+    if request.method != "POST":
+        messages.error(request, "Comment is required to finish.")
+        return redirect("operaciones:mis_assignments")
+
+    comentario = (request.POST.get("comentario") or "").strip()
+    if not comentario:
+        messages.error(request, "Please enter a comment to finish.")
+        return redirect("operaciones:mis_assignments")
+
+    def _norm_title(s: str) -> str:
+        return (s or "").strip().lower()
+
+    s = a.sesion
+
+    # --- Recolectar títulos obligatorios por asignación (normalizados) ✅ solo activas
+    qs_asg = (
+        s.tecnicos_sesion
+        .select_related("tecnico")
+        .prefetch_related("requisitos")
+        .all()
+    )
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        qs_asg = qs_asg.filter(is_active=True)
+    except Exception:
+        pass
+
+    asignaciones = list(qs_asg)
+
+    per_asg_required_sets = []
+    sample_titles = set()  # para nombres bonitos
+    for asg in asignaciones:
+        # Solo títulos OBLIGATORIOS de esta asignación
+        titles = [
+            r.titulo for r in asg.requisitos.all()
+            if getattr(r, "obligatorio", True)
+        ]
+        sample_titles.update([t for t in titles if t])
+        keyset = {_norm_title(t) for t in titles if t}
+        per_asg_required_sets.append(keyset)
+
+    # Si no hay requisitos cargados en ninguna asignación, no se bloquea por fotos
+    if not per_asg_required_sets or all(len(sset) == 0 for sset in per_asg_required_sets):
+        required_key_set = set()
+    else:
+        # INTERSECCIÓN entre todas las asignaciones: lo común es lo realmente "vigente"
+        required_key_set = set.intersection(*per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
+
+    # Map para mostrar nombres con mayúsculas originales
+    sample_map = {_norm_title(t): t for t in sample_titles if t}
+
+    # --- Títulos ya cubiertos (algún miembro subió foto para ese requisito)
+    taken_titles = (
+        EvidenciaFotoBilling.objects
+        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
+        .values_list("requisito__titulo", flat=True)
+    )
+    covered_key_set = {_norm_title(t) for t in taken_titles if t}
+
+    # Lo faltante es la intersección menos lo cubierto
+    missing_keys = required_key_set - covered_key_set
+    if missing_keys:
+        pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
+        messages.error(request, "Missing required photos: " + ", ".join(pretty_missing))
+        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+    # --- Validar que todos hayan dado Start
+    pendientes_aceptar = []
+    for asg in asignaciones:
+        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+        if not accepted:
+            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            pendientes_aceptar.append(name)
+
+    if pendientes_aceptar:
+        messages.error(request, "Pending acceptance (Start): " + ", ".join(pendientes_aceptar))
+        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+    # --- Transición a revisión de supervisor + guardar comentario
+    now = timezone.now()
+    with transaction.atomic():
+        # ✅ NUEVO: guardar comentario en la asignación que está finalizando
+        a.tecnico_comentario = comentario
+        a.save(update_fields=["tecnico_comentario"])
+
+        s.tecnicos_sesion.update(
+            estado="en_revision_supervisor",
+            finalizado_en=now,
+        )
+        s.estado = "en_revision_supervisor"
+        s.save(update_fields=["estado"])
+
+    messages.success(request, "Submitted for supervisor review for all assignees.")
+    return redirect("operaciones:mis_assignments")"""
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
