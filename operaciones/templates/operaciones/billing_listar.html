@@ -3225,36 +3225,40 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     searchInput.focus();
   }
 
-  function buildParams(resetPage=true){
-    const p = new URLSearchParams(location.search);
+ function buildParams(resetPage=true){
+  const p = new URLSearchParams(location.search);
 
-    if (resetPage) p.set('page', '1');
+  if (resetPage) p.set('page', '1');
 
-    const cantidadSelect = document.getElementById('cantidad');
-    if (cantidadSelect && cantidadSelect.value) {
-      p.set('cantidad', cantidadSelect.value);
-    }
+  // Importante:
+  // No dejar clear_excel_filters pegado en futuras acciones.
+  p.delete('clear_excel_filters');
 
-    const plain = {};
-    Object.entries(activeFilters).forEach(([k,v]) => {
-      if(v && v.size) plain[k] = Array.from(v);
-    });
-
-    if(Object.keys(plain).length){
-      p.set('excel_filters', JSON.stringify(plain));
-    }else{
-      p.delete('excel_filters');
-    }
-
-    p.delete('date');
-    p.delete('projid');
-    p.delete('week');
-    p.delete('tech');
-    p.delete('client');
-    p.delete('status');
-
-    return p;
+  const cantidadSelect = document.getElementById('cantidad');
+  if (cantidadSelect && cantidadSelect.value) {
+    p.set('cantidad', cantidadSelect.value);
   }
+
+  const plain = {};
+  Object.entries(activeFilters).forEach(([k,v]) => {
+    if(v && v.size) plain[k] = Array.from(v);
+  });
+
+  if(Object.keys(plain).length){
+    p.set('excel_filters', JSON.stringify(plain));
+  }else{
+    p.delete('excel_filters');
+  }
+
+  p.delete('date');
+  p.delete('projid');
+  p.delete('week');
+  p.delete('tech');
+  p.delete('client');
+  p.delete('status');
+
+  return p;
+}
 
   async function reloadWithParams(params){
     const url = `${location.pathname}?${params.toString()}`;
@@ -3323,52 +3327,82 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     btnApply.click();
   });
 
-  btnApply.addEventListener('click', async () => {
-    if(currentKey == null) return;
+btnApply.addEventListener('click', async () => {
+  if(currentKey == null) return;
 
-    const selected = new Set();
-    optionsBox.querySelectorAll('.excel-opt').forEach(opt => {
-      const row = opt.closest('[data-option-label]');
-      if(searchInput.value.trim() && row.style.display === 'none') return;
-      if(opt.checked) selected.add(opt.dataset.value);
-    });
+  const selected = new Set();
 
-    const total = new Set(getExcelGlobal()[currentKey] || []);
-
-    if(selected.size === 0 || selected.size === total.size){
-      delete activeFilters[currentKey];
-    }else{
-      activeFilters[currentKey] = selected;
-    }
-
-    saveFilters();
-    updateHeaderStates();
-    panel.classList.add('hidden');
-
-    await reloadWithParams(buildParams(true));
+  optionsBox.querySelectorAll('.excel-opt').forEach(opt => {
+    const row = opt.closest('[data-option-label]');
+    if(searchInput.value.trim() && row.style.display === 'none') return;
+    if(opt.checked) selected.add(opt.dataset.value);
   });
 
-  btnClear.addEventListener('click', async () => {
-    if(currentKey == null) return;
+  const total = new Set(getExcelGlobal()[currentKey] || []);
 
+  if(selected.size === 0 || selected.size === total.size){
     delete activeFilters[currentKey];
-    saveFilters();
-    updateHeaderStates();
-    panel.classList.add('hidden');
+  }else{
+    activeFilters[currentKey] = selected;
+  }
 
-    await reloadWithParams(buildParams(true));
-  });
-
-btnClearAll?.addEventListener('click', async () => {
-  activeFilters = {};
   saveFilters();
   updateHeaderStates();
   panel.classList.add('hidden');
 
   const params = buildParams(true);
+
+  // Si después de aplicar no queda ningún filtro,
+  // también limpiamos la sesión del backend.
+  if (!hasPlainFilters(activeFiltersToPlain(activeFilters))) {
+    params.set('clear_excel_filters', '1');
+  }
+
+  await reloadWithParams(params);
+});
+
+btnClear.addEventListener('click', async () => {
+
+  if(currentKey == null) return;
+
+  delete activeFilters[currentKey];
+
+  saveFilters();
+
+  updateHeaderStates();
+
+  panel.classList.add('hidden');
+
+  const params = buildParams(true);
+
+  // Si no queda ningún filtro activo, limpiar también backend session.
+
+  if (!hasPlainFilters(activeFiltersToPlain(activeFilters))) {
+
+    params.set('clear_excel_filters', '1');
+
+  }
+
+  await reloadWithParams(params);
+
+});
+
+btnClearAll?.addEventListener('click', async () => {
+
+  activeFilters = {};
+
+  saveFilters();
+
+  updateHeaderStates();
+
+  panel.classList.add('hidden');
+
+  const params = buildParams(true);
+
   params.set('clear_excel_filters', '1');
 
   await reloadWithParams(params);
+
 });
 
   document.addEventListener('click', async (e) => {
