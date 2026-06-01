@@ -1102,8 +1102,6 @@ def _mark_billings_paid_for_weekly_payment(wp):
             s.save(update_fields=["finance_note", "finance_updated_at"])
 
 
-
-
 def _legacy_weekly_payment_details(
     *,
     tech_ids,
@@ -6611,6 +6609,7 @@ def listar_billing(request):
 
     from django.core.paginator import Paginator
     from django.db.models import Prefetch, Q
+    from django.http import HttpResponseRedirect
 
     from core.permissions import filter_queryset_by_access
     from facturacion.models import Proyecto
@@ -6625,6 +6624,49 @@ def listar_billing(request):
 
     user = request.user
 
+        # ============================================================
+
+    # Persistencia server-side de filtros Excel
+
+    # Evita parpadeo al volver desde Review/Edit/Actions.
+
+    # ============================================================
+
+    BILLING_EXCEL_SESSION_KEY = "billing_list_excel_filters"
+
+    clear_excel_filters = request.GET.get("clear_excel_filters") == "1"
+
+    excel_filters_raw_request = (request.GET.get("excel_filters") or "").strip()
+
+    if clear_excel_filters:
+
+        request.session.pop(BILLING_EXCEL_SESSION_KEY, None)
+
+    elif excel_filters_raw_request:
+
+        request.session[BILLING_EXCEL_SESSION_KEY] = excel_filters_raw_request
+
+    else:
+
+        stored_excel_filters = (
+
+            request.session.get(BILLING_EXCEL_SESSION_KEY) or ""
+
+        ).strip()
+
+        if stored_excel_filters:
+
+            params = request.GET.copy()
+
+            params["excel_filters"] = stored_excel_filters
+
+            params["page"] = "1"
+
+            return HttpResponseRedirect(
+
+                f"{request.path}?{params.urlencode()}"
+
+            )
     # ============================================================
     # Usuarios privilegiados
     # ============================================================
