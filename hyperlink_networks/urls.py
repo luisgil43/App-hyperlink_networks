@@ -7,6 +7,7 @@ from django.contrib.auth.views import (LogoutView, PasswordResetCompleteView,
                                        PasswordResetView)
 from django.http import HttpResponse
 from django.urls import include, path
+from django.views.generic import TemplateView
 from django.views.generic.base import RedirectView
 
 from dashboard import views as dashboard_views
@@ -19,6 +20,17 @@ def health_check(request):
 urlpatterns = [
     # Health check
     path("healthz", health_check),
+    # Public pages required by App Store / Google Play
+    path(
+        "support/",
+        TemplateView.as_view(template_name="public/support.html"),
+        name="public_support",
+    ),
+    path(
+        "privacy-policy/",
+        TemplateView.as_view(template_name="public/privacy_policy.html"),
+        name="public_privacy_policy",
+    ),
     path("logout/", LogoutView.as_view(next_page="/usuarios/login/"), name="logout"),
     # Panel de administración personalizado
     path(
@@ -152,6 +164,7 @@ urlpatterns = [
         "access-control/",
         include(("access_control.urls", "access_control"), namespace="access_control"),
     ),
+    path("api/", include(("api.urls", "api"), namespace="api")),
 ]
 
 

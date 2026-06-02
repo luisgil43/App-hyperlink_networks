@@ -476,28 +476,56 @@
       </li>
       {% endif %}
 
-    {% if request.user.es_admin_general %}
+   {% if request.user.es_admin_general %}
+
 <li class="group">
+
     <div class="flex justify-between items-center cursor-pointer"
+
          onclick="toggleMenu(this)">
+
         <span class="flex items-center gap-2">🔐 Security</span>
+
         <span class="flecha transition-transform duration-200">▶</span>
+
     </div>
 
     <ul class="ml-4 submenu space-y-1 hidden">
+
         <li>
+
             <a href="{% url 'access_control:matrix' %}">
+
                 Permissions Matrix
+
             </a>
+
         </li>
 
         <li>
+
             <a href="{% url 'usuarios:two_factor_setup' %}">
+
                 Two-factor authentication & devices
+
             </a>
+
         </li>
+
+        <li>
+
+            <a href="{% url 'api:api_feature_list' %}">
+
+                API Management
+
+            </a>
+
+        </li>
+
     </ul>
+
 </li>
+
 {% endif %}
 
       <!-- SECCIÓN: User Management -->

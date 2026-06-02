@@ -1,0 +1,179 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Support - Planix</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="icon" href="{% static 'icons/favicon.ico' %}" sizes="any">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+      line-height: 1.6;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 32px 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 900px;
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 32px;
+      box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+      border: 1px solid #e5e7eb;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .brand img {
+      height: 44px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #1f2937;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+      color: #111827;
+    }
+
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+      color: #1f2937;
+    }
+
+    p {
+      margin: 10px 0;
+      color: #374151;
+    }
+
+    .box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 18px;
+    }
+
+    a {
+      color: #2563eb;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .footer {
+      margin-top: 34px;
+      padding-top: 18px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    @media (max-width: 640px) {
+      .card {
+        padding: 22px;
+        border-radius: 14px;
+      }
+
+      h1 {
+        font-size: 26px;
+      }
+
+      .brand-title {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <div class="brand">
+        <img src="{% static 'images/planixb.png' %}" alt="Planix">
+        <div class="brand-title">Planix</div>
+      </div>
+
+      <h1>Support</h1>
+
+      <p>
+        Planix provides mobile access to the Hyperlink Networks operational platform.
+        This support page is available for users, reviewers, and customers who need
+        help with the mobile app.
+      </p>
+
+      <div class="box">
+        <strong>Support contact:</strong><br>
+        Email:
+        <a href="mailto:luisggil01@gmail.com">luisggil01@gmail.com</a>
+      </div>
+
+      <h2>Common support topics</h2>
+
+      <p>
+        If you cannot sign in, please verify that your username and password are correct
+        and that your account is active in the Hyperlink Networks platform.
+      </p>
+
+      <p>
+        If you cannot access a module, your user may not have the required role or permission.
+        Access to modules is controlled by the same role-based security rules used in the web platform.
+      </p>
+
+      <p>
+        If the mobile platform does not update automatically, use the reload button available
+        at the top of the mobile app.
+      </p>
+
+      <h2>App availability</h2>
+
+      <p>
+        Some modules may be available only to authorized users depending on their assigned
+        role, project, or company permissions.
+      </p>
+
+      <h2>Privacy</h2>
+
+      <p>
+        You can review our privacy policy here:
+        <a href="/privacy-policy/">Privacy Policy</a>.
+      </p>
+
+      <div class="footer">
+        © 2026 Planix. All rights reserved.
+      </div>
+    </section>
+  </main>
+</body>
+</html>

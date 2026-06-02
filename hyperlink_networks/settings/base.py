@@ -25,12 +25,12 @@ else:
 
 
 ALLOWED_HOSTS = [
-    'app-hyperlink-networks.onrender.com',
-    'localhost',
-    '127.0.0.1',
-    '172.20.10.2',
-    '0.0.0.0'
-
+    "app-hyperlink-networks.onrender.com",
+    "localhost",
+    "127.0.0.1",
+    "172.20.10.2",
+    "192.168.1.82",
+    "0.0.0.0",
 ]
 
 # Confiar en tu dominio para CSRF (producción)
@@ -54,7 +54,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # WhiteNoise: desactiva el static del runserver y deja que WhiteNoise sirva estáticos
+    # WhiteNoise
     "whitenoise.runserver_nostatic",
     # Third-party
     "django_select2",
@@ -64,7 +64,10 @@ INSTALLED_APPS = [
     "widget_tweaks",
     "django.contrib.humanize",
     "axes",
-    # 'ratelimit',
+    # API móvil
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     # Local apps
     "liquidaciones",
     "dashboard",
@@ -83,6 +86,7 @@ INSTALLED_APPS = [
     "ombording",
     "invoicing",
     "usuarios",
+    "api",
     "cable_installation",
     "dashboard_admin.apps.DashboardAdminConfig",
 ]
@@ -257,7 +261,41 @@ LOGIN_URL = reverse_lazy('usuarios:login_unificado')
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/usuarios/login/'
 
+# ==============================
+# DJANGO REST FRAMEWORK / API MOBILE
+# ==============================
 
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+}
+
+
+# ==============================
+# SIMPLE JWT
+# ==============================
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=20),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "LEEWAY": 0,
+}
+
+# ==============================
+
+# API MOBILE FEATURE FLAGS
+
+# ==============================
+
+API_MOBILE_ENABLED = os.environ.get("API_MOBILE_ENABLED", "0") == "1"
 # ==============================
 # STORAGE (Wasabi S3)
 # ==============================
