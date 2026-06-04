@@ -349,47 +349,61 @@
 
       <!-- SECCIÓN: Human Resources -->
       {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+  <ul class="ml-4 submenu space-y-1 hidden">
+    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+      <li><a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
+    {% endif %}
+    {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
+      <li><a href="{% url 'ombording:ombording_list' %}">Onboarding</a></li>
+      <li><a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
+    {% endif %}
+  </ul>
+</li>
+{% endif %}
+
+      <!-- SECCIÓN: Subcontract -->
+      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_subcontrato or request.user.es_pm %}
       <li class="group">
-        <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
-          <span class="flex items-center gap-2">🧑‍💼 Human Resources</span>
-          <span class="flecha transition-transform duration-200">▶</span>
-        </div>
-        <ul class="ml-4 submenu space-y-1 hidden">
-          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
-          {% endif %}
-          {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'ombording:ombording_list' %}">Onboarding</a></li>
-            <li><a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
-          {% endif %}
-        </ul>
+          <div class="flex justify-between items-center cursor-pointer" onclick="toggleMenu(this)">
+              <span class="flex items-center gap-2">🤝 Subcontractors</span>
+              <span class="flecha transition-transform duration-200">▶</span>
+          </div>
+          <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#">Upload Production</a></li>
+              <li><a href="#">Onboarding Documents</a></li>
+          </ul>
       </li>
       {% endif %}
 
-      <!-- SECCIÓN: Logistics -->
-      {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
-      <li class="group">
-        <div class="flex justify-between items-center cursor-pointer"
-             onclick="toggleMenu(this)">
-          <span class="flex items-center gap-2">📦 Logistics</span>
-          <span class="flecha transition-transform duration-200">▶</span>
-        </div>
+    <!-- SECCIÓN: Logistics -->
+{% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer"
+       onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">📦 Logistics</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
 
-        <ul class="ml-4 submenu space-y-1 hidden">
-          <li>
-            <a href="{% url 'logistica:herramientas_list' %}">
-              Equipment & Tools
-            </a>
-          </li>
+  <ul class="ml-4 submenu space-y-1 hidden">
+    <li>
+      <a href="{% url 'logistica:herramientas_list' %}">
+        Equipment & Tools
+      </a>
+    </li>
 
-          <li>
-            <a href="{% url 'logistica:herramientas_asignaciones_panel' %}">
-              Tool Assignments
-            </a>
-          </li>
-        </ul>
-      </li>
-      {% endif %}
+    <li>
+      <a href="{% url 'logistica:herramientas_asignaciones_panel' %}">
+        Tool Assignments
+      </a>
+    </li>
+  </ul>
+</li>
+{% endif %}
 
       <!-- SECCIÓN: Fleet -->
       {% if request.user.es_admin_general or request.user.es_logistica or request.user.es_pm or request.user.es_flota %}
@@ -439,6 +453,7 @@
           <ul class="ml-4 submenu space-y-1 hidden">
               <li><a href="{% url 'facturacion:listar_cartola' %}">Account Transactions</a></li>
               <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}">Available Balances</a></li>
+              <li><a href="#">Purchase Orders</a></li>
               <li><a href="{% url 'facturacion:invoices' %}">Ready to Invoice</a></li>
 
               {% if request.user.es_admin_general or request.user.es_emision_facturacion %}
@@ -450,6 +465,7 @@
                 <ul class="ml-4 submenu space-y-1 hidden">
                   <li><a href="{% url 'invoicing:branding' %}">Branding & Logos</a></li>
                   <li><a href="{% url 'invoicing:customers_list' %}">Customers</a></li>
+                  <li><a href="#">Dashboard</a></li>
                   <li><a href="{% url 'invoicing:invoices_list' %}">Invoices</a></li>
                   <li><a href="{% url 'invoicing:itemcodes_list' %}">Item Codes</a></li>
                   <li><a href="{% url 'invoicing:templates' %}">Templates</a></li>
@@ -460,35 +476,57 @@
       </li>
       {% endif %}
 
-      {% if request.user.es_admin_general %}
-      <li class="group">
-          <div class="flex justify-between items-center cursor-pointer"
-               onclick="toggleMenu(this)">
-              <span class="flex items-center gap-2">🔐 Security</span>
-              <span class="flecha transition-transform duration-200">▶</span>
-          </div>
+   {% if request.user.es_admin_general %}
 
-          <ul class="ml-4 submenu space-y-1 hidden">
-              <li>
-                  <a href="{% url 'access_control:matrix' %}">
-                      Permissions Matrix
-                  </a>
-              </li>
+<li class="group">
 
-              <li>
-                  <a href="{% url 'usuarios:two_factor_setup' %}">
-                      Two-factor authentication & devices
-                  </a>
-              </li>
+    <div class="flex justify-between items-center cursor-pointer"
 
-              <li>
-                  <a href="{% url 'api:api_feature_list' %}">
-                      API Management
-                  </a>
-              </li>
-          </ul>
-      </li>
-      {% endif %}
+         onclick="toggleMenu(this)">
+
+        <span class="flex items-center gap-2">🔐 Security</span>
+
+        <span class="flecha transition-transform duration-200">▶</span>
+
+    </div>
+
+    <ul class="ml-4 submenu space-y-1 hidden">
+
+        <li>
+
+            <a href="{% url 'access_control:matrix' %}">
+
+                Permissions Matrix
+
+            </a>
+
+        </li>
+
+        <li>
+
+            <a href="{% url 'usuarios:two_factor_setup' %}">
+
+                Two-factor authentication & devices
+
+            </a>
+
+        </li>
+
+        <li>
+
+            <a href="{% url 'api:api_feature_list' %}">
+
+                API Management
+
+            </a>
+
+        </li>
+
+    </ul>
+
+</li>
+
+{% endif %}
 
       <!-- SECCIÓN: User Management -->
       {% if request.user.es_admin_general %}
@@ -499,6 +537,7 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
+              <li><a href="#">Groups</a></li>
               <li><a href="{% url 'dashboard_admin:listar_usuarios' %}">Users</a></li>
           </ul>
       </li>

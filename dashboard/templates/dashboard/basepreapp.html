@@ -26,7 +26,6 @@
 
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -47,28 +46,17 @@
     .rotate-90 { transform: rotate(90deg); }
 
     /* ===== Layout: sidebar colapsable ===== */
-    .content-wrapper {
-      transition: margin-left 0.2s ease;
-    }
+    .content-wrapper { transition: margin-left 0.2s ease; }
 
     @media (min-width: 768px) {
-      .content-wrapper.with-sidebar main {
-        margin-left: 18rem;
-      }
-
-      .content-wrapper.no-sidebar main {
-        margin-left: 0;
-      }
+      .content-wrapper.with-sidebar main { margin-left: 18rem; }
+      .content-wrapper.no-sidebar main { margin-left: 0; }
     }
 
-    #side-nav {
-      transition: transform 0.2s ease;
-    }
+    #side-nav { transition: transform 0.2s ease; }
 
     @media (min-width: 768px) {
-      #side-nav.collapsed {
-        transform: translateX(-100%);
-      }
+      #side-nav.collapsed { transform: translateX(-100%); }
     }
 
     /* ===== Sidebar pro azul ===== */
@@ -194,23 +182,13 @@
     }
 
     @keyframes logoFloat {
-      0%, 100% {
-        transform: translateY(0);
-      }
-
-      50% {
-        transform: translateY(-2px);
-      }
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
     }
 
     @keyframes logoGlow {
-      0%, 100% {
-        filter: drop-shadow(0 0 0 rgba(37,99,235,0.00));
-      }
-
-      50% {
-        filter: drop-shadow(0 0 8px rgba(37,99,235,0.28));
-      }
+      0%, 100% { filter: drop-shadow(0 0 0 rgba(37,99,235,0.00)); }
+      50% { filter: drop-shadow(0 0 8px rgba(37,99,235,0.28)); }
     }
 
     @keyframes logoPulse {
@@ -218,7 +196,6 @@
         opacity: 0.55;
         transform: scale(0.98);
       }
-
       50% {
         opacity: 1;
         transform: scale(1.06);
@@ -325,88 +302,70 @@
   <nav id="side-nav"
        class="w-72 p-4 fixed left-0 bottom-0 overflow-y-auto z-40 transition-transform transform -translate-x-full md:translate-x-0"
        style="top: var(--app-header-h, 56px);">
-
     <h2 class="text-2xl font-bold mb-8">Menu</h2>
-
     <ul class="space-y-4 text-base">
       <li>
-        <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center">
-          🏠 Home
-        </a>
+        <a href="{% url 'dashboard:inicio_tecnico' %}" class="font-bold flex items-center">🏠 Home</a>
       </li>
 
-      <!-- Fleet -->
       <li data-toggle class="group">
-        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
-          🚐 Fleet <span class="arrow">▶</span>
-        </span>
-
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🚐 Fleet <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li>
-            <a href="{% url 'fleet:my_vehicle_dashboard' %}">
-              My Assigned Vehicle
-            </a>
-          </li>
+          <li><a href="{% url 'fleet:my_vehicle_dashboard' %}">My Assigned Vehicle</a></li>
+          <li><a href="#">Maintenance</a></li>
+          <li><a href="#">Vehicle Documentation</a></li>
         </ul>
       </li>
 
-      <!-- Logistics -->
-      <li data-toggle class="group">
-        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
-          📦 Logistics <span class="arrow">▶</span>
-        </span>
+     <li data-toggle class="group">
 
+  <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
+
+    📦 Logistics <span class="arrow">▶</span>
+
+  </span>
+
+  <ul class="submenu ml-4 space-y-1 hidden" style="display: none;">
+
+    <li>
+
+      <a href="{% url 'logistica:mis_herramientas' %}">
+
+        My Assigned Tools
+
+      </a>
+
+    </li>
+
+  </ul>
+
+</li>
+
+      <li data-toggle class="group">
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🛠 Operations <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li>
-            <a href="{% url 'logistica:mis_herramientas' %}">
-              My Assigned Tools
-            </a>
-          </li>
+          <li><a href="{% url 'operaciones:mis_assignments' %}">My Assignment</a></li>
+          <li><a href="{% url 'operaciones:produccion_usuario' %}">Salary & Production</a></li>
+          <li><a href="{% url 'operaciones:mis_rendiciones' %}">My Expense Reports</a></li>
         </ul>
       </li>
 
-      <!-- Operations -->
       <li data-toggle class="group">
-        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
-          🛠 Operations <span class="arrow">▶</span>
-        </span>
-
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🧑‍💼 Human Resources <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li>
-            <a href="{% url 'operaciones:mis_assignments' %}">
-              My Assignment
-            </a>
-          </li>
-          <li>
-            <a href="{% url 'operaciones:produccion_usuario' %}">
-              Salary & Production
-            </a>
-          </li>
-          <li>
-            <a href="{% url 'operaciones:mis_rendiciones' %}">
-              My Expense Reports
-            </a>
-          </li>
+          <li><a href="{% url 'rrhh:my_rate_sheets' %}">My Rate Sheets</a></li>
+          <li><a href="#">My Employment Agreement</a></li>
+          <li><a href="#">My Onboarding Form</a></li>
+          <li><a href="#">My Documents</a></li>
+          <li><a href="{% url 'rrhh:register_signature' %}">My Digital Signature</a></li>
         </ul>
       </li>
 
-      <!-- Human Resources -->
       <li data-toggle class="group">
-        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">
-          🧑‍💼 Human Resources <span class="arrow">▶</span>
-        </span>
-
+        <span class="font-bold flex items-center cursor-pointer justify-between" onclick="toggleMenu(this)">🤝 Subcontractors <span class="arrow">▶</span></span>
         <ul class="submenu ml-4 space-y-1 hidden">
-          <li>
-            <a href="{% url 'rrhh:my_rate_sheets' %}">
-              My Rate Sheets
-            </a>
-          </li>
-          <li>
-            <a href="{% url 'rrhh:register_signature' %}">
-              My Digital Signature
-            </a>
-          </li>
+          <li><a href="#">Upload Production</a></li>
+          <li><a href="#">Onboarding Documents</a></li>
         </ul>
       </li>
     </ul>
@@ -429,18 +388,16 @@
   function toggleMenu(el) {
     const submenu = el.nextElementSibling;
     const flecha = el.querySelector(".arrow");
-
     if (submenu) {
       const isHidden = submenu.style.display === "none" || submenu.classList.contains("hidden");
-
       if (isHidden) {
         submenu.classList.remove("hidden");
         submenu.style.display = "block";
-        if (flecha) flecha.classList.add("rotate-90");
+        flecha.classList.add("rotate-90");
       } else {
         submenu.classList.add("hidden");
         submenu.style.display = "none";
-        if (flecha) flecha.classList.remove("rotate-90");
+        flecha.classList.remove("rotate-90");
       }
     }
   }
@@ -448,7 +405,6 @@
   function toggleSidebar() {
     const nav = document.getElementById('side-nav');
     const wrapper = document.querySelector('.content-wrapper');
-
     if (!nav || !wrapper) return;
 
     const isDesktop = window.matchMedia('(min-width: 768px)').matches;
@@ -477,7 +433,6 @@
   </div>
   {% endfor %}
 </div>
-
 <script>
   setTimeout(() => {
     const mensajes = document.getElementById('mensajes');
@@ -493,18 +448,15 @@
         if (response.ok) {
           const item = document.getElementById(`notificacion-${id}`);
           if (item) item.remove();
-
           const badge = document.querySelector('.relative .bg-red-500');
           if (badge) {
             let count = parseInt(badge.innerText);
-
             if (count > 1) {
               badge.innerText = count - 1;
             } else {
               badge.remove();
             }
           }
-
           window.location.href = urlDestino;
         }
       });
@@ -518,6 +470,7 @@
   }
 </script>
 
+<script src="https://unpkg.com/lucide@latest"></script>
 <script>
   lucide.createIcons();
 </script>
