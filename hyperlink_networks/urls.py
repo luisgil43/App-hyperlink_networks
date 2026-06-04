@@ -31,6 +31,11 @@ urlpatterns = [
         TemplateView.as_view(template_name="public/privacy_policy.html"),
         name="public_privacy_policy",
     ),
+    path(
+        "account-deletion/",
+        TemplateView.as_view(template_name="public/account_deletion.html"),
+        name="account_deletion",
+    ),
     path("logout/", LogoutView.as_view(next_page="/usuarios/login/"), name="logout"),
     # Panel de administración personalizado
     path(
