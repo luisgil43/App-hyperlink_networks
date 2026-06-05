@@ -27,6 +27,17 @@
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
 
+  <script>
+    (function () {
+      try {
+        const collapsed = localStorage.getItem('hyperlink_user_sidebar_collapsed') === '1';
+        if (collapsed) {
+          document.documentElement.classList.add('sidebar-collapsed-before-load');
+        }
+      } catch (e) {}
+    })();
+  </script>
+
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -68,6 +79,17 @@
     @media (min-width: 768px) {
       #side-nav.collapsed {
         transform: translateX(-100%);
+      }
+    }
+
+    /* Evita parpadeo del menú al recargar si estaba cerrado */
+    html.sidebar-collapsed-before-load #side-nav {
+      transform: translateX(-100%);
+    }
+
+    @media (min-width: 768px) {
+      html.sidebar-collapsed-before-load .content-wrapper main {
+        margin-left: 0 !important;
       }
     }
 
@@ -318,7 +340,8 @@
 </header>
 
 <!-- CONTENEDOR PRINCIPAL -->
-<div class="flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar"
+<div id="app-wrapper"
+     class="flex flex-col md:flex-row min-h-screen relative content-wrapper with-sidebar"
      style="padding-top: var(--app-header-h, 56px);">
 
   <!-- MENÚ LATERAL -->
@@ -426,6 +449,8 @@
 
 <!-- Scripts de interacción -->
 <script>
+  const SIDEBAR_STORAGE_KEY = 'hyperlink_user_sidebar_collapsed';
+
   function toggleMenu(el) {
     const submenu = el.nextElementSibling;
     const flecha = el.querySelector(".arrow");
@@ -445,22 +470,65 @@
     }
   }
 
+  function applySidebarState() {
+    const nav = document.getElementById('side-nav');
+    const wrapper = document.getElementById('app-wrapper');
+
+    if (!nav || !wrapper) return;
+
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    const isCollapsed = localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1';
+
+    if (isDesktop) {
+      nav.classList.toggle('collapsed', isCollapsed);
+      nav.classList.remove('-translate-x-full');
+
+      wrapper.classList.toggle('no-sidebar', isCollapsed);
+      wrapper.classList.toggle('with-sidebar', !isCollapsed);
+    } else {
+      nav.classList.remove('collapsed');
+
+      wrapper.classList.remove('no-sidebar');
+      wrapper.classList.add('with-sidebar');
+
+      if (isCollapsed) {
+        nav.classList.add('-translate-x-full');
+      } else {
+        nav.classList.remove('-translate-x-full');
+      }
+    }
+
+    document.documentElement.classList.remove('sidebar-collapsed-before-load');
+  }
+
   function toggleSidebar() {
     const nav = document.getElementById('side-nav');
-    const wrapper = document.querySelector('.content-wrapper');
+    const wrapper = document.getElementById('app-wrapper');
 
     if (!nav || !wrapper) return;
 
     const isDesktop = window.matchMedia('(min-width: 768px)').matches;
 
     if (isDesktop) {
-      const collapsed = nav.classList.toggle('collapsed');
+      const collapsed = !nav.classList.contains('collapsed');
+
+      nav.classList.toggle('collapsed', collapsed);
       wrapper.classList.toggle('no-sidebar', collapsed);
       wrapper.classList.toggle('with-sidebar', !collapsed);
+
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? '1' : '0');
     } else {
-      nav.classList.toggle('-translate-x-full');
+      const willClose = !nav.classList.contains('-translate-x-full');
+
+      nav.classList.toggle('-translate-x-full', willClose);
+
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, willClose ? '1' : '0');
     }
   }
+
+  document.addEventListener('DOMContentLoaded', applySidebarState);
+  window.addEventListener('resize', applySidebarState);
+  window.addEventListener('orientationchange', applySidebarState);
 </script>
 
 <!-- Mensajes emergentes -->
