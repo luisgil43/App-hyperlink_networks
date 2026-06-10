@@ -605,6 +605,151 @@
   window.addEventListener('orientationchange', applyHeaderOffset);
 })();
 </script>
+<script>
+/*
+  Fix global para descargas en iPhone / iPad / PWA / WebView.
 
+  Problema:
+  En la app instalada de Apple, algunos archivos descargables se muestran como texto
+  dentro de la pantalla. Por ejemplo, los Excel .xlsx empiezan con "PK...".
+
+  Solución:
+  Detectamos enlaces que parecen descarga y los abrimos aparte.
+*/
+(function () {
+  function isAppleMobileDevice() {
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+
+    return (
+      /iPhone|iPad|iPod/i.test(ua) ||
+      (platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
+  }
+
+  function isDownloadLikeUrl(href) {
+    if (!href) return false;
+
+    if (
+      href.startsWith("#") ||
+      href.startsWith("javascript:") ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:")
+    ) {
+      return false;
+    }
+
+    let url;
+
+    try {
+      url = new URL(href, window.location.origin);
+    } catch (e) {
+      return false;
+    }
+
+    const path = url.pathname.toLowerCase();
+    const search = url.search.toLowerCase();
+
+    /*
+      Archivos directos por extensión.
+    */
+    const fileExtensions = [
+      ".xlsx",
+      ".xls",
+      ".csv",
+      ".pdf",
+      ".docx",
+      ".doc",
+      ".zip",
+      ".rar",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".heic"
+    ];
+
+    if (fileExtensions.some(function (ext) { return path.endsWith(ext); })) {
+      return true;
+    }
+
+    /*
+      Rutas típicas de descarga/exportación.
+
+      No agrego "/report" ni "/reporte" solo, porque en Hyperlink tienes rutas
+      como /report/status/ que son JSON/status y no descarga.
+    */
+    const downloadPathKeywords = [
+      "/download",
+      "/descargar",
+      "/export",
+      "/exportar",
+      "/excel",
+      "/csv",
+      "/pdf",
+      "/docx",
+      "/zip"
+    ];
+
+    if (downloadPathKeywords.some(function (word) { return path.includes(word); })) {
+      return true;
+    }
+
+    /*
+      Parámetros típicos de descarga.
+    */
+    const downloadQueryKeywords = [
+      "download=1",
+      "descargar=1",
+      "export=1",
+      "exportar=1",
+      "format=xlsx",
+      "format=excel",
+      "formato=xlsx",
+      "formato=excel",
+      "type=xlsx",
+      "tipo=xlsx"
+    ];
+
+    if (downloadQueryKeywords.some(function (word) { return search.includes(word); })) {
+      return true;
+    }
+
+    return false;
+  }
+
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+
+    const href = link.getAttribute("href");
+    if (!isDownloadLikeUrl(href)) return;
+
+    /*
+      Solo aplicamos el fix en Apple móvil / iPad / app instalada.
+      En escritorio dejamos el comportamiento normal.
+    */
+    if (!isAppleMobileDevice()) return;
+
+    /*
+      Si alguna URL no quieres que sea interceptada, coloca:
+      data-no-file-download="1"
+    */
+    if (link.dataset.noFileDownload === "1") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const absoluteUrl = new URL(href, window.location.origin).toString();
+
+    const opened = window.open(absoluteUrl, "_blank", "noopener");
+
+    if (!opened) {
+      window.location.href = absoluteUrl;
+    }
+  }, true);
+})();
+</script>
 </body>
 </html>
