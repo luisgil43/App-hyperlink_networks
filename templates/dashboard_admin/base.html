@@ -693,14 +693,19 @@
 /*
   Fix global para descargas en iPhone / iPad / PWA / WebView.
 
-  Problema:
-  En la app instalada de Apple, algunos archivos descargables se muestran como texto
-  dentro de la pantalla. Por ejemplo, los Excel .xlsx empiezan con "PK...".
+  Cubre:
+  1) Links normales: <a href="...">
+  2) Formularios normales: <form ...>
+  3) Formularios enviados por JavaScript: form.submit()
 
-  Solución:
-  Detectamos enlaces que parecen descarga y los abrimos aparte.
+  Problema:
+  En app instalada de Apple/PWA/WebView, archivos .xlsx/.csv/.pdf/.docx/.zip
+  pueden abrirse como texto dentro de la pantalla. Ejemplo: Excel muestra "PK...".
 */
 (function () {
+  if (window.__planixDownloadFixInstalled) return;
+  window.__planixDownloadFixInstalled = true;
+
   function isAppleMobileDevice() {
     const ua = navigator.userAgent || "";
     const platform = navigator.platform || "";
@@ -711,14 +716,14 @@
     );
   }
 
-  function isDownloadLikeUrl(href) {
-    if (!href) return false;
+  function isDownloadLikeUrl(rawUrl) {
+    if (!rawUrl) return false;
 
     if (
-      href.startsWith("#") ||
-      href.startsWith("javascript:") ||
-      href.startsWith("mailto:") ||
-      href.startsWith("tel:")
+      rawUrl.startsWith("#") ||
+      rawUrl.startsWith("javascript:") ||
+      rawUrl.startsWith("mailto:") ||
+      rawUrl.startsWith("tel:")
     ) {
       return false;
     }
@@ -726,7 +731,7 @@
     let url;
 
     try {
-      url = new URL(href, window.location.origin);
+      url = new URL(rawUrl, window.location.origin);
     } catch (e) {
       return false;
     }
@@ -734,9 +739,6 @@
     const path = url.pathname.toLowerCase();
     const search = url.search.toLowerCase();
 
-    /*
-      Archivos directos por extensión.
-    */
     const fileExtensions = [
       ".xlsx",
       ".xls",
@@ -759,9 +761,8 @@
 
     /*
       Rutas típicas de descarga/exportación.
-
-      No agrego "/report" ni "/reporte" solo, porque en Hyperlink tienes rutas
-      como /report/status/ que son JSON/status y no descarga.
+      No usamos "/report" solo para no romper rutas tipo /report/status/.
+      No usamos "/import" ni "/importar" para no afectar importaciones.
     */
     const downloadPathKeywords = [
       "/download",
@@ -772,16 +773,18 @@
       "/csv",
       "/pdf",
       "/docx",
-      "/zip"
+      "/zip",
+      "/merge_excel",
+      "/merge-xlsx",
+      "/xlsx",
+      "/light_levels",
+      "/light-levels"
     ];
 
     if (downloadPathKeywords.some(function (word) { return path.includes(word); })) {
       return true;
     }
 
-    /*
-      Parámetros típicos de descarga.
-    */
     const downloadQueryKeywords = [
       "download=1",
       "descargar=1",
@@ -802,24 +805,67 @@
     return false;
   }
 
+  function isDownloadLikeForm(form) {
+    if (!form || !form.getAttribute) return false;
+
+    if (form.dataset.noFileDownload === "1") return false;
+
+    const action = form.getAttribute("action") || window.location.href;
+
+    if (isDownloadLikeUrl(action)) return true;
+
+    /*
+      Revisión adicional por id/nombre del formulario.
+      Esto cubre tus formularios ocultos:
+      export-form
+      export-operational-form
+    */
+    const id = (form.id || "").toLowerCase();
+    const name = (form.getAttribute("name") || "").toLowerCase();
+
+    const formKeywords = [
+      "export",
+      "download",
+      "excel",
+      "xlsx",
+      "csv",
+      "pdf",
+      "docx",
+      "zip",
+      "merge",
+      "light"
+    ];
+
+    return formKeywords.some(function (word) {
+      return id.includes(word) || name.includes(word);
+    });
+  }
+
+  function forceDownloadFormTarget(form) {
+    if (!form || !isAppleMobileDevice()) return;
+
+    if (!isDownloadLikeForm(form)) return;
+
+    /*
+      Esto evita que la respuesta del Excel/PDF se pinte dentro de la app.
+    */
+    form.setAttribute("target", "_blank");
+    form.setAttribute("rel", "noopener");
+  }
+
+  /*
+    1) Links normales.
+  */
   document.addEventListener("click", function (event) {
     const link = event.target.closest("a[href]");
     if (!link) return;
 
+    if (link.dataset.noFileDownload === "1") return;
+
     const href = link.getAttribute("href");
     if (!isDownloadLikeUrl(href)) return;
 
-    /*
-      Solo aplicamos el fix en Apple móvil / iPad / app instalada.
-      En escritorio dejamos el comportamiento normal.
-    */
     if (!isAppleMobileDevice()) return;
-
-    /*
-      Si alguna URL no quieres que sea interceptada, coloca:
-      data-no-file-download="1"
-    */
-    if (link.dataset.noFileDownload === "1") return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -833,6 +879,46 @@
       window.location.href = absoluteUrl;
     }
   }, true);
+
+  /*
+    2) Submit normal de formularios.
+    Esto cubre cuando el usuario presiona un botón submit.
+  */
+  document.addEventListener("submit", function (event) {
+    const form = event.target;
+    forceDownloadFormTarget(form);
+  }, true);
+
+  /*
+    3) Submit programático: form.submit()
+    Esto es CLAVE para tu caso de Billing, porque ahí haces:
+    exportForm.submit()
+  */
+  const nativeSubmit = HTMLFormElement.prototype.submit;
+
+  HTMLFormElement.prototype.submit = function () {
+    try {
+      forceDownloadFormTarget(this);
+    } catch (e) {}
+
+    return nativeSubmit.call(this);
+  };
+
+  /*
+    4) requestSubmit programático.
+    Por si alguna pantalla usa form.requestSubmit().
+  */
+  if (HTMLFormElement.prototype.requestSubmit) {
+    const nativeRequestSubmit = HTMLFormElement.prototype.requestSubmit;
+
+    HTMLFormElement.prototype.requestSubmit = function (submitter) {
+      try {
+        forceDownloadFormTarget(this);
+      } catch (e) {}
+
+      return nativeRequestSubmit.call(this, submitter);
+    };
+  }
 })();
 </script>
 </body>
