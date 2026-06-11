@@ -430,10 +430,17 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
     - No cambia estados.
     - No borra fotos.
     - Solo completa metadata:
-        power_dbm
-        power_extract_note
-        power_extracted_at
-        power_extracted_by
+        POWER PORT:
+            power_dbm
+            power_extract_note
+            power_extracted_at
+            power_extracted_by
+
+        LIGHT SOURCE:
+            light_source_dbm
+            power_extract_note
+            power_extracted_at
+            power_extracted_by
     """
     try:
         connection.close()
@@ -444,8 +451,8 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
         from django.contrib.auth import get_user_model
 
         from operaciones.views_billing_exec import (
-            _extract_power_dbm_for_evidence, _power_meta_from_title,
-            _power_port_no_from_evidence)
+            _extract_power_dbm_for_evidence, _light_source_meta_from_title,
+            _power_meta_from_title, _power_port_no_from_evidence)
 
         user = None
         if user_id:
@@ -467,33 +474,56 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
 
         for ev in evidencias:
             try:
-                # Si ya tiene potencia y puerto, no gastamos IA salvo que venga force=True.
-                if (
-                    not force
-                    and ev.power_dbm is not None
-                    and _power_port_no_from_evidence(ev)
-                ):
-                    continue
-
-                should_try = False
+                # ==========================================================
+                # Detectar si la evidencia es LIGHT SOURCE o POWER PORT
+                # ==========================================================
+                is_light_source = False
+                is_power_port = False
 
                 if ev.requisito_id:
                     titulo_req = (ev.requisito.titulo or "").strip()
+                    titulo_req_upper = titulo_req.upper()
+
                     needs_power, _port_no = _power_meta_from_title(titulo_req)
 
-                    should_try = (
+                    is_light_source = (
+                        bool(getattr(ev.requisito, "needs_light_source_reading", False))
+                        or _light_source_meta_from_title(titulo_req)
+                        or titulo_req_upper.startswith("LIGHT SOURCE")
+                        or ev.light_source_dbm is not None
+                        or "type=light_source"
+                        in ((ev.power_extract_note or "").lower())
+                    )
+
+                    is_power_port = (
                         bool(getattr(ev.requisito, "needs_power_reading", False))
                         or needs_power
-                        or titulo_req.upper().startswith("POWER PORT")
+                        or titulo_req_upper.startswith("POWER PORT")
+                        or ev.power_dbm is not None
+                        or _power_port_no_from_evidence(ev)
+                        or "type=power_port" in ((ev.power_extract_note or "").lower())
                     )
+
                 else:
                     titulo_manual = (ev.titulo_manual or "").strip()
                     nota = (ev.nota or "").strip()
                     hint = f"{titulo_manual} {nota}".lower()
 
-                    should_try = (
-                        force
+                    needs_power, _port_no = _power_meta_from_title(titulo_manual)
+
+                    is_light_source = (
+                        _light_source_meta_from_title(titulo_manual)
+                        or titulo_manual.upper().startswith("LIGHT SOURCE")
+                        or ev.light_source_dbm is not None
+                        or "type=light_source"
+                        in ((ev.power_extract_note or "").lower())
+                    )
+
+                    is_power_port = (
+                        needs_power
                         or ev.power_dbm is not None
+                        or _power_port_no_from_evidence(ev)
+                        or "type=power_port" in ((ev.power_extract_note or "").lower())
                         or titulo_manual.lower() in {"", "extra"}
                         or any(
                             x in hint
@@ -508,8 +538,24 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
                         )
                     )
 
+                should_try = bool(force or is_light_source or is_power_port)
+
                 if not should_try:
                     continue
+
+                # ==========================================================
+                # Si ya está completo, no gastar IA salvo force=True
+                # ==========================================================
+                if not force:
+                    if is_light_source and ev.light_source_dbm is not None:
+                        continue
+
+                    if (
+                        is_power_port
+                        and ev.power_dbm is not None
+                        and _power_port_no_from_evidence(ev)
+                    ):
+                        continue
 
                 _extract_power_dbm_for_evidence(
                     ev,

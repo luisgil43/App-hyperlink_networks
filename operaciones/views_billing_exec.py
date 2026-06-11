@@ -88,6 +88,15 @@ def _power_meta_from_title(title: str):
     return (True, n)
 
 
+def _light_source_meta_from_title(title: str) -> bool:
+    """
+    Detecta si el requisito corresponde a LIGHT SOURCE.
+    Mantiene lógica simple para no afectar producción.
+    """
+    t = (title or "").strip().upper()
+    return "LIGHT SOURCE" in t
+
+
 def storage_file_exists(filefield) -> bool:
     if not filefield or not getattr(filefield, "name", ""):
         return False
@@ -1131,13 +1140,20 @@ def upload_evidencias(request, pk):
             if not key or key in seen:
                 continue
             orden_fallback += 1
-            to_create.append(RequisitoFotoBilling(
-                tecnico_sesion=a,
-                titulo=br.titulo,
-                descripcion=br.descripcion,
-                obligatorio=br.obligatorio,
-                orden=br.orden or orden_fallback,
-            ))
+            to_create.append(
+                RequisitoFotoBilling(
+                    tecnico_sesion=a,
+                    titulo=br.titulo,
+                    descripcion=br.descripcion,
+                    obligatorio=br.obligatorio,
+                    orden=br.orden or orden_fallback,
+                    needs_power_reading=bool(getattr(br, "needs_power_reading", False)),
+                    needs_light_source_reading=bool(
+                        getattr(br, "needs_light_source_reading", False)
+                    ),
+                    power_port_no=getattr(br, "power_port_no", None),
+                )
+            )
             seen.add(key)
         if to_create:
             RequisitoFotoBilling.objects.bulk_create(to_create)
@@ -1581,13 +1597,20 @@ def fotos_status_json(request, asig_id: int):
             if not key or key in seen:
                 continue
             orden_fallback += 1
-            to_create.append(RequisitoFotoBilling(
-                tecnico_sesion=a,
-                titulo=br.titulo,
-                descripcion=br.descripcion,
-                obligatorio=br.obligatorio,
-                orden=br.orden or orden_fallback,
-            ))
+            to_create.append(
+                RequisitoFotoBilling(
+                    tecnico_sesion=a,
+                    titulo=br.titulo,
+                    descripcion=br.descripcion,
+                    obligatorio=br.obligatorio,
+                    orden=br.orden or orden_fallback,
+                    needs_power_reading=bool(getattr(br, "needs_power_reading", False)),
+                    needs_light_source_reading=bool(
+                        getattr(br, "needs_light_source_reading", False)
+                    ),
+                    power_port_no=getattr(br, "power_port_no", None),
+                )
+            )
             seen.add(key)
         if to_create:
             RequisitoFotoBilling.objects.bulk_create(to_create)
@@ -1825,116 +1848,6 @@ def finish_assignment(request, pk):
     messages.success(request, "Submitted for supervisor review for all assignees.")
     return redirect("operaciones:mis_assignments")
 
-"""
-@login_required
-@rol_requerido('usuario')
-def f
-    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
-
-    # ✅ NUEVO: bloquear si la asignación está inactiva
-    if not _is_asig_active(a):
-        messages.error(request, "This assignment is no longer available.")
-        return redirect("operaciones:mis_assignments")
-
-    if a.estado != "en_proceso":
-        messages.error(request, "This assignment is not in progress.")
-        return redirect("operaciones:mis_assignments")
-
-    # ✅ NUEVO (comentario obligatorio desde el modal)
-    if request.method != "POST":
-        messages.error(request, "Comment is required to finish.")
-        return redirect("operaciones:mis_assignments")
-
-    comentario = (request.POST.get("comentario") or "").strip()
-    if not comentario:
-        messages.error(request, "Please enter a comment to finish.")
-        return redirect("operaciones:mis_assignments")
-
-    def _norm_title(s: str) -> str:
-        return (s or "").strip().lower()
-
-    s = a.sesion
-
-    # --- Recolectar títulos obligatorios por asignación (normalizados) ✅ solo activas
-    qs_asg = (
-        s.tecnicos_sesion
-        .select_related("tecnico")
-        .prefetch_related("requisitos")
-        .all()
-    )
-    try:
-        SesionBillingTecnico._meta.get_field("is_active")
-        qs_asg = qs_asg.filter(is_active=True)
-    except Exception:
-        pass
-
-    asignaciones = list(qs_asg)
-
-    per_asg_required_sets = []
-    sample_titles = set()  # para nombres bonitos
-    for asg in asignaciones:
-        # Solo títulos OBLIGATORIOS de esta asignación
-        titles = [
-            r.titulo for r in asg.requisitos.all()
-            if getattr(r, "obligatorio", True)
-        ]
-        sample_titles.update([t for t in titles if t])
-        keyset = {_norm_title(t) for t in titles if t}
-        per_asg_required_sets.append(keyset)
-
-    # Si no hay requisitos cargados en ninguna asignación, no se bloquea por fotos
-    if not per_asg_required_sets or all(len(sset) == 0 for sset in per_asg_required_sets):
-        required_key_set = set()
-    else:
-        # INTERSECCIÓN entre todas las asignaciones: lo común es lo realmente "vigente"
-        required_key_set = set.intersection(*per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
-
-    # Map para mostrar nombres con mayúsculas originales
-    sample_map = {_norm_title(t): t for t in sample_titles if t}
-
-    # --- Títulos ya cubiertos (algún miembro subió foto para ese requisito)
-    taken_titles = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
-        .values_list("requisito__titulo", flat=True)
-    )
-    covered_key_set = {_norm_title(t) for t in taken_titles if t}
-
-    # Lo faltante es la intersección menos lo cubierto
-    missing_keys = required_key_set - covered_key_set
-    if missing_keys:
-        pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
-        messages.error(request, "Missing required photos: " + ", ".join(pretty_missing))
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
-
-    # --- Validar que todos hayan dado Start
-    pendientes_aceptar = []
-    for asg in asignaciones:
-        accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
-        if not accepted:
-            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
-            pendientes_aceptar.append(name)
-
-    if pendientes_aceptar:
-        messages.error(request, "Pending acceptance (Start): " + ", ".join(pendientes_aceptar))
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
-
-    # --- Transición a revisión de supervisor + guardar comentario
-    now = timezone.now()
-    with transaction.atomic():
-        # ✅ NUEVO: guardar comentario en la asignación que está finalizando
-        a.tecnico_comentario = comentario
-        a.save(update_fields=["tecnico_comentario"])
-
-        s.tecnicos_sesion.update(
-            estado="en_revision_supervisor",
-            finalizado_en=now,
-        )
-        s.estado = "en_revision_supervisor"
-        s.save(update_fields=["estado"])
-
-    messages.success(request, "Submitted for supervisor review for all assignees.")
-    return redirect("operaciones:mis_assignments")"""
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
@@ -2205,8 +2118,21 @@ def revisar_sesion(request, sesion_id):
                     or titulo_manual.lower() in {"extra", ""}
                 )
 
-            ev.is_power_candidate = is_power_candidate
-            ev.power_port_no_display = _power_port_no_from_evidence(ev)
+            # IMPORTANTE:
+            # Antes aquí se hacía:
+            # ev.is_power_candidate = is_power_candidate
+            # ev.power_port_no_display = _power_port_no_from_evidence(ev)
+            #
+            # Eso ahora da error porque is_power_candidate ya existe como @property
+            # en el modelo EvidenciaFotoBilling y no se puede sobrescribir.
+            #
+            # El template debe leer:
+            # ev.is_power_candidate
+            # ev.is_light_source_candidate
+            # ev.power_port_no_display
+            #
+            # directamente desde el modelo.
+            pass
 
         evidencias_por_asig.append((a, evs))
 
@@ -3140,13 +3066,13 @@ def _power_port_no_from_evidence(ev):
 
 def _build_light_level_workbook(row_count=1):
     """
-    Crea el Excel de Light Level con el MISMO formato para individual y masivo.
+    Crea el Excel de Light Level con formato:
 
-    Formato:
     - A1:N1: DFN / Column2..Column14
     - A2: Structure ID
     - B2: Light level
-    - B3:I3: PORT 1..PORT 8
+    - B3: LIGHT SOURCE
+    - C3:J3: PORT 1..PORT 8
     - Desde A4 hacia abajo: proyectos seleccionados
     """
     wb = Workbook()
@@ -3185,14 +3111,16 @@ def _build_light_level_workbook(row_count=1):
     ws["A2"] = "Structure ID"
     ws["B2"] = "Light level"
 
-    ws["B3"] = "PORT 1"
-    ws["C3"] = "PORT 2"
-    ws["D3"] = "PORT 3"
-    ws["E3"] = "PORT 4"
-    ws["F3"] = "PORT 5"
-    ws["G3"] = "PORT 6"
-    ws["H3"] = "PORT 7"
-    ws["I3"] = "PORT 8"
+    # ✅ NUEVO FORMATO
+    ws["B3"] = "LIGHT SOURCE"
+    ws["C3"] = "PORT 1"
+    ws["D3"] = "PORT 2"
+    ws["E3"] = "PORT 3"
+    ws["F3"] = "PORT 4"
+    ws["G3"] = "PORT 5"
+    ws["H3"] = "PORT 6"
+    ws["I3"] = "PORT 7"
+    ws["J3"] = "PORT 8"
 
     for row in range(1, total_rows + 1):
         for col in range(1, 15):
@@ -3203,6 +3131,7 @@ def _build_light_level_workbook(row_count=1):
                 cell.fill = fill_blue
 
     ws.column_dimensions["A"].width = 32
+
     for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"]:
         ws.column_dimensions[col].width = 13
 
@@ -3213,44 +3142,66 @@ def _build_light_level_workbook(row_count=1):
 
     return wb
 
-def _write_light_level_row(ws, row, structure_id, port_values):
+
+def _write_light_level_row(ws, row, structure_id, port_values, light_source_value=None):
     """
-    Escribe una fila de light level usando el formato base:
+    Escribe una fila de light level usando el formato:
+
     A = Structure ID
-    B:I = PORT 1..PORT 8
+    B = LIGHT SOURCE
+    C:J = PORT 1..PORT 8
     """
     ws.cell(row=row, column=1).value = structure_id or ""
 
+    # ✅ LIGHT SOURCE en columna B
+    if light_source_value is not None:
+        ws.cell(row=row, column=2).value = float(light_source_value)
+
+    # ✅ PORT 1 empieza en columna C
     for port_no in range(1, 9):
         value = port_values.get(port_no)
         if value is not None:
-            ws.cell(row=row, column=port_no + 1).value = float(value)
+            ws.cell(row=row, column=port_no + 2).value = float(value)
+
 
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 def export_light_levels_xlsx(request, sesion_id):
     """
-    Exporta Excel individual de potencias con el MISMO formato usado en masivo:
+    Exporta Excel individual de potencias:
+
     - A2: Structure ID
     - B2: Light level
-    - B3:I3: PORT 1..PORT 8
+    - B3: LIGHT SOURCE
+    - C3:J3: PORT 1..PORT 8
     - A4: ID proyecto
-    - B4:I4: potencia de PORT 1..8
+    - B4: Light Source
+    - C4:J4: potencia de PORT 1..8
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
     evidencias = (
         EvidenciaFotoBilling.objects.filter(
             tecnico_sesion__sesion=s,
-            power_dbm__isnull=False,
         )
+        .filter(Q(power_dbm__isnull=False) | Q(light_source_dbm__isnull=False))
         .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
         .order_by("client_taken_at", "tomada_en", "id")
     )
 
     port_values = {}
+    light_source_value = None
 
     for ev in evidencias:
+        # ✅ LIGHT SOURCE
+        if ev.light_source_dbm is not None:
+            light_source_value = ev.light_source_dbm
+            continue
+
+        # ✅ POWER PORT
+        if ev.power_dbm is None:
+            continue
+
         port_no = _power_port_no_from_evidence(ev)
 
         if not port_no:
@@ -3274,6 +3225,7 @@ def export_light_levels_xlsx(request, sesion_id):
         row=4,
         structure_id=s.proyecto_id or "",
         port_values=port_values,
+        light_source_value=light_source_value,
     )
 
     filename = f"LIGHT LEVEL {s.proyecto_id or s.id}.xlsx"
@@ -3297,13 +3249,15 @@ def bulk_export_light_levels_xlsx(request):
 
     Exporta un Excel consolidado de light levels para varios billings seleccionados.
 
-    Usa el MISMO formato del export individual:
+    Formato:
 
     - A2: Structure ID
 
     - B2: Light level
 
-    - B3:I3: PORT 1..PORT 8
+    - B3: LIGHT SOURCE
+
+    - C3:J3: PORT 1..PORT 8
 
     - Desde A4 hacia abajo: una fila por proyecto/billing.
 
@@ -3349,11 +3303,13 @@ def bulk_export_light_levels_xlsx(request):
 
     session_ids = [s.id for s in sesiones]
 
+    # ✅ Ahora trae Power Port y Light Source
+
     evidencias = (
         EvidenciaFotoBilling.objects.filter(
             tecnico_sesion__sesion_id__in=session_ids,
-            power_dbm__isnull=False,
         )
+        .filter(Q(power_dbm__isnull=False) | Q(light_source_dbm__isnull=False))
         .select_related(
             "requisito",
             "tecnico_sesion",
@@ -3369,7 +3325,25 @@ def bulk_export_light_levels_xlsx(request):
 
     values_by_session = {sid: {} for sid in session_ids}
 
+    light_source_by_session = {sid: None for sid in session_ids}
+
     for ev in evidencias:
+
+        sid = ev.tecnico_sesion.sesion_id
+
+        # ✅ LIGHT SOURCE
+
+        if ev.light_source_dbm is not None:
+
+            light_source_by_session[sid] = ev.light_source_dbm
+
+            continue
+
+        # ✅ POWER PORT
+
+        if ev.power_dbm is None:
+
+            continue
 
         port_no = _power_port_no_from_evidence(ev)
 
@@ -3389,8 +3363,6 @@ def bulk_export_light_levels_xlsx(request):
 
             continue
 
-        sid = ev.tecnico_sesion.sesion_id
-
         values_by_session.setdefault(sid, {})[port_no] = ev.power_dbm
 
     wb = _build_light_level_workbook(row_count=len(sesiones))
@@ -3403,11 +3375,14 @@ def bulk_export_light_levels_xlsx(request):
 
         port_values = values_by_session.get(s.id, {})
 
+        light_source_value = light_source_by_session.get(s.id)
+
         _write_light_level_row(
             ws=ws,
             row=row,
             structure_id=s.proyecto_id or f"Billing #{s.id}",
             port_values=port_values,
+            light_source_value=light_source_value,
         )
 
         row += 1
@@ -3436,14 +3411,14 @@ def bulk_export_light_levels_xlsx(request):
 def backfill_light_levels_project(request, sesion_id):
     """
     Procesa fotos históricas ya cargadas para extraer:
-    - power_dbm
-    - port=1..8 en power_extract_note
+    - POWER PORT: power_dbm + port=1..8
+    - LIGHT SOURCE: light_source_dbm
 
     Sirve para proyectos ya finalizados/aprobados.
     No borra fotos, no cambia estados, solo completa metadata de potencia.
 
     force=1:
-    - Reprocesa incluso fotos que ya tienen power_dbm + puerto.
+    - Reprocesa incluso fotos que ya tienen valor extraído.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
@@ -3474,30 +3449,50 @@ def backfill_light_levels_project(request, sesion_id):
     for ev in evidencias:
         total += 1
 
-        # Si ya tiene potencia y puerto, no gastamos IA salvo que el usuario fuerce.
-        if not force and ev.power_dbm is not None and _power_port_no_from_evidence(ev):
-            omitidas += 1
-            continue
-
-        should_try = False
+        # ==========================================================
+        # Detectar si es LIGHT SOURCE o POWER PORT
+        # ==========================================================
+        is_light_source = False
+        is_power_port = False
 
         if ev.requisito_id:
             titulo_req = (ev.requisito.titulo or "").strip()
             needs_power, _port_no = _power_meta_from_title(titulo_req)
 
-            should_try = (
+            is_light_source = (
+                bool(getattr(ev.requisito, "needs_light_source_reading", False))
+                or _light_source_meta_from_title(titulo_req)
+                or ev.light_source_dbm is not None
+                or "type=light_source" in ((ev.power_extract_note or "").lower())
+            )
+
+            is_power_port = (
                 bool(getattr(ev.requisito, "needs_power_reading", False))
                 or needs_power
                 or titulo_req.upper().startswith("POWER PORT")
+                or ev.power_dbm is not None
+                or _power_port_no_from_evidence(ev)
+                or "type=power_port" in ((ev.power_extract_note or "").lower())
             )
+
         else:
             titulo_manual = (ev.titulo_manual or "").strip()
             nota = (ev.nota or "").strip()
             hint = f"{titulo_manual} {nota}".lower()
 
-            should_try = (
-                force
+            needs_power, _port_no = _power_meta_from_title(titulo_manual)
+
+            is_light_source = (
+                _light_source_meta_from_title(titulo_manual)
+                or ev.light_source_dbm is not None
+                or "type=light_source" in ((ev.power_extract_note or "").lower())
+            )
+
+            is_power_port = (
+                needs_power
                 or ev.power_dbm is not None
+                or _power_port_no_from_evidence(ev)
+                or "type=power_port" in ((ev.power_extract_note or "").lower())
                 or titulo_manual.lower() in {"", "extra"}
                 or any(
                     x in hint
@@ -3505,9 +3500,23 @@ def backfill_light_levels_project(request, sesion_id):
                 )
             )
 
+        should_try = force or is_light_source or is_power_port
+
         if not should_try:
             omitidas += 1
             continue
+
+        # ==========================================================
+        # Omitir si ya está completo y no viene force=1
+        # ==========================================================
+        if not force:
+            if is_light_source and ev.light_source_dbm is not None:
+                omitidas += 1
+                continue
+
+            if is_power_port and ev.power_dbm is not None and _power_port_no_from_evidence(ev):
+                omitidas += 1
+                continue
 
         procesadas += 1
 
@@ -3519,10 +3528,18 @@ def backfill_light_levels_project(request, sesion_id):
                 allow_locked=True,
             )
 
-            if result.get("power_dbm"):
-                extraidas += 1
+            kind = result.get("kind", "")
+
+            if kind == "light_source":
+                if result.get("light_source_dbm") or result.get("power_dbm"):
+                    extraidas += 1
+                else:
+                    errores += 1
             else:
-                errores += 1
+                if result.get("power_dbm"):
+                    extraidas += 1
+                else:
+                    errores += 1
 
         except Exception:
             errores += 1
@@ -3556,19 +3573,17 @@ def backfill_light_levels_project(request, sesion_id):
     return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
 
-
-
 def _extract_power_dbm_for_evidence(
     ev, user=None, allow_extra=True, allow_locked=False
 ):
     """
     Extrae automáticamente:
-    - potencia dBm del Optical Power Meter
-    - puerto físico 1..8 donde está conectado el jumper en la caja
+    - POWER PORT: power_dbm + puerto 1..8
+    - LIGHT SOURCE: light_source_dbm solamente
 
-    Regla de puerto:
-    - Si la evidencia tiene requisito POWER PORT X, se guarda y se muestra SIEMPRE ese puerto X.
-    - Si la evidencia es Extra, se usa el puerto detectado por IA.
+    Regla:
+    - POWER PORT debe ser negativo: -60.00 a 0.00 dBm
+    - LIGHT SOURCE puede ser positivo o negativo
     """
     import base64
     import json
@@ -3611,12 +3626,64 @@ def _extract_power_dbm_for_evidence(
             except Exception:
                 pass
 
-    def _normalize_dbm_value(raw):
+    # ==========================================================
+    # Detectar tipo de evidencia
+    # ==========================================================
+    titulo = ""
+    known_port = None
+    is_light_source = False
+
+    if ev.requisito_id:
+        titulo = ev.requisito.titulo or ""
+
+        is_light_source = (
+            bool(getattr(ev.requisito, "needs_light_source_reading", False))
+            or _light_source_meta_from_title(titulo)
+            or ev.light_source_dbm is not None
+            or "type=light_source" in ((ev.power_extract_note or "").lower())
+        )
+
+        known_port = getattr(ev.requisito, "power_port_no", None)
+        if not known_port:
+            _needs_power, known_port = _power_meta_from_title(titulo)
+
+        try:
+            known_port = int(known_port) if known_port else None
+        except Exception:
+            known_port = None
+
+        if known_port and not (1 <= known_port <= 8):
+            known_port = None
+    else:
+        titulo = ev.titulo_manual or "Extra"
+        is_light_source = (
+            _light_source_meta_from_title(titulo)
+            or ev.light_source_dbm is not None
+            or "type=light_source" in ((ev.power_extract_note or "").lower())
+        )
+
+    def _normalize_dbm_value(raw, allow_positive=False):
+        """
+        Normaliza dBm.
+
+        allow_positive=False:
+            POWER PORT: solo acepta -60.00 a 0.00
+
+        allow_positive=True:
+            LIGHT SOURCE: acepta positivo o negativo.
+        """
         txt = (raw or "").strip()
         txt = txt.replace(",", ".")
         txt = txt.replace("−", "-").replace("–", "-").replace("—", "-")
+        txt = txt.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
 
-        m = re.search(r"-\s*\d{1,2}(?:\.\d{1,2})?", txt)
+        # Busca número con o sin signo.
+        # Ejemplos válidos:
+        # -7.90
+        # 7.90
+        # +7.90
+        # 1550
+        m = re.search(r"[+-]?\s*\d{1,4}(?:\.\d{1,3})?", txt)
         if not m:
             return None
 
@@ -3627,8 +3694,15 @@ def _extract_power_dbm_for_evidence(
         except InvalidOperation:
             return None
 
-        if not (Decimal("-60.00") <= val <= Decimal("0.00")):
-            return None
+        if allow_positive:
+            # LIGHT SOURCE: puede ser positivo o negativo.
+            # Dejamos rango amplio para no bloquear lecturas reales.
+            if not (Decimal("-100.00") <= val <= Decimal("100.00")):
+                return None
+        else:
+            # POWER PORT: debe ser negativo.
+            if not (Decimal("-60.00") <= val <= Decimal("0.00")):
+                return None
 
         return val.quantize(Decimal("0.01"))
 
@@ -3660,27 +3734,40 @@ def _extract_power_dbm_for_evidence(
     else:
         mime = "image/jpeg"
 
-    known_port = None
-    titulo = ""
+    # ==========================================================
+    # PROMPT SEGÚN TIPO
+    # ==========================================================
+    if is_light_source:
+        prompt = f"""
+You are analyzing a telecom field photo.
 
-    if ev.requisito_id:
-        titulo = ev.requisito.titulo or ""
+The evidence title is: {titulo}
 
-        known_port = getattr(ev.requisito, "power_port_no", None)
-        if not known_port:
-            _needs_power, known_port = _power_meta_from_title(titulo)
+This is a LIGHT SOURCE photo.
 
-        try:
-            known_port = int(known_port) if known_port else None
-        except Exception:
-            known_port = None
+Task:
+Read the optical light source output value shown on the device LCD screen in dBm.
 
-        if known_port and not (1 <= known_port <= 8):
-            known_port = None
+Important:
+- The value may be positive or negative.
+- Examples: -7.90 dBm, 7.90 dBm, +7.90 dBm.
+- Do not force the value to be negative.
+- Do not read GPS, date, address, serial number, wavelength, or overlay text.
+- Do not detect any port number for LIGHT SOURCE.
+- Do not guess if unreadable.
+
+Respond ONLY as strict JSON:
+{{
+  "found": true,
+  "value_dbm": "7.90",
+  "port_no": null,
+  "confidence": 0.0,
+  "port_confidence": 0.0,
+  "reason": "short reason"
+}}
+"""
     else:
-        titulo = ev.titulo_manual or "Extra"
-
-    prompt = f"""
+        prompt = f"""
 You are analyzing a telecom field photo for a light level report.
 
 The photo usually contains:
@@ -3712,6 +3799,7 @@ How to count ports:
 - If several yellow fibers are visible, choose the one physically connected to the power meter/test lead.
 
 Rules:
+- POWER PORT values must normally be negative dBm values.
 - Do not guess the dBm value if unreadable.
 - If the dBm value is readable, return found true.
 - If the port is visible but not perfectly clear, return your best port number and lower port_confidence.
@@ -3780,24 +3868,73 @@ Respond ONLY as strict JSON:
     except Exception:
         port_confidence_decimal = Decimal("0")
 
-    val = _normalize_dbm_value(raw_value)
+    val = _normalize_dbm_value(raw_value, allow_positive=is_light_source)
 
     if not found or val is None:
         raise ValueError("Could not find a valid dBm value.")
 
-    if confidence_decimal < Decimal("0.70"):
+    # ==========================================================
+    # Confianza:
+    # - LIGHT SOURCE no se bloquea por confidence 0.0
+    # - POWER PORT sí se mantiene estricto
+    # ==========================================================
+    if not is_light_source and confidence_decimal < Decimal("0.70"):
         raise ValueError(
-            "The dBm value was detected but confidence is too low. Please review manually."
+            f"The dBm value was detected but confidence is too low "
+            f"({confidence_decimal}). Please review manually."
         )
 
     # ==========================================================
-    # REGLA FINAL DEL PUERTO
+    # LIGHT SOURCE: guardar en light_source_dbm
+    # ==========================================================
+    if is_light_source:
+        ev.light_source_dbm = val
+        ev.power_extracted_at = timezone.now()
+        ev.power_extracted_by = user
+
+        note_parts = [
+            "Vision OCR",
+            "type=light_source",
+            f"model={model_name}",
+            f"confidence={confidence_decimal}",
+            f"raw={raw_value}",
+        ]
+
+        if confidence_decimal < Decimal("0.70"):
+            note_parts.append("low_confidence=1")
+
+        reason = (data.get("reason") or "")[:100]
+        if reason:
+            note_parts.append(f"reason={reason}")
+
+        ev.power_extract_note = " | ".join(note_parts)[:255]
+
+        ev.save(
+            update_fields=[
+                "light_source_dbm",
+                "power_extracted_at",
+                "power_extracted_by",
+                "power_extract_note",
+            ]
+        )
+
+        return {
+            "power_dbm": f"{val:.2f}",
+            "light_source_dbm": f"{val:.2f}",
+            "port_no": None,
+            "confidence": str(confidence_decimal),
+            "port_confidence": "",
+            "method": "vision",
+            "kind": "light_source",
+            "raw_response": data,
+        }
+
+    # ==========================================================
+    # POWER PORT: regla final del puerto
     # ==========================================================
     if ev.requisito_id and known_port:
-        # Si ya viene de un requisito POWER PORT X, manda ese puerto.
         port_no = known_port
     else:
-        # Solo extras usan el puerto detectado por IA.
         port_no = detected_port_no
 
     ev.power_dbm = val
@@ -3806,6 +3943,7 @@ Respond ONLY as strict JSON:
 
     note_parts = [
         "Vision OCR",
+        "type=power_port",
         f"model={model_name}",
         f"confidence={confidence_decimal}",
         f"raw={raw_value}",
@@ -3848,6 +3986,7 @@ Respond ONLY as strict JSON:
         "confidence": str(confidence_decimal),
         "port_confidence": str(port_confidence_decimal),
         "method": "vision",
+        "kind": "power_port",
         "raw_response": data,
     }
 
@@ -3857,8 +3996,9 @@ Respond ONLY as strict JSON:
 @require_POST
 def extract_power_from_evidence(request, evidencia_id: int):
     """
-    Botón manual para extraer potencia dBm y puerto.
-    Sirve para requisitos POWER PORT y también para Extras.
+    Botón manual para extraer:
+    - Power Port
+    - Light Source
     """
     ev = get_object_or_404(
         EvidenciaFotoBilling.objects.select_related(
@@ -3892,10 +4032,12 @@ def extract_power_from_evidence(request, evidencia_id: int):
         {
             "ok": True,
             "power_dbm": result.get("power_dbm", ""),
+            "light_source_dbm": result.get("light_source_dbm", ""),
             "port_no": result.get("port_no", None),
             "confidence": result.get("confidence", ""),
             "port_confidence": result.get("port_confidence", ""),
             "method": result.get("method", "vision"),
+            "kind": result.get("kind", "power_port"),
             "raw_response": result.get("raw_response", {}),
         }
     )
@@ -3930,7 +4072,125 @@ def update_power_from_evidence(request, evidencia_id: int):
     raw_port = str(payload.get("port_no", "")).strip()
 
     # ==========================================================
-    # Detectar si es evidencia de Power Port
+    # Detectar LIGHT SOURCE
+    # ==========================================================
+    is_light_source = False
+
+    if ev.requisito_id:
+        titulo_req = (ev.requisito.titulo or "").strip()
+        is_light_source = (
+            bool(getattr(ev.requisito, "needs_light_source_reading", False))
+            or _light_source_meta_from_title(titulo_req)
+            or ev.light_source_dbm is not None
+            or "type=light_source" in ((ev.power_extract_note or "").lower())
+        )
+    else:
+        titulo_manual = (ev.titulo_manual or "").strip()
+        is_light_source = (
+            _light_source_meta_from_title(titulo_manual)
+            or ev.light_source_dbm is not None
+            or "type=light_source" in ((ev.power_extract_note or "").lower())
+        )
+
+    # ==========================================================
+    # Limpiar valor dBm
+    # ==========================================================
+    raw = raw_power
+    raw = raw.replace(",", ".")
+    raw = raw.replace("−", "-").replace("–", "-").replace("—", "-")
+    raw = raw.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
+
+    # ==========================================================
+    # LIGHT SOURCE: guardar/limpiar light_source_dbm
+    # ==========================================================
+    if is_light_source:
+        if raw == "":
+            ev.light_source_dbm = None
+            ev.power_extracted_at = timezone.now()
+            ev.power_extracted_by = request.user
+            ev.power_extract_note = (
+                f"Manual edit | cleared | type=light_source | user={request.user.username}"
+            )[:255]
+
+            ev.save(
+                update_fields=[
+                    "light_source_dbm",
+                    "power_extracted_at",
+                    "power_extracted_by",
+                    "power_extract_note",
+                ]
+            )
+
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "power_dbm": "",
+                    "light_source_dbm": "",
+                    "port_no": "",
+                    "display": "pending",
+                    "kind": "light_source",
+                }
+            )
+
+        # Si escribe 7.90 en Light Source, lo guardamos como -7.90
+        m = re.search(r"-?\d{1,2}(?:\.\d{1,2})?", raw)
+        if not m:
+            return JsonResponse(
+                {"ok": False, "error": "Invalid value. Example: -7.90"},
+                status=400,
+            )
+
+        try:
+            val = Decimal(m.group(0))
+        except InvalidOperation:
+            return JsonResponse(
+                {"ok": False, "error": "Invalid value. Example: -7.90"},
+                status=400,
+            )
+
+        if val > 0:
+            val = val * Decimal("-1")
+
+        if not (Decimal("-60.00") <= val <= Decimal("0.00")):
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "Light Source must be between -60.00 and 0.00 dBm.",
+                },
+                status=400,
+            )
+
+        val = val.quantize(Decimal("0.01"))
+
+        ev.light_source_dbm = val
+        ev.power_extracted_at = timezone.now()
+        ev.power_extracted_by = request.user
+        ev.power_extract_note = (
+            f"Manual edit | type=light_source | user={request.user.username}"
+        )[:255]
+
+        ev.save(
+            update_fields=[
+                "light_source_dbm",
+                "power_extracted_at",
+                "power_extracted_by",
+                "power_extract_note",
+            ]
+        )
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "power_dbm": f"{val:.2f}",  # se mantiene para tu JS
+                "light_source_dbm": f"{val:.2f}",
+                "port_no": "",
+                "display": f"{val:.2f} dBm",
+                "kind": "light_source",
+            }
+        )
+
+    # ==========================================================
+    # POWER PORT normal
     # ==========================================================
     is_power_port = False
 
@@ -3949,10 +4209,6 @@ def update_power_from_evidence(request, evidencia_id: int):
         nota = (ev.nota or "").strip()
         needs_power, _port_no = _power_meta_from_title(titulo_manual)
 
-        # ✅ FIX:
-        # Si es Extra, permitimos edición manual cuando el usuario envía power o port.
-        # Esto evita el error:
-        # "This evidence is not marked as Power Port."
         is_power_port = (
             needs_power
             or ev.power_dbm is not None
@@ -3994,21 +4250,11 @@ def update_power_from_evidence(request, evidencia_id: int):
     else:
         port_no = _power_port_no_from_evidence(ev)
 
-    # ✅ Si pertenece a requisito POWER PORT, actualizamos también el requisito.
-    # En Extra no hay requisito, por eso el puerto queda guardado en power_extract_note.
     if ev.requisito_id and port_no:
         req = ev.requisito
         req.power_port_no = port_no
         req.needs_power_reading = True
         req.save(update_fields=["power_port_no", "needs_power_reading"])
-
-    # ==========================
-    # Limpiar potencia
-    # ==========================
-    raw = raw_power
-    raw = raw.replace(",", ".")
-    raw = raw.replace("−", "-").replace("–", "-").replace("—", "-")
-    raw = raw.replace("dbm", "").replace("dBm", "").replace("DBM", "").strip()
 
     # ==========================
     # Si viene vacío, limpiar power pero conservar port si existe
@@ -4018,7 +4264,9 @@ def update_power_from_evidence(request, evidencia_id: int):
         ev.power_extracted_at = timezone.now()
         ev.power_extracted_by = request.user
 
-        note_parts = [f"Manual edit | cleared | user={request.user.username}"]
+        note_parts = [
+            f"Manual edit | cleared | type=power_port | user={request.user.username}"
+        ]
 
         if port_no:
             note_parts.append(f"port={port_no}")
@@ -4045,6 +4293,7 @@ def update_power_from_evidence(request, evidencia_id: int):
                 "power_dbm": "",
                 "port_no": port_no,
                 "display": "pending",
+                "kind": "power_port",
             }
         )
 
@@ -4075,7 +4324,7 @@ def update_power_from_evidence(request, evidencia_id: int):
     ev.power_extracted_at = timezone.now()
     ev.power_extracted_by = request.user
 
-    note_parts = [f"Manual edit | user={request.user.username}"]
+    note_parts = [f"Manual edit | type=power_port | user={request.user.username}"]
 
     if port_no:
         note_parts.append(f"port={port_no}")
@@ -4102,6 +4351,7 @@ def update_power_from_evidence(request, evidencia_id: int):
             "power_dbm": f"{val:.2f}",
             "port_no": port_no,
             "display": f"{val:.2f} dBm",
+            "kind": "power_port",
         }
     )
 
@@ -4194,6 +4444,7 @@ def confirmar_importar_requisitos(request, sesion_id):
 
                     # ✅ NUEVO: detectar POWER PORT 1..8
                     needs_power, port_no = _power_meta_from_title(name)
+                    needs_light_source = _light_source_meta_from_title(name)
 
                     RequisitoFotoBilling.objects.create(
                         tecnico_sesion=a,
@@ -4202,6 +4453,7 @@ def confirmar_importar_requisitos(request, sesion_id):
                         obligatorio=mandatory,
                         orden=order,
                         needs_power_reading=bool(needs_power),
+                        needs_light_source_reading=bool(needs_light_source),
                         power_port_no=port_no,
                     )
 
@@ -4220,15 +4472,14 @@ def confirmar_importar_requisitos(request, sesion_id):
     return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
 
 
-
-
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
 def configurar_requisitos(request, sesion_id):
     """
     Configura la lista compartida de requisitos a nivel de proyecto
     y la sincroniza con TODAS las asignaciones SIN borrar estados previos.
-    + NUEVO: marca automáticamente needs_power_reading/power_port_no si el título es POWER PORT X.
+    + marca automáticamente needs_power_reading/power_port_no si el título es POWER PORT X.
+    + marca automáticamente needs_light_source_reading si el título es LIGHT SOURCE.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
@@ -4281,6 +4532,7 @@ def configurar_requisitos(request, sesion_id):
 
                     for req_id, orden, name, mandatory in normalized:
                         needs_power, port_no = _power_meta_from_title(name)
+                        needs_light_source = _light_source_meta_from_title(name)
 
                         if req_id and req_id in existentes:
                             r = existentes[req_id]
@@ -4290,6 +4542,7 @@ def configurar_requisitos(request, sesion_id):
                                 or r.obligatorio != mandatory
                                 or r.tecnico_sesion_id != a.id
                                 or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
+                                or bool(getattr(r, "needs_light_source_reading", False)) != bool(needs_light_source)
                                 or getattr(r, "power_port_no", None) != port_no
                             )
                             if changed:
@@ -4298,22 +4551,23 @@ def configurar_requisitos(request, sesion_id):
                                 r.obligatorio = mandatory
                                 r.tecnico_sesion = a
                                 r.needs_power_reading = bool(needs_power)
+                                r.needs_light_source_reading = bool(needs_light_source)
                                 r.power_port_no = port_no
                                 r.save(update_fields=[
                                     "titulo", "orden", "obligatorio", "tecnico_sesion",
-                                    "needs_power_reading", "power_port_no",
+                                    "needs_power_reading", "needs_light_source_reading", "power_port_no",
                                 ])
                         else:
                             key = slugify(name)
                             r = existentes_por_slug.get(key)
 
                             if r and str(r.id) not in to_del:
-                                # rename/match por slug
                                 changed = (
                                     r.titulo != name
                                     or r.orden != orden
                                     or r.obligatorio != mandatory
                                     or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
+                                    or bool(getattr(r, "needs_light_source_reading", False)) != bool(needs_light_source)
                                     or getattr(r, "power_port_no", None) != port_no
                                 )
                                 if changed:
@@ -4321,10 +4575,11 @@ def configurar_requisitos(request, sesion_id):
                                     r.orden = orden
                                     r.obligatorio = mandatory
                                     r.needs_power_reading = bool(needs_power)
+                                    r.needs_light_source_reading = bool(needs_light_source)
                                     r.power_port_no = port_no
                                     r.save(update_fields=[
                                         "titulo", "orden", "obligatorio",
-                                        "needs_power_reading", "power_port_no",
+                                        "needs_power_reading", "needs_light_source_reading", "power_port_no",
                                     ])
                             else:
                                 RequisitoFotoBilling.objects.create(
@@ -4334,6 +4589,7 @@ def configurar_requisitos(request, sesion_id):
                                     obligatorio=mandatory,
                                     orden=orden,
                                     needs_power_reading=bool(needs_power),
+                                    needs_light_source_reading=bool(needs_light_source),
                                     power_port_no=port_no,
                                 )
 
@@ -4360,6 +4616,7 @@ def configurar_requisitos(request, sesion_id):
             "is_special": bool(s.proyecto_especial),
         },
     )
+
 
 @login_required
 @rol_requerido('supervisor', 'admin', 'pm')
@@ -5085,6 +5342,7 @@ def bulk_confirmar_importar_requisitos(request):
 
                         # ✅ NUEVO: detectar POWER PORT 1..8
                         needs_power, port_no = _power_meta_from_title(name)
+                        needs_light_source = _light_source_meta_from_title(name)
 
                         RequisitoFotoBilling.objects.create(
                             tecnico_sesion=a,
@@ -5093,6 +5351,7 @@ def bulk_confirmar_importar_requisitos(request):
                             obligatorio=mandatory,
                             orden=order,
                             needs_power_reading=bool(needs_power),
+                            needs_light_source_reading=bool(needs_light_source),
                             power_port_no=port_no,
                         )
 

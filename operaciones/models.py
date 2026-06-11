@@ -670,6 +670,13 @@ class RequisitoFotoBilling(models.Model):
         help_text="If enabled, this requirement expects a Power Meter reading (dBm).",
     )
 
+    # ✅ NUEVO: flags de medición (Light Source)
+    needs_light_source_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Light Source reading (dBm).",
+    )
+
     power_port_no = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
@@ -684,6 +691,7 @@ class RequisitoFotoBilling(models.Model):
         indexes = [
             models.Index(fields=["tecnico_sesion", "orden"]),
             models.Index(fields=["tecnico_sesion", "needs_power_reading"]),
+            models.Index(fields=["tecnico_sesion", "needs_light_source_reading"]),
         ]
 
     def __str__(self):
@@ -750,6 +758,18 @@ class EvidenciaFotoBilling(models.Model):
         help_text="Extracted Power Meter reading in dBm (e.g., -21.05).",
     )
 
+    # ✅ NUEVO: Light Source reading (extracted by admin)
+
+    light_source_dbm = models.DecimalField(
+        "Light Source (dBm)",
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Extracted Light Source reading in dBm (e.g., -7.90).",
+    )
+
     power_extracted_at = models.DateTimeField(null=True, blank=True)
 
     power_extracted_by = models.ForeignKey(
@@ -770,7 +790,72 @@ class EvidenciaFotoBilling(models.Model):
             models.Index(fields=["tecnico_sesion"]),
             models.Index(fields=["requisito"]),
             models.Index(fields=["power_dbm"]),
+            models.Index(fields=["light_source_dbm"]),
         ]
+
+    @property
+    def evidencia_titulo(self) -> str:
+
+        if self.requisito_id and self.requisito:
+
+            return self.requisito.titulo or ""
+
+        elif self.titulo_manual:
+
+            return self.titulo_manual or ""
+
+        return ""
+
+    @property
+    def is_power_candidate(self) -> bool:
+
+        if self.requisito_id and self.requisito:
+
+            if self.requisito.needs_power_reading:
+
+                return True
+
+        titulo = self.evidencia_titulo.upper().strip()
+
+        return "POWER PORT" in titulo
+
+    @property
+    def is_light_source_candidate(self) -> bool:
+
+        if self.requisito_id and self.requisito:
+
+            if self.requisito.needs_light_source_reading:
+
+                return True
+
+        titulo = self.evidencia_titulo.upper().strip()
+
+        return "LIGHT SOURCE" in titulo
+
+    @property
+    def power_port_no_display(self):
+
+        if self.requisito_id and self.requisito and self.requisito.power_port_no:
+
+            return self.requisito.power_port_no
+
+        titulo = self.evidencia_titulo.upper().strip()
+
+        import re
+
+        m = re.search(r"POWER\s*PORT\s*(\d+)", titulo)
+
+        if m:
+
+            try:
+
+                return int(m.group(1))
+
+            except Exception:
+
+                return None
+
+        return None
 
     def __str__(self):
 

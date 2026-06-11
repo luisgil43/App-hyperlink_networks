@@ -247,12 +247,16 @@
 {% endif %}
 
 {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
-  {% if ev.is_power_candidate %}
+  {% if ev.is_power_candidate or ev.is_light_source_candidate %}
     <div class="absolute left-2 top-12 z-20">
       <button type="button"
               class="btn-extract-power inline-flex items-center gap-1 bg-white/90 border rounded-full px-2 py-1 text-xs text-gray-700 shadow-sm"
               data-url="{% url 'operaciones:extract_power_from_evidence' ev.id %}">
-        ⚡ Extract power
+        {% if ev.is_light_source_candidate %}
+          ⚡ Extract light source
+        {% else %}
+          ⚡ Extract power
+        {% endif %}
       </button>
     </div>
   {% endif %}
@@ -295,6 +299,54 @@
   </div>
 
   <div>🕒 {{ ev.client_taken_at|default:ev.tomada_en|date:"Y-m-d H:i" }}</div>
+  {% if ev.is_light_source_candidate %}
+  <div class="mt-1 power-inline-wrap"
+       data-power-wrap="{{ ev.id }}"
+       data-kind="light_source"
+       data-update-url="{% url 'operaciones:update_power_from_evidence' ev.id %}">
+    <span id="power-view-{{ ev.id }}"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs {% if ev.light_source_dbm != None %}bg-sky-100 text-sky-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+      ⚡ Light Source:
+      <span class="power-value">
+        {% if ev.light_source_dbm != None %}
+          {{ ev.light_source_dbm }} dBm
+        {% else %}
+          pending
+        {% endif %}
+      </span>
+    </span>
+    <div id="power-edit-box-{{ ev.id }}"
+         class="power-edit-box hidden mt-1 p-2 rounded-lg border bg-gray-50 w-fit">
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-600 w-12">Light</label>
+       <input type="text"
+               id="power-input-{{ ev.id }}"
+               class="power-input border rounded px-2 py-0.5 text-xs w-24"
+               value="{% if ev.light_source_dbm != None %}{{ ev.light_source_dbm|unlocalize }}{% endif %}"
+               placeholder="-7.90">
+      </div>
+      <input type="hidden"
+             id="port-input-{{ ev.id }}"
+             class="port-input"
+             value="">
+    </div>
+    <button type="button"
+            class="power-edit text-xs text-blue-600 underline ml-1"
+            data-id="{{ ev.id }}">
+      ✏️
+    </button>
+    <button type="button"
+            class="power-save hidden text-xs text-emerald-700 underline ml-1"
+            data-id="{{ ev.id }}">
+      Save
+    </button>
+    <button type="button"
+            class="power-cancel hidden text-xs text-gray-500 underline ml-1"
+            data-id="{{ ev.id }}">
+      Cancel
+    </button>
+  </div>
+{% endif %}
 {% if ev.is_power_candidate %}
   <div class="mt-1 power-inline-wrap"
        data-power-wrap="{{ ev.id }}"
@@ -1065,41 +1117,103 @@ function closeRejectModal(){ document.getElementById('reject-modal').classList.a
     }
   }
 
-  function updateBadge(id, powerValue, portNo){
-    const view = document.getElementById(`power-view-${id}`);
-    const powerInput = document.getElementById(`power-input-${id}`);
-    const portInput = document.getElementById(`port-input-${id}`);
+function updateBadge(id, powerValue, portNo){
 
-    if (!view || !powerInput) return;
+  const view = document.getElementById(`power-view-${id}`);
 
-    const valueSpan = view.querySelector('.power-value');
+  const powerInput = document.getElementById(`power-input-${id}`);
 
-    if (powerValue) {
-      let html = `${powerValue} dBm`;
+  const portInput = document.getElementById(`port-input-${id}`);
+
+  const wrap = document.querySelector(`[data-power-wrap="${id}"]`);
+
+  const kind = wrap ? (wrap.dataset.kind || 'power') : 'power';
+
+  if (!view || !powerInput) return;
+
+  const valueSpan = view.querySelector('.power-value');
+
+  if (powerValue) {
+
+    let html = `${powerValue} dBm`;
+
+    // ✅ Solo Power Port muestra puerto.
+
+    // ✅ Light Source NO debe mostrar Port pending.
+
+    if (kind !== 'light_source') {
 
       if (portNo) {
+
         html += ` <span class="ml-1 font-semibold text-emerald-900">· Port ${portNo}</span>`;
+
       } else {
+
         html += ` <span class="ml-1 text-amber-700">· Port pending</span>`;
+
       }
 
-      valueSpan.innerHTML = html;
-      powerInput.value = powerValue;
-
-      if (portInput && portNo) {
-        portInput.value = portNo;
-      }
-
-      view.classList.remove('bg-yellow-100', 'text-yellow-800');
-      view.classList.add('bg-emerald-100', 'text-emerald-800');
-    } else {
-      valueSpan.textContent = 'pending';
-      powerInput.value = '';
-
-      view.classList.remove('bg-emerald-100', 'text-emerald-800');
-      view.classList.add('bg-yellow-100', 'text-yellow-800');
     }
+
+    valueSpan.innerHTML = html;
+
+    powerInput.value = powerValue;
+
+    if (portInput && portNo) {
+
+      portInput.value = portNo;
+
+    }
+
+    view.classList.remove(
+
+      'bg-yellow-100',
+
+      'text-yellow-800',
+
+      'bg-emerald-100',
+
+      'text-emerald-800',
+
+      'bg-sky-100',
+
+      'text-sky-800'
+
+    );
+
+    if (kind === 'light_source') {
+
+      view.classList.add('bg-sky-100', 'text-sky-800');
+
+    } else {
+
+      view.classList.add('bg-emerald-100', 'text-emerald-800');
+
+    }
+
+  } else {
+
+    valueSpan.textContent = 'pending';
+
+    powerInput.value = '';
+
+    view.classList.remove(
+
+      'bg-emerald-100',
+
+      'text-emerald-800',
+
+      'bg-sky-100',
+
+      'text-sky-800'
+
+    );
+
+    view.classList.add('bg-yellow-100', 'text-yellow-800');
+
   }
+
+}
 
   async function savePower(id){
     const wrap = document.querySelector(`[data-power-wrap="${id}"]`);
