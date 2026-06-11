@@ -10,29 +10,34 @@ from .views import no_autorizado_view
 app_name = 'usuarios'
 
 urlpatterns = [
-
-    path('no-autorizado/', no_autorizado_view, name='no_autorizado'),
-    path('firma-representante/subir/', views.subir_firma_representante,
-         name='subir_firma_representante'),
-    path('recuperar/', views.recuperar_contraseña, name='recuperar_contraseña'),
-    path('reset/<int:usuario_id>/<str:token>/',
-         views.resetear_contraseña, name='resetear_contraseña'),
-    path('recuperar/enviado/', TemplateView.as_view(
-        template_name='usuarios/confirmacion_envio.html'), name='confirmacion_envio'),
+    path("no-autorizado/", no_autorizado_view, name="no_autorizado"),
+    path(
+        "firma-representante/subir/",
+        views.subir_firma_representante,
+        name="subir_firma_representante",
+    ),
+    path("recuperar/", views.recuperar_contraseña, name="recuperar_contraseña"),
+    path(
+        "reset/<int:usuario_id>/<str:token>/",
+        views.resetear_contraseña,
+        name="resetear_contraseña",
+    ),
+    path(
+        "recuperar/enviado/",
+        TemplateView.as_view(template_name="usuarios/confirmacion_envio.html"),
+        name="confirmacion_envio",
+    ),
     # path('login/', views.login_unificado, name='login'),
-    path('login/', views.login_unificado, name='login_unificado'),
-    path('login/', views.login_unificado, name='login'),
-
+    path("login/", views.login_unificado, name="login_unificado"),
+    path("login/", views.login_unificado, name="login"),
     path("2fa/setup/", views.two_factor_setup, name="two_factor_setup"),
     path("2fa/verify/", views.two_factor_verify, name="two_factor_verify"),
-    
-    path('seleccionar-rol/', views.seleccionar_rol, name='seleccionar_rol'),
-    path('notificacion/<int:pk>/leer/',
-         views.marcar_notificacion_como_leida, name='leer_notificacion'),
-     path("ui-mode/toggle/", views.toggle_ui_mode, name="toggle_ui_mode"),
-
-
-
-
-
+    path("seleccionar-rol/", views.seleccionar_rol, name="seleccionar_rol"),
+    path(
+        "notificacion/<int:pk>/leer/",
+        views.marcar_notificacion_como_leida,
+        name="leer_notificacion",
+    ),
+    path("ui-mode/toggle/", views.toggle_ui_mode, name="toggle_ui_mode"),
+    path("download-ready/", views.download_ready, name="download_ready"),
 ]

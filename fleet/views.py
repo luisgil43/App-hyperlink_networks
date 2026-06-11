@@ -786,10 +786,19 @@ def odometer_log_create(request):
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 def export_odometer_logs(request):
+    from io import BytesIO
+
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
     vehicle_id = request.GET.get("vehicle")
 
     qs = VehicleOdometerEvent.objects.select_related("vehicle", "project").order_by(
-        "-event_at", "-id"
+        "-event_at",
+        "-id",
     )
 
     if vehicle_id:
@@ -798,60 +807,108 @@ def export_odometer_logs(request):
         except Exception:
             pass
 
-    resp = HttpResponse(content_type="application/vnd.ms-excel; charset=utf-8")
-    resp["Content-Disposition"] = 'attachment; filename="odometer_logs.xls"'
+    # ===== Excel XLSX real =====
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Odometer Logs"
 
-    # Excel abre HTML table como .xls sin problema
-    lines = []
-    lines.append("<html><head><meta charset='utf-8'></head><body>")
-    lines.append("<table border='1'>")
-    lines.append(
-        "<tr>"
-        "<th>Date</th>"
-        "<th>Vehicle</th>"
-        "<th>Project</th>"
-        "<th>Prev (miles)</th>"
-        "<th>Odometer (miles)</th>"
-        "<th>Delta (miles)</th>"
-        "<th>Source</th>"
-        "<th>Notes</th>"
-        "</tr>"
-    )
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
 
-    for ev in qs.iterator():
-        dt = (
-            timezone.localtime(ev.event_at).strftime("%Y-%m-%d %H:%M")
-            if ev.event_at
-            else ""
-        )
+    # ===== Styles =====
+    header_fill = PatternFill("solid", fgColor="374151")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+
+    thin = Side(style="thin", color="D1D5DB")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    left = Alignment(horizontal="left", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
+
+    columns = [
+        "Date",
+        "Vehicle",
+        "Project",
+        "Prev (miles)",
+        "Odometer (miles)",
+        "Delta (miles)",
+        "Source",
+        "Notes",
+    ]
+
+    ws.append(columns)
+
+    for col_num, title in enumerate(columns, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border_all
+
+    for row_num, ev in enumerate(qs.iterator(), start=2):
+        dt = ""
+        if ev.event_at:
+            dt = timezone.localtime(ev.event_at).replace(tzinfo=None)
+
         plate = ev.vehicle.patente if ev.vehicle_id else ""
         project = ev.project.nombre if getattr(ev, "project_id", None) else ""
         prev_odo = int(ev.prev_odometer or 0)
         odo = int(ev.odometer or 0)
         delta = int(odo - prev_odo)
         source = ev.source or ""
-        notes = (
-            (ev.notes or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+        notes = ev.notes or ""
 
-        lines.append(
-            "<tr>"
-            f"<td>{dt}</td>"
-            f"<td>{plate}</td>"
-            f"<td>{project}</td>"
-            f"<td>{prev_odo}</td>"
-            f"<td>{odo}</td>"
-            f"<td>{delta}</td>"
-            f"<td>{source}</td>"
-            f"<td>{notes}</td>"
-            "</tr>"
-        )
+        ws.cell(row=row_num, column=1, value=dt)
+        ws.cell(row=row_num, column=2, value=plate)
+        ws.cell(row=row_num, column=3, value=project)
+        ws.cell(row=row_num, column=4, value=prev_odo)
+        ws.cell(row=row_num, column=5, value=odo)
+        ws.cell(row=row_num, column=6, value=delta)
+        ws.cell(row=row_num, column=7, value=source)
+        ws.cell(row=row_num, column=8, value=notes)
 
-    lines.append("</table></body></html>")
-    resp.write("\n".join(lines))
+        for col in range(1, 9):
+            c = ws.cell(row=row_num, column=col)
+            c.border = border_all
+
+            if col == 1:
+                c.number_format = "YYYY-MM-DD HH:MM"
+                c.alignment = center
+            elif col in (4, 5, 6):
+                c.alignment = right
+                c.number_format = "#,##0"
+            else:
+                c.alignment = left
+
+    widths = {
+        1: 20,
+        2: 18,
+        3: 28,
+        4: 16,
+        5: 18,
+        6: 16,
+        7: 16,
+        8: 42,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    resp = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="odometer_logs.xlsx"'
+
     return resp
 
 

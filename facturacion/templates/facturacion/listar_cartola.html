@@ -95,10 +95,11 @@
       + Register Credit
     </a>
     <a id="exportLink"
-       href="{% url 'facturacion:exportar_cartola' %}?{{ request.GET.urlencode }}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow flex items-center gap-1">
-      📄 Export to Excel
-    </a>
+   href="{% url 'facturacion:exportar_cartola' %}?{{ request.GET.urlencode }}"
+   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow flex items-center gap-1 native-export-file"
+   data-share-url="{% url 'facturacion:exportar_cartola' %}?{{ request.GET.urlencode }}">
+  📄 Export to Excel
+</a>
   </div>
 </div>
 
@@ -318,17 +319,32 @@
               data-excel-value="{% if mov.comprobante %}Ver{% else %}—{% endif %}">
             {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
               <div class="flex flex-col items-center gap-1">
-                {% if mov.comprobante %}
-                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
-                {% endif %}
-                {% if mov.foto_tablero %}
-                  <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
-                {% endif %}
+               {% if mov.comprobante %}
+  <a href="{{ mov.comprobante.url }}"
+     target="_blank"
+     class="text-blue-600 underline native-share-file"
+     data-share-url="{{ mov.comprobante.url }}">
+    📄 Receipt
+  </a>
+{% endif %}
+{% if mov.foto_tablero %}
+  <a href="{{ mov.foto_tablero.url }}"
+     target="_blank"
+     class="text-blue-600 underline native-share-file"
+     data-share-url="{{ mov.foto_tablero.url }}">
+    📷 Odometer
+  </a>
+{% endif %}
                 {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
               </div>
             {% else %}
               {% if mov.comprobante %}
-                <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
+                <a href="{{ mov.comprobante.url }}"
+   target="_blank"
+   class="text-blue-600 underline native-share-file"
+   data-share-url="{{ mov.comprobante.url }}">
+  View
+</a>
               {% else %}
                 —
               {% endif %}
@@ -741,7 +757,11 @@
 
     const url = `${location.pathname}?${qs}`;
     if (push) history.replaceState(null, '', url);
-    exportLink.href = `{% url 'facturacion:exportar_cartola' %}?` + qs;
+    if (exportLink) {
+  const exportUrl = `{% url 'facturacion:exportar_cartola' %}?` + qs;
+  exportLink.href = exportUrl;
+  exportLink.dataset.shareUrl = exportUrl;
+}
 
     if (controller) controller.abort();
     controller = new AbortController();
@@ -1243,6 +1263,39 @@
   engancharClearExcelGlobal();
 })();
 </script>
+<script>
+(function () {
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a.native-share-file, a.native-export-file");
+    if (!link) return;
 
+    const fileUrl = link.dataset.shareUrl || link.getAttribute("href");
+    if (!fileUrl) return;
+
+    /*
+      SOLO APP NATIVA:
+      Si estamos dentro de React Native WebView,
+      evitamos que abra el archivo dentro del WebView y mandamos la URL a la app.
+    */
+    if (window.ReactNativeWebView) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "share_file",
+        url: fileUrl
+      }));
+    }
+
+    /*
+      WEB NORMAL:
+      Si NO existe window.ReactNativeWebView,
+      no hacemos preventDefault.
+      Entonces el link sigue funcionando normal.
+    */
+  }, true);
+})();
+</script>
 </div>
 {% endblock %}

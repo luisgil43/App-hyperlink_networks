@@ -10,10 +10,10 @@ from .base import *  # Importa todas las configuraciones base
 DEBUG = False
 
 ALLOWED_HOSTS = [
-    'app-hyperlink-networks.onrender.com',
-    'localhost',
-    '127.0.0.1',
-    '172.20.10.2'
+    "app-hyperlink-networks.onrender.com",
+    "localhost",
+    "127.0.0.1",
+    "172.20.10.2", "192.168.1.88",
 ]
 
 

@@ -691,25 +691,24 @@
 </script>
 <script>
 /*
-  PLANIX / HYPERLINK - Fix global de descargas para TODOS los entornos.
+  PLANIX / HYPERLINK - Fix global V4 para descargas.
 
-  Cubre:
-  1) <a href="archivo.xlsx">
-  2) <a href="/export/...">
-  3) <form method="post" action="/export/...">
-  4) form.submit() desde JavaScript
+  Objetivo:
+  Evitar que archivos .xlsx/.csv/.pdf/.docx/.zip se pinten como texto "PK..."
+  dentro de WebView/PWA/app.
 
-  Problema:
-  Algunos WebView/PWA/apps muestran archivos .xlsx/.csv/.pdf/.docx/.zip como texto.
-  Ejemplo: Excel mostrando "PK..." en pantalla.
+  Estrategia:
+  - Links descargables: abrir en nueva ventana.
+  - Formularios descargables: forzar target="_blank" antes de enviar.
+  - form.submit() programático: también forzar target="_blank".
 
-  Solución:
-  En vez de navegar directo al archivo, descargamos la respuesta como BLOB
-  y forzamos la descarga con un <a download>.
+  Importante:
+  Este script NO usa fetch ni blob, porque en iPhone/WebView puede mostrar
+  "Preparing download..." pero no descargar nada.
 */
 (function () {
-  if (window.__planixGlobalDownloadFixV3) return;
-  window.__planixGlobalDownloadFixV3 = true;
+  if (window.__planixGlobalDownloadFixV4) return;
+  window.__planixGlobalDownloadFixV4 = true;
 
   const DOWNLOAD_EXTENSIONS = [
     ".xlsx",
@@ -745,7 +744,8 @@
     "/billing_export",
     "/billing-export",
     "/operational_excel",
-    "/operational-excel"
+    "/operational-excel",
+    "/exportar/"
   ];
 
   const DOWNLOAD_QUERY_KEYWORDS = [
@@ -774,21 +774,7 @@
     "light"
   ];
 
-  console.log("PLANIX DOWNLOAD FIX V3 - loaded");
-
-  function getCookie(name) {
-    const m = document.cookie.match(new RegExp("(^|; )" + name + "=([^;]*)"));
-    return m ? decodeURIComponent(m[2]) : "";
-  }
-
-  function getCsrfToken() {
-    return (
-      document.querySelector('meta[name="csrf-token"]')?.content ||
-      document.querySelector('input[name="csrfmiddlewaretoken"]')?.value ||
-      getCookie("csrftoken") ||
-      ""
-    );
-  }
+  console.log("PLANIX DOWNLOAD FIX V4 - loaded");
 
   function safeUrl(rawUrl) {
     try {
@@ -816,15 +802,21 @@
     const path = url.pathname.toLowerCase();
     const search = url.search.toLowerCase();
 
-    if (DOWNLOAD_EXTENSIONS.some(ext => path.endsWith(ext))) {
+    if (DOWNLOAD_EXTENSIONS.some(function (ext) {
+      return path.endsWith(ext);
+    })) {
       return true;
     }
 
-    if (DOWNLOAD_PATH_KEYWORDS.some(word => path.includes(word))) {
+    if (DOWNLOAD_PATH_KEYWORDS.some(function (word) {
+      return path.includes(word);
+    })) {
       return true;
     }
 
-    if (DOWNLOAD_QUERY_KEYWORDS.some(word => search.includes(word))) {
+    if (DOWNLOAD_QUERY_KEYWORDS.some(function (word) {
+      return search.includes(word);
+    })) {
       return true;
     }
 
@@ -843,268 +835,35 @@
     const id = (form.id || "").toLowerCase();
     const name = (form.getAttribute("name") || "").toLowerCase();
 
-    return DOWNLOAD_FORM_KEYWORDS.some(word => {
+    return DOWNLOAD_FORM_KEYWORDS.some(function (word) {
       return id.includes(word) || name.includes(word);
     });
   }
 
-  function getFilenameFromDisposition(disposition) {
-    if (!disposition) return "";
-
-    const utf8Match = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-    if (utf8Match && utf8Match[1]) {
-      try {
-        return decodeURIComponent(utf8Match[1].replace(/["']/g, ""));
-      } catch (e) {
-        return utf8Match[1].replace(/["']/g, "");
-      }
-    }
-
-    const normalMatch = disposition.match(/filename\s*=\s*"?([^"]+)"?/i);
-    if (normalMatch && normalMatch[1]) {
-      return normalMatch[1].replace(/["']/g, "");
-    }
-
-    return "";
-  }
-
-  function guessFilenameFromUrl(rawUrl, contentType) {
-    const url = safeUrl(rawUrl);
-    let name = "download";
-
-    if (url) {
-      const last = url.pathname.split("/").filter(Boolean).pop();
-
-      if (last && last.includes(".")) {
-        name = last;
-      }
-    }
-
-    const ct = (contentType || "").toLowerCase();
-
-    if (!name.includes(".")) {
-      if (ct.includes("spreadsheetml")) {
-        name += ".xlsx";
-      } else if (ct.includes("excel")) {
-        name += ".xls";
-      } else if (ct.includes("csv")) {
-        name += ".csv";
-      } else if (ct.includes("pdf")) {
-        name += ".pdf";
-      } else if (ct.includes("wordprocessingml")) {
-        name += ".docx";
-      } else if (ct.includes("zip")) {
-        name += ".zip";
-      } else {
-        name += ".bin";
-      }
-    }
-
-    return name;
-  }
-
-  function triggerBlobDownload(blob, filename) {
-    const blobUrl = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = filename || "download";
-    a.style.display = "none";
-
-    document.body.appendChild(a);
-
-    console.log("PLANIX DOWNLOAD FIX V3 - triggering blob download:", {
-      filename: filename,
-      blobSize: blob.size,
-      blobType: blob.type
-    });
-
-    a.click();
-
-    setTimeout(() => {
-      try {
-        URL.revokeObjectURL(blobUrl);
-      } catch (e) {}
-
-      a.remove();
-    }, 1500);
-  }
-
-  async function downloadByFetch(url, options) {
-    console.log("PLANIX DOWNLOAD FIX V3 - fetch download start:", {
-      url: url,
-      method: options && options.method
-    });
-
-    const resp = await fetch(url, options);
-
-    console.log("PLANIX DOWNLOAD FIX V3 - fetch response:", {
-      status: resp.status,
-      ok: resp.ok,
-      redirected: resp.redirected,
-      responseUrl: resp.url,
-      contentType: resp.headers.get("content-type"),
-      contentDisposition: resp.headers.get("content-disposition")
-    });
-
-    if (resp.status === 401 || (resp.redirected && resp.url.includes("/usuarios/login"))) {
-      window.location.href = resp.url || "/usuarios/login/";
-      return;
-    }
-
-    if (!resp.ok) {
-      throw new Error("Download failed. HTTP " + resp.status);
-    }
-
-    const contentType = resp.headers.get("content-type") || "";
-    const disposition = resp.headers.get("content-disposition") || "";
+  function prepareDownloadForm(form) {
+    if (!isDownloadLikeForm(form)) return false;
 
     /*
-      Si el backend devuelve HTML, probablemente es login/error.
-      En ese caso abrimos la URL normal para que se vea el mensaje.
+      Evita que Excel/PDF/CSV se pinte dentro de la pantalla actual.
+      En web normal abre nueva pestaña.
+      En WebView/app intenta sacar la descarga de la vista principal.
     */
-    if (contentType.toLowerCase().includes("text/html")) {
-      console.warn("PLANIX DOWNLOAD FIX V3 - server returned HTML, opening normally:", url);
-      window.open(url, "_blank", "noopener");
-      return;
-    }
+    form.setAttribute("target", "_blank");
 
-    const blob = await resp.blob();
-
-    const filename =
-      getFilenameFromDisposition(disposition) ||
-      guessFilenameFromUrl(url, contentType);
-
-    triggerBlobDownload(blob, filename);
-  }
-
-  function showDownloadBusy() {
-    let el = document.getElementById("planix-download-busy");
-
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "planix-download-busy";
-      el.style.position = "fixed";
-      el.style.top = "18px";
-      el.style.left = "50%";
-      el.style.transform = "translateX(-50%)";
-      el.style.zIndex = "99999";
-      el.style.background = "#2563eb";
-      el.style.color = "#fff";
-      el.style.padding = "8px 14px";
-      el.style.borderRadius = "999px";
-      el.style.fontSize = "13px";
-      el.style.fontWeight = "700";
-      el.style.boxShadow = "0 8px 24px rgba(0,0,0,.18)";
-      document.body.appendChild(el);
-    }
-
-    el.textContent = "Preparing download...";
-    el.style.display = "block";
-  }
-
-  function hideDownloadBusy() {
-    const el = document.getElementById("planix-download-busy");
-
-    if (el) {
-      el.style.display = "none";
-    }
-  }
-
-  async function handleLinkDownload(link) {
-    const href = link.getAttribute("href");
-    const absoluteUrl = new URL(href, window.location.origin).toString();
-
-    console.log("PLANIX DOWNLOAD FIX V3 - LINK INTERCEPTED:", {
-      href: href,
-      absoluteUrl: absoluteUrl
-    });
-
-    showDownloadBusy();
-
-    try {
-      await downloadByFetch(absoluteUrl, {
-        method: "GET",
-        credentials: "same-origin",
-        headers: {
-          "X-Requested-With": "XMLHttpRequest"
-        }
-      });
-    } catch (err) {
-      console.error("PLANIX DOWNLOAD FIX V3 - link failed:", err);
-      window.open(absoluteUrl, "_blank", "noopener");
-    } finally {
-      hideDownloadBusy();
-    }
-  }
-
-  async function handleFormDownload(form) {
-    console.log("PLANIX DOWNLOAD FIX V3 - FORM INTERCEPTED:", {
+    console.log("PLANIX DOWNLOAD FIX V4 - form prepared:", {
       id: form.id,
       action: form.getAttribute("action"),
       method: form.getAttribute("method"),
-      isDownload: isDownloadLikeForm(form)
+      target: form.getAttribute("target")
     });
 
-    const method = (form.getAttribute("method") || "GET").toUpperCase();
-    const action = form.getAttribute("action") || window.location.href;
-    const absoluteUrl = new URL(action, window.location.origin);
-
-    showDownloadBusy();
-
-    try {
-      let fetchUrl = absoluteUrl.toString();
-
-      const fetchOptions = {
-        method: method,
-        credentials: "same-origin",
-        headers: {
-          "X-Requested-With": "XMLHttpRequest"
-        }
-      };
-
-      if (method === "GET") {
-        const formData = new FormData(form);
-
-        for (const [key, value] of formData.entries()) {
-          fetchUrl = addQueryParam(fetchUrl, key, value);
-        }
-      } else {
-        const formData = new FormData(form);
-        const csrf = getCsrfToken();
-
-        fetchOptions.body = formData;
-
-        if (csrf) {
-          fetchOptions.headers["X-CSRFToken"] = csrf;
-        }
-      }
-
-      await downloadByFetch(fetchUrl, fetchOptions);
-
-    } catch (err) {
-      console.error("PLANIX DOWNLOAD FIX V3 - form failed:", err);
-
-      /*
-        Fallback:
-        si algo falla, enviamos el formulario normal en nueva pestaña.
-      */
-      form.setAttribute("target", "_blank");
-      nativeSubmit.call(form);
-
-    } finally {
-      hideDownloadBusy();
-    }
-  }
-
-  function addQueryParam(rawUrl, key, value) {
-    const url = new URL(rawUrl, window.location.origin);
-    url.searchParams.append(key, value);
-    return url.toString();
+    return true;
   }
 
   /*
-    1) Links normales.
+    1) Links directos de descarga.
+    Ejemplo:
+    <a href="/media/file.xlsx">
   */
   document.addEventListener("click", function (event) {
     const link = event.target.closest("a[href]");
@@ -1120,69 +879,58 @@
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    handleLinkDownload(link);
+    const absoluteUrl = new URL(href, window.location.origin).toString();
+
+    console.log("PLANIX DOWNLOAD FIX V4 - link opened:", absoluteUrl);
+
+    window.open(absoluteUrl, "_blank", "noopener");
   }, true);
 
   /*
-    2) Formularios normales.
+    2) Submit normal de formularios.
+    Ejemplo:
+    <form method="post" action="/exportar/">
   */
   document.addEventListener("submit", function (event) {
     const form = event.target;
-
-    if (!isDownloadLikeForm(form)) return;
-
-    console.log("PLANIX DOWNLOAD FIX V3 - normal submit intercepted:", {
-      id: form.id,
-      action: form.getAttribute("action"),
-      method: form.getAttribute("method")
-    });
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    handleFormDownload(form);
+    prepareDownloadForm(form);
   }, true);
 
   /*
-    3) Formularios enviados por JS: form.submit()
+    3) form.submit() programático.
+    Esto cubre exports como:
+    exportForm.submit();
   */
   const nativeSubmit = HTMLFormElement.prototype.submit;
 
   HTMLFormElement.prototype.submit = function () {
-    console.log("PLANIX DOWNLOAD FIX V3 - form.submit called:", {
+    const prepared = prepareDownloadForm(this);
+
+    console.log("PLANIX DOWNLOAD FIX V4 - form.submit called:", {
       id: this.id,
       action: this.getAttribute("action"),
       method: this.getAttribute("method"),
-      isDownload: isDownloadLikeForm(this)
+      prepared: prepared
     });
-
-    if (isDownloadLikeForm(this)) {
-      handleFormDownload(this);
-      return;
-    }
 
     return nativeSubmit.call(this);
   };
 
   /*
-    4) Formularios enviados por JS: form.requestSubmit()
+    4) form.requestSubmit() programático.
   */
   if (HTMLFormElement.prototype.requestSubmit) {
     const nativeRequestSubmit = HTMLFormElement.prototype.requestSubmit;
 
     HTMLFormElement.prototype.requestSubmit = function (submitter) {
-      console.log("PLANIX DOWNLOAD FIX V3 - form.requestSubmit called:", {
+      const prepared = prepareDownloadForm(this);
+
+      console.log("PLANIX DOWNLOAD FIX V4 - form.requestSubmit called:", {
         id: this.id,
         action: this.getAttribute("action"),
         method: this.getAttribute("method"),
-        isDownload: isDownloadLikeForm(this)
+        prepared: prepared
       });
-
-      if (isDownloadLikeForm(this)) {
-        handleFormDownload(this);
-        return;
-      }
 
       return nativeRequestSubmit.call(this, submitter);
     };

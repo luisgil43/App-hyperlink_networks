@@ -29,10 +29,12 @@
   <!-- Encabezado -->
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-start gap-2 mb-4">
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🧾 Expense Reports</h2>
+
     {% if user.es_pm %}
-      <a id="exportLink" href="{% url 'operaciones:exportar_rendiciones' %}?{{ request.GET.urlencode }}"
-         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full sm:w-auto">
-         
+      <a id="exportLink"
+         href="{% url 'operaciones:exportar_rendiciones' %}?{{ request.GET.urlencode }}"
+         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full sm:w-auto native-export-file"
+         data-share-url="{% url 'operaciones:exportar_rendiciones' %}?{{ request.GET.urlencode }}">
         📥 Export to Excel
       </a>
     {% endif %}
@@ -62,7 +64,6 @@
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
-   
     <div class="w-full sm:w-52">
       <label class="text-xs text-gray-600">Project</label>
       <input type="text"
@@ -72,7 +73,7 @@
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
 
-      <!-- ✅ NUEVO -->
+    <!-- ✅ NUEVO -->
     <div class="w-full sm:w-56">
       <label class="text-xs text-gray-600">Real consumption date</label>
       <input type="text"
@@ -90,8 +91,6 @@
              placeholder="Filter by Type"
              class="w-full border rounded px-2 py-1.5 text-sm filtro">
     </div>
-
-   
 
     <div class="w-full sm:w-48">
       <label class="text-xs text-gray-600">Status</label>
@@ -183,7 +182,6 @@
   </details>
 </div>
 
-
   <div id="zonaTabla">
     <!-- Tabla responsive -->
     <div class="overflow-x-auto">
@@ -198,7 +196,7 @@
             <th class="p-2 border text-right">Expenses (USD)</th>
             <th class="p-2 border text-right">Credits (USD)</th>
             <th class="p-2 border">Receipt(s)</th>
-            <th class="p-2 border">Odometer (km)</th>  <!-- 👈 NUEVA COLUMNA -->
+            <th class="p-2 border">Odometer (km)</th>
             <th class="p-2 border">Status</th>
             <th class="p-2 border">Actions</th>
           </tr>
@@ -209,10 +207,13 @@
             <td class="p-2 border">{{ mov.usuario.get_full_name }}</td>
             <td class="p-2 border">{{ mov.fecha|date:"d/m/Y" }}</td>
             <td class="p-2 border">{{ mov.proyecto }}</td>
-            <td class="p-2 border">{% if mov.real_consumption_date %}{{ mov.real_consumption_date|date:"d/m/Y" }}{% else %}
-    —
-  {% endif %}
-</td>
+            <td class="p-2 border">
+              {% if mov.real_consumption_date %}
+                {{ mov.real_consumption_date|date:"d/m/Y" }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
             <td class="p-2 border">{{ mov.tipo }}</td>
             <td class="p-2 border text-right">{{ mov.cargos|default:0|formato_usd }}</td>
             <td class="p-2 border text-right">{{ mov.abonos|default:0|formato_usd }}</td>
@@ -222,17 +223,36 @@
               {% if mov.tipo and mov.tipo.nombre|lower == "fuel" %}
                 <div class="flex flex-col items-center gap-1">
                   {% if mov.comprobante %}
-                    <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">📄 Receipt</a>
+                    <a href="{{ mov.comprobante.url }}"
+                       target="_blank"
+                       class="text-blue-600 underline native-share-file"
+                       data-share-url="{{ mov.comprobante.url }}">
+                      📄 Receipt
+                    </a>
                   {% endif %}
+
                   {% if mov.foto_tablero %}
-                    <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
+                    <a href="{{ mov.foto_tablero.url }}"
+                       target="_blank"
+                       class="text-blue-600 underline native-share-file"
+                       data-share-url="{{ mov.foto_tablero.url }}">
+                      📷 Odometer
+                    </a>
                   {% endif %}
+
                   {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
                 </div>
               {% else %}
                 {% if mov.comprobante %}
-                  <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-                {% else %} — {% endif %}
+                  <a href="{{ mov.comprobante.url }}"
+                     target="_blank"
+                     class="text-blue-600 underline native-share-file"
+                     data-share-url="{{ mov.comprobante.url }}">
+                    View
+                  </a>
+                {% else %}
+                  —
+                {% endif %}
               {% endif %}
             </td>
 
@@ -291,6 +311,7 @@
                     ❌ Reject
                   </button>
                 {% endif %}
+
                 {% if user.es_pm and mov.status == "aprobado_supervisor" %}
                   <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
                     {% csrf_token %}
@@ -302,6 +323,7 @@
                     ❌ Reject
                   </button>
                 {% endif %}
+
                 {% if user.es_facturacion and mov.status == "aprobado_pm" %}
                   <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">
                     {% csrf_token %}
@@ -342,18 +364,18 @@
       <form id="formCantidad" class="flex items-center gap-2">
         <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
         <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
-  <option value="5"   {% if cantidad == '5' %}selected{% endif %}>5</option>
-  <option value="10"  {% if cantidad == '10' %}selected{% endif %}>10</option>
-  <option value="20"  {% if cantidad == '20' %}selected{% endif %}>20</option>
-  <option value="50"  {% if cantidad == '50' %}selected{% endif %}>50</option>
-  <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
-</select>
+          <option value="5"   {% if cantidad == '5' %}selected{% endif %}>5</option>
+          <option value="10"  {% if cantidad == '10' %}selected{% endif %}>10</option>
+          <option value="20"  {% if cantidad == '20' %}selected{% endif %}>20</option>
+          <option value="50"  {% if cantidad == '50' %}selected{% endif %}>50</option>
+          <option value="100" {% if cantidad == '100' %}selected{% endif %}>100</option>
+        </select>
       </form>
     </div>
 
-   <div class="mt-2 flex justify-center text-sm">
-  <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
-</div>
+    <div class="mt-2 flex justify-center text-sm">
+      <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+    </div>
 
     <div class="mt-2 flex justify-center gap-2 text-sm">
       {% if pagina.has_previous %}
@@ -394,15 +416,18 @@
   const SCROLL_KEY = 'ledgerScrollX:' + location.pathname;
 
   function getScrollBox(){
-  // tu contenedor real ahora es overflow-x-auto
-  return zona.querySelector('.overflow-x-auto') || zona.querySelector('.tabla-responsive');
+    // tu contenedor real ahora es overflow-x-auto
+    return zona.querySelector('.overflow-x-auto') || zona.querySelector('.tabla-responsive');
   }
+
   function readSavedX(){
     return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
   }
+
   function saveX(x){
     sessionStorage.setItem(SCROLL_KEY, String(x));
   }
+
   function hookScrollSaver(){
     const box = getScrollBox();
     if(!box) return;
@@ -412,6 +437,7 @@
       t=setTimeout(()=>{ t=null; saveX(box.scrollLeft); }, 120);
     }, {passive:true});
   }
+
   function restoreX(x){
     const box = getScrollBox();
     if(!box) return;
@@ -426,11 +452,11 @@
   }
 
   function limpiarFiltros(){
-  // limpia todos los inputs de filtros (incluye du, fecha, real_fecha, proyecto, tipo)
-  filtrosForm.querySelectorAll('input.filtro').forEach(i => i.value = '');
+    // limpia todos los inputs de filtros (incluye du, fecha, real_fecha, proyecto, tipo)
+    filtrosForm.querySelectorAll('input.filtro').forEach(i => i.value = '');
 
-  // limpia selects (estado)
-  filtrosForm.querySelectorAll('select.filtro').forEach(s => s.value = '');
+    // limpia selects (estado)
+    filtrosForm.querySelectorAll('select.filtro').forEach(s => s.value = '');
   }
 
   async function cargarTablaCon(qs, push=true){
@@ -440,7 +466,12 @@
 
     const url = `${location.pathname}?${qs}`;
     if (push) history.replaceState(null, '', url);
-    if (exportLink) exportLink.href = `{% url 'operaciones:exportar_rendiciones' %}?` + qs;
+
+    if (exportLink) {
+      const exportUrl = `{% url 'operaciones:exportar_rendiciones' %}?` + qs;
+      exportLink.href = exportUrl;
+      exportLink.dataset.shareUrl = exportUrl;
+    }
 
     if (controller) controller.abort();
     controller = new AbortController();
@@ -559,6 +590,7 @@
       formR.action = `/operaciones/rendiciones/rechazar/${id}/`;
       modal.classList.remove('hidden');
     };
+
     window.cerrarModalRechazo = function(){
       modal.classList.add('hidden');
     };
@@ -575,6 +607,7 @@
   hookScrollSaver();
 })();
 </script>
+
   <script>
     // Fallback globales (por si se invocan fuera del ciclo anterior)
     function abrirModalRechazo(id) {
@@ -583,6 +616,7 @@
       form.action = `/operaciones/rendiciones/rechazar/${id}/`;
       modal.classList.remove('hidden');
     }
+
     function cerrarModalRechazo() {
       document.getElementById('modalRechazo').classList.add('hidden');
     }
@@ -696,6 +730,41 @@
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
+})();
+</script>
+
+<script>
+(function () {
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a.native-share-file, a.native-export-file");
+    if (!link) return;
+
+    const fileUrl = link.dataset.shareUrl || link.getAttribute("href");
+    if (!fileUrl) return;
+
+    /*
+      SOLO APP NATIVA:
+      Si estamos dentro de React Native WebView,
+      evitamos que abra el archivo dentro del WebView y mandamos la URL a la app.
+    */
+    if (window.ReactNativeWebView) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "share_file",
+        url: fileUrl
+      }));
+    }
+
+    /*
+      WEB NORMAL:
+      Si NO existe window.ReactNativeWebView,
+      no hacemos preventDefault.
+      Entonces el link sigue funcionando normal.
+    */
+  }, true);
 })();
 </script>
 

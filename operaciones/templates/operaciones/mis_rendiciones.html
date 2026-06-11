@@ -17,10 +17,11 @@
       🧾 My Expense Reports
     </h2>
 
-    <a href="{% url 'operaciones:exportar_mis_rendiciones' %}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
-      📥 Export to Excel
-    </a>
+   <a href="{% url 'operaciones:exportar_mis_rendiciones' %}"
+   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow native-export-file"
+   data-share-url="{% url 'operaciones:exportar_mis_rendiciones' %}">
+  📥 Export to Excel
+</a>
   </div>
 
   <!-- Balance cards -->
@@ -311,14 +312,24 @@
 
     <td class="p-2 border">
       <div class="flex flex-col items-center gap-1">
-        {% if mov.comprobante %}
-          <a href="{{ mov.comprobante.url }}" target="_blank" class="text-blue-600 underline">View</a>
-        {% endif %}
-        {% if mov.tipo and mov.tipo.nombre|lower|slice:":7" == "service" %}
-          {% if mov.foto_tablero %}
-            <a href="{{ mov.foto_tablero.url }}" target="_blank" class="text-blue-600 underline">📷 Odometer</a>
-          {% endif %}
-        {% endif %}
+       {% if mov.comprobante %}
+  <a href="{{ mov.comprobante.url }}"
+     target="_blank"
+     class="text-blue-600 underline native-share-file"
+     data-share-url="{{ mov.comprobante.url }}">
+    View
+  </a>
+{% endif %}
+{% if mov.tipo and mov.tipo.nombre|lower|slice:":7" == "service" %}
+  {% if mov.foto_tablero %}
+    <a href="{{ mov.foto_tablero.url }}"
+       target="_blank"
+       class="text-blue-600 underline native-share-file"
+       data-share-url="{{ mov.foto_tablero.url }}">
+      📷 Odometer
+    </a>
+  {% endif %}
+{% endif %}
         {% if not mov.comprobante and not mov.foto_tablero %} — {% endif %}
       </div>
     </td>
@@ -980,5 +991,39 @@ document.addEventListener("DOMContentLoaded", function () {
     disableMobile: true,
   });
 });
+</script>
+<script>
+(function () {
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a.native-share-file, a.native-export-file");
+    if (!link) return;
+
+    const fileUrl = link.dataset.shareUrl || link.getAttribute("href");
+    if (!fileUrl) return;
+
+    /*
+      SOLO APP NATIVA:
+      Si estamos dentro de React Native WebView,
+      evitamos que abra el archivo dentro del WebView y mandamos la URL a la app.
+    */
+    if (window.ReactNativeWebView) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "share_file",
+        url: fileUrl
+      }));
+    }
+
+    /*
+      WEB NORMAL:
+      Si NO existe window.ReactNativeWebView,
+      no hacemos preventDefault.
+      Entonces el link sigue funcionando normal.
+    */
+  }, true);
+})();
 </script>
 {% endblock %}

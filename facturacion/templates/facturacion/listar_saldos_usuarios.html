@@ -10,9 +10,10 @@
     <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💰 Available Balances</h2>
     <div class="flex gap-2">
       <a href="{% url 'facturacion:exportar_saldos' %}"
-         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
-        📥 Export to Excel
-      </a>
+   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow native-export-file"
+   data-share-url="{% url 'facturacion:exportar_saldos' %}">
+  📥 Export to Excel
+</a>
     </div>
   </div>
 
@@ -97,4 +98,38 @@
     {% endif %}
   </div>
 </div>
+<script>
+(function () {
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a.native-export-file");
+    if (!link) return;
+
+    const fileUrl = link.dataset.shareUrl || link.getAttribute("href");
+    if (!fileUrl) return;
+
+    /*
+      SOLO APP NATIVA:
+      Si estamos dentro de React Native WebView,
+      evitamos que abra el archivo dentro del WebView y mandamos la URL a la app.
+    */
+    if (window.ReactNativeWebView) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "share_file",
+        url: fileUrl
+      }));
+    }
+
+    /*
+      WEB NORMAL:
+      Si NO existe window.ReactNativeWebView,
+      no hacemos preventDefault.
+      Entonces el link sigue descargando normal.
+    */
+  }, true);
+})();
+</script>
 {% endblock %}

@@ -74,6 +74,7 @@ from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer,
 
 from access_control.services import user_can as access_user_can
 from core.decorators import project_object_access_required
+from core.download_helpers import smart_download_response
 from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
 from facturacion.models import CartolaMovimiento, Proyecto
@@ -3400,11 +3401,15 @@ def rechazar_rendicion(request, pk):
 @rol_requerido('pm', 'admin')  # Si quieres, agrega 'supervisor', 'facturacion'
 def exportar_rendiciones(request):
     from datetime import datetime
+    from io import BytesIO
 
-    import xlwt
     from django.db.models import Case, IntegerField, Q, Value, When
     from django.http import HttpResponse
+    from django.utils import timezone
     from django.utils.timezone import is_aware
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
 
     # ===== Base visible (misma lógica que vista_rendiciones) =====
     if request.user.is_superuser:
@@ -3436,7 +3441,7 @@ def exportar_rendiciones(request):
         'proyecto_id'
     )
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion)
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
@@ -3465,82 +3470,115 @@ def exportar_rendiciones(request):
 
         if asignaciones:
             access_by_pk = {}
+
             for a in asignaciones:
                 if a.include_history or not a.start_at:
-                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
                 else:
-                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
 
             ids_ok = []
 
-            # ✅ ÚNICO CAMBIO: antes era base.only("id","proyecto_id","fecha")
             for mid, pid, fecha in base.values_list("id", "proyecto_id", "fecha"):
                 if pid is None:
                     continue
+
                 access = access_by_pk.get(pid)
+
                 if not access:
                     continue
+
                 if access["include_history"] or access["start_at"] is None:
                     ids_ok.append(mid)
                     continue
+
                 if not fecha:
                     continue
+
                 if fecha >= access["start_at"]:
                     ids_ok.append(mid)
 
             base = base.filter(id__in=ids_ok)
 
     # --------- Filtros ----------
-    du        = (request.GET.get('du') or '').strip()
+    du = (request.GET.get('du') or '').strip()
     fecha_txt = (request.GET.get('fecha') or '').strip()
-    real_fecha_txt = (request.GET.get('real_fecha') or '').strip()  # ✅ NUEVO
-    proyecto  = (request.GET.get('proyecto') or '').strip()
-    tipo_txt  = (request.GET.get('tipo') or '').strip()
-    estado    = (request.GET.get('estado') or '').strip()
+    real_fecha_txt = (request.GET.get('real_fecha') or '').strip()
+    proyecto = (request.GET.get('proyecto') or '').strip()
+    tipo_txt = (request.GET.get('tipo') or '').strip()
+    estado = (request.GET.get('estado') or '').strip()
 
     q = Q()
+
     if du:
-        q &= (Q(usuario__first_name__icontains=du) |
-              Q(usuario__last_name__icontains=du) |
-              Q(usuario__username__icontains=du))
+        q &= (
+            Q(usuario__first_name__icontains=du) |
+            Q(usuario__last_name__icontains=du) |
+            Q(usuario__username__icontains=du)
+        )
+
     if proyecto:
         q &= Q(proyecto__nombre__icontains=proyecto)
+
     if tipo_txt:
         q &= Q(tipo__nombre__icontains=tipo_txt)
+
     if estado:
         q &= Q(status=estado)
 
     # Fecha flexible (fecha del movimiento)
     if fecha_txt:
         fd = _parse_fecha_fragmento(fecha_txt)
+
         if fd:
             day_or_month = fd.pop("_day_or_month", None)
+
             if any(k.startswith('fecha__date__') for k in fd.keys()):
-                fd = {k.replace('fecha__date__', 'fecha__'): v for k, v in fd.items()}
+                fd = {
+                    k.replace('fecha__date__', 'fecha__'): v
+                    for k, v in fd.items()
+                }
+
             if fd:
                 q &= Q(**fd)
-            if day_or_month is not None:
-                q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
 
-    # ✅ NUEVO: Real consumption date flexible
+            if day_or_month is not None:
+                q &= (
+                    Q(fecha__day=day_or_month) |
+                    Q(fecha__month=day_or_month)
+                )
+
+    # ✅ Real consumption date flexible
     if real_fecha_txt:
         fd = _parse_fecha_fragmento(real_fecha_txt)
+
         if fd:
             day_or_month = fd.pop("_day_or_month", None)
 
             new_fd = {}
+
             for k, v in fd.items():
                 k2 = k.replace('fecha__date__', 'fecha__')
+
                 if k2.startswith('fecha__'):
                     k2 = k2.replace('fecha__', 'real_consumption_date__', 1)
+
                 new_fd[k2] = v
 
             if new_fd:
                 q &= Q(**new_fd)
 
             if day_or_month is not None:
-                q &= (Q(real_consumption_date__day=day_or_month) |
-                      Q(real_consumption_date__month=day_or_month))
+                q &= (
+                    Q(real_consumption_date__day=day_or_month) |
+                    Q(real_consumption_date__month=day_or_month)
+                )
 
     movimientos = base.filter(q) if q else base
 
@@ -3549,125 +3587,311 @@ def exportar_rendiciones(request):
         orden_status=Case(
             When(status__startswith='pendiente', then=Value(1)),
             When(status__startswith='rechazado', then=Value(2)),
-            When(status__startswith='aprobado',  then=Value(3)),
+            When(status__startswith='aprobado', then=Value(3)),
             default=Value(4),
             output_field=IntegerField(),
         )
     ).order_by('orden_status', '-fecha', '-id')
 
-    # ----- Excel -----
-    response = HttpResponse(content_type='application/ms-excel')
-    response['Content-Disposition'] = 'attachment; filename="expense_reports.xls"'
+    # ===== Excel XLSX real =====
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Expense Reports"
 
-    wb = xlwt.Workbook(encoding='utf-8')
-    ws = wb.add_sheet('Expense Reports')
+    # Desactivar gridlines
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
 
-    header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+    # Estilos
+    header_fill = PatternFill("solid", fgColor="374151")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
 
-    columns = ["User", "Date", "Real consumption date", "Project", "Type", "Remarks", "Amount", "Status", "Odometer (km)"]
-    for col_num, title in enumerate(columns):
-        ws.write(0, col_num, title, header_style)
+    thin = Side(style="thin", color="D1D5DB")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    for row_num, mov in enumerate(movimientos, start=1):
-        ws.write(row_num, 0, str(mov.usuario))
+    left = Alignment(horizontal="left", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
 
-        fecha_excel = mov.fecha
-        if isinstance(fecha_excel, datetime):
-            if is_aware(fecha_excel):
-                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
-            fecha_excel = fecha_excel.date()
-        ws.write(row_num, 1, fecha_excel, date_style)
-
-        if mov.real_consumption_date:
-            ws.write(row_num, 2, mov.real_consumption_date, date_style)
-        else:
-            ws.write(row_num, 2, "")
-
-        ws.write(row_num, 3, str(getattr(mov.proyecto, "nombre", mov.proyecto or "")))
-        ws.write(row_num, 4, str(getattr(mov.tipo, "nombre", mov.tipo or "")))
-        ws.write(row_num, 5, mov.observaciones or "")
-        ws.write(row_num, 6, float(mov.cargos or 0))
-        ws.write(row_num, 7, mov.get_status_display())
-        ws.write(row_num, 8, int(mov.kilometraje) if mov.kilometraje is not None else "")
-
-    wb.save(response)
-    return response
-
-@login_required
-@rol_requerido('usuario')
-def exportar_mis_rendiciones(request):
-    from datetime import datetime
-
-    import xlwt
-    from django.http import HttpResponse
-    from django.utils.timezone import is_aware
-
-    user = request.user
-
-    # Base: solo mis movimientos
-    base = (
-        CartolaMovimiento.objects
-        .filter(usuario=user)
-        .select_related('usuario', 'proyecto', 'tipo')
-        .order_by('-fecha')
-    )
-    # Limitar a proyectos donde el usuario tiene acceso
-    movimientos = filter_queryset_by_access(base, user, 'proyecto_id')
-
-    # Crear archivo Excel
-    response = HttpResponse(content_type='application/ms-excel')
-    response['Content-Disposition'] = 'attachment; filename="my_expense_reports.xls"'
-
-    wb = xlwt.Workbook(encoding='utf-8')
-    ws = wb.add_sheet('My Expense Reports')
-
-    header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    date_style = xlwt.easyxf(num_format_str='DD-MM-YYYY')
-
-    # ✅ NUEVO: agregamos "Real consumption date"
     columns = [
         "User",
         "Date",
         "Real consumption date",
         "Project",
         "Type",
+        "Remarks",
+        "Amount",
+        "Status",
+        "Odometer (km)",
+    ]
+
+    ws.append(columns)
+
+    for col_num, title in enumerate(columns, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border_all
+
+    for row_num, mov in enumerate(movimientos, start=2):
+        fecha_excel = mov.fecha
+
+        if isinstance(fecha_excel, datetime):
+            if is_aware(fecha_excel):
+                fecha_excel = timezone.localtime(fecha_excel).replace(tzinfo=None)
+            fecha_excel = fecha_excel.date()
+
+        ws.cell(row=row_num, column=1, value=str(mov.usuario))
+        ws.cell(row=row_num, column=2, value=fecha_excel)
+        ws.cell(row=row_num, column=3, value=mov.real_consumption_date or "")
+        ws.cell(row=row_num, column=4, value=str(getattr(mov.proyecto, "nombre", mov.proyecto or "")))
+        ws.cell(row=row_num, column=5, value=str(getattr(mov.tipo, "nombre", mov.tipo or "")))
+        ws.cell(row=row_num, column=6, value=mov.observaciones or "")
+        ws.cell(row=row_num, column=7, value=float(mov.cargos or 0))
+        ws.cell(row=row_num, column=8, value=mov.get_status_display())
+        ws.cell(
+            row=row_num,
+            column=9,
+            value=int(mov.kilometraje) if mov.kilometraje is not None else "",
+        )
+
+        for col in range(1, 10):
+            c = ws.cell(row=row_num, column=col)
+            c.border = border_all
+
+            if col in (2, 3):
+                c.number_format = "DD-MM-YYYY"
+                c.alignment = center
+            elif col in (7, 9):
+                c.alignment = right
+            else:
+                c.alignment = left
+
+        ws.cell(row=row_num, column=7).number_format = '$#,##0.00'
+
+    # Anchos
+    widths = {
+        1: 28,
+        2: 14,
+        3: 22,
+        4: 28,
+        5: 18,
+        6: 36,
+        7: 14,
+        8: 28,
+        9: 16,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="expense_reports.xlsx"'
+
+    return response
+
+@login_required
+@rol_requerido('usuario')
+def exportar_mis_rendiciones(request):
+    from datetime import datetime
+    from io import BytesIO
+
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from django.utils.timezone import is_aware
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    from core.permissions import filter_queryset_by_assignment_history
+
+    user = request.user
+
+    # Base: solo mis movimientos
+    base = (
+        CartolaMovimiento.objects.filter(usuario=user)
+        .select_related("usuario", "proyecto", "tipo", "vehicle", "service_type_obj")
+        .order_by("-fecha")
+    )
+
+    # Limitar a proyectos asignados y respetar include_history/start_at
+    movimientos = filter_queryset_by_assignment_history(
+        base,
+        user,
+        project_field="proyecto_id",
+        date_field="fecha",
+    )
+
+    # ===== Excel XLSX real =====
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "My Expense Reports"
+
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
+
+    header_fill = PatternFill("solid", fgColor="374151")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+
+    thin = Side(style="thin", color="D1D5DB")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    left = Alignment(horizontal="left", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
+
+    columns = [
+        "User",
+        "Date",
+        "Real consumption date",
+        "Project",
+        "Type",
+        "Vehicle",
+        "Service date",
+        "Service time",
         "Expenses (USD)",
         "Credits (USD)",
         "Remarks",
         "Status",
-        "Odometer (km)",
+        "Odometer (miles)",
     ]
-    for col_num, column_title in enumerate(columns):
-        ws.write(0, col_num, column_title, header_style)
 
-    # Datos
-    for row_num, mov in enumerate(movimientos, start=1):
-        # Fecha: naive y solo date
+    ws.append(columns)
+
+    for col_num, title in enumerate(columns, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border_all
+
+    for row_num, mov in enumerate(movimientos, start=2):
         fecha_excel = mov.fecha
+
         if isinstance(fecha_excel, datetime):
             if is_aware(fecha_excel):
-                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
+                fecha_excel = timezone.localtime(fecha_excel).replace(tzinfo=None)
             fecha_excel = fecha_excel.date()
 
-        ws.write(row_num, 0, mov.usuario.get_full_name())
-        ws.write(row_num, 1, fecha_excel, date_style)
+        real_date = mov.real_consumption_date
 
-        # ✅ NUEVO: Real consumption date
-        if mov.real_consumption_date:
-            ws.write(row_num, 2, mov.real_consumption_date, date_style)
+        if isinstance(real_date, datetime):
+            if is_aware(real_date):
+                real_date = timezone.localtime(real_date).replace(tzinfo=None)
+            real_date = real_date.date()
+
+        service_date = getattr(mov, "service_date", None)
+
+        if isinstance(service_date, datetime):
+            if is_aware(service_date):
+                service_date = timezone.localtime(service_date).replace(tzinfo=None)
+            service_date = service_date.date()
+
+        service_time = getattr(mov, "service_time", None)
+
+        vehicle_txt = ""
+        if getattr(mov, "vehicle_id", None) and getattr(mov, "vehicle", None):
+            vehicle_txt = getattr(mov.vehicle, "patente", "") or ""
+
+        tipo_txt = str(mov.tipo or "")
+        if mov.tipo and mov.tipo.nombre and mov.tipo.nombre.lower().startswith("service"):
+            if getattr(mov, "service_type_obj", None):
+                tipo_txt = f"Service - {mov.service_type_obj.name}"
+            else:
+                tipo_txt = "Service"
+
+        ws.cell(row=row_num, column=1, value=mov.usuario.get_full_name())
+        ws.cell(row=row_num, column=2, value=fecha_excel)
+
+        if real_date:
+            ws.cell(row=row_num, column=3, value=real_date)
         else:
-            ws.write(row_num, 2, "")
+            ws.cell(row=row_num, column=3, value="")
 
-        ws.write(row_num, 3, str(mov.proyecto or ""))
-        ws.write(row_num, 4, str(mov.tipo or ""))
-        ws.write(row_num, 5, float(mov.cargos or 0))
-        ws.write(row_num, 6, float(mov.abonos or 0))
-        ws.write(row_num, 7, mov.observaciones or "")
-        ws.write(row_num, 8, mov.get_status_display())
-        ws.write(row_num, 9, int(mov.kilometraje) if mov.kilometraje is not None else "")
+        ws.cell(row=row_num, column=4, value=str(mov.proyecto or ""))
+        ws.cell(row=row_num, column=5, value=tipo_txt)
+        ws.cell(row=row_num, column=6, value=vehicle_txt)
 
-    wb.save(response)
+        if service_date:
+            ws.cell(row=row_num, column=7, value=service_date)
+        else:
+            ws.cell(row=row_num, column=7, value="")
+
+        if service_time:
+            ws.cell(row=row_num, column=8, value=str(service_time))
+        else:
+            ws.cell(row=row_num, column=8, value="")
+
+        ws.cell(row=row_num, column=9, value=float(mov.cargos or 0))
+        ws.cell(row=row_num, column=10, value=float(mov.abonos or 0))
+        ws.cell(row=row_num, column=11, value=mov.observaciones or "")
+        ws.cell(row=row_num, column=12, value=mov.get_status_display())
+        ws.cell(
+            row=row_num,
+            column=13,
+            value=int(mov.kilometraje) if mov.kilometraje is not None else "",
+        )
+
+        for col in range(1, 14):
+            c = ws.cell(row=row_num, column=col)
+            c.border = border_all
+
+            if col in (2, 3, 7):
+                c.number_format = "DD-MM-YYYY"
+                c.alignment = center
+            elif col in (9, 10, 13):
+                c.alignment = right
+            else:
+                c.alignment = left
+
+        ws.cell(row=row_num, column=9).number_format = '$#,##0.00'
+        ws.cell(row=row_num, column=10).number_format = '$#,##0.00'
+
+    widths = {
+        1: 28,
+        2: 14,
+        3: 22,
+        4: 28,
+        5: 24,
+        6: 18,
+        7: 16,
+        8: 14,
+        9: 16,
+        10: 16,
+        11: 36,
+        12: 28,
+        13: 18,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="my_expense_reports.xlsx"'
+
     return response
 
 
@@ -4687,19 +4911,28 @@ def exportar_billing_operational_excel(request):
     # Helpers locales
     # ============================================================
     def _xlsx_response(workbook):
+
         bio = BytesIO()
+
         workbook.save(bio)
+
         bio.seek(0)
 
         ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+
+        filename = f"billing_operational_export_{ts}.xlsx"
+
         resp = HttpResponse(
+
             bio.getvalue(),
+
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
         )
-        resp["Content-Disposition"] = (
-            f'attachment; filename="billing_operational_export_{ts}.xlsx"'
-        )
-        return resp
+
+        resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        return smart_download_response(request, resp, filename)
 
     def _status_label(s):
         if getattr(s, "is_direct_discount", False):
@@ -5206,6 +5439,7 @@ def exportar_billing_operational_excel(request):
 
     return _xlsx_response(wb)
 
+
 @login_required
 @rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")
 @require_POST
@@ -5225,25 +5459,33 @@ def exportar_billing_excel(request):
             "You do not have permission to export billing records."
         )
 
-
-
     # ========= Estilos locales =========
-    HDR_FILL = PatternFill("solid", fgColor="374151")   # gris oscuro
+    HDR_FILL = PatternFill("solid", fgColor="374151")  # gris oscuro
     HDR_FONT = Font(bold=True, color="FFFFFF")
     HDR_ALIGN = Alignment(horizontal="center", vertical="center")
     CELL_ALIGN_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=False)
-    CELL_ALIGN_LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    CELL_ALIGN_LEFT_WRAP = Alignment(
+        horizontal="left", vertical="center", wrap_text=True
+    )
     CELL_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
     THIN = Side(style="thin", color="D1D5DB")
     BORDER_ALL = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-    ZEBRA_GRAY = "E5E7EB"   # gris clarito
+    ZEBRA_GRAY = "E5E7EB"  # gris clarito
     ZEBRA_WHITE = "FFFFFF"  # blanco
 
     # ========= Helpers locales =========
     def _export_headers():
         return [
-            "Project ID", "Date", "Week", "Project Address", "City",
-            "Work Type", "Job Code", "Description", "Qty", "Subtotal Company",
+            "Project ID",
+            "Date",
+            "Week",
+            "Project Address",
+            "City",
+            "Work Type",
+            "Job Code",
+            "Description",
+            "Qty",
+            "Subtotal Company",
         ]
 
     def _get_address_from_session_only(s):
@@ -5269,28 +5511,37 @@ def exportar_billing_excel(request):
 
     def _xlsx_response(workbook):
         from io import BytesIO
+
         bio = BytesIO()
         workbook.save(bio)
         bio.seek(0)
+
         ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"billing_export_{ts}.xlsx"
+
         resp = HttpResponse(
             bio.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        resp["Content-Disposition"] = f'attachment; filename="billing_export_{ts}.xlsx"'
-        return resp
+        resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        return smart_download_response(request, resp, filename)
 
     def _format_money(ws, cols):
-        money_fmt = '$#,##0.00'
+        money_fmt = "$#,##0.00"
         for col in cols:
-            for col_cells in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
+            for col_cells in ws.iter_cols(
+                min_col=col, max_col=col, min_row=2, values_only=False
+            ):
                 for c in col_cells:
                     c.number_format = money_fmt
 
     def _format_number(ws, cols):
-        num_fmt = '#,##0.00'
+        num_fmt = "#,##0.00"
         for col in cols:
-            for col_cells in ws.iter_cols(min_col=col, max_col=col, min_row=2, values_only=False):
+            for col_cells in ws.iter_cols(
+                min_col=col, max_col=col, min_row=2, values_only=False
+            ):
                 for c in col_cells:
                     c.number_format = num_fmt
 
@@ -5305,9 +5556,9 @@ def exportar_billing_excel(request):
             for c in range(1, max_c + 1):
                 cell = ws.cell(row=r, column=c)
                 cell.border = BORDER_ALL
-                if c in (9, 10):                    # Qty / Subtotal
+                if c in (9, 10):  # Qty / Subtotal
                     cell.alignment = CELL_ALIGN_RIGHT
-                elif c in (4, 8):                   # Address / Description -> wrap
+                elif c in (4, 8):  # Address / Description -> wrap
                     cell.alignment = CELL_ALIGN_LEFT_WRAP
                 else:
                     cell.alignment = CELL_ALIGN_LEFT
@@ -5316,9 +5567,11 @@ def exportar_billing_excel(request):
         """Relleno alternado (gris/blanco) desde start_row hasta end_row."""
         if end_row < start_row:
             return
+
         fill_gray = PatternFill("solid", fgColor=gray_hex)
         fill_white = PatternFill("solid", fgColor=white_hex)
         max_c = ws.max_column
+
         for r in range(start_row, end_row + 1):
             fill = fill_gray if (r - start_row) % 2 == 0 else fill_white
             for c in range(1, max_c + 1):
@@ -5332,6 +5585,7 @@ def exportar_billing_excel(request):
             cell.font = HDR_FONT
             cell.alignment = HDR_ALIGN
             cell.border = BORDER_ALL
+
         ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
         ws.freeze_panes = "A2"
 
@@ -5344,7 +5598,7 @@ def exportar_billing_excel(request):
     ws = wb.active
     ws.title = "Billing"
 
-    # 👉 Desactivar líneas de cuadricula (en pantalla y también en impresión)
+    # Desactivar líneas de cuadricula
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines = False
 
@@ -5369,55 +5623,58 @@ def exportar_billing_excel(request):
         .order_by("id")
     )
 
-    # --- Seguridad extra: solo exportar billings de proyectos visibles para este usuario ---
-    # Admin/superuser puede exportar todo; el resto queda limitado a sus proyectos.
+    # Seguridad extra: solo exportar billings de proyectos visibles para este usuario
     sesiones = list(sesiones)
+
     if not request.user.is_superuser:
         proyectos_visibles = filter_queryset_by_access(
             Proyecto.objects.all(),
             request.user,
             "id",
         )
+
         if proyectos_visibles.exists():
             allowed_proj_ids = {
                 str(pk) for pk in proyectos_visibles.values_list("id", flat=True)
             }
 
-            # ✅ NUEVO: ventana de visibilidad por ProyectoAsignacion (por proyecto y fecha)
-            # Si include_history=True -> sin corte por fecha
-            # Si include_history=False y start_at existe -> solo desde start_at en adelante
             asignaciones = []
             try:
                 if ProyectoAsignacion is not None:
                     asignaciones = list(
-                        ProyectoAsignacion.objects
-                        .filter(usuario=request.user, proyecto__in=proyectos_visibles)
-                        .select_related("proyecto")
+                        ProyectoAsignacion.objects.filter(
+                            usuario=request.user, proyecto__in=proyectos_visibles
+                        ).select_related("proyecto")
                     )
             except Exception:
                 asignaciones = []
 
             if asignaciones:
                 asign_by_pid = {}
+
                 for a in asignaciones:
                     p = getattr(a, "proyecto", None)
                     if not p:
                         continue
+
                     asign_by_pid[str(getattr(p, "id", "")).strip()] = a
 
                 sesiones_filtradas = []
+
                 for s in sesiones:
                     sp = getattr(s, "proyecto", None)
                     if sp not in allowed_proj_ids:
                         continue
 
                     a = asign_by_pid.get(str(sp).strip())
+
                     if not a:
-                        # si no hay asignación, mantenemos solo por proyecto (no cambiamos lógica base)
                         sesiones_filtradas.append(s)
                         continue
 
-                    if getattr(a, "include_history", False) or not getattr(a, "start_at", None):
+                    if getattr(a, "include_history", False) or not getattr(
+                        a, "start_at", None
+                    ):
                         sesiones_filtradas.append(s)
                     else:
                         if getattr(s, "creado_en", None) and s.creado_en >= a.start_at:
@@ -5426,11 +5683,11 @@ def exportar_billing_excel(request):
                 sesiones = sesiones_filtradas
             else:
                 sesiones = [
-                    s for s in sesiones
+                    s
+                    for s in sesiones
                     if getattr(s, "proyecto", None) in allowed_proj_ids
                 ]
         else:
-            # Si no tiene proyectos visibles, no exportamos nada
             sesiones = []
 
     # ========= 4) Filas =========
@@ -5446,54 +5703,98 @@ def exportar_billing_excel(request):
 
         if not s.items.all():
             addr_session = _get_address_from_session_only(s)
-            ws.append([project_id, date_str, week_str, addr_session, city, "", "", "", 0.0, 0.0])
+            ws.append(
+                [
+                    project_id,
+                    date_str,
+                    week_str,
+                    addr_session,
+                    city,
+                    "",
+                    "",
+                    "",
+                    0.0,
+                    0.0,
+                ]
+            )
             continue
 
         for it in s.items.all():
             project_address = _get_address_from_item_or_session(it, s)
             qty = float(getattr(it, "cantidad", 0) or 0)
             sub_company = float(getattr(it, "subtotal_empresa", 0) or 0)
-            ws.append([
-                project_id,                  # A
-                date_str,                    # B
-                week_str,                    # C
-                project_address,             # D
-                city,                        # E
-                getattr(it, "tipo_trabajo", "") or getattr(it, "work_type", ""),  # F
-                getattr(it, "codigo_trabajo", "") or getattr(it, "job_code", ""),  # G
-                getattr(it, "descripcion", "") or getattr(it, "description", ""),  # H
-                qty,                         # I
-                sub_company                  # J
-            ])
+
+            ws.append(
+                [
+                    project_id,  # A
+                    date_str,  # B
+                    week_str,  # C
+                    project_address,  # D
+                    city,  # E
+                    getattr(it, "tipo_trabajo", "")
+                    or getattr(it, "work_type", ""),  # F
+                    getattr(it, "codigo_trabajo", "")
+                    or getattr(it, "job_code", ""),  # G
+                    getattr(it, "descripcion", "")
+                    or getattr(it, "description", ""),  # H
+                    qty,  # I
+                    sub_company,  # J
+                ]
+            )
+
             total_subtotal_company += sub_company
 
     # ========= 5) Formatos / estilos =========
-    _format_money(ws, cols=[10])   # J: Subtotal Company
-    _format_number(ws, cols=[9])   # I: Qty
+    _format_money(ws, cols=[10])  # J: Subtotal Company
+    _format_number(ws, cols=[9])  # I: Qty
 
-    _set_widths(ws, {
-        1: 12, 2: 10, 3: 12, 4: 36, 5: 14, 6: 14, 7: 12, 8: 34, 9: 6, 10: 16
-    })
+    _set_widths(
+        ws,
+        {
+            1: 12,
+            2: 10,
+            3: 12,
+            4: 36,
+            5: 14,
+            6: 14,
+            7: 12,
+            8: 34,
+            9: 6,
+            10: 16,
+        },
+    )
 
     _apply_table_borders(ws)
 
-    # Zebra desde la fila 2 (datos) hasta la última fila de datos
+    # Zebra desde la fila 2 hasta la última fila de datos
     data_end = ws.max_row
-    _apply_zebra(ws, start_row=2, end_row=data_end, gray_hex=ZEBRA_GRAY, white_hex=ZEBRA_WHITE)
+    _apply_zebra(
+        ws,
+        start_row=2,
+        end_row=data_end,
+        gray_hex=ZEBRA_GRAY,
+        white_hex=ZEBRA_WHITE,
+    )
 
     _style_after_fill(ws)
 
     # ========= 6) Fila Total =========
-    ws.append([""] * 10)  # separador opcional
+    ws.append([""] * 10)
     total_row = ws.max_row
-    ws.cell(row=total_row, column=9, value="Total").font = Font(bold=True)  # I
-    ws.cell(row=total_row, column=10, value=total_subtotal_company).font = Font(bold=True)  # J
-    ws.cell(row=total_row, column=10).number_format = '$#,##0.00'
+
+    ws.cell(row=total_row, column=9, value="Total").font = Font(bold=True)
+    ws.cell(row=total_row, column=10, value=total_subtotal_company).font = Font(
+        bold=True
+    )
+    ws.cell(row=total_row, column=10).number_format = "$#,##0.00"
+
     for col in range(1, 11):
         c = ws.cell(row=total_row, column=col)
         c.border = BORDER_ALL
-        c.alignment = CELL_ALIGN_RIGHT if col in (9, 10) else (
-            CELL_ALIGN_LEFT_WRAP if col in (4, 8) else CELL_ALIGN_LEFT
+        c.alignment = (
+            CELL_ALIGN_RIGHT
+            if col in (9, 10)
+            else (CELL_ALIGN_LEFT_WRAP if col in (4, 8) else CELL_ALIGN_LEFT)
         )
 
     return _xlsx_response(wb)

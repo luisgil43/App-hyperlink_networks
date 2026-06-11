@@ -690,3 +690,25 @@ def toggle_ui_mode(request):
 
     messages.success(request, "Switched to User mode.")
     return redirect("dashboard:inicio_tecnico")
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect, render
+
+
+@login_required
+def download_ready(request):
+    data = request.session.get("prepared_download")
+
+    if not data:
+        return redirect("dashboard_admin:inicio_admin")
+
+    return render(
+        request,
+        "usuarios/download_ready.html",
+        {
+            "file_url": data.get("file_url"),
+            "filename": data.get("filename", "download"),
+            "content_type": data.get("content_type", ""),
+        },
+    )

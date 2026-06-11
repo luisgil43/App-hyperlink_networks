@@ -1028,17 +1028,22 @@ def _parse_date_any(s: str):
             pass
     return None
 
-@login_required
-@rol_requerido('facturacion', 'admin')
-def exportar_cartola(request):
-    from datetime import datetime, time, timedelta
 
-    import xlwt
+@login_required
+@rol_requerido("facturacion", "admin")
+def exportar_cartola(request):
+    import json
+    from datetime import datetime, time, timedelta
+    from io import BytesIO
+
     from django.db import models
     from django.db.models import Q
     from django.http import HttpResponse
     from django.utils import timezone
     from django.utils.timezone import is_aware
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
 
     from core.permissions import filter_queryset_by_assignment_history
 
@@ -1052,20 +1057,92 @@ def exportar_cartola(request):
                 pass
         return None
 
+    def _cell_value_for_excel_filter(mov, col_idx):
+        if col_idx == 0:
+            return str(mov.usuario or "").strip() or "(Vacías)"
+
+        if col_idx == 1:
+            fecha = getattr(mov, "fecha", None)
+            if not fecha:
+                return "(Vacías)"
+            if isinstance(fecha, datetime):
+                if is_aware(fecha):
+                    fecha = timezone.localtime(fecha)
+                fecha = fecha.date()
+            return fecha.strftime("%d-%m-%Y")
+
+        if col_idx == 2:
+            rcd = getattr(mov, "real_consumption_date", None)
+            if not rcd:
+                return "(Vacías)"
+            if isinstance(rcd, datetime):
+                if is_aware(rcd):
+                    rcd = timezone.localtime(rcd)
+                rcd = rcd.date()
+            return rcd.strftime("%d-%m-%Y")
+
+        if col_idx == 3:
+            return str(getattr(mov, "proyecto", "") or "").strip() or "(Vacías)"
+
+        if col_idx == 4:
+            cat = getattr(getattr(mov, "tipo", None), "categoria", "") or ""
+            return str(cat).title().strip() or "(Vacías)"
+
+        if col_idx == 5:
+            return str(getattr(mov, "tipo", "") or "").strip() or "(Vacías)"
+
+        if col_idx == 6:
+            return str(getattr(mov, "rut_factura", "") or "—").strip() or "(Vacías)"
+
+        if col_idx == 7:
+            return str(getattr(mov, "tipo_doc", "") or "—").strip() or "(Vacías)"
+
+        if col_idx == 8:
+            return str(getattr(mov, "numero_doc", "") or "—").strip() or "(Vacías)"
+
+        if col_idx == 9:
+            return str(getattr(mov, "observaciones", "") or "").strip() or "(Vacías)"
+
+        if col_idx == 10:
+            return (
+                str(getattr(mov, "numero_transferencia", "") or "—").strip()
+                or "(Vacías)"
+            )
+
+        if col_idx == 11:
+            return "Ver" if getattr(mov, "comprobante", None) else "—"
+
+        if col_idx == 12:
+            try:
+                return f"${float(getattr(mov, 'cargos', 0) or 0):,.2f}"
+            except Exception:
+                return "$0.00"
+
+        if col_idx == 13:
+            try:
+                return f"${float(getattr(mov, 'abonos', 0) or 0):,.2f}"
+            except Exception:
+                return "$0.00"
+
+        if col_idx == 14:
+            return str(mov.get_status_display() or "").strip() or "(Vacías)"
+
+        return "(Vacías)"
+
     params = request.GET
 
-    du        = (params.get('du') or '').strip()
-    fecha_str = (params.get('fecha') or '').strip()
-    proyecto  = (params.get('proyecto') or '').strip()
-    categoria = (params.get('categoria') or '').strip()
-    tipo      = (params.get('tipo') or '').strip()
-    estado    = (params.get('estado') or '').strip()
-    rut       = (params.get('rut_factura') or '').strip()
+    du = (params.get("du") or "").strip()
+    fecha_str = (params.get("fecha") or "").strip()
+    proyecto = (params.get("proyecto") or "").strip()
+    categoria = (params.get("categoria") or "").strip()
+    tipo = (params.get("tipo") or "").strip()
+    estado = (params.get("estado") or "").strip()
+    rut = (params.get("rut_factura") or "").strip()
 
     movimientos = (
         CartolaMovimiento.objects.all()
-        .select_related('usuario', 'proyecto', 'tipo')
-        .order_by('-fecha')
+        .select_related("usuario", "proyecto", "tipo")
+        .order_by("-fecha")
     )
 
     # ✅ BLINDADO: proyecto + include_history/start_at
@@ -1078,9 +1155,9 @@ def exportar_cartola(request):
 
     if du:
         movimientos = movimientos.filter(
-            Q(usuario__username__icontains=du) |
-            Q(usuario__first_name__icontains=du) |
-            Q(usuario__last_name__icontains=du)
+            Q(usuario__username__icontains=du)
+            | Q(usuario__first_name__icontains=du)
+            | Q(usuario__last_name__icontains=du)
         )
 
     if fecha_str:
@@ -1090,7 +1167,7 @@ def exportar_cartola(request):
         else:
             f = _parse_date_any(fecha_str)
             if f:
-                campo_fecha = CartolaMovimiento._meta.get_field('fecha')
+                campo_fecha = CartolaMovimiento._meta.get_field("fecha")
                 if isinstance(campo_fecha, models.DateTimeField):
                     tz = timezone.get_current_timezone()
                     start = timezone.make_aware(datetime.combine(f, time.min), tz)
@@ -1110,90 +1187,215 @@ def exportar_cartola(request):
     if estado:
         movimientos = movimientos.filter(status=estado)
 
-    response = HttpResponse(content_type='application/vnd.ms-excel')
-    now_str = timezone.localtime().strftime("%Y%m%d_%H%M%S")
-    response['Content-Disposition'] = f'attachment; filename="transactions_ledger_{now_str}.xls"'
+    # ✅ Aplicar filtros tipo Excel al export
+    excel_filters_raw = params.get("excel_filters") or ""
+    if excel_filters_raw:
+        try:
+            raw_filters = json.loads(excel_filters_raw)
+            parsed_filters = {}
 
-    wb = xlwt.Workbook(encoding='utf-8')
-    ws = wb.add_sheet('Transactions')
+            for col_key, values in raw_filters.items():
+                try:
+                    col_idx = int(col_key)
+                except Exception:
+                    continue
 
-    header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    date_style   = xlwt.easyxf(num_format_str='DD-MM-YYYY')
+                if isinstance(values, list):
+                    parsed_filters[col_idx] = set(str(v).strip() for v in values)
+
+            if parsed_filters:
+                ids_ok = []
+
+                for mov in movimientos:
+                    keep = True
+
+                    for col_idx, allowed_values in parsed_filters.items():
+                        if not allowed_values:
+                            continue
+
+                        current_value = _cell_value_for_excel_filter(mov, col_idx)
+
+                        if current_value not in allowed_values:
+                            keep = False
+                            break
+
+                    if keep:
+                        ids_ok.append(mov.id)
+
+                movimientos = movimientos.filter(id__in=ids_ok)
+
+        except Exception:
+            pass
+
+    # ===== Excel XLSX real =====
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Transactions"
+
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
+
+    header_fill = PatternFill("solid", fgColor="374151")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+
+    thin = Side(style="thin", color="D1D5DB")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    left = Alignment(horizontal="left", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
 
     columns = [
-        "User", "Date", "Project", "Real consumption date", "Category", "Type", "Remarks",
-        "Transfer Number", "Odometer (km)", "Debits", "Credits", "Status"
+        "User",
+        "Date",
+        "Project",
+        "Real consumption date",
+        "Category",
+        "Type",
+        "Remarks",
+        "Transfer Number",
+        "Odometer (km)",
+        "Debits",
+        "Credits",
+        "Status",
     ]
-    for col_num, title in enumerate(columns):
-        ws.write(0, col_num, title, header_style)
+
+    ws.append(columns)
+
+    for col_num, title in enumerate(columns, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border_all
 
     if not movimientos.exists():
-        ws.write(1, 0, "Sin resultados para los filtros aplicados.")
-        wb.save(response)
-        return response
+        ws.cell(row=2, column=1, value="Sin resultados para los filtros aplicados.")
+    else:
+        for row_num, mov in enumerate(movimientos, start=2):
+            fecha_excel = getattr(mov, "fecha", None)
+            if isinstance(fecha_excel, datetime):
+                if is_aware(fecha_excel):
+                    fecha_excel = timezone.localtime(fecha_excel).replace(tzinfo=None)
+                fecha_excel = fecha_excel.date()
 
-    for row_num, mov in enumerate(movimientos, start=1):
-        ws.write(row_num, 0, str(mov.usuario))
+            rcd = getattr(mov, "real_consumption_date", None)
+            if isinstance(rcd, datetime):
+                if is_aware(rcd):
+                    rcd = timezone.localtime(rcd).replace(tzinfo=None)
+                rcd = rcd.date()
 
-        fecha_excel = getattr(mov, 'fecha', None)
-        if isinstance(fecha_excel, datetime):
-            if is_aware(fecha_excel):
-                fecha_excel = fecha_excel.astimezone().replace(tzinfo=None)
-            fecha_excel = fecha_excel.date()
-        ws.write(row_num, 1, fecha_excel, date_style)
+            cat = getattr(getattr(mov, "tipo", None), "categoria", "") or ""
+            tipo_txt = str(getattr(mov, "tipo", "") or "")
 
-        ws.write(row_num, 2, str(getattr(mov, 'proyecto', '') or ''))
+            ws.cell(row=row_num, column=1, value=str(mov.usuario))
+            ws.cell(row=row_num, column=2, value=fecha_excel)
+            ws.cell(
+                row=row_num, column=3, value=str(getattr(mov, "proyecto", "") or "")
+            )
 
-        rcd = getattr(mov, 'real_consumption_date', None)
-        if isinstance(rcd, datetime):
-            if is_aware(rcd):
-                rcd = rcd.astimezone().replace(tzinfo=None)
-            rcd = rcd.date()
-        if rcd:
-            ws.write(row_num, 3, rcd, date_style)
-        else:
-            ws.write(row_num, 3, "")
+            if rcd:
+                ws.cell(row=row_num, column=4, value=rcd)
+            else:
+                ws.cell(row=row_num, column=4, value="")
 
-        cat = (getattr(getattr(mov, 'tipo', None), 'categoria', '') or '')
-        tipo_txt = str(getattr(mov, 'tipo', '') or '')
-        ws.write(row_num, 4, str(cat).title())
-        ws.write(row_num, 5, tipo_txt)
+            ws.cell(row=row_num, column=5, value=str(cat).title())
+            ws.cell(row=row_num, column=6, value=tipo_txt)
+            ws.cell(row=row_num, column=7, value=mov.observaciones or "")
+            ws.cell(row=row_num, column=8, value=mov.numero_transferencia or "")
 
-        ws.write(row_num, 6, mov.observaciones or "")
-        ws.write(row_num, 7, mov.numero_transferencia or "")
+            try:
+                ws.cell(
+                    row=row_num,
+                    column=9,
+                    value=float(mov.kilometraje) if mov.kilometraje is not None else "",
+                )
+            except Exception:
+                ws.cell(row=row_num, column=9, value="")
 
-        try:
-            ws.write(row_num, 8, float(mov.kilometraje) if mov.kilometraje is not None else "")
-        except Exception:
-            ws.write(row_num, 8, "")
+            ws.cell(row=row_num, column=10, value=float(mov.cargos or 0))
+            ws.cell(row=row_num, column=11, value=float(mov.abonos or 0))
+            ws.cell(row=row_num, column=12, value=mov.get_status_display())
 
-        ws.write(row_num, 9, float(mov.cargos or 0))
-        ws.write(row_num, 10, float(mov.abonos or 0))
-        ws.write(row_num, 11, mov.get_status_display())
+            for col in range(1, 13):
+                c = ws.cell(row=row_num, column=col)
+                c.border = border_all
 
-    wb.save(response)
+                if col in (2, 4):
+                    c.number_format = "DD-MM-YYYY"
+                    c.alignment = center
+                elif col in (9, 10, 11):
+                    c.alignment = right
+                else:
+                    c.alignment = left
+
+            ws.cell(row=row_num, column=10).number_format = "$#,##0.00"
+            ws.cell(row=row_num, column=11).number_format = "$#,##0.00"
+
+    widths = {
+        1: 28,
+        2: 14,
+        3: 28,
+        4: 22,
+        5: 16,
+        6: 18,
+        7: 36,
+        8: 18,
+        9: 16,
+        10: 14,
+        11: 14,
+        12: 28,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    now_str = timezone.localtime().strftime("%Y%m%d_%H%M%S")
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="transactions_ledger_{now_str}.xlsx"'
+    )
+
     return response
 
 
 @login_required
-@rol_requerido('facturacion', 'admin')
+@rol_requerido("facturacion", "admin")
 def exportar_saldos(request):
     from datetime import datetime
+    from io import BytesIO
 
-    import xlwt
     from django.db.models import Case, DecimalField, F, Q, Sum, Value, When
     from django.http import HttpResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
 
-    USER_PENDING = ['pendiente_usuario',
-                    'pendiente_aprobacion_usuario', 'pendiente_abono_usuario']
-    SUP_PENDING = ['pendiente_supervisor']
-    PM_PENDING  = ['aprobado_supervisor', 'pendiente_pm']
-    FIN_PENDING = ['aprobado_pm', 'pendiente_finanzas']
+    USER_PENDING = [
+        "pendiente_usuario",
+        "pendiente_aprobacion_usuario",
+        "pendiente_abono_usuario",
+    ]
+    SUP_PENDING = ["pendiente_supervisor"]
+    PM_PENDING = ["aprobado_supervisor", "pendiente_pm"]
+    FIN_PENDING = ["aprobado_pm", "pendiente_finanzas"]
 
     def _sum_pending_abonos(status_list):
         return Sum(
             Case(
-                When(Q(abonos__gt=0) & Q(status__in=status_list), then=F('abonos')),
+                When(Q(abonos__gt=0) & Q(status__in=status_list), then=F("abonos")),
                 default=Value(0),
                 output_field=DecimalField(max_digits=12, decimal_places=2),
             )
@@ -1202,7 +1404,7 @@ def exportar_saldos(request):
     def _sum_pending_cargos(status_list):
         return Sum(
             Case(
-                When(Q(cargos__gt=0) & Q(status__in=status_list), then=F('cargos')),
+                When(Q(cargos__gt=0) & Q(status__in=status_list), then=F("cargos")),
                 default=Value(0),
                 output_field=DecimalField(max_digits=12, decimal_places=2),
             )
@@ -1210,23 +1412,20 @@ def exportar_saldos(request):
 
     # 🔒 Limitar a proyectos con acceso del usuario
     base = CartolaMovimiento.objects.all()
-    base = filter_queryset_by_access(base, request.user, 'proyecto_id')
+    base = filter_queryset_by_access(base, request.user, "proyecto_id")
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
-    # Si include_history=True => todo; si start_at => desde start_at en adelante
+    # ✅ Limitar también por fecha (ventana ProyectoAsignacion)
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
         ProyectoAsignacion = None
 
-    can_view_legacy_history = (
-        request.user.is_superuser or
-        getattr(request.user, "es_usuario_historial", False)
+    can_view_legacy_history = request.user.is_superuser or getattr(
+        request.user, "es_usuario_historial", False
     )
 
     if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
         try:
-            # OJO: aquí base ya está filtrado por proyectos visibles
             proyecto_ids_visibles = list(
                 base.values_list("proyecto_id", flat=True).distinct()
             )
@@ -1235,36 +1434,48 @@ def exportar_saldos(request):
 
         try:
             asignaciones = list(
-                ProyectoAsignacion.objects
-                .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+                ProyectoAsignacion.objects.filter(
+                    usuario=request.user, proyecto_id__in=proyecto_ids_visibles
+                )
             )
         except Exception:
             asignaciones = []
 
         if asignaciones:
             access_by_pk = {}
+
             for a in asignaciones:
                 if a.include_history or not a.start_at:
-                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
                 else:
-                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
 
             ids_ok = []
-            # usamos values_list para no romper con select_related/deferred
+
             for mid, pid, fecha in base.values_list("id", "proyecto_id", "fecha"):
                 if pid is None:
                     continue
+
                 access = access_by_pk.get(pid)
+
                 if not access:
                     continue
+
                 if access["include_history"] or access["start_at"] is None:
                     ids_ok.append(mid)
                     continue
+
                 if not fecha:
                     continue
 
                 start_at = access["start_at"]
-                # normaliza a date (evita datetime vs date)
+
                 if isinstance(start_at, datetime):
                     start_date = start_at.date()
                 else:
@@ -1281,60 +1492,116 @@ def exportar_saldos(request):
             base = base.filter(id__in=ids_ok)
 
     balances = (
-        base
-        .values('usuario__first_name', 'usuario__last_name')
+        base.values("usuario__first_name", "usuario__last_name")
         .annotate(
-            rendered_amount = Sum('cargos', default=0),
-            assigned_amount = Sum('abonos', default=0),
-            available_amount = Sum(F('abonos') - F('cargos'), default=0),
-
-            pending_user = _sum_pending_abonos(USER_PENDING),
-
-            sup_abonos = _sum_pending_abonos(SUP_PENDING),
-            sup_cargos = _sum_pending_cargos(SUP_PENDING),
-
-            pm_abonos  = _sum_pending_abonos(PM_PENDING),
-            pm_cargos  = _sum_pending_cargos(PM_PENDING),
-
-            fin_abonos = _sum_pending_abonos(FIN_PENDING),
-            fin_cargos = _sum_pending_cargos(FIN_PENDING),
+            rendered_amount=Sum("cargos", default=0),
+            assigned_amount=Sum("abonos", default=0),
+            available_amount=Sum(F("abonos") - F("cargos"), default=0),
+            pending_user=_sum_pending_abonos(USER_PENDING),
+            sup_abonos=_sum_pending_abonos(SUP_PENDING),
+            sup_cargos=_sum_pending_cargos(SUP_PENDING),
+            pm_abonos=_sum_pending_abonos(PM_PENDING),
+            pm_cargos=_sum_pending_cargos(PM_PENDING),
+            fin_abonos=_sum_pending_abonos(FIN_PENDING),
+            fin_cargos=_sum_pending_cargos(FIN_PENDING),
         )
-        .order_by('usuario__first_name', 'usuario__last_name')
+        .order_by("usuario__first_name", "usuario__last_name")
     )
 
-    response = HttpResponse(content_type='application/octet-stream')
-    response['Content-Disposition'] = 'attachment; filename="available_balances.xls"'
-    response['X-Content-Type-Options'] = 'nosniff'
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Available Balances"
 
-    wb = xlwt.Workbook(encoding='utf-8')
-    ws = wb.add_sheet('Available Balances')
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines = False
 
-    header_style = xlwt.easyxf('font: bold on; align: horiz center')
-    currency_style = xlwt.easyxf(num_format_str='$#,##0.00')
+    header_fill = PatternFill("solid", fgColor="374151")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+
+    thin = Side(style="thin", color="D1D5DB")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    left = Alignment(horizontal="left", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
 
     columns = [
-        "User", "Amount Rendered", "Assigned Amount", "Available Amount",
-        "Pending (User)", "Pending (Supervisor)", "Pending (PM)", "Pending (Finance)"
+        "User",
+        "Amount Rendered",
+        "Assigned Amount",
+        "Available Amount",
+        "Pending (User)",
+        "Pending (Supervisor)",
+        "Pending (PM)",
+        "Pending (Finance)",
     ]
-    for col, title in enumerate(columns):
-        ws.write(0, col, title, header_style)
 
-    for r, b in enumerate(balances, start=1):
-        pend_sup = float((b['sup_abonos'] or 0) + (b['sup_cargos'] or 0))
-        pend_pm  = float((b['pm_abonos']  or 0) + (b['pm_cargos']  or 0))
-        pend_fin = float((b['fin_abonos'] or 0) + (b['fin_cargos'] or 0))
+    ws.append(columns)
 
-        ws.write(r, 0, f"{b['usuario__first_name']} {b['usuario__last_name']}")
-        ws.write(r, 1, float(b['rendered_amount'] or 0), currency_style)
-        ws.write(r, 2, float(b['assigned_amount'] or 0), currency_style)
-        ws.write(r, 3, float(b['available_amount'] or 0), currency_style)
-        ws.write(r, 4, float(b['pending_user'] or 0), currency_style)
-        ws.write(r, 5, pend_sup, currency_style)
-        ws.write(r, 6, pend_pm,  currency_style)
-        ws.write(r, 7, pend_fin, currency_style)
+    for col_num, title in enumerate(columns, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border_all
 
-    wb.save(response)
+    for r, b in enumerate(balances, start=2):
+        pend_sup = float((b["sup_abonos"] or 0) + (b["sup_cargos"] or 0))
+        pend_pm = float((b["pm_abonos"] or 0) + (b["pm_cargos"] or 0))
+        pend_fin = float((b["fin_abonos"] or 0) + (b["fin_cargos"] or 0))
+
+        ws.cell(
+            row=r,
+            column=1,
+            value=f"{b['usuario__first_name']} {b['usuario__last_name']}",
+        )
+        ws.cell(row=r, column=2, value=float(b["rendered_amount"] or 0))
+        ws.cell(row=r, column=3, value=float(b["assigned_amount"] or 0))
+        ws.cell(row=r, column=4, value=float(b["available_amount"] or 0))
+        ws.cell(row=r, column=5, value=float(b["pending_user"] or 0))
+        ws.cell(row=r, column=6, value=pend_sup)
+        ws.cell(row=r, column=7, value=pend_pm)
+        ws.cell(row=r, column=8, value=pend_fin)
+
+        for col in range(1, 9):
+            c = ws.cell(row=r, column=col)
+            c.border = border_all
+
+            if col == 1:
+                c.alignment = left
+            else:
+                c.alignment = right
+                c.number_format = "$#,##0.00"
+
+    widths = {
+        1: 28,
+        2: 18,
+        3: 18,
+        4: 18,
+        5: 18,
+        6: 22,
+        7: 18,
+        8: 22,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="available_balances.xlsx"'
+
     return response
+
 
 def _parse_decimal(val: str | None) -> Decimal | None:
     if val is None:
