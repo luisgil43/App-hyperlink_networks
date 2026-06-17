@@ -1,39 +1,39 @@
-from django.shortcuts import redirect
 from django.urls import path
 
 from . import views
 
-app_name = 'dashboard_admin'
+app_name = "dashboard_admin"
 
 urlpatterns = [
-    path('', views.admin_dashboard_view, name='home'),
-    path('logout/', views.logout_view, name='logout'),
-
-    # Login del admin redirige al login unificado
-    path('login/', views.redirigir_a_login_unificado, name='login'),
-
-
-
-    path('producciones/', views.produccion_tecnico, name='produccion_tecnico'),
-    path('grupos/', views.grupos_view, name='grupos'),
-
-    path('usuarios/', views.listar_usuarios, name='listar_usuarios'),
-    path('usuarios/crear/', views.crear_usuario_view, name='crear_usuario'),
-     path('usuarios/exportar/', views.exportar_usuarios, name='exportar_usuarios'),
-     path('usuarios/exportar-formato-nuevo/',views.exportar_formato_nuevo_usuario_docx,name='exportar_formato_nuevo_usuario_docx'),
-    path('usuarios/editar/<int:user_id>/',
-         views.editar_usuario_view, name='editar_usuario'),
-    path('usuarios/eliminar/<int:user_id>/',
-         views.eliminar_usuario_view, name='eliminar_usuario'),
-
-    path('dashboard/', views.inicio_admin, name='inicio_admin'),
-    path('no-autorizado/', views.no_autorizado, name='no_autorizado'),
-    path('vacaciones/', views.redireccionar_vacaciones, name='vacaciones_admin'),
-
-    path('feriados/', views.listar_feriados, name='listar_feriados'),
-    path('feriados/eliminar/<int:pk>/',
-         views.eliminar_feriado, name='eliminar_feriado'),
-
-    path('index/', views.inicio_admin, name='index'),
-
+    path("", views.inicio_admin, name="home"),
+    path("dashboard/", views.inicio_admin, name="inicio_admin"),
+    path("index/", views.inicio_admin, name="index"),
+    path("logout/", views.logout_view, name="logout"),
+    path("login/", views.redirigir_a_login_unificado, name="login"),
+    path("producciones/", views.produccion_tecnico, name="produccion_tecnico"),
+    path("grupos/", views.grupos_view, name="grupos"),
+    path("usuarios/", views.listar_usuarios, name="listar_usuarios"),
+    path("usuarios/crear/", views.crear_usuario_view, name="crear_usuario"),
+    path("usuarios/exportar/", views.exportar_usuarios, name="exportar_usuarios"),
+    path(
+        "usuarios/exportar-formato-nuevo/",
+        views.exportar_formato_nuevo_usuario_docx,
+        name="exportar_formato_nuevo_usuario_docx",
+    ),
+    path(
+        "usuarios/editar/<int:user_id>/",
+        views.editar_usuario_view,
+        name="editar_usuario",
+    ),
+    path(
+        "usuarios/eliminar/<int:user_id>/",
+        views.eliminar_usuario_view,
+        name="eliminar_usuario",
+    ),
+    path("no-autorizado/", views.no_autorizado, name="no_autorizado"),
+    path("vacaciones/", views.redireccionar_vacaciones, name="vacaciones_admin"),
+    path("feriados/", views.listar_feriados, name="listar_feriados"),
+    path(
+        "feriados/eliminar/<int:pk>/", views.eliminar_feriado, name="eliminar_feriado"
+    ),
 ]

@@ -1,5 +1,7 @@
+import json
 import os
 import re
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -14,7 +16,7 @@ from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import NoReverseMatch, reverse, reverse_lazy
@@ -26,8 +28,10 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement  # 👈 para cantSplit
 from docx.shared import Inches, Pt, RGBColor
 
+from core.permissions import filter_queryset_by_access
 from dashboard.models import ProduccionTecnico
 from facturacion.models import Proyecto
+from operaciones.models import SesionBilling
 from rrhh.forms import FeriadoForm
 from rrhh.models import Feriado
 from usuarios.decoradores import rol_requerido
@@ -59,16 +63,126 @@ def logout_view(request):
     return redirect(reverse('usuarios:login_unificado'))
 
 
+@login_required(login_url="usuarios:login_unificado")
+@rol_requerido("admin", "pm", "supervisor", "facturacion")
 def inicio_admin(request):
-    queryset = Notificacion.objects.filter(
-        usuario=request.user).order_by('leido', '-fecha')
-    notificaciones = queryset[:10]
-    no_leidas = queryset.filter(leido=False).count()
+    user = request.user
+    today = timezone.localdate()
 
-    return render(request, 'dashboard_admin/inicio_admin.html', {
-        'notificaciones': notificaciones,
-        'notificaciones_no_leidas': no_leidas,
-    })
+    start_week = today - timedelta(days=today.weekday())
+    end_week = start_week + timedelta(days=6)
+
+    start_prev_week = start_week - timedelta(days=7)
+    end_prev_week = start_week - timedelta(days=1)
+
+    iso_year, iso_week, _ = today.isocalendar()
+    week_label = f"{iso_year}-W{int(iso_week):02d}"
+    week_range_label = (
+        f"{start_week.strftime('%b %d')} - {end_week.strftime('%b %d, %Y')}"
+    )
+
+    qs = SesionBilling.objects.all()
+
+    # ======================================================
+    # FILTRO POR PROYECTOS VISIBLES
+    # Admin/superuser ve todo.
+    # PM/supervisor/facturación ve solo proyectos asignados.
+    # ======================================================
+    can_view_all = user.is_superuser or getattr(user, "es_admin_general", False)
+
+    if not can_view_all:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            user,
+            "id",
+        )
+
+        proyectos_user_list = list(proyectos_user)
+
+        if proyectos_user_list:
+            allowed_keys = set()
+
+            for p in proyectos_user_list:
+                nombre = (getattr(p, "nombre", "") or "").strip()
+                codigo = (getattr(p, "codigo", "") or "").strip()
+
+                if nombre:
+                    allowed_keys.add(nombre)
+
+                if codigo:
+                    allowed_keys.add(codigo)
+
+                allowed_keys.add(str(p.id))
+
+            qs = qs.filter(
+                Q(proyecto__in=allowed_keys) | Q(proyecto_id__in=allowed_keys)
+            )
+        else:
+            qs = qs.none()
+
+    approved_states = ["aprobado_supervisor", "aprobado_pm"]
+
+    total_assigned = qs.filter(estado="asignado").count()
+    total_in_progress = qs.filter(estado="en_proceso").count()
+    total_submitted_review = qs.filter(estado="en_revision_supervisor").count()
+
+    approved_week = qs.filter(
+        estado__in=approved_states,
+        creado_en__date__range=[start_week, end_week],
+    ).count()
+
+    approved_prev_week = qs.filter(
+        estado__in=approved_states,
+        creado_en__date__range=[start_prev_week, end_prev_week],
+    ).count()
+
+    total_current = (
+        total_assigned + total_in_progress + total_submitted_review + approved_week
+    )
+
+    performance = round((approved_week / total_current) * 100) if total_current else 0
+
+    if approved_prev_week > 0:
+        vs_last_week = round(
+            ((approved_week - approved_prev_week) / approved_prev_week) * 100
+        )
+    else:
+        vs_last_week = 100 if approved_week > 0 else 0
+
+    chart_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    chart_data = []
+
+    for i in range(7):
+        day = start_week + timedelta(days=i)
+
+        chart_data.append(
+            qs.filter(
+                estado__in=approved_states,
+                creado_en__date=day,
+            ).count()
+        )
+
+    queryset = Notificacion.objects.filter(usuario=user).order_by("leido", "-fecha")
+
+    return render(
+        request,
+        "dashboard_admin/inicio_admin.html",
+        {
+            "notificaciones": queryset[:10],
+            "notificaciones_no_leidas": queryset.filter(leido=False).count(),
+            "week_label": week_label,
+            "week_range_label": week_range_label,
+            "total_assigned": total_assigned,
+            "total_in_progress": total_in_progress,
+            "total_submitted_review": total_submitted_review,
+            "approved_week": approved_week,
+            "approved_prev_week": approved_prev_week,
+            "performance": performance,
+            "vs_last_week": vs_last_week,
+            "chart_labels": json.dumps(chart_labels),
+            "chart_data": json.dumps(chart_data),
+        },
+    )
 
 
 @login_required(login_url='usuarios:login')
@@ -433,7 +547,6 @@ def crear_usuario_view(request, identidad=None):
     return render(request, 'dashboard_admin/crear_usuario.html', contexto)
 
 
-
 @login_required(login_url='usuarios:login')
 @rol_requerido('admin', 'pm', 'rrhh')
 def listar_usuarios(request):
@@ -745,8 +858,6 @@ def exportar_usuarios(request):
     response["Content-Disposition"] = 'attachment; filename="users_export.xlsx"'
     wb.save(response)
     return response
-
-
 
 
 @login_required

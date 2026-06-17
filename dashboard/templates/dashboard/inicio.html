@@ -1,35 +1,148 @@
 {% extends "dashboard/base.html" %}
 
 {% block content %}
-<div class="text-center mt-12">
-  <!-- Mensaje de bienvenida -->
-  <h1 class="text-3xl font-bold text-gray-800 mb-2">
-    Hello {{ request.user.get_full_name }}!
-  </h1>
-  <p class="text-lg text-gray-600 mb-8">
-    How can we help you today?
-  </p>
+<div class="max-w-7xl mx-auto px-4 py-10">
 
-  <!-- Botones principales del dashboard -->
-  <div class="flex flex-wrap justify-center gap-4 px-4">
+  <div class="text-center mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">
+      Hello {{ request.user.get_full_name|default:request.user.username }}!
+    </h1>
 
-    <!-- Ver Rendion -->
-    <a href="{% url 'operaciones:mis_rendiciones' %}" class="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-      📄 My Expense Reports
-    </a>
+    <p class="text-lg text-gray-600">
+      Your weekly assignment summary —
+      <span class="font-bold text-blue-600">{{ week_label }}</span>
+    </p>
 
-    <!-- Ver lAsigancion-->
-    <a href="{% url 'operaciones:mis_assignments' %}" class="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-      🪙 My Assignment
-    </a>
+    <p class="text-sm text-gray-500 mt-1">
+      {{ week_range_label }}
+    </p>
+  </div>
 
-    <!-- Ver producción -->
-    <a href="{% url 'operaciones:produccion_usuario' %}" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-      📊 Salary & Production
-    </a>
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
 
-    
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Assigned</p>
+      <h2 class="text-4xl font-black text-blue-600 mt-2">{{ total_assigned|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Pending acceptance</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">In Progress</p>
+      <h2 class="text-4xl font-black text-amber-500 mt-2">{{ total_in_progress|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Active work</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Submitted</p>
+      <h2 class="text-4xl font-black text-cyan-600 mt-2">{{ total_submitted_review|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Supervisor review</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Approved This Week</p>
+      <h2 class="text-4xl font-black text-green-600 mt-2">{{ completed_week|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Supervisor approved</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Vs Last Week</p>
+      <h2 class="text-4xl font-black {% if vs_last_week >= 0 %}text-green-600{% else %}text-red-600{% endif %} mt-2">
+        {% if vs_last_week >= 0 %}+{% endif %}{{ vs_last_week|default:0 }}%
+      </h2>
+      <p class="text-sm text-gray-500 mt-2">Approved comparison</p>
+    </div>
 
   </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <div class="lg:col-span-2 bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <div>
+          <h3 class="text-xl font-bold text-gray-800">
+            Weekly Approved Jobs — {{ week_label }}
+          </h3>
+          <p class="text-sm text-gray-500">
+            Supervisor approved assignments by day · {{ week_range_label }}
+          </p>
+        </div>
+
+        <div class="text-left sm:text-right">
+          <p class="text-sm text-gray-500 font-semibold">Performance</p>
+          <p class="text-2xl font-black text-blue-600">{{ performance|default:0 }}%</p>
+        </div>
+      </div>
+
+      <div class="h-72">
+        <canvas id="weeklyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <h3 class="text-xl font-bold text-gray-800 mb-5">Quick Access</h3>
+
+      <div class="space-y-3">
+        <a href="{% url 'operaciones:mis_assignments' %}"
+           class="block bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-4 py-4 rounded-xl transition">
+          🛠️ My Assignments
+        </a>
+
+        <a href="{% url 'operaciones:mis_rendiciones' %}"
+           class="block bg-violet-50 hover:bg-violet-100 text-violet-700 font-bold px-4 py-4 rounded-xl transition">
+          📄 My Expense Reports
+        </a>
+
+        <a href="{% url 'operaciones:produccion_usuario' %}"
+           class="block bg-green-50 hover:bg-green-100 text-green-700 font-bold px-4 py-4 rounded-xl transition">
+          📊 Salary & Production
+        </a>
+      </div>
+
+      <div class="mt-6 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl p-5">
+        <h4 class="font-bold mb-2">📌 Reminder</h4>
+        <p class="text-sm opacity-95">
+          Keep your jobs updated and upload all required photos before submitting for review.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const weeklyChartElement = document.getElementById('weeklyChart');
+
+  if (weeklyChartElement) {
+    new Chart(weeklyChartElement, {
+      type: 'line',
+      data: {
+        labels: {{ chart_labels|default:"['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"|safe }},
+        datasets: [{
+          label: 'Approved Assignments - {{ week_label }}',
+          data: {{ chart_data|default:"[0,0,0,0,0,0,0]"|safe }},
+          borderWidth: 4,
+          tension: 0.4,
+          fill: true,
+          pointRadius: 5,
+          pointHoverRadius: 7
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0 }
+          }
+        }
+      }
+    });
+  }
+</script>
 {% endblock %}

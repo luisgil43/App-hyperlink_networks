@@ -3,36 +3,153 @@
 {% block title %}Home - Admin Panel{% endblock %}
 
 {% block dashboard_content %}
-<div class="text-center mt-10">
-    <!-- Mensaje de bienvenida -->
-    <h1 class="text-3xl font-bold text-gray-800 mb-4">
-        Hello {{ request.user.get_full_name }}!
+<div class="max-w-7xl mx-auto px-4 py-10">
+
+  <div class="text-center mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">
+      Hello {{ request.user.get_full_name|default:request.user.username }}!
     </h1>
-    <p class="text-xl text-gray-600 mb-6">
-        What would you like to manage today?
+
+    <p class="text-lg text-gray-600">
+      Admin operational summary —
+      <span class="font-bold text-blue-600">{{ week_label }}</span>
     </p>
 
-    <!-- Botones principales del panel admin -->
-    <div class="flex justify-center gap-6 flex-wrap">
-        <!-- Cargar liquidaciones -->
-        <a href="{% url 'operaciones:crear_billing' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📄 Create Billing
-        </a>
+    <p class="text-sm text-gray-500 mt-1">
+      {{ week_range_label }}
+    </p>
+  </div>
 
-        <!-- Cargar producciones -->
-        <a href="{% url 'operaciones:produccion_admin' %}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            💳  Salaries & Productions
-        </a>
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
 
-        <!-- Cargar contratos -->
-        <a href="{% url 'invoicing:invoices_list' %}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            🧾 Invoices
-        </a>
-
-        <!-- Cargar fichas de ingreso -->
-        <a href="{% url 'facturacion:listar_cartola' %}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
-            📑 Account Transactions
-        </a>
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Assigned</p>
+      <h2 class="text-4xl font-black text-blue-600 mt-2">{{ total_assigned|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Pending work</p>
     </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">In Progress</p>
+      <h2 class="text-4xl font-black text-amber-500 mt-2">{{ total_in_progress|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Active billings</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Submitted</p>
+      <h2 class="text-4xl font-black text-cyan-600 mt-2">{{ total_submitted_review|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Supervisor review</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Approved This Week</p>
+      <h2 class="text-4xl font-black text-green-600 mt-2">{{ approved_week|default:0 }}</h2>
+      <p class="text-sm text-gray-500 mt-2">Approved billings</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <p class="text-sm text-gray-500 font-semibold">Vs Last Week</p>
+      <h2 class="text-4xl font-black {% if vs_last_week >= 0 %}text-green-600{% else %}text-red-600{% endif %} mt-2">
+        {% if vs_last_week >= 0 %}+{% endif %}{{ vs_last_week|default:0 }}%
+      </h2>
+      <p class="text-sm text-gray-500 mt-2">Approved comparison</p>
+    </div>
+
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <div class="lg:col-span-2 bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <div>
+          <h3 class="text-xl font-bold text-gray-800">
+            Weekly Approved Billings — {{ week_label }}
+          </h3>
+          <p class="text-sm text-gray-500">
+            Approved billings by day · {{ week_range_label }}
+          </p>
+        </div>
+
+        <div class="text-left sm:text-right">
+          <p class="text-sm text-gray-500 font-semibold">Performance</p>
+          <p class="text-2xl font-black text-blue-600">{{ performance|default:0 }}%</p>
+        </div>
+      </div>
+
+      <div class="h-72">
+        <canvas id="adminWeeklyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow border border-gray-100 p-6">
+      <h3 class="text-xl font-bold text-gray-800 mb-5">Quick Access</h3>
+
+      <div class="space-y-3">
+        <a href="{% url 'operaciones:crear_billing' %}"
+           class="block bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-4 py-4 rounded-xl transition">
+          📄 Create Billing
+        </a>
+
+        <a href="{% url 'operaciones:produccion_admin' %}"
+           class="block bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-4 py-4 rounded-xl transition">
+          💳 Salaries & Productions
+        </a>
+
+        <a href="{% url 'invoicing:invoices_list' %}"
+           class="block bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-4 py-4 rounded-xl transition">
+          🧾 Invoices
+        </a>
+
+        <a href="{% url 'facturacion:listar_cartola' %}"
+           class="block bg-yellow-50 hover:bg-yellow-100 text-yellow-700 font-bold px-4 py-4 rounded-xl transition">
+          📑 Account Transactions
+        </a>
+      </div>
+
+      <div class="mt-6 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl p-5">
+        <h4 class="font-bold mb-2">📌 Admin Reminder</h4>
+        <p class="text-sm opacity-95">
+          Review submitted jobs on time to keep billing, production and finance moving faster.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const adminWeeklyChartElement = document.getElementById('adminWeeklyChart');
+
+  if (adminWeeklyChartElement) {
+    new Chart(adminWeeklyChartElement, {
+      type: 'line',
+      data: {
+        labels: {{ chart_labels|default:"['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"|safe }},
+        datasets: [{
+          label: 'Approved Billings - {{ week_label }}',
+          data: {{ chart_data|default:"[0,0,0,0,0,0,0]"|safe }},
+          borderWidth: 4,
+          tension: 0.4,
+          fill: true,
+          pointRadius: 5,
+          pointHoverRadius: 7
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0 }
+          }
+        }
+      }
+    });
+  }
+</script>
 {% endblock %}
