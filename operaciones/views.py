@@ -8519,19 +8519,32 @@ def _tarifa_tecnico_lookup(tid, sesion, codigo) -> Decimal:
 def _recalcular_items_sesion(sesion):
     """
     ✅ Recalcula:
-      - porcentajes ya vienen actualizados en SesionBillingTecnico
-      - asegura ItemBillingTecnico para todos
-      - recalcula tarifa_base, tarifa_efectiva, subtotal por técnico (según payment mode)
+      - usa SOLO técnicos activos
+      - elimina desglose técnico de técnicos que ya no están activos
+      - asegura ItemBillingTecnico para todos los activos
+      - recalcula tarifa_base, tarifa_efectiva, subtotal por técnico
       - recalcula subtotal_tecnico/subtotal_empresa por item
       - recalcula subtotal_tecnico/subtotal_empresa por sesión
-    ⚠️ No toca evidencias / requisitos.
-    ⚠️ No toca estado (usamos update()).
+
+    ⚠️ No toca evidencias.
+    ⚠️ No toca fotos.
+    ⚠️ No toca requisitos.
+    ⚠️ No toca estado.
     """
-    tecnicos = list(
-        SesionBillingTecnico.objects.filter(sesion=sesion)
-        .values_list("tecnico_id", "porcentaje")
-        .order_by("id")
-    )
+
+    tecnicos_qs = SesionBillingTecnico.objects.filter(sesion=sesion)
+
+    # ✅ CLAVE:
+    # Si existe is_active, usamos SOLO técnicos activos.
+    # Esto corrige que Real pay week siga mostrando técnicos removidos.
+    try:
+        SesionBillingTecnico._meta.get_field("is_active")
+        tecnicos_qs = tecnicos_qs.filter(is_active=True)
+    except Exception:
+        pass
+
+    tecnicos = list(tecnicos_qs.values_list("tecnico_id", "porcentaje").order_by("id"))
+
     if not tecnicos:
         return
 
@@ -8562,7 +8575,21 @@ def _recalcular_items_sesion(sesion):
 
         sub_emp = _money((it.precio_empresa or Decimal("0")) * qty)
 
-        existing = {bd.tecnico_id: bd for bd in it.desglose_tecnico.all()}
+        # ✅ CLAVE:
+        # Quitar del desglose los técnicos que ya no están activos.
+        # Esto no borra fotos ni evidencias, solo la línea de pago/cálculo.
+        ItemBillingTecnico.objects.filter(item=it).exclude(
+            tecnico_id__in=tech_ids
+        ).delete()
+
+        # Refrescar desglose después de borrar los que salieron
+        desglose_actual = list(
+            ItemBillingTecnico.objects.filter(item=it).order_by("id")
+        )
+
+        existing = {bd.tecnico_id: bd for bd in desglose_actual}
+
+        # Crear desglose faltante para técnicos activos
         for tid in tech_ids:
             if tid not in existing:
                 ItemBillingTecnico.objects.create(
@@ -8597,6 +8624,7 @@ def _recalcular_items_sesion(sesion):
                 tarifa_efectiva=efectiva,
                 subtotal=subtotal,
             )
+
             sub_tecs += subtotal
 
         ItemBilling.objects.filter(pk=it.pk).update(
@@ -8766,6 +8794,7 @@ def reasignar_tecnicos(request, sesion_id: int):
       (mantiene a los que ya tienen evidencias aunque intenten sacarlos).
     - Redistribuye porcentajes a 100% entre los técnicos finales.
     - Recalcula items (tarifas/porcentajes) sin tocar fotos ni requisitos existentes.
+    - Reconstruye BillingPayWeekSnapshot para que Real pay week muestre los técnicos actuales.
     """
     sesion = get_object_or_404(SesionBilling, pk=sesion_id)
 
@@ -8778,13 +8807,32 @@ def reasignar_tecnicos(request, sesion_id: int):
 
     # ✅ CLAVE: NO borrar sesion.tecnicos_sesion.all().delete()
     # Usar el helper que preserva al que ya tiene evidencias.
-    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
+    final_ids = _actualizar_tecnicos_preservando_fotos(
+        sesion,
+        ids,
+        request=request,
+    )
 
     if not final_ids:
-        return HttpResponseBadRequest("No technicians left after applying evidence rules.")
+        return HttpResponseBadRequest(
+            "No technicians left after applying evidence rules."
+        )
 
-    # ✅ Recalcular items con los nuevos % (esto ya lo tienes y NO borra fotos)
+    # ✅ Recalcular items con los nuevos %.
     _recalcular_items_sesion(sesion)
+
+    # ✅ ESTO ES LO QUE FALTABA:
+    # La columna Real pay week se arma desde BillingPayWeekSnapshot.
+    # Si no reconstruyes el snapshot, se queda mostrando el técnico anterior.
+    try:
+        sesion.refresh_from_db()
+        rebuild_billing_payweek_snapshot(sesion)
+    except Exception as e:
+        messages.warning(
+            request,
+            f"Technicians were reassigned, but pay week snapshot could not be rebuilt: {e}",
+        )
+        return redirect("operaciones:editar_billing", sesion_id=sesion.id)
 
     messages.success(request, "Technicians reassigned and totals recalculated.")
     return redirect("operaciones:editar_billing", sesion_id=sesion.id)

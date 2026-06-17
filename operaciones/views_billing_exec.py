@@ -56,6 +56,7 @@ from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
 from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.excel_images import tmp_jpeg_from_filefield
+from operaciones.models import RequisitoFotoBillingPlantilla
 from usuarios.decoradores import rol_requerido
 
 from .models import (EvidenciaFotoBilling, ItemBillingTecnico,
@@ -4360,6 +4361,133 @@ def update_power_from_evidence(request, evidencia_id: int):
 # CONFIGURAR REQUISITOS (¡la que faltaba!)
 # ============================
 
+def ensure_requisitos_plantilla_desde_existentes(sesion):
+    """
+    Producción seguro:
+    Si la sesión todavía no tiene plantilla, intenta crearla desde los requisitos
+    existentes de la primera asignación que tenga requisitos.
+
+    No borra nada.
+    No modifica evidencias.
+    Solo llena RequisitoFotoBillingPlantilla si está vacía.
+    """
+
+    if sesion.requisitos_plantilla.exists():
+        return
+
+    asignacion_base = (
+        sesion.tecnicos_sesion
+        .prefetch_related("requisitos")
+        .filter(requisitos__isnull=False)
+        .distinct()
+        .order_by("id")
+        .first()
+    )
+
+    if not asignacion_base:
+        return
+
+    vistos = set()
+
+    for r in asignacion_base.requisitos.all().order_by("orden", "id"):
+        key = slugify((r.titulo or "").strip())
+
+        if not key or key in vistos:
+            continue
+
+        RequisitoFotoBillingPlantilla.objects.create(
+            sesion=sesion,
+            titulo=r.titulo,
+            descripcion=r.descripcion or "",
+            obligatorio=r.obligatorio,
+            orden=r.orden,
+            needs_power_reading=bool(getattr(r, "needs_power_reading", False)),
+            needs_light_source_reading=bool(getattr(r, "needs_light_source_reading", False)),
+            power_port_no=getattr(r, "power_port_no", None),
+        )
+
+        vistos.add(key)
+
+
+def sync_requisitos_plantilla_a_asignaciones(sesion):
+    """
+    Sincroniza los requisitos de plantilla de la sesión a todos los técnicos asignados.
+
+    Importante:
+    - No borra requisitos existentes.
+    - No borra evidencias.
+    - No duplica requisitos.
+    - Si cambia título, orden, obligatorio o flags, actualiza el requisito existente por slug.
+    """
+
+    plantillas = list(sesion.requisitos_plantilla.all().order_by("orden", "id"))
+
+    asignaciones = list(
+        sesion.tecnicos_sesion.select_related("tecnico")
+        .prefetch_related("requisitos")
+        .all()
+    )
+
+    for asignacion in asignaciones:
+        existentes_por_slug = {
+            slugify((r.titulo or "").strip()): r for r in asignacion.requisitos.all()
+        }
+
+        for p in plantillas:
+            key = slugify((p.titulo or "").strip())
+
+            if not key:
+                continue
+
+            existente = existentes_por_slug.get(key)
+
+            if existente:
+                changed = (
+                    existente.titulo != p.titulo
+                    or existente.descripcion != p.descripcion
+                    or existente.orden != p.orden
+                    or existente.obligatorio != p.obligatorio
+                    or bool(existente.needs_power_reading)
+                    != bool(p.needs_power_reading)
+                    or bool(existente.needs_light_source_reading)
+                    != bool(p.needs_light_source_reading)
+                    or existente.power_port_no != p.power_port_no
+                )
+
+                if changed:
+                    existente.titulo = p.titulo
+                    existente.descripcion = p.descripcion or ""
+                    existente.orden = p.orden
+                    existente.obligatorio = p.obligatorio
+                    existente.needs_power_reading = bool(p.needs_power_reading)
+                    existente.needs_light_source_reading = bool(
+                        p.needs_light_source_reading
+                    )
+                    existente.power_port_no = p.power_port_no
+
+                    existente.save(
+                        update_fields=[
+                            "titulo",
+                            "descripcion",
+                            "orden",
+                            "obligatorio",
+                            "needs_power_reading",
+                            "needs_light_source_reading",
+                            "power_port_no",
+                        ]
+                    )
+            else:
+                RequisitoFotoBilling.objects.create(
+                    tecnico_sesion=asignacion,
+                    titulo=p.titulo,
+                    descripcion=p.descripcion or "",
+                    obligatorio=p.obligatorio,
+                    orden=p.orden,
+                    needs_power_reading=bool(p.needs_power_reading),
+                    needs_light_source_reading=bool(p.needs_light_source_reading),
+                    power_port_no=p.power_port_no,
+                )
+
 
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
@@ -4368,8 +4496,9 @@ def confirmar_importar_requisitos(request, sesion_id):
     """
     CONFIRM:
     - Lee preview desde session
-    - Crea SOLO requisitos nuevos en TODAS las asignaciones
-    - NO modifica los existentes (por tu regla)
+    - Crea SOLO requisitos nuevos en la plantilla del proyecto/billing
+    - Luego sincroniza esos requisitos con TODAS las asignaciones
+    - NO modifica existentes
     - Marca automáticamente POWER PORT X como lectura de potencia
     """
     from django.contrib import messages
@@ -4394,76 +4523,81 @@ def confirmar_importar_requisitos(request, sesion_id):
 
     try:
         with transaction.atomic():
-            asignaciones = list(
-                s.tecnicos_sesion.select_related("tecnico")
-                .prefetch_related("requisitos")
-                .all()
-            )
+            # ✅ NUEVO:
+            # Si es un billing viejo que ya tenía requisitos por técnico,
+            # primero los copiamos a la plantilla sin borrar nada.
+            ensure_requisitos_plantilla_desde_existentes(s)
 
+            existentes_por_slug = {
+                slugify((r.titulo or "").strip()): r
+                for r in s.requisitos_plantilla.all()
+            }
+
+            try:
+                current_max_order = max(
+                    (r.orden for r in s.requisitos_plantilla.all()),
+                    default=-1,
+                )
+            except Exception:
+                current_max_order = -1
+
+            next_order = current_max_order + 1
             created_total = 0
 
-            for a in asignaciones:
-                existentes_por_slug = {
-                    slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
-                }
+            for r in to_create:
+                name = (r.get("name") or "").strip()
+                if not name:
+                    continue
 
-                # ✅ fallback de orden estable por asignación
-                try:
-                    current_max_order = max(
-                        (r.orden for r in a.requisitos.all()), default=-1
-                    )
-                except Exception:
-                    current_max_order = -1
-                next_order = current_max_order + 1
+                key = slugify(name)
+                if not key:
+                    continue
 
-                for r in to_create:
-                    name = (r.get("name") or "").strip()
-                    if not name:
-                        continue
+                if key in existentes_por_slug:
+                    continue
 
-                    key = slugify(name)
-                    if not key:
-                        continue
+                raw_order = r.get("order", None)
+                order = None
 
-                    if key in existentes_por_slug:
-                        continue  # seguridad extra
+                if raw_order not in (None, "", "null"):
+                    try:
+                        order = int(raw_order)
+                    except Exception:
+                        order = None
 
-                    # order: si viene bien en el archivo, úsalo. Si no, usa next_order incremental.
-                    raw_order = r.get("order", None)
-                    order = None
-                    if raw_order not in (None, "", "null"):
-                        try:
-                            order = int(raw_order)
-                        except Exception:
-                            order = None
-                    if order is None:
-                        order = next_order
-                        next_order += 1
+                if order is None:
+                    order = next_order
+                    next_order += 1
 
-                    mandatory = bool(r.get("mandatory", True))
+                mandatory = bool(r.get("mandatory", True))
 
-                    # ✅ NUEVO: detectar POWER PORT 1..8
-                    needs_power, port_no = _power_meta_from_title(name)
-                    needs_light_source = _light_source_meta_from_title(name)
+                needs_power, port_no = _power_meta_from_title(name)
+                needs_light_source = _light_source_meta_from_title(name)
 
-                    RequisitoFotoBilling.objects.create(
-                        tecnico_sesion=a,
-                        titulo=name,
-                        descripcion="",
-                        obligatorio=mandatory,
-                        orden=order,
-                        needs_power_reading=bool(needs_power),
-                        needs_light_source_reading=bool(needs_light_source),
-                        power_port_no=port_no,
-                    )
+                obj = RequisitoFotoBillingPlantilla.objects.create(
+                    sesion=s,
+                    titulo=name,
+                    descripcion="",
+                    obligatorio=mandatory,
+                    orden=order,
+                    needs_power_reading=bool(needs_power),
+                    needs_light_source_reading=bool(needs_light_source),
+                    power_port_no=port_no,
+                )
 
-                    existentes_por_slug[key] = True
-                    created_total += 1
+                existentes_por_slug[key] = obj
+                created_total += 1
+
+            # ✅ NUEVO:
+            # Copia la plantilla a todos los técnicos actuales.
+            # Si mañana cambias técnico, también debes llamar este helper en esa vista.
+            sync_requisitos_plantilla_a_asignaciones(s)
 
         messages.success(
             request,
             f"Created {created_total} new requirement(s). Existing identical requirements were kept unchanged.",
         )
+
     except Exception as e:
         messages.error(request, f"Could not apply imported requirements: {e}")
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
@@ -4473,24 +4607,22 @@ def confirmar_importar_requisitos(request, sesion_id):
 
 
 @login_required
-@rol_requerido('supervisor', 'admin', 'pm')
+@rol_requerido("supervisor", "admin", "pm")
 def configurar_requisitos(request, sesion_id):
     """
-    Configura la lista compartida de requisitos a nivel de proyecto
-    y la sincroniza con TODAS las asignaciones SIN borrar estados previos.
-    + marca automáticamente needs_power_reading/power_port_no si el título es POWER PORT X.
-    + marca automáticamente needs_light_source_reading si el título es LIGHT SOURCE.
+    Configura la lista compartida de requisitos a nivel de proyecto/billing.
+    La fuente principal ahora es RequisitoFotoBillingPlantilla.
+    Luego se sincroniza con TODAS las asignaciones sin borrar estados previos.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    asignaciones = list(
-        s.tecnicos_sesion.select_related("tecnico")
-         .prefetch_related("requisitos")
-         .all()
-    )
-    canonical = []
-    if asignaciones and asignaciones[0].requisitos.exists():
-        canonical = list(asignaciones[0].requisitos.order_by("orden", "id"))
+    # ✅ NUEVO:
+    # Para billings antiguos, si no existe plantilla, la crea desde requisitos existentes.
+    ensure_requisitos_plantilla_desde_existentes(s)
+
+    # ✅ NUEVO:
+    # La pantalla ya no lee desde el primer técnico, sino desde la plantilla.
+    canonical = list(s.requisitos_plantilla.all().order_by("orden", "id"))
 
     if request.method == "POST":
         names = request.POST.getlist("name[]")
@@ -4498,100 +4630,179 @@ def configurar_requisitos(request, sesion_id):
         mand = request.POST.getlist("mandatory[]")
         ids = request.POST.getlist("id[]")
         to_del = set(request.POST.getlist("delete_id[]"))
+
         s.proyecto_especial = bool(request.POST.get("proyecto_especial"))
 
         normalized = []  # [(req_id, orden, name, mandatory)]
+
         for i, raw_name in enumerate(names):
             name = (raw_name or "").strip()
             if not name:
                 continue
+
             try:
                 orden = int(orders[i]) if i < len(orders) else i
             except Exception:
                 orden = i
+
             mandatory = (mand[i] == "1") if i < len(mand) else True
             req_id = (ids[i].strip() or None) if i < len(ids) else None
+
             normalized.append((req_id, orden, name, mandatory))
 
         try:
             with transaction.atomic():
                 s.save(update_fields=["proyecto_especial"])
 
-                for a in asignaciones:
-                    existentes = {str(r.id): r for r in a.requisitos.all()}
-                    existentes_por_slug = {
-                        slugify((r.titulo or "").strip()): r for r in a.requisitos.all()
-                    }
+                existentes = {str(r.id): r for r in s.requisitos_plantilla.all()}
 
-                    if to_del:
-                        del_objs = [existentes[x] for x in to_del if x in existentes]
-                        if del_objs:
+                existentes_por_slug = {
+                    slugify((r.titulo or "").strip()): r
+                    for r in s.requisitos_plantilla.all()
+                }
+
+                # ======================================================
+                # DELETE
+                # ======================================================
+                slugs_to_delete = set()
+
+                if to_del:
+                    for x in to_del:
+                        obj = existentes.get(str(x))
+                        if obj:
+                            key = slugify((obj.titulo or "").strip())
+                            if key:
+                                slugs_to_delete.add(key)
+
+                    RequisitoFotoBillingPlantilla.objects.filter(
+                        sesion=s,
+                        id__in=[int(x) for x in to_del if str(x).isdigit()],
+                    ).delete()
+
+                    # Mantiene tu comportamiento anterior:
+                    # si borras un requisito desde configuración, se elimina de las asignaciones.
+                    # Las evidencias NO se borran porque EvidenciaFotoBilling.requisito usa SET_NULL.
+                    if slugs_to_delete:
+                        ids_delete = []
+
+                        reqs_actuales = RequisitoFotoBilling.objects.filter(
+                            tecnico_sesion__sesion=s
+                        )
+
+                        for req in reqs_actuales:
+                            key = slugify((req.titulo or "").strip())
+                            if key in slugs_to_delete:
+                                ids_delete.append(req.id)
+
+                        if ids_delete:
                             RequisitoFotoBilling.objects.filter(
-                                id__in=[d.id for d in del_objs]
+                                id__in=ids_delete
                             ).delete()
 
-                    for req_id, orden, name, mandatory in normalized:
-                        needs_power, port_no = _power_meta_from_title(name)
-                        needs_light_source = _light_source_meta_from_title(name)
+                # ======================================================
+                # CREATE / UPDATE EN PLANTILLA
+                # ======================================================
+                for req_id, orden, name, mandatory in normalized:
+                    if req_id and str(req_id) in to_del:
+                        continue
 
-                        if req_id and req_id in existentes:
-                            r = existentes[req_id]
+                    key = slugify(name)
+                    if not key:
+                        continue
+
+                    needs_power, port_no = _power_meta_from_title(name)
+                    needs_light_source = _light_source_meta_from_title(name)
+
+                    if req_id and req_id in existentes:
+                        r = existentes[req_id]
+
+                        changed = (
+                            r.titulo != name
+                            or r.orden != orden
+                            or r.obligatorio != mandatory
+                            or bool(getattr(r, "needs_power_reading", False))
+                            != bool(needs_power)
+                            or bool(getattr(r, "needs_light_source_reading", False))
+                            != bool(needs_light_source)
+                            or getattr(r, "power_port_no", None) != port_no
+                        )
+
+                        if changed:
+                            r.titulo = name
+                            r.descripcion = r.descripcion or ""
+                            r.orden = orden
+                            r.obligatorio = mandatory
+                            r.needs_power_reading = bool(needs_power)
+                            r.needs_light_source_reading = bool(needs_light_source)
+                            r.power_port_no = port_no
+
+                            r.save(
+                                update_fields=[
+                                    "titulo",
+                                    "descripcion",
+                                    "orden",
+                                    "obligatorio",
+                                    "needs_power_reading",
+                                    "needs_light_source_reading",
+                                    "power_port_no",
+                                    "slug",
+                                ]
+                            )
+
+                    else:
+                        r = existentes_por_slug.get(key)
+
+                        if r:
                             changed = (
                                 r.titulo != name
                                 or r.orden != orden
                                 or r.obligatorio != mandatory
-                                or r.tecnico_sesion_id != a.id
-                                or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
-                                or bool(getattr(r, "needs_light_source_reading", False)) != bool(needs_light_source)
+                                or bool(getattr(r, "needs_power_reading", False))
+                                != bool(needs_power)
+                                or bool(getattr(r, "needs_light_source_reading", False))
+                                != bool(needs_light_source)
                                 or getattr(r, "power_port_no", None) != port_no
                             )
+
                             if changed:
                                 r.titulo = name
+                                r.descripcion = r.descripcion or ""
                                 r.orden = orden
                                 r.obligatorio = mandatory
-                                r.tecnico_sesion = a
                                 r.needs_power_reading = bool(needs_power)
                                 r.needs_light_source_reading = bool(needs_light_source)
                                 r.power_port_no = port_no
-                                r.save(update_fields=[
-                                    "titulo", "orden", "obligatorio", "tecnico_sesion",
-                                    "needs_power_reading", "needs_light_source_reading", "power_port_no",
-                                ])
-                        else:
-                            key = slugify(name)
-                            r = existentes_por_slug.get(key)
 
-                            if r and str(r.id) not in to_del:
-                                changed = (
-                                    r.titulo != name
-                                    or r.orden != orden
-                                    or r.obligatorio != mandatory
-                                    or bool(getattr(r, "needs_power_reading", False)) != bool(needs_power)
-                                    or bool(getattr(r, "needs_light_source_reading", False)) != bool(needs_light_source)
-                                    or getattr(r, "power_port_no", None) != port_no
+                                r.save(
+                                    update_fields=[
+                                        "titulo",
+                                        "descripcion",
+                                        "orden",
+                                        "obligatorio",
+                                        "needs_power_reading",
+                                        "needs_light_source_reading",
+                                        "power_port_no",
+                                        "slug",
+                                    ]
                                 )
-                                if changed:
-                                    r.titulo = name
-                                    r.orden = orden
-                                    r.obligatorio = mandatory
-                                    r.needs_power_reading = bool(needs_power)
-                                    r.needs_light_source_reading = bool(needs_light_source)
-                                    r.power_port_no = port_no
-                                    r.save(update_fields=[
-                                        "titulo", "orden", "obligatorio",
-                                        "needs_power_reading", "needs_light_source_reading", "power_port_no",
-                                    ])
-                            else:
-                                RequisitoFotoBilling.objects.create(
-                                    tecnico_sesion=a,
-                                    titulo=name,
-                                    descripcion="",
-                                    obligatorio=mandatory,
-                                    orden=orden,
-                                    needs_power_reading=bool(needs_power),
-                                    needs_light_source_reading=bool(needs_light_source),
-                                    power_port_no=port_no,
-                                )
+
+                        else:
+                            obj = RequisitoFotoBillingPlantilla.objects.create(
+                                sesion=s,
+                                titulo=name,
+                                descripcion="",
+                                obligatorio=mandatory,
+                                orden=orden,
+                                needs_power_reading=bool(needs_power),
+                                needs_light_source_reading=bool(needs_light_source),
+                                power_port_no=port_no,
+                            )
+
+                            existentes_por_slug[key] = obj
+
+                # ✅ NUEVO:
+                # Ahora sí se reflejan los cambios en todos los técnicos.
+                sync_requisitos_plantilla_a_asignaciones(s)
 
             messages.success(request, "Photo requirements saved (project-wide).")
             return redirect("operaciones:listar_billing")
@@ -4688,13 +4899,8 @@ def importar_requisitos(request, sesion_id):
     """
     PREVIEW (sin escribir DB):
     - Parse CSV/XLSX
-    - Detecta duplicados dentro del archivo (por slug) y reporta:
-        * file row duplicada
-        * nombre duplicado
-        * file row original que está duplicando
-    - Detecta duplicados contra requisitos existentes (por slug) y reporta:
-        * file row entrante
-        * existing row number (1..N) del listado actual del billing (orden/id)
+    - Detecta duplicados dentro del archivo (por slug)
+    - Detecta duplicados contra requisitos existentes desde la plantilla del billing
     - Guarda preview en session
     - Renderiza pantalla preview para confirmar
     """
@@ -4722,11 +4928,10 @@ def importar_requisitos(request, sesion_id):
         t = str(v).strip().lower()
         return t in ("1", "true", "yes", "y", "si", "sí")
 
-    normalized = []   # [{'order':int,'name':str,'mandatory':bool,'slug':str,'row':int}]
+    normalized = []
     warnings = []
     errors = []
 
-    # ---------------- PARSEO ----------------
     try:
         if ext == "csv":
             raw = f.read().decode("utf-8", errors="ignore")
@@ -4740,42 +4945,48 @@ def importar_requisitos(request, sesion_id):
 
             if has_header:
                 reader = csv.DictReader(io.StringIO(raw))
-                for idx, row in enumerate(reader, start=2):  # header is row 1
+                for idx, row in enumerate(reader, start=2):
                     name = (row.get("name") or "").strip()
                     if not name:
                         continue
+
                     try:
-                        order = int(row.get("order")) if (row.get("order") not in (None, "")) else len(normalized)
+                        order = int(row.get("order")) if row.get("order") not in (None, "") else len(normalized)
                     except Exception:
                         order = len(normalized)
+
                     mandatory = _to_bool(row.get("mandatory"), default=True)
+
                     normalized.append({
                         "order": order,
                         "name": name,
                         "mandatory": mandatory,
                         "slug": slugify(name),
-                        "row": idx,   # ✅ file row number
+                        "row": idx,
                     })
             else:
                 reader = csv.reader(io.StringIO(raw))
                 for idx, row in enumerate(reader, start=1):
                     if not row:
                         continue
+
                     name = (row[0] or "").strip()
                     if not name:
                         continue
+
                     normalized.append({
                         "order": len(normalized),
                         "name": name,
                         "mandatory": True,
                         "slug": slugify(name),
-                        "row": idx,   # ✅ file row number
+                        "row": idx,
                     })
 
         elif ext in ("xlsx", "xls"):
             wb = load_workbook(f, data_only=True)
             ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
+
             if not rows:
                 messages.warning(request, "The spreadsheet is empty.")
                 return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
@@ -4789,7 +5000,7 @@ def importar_requisitos(request, sesion_id):
                 i_order = header.index("order") if "order" in header else None
                 i_mand = header.index("mandatory") if "mandatory" in header else None
 
-                for ridx, r in enumerate(rows[start:], start=2):  # header is row 1
+                for ridx, r in enumerate(rows[start:], start=2):
                     name = (str(r[i_name]) if i_name < len(r) and r[i_name] is not None else "").strip()
                     if not name:
                         continue
@@ -4812,21 +5023,23 @@ def importar_requisitos(request, sesion_id):
                         "name": name,
                         "mandatory": mandatory,
                         "slug": slugify(name),
-                        "row": ridx,  # ✅ file row number
+                        "row": ridx,
                     })
             else:
                 for ridx, r in enumerate(rows, start=1):
                     if not r:
                         continue
+
                     name = (str(r[0]) if r[0] is not None else "").strip()
                     if not name:
                         continue
+
                     normalized.append({
                         "order": len(normalized),
                         "name": name,
                         "mandatory": True,
                         "slug": slugify(name),
-                        "row": ridx,  # ✅ file row number
+                        "row": ridx,
                     })
         else:
             messages.error(request, "Unsupported file type. Use .csv or .xlsx.")
@@ -4840,278 +5053,7 @@ def importar_requisitos(request, sesion_id):
         messages.warning(request, "No valid rows found in the file.")
         return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
 
-    # --------- Dedup dentro del archivo por slug (con referencia a la fila original) ----------
-    seen = {}  # slug -> {"row": int, "name": str}
-    cleaned = []
-    file_duplicates = []  # para tabla opcional
-
-    for r in normalized:
-        slug = r.get("slug") or ""
-        rownum = r.get("row")
-        nm = (r.get("name") or "").strip()
-
-        if not slug:
-            errors.append(f"Row {rownum}: invalid name.")
-            continue
-
-        if slug in seen:
-            first = seen[slug]
-            warnings.append(
-                f"Row {rownum}: duplicated name in file — '{nm}' — duplicates row {first['row']} ('{first['name']}')."
-            )
-            file_duplicates.append({
-                "row": rownum,
-                "name": nm,
-                "dup_of_row": first["row"],
-                "dup_of_name": first["name"],
-                "slug": slug,
-            })
-            continue
-
-        seen[slug] = {"row": rownum, "name": nm}
-        cleaned.append(r)
-
-    normalized = cleaned
-
-    if not normalized and not errors:
-        messages.warning(request, "No valid rows found in the file.")
-        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
-
-    # --------- EXISTENTES (canónico = primera asignación) + row number visual (1..N) ----------
-    asignaciones = list(
-        s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
-    )
-
-    existing_by_slug = {}  # slug -> {"req": obj, "row_num": int}
-    if asignaciones:
-        canonical_qs = asignaciones[0].requisitos.order_by("orden", "id")
-        for idx, req in enumerate(canonical_qs, start=1):
-            key = slugify((req.titulo or "").strip())
-            if key and key not in existing_by_slug:
-                existing_by_slug[key] = {"req": req, "row_num": idx}
-
-    duplicates = []
-    to_create = []
-
-    for r in normalized:
-        ex_info = existing_by_slug.get(r["slug"])
-        if ex_info:
-            ex = ex_info["req"]
-            duplicates.append({
-                "incoming_row": r.get("row"),                 # ✅ file row
-                "existing_row_num": ex_info.get("row_num"),   # ✅ row in current billing list (1..N)
-                "name": r["name"],
-                "slug": r["slug"],
-                "existing_order": getattr(ex, "orden", 0),
-                "existing_mandatory": bool(getattr(ex, "obligatorio", True)),
-                "incoming_order": r["order"],
-                "incoming_mandatory": r["mandatory"],
-            })
-        else:
-            to_create.append({
-                "row": r.get("row"),          # ✅ file row
-                "name": r["name"],
-                "slug": r["slug"],
-                "order": r["order"],
-                "mandatory": r["mandatory"],
-            })
-
-    request.session["req_import_preview"] = {
-        "sesion_id": s.id,
-        "source_filename": filename,
-        "to_create": to_create,
-        "duplicates": duplicates,
-        "file_duplicates": file_duplicates,
-        "warnings": warnings,
-        "errors": errors,
-    }
-
-    return render(
-        request,
-        "operaciones/preview_import_requirements.html",
-        {
-            "sesion": s,
-            "source_filename": filename,
-            "duplicates": duplicates,
-            "to_create": to_create,
-            "file_duplicates": file_duplicates,
-            "warnings": warnings,
-            "errors": errors,
-        },
-    )
-
-
-@login_required
-@rol_requerido('supervisor', 'admin', 'pm')
-@require_POST
-def bulk_importar_requisitos_preview(request):
-    """
-    BULK PREVIEW (sin escribir DB):
-    - Recibe ids (seleccionados) + file
-    - Filtra sesiones por estado permitido: asignado/en_proceso/en_revision_supervisor
-      (NO aprobado supervisor/pm)
-    - Parsea el archivo una sola vez (igual que importar_requisitos)
-    - Para cada sesión elegible:
-        * detecta duplicados vs requisitos existentes (canonical = primera asignación)
-        * arma to_create / duplicates
-    - Guarda preview en session y renderiza template de preview (reutiliza preview_import_requirements.html)
-    """
-    ids_raw = (request.POST.get("ids") or "").strip()
-    f = request.FILES.get("file")
-
-    if not ids_raw:
-        messages.error(request, "Please select at least one billing.")
-        return redirect("operaciones:listar_billing")
-
-    if not f:
-        messages.error(request, "Please select a CSV or XLSX file.")
-        return redirect("operaciones:listar_billing")
-
-    # -------- Parse ids --------
-    ids = []
-    for x in ids_raw.split(","):
-        x = (x or "").strip()
-        if not x:
-            continue
-        try:
-            ids.append(int(x))
-        except Exception:
-            pass
-
-    if not ids:
-        messages.error(request, "Invalid selection.")
-        return redirect("operaciones:listar_billing")
-
-    # -------- Helpers parse (MISMO comportamiento que importar_requisitos) --------
-    filename = (getattr(f, "name", "") or "").strip()
-    ext = (filename.rsplit(".", 1)[-1] or "").lower()
-
-    def _to_bool(v, default=True):
-        if v is None or v == "":
-            return default
-        t = str(v).strip().lower()
-        return t in ("1", "true", "yes", "y", "si", "sí")
-
-    normalized = []   # [{'order':int,'name':str,'mandatory':bool,'slug':str,'row':int}]
-    warnings = []
-    errors = []
-
-    # ---------------- PARSEO ----------------
-    try:
-        if ext == "csv":
-            raw = f.read().decode("utf-8", errors="ignore")
-            if not raw.strip():
-                messages.warning(request, "The file is empty.")
-                return redirect("operaciones:listar_billing")
-
-            lines = raw.splitlines()
-            header_line = (lines[0].lower() if lines else "")
-            has_header = "name" in header_line
-
-            if has_header:
-                reader = csv.DictReader(io.StringIO(raw))
-                for idx, row in enumerate(reader, start=2):  # header row is 1
-                    name = (row.get("name") or "").strip()
-                    if not name:
-                        continue
-                    try:
-                        order = int(row.get("order")) if (row.get("order") not in (None, "")) else len(normalized)
-                    except Exception:
-                        order = len(normalized)
-                    mandatory = _to_bool(row.get("mandatory"), default=True)
-                    normalized.append({
-                        "order": order,
-                        "name": name,
-                        "mandatory": mandatory,
-                        "slug": slugify(name),
-                        "row": idx,
-                    })
-            else:
-                reader = csv.reader(io.StringIO(raw))
-                for idx, row in enumerate(reader, start=1):
-                    if not row:
-                        continue
-                    name = (row[0] or "").strip()
-                    if not name:
-                        continue
-                    normalized.append({
-                        "order": len(normalized),
-                        "name": name,
-                        "mandatory": True,
-                        "slug": slugify(name),
-                        "row": idx,
-                    })
-
-        elif ext in ("xlsx", "xls"):
-            wb = load_workbook(f, data_only=True)
-            ws = wb.active
-            rows = list(ws.iter_rows(values_only=True))
-            if not rows:
-                messages.warning(request, "The spreadsheet is empty.")
-                return redirect("operaciones:listar_billing")
-
-            header = [str(x).strip().lower() if x is not None else "" for x in rows[0]]
-            has_header = "name" in header
-            start = 1 if has_header else 0
-
-            if has_header:
-                i_name = header.index("name")
-                i_order = header.index("order") if "order" in header else None
-                i_mand = header.index("mandatory") if "mandatory" in header else None
-
-                for ridx, r in enumerate(rows[start:], start=2):  # header row is 1
-                    name = (str(r[i_name]) if i_name < len(r) and r[i_name] is not None else "").strip()
-                    if not name:
-                        continue
-
-                    if i_order is not None and i_order < len(r) and r[i_order] not in (None, ""):
-                        try:
-                            order = int(r[i_order])
-                        except Exception:
-                            order = len(normalized)
-                    else:
-                        order = len(normalized)
-
-                    if i_mand is not None and i_mand < len(r):
-                        mandatory = _to_bool(r[i_mand], default=True)
-                    else:
-                        mandatory = True
-
-                    normalized.append({
-                        "order": order,
-                        "name": name,
-                        "mandatory": mandatory,
-                        "slug": slugify(name),
-                        "row": ridx,
-                    })
-            else:
-                for ridx, r in enumerate(rows, start=1):
-                    if not r:
-                        continue
-                    name = (str(r[0]) if r[0] is not None else "").strip()
-                    if not name:
-                        continue
-                    normalized.append({
-                        "order": len(normalized),
-                        "name": name,
-                        "mandatory": True,
-                        "slug": slugify(name),
-                        "row": ridx,
-                    })
-        else:
-            messages.error(request, "Unsupported file type. Use .csv or .xlsx.")
-            return redirect("operaciones:listar_billing")
-
-    except Exception as e:
-        messages.error(request, f"Could not parse the file: {e}")
-        return redirect("operaciones:listar_billing")
-
-    if not normalized:
-        messages.warning(request, "No valid rows found in the file.")
-        return redirect("operaciones:listar_billing")
-
-    # --------- Dedup dentro del archivo (igual que tu lógica mejorada) --------
-    seen = {}  # slug -> {"row": int, "name": str}
+    seen = {}
     cleaned = []
     file_duplicates = []
 
@@ -5145,91 +5087,415 @@ def bulk_importar_requisitos_preview(request):
 
     if not normalized and not errors:
         messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:import_requirements_page", sesion_id=sesion_id)
+
+    # ✅ CAMBIO ÚNICO IMPORTANTE:
+    # Ahora los existentes se leen desde la plantilla del billing, no desde el primer técnico.
+    ensure_requisitos_plantilla_desde_existentes(s)
+
+    existing_by_slug = {}
+
+    canonical_qs = s.requisitos_plantilla.all().order_by("orden", "id")
+
+    for idx, req in enumerate(canonical_qs, start=1):
+        key = slugify((req.titulo or "").strip())
+        if key and key not in existing_by_slug:
+            existing_by_slug[key] = {
+                "req": req,
+                "row_num": idx,
+            }
+
+    duplicates = []
+    to_create = []
+
+    for r in normalized:
+        ex_info = existing_by_slug.get(r["slug"])
+
+        if ex_info:
+            ex = ex_info["req"]
+            duplicates.append({
+                "incoming_row": r.get("row"),
+                "existing_row_num": ex_info.get("row_num"),
+                "name": r["name"],
+                "slug": r["slug"],
+                "existing_order": getattr(ex, "orden", 0),
+                "existing_mandatory": bool(getattr(ex, "obligatorio", True)),
+                "incoming_order": r["order"],
+                "incoming_mandatory": r["mandatory"],
+            })
+        else:
+            to_create.append({
+                "row": r.get("row"),
+                "name": r["name"],
+                "slug": r["slug"],
+                "order": r["order"],
+                "mandatory": r["mandatory"],
+            })
+
+    request.session["req_import_preview"] = {
+        "sesion_id": s.id,
+        "source_filename": filename,
+        "to_create": to_create,
+        "duplicates": duplicates,
+        "file_duplicates": file_duplicates,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+    return render(
+        request,
+        "operaciones/preview_import_requirements.html",
+        {
+            "sesion": s,
+            "source_filename": filename,
+            "duplicates": duplicates,
+            "to_create": to_create,
+            "file_duplicates": file_duplicates,
+            "warnings": warnings,
+            "errors": errors,
+        },
+    )
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def bulk_importar_requisitos_preview(request):
+    """
+    BULK PREVIEW (sin escribir DB):
+    - Recibe ids seleccionados + file
+    - Filtra sesiones por estado permitido
+    - Parsea el archivo una sola vez
+    - Para cada sesión elegible:
+        * detecta duplicados vs requisitos existentes desde plantilla
+        * arma to_create / duplicates
+    """
+    ids_raw = (request.POST.get("ids") or "").strip()
+    f = request.FILES.get("file")
+
+    if not ids_raw:
+        messages.error(request, "Please select at least one billing.")
         return redirect("operaciones:listar_billing")
 
-    # -------- Cargar sesiones + filtrar por estado permitido --------
+    if not f:
+        messages.error(request, "Please select a CSV or XLSX file.")
+        return redirect("operaciones:listar_billing")
+
+    ids = []
+    for x in ids_raw.split(","):
+        x = (x or "").strip()
+        if not x:
+            continue
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+
+    if not ids:
+        messages.error(request, "Invalid selection.")
+        return redirect("operaciones:listar_billing")
+
+    filename = (getattr(f, "name", "") or "").strip()
+    ext = (filename.rsplit(".", 1)[-1] or "").lower()
+
+    def _to_bool(v, default=True):
+        if v is None or v == "":
+            return default
+        t = str(v).strip().lower()
+        return t in ("1", "true", "yes", "y", "si", "sí")
+
+    normalized = []
+    warnings = []
+    errors = []
+
+    try:
+        if ext == "csv":
+            raw = f.read().decode("utf-8", errors="ignore")
+
+            if not raw.strip():
+                messages.warning(request, "The file is empty.")
+                return redirect("operaciones:listar_billing")
+
+            lines = raw.splitlines()
+            header_line = lines[0].lower() if lines else ""
+            has_header = "name" in header_line
+
+            if has_header:
+                reader = csv.DictReader(io.StringIO(raw))
+                for idx, row in enumerate(reader, start=2):
+                    name = (row.get("name") or "").strip()
+                    if not name:
+                        continue
+
+                    try:
+                        order = (
+                            int(row.get("order"))
+                            if row.get("order") not in (None, "")
+                            else len(normalized)
+                        )
+                    except Exception:
+                        order = len(normalized)
+
+                    mandatory = _to_bool(row.get("mandatory"), default=True)
+
+                    normalized.append(
+                        {
+                            "order": order,
+                            "name": name,
+                            "mandatory": mandatory,
+                            "slug": slugify(name),
+                            "row": idx,
+                        }
+                    )
+            else:
+                reader = csv.reader(io.StringIO(raw))
+                for idx, row in enumerate(reader, start=1):
+                    if not row:
+                        continue
+
+                    name = (row[0] or "").strip()
+                    if not name:
+                        continue
+
+                    normalized.append(
+                        {
+                            "order": len(normalized),
+                            "name": name,
+                            "mandatory": True,
+                            "slug": slugify(name),
+                            "row": idx,
+                        }
+                    )
+
+        elif ext in ("xlsx", "xls"):
+            wb = load_workbook(f, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+
+            if not rows:
+                messages.warning(request, "The spreadsheet is empty.")
+                return redirect("operaciones:listar_billing")
+
+            header = [str(x).strip().lower() if x is not None else "" for x in rows[0]]
+            has_header = "name" in header
+            start = 1 if has_header else 0
+
+            if has_header:
+                i_name = header.index("name")
+                i_order = header.index("order") if "order" in header else None
+                i_mand = header.index("mandatory") if "mandatory" in header else None
+
+                for ridx, r in enumerate(rows[start:], start=2):
+                    name = (
+                        str(r[i_name])
+                        if i_name < len(r) and r[i_name] is not None
+                        else ""
+                    ).strip()
+                    if not name:
+                        continue
+
+                    if (
+                        i_order is not None
+                        and i_order < len(r)
+                        and r[i_order] not in (None, "")
+                    ):
+                        try:
+                            order = int(r[i_order])
+                        except Exception:
+                            order = len(normalized)
+                    else:
+                        order = len(normalized)
+
+                    if i_mand is not None and i_mand < len(r):
+                        mandatory = _to_bool(r[i_mand], default=True)
+                    else:
+                        mandatory = True
+
+                    normalized.append(
+                        {
+                            "order": order,
+                            "name": name,
+                            "mandatory": mandatory,
+                            "slug": slugify(name),
+                            "row": ridx,
+                        }
+                    )
+            else:
+                for ridx, r in enumerate(rows, start=1):
+                    if not r:
+                        continue
+
+                    name = (str(r[0]) if r[0] is not None else "").strip()
+                    if not name:
+                        continue
+
+                    normalized.append(
+                        {
+                            "order": len(normalized),
+                            "name": name,
+                            "mandatory": True,
+                            "slug": slugify(name),
+                            "row": ridx,
+                        }
+                    )
+        else:
+            messages.error(request, "Unsupported file type. Use .csv or .xlsx.")
+            return redirect("operaciones:listar_billing")
+
+    except Exception as e:
+        messages.error(request, f"Could not parse the file: {e}")
+        return redirect("operaciones:listar_billing")
+
+    if not normalized:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:listar_billing")
+
+    seen = {}
+    cleaned = []
+    file_duplicates = []
+
+    for r in normalized:
+        slug = r.get("slug") or ""
+        rownum = r.get("row")
+        nm = (r.get("name") or "").strip()
+
+        if not slug:
+            errors.append(f"Row {rownum}: invalid name.")
+            continue
+
+        if slug in seen:
+            first = seen[slug]
+            warnings.append(
+                f"Row {rownum}: duplicated name in file — '{nm}' — duplicates row {first['row']} ('{first['name']}')."
+            )
+            file_duplicates.append(
+                {
+                    "row": rownum,
+                    "name": nm,
+                    "dup_of_row": first["row"],
+                    "dup_of_name": first["name"],
+                    "slug": slug,
+                }
+            )
+            continue
+
+        seen[slug] = {"row": rownum, "name": nm}
+        cleaned.append(r)
+
+    normalized = cleaned
+
+    if not normalized and not errors:
+        messages.warning(request, "No valid rows found in the file.")
+        return redirect("operaciones:listar_billing")
+
     sesiones = list(SesionBilling.objects.filter(id__in=ids).order_by("-creado_en"))
 
     allowed_states = {"asignado", "en_proceso", "en_revision_supervisor"}
-    blocked_states = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}  # por seguridad
+    blocked_states = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
     eligible = []
     skipped = []
 
     for s in sesiones:
         est = (getattr(s, "estado", "") or "").strip()
+
         if est in blocked_states:
-            skipped.append({"id": s.id, "proyecto_id": s.proyecto_id, "estado": est, "reason": "Already approved."})
+            skipped.append(
+                {
+                    "id": s.id,
+                    "proyecto_id": s.proyecto_id,
+                    "estado": est,
+                    "reason": "Already approved.",
+                }
+            )
             continue
+
         if est not in allowed_states:
-            skipped.append({"id": s.id, "proyecto_id": s.proyecto_id, "estado": est, "reason": "Status not allowed."})
+            skipped.append(
+                {
+                    "id": s.id,
+                    "proyecto_id": s.proyecto_id,
+                    "estado": est,
+                    "reason": "Status not allowed.",
+                }
+            )
             continue
+
         eligible.append(s)
 
     if not eligible:
-        messages.error(request, "None of the selected billings can receive requirements (status not allowed or already approved).")
+        messages.error(
+            request,
+            "None of the selected billings can receive requirements (status not allowed or already approved).",
+        )
         return redirect("operaciones:listar_billing")
 
-    # -------- Por sesión: duplicates vs existentes + to_create --------
     bulk_preview = []
     total_create = 0
     total_dup = 0
 
     for s in eligible:
-        asignaciones = list(
-            s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
-        )
+        # ✅ CAMBIO ÚNICO IMPORTANTE:
+        # Ya no se usa asignaciones[0].requisitos como canónico.
+        ensure_requisitos_plantilla_desde_existentes(s)
 
-        existing_by_slug = {}  # slug -> {"row_num":int,"name":str,"orden":int,"obligatorio":bool}
-        if asignaciones:
-            canonical_qs = asignaciones[0].requisitos.order_by("orden", "id")
-            for idx, req in enumerate(canonical_qs, start=1):
-                key = slugify((req.titulo or "").strip())
-                if key and key not in existing_by_slug:
-                    existing_by_slug[key] = {
-                        "row_num": idx,
-                        "name": (req.titulo or "").strip(),
-                        "orden": getattr(req, "orden", 0),
-                        "obligatorio": bool(getattr(req, "obligatorio", True)),
-                    }
+        existing_by_slug = {}
+
+        canonical_qs = s.requisitos_plantilla.all().order_by("orden", "id")
+
+        for idx, req in enumerate(canonical_qs, start=1):
+            key = slugify((req.titulo or "").strip())
+            if key and key not in existing_by_slug:
+                existing_by_slug[key] = {
+                    "row_num": idx,
+                    "name": (req.titulo or "").strip(),
+                    "orden": getattr(req, "orden", 0),
+                    "obligatorio": bool(getattr(req, "obligatorio", True)),
+                }
 
         duplicates = []
         to_create = []
 
         for r in normalized:
             ex = existing_by_slug.get(r["slug"])
+
             if ex:
-                duplicates.append({
-                    "incoming_row": r.get("row"),
-                    "existing_row_num": ex["row_num"],
-                    "name": r["name"],
-                    "existing_name": ex["name"],
-                    "existing_order": ex["orden"],
-                    "existing_mandatory": ex["obligatorio"],
-                    "incoming_order": r["order"],
-                    "incoming_mandatory": r["mandatory"],
-                })
+                duplicates.append(
+                    {
+                        "incoming_row": r.get("row"),
+                        "existing_row_num": ex["row_num"],
+                        "name": r["name"],
+                        "existing_name": ex["name"],
+                        "existing_order": ex["orden"],
+                        "existing_mandatory": ex["obligatorio"],
+                        "incoming_order": r["order"],
+                        "incoming_mandatory": r["mandatory"],
+                    }
+                )
             else:
-                to_create.append({
-                    "row": r.get("row"),
-                    "name": r["name"],
-                    "order": r["order"],
-                    "mandatory": r["mandatory"],
-                    "slug": r["slug"],
-                })
+                to_create.append(
+                    {
+                        "row": r.get("row"),
+                        "name": r["name"],
+                        "order": r["order"],
+                        "mandatory": r["mandatory"],
+                        "slug": r["slug"],
+                    }
+                )
 
         total_create += len(to_create)
         total_dup += len(duplicates)
 
-        bulk_preview.append({
-            "sesion_id": s.id,
-            "proyecto_id": s.proyecto_id,
-            "estado": getattr(s, "estado", ""),
-            "to_create": to_create,
-            "duplicates": duplicates,
-        })
+        bulk_preview.append(
+            {
+                "sesion_id": s.id,
+                "proyecto_id": s.proyecto_id,
+                "estado": getattr(s, "estado", ""),
+                "to_create": to_create,
+                "duplicates": duplicates,
+            }
+        )
 
-    # -------- Guardar preview en session --------
     request.session["bulk_req_import_preview"] = {
         "source_filename": filename,
         "eligible_ids": [s.id for s in eligible],
@@ -5240,7 +5506,6 @@ def bulk_importar_requisitos_preview(request):
         "bulk_preview": bulk_preview,
     }
 
-    # ✅ IMPORTANTE: reutilizamos el template que ya existe (preview_import_requirements.html)
     return render(
         request,
         "operaciones/preview_import_requirements.html",
@@ -5266,8 +5531,9 @@ def bulk_confirmar_importar_requisitos(request):
     BULK CONFIRM:
     - Lee preview desde session
     - Para cada sesión elegible:
-        crea SOLO requisitos nuevos en TODAS las asignaciones
-        NO modifica existentes
+        crea SOLO requisitos nuevos en la plantilla del billing/proyecto
+        luego sincroniza con TODAS las asignaciones
+    - NO modifica existentes
     - Bloquea si alguna sesión cambió a estado no permitido entre preview y confirm
     - Marca automáticamente POWER PORT X como lectura de potencia
     """
@@ -5309,55 +5575,54 @@ def bulk_confirmar_importar_requisitos(request):
                     )
                     continue
 
-                asignaciones = list(
-                    s.tecnicos_sesion.select_related("tecnico")
-                    .prefetch_related("requisitos")
-                    .all()
-                )
+                # ✅ NUEVO:
+                # Asegura plantilla desde datos antiguos, sin borrar nada.
+                ensure_requisitos_plantilla_desde_existentes(s)
 
-                for a in asignaciones:
-                    existentes_por_slug = {
-                        slugify((r.titulo or "").strip()): True
-                        for r in a.requisitos.all()
-                    }
+                existentes_por_slug = {
+                    slugify((r.titulo or "").strip()): r
+                    for r in s.requisitos_plantilla.all()
+                }
 
-                    for r in to_create:
-                        name = (r.get("name") or "").strip()
-                        if not name:
-                            continue
+                for r in to_create:
+                    name = (r.get("name") or "").strip()
+                    if not name:
+                        continue
 
-                        key = slugify(name)
-                        if not key:
-                            continue
+                    key = slugify(name)
+                    if not key:
+                        continue
 
-                        if key in existentes_por_slug:
-                            continue
+                    if key in existentes_por_slug:
+                        continue
 
-                        try:
-                            order = int(r.get("order"))
-                        except Exception:
-                            order = len(existentes_por_slug)
+                    try:
+                        order = int(r.get("order"))
+                    except Exception:
+                        order = len(existentes_por_slug)
 
-                        mandatory = bool(r.get("mandatory", True))
+                    mandatory = bool(r.get("mandatory", True))
 
-                        # ✅ NUEVO: detectar POWER PORT 1..8
-                        needs_power, port_no = _power_meta_from_title(name)
-                        needs_light_source = _light_source_meta_from_title(name)
+                    needs_power, port_no = _power_meta_from_title(name)
+                    needs_light_source = _light_source_meta_from_title(name)
 
-                        RequisitoFotoBilling.objects.create(
-                            tecnico_sesion=a,
-                            titulo=name,
-                            descripcion="",
-                            obligatorio=mandatory,
-                            orden=order,
-                            needs_power_reading=bool(needs_power),
-                            needs_light_source_reading=bool(needs_light_source),
-                            power_port_no=port_no,
-                        )
+                    obj = RequisitoFotoBillingPlantilla.objects.create(
+                        sesion=s,
+                        titulo=name,
+                        descripcion="",
+                        obligatorio=mandatory,
+                        orden=order,
+                        needs_power_reading=bool(needs_power),
+                        needs_light_source_reading=bool(needs_light_source),
+                        power_port_no=port_no,
+                    )
 
-                        created_total += 1
-                        existentes_por_slug[key] = True
+                    existentes_por_slug[key] = obj
+                    created_total += 1
 
+                # ✅ NUEVO:
+                # Copia la plantilla a todos los técnicos actuales.
+                sync_requisitos_plantilla_a_asignaciones(s)
                 affected_sessions += 1
 
     except Exception as e:

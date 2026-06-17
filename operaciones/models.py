@@ -1238,3 +1238,72 @@ class BillingPayWeekSnapshot(models.Model):
             f"Tech {self.tecnico_id} / "
             f"{self.tipo_trabajo} -> {self.semana_resultado}"
         )
+
+
+class RequisitoFotoBillingPlantilla(models.Model):
+    """
+    Plantilla de requisitos a nivel de SesionBilling.
+
+    Esta tabla NO depende del técnico.
+    Sirve como fuente principal de requisitos del proyecto/billing.
+    Luego se sincroniza hacia RequisitoFotoBilling para cada técnico asignado.
+    """
+
+    sesion = models.ForeignKey(
+        SesionBilling,
+        on_delete=models.CASCADE,
+        related_name="requisitos_plantilla",
+        db_index=True,
+    )
+
+    titulo = models.CharField(max_length=150)
+
+    descripcion = models.CharField(max_length=300, blank=True, default="")
+
+    obligatorio = models.BooleanField(default=True)
+
+    orden = models.PositiveIntegerField(default=0)
+
+    slug = models.SlugField(max_length=180, blank=True, db_index=True)
+
+    needs_power_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Power Meter reading (dBm).",
+    )
+
+    needs_light_source_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Light Source reading (dBm).",
+    )
+
+    power_port_no = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Optional port number (1..8) when title is POWER PORT X.",
+    )
+
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("orden", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sesion", "slug"],
+                name="uniq_requisito_plantilla_sesion_slug",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["sesion", "orden"]),
+            models.Index(fields=["sesion", "slug"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.slug = slugify((self.titulo or "").strip())
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"[Plantilla sesión {self.sesion_id}] {self.orden}. {self.titulo}"
