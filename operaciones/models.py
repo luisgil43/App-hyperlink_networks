@@ -1073,6 +1073,7 @@ class AdjustmentEntry(models.Model):
         ("bonus", "Bonus"),
         ("advance", "Advance"),
         ("fixed_salary", "Fixed salary"),
+        ("allowance", "Allowance"),
     ]
 
     # A quién se aplica
@@ -1120,8 +1121,10 @@ class AdjustmentEntry(models.Model):
         Convención:
           - bonus: +amount
           - fixed_salary: +amount
+          - allowance: +amount
           - advance: -amount
         """
+
         if self.adjustment_type == "advance":
             return -abs(self.amount or 0)
         return abs(self.amount or 0)

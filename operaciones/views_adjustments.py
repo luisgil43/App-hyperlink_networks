@@ -186,8 +186,16 @@ def adjustment_new(request):
             messages.error(request, "Select a technician.")
             return redirect("operaciones:adjustment_new")
 
+        # ✅ Validación backend del tipo de ajuste
+        valid_types = dict(AdjustmentEntry.TYPES)
+        if adj_type not in valid_types:
+            messages.error(request, "Invalid adjustment type.")
+            return redirect("operaciones:adjustment_new")
+
         technician = get_object_or_404(User, pk=tech_id)
-        proyecto = Proyecto.objects.filter(pk=proyecto_id).first() if proyecto_id else None
+        proyecto = (
+            Proyecto.objects.filter(pk=proyecto_id).first() if proyecto_id else None
+        )
 
         try:
             amount = Decimal(str(amount_raw))
@@ -198,7 +206,7 @@ def adjustment_new(request):
         if not _user_can_use_project_for_tech(request.user, technician, proyecto):
             messages.error(
                 request,
-                "You cannot create adjustments for this technician and project."
+                "You cannot create adjustments for this technician and project.",
             )
             return redirect("operaciones:produccion_admin")
 
@@ -220,33 +228,38 @@ def adjustment_new(request):
             office="",
             created_by=request.user,
         )
+
         return redirect("operaciones:produccion_admin")
 
     # ---------- GET: formulario ----------
     visible_tech_ids = _visible_tech_ids_for_user(request.user)
+
     if visible_tech_ids is None:
         techs = User.objects.filter(is_active=True).order_by(
             "first_name", "last_name", "username"
         )
     else:
-        techs = User.objects.filter(
-            is_active=True,
-            id__in=visible_tech_ids
-        ).order_by("first_name", "last_name", "username")
+        techs = User.objects.filter(is_active=True, id__in=visible_tech_ids).order_by(
+            "first_name", "last_name", "username"
+        )
 
     projects_qs = _projects_for_user(request.user).order_by("nombre")
 
     proj_tech_map = _build_proj_tech_map(projects_qs, techs)
     proj_tech_map_json = json.dumps(proj_tech_map)
 
-    return render(request, "operaciones/adjustment_new.html", {
-        "techs": techs,
-        "projects": projects_qs,
-        "current_week": current_week,
-        "editing": False,
-        "selected_project_id": None,
-        "proj_tech_map_json": proj_tech_map_json,
-    })
+    return render(
+        request,
+        "operaciones/adjustment_new.html",
+        {
+            "techs": techs,
+            "projects": projects_qs,
+            "current_week": current_week,
+            "editing": False,
+            "selected_project_id": None,
+            "proj_tech_map_json": proj_tech_map_json,
+        },
+    )
 
 
 @login_required
@@ -265,27 +278,39 @@ def adjustment_edit(request, pk):
         technician = get_object_or_404(User, pk=tech_id)
 
         adj.technician_id = int(tech_id)
-        adj.adjustment_type = request.POST.get("adjustment_type") or adj.adjustment_type
+
+        # ✅ Validación backend del tipo de ajuste
+        posted_type = request.POST.get("adjustment_type") or adj.adjustment_type
+        valid_types = dict(AdjustmentEntry.TYPES)
+
+        if posted_type not in valid_types:
+            messages.error(request, "Invalid adjustment type.")
+            return redirect("operaciones:produccion_admin")
+
+        adj.adjustment_type = posted_type
         adj.week = (request.POST.get("week") or adj.week).strip()
 
         amount_raw = (request.POST.get("amount") or "").replace(",", "")
+
         try:
             adj.amount = Decimal(amount_raw) if amount_raw != "" else adj.amount
         except (InvalidOperation, TypeError):
             pass  # deja el valor anterior
 
         proyecto_id = request.POST.get("project_select") or ""
-        proyecto = Proyecto.objects.filter(pk=proyecto_id).first() if proyecto_id else None
+        proyecto = (
+            Proyecto.objects.filter(pk=proyecto_id).first() if proyecto_id else None
+        )
 
         # Seguridad: validar que el usuario pueda usar ese proyecto para ese técnico
         if not _user_can_use_project_for_tech(request.user, technician, proyecto):
             messages.error(
                 request,
-                "You cannot edit this adjustment for this technician and project."
+                "You cannot edit this adjustment for this technician and project.",
             )
             return redirect("operaciones:produccion_admin")
 
-        # Remapear datos ligeros (igual que en "new")
+        # Remapear datos ligeros igual que en "new"
         adj.project = proyecto.nombre if proyecto else ""
         adj.client = (proyecto.mandante or "") if proyecto else ""
         adj.project_id = str(proyecto.pk) if proyecto else ""
@@ -293,19 +318,20 @@ def adjustment_edit(request, pk):
         adj.office = ""
 
         adj.save()
+
         return redirect("operaciones:produccion_admin")
 
     # ---------- GET: formulario ----------
     visible_tech_ids = _visible_tech_ids_for_user(request.user)
+
     if visible_tech_ids is None:
         techs = User.objects.filter(is_active=True).order_by(
             "first_name", "last_name", "username"
         )
     else:
-        techs = User.objects.filter(
-            is_active=True,
-            id__in=visible_tech_ids
-        ).order_by("first_name", "last_name", "username")
+        techs = User.objects.filter(is_active=True, id__in=visible_tech_ids).order_by(
+            "first_name", "last_name", "username"
+        )
 
     projects_qs = _projects_for_user(request.user).order_by("nombre")
 
@@ -317,13 +343,15 @@ def adjustment_edit(request, pk):
 
     # Si el proyecto actual no está en la lista visible, lo agregamos para no perderlo en el edit
     projects = list(projects_qs)
+
     if selected_project_id and not any(p.id == selected_project_id for p in projects):
         extra = Proyecto.objects.filter(pk=selected_project_id).first()
         if extra:
             projects.append(extra)
 
     proj_tech_map = _build_proj_tech_map(projects_qs, techs)
-    # Aseguramos que la combinación actual esté presente en el mapa (por si no hay asignación)
+
+    # Aseguramos que la combinación actual esté presente en el mapa por si no hay asignación
     if selected_project_id and adj.technician_id:
         key = str(selected_project_id)
         ids = set(proj_tech_map.get(key, []))

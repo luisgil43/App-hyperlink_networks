@@ -75,9 +75,11 @@
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Direct discount</span>
                 {% elif r.adjustment_type == "fixed_salary" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Fixed salary</span>
-                {% elif r.adjustment_type == "bonus" %}
+                {% elif r.adjustment_type == "allowance" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-cyan-100 text-cyan-800">Allowance</span>
+                  {% elif r.adjustment_type == "bonus" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Bonus</span>
-                {% elif r.adjustment_type == "advance" %}
+                  {% elif r.adjustment_type == "advance" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800">Advance</span>
                 {% elif r.status == "aprobado_pm" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">Approved by PM</span>
@@ -180,7 +182,9 @@
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">Direct discount</span>
                 {% elif r.adjustment_type == "fixed_salary" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Fixed salary</span>
-                {% elif r.adjustment_type == "bonus" %}
+                {% elif r.adjustment_type == "allowance" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-cyan-100 text-cyan-800">Allowance</span>
+                  {% elif r.adjustment_type == "bonus" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Bonus</span>
                 {% elif r.adjustment_type == "advance" %}
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800">Advance</span>

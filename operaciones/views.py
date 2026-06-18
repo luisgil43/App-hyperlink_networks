@@ -680,6 +680,7 @@ def _build_paid_breakdown_snapshot_for_weekly_payment(wp) -> dict:
             "fixed_salary": "Fixed salary",
             "bonus": "Bonus",
             "advance": "Advance",
+            "allowance": "Allowance",
         }
 
         adj_rows = (
@@ -10322,28 +10323,41 @@ def produccion_admin(request):
         filas.extend(_build_legacy_light_rows_for_session(s))
 
     # ============================================================
+
     # 3) Ajustes manuales
+
     # ============================================================
+
     if AdjustmentEntry is not None:
+
         adj_qs = AdjustmentEntry.objects.select_related("technician")
 
         if not can_view_legacy_history:
+
             if allowed_keys:
+
                 adj_qs = adj_qs.filter(
                     Q(project__in=allowed_keys) | Q(project_id__in=allowed_keys)
                 )
+
             else:
+
                 adj_qs = AdjustmentEntry.objects.none()
 
         if exact_week:
+
             token = exact_week.split("-", 1)[-1].upper()
+
             adj_qs = adj_qs.filter(
                 Q(week__iexact=exact_week) | Q(week__icontains=token)
             )
+
         elif week_token:
+
             adj_qs = adj_qs.filter(week__icontains=week_token)
 
         if f_project:
+
             adj_qs = adj_qs.annotate(
                 project_id_str=Cast("project_id", CharField())
             ).filter(
@@ -10351,19 +10365,25 @@ def produccion_admin(request):
             )
 
         if f_client:
+
             adj_qs = adj_qs.filter(client__icontains=f_client)
 
         if f_tech:
+
             adj_qs = adj_qs.filter(
                 Q(technician__first_name__icontains=f_tech)
                 | Q(technician__last_name__icontains=f_tech)
                 | Q(technician__username__icontains=f_tech)
             )
 
+        adjustment_labels = dict(AdjustmentEntry.TYPES)
+
         for a in adj_qs.iterator(chunk_size=500):
+
             t = a.technician
 
             amt = _to_decimal(getattr(a, "amount", 0))
+
             signed_amount = amt.copy_abs()
 
             filas.append(
@@ -10371,7 +10391,7 @@ def produccion_admin(request):
                     "_source": "adjustment",
                     "sesion": None,
                     "tecnico": t,
-                    "project_id": "-",
+                    "project_id": a.project_id or "-",
                     "week": a.week or "—",
                     "status": "",
                     "is_discount": False,
@@ -10384,6 +10404,10 @@ def produccion_admin(request):
                     "total_tecnico": signed_amount,
                     "detalle": [],
                     "adjustment_type": a.adjustment_type,
+                    "adjustment_label": adjustment_labels.get(
+                        a.adjustment_type,
+                        a.adjustment_type,
+                    ),
                     "adjustment_id": a.id,
                 }
             )
@@ -10788,6 +10812,7 @@ def Exportar_produccion_admin(request):
                 "bonus": "Bonus",
                 "advance": "Advance",
                 "fixed_salary": "Fixed salary",
+                "allowance": "Allowance",
             }.get(adjustment_type, adjustment_type)
 
         if is_discount:
@@ -12085,6 +12110,7 @@ def admin_weekly_payments(request):
         "fixed_salary": "Fixed salary",
         "bonus": "Bonus",
         "advance": "Advance",
+        "allowance": "Allowance",
     }
     ESTADOS_OK = {"aprobado_supervisor", "aprobado_pm", "aprobado_finanzas"}
 
@@ -13087,6 +13113,7 @@ def user_weekly_payments(request):
         "bonus": "Bonus",
         "fixed_salary": "Fixed salary",
         "advance": "Advance",
+        "allowance": "Allowance",
     }
 
     if weeks:

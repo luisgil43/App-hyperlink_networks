@@ -35,10 +35,11 @@
       <div>
         <label class="block text-sm font-medium">Type</label>
         <select name="adjustment_type" required class="w-full border rounded-xl px-3 py-2">
-          <option value="bonus"        {% if editing and adj.adjustment_type == "bonus" %}selected{% endif %}>Bonus</option>
-          <option value="advance"      {% if editing and adj.adjustment_type == "advance" %}selected{% endif %}>Advance</option>
-          <option value="fixed_salary" {% if editing and adj.adjustment_type == "fixed_salary" %}selected{% endif %}>Fixed salary</option>
-        </select>
+  <option value="bonus"        {% if editing and adj.adjustment_type == "bonus" %}selected{% endif %}>Bonus</option>
+  <option value="advance"      {% if editing and adj.adjustment_type == "advance" %}selected{% endif %}>Advance</option>
+  <option value="fixed_salary" {% if editing and adj.adjustment_type == "fixed_salary" %}selected{% endif %}>Fixed salary</option>
+  <option value="allowance"    {% if editing and adj.adjustment_type == "allowance" %}selected{% endif %}>Allowance</option>
+</select>
       </div>
       <div>
         <label class="block text-sm font-medium">Week (ISO)</label>
@@ -60,8 +61,8 @@
              placeholder="0.00"
              value="{% if editing %}{{ adj.amount }}{% endif %}">
       <p class="text-xs text-gray-500 mt-1">
-        Bonus/Fixed salary adds; Advance subtracts (in the admin view it is aggregated as positive for totals).
-      </p>
+  Bonus/Fixed salary/Allowance adds; Advance subtracts.
+</p>
     </div>
 
     <div>
