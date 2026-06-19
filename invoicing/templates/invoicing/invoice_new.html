@@ -37,6 +37,30 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  function setDateInputAndPicker(input, value){
+    if (!input) return;
+
+    input.value = value;
+    input.setAttribute('autocomplete','off');
+
+    if (input._flatpickr) {
+      try {
+        input._flatpickr.setDate(value, false, "Y-m-d");
+      } catch (_) {}
+    }
+
+    if (input._flatpickr && input._flatpickr.altInput) {
+      try {
+        input._flatpickr.altInput.setAttribute('autocomplete','off');
+      } catch (_) {}
+    }
+
+    try {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (_) {}
+  }
+
   function forceDefaultDates(){
     try{
       // ❗️Si estamos en modo edición, NO tocamos las fechas
@@ -51,39 +75,39 @@ function getCSRF(){ const m=document.cookie.match(/csrftoken=([^;]+)/); return m
       if(!inputDate) return false; // aún no está renderizado
 
       const today = toYMD(new Date());
-      inputDate.value = today;
+      setDateInputAndPicker(inputDate, today);
 
       if (inputDue){
         const d = new Date();
         d.setDate(d.getDate()+30);
-        inputDue.value = toYMD(d);
+        setDateInputAndPicker(inputDue, toYMD(d));
       }
-
-      inputDate.setAttribute('autocomplete','off');
-      if (inputDue) inputDue.setAttribute('autocomplete','off');
 
       return true;
     }catch(e){ return false; }
   }
 
   iframe.addEventListener('load', ()=> {
-    if (!forceDefaultDates()){
-      const t0 = Date.now();
-      const timer = setInterval(()=>{
-        if (forceDefaultDates() || Date.now() - t0 > 3000) clearInterval(timer);
-      }, 100);
-    }
+    const t0 = Date.now();
+    const timer = setInterval(()=>{
+      const ok = forceDefaultDates();
+
+      // dejamos que corra un poco más porque el template puede inicializar flatpickr después
+      if (ok && Date.now() - t0 > 800) clearInterval(timer);
+      if (Date.now() - t0 > 4000) clearInterval(timer);
+    }, 150);
   });
 
   try{
     const doc = iframe.contentDocument || iframe.contentWindow.document;
     if (doc && doc.readyState !== 'loading'){
-      if (!forceDefaultDates()){
-        const t0 = Date.now();
-        const timer = setInterval(()=>{
-          if (forceDefaultDates() || Date.now() - t0 > 3000) clearInterval(timer);
-        }, 100);
-      }
+      const t0 = Date.now();
+      const timer = setInterval(()=>{
+        const ok = forceDefaultDates();
+
+        if (ok && Date.now() - t0 > 800) clearInterval(timer);
+        if (Date.now() - t0 > 4000) clearInterval(timer);
+      }, 150);
     }
   }catch(e){}
 })();
