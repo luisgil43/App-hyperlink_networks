@@ -245,6 +245,14 @@
 
       </button>
 
+      <button type="button" data-action="merge_client_reports"
+
+        class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+
+        Merge client reports
+
+      </button>
+
       <button type="button" data-action="bulk_light_levels"
 
               class="block w-full text-left px-4 py-2 hover:bg-gray-100">
@@ -1138,27 +1146,56 @@ else %}asignado assigned{% endif %}"
               </table>
             </div>
 
-            <!-- Assignments -->
-            <div class="mt-6">
-              <div class="flex items-center justify-between mb-2">
-                <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
-{% if s.has_paid_work_type_lines %}
-  <span class="text-xs bg-gray-100 text-gray-500 border px-3 py-1 rounded cursor-not-allowed"
-        title="This billing has paid work types. Requirements cannot be changed.">
-    🔒 Configure Requirements
-  </span>
-{% elif s.is_cable_installation %}
-  <a href="{% url 'cable_installation:configure_requirements' s.id %}"
-     class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
-    Configure Requirements
-  </a>
-{% else %}
-  <a href="{% url 'operaciones:configurar_requisitos' s.id %}"
-     class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
-    Configure Requirements
-  </a>
-{% endif %}
-              </div>
+<div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+  <h3 class="text-sm font-semibold text-gray-800">Assignments</h3>
+
+  <div class="flex flex-wrap items-center gap-2">
+    {% if s.has_paid_work_type_lines %}
+      <span class="text-xs bg-gray-100 text-gray-500 border px-3 py-1 rounded cursor-not-allowed"
+            title="This billing has paid work types. Requirements cannot be changed.">
+        🔒 Configure Requirements
+      </span>
+    {% elif s.is_cable_installation %}
+      <a href="{% url 'cable_installation:configure_requirements' s.id %}"
+         class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+        Configure Requirements
+      </a>
+    {% else %}
+      <a href="{% url 'operaciones:configurar_requisitos' s.id %}"
+         class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+        Configure Requirements
+      </a>
+    {% endif %}
+
+    {% if s.is_cable_installation %}
+      <a href="{% url 'cable_installation:export_client_excel' s.id %}"
+         target="_blank"
+         rel="noopener"
+         class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1 rounded">
+        ⬇️ Client Report
+      </a>
+    {% elif s.reporte_fotografico %}
+      <a href="{% url 'operaciones:descargar_reporte_fotos_proyecto' s.id %}"
+         target="_blank"
+         rel="noopener"
+         class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded">
+        ⬇️ Photo Report
+      </a>
+    {% else %}
+      <span class="text-xs bg-gray-100 text-gray-400 border px-3 py-1 rounded cursor-not-allowed"
+            title="The report will be available after approval.">
+        ⬇️ Report
+      </span>
+    {% endif %}
+
+    <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
+       target="_blank"
+       rel="noopener"
+       class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded">
+      📦 Photos ZIP
+    </a>
+  </div>
+</div>
               <div class="overflow-x-auto rounded border">
                 <table class="min-w-[900px] w-full text-xs">
                   <thead class="bg-gray-100 text-gray-800">
@@ -1741,6 +1778,13 @@ document.addEventListener('click', function(e){
       if(window.mergeExcelReports) window.mergeExcelReports(ids);
       return;
     }
+    if(action === 'merge_client_reports'){
+
+  if(window.mergeClientReports) window.mergeClientReports(ids);
+
+  return;
+
+}
 
     if(action === 'bulk_light_levels'){
       if(window.downloadBulkLightLevels) window.downloadBulkLightLevels(ids);
@@ -3980,5 +4024,46 @@ function updateBillingTotalCount(){
     ${total} ${label}
   `;
 }
+</script>
+<script>
+(function(){
+  async function mergeClientReports(ids){
+    if(!ids || !ids.length) return;
+
+    document.getElementById('menu-actions')?.classList.add('hidden');
+
+    if (window.showBusy) {
+      window.showBusy('Merging client reports', 'Generating consolidated Excel');
+    }
+
+    const url = "{% url 'cable_installation:bulk_export_client_excel' %}" +
+                "?ids=" + encodeURIComponent(ids.join(','));
+
+    window.open(url, '_blank');
+
+    ids.forEach(id => {
+      const chk = document.querySelector(`.row-chk[value="${id}"]`);
+      if (chk){
+        chk.checked = false;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    const header = document.getElementById('chk-all');
+    if (header){
+      header.checked = false;
+      header.indeterminate = false;
+    }
+
+    const btnActions = document.getElementById('btn-actions');
+    if (btnActions) btnActions.disabled = true;
+
+    setTimeout(() => {
+      if (window.hideBusy) window.hideBusy();
+    }, 700);
+  }
+
+  window.mergeClientReports = mergeClientReports;
+})();
 </script>
 {% endblock %}

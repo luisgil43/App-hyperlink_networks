@@ -465,4 +465,5 @@ urlpatterns = [
         views_billing_masivo.billing_masivo_confirm,
         name="billing_masivo_confirm",
     ),
+  
 ]

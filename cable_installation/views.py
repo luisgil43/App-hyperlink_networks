@@ -1,5 +1,6 @@
 import csv
 import io
+from copy import copy
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
@@ -7,7 +8,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
-from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.http import (FileResponse, Http404, HttpResponse,
+                         HttpResponseBadRequest, JsonResponse)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -1001,3 +1003,143 @@ def confirm_import_requirements(request, billing_id):
         request.session.pop("cable_req_import_preview", None)
 
     return redirect("cable_installation:configure_requirements", billing_id=billing.id)
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def bulk_export_client_excel(request):
+    from .views_revision_admin import \
+        export_client_excel as cable_export_client_excel
+
+    ids_raw = request.GET.get("ids", "")
+
+    ids = []
+    for value in ids_raw.split(","):
+        value = value.strip()
+        if value.isdigit():
+            ids.append(int(value))
+
+    if not ids:
+        return HttpResponseBadRequest("No billings selected.")
+
+    output_wb = Workbook()
+    output_ws = output_wb.active
+    output_ws.title = "Client Reports"
+    output_ws.sheet_view.showGridLines = False
+
+    current_row = 1
+    copied_any = False
+    first_report = True
+
+    def copy_cell(source_cell, target_cell):
+        target_cell.value = source_cell.value
+
+        if source_cell.has_style:
+            target_cell.font = copy(source_cell.font)
+            target_cell.fill = copy(source_cell.fill)
+            target_cell.border = copy(source_cell.border)
+            target_cell.alignment = copy(source_cell.alignment)
+            target_cell.number_format = source_cell.number_format
+            target_cell.protection = copy(source_cell.protection)
+
+        if source_cell.hyperlink:
+            target_cell._hyperlink = copy(source_cell.hyperlink)
+
+        if source_cell.comment:
+            target_cell.comment = copy(source_cell.comment)
+
+    def copy_sheet_format(source_ws, target_ws, start_row):
+        max_row = source_ws.max_row
+        max_col = source_ws.max_column
+
+        # Copiar ancho de columnas solo la primera vez,
+        # para mantener el formato base del Client Report.
+        if first_report:
+            for col_letter, dim in source_ws.column_dimensions.items():
+                target_ws.column_dimensions[col_letter].width = dim.width
+                target_ws.column_dimensions[col_letter].hidden = dim.hidden
+                target_ws.column_dimensions[col_letter].outlineLevel = dim.outlineLevel
+
+        # Copiar celdas con estilos
+        for row in source_ws.iter_rows():
+            for source_cell in row:
+                target_cell = target_ws.cell(
+                    row=start_row + source_cell.row - 1,
+                    column=source_cell.column,
+                )
+                copy_cell(source_cell, target_cell)
+
+        # Copiar alto de filas
+        for row_idx, row_dim in source_ws.row_dimensions.items():
+            target_row_idx = start_row + row_idx - 1
+            target_ws.row_dimensions[target_row_idx].height = row_dim.height
+            target_ws.row_dimensions[target_row_idx].hidden = row_dim.hidden
+            target_ws.row_dimensions[target_row_idx].outlineLevel = row_dim.outlineLevel
+
+        # Copiar celdas combinadas ajustando la posición
+        for merged_range in source_ws.merged_cells.ranges:
+            min_col, min_row, max_col, max_row = merged_range.bounds
+
+            target_ws.merge_cells(
+                start_row=start_row + min_row - 1,
+                start_column=min_col,
+                end_row=start_row + max_row - 1,
+                end_column=max_col,
+            )
+
+        # Copiar configuración básica de impresión/página
+        if first_report:
+            target_ws.page_margins = copy(source_ws.page_margins)
+            target_ws.page_setup = copy(source_ws.page_setup)
+            target_ws.print_options = copy(source_ws.print_options)
+            target_ws.freeze_panes = source_ws.freeze_panes
+
+        return source_ws.max_row
+
+    for billing_id in ids:
+        try:
+            response = cable_export_client_excel(request, billing_id)
+        except Exception:
+            continue
+
+        if getattr(response, "status_code", 200) != 200:
+            continue
+
+        try:
+            if hasattr(response, "content"):
+                source_content = response.content
+            else:
+                source_content = b"".join(response.streaming_content)
+
+            source_wb = load_workbook(BytesIO(source_content))
+        except Exception:
+            continue
+
+        source_ws = source_wb.active
+
+        # Separación entre reportes, excepto antes del primero
+        if copied_any:
+            current_row += 2
+
+        copied_rows = copy_sheet_format(source_ws, output_ws, current_row)
+
+        current_row += copied_rows
+        copied_any = True
+        first_report = False
+
+    if not copied_any:
+        return HttpResponseBadRequest("No client reports could be generated.")
+
+    buffer = BytesIO()
+    output_wb.save(buffer)
+    buffer.seek(0)
+
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="merged_client_reports.xlsx"'
+    )
+
+    return response

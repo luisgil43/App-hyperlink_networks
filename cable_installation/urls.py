@@ -134,4 +134,9 @@ urlpatterns = [
         ad.download_cable_photo_report,
         name="download_cable_photo_report",
     ),
+    path(
+        "billing/bulk-export-client-excel/",
+        views.bulk_export_client_excel,
+        name="bulk_export_client_excel",
+    ),
 ]
