@@ -221,7 +221,7 @@
                     </td>
                   </tr>
 
-                  <tr class="border-t">
+                              <tr class="border-t">
                     <td class="p-2 font-semibold">cable_installation</td>
                     <td class="p-2">{% if b.cable_installation %}YES{% else %}NO{% endif %}</td>
                     <td class="p-2">
@@ -230,6 +230,52 @@
                           <div class="text-xs text-red-700">{{ e.message }}</div>
                         {% endif %}
                       {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">requirement_type</td>
+                    <td class="p-2">
+                      {% if b.requirement_type %}
+                        {{ b.requirement_type }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "requirement_type" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+
+                  <tr class="border-t">
+                    <td class="p-2 font-semibold">requirement_list</td>
+                    <td class="p-2">
+                      {% if b.requirement_list_label %}
+                        <span class="inline-flex px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold">
+                          {{ b.requirement_list_label }}
+                        </span>
+                      {% elif b.requirement_list %}
+                        {{ b.requirement_list }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="p-2">
+                      {% for e in b.errors %}
+                        {% if e.field == "requirement_list" %}
+                          <div class="text-xs text-red-700">{{ e.message }}</div>
+                        {% endif %}
+                      {% endfor %}
+
+                      {% if b.requirement_list_id and not b.errors %}
+                        <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                          OK
+                        </span>
+                      {% endif %}
                     </td>
                   </tr>
                 </tbody>
@@ -273,12 +319,14 @@
                             {{ t.username|default:"—" }}
                           </td>
                           <td class="p-2">{{ t.display_name|default:"—" }}</td>
-                          <td class="p-2">
+<td class="p-2">
   {% for e in b.errors %}
     {% if e.sheet == "Technicians" and e.row == t.source_row %}
-      <div class="text-xs text-red-700">
-        <b>{{ e.field }}:</b> {{ e.message }}
-      </div>
+      {% if not e.username or e.username == t.username %}
+        <div class="text-xs text-red-700">
+          <b>{{ e.field }}:</b> {{ e.message }}
+        </div>
+      {% endif %}
     {% endif %}
   {% endfor %}
 

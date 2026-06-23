@@ -315,6 +315,16 @@
 
     <span>Bulk Billing</span>
   </a>
+
+  <a href="{% url 'operaciones:requirement_list_list' %}"
+     class="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-sm hover:shadow-md transition-all duration-150">
+
+    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white font-bold">
+      ☑
+    </span>
+
+    <span>Requirement Lists</span>
+  </a>
 {% endif %}
       </div>
     </div>
@@ -1188,12 +1198,13 @@ else %}asignado assigned{% endif %}"
       </span>
     {% endif %}
 
-    <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
-       target="_blank"
-       rel="noopener"
-       class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded">
-      📦 Photos ZIP
-    </a>
+   <a href="{% url 'operaciones:descargar_fotos_zip' s.id %}"
+   data-no-file-download="1"
+   target="_blank"
+   rel="noopener"
+   class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded">
+  📦 Photos ZIP
+</a>
   </div>
 </div>
               <div class="overflow-x-auto rounded border">

@@ -7,7 +7,8 @@ from . import views as v
 from . import views_adjustments
 from . import views_billing_camera as cam  # ✅ NUEVO
 from . import views_billing_exec as b
-from . import views_billing_masivo, views_fotos_zip, views_plans, views_resumen
+from . import (views_billing_masivo, views_fotos_zip, views_plans,
+               views_requirement_lists, views_resumen)
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -465,5 +466,44 @@ urlpatterns = [
         views_billing_masivo.billing_masivo_confirm,
         name="billing_masivo_confirm",
     ),
-  
+    path(
+        "requirement-lists/",
+        views_requirement_lists.requirement_list_list,
+        name="requirement_list_list",
+    ),
+    path(
+        "requirement-lists/new/",
+        views_requirement_lists.requirement_list_create,
+        name="requirement_list_create",
+    ),
+    path(
+        "requirement-lists/<int:pk>/edit/",
+        views_requirement_lists.requirement_list_edit,
+        name="requirement_list_edit",
+    ),
+    path(
+        "requirement-lists/<int:pk>/toggle/",
+        views_requirement_lists.requirement_list_toggle,
+        name="requirement_list_toggle",
+    ),
+    path(
+        "requirement-lists/<int:pk>/delete/",
+        views_requirement_lists.requirement_list_delete,
+        name="requirement_list_delete",
+    ),
+    path(
+        "requirement-lists/import-preview/",
+        views_requirement_lists.requirement_list_import_preview,
+        name="requirement_list_import_preview",
+    ),
+    path(
+        "requirement-lists/template/<str:ext>/",
+        views_requirement_lists.requirement_list_template_download,
+        name="requirement_list_template_download",
+    ),
+    path(
+        "requirement-lists/import/parse/",
+        views_requirement_lists.requirement_list_import_parse,
+        name="requirement_list_import_parse",
+    ),
 ]

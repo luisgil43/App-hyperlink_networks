@@ -50,6 +50,40 @@
       </label>
     </div>
 
+    {% if requirement_lists_payload %}
+      {{ requirement_lists_payload|json_script:"requirement-lists-data" }}
+
+      <div class="border rounded-2xl p-4 sm:p-5 bg-blue-50 border-blue-100">
+        <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div class="flex-1">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">
+              Use reusable requirement list
+            </label>
+
+            <select id="requirementListSelect"
+                    class="w-full border rounded-xl px-3 py-2 bg-white">
+              <option value="">Select a requirement list...</option>
+              {% for list in requirement_lists_payload %}
+                <option value="{{ list.id }}">
+                  {{ list.name }} — {{ list.items|length }} requirement(s)
+                </option>
+              {% endfor %}
+            </select>
+
+            <p class="text-xs text-gray-500 mt-1">
+              This will add the selected requirements to the form. You can still edit them before saving.
+            </p>
+          </div>
+
+          <button type="button"
+                  id="btnApplyRequirementList"
+                  class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Apply list
+          </button>
+        </div>
+      </div>
+    {% endif %}
+
     <div class="border rounded-2xl p-4 sm:p-5">
       <div class="flex items-center justify-between mb-3">
         <div class="font-semibold text-lg">Project shared requirements</div>
@@ -290,7 +324,13 @@
       if (/\$\{\s*name\s*\}/i.test(inp.value)) inp.value = '';
       if (!inp.placeholder) inp.placeholder = 'Name';
     });
+    const btnApplyRequirementList = document.getElementById('btnApplyRequirementList');
 
+    if (btnApplyRequirementList) {
+
+      btnApplyRequirementList.addEventListener('click', applyRequirementList);
+
+    }
     // Asegurar que todos los checkboxes sincronicen con su hidden
     document.querySelectorAll('.req-row').forEach(row => {
       const cb = row.querySelector('input.obl-toggle');
@@ -300,7 +340,107 @@
       }
     });
   });
+  function normalizeRequirementName(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
 
+  function getRequirementListsPayload() {
+    const el = document.getElementById('requirement-lists-data');
+    if (!el) return [];
+
+    try {
+      return JSON.parse(el.textContent || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function applyRequirementList() {
+    const select = document.getElementById('requirementListSelect');
+    const listContainer = document.getElementById('req-list');
+
+    if (!select || !listContainer) return;
+
+    const selectedId = String(select.value || '').trim();
+
+    if (!selectedId) {
+      alert('Please select a requirement list.');
+      return;
+    }
+
+    const payload = getRequirementListsPayload();
+
+    const selectedList = payload.find(function (item) {
+      return String(item.id) === selectedId;
+    });
+
+    if (!selectedList || !Array.isArray(selectedList.items) || !selectedList.items.length) {
+      alert('This requirement list has no requirements.');
+      return;
+    }
+
+    const emptyMsg = listContainer.querySelector('.text-gray-500.text-sm');
+    if (emptyMsg) {
+      emptyMsg.remove();
+    }
+
+    const existingNames = new Set(
+      Array.from(document.querySelectorAll('input[name="name[]"]'))
+        .map(function (input) {
+          return normalizeRequirementName(input.value);
+        })
+        .filter(Boolean)
+    );
+
+    let added = 0;
+    let skipped = 0;
+
+    selectedList.items.forEach(function (item) {
+      const name = String(item.name || '').trim();
+
+      if (!name) return;
+
+      const normalized = normalizeRequirementName(name);
+
+      if (existingNames.has(normalized)) {
+        skipped += 1;
+        return;
+      }
+
+      const row = createEmptyRow();
+
+      const nameInput = row.querySelector('input[name="name[]"]');
+      const orderInput = row.querySelector('input[name="order[]"]');
+      const cb = row.querySelector('input.obl-toggle');
+      const hiddenMan = row.querySelector('input[name="mandatory[]"]');
+
+      if (nameInput) {
+        nameInput.value = name;
+      }
+
+      if (orderInput) {
+        orderInput.value = String(nextOrderValue());
+      }
+
+      const isRequired = item.required !== false;
+
+      if (cb) {
+        cb.checked = isRequired;
+      }
+
+      if (hiddenMan) {
+        hiddenMan.value = isRequired ? '1' : '0';
+      }
+
+      listContainer.appendChild(row);
+      existingNames.add(normalized);
+      added += 1;
+    });
+
+    if (added === 0 && skipped > 0) {
+      alert('All requirements from this list were already added.');
+    }
+  }
   // Exponer funciones si las llamas desde atributos HTML
   window.addReq = addReq;
   window.removeReq = removeReq;

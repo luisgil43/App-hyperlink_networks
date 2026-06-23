@@ -87,61 +87,149 @@
       </div>
     </div>
 
-    <div class="mt-6 rounded-2xl border border-gray-200 p-4">
-      <h2 class="font-semibold text-gray-800">Important rules</h2>
+<div class="mt-6 rounded-2xl border border-gray-200 p-4">
+  <h2 class="font-semibold text-gray-800">Important rules</h2>
 
-      <ul class="mt-2 text-sm text-gray-600 space-y-1 list-disc pl-5">
-        <li>Job Code must match exactly. Example: <b>C-123</b> is not the same as <b>C.123</b>.</li>
-        <li>Only spaces at the beginning or end of a cell are cleaned.</li>
-        <li>Quantity cannot be zero.</li>
-        <li>Direct discounts require negative quantities.</li>
-        <li>Normal billings require positive quantities.</li>
-        <li>Every selected technician must have exact prices for the same Client, City, Project, Office and Job Code.</li>
-        <li>If one row has an error, no billing will be created.</li>
-      </ul>
+  <ul class="mt-2 text-sm text-gray-600 space-y-1 list-disc pl-5">
+    <li>Do not rename sheets or headers in the Excel template.</li>
+    <li>Job Code must match exactly. Example: <b>C-123</b> is not the same as <b>C.123</b>.</li>
+    <li>Only spaces at the beginning or end of a cell are cleaned.</li>
+    <li>Quantity cannot be zero.</li>
+    <li>Direct discounts require negative quantities.</li>
+    <li>Normal billings require positive quantities.</li>
+    <li>Every selected technician must have exact prices for the same Client, City, Project, Office and Job Code.</li>
+    <li>If one row has an error, no billing will be created.</li>
+  </ul>
 
-      <div class="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-        <h3 class="font-semibold text-blue-900">
-          Technician payment mode
-        </h3>
+  <div class="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
+    <h3 class="font-semibold text-amber-900">
+      Technicians sheet
+    </h3>
 
-        <p class="mt-1 text-sm text-blue-800">
-          In the Excel template, use the column <b>tech_payment_mode</b>.
-          The value must be exactly <b>full</b> or <b>split</b>.
-        </p>
+    <p class="mt-1 text-sm text-amber-800">
+      You can load technicians in two ways:
+    </p>
 
-        <div class="mt-4 grid md:grid-cols-2 gap-3">
-          <div class="rounded-xl bg-white border border-blue-100 p-3">
-            <div class="text-sm font-semibold text-gray-900">
-              full — Full amount for each technician
-            </div>
-
-            <p class="mt-1 text-xs text-gray-600 leading-5">
-              Use <b>full</b> when every selected technician must receive their full technical rate.
-              Example: if there are 2 technicians, quantity is 1, and each technician rate is 100,
-              each technician receives 100. Technical total = 200.
-            </p>
-          </div>
-
-          <div class="rounded-xl bg-white border border-blue-100 p-3">
-            <div class="text-sm font-semibold text-gray-900">
-              split — Split between technicians
-            </div>
-
-            <p class="mt-1 text-xs text-gray-600 leading-5">
-              Use <b>split</b> when the technical amount must be divided between the selected technicians.
-              Example: if there are 2 technicians, quantity is 1, and the technician rate is 100,
-              each technician receives 50%. Technical total = 100.
-            </p>
-          </div>
+    <div class="mt-4 grid md:grid-cols-2 gap-3">
+      <div class="rounded-xl bg-white border border-amber-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          Option A — One technician per row
         </div>
 
-        <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Do not write “Full amount”, “Split between technicians”, “yes”, “no”, or any other text in this column.
-          Only <b>full</b> or <b>split</b> are valid.
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          Use this when you prefer the current format:
+        </p>
+
+        <div class="mt-2 rounded-lg bg-gray-50 border px-3 py-2 text-xs font-mono text-gray-700">
+          BILL-001 | tech1<br>
+          BILL-001 | tech2<br>
+          BILL-001 | tech3
+        </div>
+      </div>
+
+      <div class="rounded-xl bg-white border border-amber-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          Option B — Many technicians in one cell
+        </div>
+
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          You can separate usernames with comma or semicolon:
+        </p>
+
+        <div class="mt-2 rounded-lg bg-gray-50 border px-3 py-2 text-xs font-mono text-gray-700">
+          BILL-001 | tech1, tech2, tech3<br>
+          BILL-002 | tech4; tech5; tech6
         </div>
       </div>
     </div>
+
+    <div class="mt-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs text-amber-800">
+      Usernames must match exactly. Do not duplicate the same technician inside the same billing.
+    </div>
+  </div>
+
+  <div class="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+    <h3 class="font-semibold text-blue-900">
+      Technician payment mode
+    </h3>
+
+    <p class="mt-1 text-sm text-blue-800">
+      In the Excel template, use the column <b>tech_payment_mode</b>.
+      The value must be exactly <b>full</b> or <b>split</b>.
+    </p>
+
+    <div class="mt-4 grid md:grid-cols-2 gap-3">
+      <div class="rounded-xl bg-white border border-blue-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          full — Full amount for each technician
+        </div>
+
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          Use <b>full</b> when every selected technician must receive their full technical rate.
+          Example: if there are 2 technicians, quantity is 1, and each technician rate is 100,
+          each technician receives 100. Technical total = 200.
+        </p>
+      </div>
+
+      <div class="rounded-xl bg-white border border-blue-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          split — Split between technicians
+        </div>
+
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          Use <b>split</b> when the technical amount must be divided between the selected technicians.
+          Example: if there are 2 technicians, quantity is 1, and the technician rate is 100,
+          each technician receives 50%. Technical total = 100.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      Do not write “Full amount”, “Split between technicians”, “yes”, “no”, or any other text in this column.
+      Only <b>full</b> or <b>split</b> are valid.
+    </div>
+  </div>
+
+  <div class="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+    <h3 class="font-semibold text-indigo-900">
+      Requirement lists
+    </h3>
+
+    <p class="mt-1 text-sm text-indigo-800">
+      In the Billings sheet, you can optionally load reusable requirements using:
+      <b>requirement_type</b> and <b>requirement_list</b>.
+    </p>
+
+    <div class="mt-4 grid md:grid-cols-3 gap-3">
+      <div class="rounded-xl bg-white border border-indigo-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          none
+        </div>
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          No requirements will be loaded. Leave <b>requirement_list</b> empty.
+        </p>
+      </div>
+
+      <div class="rounded-xl bg-white border border-indigo-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          fiber
+        </div>
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          Loads Fiber / Photo requirements. The list name must be active and match the project.
+        </p>
+      </div>
+
+      <div class="rounded-xl bg-white border border-indigo-100 p-3">
+        <div class="text-sm font-semibold text-gray-900">
+          cable
+        </div>
+        <p class="mt-1 text-xs text-gray-600 leading-5">
+          Loads Cable requirements. You must also set <b>cable_installation</b> to <b>YES</b>.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 
   </div>
 </div>

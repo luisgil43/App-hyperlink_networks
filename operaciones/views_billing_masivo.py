@@ -13,6 +13,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.text import slugify
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -23,8 +24,9 @@ from usuarios.models import CustomUser
 
 from .forms_billing_masivo import BillingMasivoUploadForm
 from .models import (BillingPayWeekSnapshot, ItemBilling, ItemBillingTecnico,
-                     PrecioActividadTecnico, SesionBilling,
-                     SesionBillingTecnico)
+                     PrecioActividadTecnico, RequirementList,
+                     RequisitoFotoBilling, RequisitoFotoBillingPlantilla,
+                     SesionBilling, SesionBillingTecnico)
 
 try:
     from usuarios.decoradores import rol_requerido
@@ -134,6 +136,8 @@ BILLINGS_HEADERS = [
     "tech_payment_mode",
     "direct_discount",
     "cable_installation",
+    "requirement_type",
+    "requirement_list",
 ]
 
 TECHNICIANS_HEADERS = [
@@ -152,7 +156,7 @@ NO_VALUES = {"no", "n", "false", "0", ""}
 
 VALID_PAYMENT_MODES = {"full", "split"}
 
-
+VALID_REQUIREMENT_TYPES = {"none", "fiber", "cable", ""}
 # =============================================================================
 # DATACLASSES DE PREVIEW
 # =============================================================================
@@ -192,6 +196,16 @@ class PreviewBilling:
     direct_discount: bool = False
 
     cable_installation: bool = False
+
+    requirement_type: str = "none"
+
+    requirement_list: str = ""
+
+    requirement_list_id: int | None = None
+
+    requirement_list_label: str = ""
+
+    requirement_count: int = 0
 
     technicians: list = field(default_factory=list)
     items: list = field(default_factory=list)
@@ -405,7 +419,9 @@ def billing_masivo_template(request):
     _write_sheet_header(ws_t, TECHNICIANS_HEADERS)
     _write_sheet_header(ws_i, ITEMS_HEADERS)
 
+    # ==========================================================
     # Examples
+    # ==========================================================
     ws_b.append(
         [
             "BILL-001",
@@ -419,87 +435,263 @@ def billing_masivo_template(request):
             "full",
             "NO",
             "NO",
+            "fiber",
+            "B8G Fiber / Photo",
         ]
     )
 
-    ws_t.append(["BILL-001", "technician.username"])
+    # Nueva forma recomendada: varios técnicos en una misma celda.
+    ws_t.append(["BILL-001", "tech1, tech2, tech3"])
+
+    # Forma anterior sigue funcionando:
+    ws_t.append(["BILL-001", "another.tech"])
+
     ws_i.append(["BILL-001", "C-123", "1"])
 
-    instructions = [
-        ["Bulk Billing Import Instructions"],
-        [""],
-        ["General rules"],
-        ["1. Do not rename sheets."],
-        ["2. Do not rename headers."],
-        ["3. bulk_key links rows across the 3 sheets."],
-        ["4. Job Code must match exactly what exists in the database."],
-        ["5. Only leading/trailing spaces are cleaned."],
-        ["6. Quantity cannot be zero."],
-        ["7. If direct_discount is YES, all quantities must be negative."],
-        ["8. If direct_discount is NO, all quantities must be positive."],
-        ["9. projected_week must use ISO format: YYYY-W##. Example: 2026-W20."],
-        ["10. tech_payment_mode must be full or split."],
-        [""],
-        ["Technician payment mode"],
-        ["The tech_payment_mode column controls how technician totals are calculated."],
-        ["The value must be exactly full or split."],
-        [""],
-        ["full = Full amount for each technician."],
-        [
-            "Use full when every selected technician must receive their full technical rate."
-        ],
-        ["Example: 2 technicians, quantity 1, each technician rate 100."],
-        ["Result: each technician receives 100. Technical total = 200."],
-        [""],
-        ["split = Split between technicians."],
-        [
-            "Use split when the technical amount must be divided between the selected technicians."
-        ],
-        ["Example: 2 technicians, quantity 1, technician rate 100."],
-        ["Result: each technician receives 50%. Technical total = 100."],
-        [""],
-        [
-            "Important: do not write Full amount, Split, yes, no, or any other text in tech_payment_mode."
-        ],
-        ["Only these two exact values are valid: full or split."],
-        [""],
-        ["Billings sheet"],
-        ["bulk_key: unique key for each billing inside the file."],
-        ["project_id: final billing Project ID visible in the billing list."],
-        ["client: must match the Client column used in Technician Prices."],
-        ["city: must match the City column used in Technician Prices."],
-        ["project: must match the Project column used in Technician Prices."],
-        ["office: must match the Office column used in Technician Prices."],
-        ["project_address: optional address or Google Maps link."],
-        ["projected_week: ISO week format YYYY-W##. Example: 2026-W20."],
-        ["tech_payment_mode: full or split."],
-        ["direct_discount: YES or NO."],
-        ["cable_installation: YES or NO."],
-        [""],
-        ["Technicians sheet"],
-        ["bulk_key: must match one bulk_key from the Billings sheet."],
-        ["technician_username: must match an existing technician username exactly."],
-        ["Each billing must have at least one technician."],
-        ["Do not repeat the same technician username inside the same billing."],
-        [""],
-        ["Items sheet"],
-        ["bulk_key: must match one bulk_key from the Billings sheet."],
-        ["job_code: must match exactly what exists in the price table."],
-        ["Example: C-123 is not the same as C.123."],
-        ["quantity: must be numeric and different from zero."],
-        ["For normal billings, quantity must be positive."],
-        ["For direct discounts, quantity must be negative."],
-        [""],
-        ["Validation rule"],
-        ["If one row has an error, no billing will be created."],
-        ["The preview will show the specific field, row, and correction needed."],
-    ]
+    # ==========================================================
+    # Instructions sheet - visual
+    # ==========================================================
+    ws_help.sheet_view.showGridLines = False
 
-    for row in instructions:
-        ws_help.append(row)
+    dark_fill = PatternFill("solid", fgColor="1F2937")
+    blue_fill = PatternFill("solid", fgColor="DBEAFE")
+    green_fill = PatternFill("solid", fgColor="DCFCE7")
+    amber_fill = PatternFill("solid", fgColor="FEF3C7")
+    red_fill = PatternFill("solid", fgColor="FEE2E2")
+    gray_fill = PatternFill("solid", fgColor="F3F4F6")
 
+    title_font = Font(color="FFFFFF", bold=True, size=16)
+    section_font = Font(color="111827", bold=True, size=12)
+    bold_font = Font(bold=True)
+    normal_font = Font(color="374151", size=11)
+    warning_font = Font(color="92400E", bold=True)
+    error_font = Font(color="991B1B", bold=True)
+
+    ws_help.merge_cells("A1:F1")
+    ws_help["A1"] = "Bulk Billing Import Guide"
+    ws_help["A1"].fill = dark_fill
+    ws_help["A1"].font = title_font
+    ws_help["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws_help.row_dimensions[1].height = 28
+
+    row = 3
+
+    def section(title, fill):
+        nonlocal row
+        ws_help.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = ws_help.cell(row=row, column=1)
+        cell.value = title
+        cell.fill = fill
+        cell.font = section_font
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+        ws_help.row_dimensions[row].height = 22
+        row += 1
+
+    def line(label, value="", note=""):
+        nonlocal row
+        ws_help.cell(row=row, column=1).value = label
+        ws_help.cell(row=row, column=1).font = bold_font
+        ws_help.cell(row=row, column=2).value = value
+        ws_help.cell(row=row, column=2).font = normal_font
+
+        if note:
+            ws_help.merge_cells(
+                start_row=row, start_column=3, end_row=row, end_column=6
+            )
+            ws_help.cell(row=row, column=3).value = note
+            ws_help.cell(row=row, column=3).font = normal_font
+
+        for col in range(1, 7):
+            ws_help.cell(row=row, column=col).alignment = Alignment(
+                vertical="top",
+                wrap_text=True,
+            )
+
+        row += 1
+
+    def blank():
+        nonlocal row
+        row += 1
+
+    section("1. General workflow", blue_fill)
+    line("Step 1", "Fill the Billings sheet.", "One row per billing.")
+    line(
+        "Step 2",
+        "Fill the Technicians sheet.",
+        "You can use one row per technician or many technicians in one cell.",
+    )
+    line(
+        "Step 3",
+        "Fill the Items sheet.",
+        "Each item must use a valid Job Code and quantity.",
+    )
+    line(
+        "Step 4",
+        "Upload the file.",
+        "The system validates everything before creating any billing.",
+    )
+    line(
+        "Important",
+        "If one row has an error, nothing will be created.",
+        "Fix the file and upload it again.",
+    )
+    blank()
+
+    section("2. Billings sheet", green_fill)
+    line("bulk_key", "Required", "Unique key inside the file. Example: BILL-001.")
+    line("project_id", "Required", "Final Project ID visible in Billing List.")
+    line("client", "Required", "Must match Technician Prices.")
+    line("city", "Required", "Must match Technician Prices.")
+    line(
+        "project", "Required", "Must match the Project value used in Technician Prices."
+    )
+    line("office", "Required", "Must match Technician Prices.")
+    line("project_address", "Optional", "Address or Google Maps link.")
+    line("projected_week", "Required", "ISO format YYYY-W##. Example: 2026-W20.")
+    line("tech_payment_mode", "Required", "Only full or split.")
+    line("direct_discount", "Required", "YES or NO.")
+    line("cable_installation", "Required", "YES or NO.")
+    line("requirement_type", "Optional", "Use none, fiber or cable.")
+    line(
+        "requirement_list",
+        "Optional",
+        "Exact active Requirement List name for the selected project and type.",
+    )
+    blank()
+
+    section("3. Technicians sheet", amber_fill)
+    line("Option A", "One technician per row", "Example: BILL-001 | tech1")
+    line(
+        "Option B",
+        "Many technicians in one cell",
+        "Example: BILL-001 | tech1, tech2, tech3",
+    )
+    line(
+        "Accepted separators",
+        "Comma or semicolon",
+        "Examples: tech1, tech2, tech3  OR  tech1; tech2; tech3",
+    )
+    line(
+        "Rule",
+        "Username must match exactly",
+        "The user must exist and must have technician/user role.",
+    )
+    line(
+        "Do not duplicate",
+        "Same technician cannot repeat in the same billing.",
+        "The preview will show an error.",
+    )
+    blank()
+
+    section("4. Items sheet", blue_fill)
+    line("bulk_key", "Required", "Must match one billing from the Billings sheet.")
+    line("job_code", "Required", "Must match exactly what exists in Technician Prices.")
+    line("quantity", "Required", "Cannot be zero.")
+    line("Normal billing", "Positive quantity", "Example: 1, 2, 3.")
+    line("Direct discount", "Negative quantity", "Example: -1, -2.")
+    blank()
+
+    section("5. Technician payment mode", green_fill)
+    line(
+        "full",
+        "Full amount for each technician",
+        "Example: 2 technicians, qty 1, rate 100. Each technician receives 100. Tech total = 200.",
+    )
+    line(
+        "split",
+        "Split between technicians",
+        "Example: 2 technicians, qty 1, rate 100. Each technician receives 50. Tech total = 100.",
+    )
+    line(
+        "Do not write",
+        "Full amount / Split between technicians / yes / no",
+        "Only full or split are valid.",
+    )
+    blank()
+
+    section("6. Requirement lists", amber_fill)
+    line("none", "No requirements loaded", "Leave requirement_list empty.")
+    line(
+        "fiber",
+        "Loads Fiber / Photo requirements",
+        "requirement_list must match an active Fiber / Photo Requirement List.",
+    )
+    line(
+        "cable",
+        "Loads Cable requirements",
+        "cable_installation must be YES and requirement_list must match an active Cable Requirement List.",
+    )
+    line(
+        "Exact name",
+        "Requirement list name must match exactly.",
+        "The preview validates the list before creating billings.",
+    )
+    blank()
+
+    section("7. Common errors", red_fill)
+    line(
+        "Invalid Job Code",
+        "Job Code does not match Technician Prices.",
+        "Example: C-123 is not the same as C.123.",
+    )
+    line(
+        "Missing technician",
+        "The username does not exist.",
+        "Check spelling and spaces.",
+    )
+    line(
+        "Missing price",
+        "Technician has no matching price.",
+        "Client, City, Project, Office and Job Code must match.",
+    )
+    line(
+        "Wrong quantity",
+        "Quantity cannot be zero.",
+        "Discounts require negative quantities.",
+    )
+    line(
+        "Wrong requirement list",
+        "List does not exist or is inactive.",
+        "Check Project, requirement_type and requirement_list.",
+    )
+    blank()
+
+    # Bottom warning box
+    ws_help.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+    ws_help.cell(row=row, column=1).value = (
+        "IMPORTANT: Do not rename sheets or headers. "
+        "If a single row has an error, no billing will be created."
+    )
+    ws_help.cell(row=row, column=1).fill = red_fill
+    ws_help.cell(row=row, column=1).font = error_font
+    ws_help.cell(row=row, column=1).alignment = Alignment(
+        horizontal="center",
+        vertical="center",
+        wrap_text=True,
+    )
+    ws_help.row_dimensions[row].height = 35
+
+    # Sheet formatting
     for ws in [ws_b, ws_t, ws_i, ws_help]:
         _autosize_sheet(ws)
+
+    ws_help.column_dimensions["A"].width = 24
+    ws_help.column_dimensions["B"].width = 32
+    ws_help.column_dimensions["C"].width = 24
+    ws_help.column_dimensions["D"].width = 24
+    ws_help.column_dimensions["E"].width = 24
+    ws_help.column_dimensions["F"].width = 24
+
+    # Highlight example rows
+    for ws in [ws_b, ws_t, ws_i]:
+        for cell in ws[2]:
+            cell.fill = gray_fill
+            cell.alignment = Alignment(wrap_text=True)
+
+        if ws.max_row >= 3:
+            for cell in ws[3]:
+                cell.fill = gray_fill
+                cell.alignment = Alignment(wrap_text=True)
 
     output = BytesIO()
     wb.save(output)
@@ -600,7 +792,6 @@ def billing_masivo_preview(request):
 
 def _build_preview_from_excel(archivo, user=None):
     global_errors = []
-    billings_preview = []
 
     price_perms = _bulk_billing_price_permissions(user)
 
@@ -654,7 +845,6 @@ def _build_preview_from_excel(archivo, user=None):
         }
 
     billings_by_key = {}
-    duplicate_keys = set()
 
     for row in billing_rows:
         bulk_key = _clean_cell(row.get("bulk_key"))
@@ -671,7 +861,6 @@ def _build_preview_from_excel(archivo, user=None):
             continue
 
         if bulk_key in billings_by_key:
-            duplicate_keys.add(bulk_key)
             global_errors.append(
                 _cell_error(
                     SHEET_BILLINGS,
@@ -687,6 +876,9 @@ def _build_preview_from_excel(archivo, user=None):
 
         payment_mode = _clean_cell(row.get("tech_payment_mode")).lower() or "full"
 
+        requirement_type = _clean_cell(row.get("requirement_type")).lower() or "none"
+        requirement_list_name = _clean_cell(row.get("requirement_list"))
+
         preview = PreviewBilling(
             bulk_key=bulk_key,
             source_row=row["__rownum"],
@@ -700,6 +892,8 @@ def _build_preview_from_excel(archivo, user=None):
             tech_payment_mode=payment_mode,
             direct_discount=direct_discount,
             cable_installation=cable_installation,
+            requirement_type=requirement_type,
+            requirement_list=requirement_list_name,
         )
 
         required_fields = [
@@ -753,6 +947,39 @@ def _build_preview_from_excel(archivo, user=None):
                 )
             )
 
+        if requirement_type not in VALID_REQUIREMENT_TYPES:
+            preview.errors.append(
+                _cell_error(
+                    SHEET_BILLINGS,
+                    row["__rownum"],
+                    "requirement_type",
+                    "Use none, fiber or cable.",
+                )
+            )
+
+        if requirement_type in ("", "none"):
+            preview.requirement_type = "none"
+            preview.requirement_list = ""
+        elif not requirement_list_name:
+            preview.errors.append(
+                _cell_error(
+                    SHEET_BILLINGS,
+                    row["__rownum"],
+                    "requirement_list",
+                    "Requirement list is required when requirement_type is fiber or cable.",
+                )
+            )
+
+        if requirement_type == "cable" and not cable_installation:
+            preview.errors.append(
+                _cell_error(
+                    SHEET_BILLINGS,
+                    row["__rownum"],
+                    "cable_installation",
+                    "Cable requirement lists require cable_installation = YES.",
+                )
+            )
+
         if preview.projected_week and not _iso_week_is_valid(preview.projected_week):
             preview.errors.append(
                 _cell_error(
@@ -776,7 +1003,6 @@ def _build_preview_from_excel(archivo, user=None):
         key = _clean_cell(row.get("bulk_key"))
         item_rows_by_key[key].append(row)
 
-    # Validar referencias a bulk_key inexistente
     for row in tech_rows:
         key = _clean_cell(row.get("bulk_key"))
 
@@ -825,7 +1051,6 @@ def _build_preview_from_excel(archivo, user=None):
                 )
             )
 
-    # Validar detalle por billing
     for bulk_key, preview in billings_by_key.items():
         _attach_and_validate_technicians(preview, tech_rows_by_key.get(bulk_key, []))
         _attach_and_validate_items(preview, item_rows_by_key.get(bulk_key, []))
@@ -865,6 +1090,38 @@ def _build_preview_from_excel(archivo, user=None):
     return payload
 
 
+def _split_technician_usernames(value):
+    """
+    Permite cargar técnicos de dos formas:
+
+    1) Una fila por técnico:
+       BILL-001 | tech1
+
+    2) Varios técnicos en el mismo campo:
+       BILL-001 | tech1, tech2, tech3
+       BILL-001 | tech1; tech2; tech3
+
+    No modifica usernames internamente, solo separa por coma, punto y coma o salto de línea.
+    """
+    raw = _clean_cell(value)
+
+    if not raw:
+        return []
+
+    parts = []
+
+    for chunk in raw.replace("\n", ",").replace(";", ",").split(","):
+        username = _clean_cell(chunk)
+
+        if username:
+            parts.append(username)
+
+    return parts
+
+
+
+
+
 def _attach_and_validate_technicians(preview: PreviewBilling, rows):
     if not rows:
         preview.errors.append(
@@ -880,14 +1137,9 @@ def _attach_and_validate_technicians(preview: PreviewBilling, rows):
     seen = set()
 
     for row in rows:
-        username = _clean_cell(row.get("technician_username"))
+        raw_usernames = _clean_cell(row.get("technician_username"))
 
-        tech = PreviewTechnician(
-            source_row=row["__rownum"],
-            username=username,
-        )
-
-        if not username:
+        if not raw_usernames:
             preview.errors.append(
                 _cell_error(
                     SHEET_TECHNICIANS,
@@ -896,55 +1148,91 @@ def _attach_and_validate_technicians(preview: PreviewBilling, rows):
                     "technician_username is required.",
                 )
             )
-            preview.technicians.append(tech)
+
+            preview.technicians.append(
+                PreviewTechnician(
+                    source_row=row["__rownum"],
+                    username="",
+                )
+            )
             continue
 
-        if username in seen:
+        usernames = (
+            raw_usernames.replace(";", ",")
+            .replace("\n", ",")
+            .replace("\r", ",")
+            .split(",")
+        )
+
+        usernames = [
+            _clean_cell(username) for username in usernames if _clean_cell(username)
+        ]
+
+        if not usernames:
             preview.errors.append(
                 _cell_error(
                     SHEET_TECHNICIANS,
                     row["__rownum"],
                     "technician_username",
-                    f"Duplicate technician '{username}' in this billing.",
+                    "technician_username is required.",
                 )
             )
-            preview.technicians.append(tech)
             continue
 
-        seen.add(username)
-
-        user = CustomUser.objects.filter(username=username).first()
-
-        if not user:
-            preview.errors.append(
-                _cell_error(
-                    SHEET_TECHNICIANS,
-                    row["__rownum"],
-                    "technician_username",
-                    f"Technician username '{username}' does not exist.",
-                )
+        for username in usernames:
+            tech = PreviewTechnician(
+                source_row=row["__rownum"],
+                username=username,
             )
+
+            normalized_username = username.strip().lower()
+
+            if normalized_username in seen:
+                preview.errors.append(
+                    _cell_error(
+                        SHEET_TECHNICIANS,
+                        row["__rownum"],
+                        "technician_username",
+                        f"Duplicate technician '{username}' in this billing.",
+                    )
+                )
+                preview.technicians.append(tech)
+                continue
+
+            seen.add(normalized_username)
+
+            user = CustomUser.objects.filter(username__iexact=username).first()
+
+            if not user:
+                preview.errors.append(
+                    _cell_error(
+                        SHEET_TECHNICIANS,
+                        row["__rownum"],
+                        "technician_username",
+                        f"Technician username '{username}' does not exist.",
+                    )
+                )
+                preview.technicians.append(tech)
+                continue
+
+            try:
+                is_user_role = user.roles.filter(nombre__iexact="usuario").exists()
+            except Exception:
+                is_user_role = True
+
+            if not is_user_role:
+                preview.errors.append(
+                    _cell_error(
+                        SHEET_TECHNICIANS,
+                        row["__rownum"],
+                        "technician_username",
+                        f"User '{username}' is not a technician user.",
+                    )
+                )
+
+            tech.user_id = user.id
+            tech.display_name = _display_user(user)
             preview.technicians.append(tech)
-            continue
-
-        try:
-            is_user_role = user.roles.filter(nombre="usuario").exists()
-        except Exception:
-            is_user_role = True
-
-        if not is_user_role:
-            preview.errors.append(
-                _cell_error(
-                    SHEET_TECHNICIANS,
-                    row["__rownum"],
-                    "technician_username",
-                    f"User '{username}' is not a technician user.",
-                )
-            )
-
-        tech.user_id = user.id
-        tech.display_name = _display_user(user)
-        preview.technicians.append(tech)
 
 
 def _attach_and_validate_items(preview: PreviewBilling, rows):
@@ -1020,16 +1308,111 @@ def _attach_and_validate_items(preview: PreviewBilling, rows):
         preview.items.append(item)
 
 
+def _validate_requirement_list_for_preview(preview: PreviewBilling, project):
+    requirement_type = (preview.requirement_type or "none").strip().lower()
+    requirement_list_name = (preview.requirement_list or "").strip()
+
+    if requirement_type in ("", "none"):
+        preview.requirement_type = "none"
+        preview.requirement_list = ""
+        preview.requirement_list_id = None
+        preview.requirement_list_label = ""
+        preview.requirement_count = 0
+        return
+
+    if requirement_type not in (
+        RequirementList.LIST_TYPE_FIBER,
+        RequirementList.LIST_TYPE_CABLE,
+    ):
+        preview.errors.append(
+            _cell_error(
+                SHEET_BILLINGS,
+                preview.source_row,
+                "requirement_type",
+                "Use none, fiber or cable.",
+            )
+        )
+        return
+
+    if not requirement_list_name:
+        preview.errors.append(
+            _cell_error(
+                SHEET_BILLINGS,
+                preview.source_row,
+                "requirement_list",
+                "Requirement list is required when requirement_type is fiber or cable.",
+            )
+        )
+        return
+
+    qs = (
+        RequirementList.objects.filter(
+            project=project,
+            list_type=requirement_type,
+            is_active=True,
+            name__iexact=requirement_list_name,
+        )
+        .prefetch_related("items")
+    )
+
+    count = qs.count()
+
+    if count == 0:
+        preview.errors.append(
+            _cell_error(
+                SHEET_BILLINGS,
+                preview.source_row,
+                "requirement_list",
+                (
+                    f"Active Requirement List '{requirement_list_name}' was not found "
+                    f"for Project '{project.nombre}' and type '{requirement_type}'."
+                ),
+            )
+        )
+        return
+
+    if count > 1:
+        preview.errors.append(
+            _cell_error(
+                SHEET_BILLINGS,
+                preview.source_row,
+                "requirement_list",
+                (
+                    f"More than one active Requirement List named '{requirement_list_name}' "
+                    f"was found for Project '{project.nombre}' and type '{requirement_type}'."
+                ),
+            )
+        )
+        return
+
+    req_list = qs.first()
+    req_count = req_list.items.count()
+
+    if req_count <= 0:
+        preview.errors.append(
+            _cell_error(
+                SHEET_BILLINGS,
+                preview.source_row,
+                "requirement_list",
+                f"Requirement List '{req_list.name}' has no requirements.",
+            )
+        )
+        return
+
+    preview.requirement_type = requirement_type
+    preview.requirement_list = req_list.name
+    preview.requirement_list_id = req_list.id
+    preview.requirement_list_label = f"{req_list.name} ({req_count} item(s))"
+    preview.requirement_count = req_count
+
+
 def _validate_project_and_prices(preview: PreviewBilling):
     """
     Valida:
-    - que exista el Proyecto indicado en project_code
+    - que exista el Proyecto indicado en project
     - que existan precios para:
       Technician + Client + City + Proyecto FK + Office + Job Code
-
-    Importante:
-    NO compara Client/City/Office contra facturacion.Proyecto.
-    Esa información pertenece a PrecioActividadTecnico.
+    - que exista Requirement List si el Excel trae requirement_type/list.
     """
 
     if preview.errors:
@@ -1042,14 +1425,18 @@ def _validate_project_and_prices(preview: PreviewBilling):
             _cell_error(
                 SHEET_BILLINGS,
                 preview.source_row,
-                "project_code",
+                "project",
                 project_error,
             )
         )
         return
 
-    # Guardamos el nombre real del proyecto, igual que _guardar_billing()
     preview.project = project.nombre
+
+    _validate_requirement_list_for_preview(preview, project)
+
+    if preview.errors:
+        return
 
     valid_techs = [t for t in preview.technicians if t.user_id]
 
@@ -1254,6 +1641,11 @@ def _billing_to_dict(preview: PreviewBilling):
         "tech_payment_mode": preview.tech_payment_mode,
         "direct_discount": preview.direct_discount,
         "cable_installation": preview.cable_installation,
+        "requirement_type": preview.requirement_type,
+        "requirement_list": preview.requirement_list,
+        "requirement_list_id": preview.requirement_list_id,
+        "requirement_list_label": preview.requirement_list_label,
+        "requirement_count": preview.requirement_count,
         "subtotal_tecnico": _format_money(preview.subtotal_tecnico),
         "subtotal_empresa": _format_money(preview.subtotal_empresa),
         "errors": preview.errors,
@@ -1340,7 +1732,6 @@ def billing_masivo_confirm(request):
             subtotal_empresa=Decimal(str(b.get("subtotal_empresa") or "0.00")),
         )
 
-        # Reforzar campos por si save() sincroniza con Proyecto.
         sesion.cliente = b.get("client") or ""
         sesion.ciudad = b.get("city") or ""
         sesion.proyecto = b.get("project") or ""
@@ -1367,9 +1758,11 @@ def billing_masivo_confirm(request):
 
         technicians = b.get("technicians") or []
         tech_count = max(len(technicians), 1)
+        created_tech_sessions = []
 
         for t in technicians:
             user_id = t.get("user_id")
+
             if not user_id:
                 continue
 
@@ -1381,13 +1774,22 @@ def billing_masivo_confirm(request):
                     rounding=ROUND_HALF_UP,
                 )
 
-            SesionBillingTecnico.objects.create(
+            tecnico_sesion = SesionBillingTecnico.objects.create(
                 sesion=sesion,
                 tecnico_id=user_id,
                 porcentaje=porcentaje,
                 estado="asignado",
                 is_active=True,
             )
+
+            created_tech_sessions.append(tecnico_sesion)
+
+        _apply_requirement_list_to_sesion(
+            sesion=sesion,
+            requirement_list_id=b.get("requirement_list_id"),
+            requirement_type=b.get("requirement_type"),
+            tecnico_sesiones=created_tech_sessions,
+        )
 
         for item_data in b.get("items") or []:
             item = ItemBilling.objects.create(
@@ -1556,3 +1958,152 @@ def _find_project_robust(preview: PreviewBilling):
         f"Project '{preview.project}' does not exist. "
         "Use the Project value shown in Technician Prices."
     )
+
+
+def _apply_requirement_list_to_sesion(
+    *,
+    sesion,
+    requirement_list_id,
+    requirement_type,
+    tecnico_sesiones,
+):
+    requirement_type = (requirement_type or "none").strip().lower()
+
+    if not requirement_list_id or requirement_type in ("", "none"):
+        return
+
+    req_list = (
+        RequirementList.objects.filter(
+            id=requirement_list_id,
+            is_active=True,
+        )
+        .prefetch_related("items")
+        .first()
+    )
+
+    if not req_list:
+        return
+
+    if req_list.list_type == RequirementList.LIST_TYPE_FIBER:
+        _apply_fiber_requirement_list_to_sesion(
+            sesion=sesion,
+            req_list=req_list,
+            tecnico_sesiones=tecnico_sesiones,
+        )
+        return
+
+    if req_list.list_type == RequirementList.LIST_TYPE_CABLE:
+        _apply_cable_requirement_list_to_sesion(
+            sesion=sesion,
+            req_list=req_list,
+            tecnico_sesiones=tecnico_sesiones,
+        )
+        return
+
+
+def _apply_fiber_requirement_list_to_sesion(
+    *,
+    sesion,
+    req_list,
+    tecnico_sesiones,
+):
+    items = list(req_list.items.all().order_by("order", "id"))
+
+    for item in items:
+        title = (item.title or "").strip()
+
+        if not title:
+            continue
+
+        plantilla, _ = RequisitoFotoBillingPlantilla.objects.update_or_create(
+            sesion=sesion,
+            slug=slugify(title),
+            defaults={
+                "titulo": title,
+                "descripcion": item.description or "",
+                "obligatorio": bool(item.required),
+                "orden": item.order or 0,
+                "needs_power_reading": bool(item.needs_power_reading),
+                "needs_light_source_reading": bool(item.needs_light_source_reading),
+                "power_port_no": item.power_port_no,
+            },
+        )
+
+        for tecnico_sesion in tecnico_sesiones:
+            RequisitoFotoBilling.objects.update_or_create(
+                tecnico_sesion=tecnico_sesion,
+                titulo=plantilla.titulo,
+                defaults={
+                    "descripcion": plantilla.descripcion or "",
+                    "obligatorio": bool(plantilla.obligatorio),
+                    "orden": plantilla.orden or 0,
+                    "needs_power_reading": bool(plantilla.needs_power_reading),
+                    "needs_light_source_reading": bool(
+                        plantilla.needs_light_source_reading
+                    ),
+                    "power_port_no": plantilla.power_port_no,
+                },
+            )
+
+
+def _apply_cable_requirement_list_to_sesion(
+    *,
+    sesion,
+    req_list,
+    tecnico_sesiones,
+):
+    """
+    Crea los Cable Requirements del billing y los asigna a cada técnico.
+
+    Fuente:
+    - RequirementListItem.handhole
+    - RequirementListItem.planned_reserve_ft
+    - RequirementListItem.required
+    - RequirementListItem.warning
+    - RequirementListItem.order
+
+    Destino:
+    - cable_installation.CableRequirement
+    - cable_installation.CableAssignmentRequirement
+    """
+
+    from cable_installation.models import (CableAssignmentRequirement,
+                                           CableRequirement)
+
+    items = list(req_list.items.all().order_by("order", "id"))
+
+    if not items:
+        return
+
+    next_sequence = CableRequirement.next_sequence_for_billing(sesion)
+
+    for idx, item in enumerate(items):
+        handhole = (item.handhole or item.title or "").strip()
+
+        if not handhole:
+            continue
+
+        sequence_no = next_sequence + idx
+
+        cable_requirement, _ = CableRequirement.objects.update_or_create(
+            billing=sesion,
+            sequence_no=sequence_no,
+            defaults={
+                "handhole": handhole,
+                "planned_reserve_ft": item.planned_reserve_ft or Decimal("0.00"),
+                "warning": item.warning or "",
+                "required": bool(item.required),
+                "order": item.order or 0,
+            },
+        )
+
+        for tecnico_sesion in tecnico_sesiones:
+            CableAssignmentRequirement.objects.update_or_create(
+                assignment=tecnico_sesion,
+                requirement=cable_requirement,
+                defaults={
+                    "status": CableAssignmentRequirement.STATUS_PENDING,
+                    "note": "",
+                    "supervisor_note": "",
+                },
+            )

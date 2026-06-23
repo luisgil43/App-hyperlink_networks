@@ -1310,3 +1310,213 @@ class RequisitoFotoBillingPlantilla(models.Model):
 
     def __str__(self):
         return f"[Plantilla sesión {self.sesion_id}] {self.orden}. {self.titulo}"
+
+
+class RequirementList(models.Model):
+    """
+    Lista reutilizable de requerimientos.
+
+    Tipos:
+    - fiber: usa el mismo formato de RequisitoFotoBillingPlantilla / RequisitoFotoBilling.
+    - cable: usa el formato de Cable Requirements: handhole, planned reserve, warning.
+    """
+
+    LIST_TYPE_FIBER = "fiber"
+    LIST_TYPE_CABLE = "cable"
+
+    LIST_TYPE_CHOICES = [
+        (LIST_TYPE_FIBER, "Fiber / Photo requirements"),
+        (LIST_TYPE_CABLE, "Cable requirements"),
+    ]
+
+    name = models.CharField(max_length=150)
+
+    project = models.ForeignKey(
+        Proyecto,
+        on_delete=models.PROTECT,
+        related_name="requirement_lists",
+        db_index=True,
+    )
+
+    list_type = models.CharField(
+        max_length=20,
+        choices=LIST_TYPE_CHOICES,
+        default=LIST_TYPE_FIBER,
+        db_index=True,
+        help_text=(
+            "Determines whether this list is used for fiber/photo "
+            "requirements or cable requirements."
+        ),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_requirement_lists",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ("project__nombre", "list_type", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "list_type", "name"],
+                name="uniq_requirement_list_project_type_name",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["project", "is_active"]),
+            models.Index(fields=["project", "list_type", "is_active"]),
+            models.Index(fields=["name"]),
+            models.Index(fields=["list_type"]),
+        ]
+
+    def __str__(self):
+        status = "Active" if self.is_active else "Paused"
+        type_label = self.get_list_type_display()
+        return f"{self.name} — {self.project} — {type_label} ({status})"
+
+    @property
+    def is_fiber(self):
+        return self.list_type == self.LIST_TYPE_FIBER
+
+    @property
+    def is_cable(self):
+        return self.list_type == self.LIST_TYPE_CABLE
+
+
+class RequirementListItem(models.Model):
+    """
+    Requerimiento dentro de una lista reutilizable.
+
+    Para listas Fiber:
+    - title
+    - description
+    - required
+    - needs_power_reading
+    - needs_light_source_reading
+    - power_port_no
+
+    Para listas Cable:
+    - handhole
+    - planned_reserve_ft
+    - required
+    - warning
+    - order
+    """
+
+    requirement_list = models.ForeignKey(
+        RequirementList,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+
+    # Fiber / Photo fields
+    title = models.CharField(max_length=150, blank=True, default="")
+    description = models.CharField(max_length=300, blank=True, default="")
+    required = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    slug = models.SlugField(max_length=180, blank=True, db_index=True)
+
+    needs_power_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Power Meter reading.",
+    )
+
+    needs_light_source_reading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="If enabled, this requirement expects a Light Source reading.",
+    )
+
+    power_port_no = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Optional port number when title is POWER PORT X.",
+    )
+
+    # Cable fields
+    handhole = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Cable requirement handhole.",
+    )
+
+    planned_reserve_ft = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Planned slack/reserve in feet for cable requirements.",
+    )
+
+    warning = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Optional warning for technician.",
+    )
+
+    class Meta:
+        ordering = ("order", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requirement_list", "slug"],
+                name="uniq_requirement_list_item_slug",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["requirement_list", "order"]),
+            models.Index(fields=["requirement_list", "slug"]),
+            models.Index(fields=["requirement_list", "handhole"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        list_type = getattr(
+            self.requirement_list,
+            "list_type",
+            RequirementList.LIST_TYPE_FIBER,
+        )
+
+        if list_type == RequirementList.LIST_TYPE_CABLE:
+            base = (self.handhole or "").strip()
+
+            # Para cable, mantenemos title sincronizado con handhole.
+            # Esto evita que al editar el handhole quede title viejo.
+            self.title = base
+
+            # En cable no usamos estos campos.
+            self.description = self.description or ""
+            self.needs_power_reading = False
+            self.needs_light_source_reading = False
+            self.power_port_no = None
+
+        else:
+            base = (self.title or "").strip()
+
+            # Para fibra, estos campos cable no aplican.
+            self.handhole = ""
+            self.planned_reserve_ft = self.planned_reserve_ft or Decimal("0.00")
+            self.warning = ""
+
+        self.slug = slugify(base)
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        if self.requirement_list.list_type == RequirementList.LIST_TYPE_CABLE:
+            label = self.handhole or self.title or "Cable requirement"
+        else:
+            label = self.title or "Fiber requirement"
+
+        return f"{self.requirement_list.name} — {self.order}. {label}"

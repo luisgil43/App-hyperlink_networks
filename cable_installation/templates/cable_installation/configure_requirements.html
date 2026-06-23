@@ -47,6 +47,40 @@
       </div>
     {% endif %}
 
+    {% if requirement_lists_payload %}
+      {{ requirement_lists_payload|json_script:"requirement-lists-data" }}
+
+      <div class="border rounded-2xl p-4 sm:p-5 bg-indigo-50 border-indigo-100">
+        <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div class="flex-1">
+            <label class="block text-sm font-semibold text-gray-700 mb-1">
+              Use reusable cable requirement list
+            </label>
+
+            <select id="requirementListSelect"
+                    class="w-full border rounded-xl px-3 py-2 bg-white">
+              <option value="">Select a requirement list...</option>
+              {% for list in requirement_lists_payload %}
+                <option value="{{ list.id }}">
+                  {{ list.name }} — {{ list.items|length }} requirement(s)
+                </option>
+              {% endfor %}
+            </select>
+
+            <p class="text-xs text-gray-500 mt-1">
+              This will add the selected cable requirements to the form. You can still edit them before saving.
+            </p>
+          </div>
+
+          <button type="button"
+                  id="btnApplyRequirementList"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm shadow">
+            Apply list
+          </button>
+        </div>
+      </div>
+    {% endif %}
+
     <div class="border rounded-2xl p-4 sm:p-5">
       <div class="flex items-center justify-between mb-3">
         <div class="font-semibold text-lg">Shared requirements</div>
@@ -166,28 +200,56 @@ function nextOrderValue() {
   const vals = Array.from(document.querySelectorAll('input[name="order[]"]'))
     .map(el => parseInt(el.value, 10))
     .filter(Number.isFinite);
+
   return vals.length ? Math.max(...vals) + 1 : 0;
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function removeEmptyMessage() {
+  const list = document.getElementById('req-list');
+  if (!list) return;
+
+  const emptyMsg = list.querySelector('.text-gray-500.text-sm');
+  if (emptyMsg) {
+    emptyMsg.remove();
+  }
 }
 
 function removeReq(btn, reqId) {
   const row = btn.closest('.req-row');
+
   if (reqId) {
     const bag = document.getElementById('delete-bag');
-    const h = document.createElement('input');
-    h.type = 'hidden';
-    h.name = 'delete_id[]';
-    h.value = String(reqId);
-    bag.appendChild(h);
+    if (bag) {
+      const h = document.createElement('input');
+      h.type = 'hidden';
+      h.name = 'delete_id[]';
+      h.value = String(reqId);
+      bag.appendChild(h);
+    }
   }
-  row.remove();
+
+  if (row) {
+    row.remove();
+  }
 }
 
-function addReq() {
-  const list = document.getElementById('req-list');
+function buildCableRowHtml(options) {
+  const handhole = escapeHtml(options.handhole || '');
+  const planned = escapeHtml(options.planned_reserve_ft || '');
+  const warning = escapeHtml(options.warning || '');
+  const required = options.required !== false;
+  const order = escapeHtml(options.order || nextOrderValue());
 
-  const row = document.createElement('div');
-  row.className = 'border rounded-2xl p-4 req-row';
-  row.innerHTML = `
+  return `
     <input type="hidden" name="id[]" value="">
 
     <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
@@ -202,13 +264,15 @@ function addReq() {
       <div class="sm:col-span-3">
         <label class="text-xs text-gray-500 block mb-1">Handhole</label>
         <input name="handhole[]"
+               value="${handhole}"
                class="border rounded-xl p-2 w-full"
                placeholder="Handhole">
       </div>
 
       <div class="sm:col-span-2">
-        <label class="text-xs text-gray-500 block mb-1">Planned reserve (ft)</label>
+        <label class="text-xs text-gray-500 block mb-1">Planned Slack(ft)</label>
         <input name="planned_reserve_ft[]"
+               value="${planned}"
                class="border rounded-xl p-2 w-full"
                placeholder="Optional"
                type="number"
@@ -221,14 +285,15 @@ function addReq() {
         <label class="text-xs text-gray-500 block mb-1">Required</label>
         <select name="required[]"
                 class="border rounded-xl p-2 w-full">
-          <option value="yes" selected>Yes</option>
-          <option value="no">No</option>
+          <option value="yes" ${required ? 'selected' : ''}>Yes</option>
+          <option value="no" ${!required ? 'selected' : ''}>No</option>
         </select>
       </div>
 
       <div class="sm:col-span-3">
         <label class="text-xs text-gray-500 block mb-1">Warning (optional)</label>
         <input name="warning[]"
+               value="${warning}"
                class="border rounded-xl p-2 w-full"
                placeholder="Optional warning for technician">
       </div>
@@ -236,7 +301,7 @@ function addReq() {
       <div class="sm:col-span-1">
         <label class="text-xs text-gray-500 block mb-1">Order</label>
         <input name="order[]"
-               value="${nextOrderValue()}"
+               value="${order}"
                class="border rounded-xl p-2 w-full"
                type="number"
                min="0">
@@ -250,12 +315,128 @@ function addReq() {
       </button>
     </div>
   `;
+}
 
-  row.querySelector('button').addEventListener('click', function () {
-    row.remove();
-  });
+function appendCableRow(options) {
+  const list = document.getElementById('req-list');
+  if (!list) return;
+
+  removeEmptyMessage();
+
+  const row = document.createElement('div');
+  row.className = 'border rounded-2xl p-4 req-row';
+  row.innerHTML = buildCableRowHtml(options || {});
+
+  const removeBtn = row.querySelector('button');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', function () {
+      row.remove();
+    });
+  }
 
   list.appendChild(row);
 }
+
+function addReq() {
+  appendCableRow({
+    handhole: '',
+    planned_reserve_ft: '',
+    warning: '',
+    required: true,
+    order: nextOrderValue()
+  });
+}
+
+function normalizeCableRequirement(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getRequirementListsPayload() {
+  const el = document.getElementById('requirement-lists-data');
+  if (!el) return [];
+
+  try {
+    return JSON.parse(el.textContent || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function applyCableRequirementList() {
+  const select = document.getElementById('requirementListSelect');
+  const listContainer = document.getElementById('req-list');
+
+  if (!select || !listContainer) return;
+
+  const selectedId = String(select.value || '').trim();
+
+  if (!selectedId) {
+    alert('Please select a requirement list.');
+    return;
+  }
+
+  const payload = getRequirementListsPayload();
+
+  const selectedList = payload.find(function (item) {
+    return String(item.id) === selectedId;
+  });
+
+  if (!selectedList || !Array.isArray(selectedList.items) || !selectedList.items.length) {
+    alert('This requirement list has no requirements.');
+    return;
+  }
+
+  removeEmptyMessage();
+
+  const existingHandholes = new Set(
+    Array.from(document.querySelectorAll('input[name="handhole[]"]'))
+      .map(function (input) {
+        return normalizeCableRequirement(input.value);
+      })
+      .filter(Boolean)
+  );
+
+  let added = 0;
+  let skipped = 0;
+
+  selectedList.items.forEach(function (item) {
+    const handhole = String(item.handhole || item.name || '').trim();
+
+    if (!handhole) return;
+
+    const normalized = normalizeCableRequirement(handhole);
+
+    if (existingHandholes.has(normalized)) {
+      skipped += 1;
+      return;
+    }
+
+    appendCableRow({
+      handhole: handhole,
+      planned_reserve_ft: item.planned_reserve_ft || item.planned || '0',
+      warning: item.warning || '',
+      required: item.required !== false,
+      order: nextOrderValue()
+    });
+
+    existingHandholes.add(normalized);
+    added += 1;
+  });
+
+  if (added === 0 && skipped > 0) {
+    alert('All requirements from this list were already added.');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const btnApplyRequirementList = document.getElementById('btnApplyRequirementList');
+
+  if (btnApplyRequirementList) {
+    btnApplyRequirementList.addEventListener('click', applyCableRequirementList);
+  }
+});
+
+window.addReq = addReq;
+window.removeReq = removeReq;
 </script>
 {% endblock %}

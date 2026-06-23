@@ -60,8 +60,8 @@ from operaciones.models import RequisitoFotoBillingPlantilla
 from usuarios.decoradores import rol_requerido
 
 from .models import (EvidenciaFotoBilling, ItemBillingTecnico,
-                     ReporteFotograficoJob, RequisitoFotoBilling,
-                     SesionBilling, SesionBillingTecnico)
+                     ReporteFotograficoJob, RequirementList,
+                     RequisitoFotoBilling, SesionBilling, SesionBillingTecnico)
 
 log = logging.getLogger(__name__)
 
@@ -4605,6 +4605,62 @@ def confirmar_importar_requisitos(request, sesion_id):
     request.session.pop("req_import_preview", None)
     return redirect("operaciones:configurar_requisitos", sesion_id=sesion_id)
 
+def _requirement_lists_payload_for_billing(sesion):
+    """
+    Devuelve las listas reutilizables Fiber/Photo disponibles para el proyecto
+    del Billing actual.
+
+    Se usa solo para pintar el selector en billing_configurar_requisitos.html.
+    No guarda nada directo: el usuario selecciona la lista, se agregan las filas
+    al formulario y luego presiona Save con el flujo existente.
+    """
+    codigo = (getattr(sesion, "proyecto_id", "") or "").strip()
+    nombre_proyecto = (getattr(sesion, "proyecto", "") or "").strip()
+
+    proyecto_obj = None
+
+    if codigo:
+        proyecto_obj = Proyecto.objects.filter(codigo__iexact=codigo).first()
+
+        if proyecto_obj is None and codigo.isdigit():
+            proyecto_obj = Proyecto.objects.filter(pk=int(codigo)).first()
+
+    if proyecto_obj is None and nombre_proyecto:
+        proyecto_obj = Proyecto.objects.filter(nombre__iexact=nombre_proyecto).first()
+
+    if proyecto_obj is None:
+        return []
+
+    lists = (
+        RequirementList.objects.filter(
+            project=proyecto_obj,
+            list_type=RequirementList.LIST_TYPE_FIBER,
+            is_active=True,
+        )
+        .prefetch_related("items")
+        .order_by("name")
+    )
+
+    payload = []
+
+    for req_list in lists:
+        payload.append(
+            {
+                "id": req_list.id,
+                "name": req_list.name,
+                "items": [
+                    {
+                        "name": item.title,
+                        "order": item.order,
+                        "required": bool(item.required),
+                    }
+                    for item in req_list.items.all().order_by("order", "id")
+                    if (item.title or "").strip()
+                ],
+            }
+        )
+
+    return payload
 
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
@@ -4613,15 +4669,18 @@ def configurar_requisitos(request, sesion_id):
     Configura la lista compartida de requisitos a nivel de proyecto/billing.
     La fuente principal ahora es RequisitoFotoBillingPlantilla.
     Luego se sincroniza con TODAS las asignaciones sin borrar estados previos.
+
+    Además:
+    - Permite seleccionar una RequirementList Fiber/Photo ya creada.
+    - Esa lista se muestra en el template como JSON.
+    - El usuario la aplica en pantalla y luego guarda con el flujo actual.
     """
     s = get_object_or_404(SesionBilling, pk=sesion_id)
 
-    # ✅ NUEVO:
     # Para billings antiguos, si no existe plantilla, la crea desde requisitos existentes.
     ensure_requisitos_plantilla_desde_existentes(s)
 
-    # ✅ NUEVO:
-    # La pantalla ya no lee desde el primer técnico, sino desde la plantilla.
+    # La pantalla lee desde la plantilla.
     canonical = list(s.requisitos_plantilla.all().order_by("orden", "id"))
 
     if request.method == "POST":
@@ -4800,8 +4859,7 @@ def configurar_requisitos(request, sesion_id):
 
                             existentes_por_slug[key] = obj
 
-                # ✅ NUEVO:
-                # Ahora sí se reflejan los cambios en todos los técnicos.
+                # Refleja los cambios en todos los técnicos.
                 sync_requisitos_plantilla_a_asignaciones(s)
 
             messages.success(request, "Photo requirements saved (project-wide).")
@@ -4811,12 +4869,13 @@ def configurar_requisitos(request, sesion_id):
             messages.error(request, f"Could not save requirements: {e}")
 
         class _Row:
-            def __init__(self, orden, titulo, obligatorio):
+            def __init__(self, req_id, orden, titulo, obligatorio):
+                self.id = req_id
                 self.orden = orden
                 self.titulo = titulo
                 self.obligatorio = obligatorio
 
-        canonical = [_Row(o, n, m) for _, o, n, m in normalized]
+        canonical = [_Row(req_id, o, n, m) for req_id, o, n, m in normalized]
 
     return render(
         request,
@@ -4825,6 +4884,7 @@ def configurar_requisitos(request, sesion_id):
             "sesion": s,
             "requirements": canonical,
             "is_special": bool(s.proyecto_especial),
+            "requirement_lists_payload": _requirement_lists_payload_for_billing(s),
         },
     )
 

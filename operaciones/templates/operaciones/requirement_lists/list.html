@@ -1,0 +1,321 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}Requirement Lists{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800">Requirement Lists</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Create reusable requirement lists for Bulk Billing.
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="{% url 'operaciones:listar_billing' %}"
+         class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+        Back to Billing
+      </a>
+
+      <a href="{% url 'operaciones:requirement_list_create' %}"
+         class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">
+        + Create list
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="mb-4 grid md:grid-cols-5 gap-3">
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Search</label>
+      <input type="text"
+             name="q"
+             value="{{ q }}"
+             placeholder="List name..."
+             class="w-full border rounded-lg px-3 py-2 text-sm">
+    </div>
+
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Project</label>
+      <select name="project" class="w-full border rounded-lg px-3 py-2 text-sm">
+        <option value="">All projects</option>
+        {% for p in projects %}
+          <option value="{{ p.id }}" {% if project_id == p.id|stringformat:"s" %}selected{% endif %}>
+            {{ p.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Type</label>
+      <select name="type" class="w-full border rounded-lg px-3 py-2 text-sm">
+        <option value="">All types</option>
+        <option value="fiber" {% if list_type == "fiber" %}selected{% endif %}>Fiber / Photo</option>
+        <option value="cable" {% if list_type == "cable" %}selected{% endif %}>Cable</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Status</label>
+      <select name="status" class="w-full border rounded-lg px-3 py-2 text-sm">
+        <option value="">All</option>
+        <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+        <option value="paused" {% if status == "paused" %}selected{% endif %}>Paused</option>
+      </select>
+    </div>
+
+    <div class="flex items-end gap-2">
+      <button type="submit"
+              class="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm">
+        Filter
+      </button>
+
+      <a href="{% url 'operaciones:requirement_list_list' %}"
+         class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+        Clear
+      </a>
+    </div>
+  </form>
+
+  <div class="rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="table-auto w-full text-sm min-w-[1400px]" style="white-space: nowrap;">
+      <thead class="bg-gray-100 text-gray-700">
+        <tr>
+          <th class="p-2 text-center border w-12"></th>
+          <th class="p-2 text-left border">PK</th>
+          <th class="p-2 text-left border">List name</th>
+          <th class="p-2 text-left border">Type</th>
+          <th class="p-2 text-left border">Project</th>
+          <th class="p-2 text-left border">Created date</th>
+          <th class="p-2 text-left border">Created by</th>
+          <th class="p-2 text-center border">Requirements</th>
+          <th class="p-2 text-center border">Status</th>
+          <th class="p-2 text-center border">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t hover:bg-gray-50">
+            <td class="p-2 border text-center">
+              <button type="button"
+                      class="toggle-req inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold"
+                      data-target="req-detail-{{ item.id }}"
+                      aria-expanded="false"
+                      title="Show requirements">
+                ▸
+              </button>
+            </td>
+
+            <td class="p-2 border font-semibold">#{{ item.id }}</td>
+
+            <td class="p-2 border">
+              <div class="font-semibold text-gray-900">{{ item.name }}</div>
+            </td>
+
+            <td class="p-2 border">
+              {% if item.list_type == "cable" %}
+                <span class="inline-flex px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-xs">
+                  Cable
+                </span>
+              {% else %}
+                <span class="inline-flex px-2 py-0.5 rounded bg-sky-100 text-sky-800 text-xs">
+                  Fiber / Photo
+                </span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border">
+              {{ item.project.nombre|default:item.project }}
+            </td>
+
+            <td class="p-2 border">
+              {{ item.created_at|date:"Y-m-d H:i" }}
+            </td>
+
+            <td class="p-2 border">
+              {% if item.created_by %}
+                {{ item.created_by.get_full_name|default:item.created_by.username }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+
+            <td class="p-2 border text-center">
+              {{ item.items.count }}
+            </td>
+
+            <td class="p-2 border text-center">
+              {% if item.is_active %}
+                <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs">
+                  Active
+                </span>
+              {% else %}
+                <span class="inline-flex px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">
+                  Paused
+                </span>
+              {% endif %}
+            </td>
+
+            <td class="p-2 border">
+              <div class="flex flex-wrap items-center justify-center gap-2">
+                <a href="{% url 'operaciones:requirement_list_edit' item.id %}"
+                   class="text-blue-600 hover:underline">
+                  Edit
+                </a>
+
+                <form method="post"
+                      action="{% url 'operaciones:requirement_list_toggle' item.id %}"
+                      class="inline">
+                  {% csrf_token %}
+                  <button type="submit"
+                          class="{% if item.is_active %}text-amber-700{% else %}text-emerald-700{% endif %} hover:underline">
+                    {% if item.is_active %}Pause{% else %}Activate{% endif %}
+                  </button>
+                </form>
+
+                <a href="{% url 'operaciones:requirement_list_delete' item.id %}"
+                   class="text-red-600 hover:underline">
+                  Delete
+                </a>
+              </div>
+            </td>
+          </tr>
+
+          <tr id="req-detail-{{ item.id }}" class="hidden bg-gray-50">
+            <td colspan="10" class="p-0 border">
+              <div class="p-4">
+                <div class="flex items-center justify-between mb-3">
+                  <div>
+                    <div class="font-bold text-gray-800">
+                      Requirements configured for {{ item.name }}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                      {% if item.list_type == "cable" %}
+                        Cable requirements
+                      {% else %}
+                        Fiber / Photo requirements
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <span class="text-xs text-gray-500">
+                    Total: {{ item.items.count }}
+                  </span>
+                </div>
+
+                {% if item.items.all %}
+                  {% if item.list_type == "cable" %}
+                    <div class="rounded-xl border border-gray-200 overflow-x-auto bg-white">
+                      <table class="table-auto w-full text-xs min-w-[900px]" style="white-space: nowrap;">
+                        <thead class="bg-gray-100 text-gray-700">
+                          <tr>
+                            <th class="p-2 text-left border">Order</th>
+                            <th class="p-2 text-left border">Handhole</th>
+                            <th class="p-2 text-center border">Planned Slack(ft)</th>
+                            <th class="p-2 text-center border">Required</th>
+                            <th class="p-2 text-left border">Warning</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for req in item.items.all %}
+                            <tr>
+                              <td class="p-2 border font-semibold">{{ req.order }}</td>
+                              <td class="p-2 border">{{ req.handhole|default:req.title }}</td>
+                              <td class="p-2 border text-center">{{ req.planned_reserve_ft|default:"0" }}</td>
+                              <td class="p-2 border text-center">
+                                {% if req.required %}
+                                  <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Yes</span>
+                                {% else %}
+                                  <span class="inline-flex px-2 py-0.5 rounded bg-gray-100 text-gray-700">No</span>
+                                {% endif %}
+                              </td>
+                              <td class="p-2 border">{{ req.warning|default:"—" }}</td>
+                            </tr>
+                          {% empty %}
+                            <tr>
+                              <td colspan="5" class="p-3 text-center text-gray-500">
+                                No requirements configured.
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  {% else %}
+                    <div class="rounded-xl border border-gray-200 overflow-x-auto bg-white">
+                      <table class="table-auto w-full text-xs min-w-[700px]" style="white-space: nowrap;">
+                        <thead class="bg-gray-100 text-gray-700">
+                          <tr>
+                            <th class="p-2 text-left border">Order</th>
+                            <th class="p-2 text-left border">Name</th>
+                            <th class="p-2 text-center border">Required</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for req in item.items.all %}
+                            <tr>
+                              <td class="p-2 border font-semibold">{{ req.order }}</td>
+                              <td class="p-2 border">{{ req.title }}</td>
+                              <td class="p-2 border text-center">
+                                {% if req.required %}
+                                  <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Yes</span>
+                                {% else %}
+                                  <span class="inline-flex px-2 py-0.5 rounded bg-gray-100 text-gray-700">No</span>
+                                {% endif %}
+                              </td>
+                            </tr>
+                          {% empty %}
+                            <tr>
+                              <td colspan="3" class="p-3 text-center text-gray-500">
+                                No requirements configured.
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  {% endif %}
+                {% else %}
+                  <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500">
+                    No requirements configured.
+                  </div>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="10" class="p-5 text-center text-gray-500">
+              No requirement lists created yet.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.toggle-req').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const targetId = btn.getAttribute('data-target');
+      const row = document.getElementById(targetId);
+
+      if (!row) return;
+
+      const isHidden = row.classList.contains('hidden');
+
+      row.classList.toggle('hidden', !isHidden);
+      btn.textContent = isHidden ? '▾' : '▸';
+      btn.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    });
+  });
+});
+</script>
+
+{% endblock %}

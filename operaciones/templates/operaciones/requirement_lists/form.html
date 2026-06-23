@@ -1,0 +1,1160 @@
+{% extends "dashboard_admin/base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Requirement List{% else %}Create Requirement List{% endif %}{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800">
+        {% if mode == "edit" %}Edit Requirement List{% else %}Create Requirement List{% endif %}
+      </h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Create reusable requirement lists for Bulk Billing.
+      </p>
+    </div>
+
+    <a href="{% url 'operaciones:requirement_list_list' %}"
+       class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm">
+      ← Back
+    </a>
+  </div>
+
+  <form method="post" id="requirement-list-form" class="space-y-6" autocomplete="off" novalidate>
+    {% csrf_token %}
+
+    <div class="border rounded-2xl p-4 sm:p-5 bg-gray-50">
+      <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+
+        <div class="sm:col-span-4">
+          <label class="text-xs text-gray-500 block mb-1">
+            List name <span class="text-red-600">*</span>
+          </label>
+          {{ form.name }}
+          {% if form.name.errors %}
+            <p class="mt-1 text-xs text-red-600">{{ form.name.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+
+        <div class="sm:col-span-4">
+          <label class="text-xs text-gray-500 block mb-1">
+            Project <span class="text-red-600">*</span>
+          </label>
+          {{ form.project }}
+          {% if form.project.errors %}
+            <p class="mt-1 text-xs text-red-600">{{ form.project.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+
+        <div class="sm:col-span-3">
+          <label class="text-xs text-gray-500 block mb-1">
+            Type <span class="text-red-600">*</span>
+          </label>
+          {{ form.list_type }}
+          {% if form.list_type.errors %}
+            <p class="mt-1 text-xs text-red-600">{{ form.list_type.errors|join:", " }}</p>
+          {% endif %}
+
+          {% if mode == "edit" %}
+            <p class="mt-1 text-[11px] text-gray-500">
+              Type cannot be changed after creation.
+            </p>
+          {% endif %}
+        </div>
+
+        <div class="sm:col-span-1 pt-6">
+          <label class="inline-flex items-center gap-2">
+            {{ form.is_active }}
+            <span class="text-sm font-semibold text-gray-700">Active</span>
+          </label>
+        </div>
+
+      </div>
+
+      {% if form.non_field_errors %}
+        <div class="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="border rounded-2xl p-4 sm:p-5">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+        <div>
+          <div class="font-semibold text-lg" id="requirements-title">
+            Shared requirements
+          </div>
+          <div id="list-type-help" class="text-xs text-gray-500 mt-1">
+            Add all requirements needed for this list.
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button type="button"
+                  id="btn-open-import-modal"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-full text-sm shadow">
+            📥 Import Requirements
+          </button>
+
+          <button type="button"
+                  id="btn-add-row"
+                  class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-full text-sm">
+            + Add Requirement
+          </button>
+        </div>
+      </div>
+
+      {{ formset.management_form }}
+
+      {% if formset.non_form_errors %}
+        <div class="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <div class="font-semibold text-red-800 mb-1">Please review the form</div>
+          <div class="text-sm text-red-700">
+            {{ formset.non_form_errors }}
+          </div>
+        </div>
+      {% endif %}
+
+      <div id="req-list" class="space-y-4">
+
+        {% for item_form in formset.forms %}
+          <div class="req-row" data-row-index="{{ forloop.counter0 }}">
+            {{ item_form.id }}
+
+            <div class="fiber-layout">
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+                <div class="sm:col-span-6">
+                  <label class="text-xs text-gray-500 block mb-1">Name</label>
+                  {{ item_form.title }}
+                  {% if item_form.title.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ item_form.title.errors|join:", " }}</p>
+                  {% endif %}
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="text-xs text-gray-500 block mb-1">Order</label>
+                  {{ item_form.order }}
+                  {% if item_form.order.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ item_form.order.errors|join:", " }}</p>
+                  {% endif %}
+                </div>
+
+                <div class="sm:col-span-3">
+                  <label class="text-xs text-gray-500 block mb-1">Required</label>
+                  <label class="flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
+                    {{ item_form.required }}
+                    <span class="text-sm">Required</span>
+                  </label>
+                </div>
+
+                <div class="sm:col-span-1 flex sm:justify-end pt-5">
+                  <label class="hidden delete-holder">
+                    {{ item_form.DELETE }}
+                  </label>
+                  <button type="button"
+                          class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50">
+                    🗑️
+                  </button>
+                </div>
+
+                <div class="sm:col-span-12 hidden">
+                  {{ item_form.description }}
+                  {{ item_form.needs_power_reading }}
+                  {{ item_form.needs_light_source_reading }}
+                  {{ item_form.power_port_no }}
+                </div>
+              </div>
+            </div>
+
+            <div class="cable-layout hidden">
+              <div class="border rounded-2xl p-4">
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+                  <div class="sm:col-span-1">
+                    <label class="text-xs text-gray-500 block mb-1">PK</label>
+                    <input type="text"
+                           value="{% if item_form.instance.pk %}#{{ item_form.instance.pk }}{% else %}Auto{% endif %}"
+                           class="border rounded-xl p-2 w-full bg-gray-100"
+                           disabled>
+                  </div>
+
+                  <div class="sm:col-span-3">
+                    <label class="text-xs text-gray-500 block mb-1">Handhole</label>
+                    {{ item_form.handhole }}
+                    {% if item_form.handhole.errors %}
+                      <p class="mt-1 text-xs text-red-600">{{ item_form.handhole.errors|join:", " }}</p>
+                    {% endif %}
+                  </div>
+
+                  <div class="sm:col-span-2">
+                    <label class="text-xs text-gray-500 block mb-1">Planned Slack(ft)</label>
+                    {{ item_form.planned_reserve_ft }}
+                    {% if item_form.planned_reserve_ft.errors %}
+                      <p class="mt-1 text-xs text-red-600">{{ item_form.planned_reserve_ft.errors|join:", " }}</p>
+                    {% else %}
+                      <p class="mt-1 text-xs text-gray-400">Leave blank to save as 0.</p>
+                    {% endif %}
+                  </div>
+
+                  <div class="sm:col-span-2">
+                    <label class="text-xs text-gray-500 block mb-1">Required</label>
+                    <select class="required-select border rounded-xl p-2 w-full">
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+
+                  <div class="sm:col-span-3">
+                    <label class="text-xs text-gray-500 block mb-1">Warning (optional)</label>
+                    {{ item_form.warning }}
+                    {% if item_form.warning.errors %}
+                      <p class="mt-1 text-xs text-red-600">{{ item_form.warning.errors|join:", " }}</p>
+                    {% endif %}
+                  </div>
+
+                  <div class="sm:col-span-1">
+                    <label class="text-xs text-gray-500 block mb-1">Order</label>
+                    <input type="number"
+                           min="0"
+                           class="order-mirror border rounded-xl p-2 w-full">
+                  </div>
+                </div>
+
+                <div class="mt-3 flex justify-end">
+                  <button type="button"
+                          class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50">
+                    🗑️ Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        {% empty %}
+          <div class="text-gray-500 text-sm" id="empty-msg">
+            No requirements yet. Add your first one.
+          </div>
+        {% endfor %}
+
+      </div>
+
+      <template id="empty-form-template">
+        <div class="req-row">
+          {{ formset.empty_form.id }}
+
+          <div class="fiber-layout">
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+              <div class="sm:col-span-6">
+                <label class="text-xs text-gray-500 block mb-1">Name</label>
+                {{ formset.empty_form.title }}
+              </div>
+
+              <div class="sm:col-span-2">
+                <label class="text-xs text-gray-500 block mb-1">Order</label>
+                {{ formset.empty_form.order }}
+              </div>
+
+              <div class="sm:col-span-3">
+                <label class="text-xs text-gray-500 block mb-1">Required</label>
+                <label class="flex items-center gap-2 bg-gray-50 border rounded-xl px-3 py-2">
+                  {{ formset.empty_form.required }}
+                  <span class="text-sm">Required</span>
+                </label>
+              </div>
+
+              <div class="sm:col-span-1 flex sm:justify-end pt-5">
+                <label class="hidden delete-holder">
+                  {{ formset.empty_form.DELETE }}
+                </label>
+                <button type="button"
+                        class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50">
+                  🗑️
+                </button>
+              </div>
+
+              <div class="sm:col-span-12 hidden">
+                {{ formset.empty_form.description }}
+                {{ formset.empty_form.needs_power_reading }}
+                {{ formset.empty_form.needs_light_source_reading }}
+                {{ formset.empty_form.power_port_no }}
+              </div>
+            </div>
+          </div>
+
+          <div class="cable-layout hidden">
+            <div class="border rounded-2xl p-4">
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+                <div class="sm:col-span-1">
+                  <label class="text-xs text-gray-500 block mb-1">PK</label>
+                  <input type="text"
+                         value="Auto"
+                         class="border rounded-xl p-2 w-full bg-gray-100"
+                         disabled>
+                </div>
+
+                <div class="sm:col-span-3">
+                  <label class="text-xs text-gray-500 block mb-1">Handhole</label>
+                  {{ formset.empty_form.handhole }}
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="text-xs text-gray-500 block mb-1">Planned Slack(ft)</label>
+                  {{ formset.empty_form.planned_reserve_ft }}
+                  <p class="mt-1 text-xs text-gray-400">Leave blank to save as 0.</p>
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="text-xs text-gray-500 block mb-1">Required</label>
+                  <select class="required-select border rounded-xl p-2 w-full">
+                    <option value="yes" selected>Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+
+                <div class="sm:col-span-3">
+                  <label class="text-xs text-gray-500 block mb-1">Warning (optional)</label>
+                  {{ formset.empty_form.warning }}
+                </div>
+
+                <div class="sm:col-span-1">
+                  <label class="text-xs text-gray-500 block mb-1">Order</label>
+                  <input type="number"
+                         min="0"
+                         class="order-mirror border rounded-xl p-2 w-full">
+                </div>
+              </div>
+
+              <div class="mt-3 flex justify-end">
+                <button type="button"
+                        class="remove-btn px-3 py-2 rounded-xl border text-red-700 border-red-200 hover:bg-red-50">
+                  🗑️ Remove
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </template>
+
+    </div>
+
+    <div class="sticky bottom-2 sm:static">
+      <div class="bg-white/90 backdrop-blur border rounded-2xl p-3 sm:p-0 sm:border-0 sm:bg-transparent sm:backdrop-blur-0 flex justify-end gap-3">
+        <a href="{% url 'operaciones:requirement_list_list' %}"
+           class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+          Cancel
+        </a>
+
+        <button type="submit"
+                class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl">
+          Save
+        </button>
+      </div>
+    </div>
+
+  </form>
+</div>
+
+<div id="import-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 px-3">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div class="p-5 border-b flex items-start justify-between gap-3">
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">📥 Import Requirements</h2>
+        <p class="text-sm text-gray-500 mt-1" id="import-modal-subtitle">
+          Download the template, complete it and upload the file.
+        </p>
+      </div>
+
+      <button type="button"
+              id="btn-close-import-modal"
+              class="px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+        ✕
+      </button>
+    </div>
+
+    <div class="p-5 space-y-5">
+      <div class="bg-gray-50 border rounded-xl p-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div class="font-semibold">Download template</div>
+            <p class="text-sm text-gray-600" id="import-columns-help">
+              Columns:
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <a id="download-template-csv"
+               href="#"
+               class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">
+              CSV
+            </a>
+
+            <a id="download-template-xlsx"
+               href="#"
+               class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm">
+              XLSX
+            </a>
+          </div>
+        </div>
+
+        <div class="mt-4 text-sm text-gray-700">
+          <div class="font-medium mb-1">CSV sample:</div>
+          <pre id="import-sample"
+               class="bg-white border rounded p-3 overflow-auto text-xs"></pre>
+        </div>
+      </div>
+
+      <form id="import-form"
+            method="post"
+            enctype="multipart/form-data"
+            class="space-y-4"
+            data-import-url="{% url 'operaciones:requirement_list_import_parse' %}"
+            data-template-csv-url="{% url 'operaciones:requirement_list_template_download' 'csv' %}"
+            data-template-xlsx-url="{% url 'operaciones:requirement_list_template_download' 'xlsx' %}">
+        {% csrf_token %}
+
+        <input type="hidden" name="list_type" id="import-list-type" value="fiber">
+
+        <div>
+          <label class="block font-semibold mb-1">Select file (.csv or .xlsx)</label>
+
+          <div class="flex items-center gap-3 flex-wrap">
+            <input id="import-file"
+                   type="file"
+                   name="file"
+                   accept=".csv,.xlsx,.xls"
+                   class="hidden"
+                   required>
+
+            <button type="button"
+                    id="import-trigger"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm shadow">
+              Choose file
+            </button>
+
+            <span id="file-chosen" class="text-sm text-gray-600">No file selected</span>
+          </div>
+        </div>
+
+        <div id="import-errors"
+             class="hidden rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"></div>
+
+        <div id="import-warnings"
+             class="hidden rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800"></div>
+
+        <div id="import-preview-box" class="hidden border rounded-2xl overflow-hidden">
+          <div class="bg-gray-50 px-4 py-3 flex items-center justify-between">
+            <div class="font-semibold">Preview</div>
+            <div class="text-sm text-gray-600" id="import-preview-count">0 item(s)</div>
+          </div>
+
+          <div class="p-4 space-y-5">
+            <div>
+              <div class="font-semibold text-gray-800 mb-2">
+                Already exists in this form <span class="text-gray-500 text-sm">(will NOT be added)</span>
+              </div>
+
+              <div id="import-preview-duplicates" class="text-sm text-gray-600">
+                No duplicates found.
+              </div>
+            </div>
+
+            <div>
+              <div class="font-semibold text-green-900 mb-2">
+                New requirements <span class="text-green-700 text-sm">(will be added)</span>
+              </div>
+
+              <div id="import-preview-new" class="text-sm text-gray-600">
+                Nothing to add.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2">
+          <button type="button"
+                  id="btn-cancel-import"
+                  class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
+            Cancel
+          </button>
+
+          <button type="submit"
+                  id="btn-preview-import"
+                  class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl">
+            Preview
+          </button>
+
+          <button type="button"
+                  id="btn-confirm-import-preview"
+                  class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
+            Confirm import
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const listType = document.getElementById('id_list_type');
+  const list = document.getElementById('req-list');
+  const btnAdd = document.getElementById('btn-add-row');
+  const tpl = document.getElementById('empty-form-template');
+  const totalForms = document.querySelector('input[name$="-TOTAL_FORMS"]');
+  const help = document.getElementById('list-type-help');
+  const title = document.getElementById('requirements-title');
+  const mainForm = document.getElementById('requirement-list-form');
+
+  const importModal = document.getElementById('import-modal');
+  const btnOpenImportModal = document.getElementById('btn-open-import-modal');
+  const btnCloseImportModal = document.getElementById('btn-close-import-modal');
+  const btnCancelImport = document.getElementById('btn-cancel-import');
+  const importForm = document.getElementById('import-form');
+  const importFile = document.getElementById('import-file');
+  const importTrigger = document.getElementById('import-trigger');
+  const fileChosen = document.getElementById('file-chosen');
+  const importListType = document.getElementById('import-list-type');
+  const importColumnsHelp = document.getElementById('import-columns-help');
+  const importSample = document.getElementById('import-sample');
+  const importSubtitle = document.getElementById('import-modal-subtitle');
+  const downloadCsv = document.getElementById('download-template-csv');
+  const downloadXlsx = document.getElementById('download-template-xlsx');
+  const importErrors = document.getElementById('import-errors');
+  const importWarnings = document.getElementById('import-warnings');
+
+  const importPreviewBox = document.getElementById('import-preview-box');
+  const importPreviewCount = document.getElementById('import-preview-count');
+  const importPreviewDuplicates = document.getElementById('import-preview-duplicates');
+  const importPreviewNew = document.getElementById('import-preview-new');
+  const btnPreviewImport = document.getElementById('btn-preview-import');
+  const btnConfirmImportPreview = document.getElementById('btn-confirm-import-preview');
+
+  let pendingImportRows = [];
+
+  function currentType() {
+    return listType && listType.value ? listType.value : 'fiber';
+  }
+
+  function currentTypeLabel() {
+    return currentType() === 'cable' ? 'Cable' : 'Fiber / Photo';
+  }
+
+  function nextOrderValue() {
+    const vals = Array.from(document.querySelectorAll('.req-row input[name$="-order"]'))
+      .filter(function (el) {
+        const row = el.closest('.req-row');
+        const deleteInput = row ? row.querySelector('input[name$="-DELETE"]') : null;
+        return !(deleteInput && deleteInput.checked);
+      })
+      .map(function (el) { return parseInt(el.value, 10); })
+      .filter(Number.isFinite);
+
+    return vals.length ? Math.max.apply(null, vals) + 1 : 0;
+  }
+
+  function normalizeValue(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function syncRow(row, isNewRow) {
+    if (!row) return;
+
+    const type = currentType();
+    const isCable = type === 'cable';
+
+    const fiber = row.querySelector('.fiber-layout');
+    const cable = row.querySelector('.cable-layout');
+
+    if (fiber) fiber.classList.toggle('hidden', isCable);
+    if (cable) cable.classList.toggle('hidden', !isCable);
+
+    const requiredInput = row.querySelector('input[name$="-required"]');
+    const requiredSelect = row.querySelector('.required-select');
+
+    if (requiredInput && isNewRow) {
+      requiredInput.checked = true;
+    }
+
+    if (requiredInput && requiredSelect) {
+      requiredSelect.value = requiredInput.checked ? 'yes' : 'no';
+
+      requiredSelect.onchange = function () {
+        requiredInput.checked = requiredSelect.value === 'yes';
+      };
+    }
+
+    const orderInput = row.querySelector('input[name$="-order"]');
+    const orderMirror = row.querySelector('.order-mirror');
+
+    if (orderInput && orderMirror) {
+      orderMirror.value = orderInput.value || '0';
+
+      orderMirror.oninput = function () {
+        orderInput.value = orderMirror.value || '0';
+      };
+    }
+
+    const titleInput = row.querySelector('input[name$="-title"]');
+    const handholeInput = row.querySelector('input[name$="-handhole"]');
+    const plannedInput = row.querySelector('input[name$="-planned_reserve_ft"]');
+
+    if (isCable) {
+      if (titleInput && handholeInput) {
+        if (!handholeInput.value && titleInput.value) {
+          handholeInput.value = titleInput.value;
+        }
+
+        titleInput.value = handholeInput.value || '';
+
+        handholeInput.oninput = function () {
+          titleInput.value = handholeInput.value || '';
+        };
+      }
+
+      if (plannedInput && !plannedInput.value) {
+        plannedInput.value = '0';
+      }
+
+      row.querySelectorAll('input[name$="-needs_power_reading"], input[name$="-needs_light_source_reading"]').forEach(function (el) {
+        el.checked = false;
+      });
+
+      row.querySelectorAll('input[name$="-power_port_no"]').forEach(function (el) {
+        el.value = '';
+      });
+    } else {
+      if (titleInput && handholeInput && !titleInput.value && handholeInput.value) {
+        titleInput.value = handholeInput.value;
+      }
+    }
+  }
+
+  function syncAllRows() {
+    const type = currentType();
+    const isCable = type === 'cable';
+
+    if (title) {
+      title.textContent = isCable ? 'Shared cable requirements' : 'Project shared requirements';
+    }
+
+    if (help) {
+      help.textContent = isCable
+        ? 'Cable requirements use Handhole, Planned Slack(ft), Required, Warning and Order.'
+        : 'Fiber requirements use Name, Order and Required.';
+    }
+
+    document.querySelectorAll('.req-row').forEach(function (row) {
+      syncRow(row, false);
+    });
+  }
+
+  function markDeletedOrRemove(btn) {
+    const row = btn.closest('.req-row');
+    if (!row) return;
+
+    const deleteInput = row.querySelector('input[name$="-DELETE"]');
+
+    if (deleteInput) {
+      deleteInput.checked = true;
+      row.classList.add('hidden');
+    } else {
+      row.remove();
+    }
+  }
+
+  function bindRemoveButtons(scope) {
+    (scope || document).querySelectorAll('.remove-btn').forEach(function (btn) {
+      btn.onclick = function () {
+        markDeletedOrRemove(btn);
+      };
+    });
+  }
+
+  function createFormRow(values) {
+    if (!tpl || !list || !totalForms) return null;
+
+    const emptyMsg = document.getElementById('empty-msg');
+    if (emptyMsg) emptyMsg.remove();
+
+    const index = parseInt(totalForms.value || '0', 10);
+    const html = tpl.innerHTML.split('__prefix__').join(index);
+
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html.trim();
+
+    const row = tmp.querySelector('.req-row');
+    if (!row) return null;
+
+    const type = currentType();
+    const isCable = type === 'cable';
+
+    const orderInput = row.querySelector('input[name$="-order"]');
+    const requiredInput = row.querySelector('input[name$="-required"]');
+    const titleInput = row.querySelector('input[name$="-title"]');
+    const handholeInput = row.querySelector('input[name$="-handhole"]');
+    const plannedInput = row.querySelector('input[name$="-planned_reserve_ft"]');
+    const warningInput = row.querySelector('input[name$="-warning"]');
+
+    if (orderInput) {
+      orderInput.value = String(
+        values && values.order !== undefined && values.order !== null && values.order !== ''
+          ? values.order
+          : nextOrderValue()
+      );
+    }
+
+    if (requiredInput) {
+      requiredInput.checked = !(values && values.required === false);
+    }
+
+    if (isCable) {
+      const handhole = String((values && (values.handhole || values.name || values.title)) || '').trim();
+
+      if (handholeInput) {
+        handholeInput.value = handhole;
+      }
+
+      if (titleInput) {
+        titleInput.value = handhole;
+      }
+
+      if (plannedInput) {
+        plannedInput.value = String(
+          values && values.planned_reserve_ft !== undefined && values.planned_reserve_ft !== null && values.planned_reserve_ft !== ''
+            ? values.planned_reserve_ft
+            : '0'
+        );
+      }
+
+      if (warningInput) {
+        warningInput.value = String((values && values.warning) || '');
+      }
+    } else {
+      const name = String((values && (values.name || values.title)) || '').trim();
+
+      if (titleInput) {
+        titleInput.value = name;
+      }
+
+      if (handholeInput) {
+        handholeInput.value = '';
+      }
+
+      if (plannedInput) {
+        plannedInput.value = '0';
+      }
+
+      if (warningInput) {
+        warningInput.value = '';
+      }
+    }
+
+    list.appendChild(row);
+    totalForms.value = index + 1;
+
+    bindRemoveButtons(row);
+    syncRow(row, true);
+
+    return row;
+  }
+
+  function existingKeysForCurrentType() {
+    const type = currentType();
+    const isCable = type === 'cable';
+
+    if (isCable) {
+      return new Set(
+        Array.from(document.querySelectorAll('.req-row:not(.hidden) input[name$="-handhole"]'))
+          .map(function (el) { return normalizeValue(el.value); })
+          .filter(Boolean)
+      );
+    }
+
+    return new Set(
+      Array.from(document.querySelectorAll('.req-row:not(.hidden) input[name$="-title"]'))
+        .map(function (el) { return normalizeValue(el.value); })
+        .filter(Boolean)
+    );
+  }
+
+  function showBox(box, messages) {
+    if (!box) return;
+
+    if (!messages || !messages.length) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+
+    box.classList.remove('hidden');
+    box.innerHTML = '<ul class="list-disc pl-5 space-y-1">' +
+      messages.map(function (m) {
+        return '<li>' + String(m) + '</li>';
+      }).join('') +
+      '</ul>';
+  }
+
+  function resetImportPreview() {
+    pendingImportRows = [];
+
+    if (importPreviewBox) {
+      importPreviewBox.classList.add('hidden');
+    }
+
+    if (importPreviewCount) {
+      importPreviewCount.textContent = '0 item(s)';
+    }
+
+    if (importPreviewDuplicates) {
+      importPreviewDuplicates.innerHTML = 'No duplicates found.';
+    }
+
+    if (importPreviewNew) {
+      importPreviewNew.innerHTML = 'Nothing to add.';
+    }
+
+    if (btnConfirmImportPreview) {
+      btnConfirmImportPreview.classList.add('hidden');
+      btnConfirmImportPreview.textContent = 'Confirm import';
+    }
+
+    if (btnPreviewImport) {
+      btnPreviewImport.classList.remove('hidden');
+    }
+  }
+
+  function tableHtml(headers, rows) {
+    if (!rows.length) {
+      return '<div class="text-sm text-gray-600">No items.</div>';
+    }
+
+    let html = '<div class="overflow-x-auto"><table class="min-w-full text-sm">';
+    html += '<thead class="text-gray-600"><tr class="border-b">';
+
+    headers.forEach(function (h) {
+      html += '<th class="text-left py-2 pr-3">' + h.label + '</th>';
+    });
+
+    html += '</tr></thead><tbody>';
+
+    rows.forEach(function (row) {
+      html += '<tr class="border-b last:border-b-0">';
+
+      headers.forEach(function (h) {
+        let value = row[h.key];
+
+        if (h.key === 'required') {
+          value = row.required === false ? 'No' : 'Yes';
+        }
+
+        if (value === undefined || value === null || value === '') {
+          value = '—';
+        }
+
+        html += '<td class="py-2 pr-3">' + String(value) + '</td>';
+      });
+
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function renderImportPreview(rows, serverWarnings) {
+    const type = currentType();
+    const isCable = type === 'cable';
+    const existing = existingKeysForCurrentType();
+
+    const duplicates = [];
+    const news = [];
+
+    rows.forEach(function (item) {
+      const label = isCable
+        ? String(item.handhole || item.name || item.title || '').trim()
+        : String(item.name || item.title || '').trim();
+
+      const key = normalizeValue(label);
+
+      if (!key) {
+        return;
+      }
+
+      if (existing.has(key)) {
+        duplicates.push(item);
+      } else {
+        news.push(item);
+      }
+    });
+
+    pendingImportRows = news;
+
+    if (importPreviewBox) {
+      importPreviewBox.classList.remove('hidden');
+    }
+
+    if (importPreviewCount) {
+      importPreviewCount.textContent = rows.length + ' item(s)';
+    }
+
+    if (isCable) {
+      const headers = [
+        { key: 'handhole', label: 'Handhole' },
+        { key: 'planned_reserve_ft', label: 'Planned reserve (ft)' },
+        { key: 'required', label: 'Required' },
+        { key: 'warning', label: 'Warning' },
+        { key: 'order', label: 'Order' },
+      ];
+
+      if (importPreviewDuplicates) {
+        importPreviewDuplicates.innerHTML = duplicates.length
+          ? tableHtml(headers, duplicates)
+          : '<div class="text-sm text-gray-600">No duplicates found.</div>';
+      }
+
+      if (importPreviewNew) {
+        importPreviewNew.innerHTML = news.length
+          ? tableHtml(headers, news)
+          : '<div class="text-sm text-gray-600">Nothing to add.</div>';
+      }
+    } else {
+      const headers = [
+        { key: 'name', label: 'Name' },
+        { key: 'order', label: 'Order' },
+        { key: 'required', label: 'Mandatory' },
+      ];
+
+      if (importPreviewDuplicates) {
+        importPreviewDuplicates.innerHTML = duplicates.length
+          ? tableHtml(headers, duplicates)
+          : '<div class="text-sm text-gray-600">No duplicates found.</div>';
+      }
+
+      if (importPreviewNew) {
+        importPreviewNew.innerHTML = news.length
+          ? tableHtml(headers, news)
+          : '<div class="text-sm text-gray-600">Nothing to add.</div>';
+      }
+    }
+
+    const warnings = Array.isArray(serverWarnings) ? serverWarnings.slice() : [];
+
+    if (duplicates.length > 0) {
+      warnings.push(duplicates.length + ' requirement(s) already exist in this form and will not be added.');
+    }
+
+    showBox(importWarnings, warnings);
+
+    if (btnConfirmImportPreview) {
+      if (news.length > 0) {
+        btnConfirmImportPreview.classList.remove('hidden');
+        btnConfirmImportPreview.textContent = 'Confirm import (' + news.length + ')';
+      } else {
+        btnConfirmImportPreview.classList.add('hidden');
+      }
+    }
+  }
+
+  function updateImportModalByType() {
+    const type = currentType();
+    const isCable = type === 'cable';
+
+    if (importListType) {
+      importListType.value = type;
+    }
+
+    if (importSubtitle) {
+      importSubtitle.textContent = 'Import requirements for ' + currentTypeLabel() + ' list.';
+    }
+
+    if (importColumnsHelp) {
+      importColumnsHelp.innerHTML = isCable
+        ? 'Columns: <code>handhole</code>, <code>planned_reserve_ft</code>, <code>required</code>, <code>warning</code>, <code>order</code>'
+        : 'Columns: <code>name</code>, <code>order</code>, <code>mandatory</code>';
+    }
+
+    if (importSample) {
+      importSample.textContent = isCable
+        ? 'handhole,planned_reserve_ft,required,warning,order\n1000-044,30,Yes,,0\n1000-044-1,20,YES,,1\n1000-044-2,10,si,Low clearance,2\n1000-044-3,0,No,,3'
+        : 'name,order,mandatory\nFront door,0,1\nBack door,1,1\nPanorama of site,2,0';
+    }
+
+    if (importForm && downloadCsv && downloadXlsx) {
+      const csvUrl = importForm.dataset.templateCsvUrl || '#';
+      const xlsxUrl = importForm.dataset.templateXlsxUrl || '#';
+
+      downloadCsv.href = csvUrl + '?type=' + encodeURIComponent(type);
+      downloadXlsx.href = xlsxUrl + '?type=' + encodeURIComponent(type);
+    }
+
+    showBox(importErrors, []);
+    showBox(importWarnings, []);
+    resetImportPreview();
+
+    if (importFile) {
+      importFile.value = '';
+    }
+
+    if (fileChosen) {
+      fileChosen.textContent = 'No file selected';
+    }
+  }
+
+  function openImportModal() {
+    updateImportModalByType();
+
+    if (importModal) {
+      importModal.classList.remove('hidden');
+      importModal.classList.add('flex');
+    }
+  }
+
+  function closeImportModal() {
+    if (importModal) {
+      importModal.classList.add('hidden');
+      importModal.classList.remove('flex');
+    }
+  }
+
+  if (btnAdd && tpl && list && totalForms) {
+    btnAdd.addEventListener('click', function () {
+      createFormRow({
+        required: true,
+        order: nextOrderValue(),
+        planned_reserve_ft: '0'
+      });
+    });
+  }
+
+  if (listType) {
+    listType.addEventListener('change', syncAllRows);
+    listType.addEventListener('change', updateImportModalByType);
+  }
+
+  if (mainForm) {
+    mainForm.addEventListener('submit', function () {
+      document.querySelectorAll('.req-row').forEach(function (row) {
+        syncRow(row, false);
+      });
+    });
+  }
+
+  if (btnOpenImportModal) {
+    btnOpenImportModal.addEventListener('click', openImportModal);
+  }
+
+  if (btnCloseImportModal) {
+    btnCloseImportModal.addEventListener('click', closeImportModal);
+  }
+
+  if (btnCancelImport) {
+    btnCancelImport.addEventListener('click', closeImportModal);
+  }
+
+  if (importModal) {
+    importModal.addEventListener('click', function (event) {
+      if (event.target === importModal) {
+        closeImportModal();
+      }
+    });
+  }
+
+  if (importTrigger && importFile) {
+    importTrigger.addEventListener('click', function () {
+      importFile.click();
+    });
+
+    importFile.addEventListener('change', function () {
+      fileChosen.textContent = importFile.files && importFile.files.length
+        ? importFile.files[0].name
+        : 'No file selected';
+
+      showBox(importErrors, []);
+      showBox(importWarnings, []);
+      resetImportPreview();
+    });
+  }
+
+  if (importForm) {
+    importForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+
+      showBox(importErrors, []);
+      showBox(importWarnings, []);
+      resetImportPreview();
+
+      if (!importFile || !importFile.files || !importFile.files.length) {
+        showBox(importErrors, ['Please select a CSV or XLSX file.']);
+        return;
+      }
+
+      const url = importForm.dataset.importUrl;
+      const formData = new FormData(importForm);
+      formData.set('list_type', currentType());
+
+      fetch(url, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': document.querySelector('input[name="csrfmiddlewaretoken"]').value,
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok) {
+              throw data;
+            }
+
+            return data;
+          });
+        })
+        .then(function (data) {
+          const rows = Array.isArray(data.rows) ? data.rows : [];
+
+          if (!rows.length) {
+            showBox(importErrors, ['No valid rows found in the file.']);
+            return;
+          }
+
+          renderImportPreview(rows, data.warnings || []);
+        })
+        .catch(function (data) {
+          const errors = data && Array.isArray(data.errors)
+            ? data.errors
+            : ['Could not import the file.'];
+
+          const warnings = data && Array.isArray(data.warnings)
+            ? data.warnings
+            : [];
+
+          showBox(importErrors, errors);
+          showBox(importWarnings, warnings);
+        });
+    });
+  }
+
+  if (btnConfirmImportPreview) {
+    btnConfirmImportPreview.addEventListener('click', function () {
+      if (!pendingImportRows.length) {
+        showBox(importErrors, ['Nothing to import.']);
+        return;
+      }
+
+      pendingImportRows.forEach(function (item) {
+        createFormRow(item);
+      });
+
+      closeImportModal();
+    });
+  }
+
+  bindRemoveButtons(document);
+  syncAllRows();
+  updateImportModalByType();
+});
+</script>
+
+{% endblock %}

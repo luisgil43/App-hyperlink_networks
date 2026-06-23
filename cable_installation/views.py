@@ -16,7 +16,9 @@ from django.views.decorators.http import require_GET, require_POST
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from operaciones.models import SesionBilling, SesionBillingTecnico
+from facturacion.models import Proyecto
+from operaciones.models import (RequirementList, SesionBilling,
+                                SesionBillingTecnico)
 from usuarios.decoradores import rol_requerido
 
 from .models import CableAssignmentRequirement, CableEvidence, CableRequirement
@@ -152,6 +154,66 @@ def _build_requirement_rows_from_db(billing: SesionBilling):
     return rows
 
 
+def _requirement_lists_payload_for_cable_billing(billing):
+    """
+    Devuelve las listas reutilizables Cable disponibles para el proyecto
+    del Billing actual.
+
+    Se usa solo para pintar el selector en configure_requirements.html.
+    No guarda nada directo: el usuario selecciona la lista, se agregan las filas
+    al formulario y luego presiona Save con el flujo existente.
+    """
+    codigo = (getattr(billing, "proyecto_id", "") or "").strip()
+    nombre_proyecto = (getattr(billing, "proyecto", "") or "").strip()
+
+    proyecto_obj = None
+
+    if codigo:
+        proyecto_obj = Proyecto.objects.filter(codigo__iexact=codigo).first()
+
+        if proyecto_obj is None and codigo.isdigit():
+            proyecto_obj = Proyecto.objects.filter(pk=int(codigo)).first()
+
+    if proyecto_obj is None and nombre_proyecto:
+        proyecto_obj = Proyecto.objects.filter(nombre__iexact=nombre_proyecto).first()
+
+    if proyecto_obj is None:
+        return []
+
+    lists = (
+        RequirementList.objects.filter(
+            project=proyecto_obj,
+            list_type=RequirementList.LIST_TYPE_CABLE,
+            is_active=True,
+        )
+        .prefetch_related("items")
+        .order_by("name")
+    )
+
+    payload = []
+
+    for req_list in lists:
+        payload.append(
+            {
+                "id": req_list.id,
+                "name": req_list.name,
+                "items": [
+                    {
+                        "handhole": item.handhole or item.title,
+                        "planned_reserve_ft": str(item.planned_reserve_ft or "0"),
+                        "required": bool(item.required),
+                        "warning": item.warning or "",
+                        "order": item.order,
+                    }
+                    for item in req_list.items.all().order_by("order", "id")
+                    if (item.handhole or item.title or "").strip()
+                ],
+            }
+        )
+
+    return payload
+
+
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 def configure_requirements(request, billing_id):
@@ -196,6 +258,7 @@ def configure_requirements(request, billing_id):
 
     form_errors = []
     rows = _build_requirement_rows_from_db()
+    requirement_lists_payload = _requirement_lists_payload_for_cable_billing(billing)
 
     if request.method == "POST":
         handholes = request.POST.getlist("handhole[]")
@@ -364,6 +427,7 @@ def configure_requirements(request, billing_id):
             "billing": billing,
             "form_rows": rows,
             "form_errors": form_errors,
+            "requirement_lists_payload": requirement_lists_payload,
         },
     )
 
