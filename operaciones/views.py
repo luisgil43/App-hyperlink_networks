@@ -82,6 +82,9 @@ from fleet.models import VehicleOdometerEvent, VehicleService
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
 from operaciones.models import AdjustmentEntry  # <-- IMPORTA EL MODELO
 from operaciones.models import ItemBillingTecnico, SesionBilling, WeeklyPayment
+from operaciones.views_billing_exec import (
+    ensure_requisitos_plantilla_desde_existentes,
+    sync_requisitos_plantilla_a_asignaciones)
 from usuarios.decoradores import rol_requerido
 from usuarios.models import CustomUser  # ajusta si tu user model es otro
 from usuarios.utils import \
@@ -8713,18 +8716,28 @@ def billing_add_tecnico(request, sesion_id: int):
         return JsonResponse({"ok": False, "error": "Technician not found."}, status=404)
 
     if SesionBillingTecnico.objects.filter(sesion=sesion, tecnico_id=tid).exists():
-        return JsonResponse({"ok": False, "error": "Technician already in this billing."}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "Technician already in this billing."}, status=400
+        )
 
     cliente = (getattr(sesion, "cliente", "") or "").strip()
-    ciudad  = (getattr(sesion, "ciudad", "") or "").strip()
+    ciudad = (getattr(sesion, "ciudad", "") or "").strip()
     oficina = (getattr(sesion, "oficina", "") or "").strip()
     if not (cliente and ciudad and oficina):
-        return JsonResponse({"ok": False, "error": "SESSION_HEADER_INCOMPLETE"}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "SESSION_HEADER_INCOMPLETE"}, status=400
+        )
 
-    proyectos_visibles = filter_queryset_by_access(Proyecto.objects.all(), request.user, "id")
-    proyecto_pk = _resolve_proyecto_pk_from_sesion(sesion, proyectos_qs=proyectos_visibles)
+    proyectos_visibles = filter_queryset_by_access(
+        Proyecto.objects.all(), request.user, "id"
+    )
+    proyecto_pk = _resolve_proyecto_pk_from_sesion(
+        sesion, proyectos_qs=proyectos_visibles
+    )
     if not proyecto_pk:
-        return JsonResponse({"ok": False, "error": "SESSION_PROJECT_UNRESOLVED"}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": "SESSION_PROJECT_UNRESOLVED"}, status=400
+        )
 
     has_prices = PrecioActividadTecnico.objects.filter(
         tecnico_id=tid,
@@ -8735,19 +8748,32 @@ def billing_add_tecnico(request, sesion_id: int):
     ).exists()
 
     if not has_prices:
-        return JsonResponse({
-            "ok": False,
-            "error": "TECH_NOT_ELIGIBLE_FOR_SESSION",
-            "message": "This technician has no prices for this exact Client/City/Project/Office.",
-        }, status=400)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "TECH_NOT_ELIGIBLE_FOR_SESSION",
+                "message": "This technician has no prices for this exact Client/City/Project/Office.",
+            },
+            status=400,
+        )
 
     current_ids = list(
-        SesionBillingTecnico.objects.filter(sesion=sesion).values_list("tecnico_id", flat=True)
+        SesionBillingTecnico.objects.filter(sesion=sesion).values_list(
+            "tecnico_id", flat=True
+        )
     )
-    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, current_ids + [tid], request=request)
+    final_ids = _actualizar_tecnicos_preservando_fotos(
+        sesion, current_ids + [tid], request=request
+    )
 
     # ⚠️ IMPORTANTE: usa SOLO UNA versión de _recalcular_items_sesion (ver punto 2)
     _recalcular_items_sesion(sesion)
+
+    # ✅ NUEVO:
+    # Al agregar un técnico directo, copiar/sincronizar los requirements
+    # de la plantilla del billing hacia la nueva asignación.
+    ensure_requisitos_plantilla_desde_existentes(sesion)
+    sync_requisitos_plantilla_a_asignaciones(sesion)
 
     return JsonResponse({"ok": True, "final_ids": final_ids})
 
@@ -8821,6 +8847,12 @@ def reasignar_tecnicos(request, sesion_id: int):
 
     # ✅ Recalcular items con los nuevos %.
     _recalcular_items_sesion(sesion)
+
+    # ✅ NUEVO:
+    # Al reasignar técnicos, copiar/sincronizar los requirements
+    # de la plantilla del billing hacia las asignaciones activas/nuevas.
+    ensure_requisitos_plantilla_desde_existentes(sesion)
+    sync_requisitos_plantilla_a_asignaciones(sesion)
 
     # ✅ ESTO ES LO QUE FALTABA:
     # La columna Real pay week se arma desde BillingPayWeekSnapshot.
@@ -9265,6 +9297,12 @@ def _guardar_billing(request, sesion=None):
         sesion.save()
 
     final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
+
+    # ✅ NUEVO:
+    # Si en edición se agregó/cambió técnico, sincronizar los requirements
+    # de la plantilla del billing hacia las asignaciones.
+    ensure_requisitos_plantilla_desde_existentes(sesion)
+    sync_requisitos_plantilla_a_asignaciones(sesion)
 
     ts_rows = list(
         sesion.tecnicos_sesion.filter(tecnico_id__in=final_ids).values_list(
