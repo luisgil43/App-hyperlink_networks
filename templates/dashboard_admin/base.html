@@ -691,90 +691,39 @@
 </script>
 <script>
 /*
-  PLANIX / HYPERLINK - Fix global V4 para descargas.
+  PLANIX / HYPERLINK - Fix global V5 para descargas.
 
-  Objetivo:
-  Evitar que archivos .xlsx/.csv/.pdf/.docx/.zip se pinten como texto "PK..."
-  dentro de WebView/PWA/app.
-
-  Estrategia:
-  - Links descargables: abrir en nueva ventana.
-  - Formularios descargables: forzar target="_blank" antes de enviar.
-  - form.submit() programático: también forzar target="_blank".
-
-  Importante:
-  Este script NO usa fetch ni blob, porque en iPhone/WebView puede mostrar
-  "Preparing download..." pero no descargar nada.
+  Corrección:
+  - NO intercepta Excel (.xlsx/.xls/.csv).
+  - NO modifica formularios de export Excel.
+  - Mantiene tratamiento especial solo para ZIP/archivos que puedan pintarse dentro del WebView.
+  - Esto evita que los Excel se descarguen como .bin.
 */
 (function () {
-  if (window.__planixGlobalDownloadFixV4) return;
-  window.__planixGlobalDownloadFixV4 = true;
+  if (window.__planixGlobalDownloadFixV5) return;
+  window.__planixGlobalDownloadFixV5 = true;
 
-  const DOWNLOAD_EXTENSIONS = [
-    ".xlsx",
-    ".xls",
-    ".csv",
-    ".pdf",
-    ".docx",
-    ".doc",
+  const ZIP_EXTENSIONS = [
     ".zip",
-    ".rar",
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".webp",
-    ".heic"
+    ".rar"
   ];
 
-  const DOWNLOAD_PATH_KEYWORDS = [
-    "/download",
-    "/descargar",
-    "/export",
-    "/exportar",
-    "/excel",
-    "/xlsx",
-    "/csv",
-    "/pdf",
-    "/docx",
+  const ZIP_PATH_KEYWORDS = [
     "/zip",
-    "/merge_excel",
-    "/merge-xlsx",
-    "/light_levels",
-    "/light-levels",
-    "/billing_export",
-    "/billing-export",
-    "/operational_excel",
-    "/operational-excel",
-    "/exportar/"
+    "/descargar_fotos_zip",
+    "/photos_zip",
+    "/photos-zip"
   ];
 
-  const DOWNLOAD_QUERY_KEYWORDS = [
-    "download=1",
-    "descargar=1",
-    "export=1",
-    "exportar=1",
-    "format=xlsx",
-    "format=excel",
-    "formato=xlsx",
-    "formato=excel",
-    "type=xlsx",
-    "tipo=xlsx"
+  const ZIP_QUERY_KEYWORDS = [
+    "zip=1",
+    "format=zip",
+    "formato=zip",
+    "type=zip",
+    "tipo=zip"
   ];
 
-  const DOWNLOAD_FORM_KEYWORDS = [
-    "export",
-    "download",
-    "excel",
-    "xlsx",
-    "csv",
-    "pdf",
-    "docx",
-    "zip",
-    "merge",
-    "light"
-  ];
-
-  console.log("PLANIX DOWNLOAD FIX V4 - loaded");
+  console.log("PLANIX DOWNLOAD FIX V5 - loaded");
 
   function safeUrl(rawUrl) {
     try {
@@ -784,7 +733,7 @@
     }
   }
 
-  function isDownloadLikeUrl(rawUrl) {
+  function isZipLikeUrl(rawUrl) {
     if (!rawUrl) return false;
 
     if (
@@ -802,19 +751,19 @@
     const path = url.pathname.toLowerCase();
     const search = url.search.toLowerCase();
 
-    if (DOWNLOAD_EXTENSIONS.some(function (ext) {
+    if (ZIP_EXTENSIONS.some(function (ext) {
       return path.endsWith(ext);
     })) {
       return true;
     }
 
-    if (DOWNLOAD_PATH_KEYWORDS.some(function (word) {
+    if (ZIP_PATH_KEYWORDS.some(function (word) {
       return path.includes(word);
     })) {
       return true;
     }
 
-    if (DOWNLOAD_QUERY_KEYWORDS.some(function (word) {
+    if (ZIP_QUERY_KEYWORDS.some(function (word) {
       return search.includes(word);
     })) {
       return true;
@@ -823,34 +772,22 @@
     return false;
   }
 
-  function isDownloadLikeForm(form) {
+  function isZipLikeForm(form) {
     if (!form || !form.getAttribute) return false;
 
     if (form.dataset.noFileDownload === "1") return false;
 
     const action = form.getAttribute("action") || window.location.href;
 
-    if (isDownloadLikeUrl(action)) return true;
-
-    const id = (form.id || "").toLowerCase();
-    const name = (form.getAttribute("name") || "").toLowerCase();
-
-    return DOWNLOAD_FORM_KEYWORDS.some(function (word) {
-      return id.includes(word) || name.includes(word);
-    });
+    return isZipLikeUrl(action);
   }
 
-  function prepareDownloadForm(form) {
-    if (!isDownloadLikeForm(form)) return false;
+  function prepareZipForm(form) {
+    if (!isZipLikeForm(form)) return false;
 
-    /*
-      Evita que Excel/PDF/CSV se pinte dentro de la pantalla actual.
-      En web normal abre nueva pestaña.
-      En WebView/app intenta sacar la descarga de la vista principal.
-    */
     form.setAttribute("target", "_blank");
 
-    console.log("PLANIX DOWNLOAD FIX V4 - form prepared:", {
+    console.log("PLANIX DOWNLOAD FIX V5 - zip form prepared:", {
       id: form.id,
       action: form.getAttribute("action"),
       method: form.getAttribute("method"),
@@ -861,9 +798,10 @@
   }
 
   /*
-    1) Links directos de descarga.
-    Ejemplo:
-    <a href="/media/file.xlsx">
+    1) Links directos ZIP.
+    Importante:
+    - Excel NO entra aquí.
+    - Si el link tiene data-no-file-download="1", no se toca.
   */
   document.addEventListener("click", function (event) {
     const link = event.target.closest("a[href]");
@@ -873,7 +811,7 @@
 
     const href = link.getAttribute("href");
 
-    if (!isDownloadLikeUrl(href)) return;
+    if (!isZipLikeUrl(href)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -881,32 +819,31 @@
 
     const absoluteUrl = new URL(href, window.location.origin).toString();
 
-    console.log("PLANIX DOWNLOAD FIX V4 - link opened:", absoluteUrl);
+    console.log("PLANIX DOWNLOAD FIX V5 - zip link opened:", absoluteUrl);
 
     window.open(absoluteUrl, "_blank", "noopener");
   }, true);
 
   /*
-    2) Submit normal de formularios.
-    Ejemplo:
-    <form method="post" action="/exportar/">
+    2) Submit normal de formularios ZIP.
+    Excel no se toca.
   */
   document.addEventListener("submit", function (event) {
     const form = event.target;
-    prepareDownloadForm(form);
+    prepareZipForm(form);
   }, true);
 
   /*
     3) form.submit() programático.
-    Esto cubre exports como:
-    exportForm.submit();
+    Solo ZIP.
+    Excel no se toca.
   */
   const nativeSubmit = HTMLFormElement.prototype.submit;
 
   HTMLFormElement.prototype.submit = function () {
-    const prepared = prepareDownloadForm(this);
+    const prepared = prepareZipForm(this);
 
-    console.log("PLANIX DOWNLOAD FIX V4 - form.submit called:", {
+    console.log("PLANIX DOWNLOAD FIX V5 - form.submit called:", {
       id: this.id,
       action: this.getAttribute("action"),
       method: this.getAttribute("method"),
@@ -918,14 +855,15 @@
 
   /*
     4) form.requestSubmit() programático.
+    Solo ZIP.
   */
   if (HTMLFormElement.prototype.requestSubmit) {
     const nativeRequestSubmit = HTMLFormElement.prototype.requestSubmit;
 
     HTMLFormElement.prototype.requestSubmit = function (submitter) {
-      const prepared = prepareDownloadForm(this);
+      const prepared = prepareZipForm(this);
 
-      console.log("PLANIX DOWNLOAD FIX V4 - form.requestSubmit called:", {
+      console.log("PLANIX DOWNLOAD FIX V5 - form.requestSubmit called:", {
         id: this.id,
         action: this.getAttribute("action"),
         method: this.getAttribute("method"),

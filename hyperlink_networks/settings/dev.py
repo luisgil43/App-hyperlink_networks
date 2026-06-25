@@ -27,6 +27,7 @@ ALLOWED_HOSTS = [
     "192.168.1.87",
     "192.168.1.88",
     "192.168.1.44",
+    "192.168.1.39",
 ]
 
 # Permitir mostrar errores detallados en navegador
