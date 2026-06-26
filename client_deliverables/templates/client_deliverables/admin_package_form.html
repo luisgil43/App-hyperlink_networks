@@ -1,0 +1,209 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}New Delivery Package{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+    <a href="{% url 'client_deliverables:admin_package_list' %}"
+       class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
+      ← Back to packages
+    </a>
+
+    <div class="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold mb-3">
+          <span>📦</span>
+          <span>New secure package</span>
+        </div>
+
+        <h1 class="text-3xl font-extrabold text-gray-900">Create Delivery Package</h1>
+        <p class="text-gray-500 mt-2 max-w-2xl">
+          Prepare a secure link for client deliverables. You can set expiration, require an access key and later add files by Project ID.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <form method="post" class="space-y-6">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 text-sm font-semibold">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <!-- Basic info -->
+    <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="w-11 h-11 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-extrabold">
+          1
+        </div>
+
+        <div class="flex-1">
+          <h2 class="text-xl font-extrabold text-gray-900">Package information</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Use a clear name so your team can identify this delivery later.
+          </p>
+
+          <div class="mt-5 space-y-5">
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Package name</label>
+              {{ form.name }}
+              {% for error in form.name.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+            </div>
+
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Internal notes / message</label>
+              {{ form.message }}
+              <p class="text-xs text-gray-500 mt-1">
+                Optional. This can help your team understand what this package is for.
+              </p>
+              {% for error in form.message.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expiration -->
+    <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold">
+          2
+        </div>
+
+        <div class="flex-1">
+          <h2 class="text-xl font-extrabold text-gray-900">Expiration</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Choose whether the link expires or remains available without an expiration date.
+          </p>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Expiration mode</label>
+              {{ form.expiration_mode }}
+              {% for error in form.expiration_mode.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+            </div>
+
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Expires in days</label>
+              {{ form.expiration_days }}
+              <p class="text-xs text-gray-500 mt-1">Example: 7, 15, 30.</p>
+              {% for error in form.expiration_days.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+            </div>
+
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Specific expiration date</label>
+              {{ form.expires_at }}
+              {% for error in form.expires_at.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mt-5 bg-blue-50 border border-blue-100 rounded-2xl p-4 text-sm text-blue-800">
+            <b>Tip:</b> Use “No expiration” for permanent portal access, or “Expires in days” for temporary WeTransfer-style links.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-extrabold">
+          3
+        </div>
+
+        <div class="flex-1">
+          <h2 class="text-xl font-extrabold text-gray-900">Security</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Protect the link with an access key. The key must be sent separately and never inside the same email as the link.
+          </p>
+
+          <div class="mt-5 space-y-4">
+            <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
+              {{ form.requires_access_key }}
+              <div>
+                <div class="font-bold text-gray-900">Require access key</div>
+                <div class="text-xs text-gray-500">The client must enter a key before seeing files.</div>
+              </div>
+            </label>
+            {% for error in form.requires_access_key.errors %}
+              <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+            {% endfor %}
+
+            <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
+              {{ form.generate_access_key }}
+              <div>
+                <div class="font-bold text-gray-900">Generate numeric access key automatically</div>
+                <div class="text-xs text-gray-500">Recommended. The key will be shown once after creating the package.</div>
+              </div>
+            </label>
+            {% for error in form.generate_access_key.errors %}
+              <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+            {% endfor %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Custom access key</label>
+                {{ form.custom_access_key }}
+                <p class="text-xs text-gray-500 mt-1">Optional. Leave empty if auto-generate is selected.</p>
+                {% for error in form.custom_access_key.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Access key hint</label>
+                {{ form.access_key_hint }}
+                <p class="text-xs text-gray-500 mt-1">Do not reveal the key here.</p>
+                {% for error in form.access_key_hint.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+              <b>Security rule:</b> the email will include only the link. The access key must be sent through another channel.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="sticky bottom-0 bg-gray-100/95 backdrop-blur py-4">
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="text-sm text-gray-500">
+          After creating the package, you will be able to add deliverables and publish the link.
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2">
+          <a href="{% url 'client_deliverables:admin_package_list' %}"
+             class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
+            Cancel
+          </a>
+
+          <button type="submit"
+                  class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow">
+            Create package
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

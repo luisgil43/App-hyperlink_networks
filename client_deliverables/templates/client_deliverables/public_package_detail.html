@@ -1,0 +1,40 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Project Deliverables{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+    <div class="flex items-start gap-4">
+      <div class="w-14 h-14 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-2xl">
+        📤
+      </div>
+
+      <div class="flex-1">
+        <h1 class="text-3xl font-extrabold text-gray-900">Project Deliverables</h1>
+        <p class="text-gray-500 mt-2">
+          Package: <b>{{ package.name }}</b>
+        </p>
+
+        {% if package.requires_access_key %}
+          <div class="mt-6 bg-blue-50 border border-blue-200 rounded-2xl p-5">
+            <h2 class="font-extrabold text-blue-900">This package is protected</h2>
+            <p class="text-sm text-blue-800 mt-1">
+              Please enter the access key provided separately by Hyperlink Networks.
+            </p>
+
+            <a href="{% url 'client_deliverables:public_package_unlock' package.token %}"
+               class="inline-flex mt-4 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-bold shadow">
+              Enter access key
+            </a>
+          </div>
+        {% else %}
+          <div class="mt-6 border rounded-2xl p-5 text-center text-gray-500">
+            Public deliverables view will be connected in the next step.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     "usuarios",
     "api",
     "cable_installation",
+    "client_deliverables",
     "dashboard_admin.apps.DashboardAdminConfig",
 ]
 

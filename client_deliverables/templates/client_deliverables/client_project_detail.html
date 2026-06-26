@@ -1,0 +1,61 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Project Deliverables{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+    <a href="{% url 'client_deliverables:client_my_deliverables' %}"
+       class="text-sm text-blue-600 hover:text-blue-800 font-semibold">
+      ← Back
+    </a>
+
+    <h1 class="text-3xl font-extrabold text-gray-900 mt-4">
+      Project ID: {{ project_id }}
+    </h1>
+
+    {% if not_found %}
+      <div class="mt-6 bg-gray-50 border rounded-2xl p-6 text-center">
+        <div class="text-5xl mb-3">🔎</div>
+        <h2 class="text-xl font-extrabold text-gray-900">No deliverables found</h2>
+        <p class="text-sm text-gray-500 mt-2">
+          No deliverables were found for this Project ID.
+        </p>
+      </div>
+    {% else %}
+      <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-extrabold text-gray-900">Available files</h2>
+          <p class="text-sm text-gray-500">Download files separately or all together.</p>
+        </div>
+
+        <a href="{% url 'client_deliverables:client_project_download_all' project_id %}"
+           class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-bold shadow">
+          Download all
+        </a>
+      </div>
+
+      <div class="mt-5 space-y-3">
+        {% for f in files %}
+          <div class="border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div class="font-extrabold text-gray-900">{{ f.display_name }}</div>
+              <div class="text-sm text-gray-500">{{ f.get_file_type_display }}</div>
+            </div>
+
+            <a href="{% url 'client_deliverables:public_download_file' f.package.token f.id %}"
+               class="inline-flex items-center justify-center bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl text-sm font-bold">
+              Download
+            </a>
+          </div>
+        {% empty %}
+          <div class="text-center py-8 text-gray-500 border rounded-2xl">
+            No files available yet.
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

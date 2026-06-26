@@ -371,6 +371,33 @@
       </li>
       {% endif %}
 
+
+              <!-- SECCIÓN: Client Deliverables -->
+      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_supervisor or request.user.es_facturacion %}
+      <li class="group">
+        <div class="flex justify-between items-center cursor-pointer"
+             onclick="toggleMenu(this)">
+          <span class="flex items-center gap-2">📤 Client Deliverables</span>
+          <span class="flecha transition-transform duration-200">▶</span>
+        </div>
+
+        <ul class="ml-4 submenu space-y-1 hidden">
+          <li>
+            <a href="{% url 'client_deliverables:admin_package_list' %}">
+              Delivery Packages
+            </a>
+          </li>
+
+          <li>
+            <a href="{% url 'client_deliverables:admin_package_create' %}">
+              New Delivery Package
+            </a>
+          </li>
+        </ul>
+      </li>
+      {% endif %}
+
+      
       <!-- SECCIÓN: Human Resources -->
       {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
       <li class="group">

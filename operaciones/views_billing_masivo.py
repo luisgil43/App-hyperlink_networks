@@ -1,5 +1,6 @@
 import json
 import unicodedata
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -8,6 +9,7 @@ from io import BytesIO
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
@@ -732,6 +734,56 @@ def _autosize_sheet(ws):
 
         ws.column_dimensions[column_letter].width = min(max(max_len + 2, 14), 45)
 
+# =============================================================================
+# CACHE TEMPORAL PARA PREVIEW MASIVO
+# =============================================================================
+
+BULK_BILLING_CACHE_TIMEOUT = 60 * 60  # 1 hora
+
+
+def _bulk_billing_cache_key(user_id, token):
+    return f"billing_masivo_preview:{user_id}:{token}"
+
+
+def _save_bulk_billing_preview(request, payload):
+    """
+    Guarda el preview pesado en cache y deja en sesión solo un token liviano.
+    Esto evita que archivos grandes rompan o vacíen la sesión.
+    """
+    token = uuid.uuid4().hex
+    key = _bulk_billing_cache_key(request.user.id, token)
+
+    cache.set(key, payload, BULK_BILLING_CACHE_TIMEOUT)
+
+    request.session["billing_masivo_preview_token"] = token
+    request.session.modified = True
+
+
+def _get_bulk_billing_preview(request):
+    """
+    Recupera el preview usando el token guardado en sesión.
+    """
+    token = request.session.get("billing_masivo_preview_token")
+
+    if not token:
+        return None
+
+    key = _bulk_billing_cache_key(request.user.id, token)
+    return cache.get(key)
+
+
+def _clear_bulk_billing_preview(request):
+    """
+    Limpia el preview temporal después de confirmar o cuando ya no se necesita.
+    """
+    token = request.session.get("billing_masivo_preview_token")
+
+    if token:
+        key = _bulk_billing_cache_key(request.user.id, token)
+        cache.delete(key)
+
+    request.session.pop("billing_masivo_preview_token", None)
+    request.session.modified = True
 
 # =============================================================================
 # UPLOAD + PREVIEW
@@ -748,10 +800,14 @@ def billing_masivo_upload(request):
             archivo = form.cleaned_data["archivo"]
             preview_payload = _build_preview_from_excel(archivo, request.user)
 
-            request.session["billing_masivo_preview"] = preview_payload
-            request.session.modified = True
+            _save_bulk_billing_preview(request, preview_payload)
 
             return redirect("operaciones:billing_masivo_preview")
+
+        messages.error(
+            request,
+            "The uploaded file is not valid. Please choose a valid .xlsx file.",
+        )
     else:
         form = BillingMasivoUploadForm()
 
@@ -768,7 +824,7 @@ def billing_masivo_upload(request):
 @login_required
 @rol_requerido("admin", "pm", "supervisor", "facturacion", "emision_facturacion")
 def billing_masivo_preview(request):
-    payload = request.session.get("billing_masivo_preview")
+    payload = _get_bulk_billing_preview(request)
 
     if not payload:
         messages.warning(request, "Please upload a bulk billing file first.")
@@ -1117,9 +1173,6 @@ def _split_technician_usernames(value):
             parts.append(username)
 
     return parts
-
-
-
 
 
 def _attach_and_validate_technicians(preview: PreviewBilling, rows):
@@ -1694,7 +1747,7 @@ def billing_masivo_confirm(request):
     if request.method != "POST":
         return redirect("operaciones:billing_masivo_upload")
 
-    payload = request.session.get("billing_masivo_preview")
+    payload = _get_bulk_billing_preview(request)
 
     if not payload:
         messages.warning(request, "Please upload a bulk billing file first.")
@@ -1832,8 +1885,7 @@ def billing_masivo_confirm(request):
                     subtotal=Decimal(str(d.get("subtotal") or "0.00")),
                 )
 
-    request.session.pop("billing_masivo_preview", None)
-    request.session.modified = True
+    _clear_bulk_billing_preview(request)
 
     messages.success(
         request,

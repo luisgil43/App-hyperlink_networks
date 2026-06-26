@@ -170,6 +170,13 @@ urlpatterns = [
         include(("access_control.urls", "access_control"), namespace="access_control"),
     ),
     path("api/", include(("api.urls", "api"), namespace="api")),
+    path(
+        "client-deliverables/",
+        include(
+            ("client_deliverables.urls", "client_deliverables"),
+            namespace="client_deliverables",
+        ),
+    ),
 ]
 
 

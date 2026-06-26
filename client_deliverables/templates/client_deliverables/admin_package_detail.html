@@ -1,0 +1,284 @@
+{% extends "dashboard_admin/base.html" %}
+{% load humanize %}
+
+{% block title %}Delivery Package{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-7xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+    <a href="{% url 'client_deliverables:admin_package_list' %}"
+       class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
+      ← Back to packages
+    </a>
+
+    <div class="mt-4 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+      <div>
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          {% if package.status == "published" %}
+            <span class="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Published</span>
+          {% elif package.status == "revoked" %}
+            <span class="px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">Revoked</span>
+          {% elif package.status == "expired" %}
+            <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">Expired</span>
+          {% else %}
+            <span class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-bold">Draft</span>
+          {% endif %}
+
+          {% if package.requires_access_key %}
+            <span class="px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-bold">Access key required</span>
+          {% else %}
+            <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">No access key</span>
+          {% endif %}
+
+          {% if package.expires_at %}
+            <span class="px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 text-xs font-bold">
+              Expires {{ package.expires_at|date:"m/d/Y h:i A" }}
+            </span>
+          {% else %}
+            <span class="px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 text-xs font-bold">
+              No expiration
+            </span>
+          {% endif %}
+        </div>
+
+        <h1 class="text-3xl font-extrabold text-gray-900">{{ package.name }}</h1>
+
+        {% if package.message %}
+          <p class="text-gray-500 mt-2 max-w-3xl">{{ package.message }}</p>
+        {% else %}
+          <p class="text-gray-500 mt-2 max-w-3xl">
+            Manage the delivery link, Outlook email preview and project deliverables included in this package.
+          </p>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        {% if package.status != "published" %}
+          <form method="post" action="{% url 'client_deliverables:admin_package_publish' package.id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Publish package
+            </button>
+          </form>
+        {% endif %}
+
+        {% if package.status != "revoked" %}
+          <form method="post" action="{% url 'client_deliverables:admin_package_revoke' package.id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Revoke
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if generated_key %}
+    <div class="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-extrabold text-amber-900">Access key generated</h2>
+          <p class="text-sm text-amber-800 mt-1">
+            Copy this key now and send it separately. It will not be shown again.
+          </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+          <input id="generated-key"
+                 value="{{ generated_key }}"
+                 readonly
+                 class="w-full lg:w-64 border border-amber-300 rounded-2xl px-4 py-3 font-mono bg-white text-lg font-bold text-amber-900">
+          <button type="button"
+                  data-copy-target="generated-key"
+                  class="copy-btn bg-amber-600 hover:bg-amber-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+            Copy key
+          </button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Link and email -->
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl">
+          🔗
+        </div>
+
+        <div class="flex-1">
+          <h2 class="text-xl font-extrabold text-gray-900">Client link</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Share this link with the client. If an access key is required, send the key separately.
+          </p>
+
+          <div class="mt-4 flex flex-col sm:flex-row gap-2">
+            <input id="public-url"
+                   value="{{ public_url }}"
+                   readonly
+                   class="w-full border rounded-2xl px-4 py-3 text-sm bg-gray-50">
+            <button type="button"
+                    data-copy-target="public-url"
+                    class="copy-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow whitespace-nowrap">
+              Copy link
+            </button>
+          </div>
+
+          <div class="mt-4 flex flex-col sm:flex-row gap-2">
+            <a href="{{ outlook_href }}"
+               class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Open in Outlook
+            </a>
+
+            <button type="button"
+                    data-copy-target="email-body"
+                    class="copy-btn bg-gray-800 hover:bg-gray-900 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Copy email body
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl">
+          ✉️
+        </div>
+
+        <div class="flex-1">
+          <h2 class="text-xl font-extrabold text-gray-900">Outlook email preview</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            The recipient is intentionally empty. The user chooses the final recipients in Outlook.
+          </p>
+
+          <div class="mt-4">
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Subject</label>
+            <div class="bg-gray-50 border rounded-2xl px-4 py-3 text-sm font-semibold text-gray-800">
+              {{ outlook_subject }}
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Body</label>
+            <textarea id="email-body"
+                      readonly
+                      class="w-full border rounded-2xl px-4 py-3 text-sm h-64 bg-gray-50">{{ outlook_body }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deliverables -->
+  <div class="bg-white rounded-3xl shadow border border-gray-100 overflow-hidden">
+    <div class="p-6 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div>
+        <h2 class="text-xl font-extrabold text-gray-900">Included deliverables</h2>
+        <p class="text-sm text-gray-500 mt-1">
+          Files are grouped by Project ID. Next step: add files directly from Billing reports and photo ZIPs.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">
+          {{ package.files.count }} file{{ package.files.count|pluralize }}
+        </span>
+      </div>
+    </div>
+
+    {% if grouped %}
+      <div class="divide-y divide-gray-100">
+        {% for project_id, files in grouped.items %}
+          <div class="p-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div>
+                <h3 class="text-lg font-extrabold text-gray-900">Project ID: {{ project_id }}</h3>
+                <p class="text-sm text-gray-500">{{ files|length }} deliverable{{ files|length|pluralize }}</p>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-2xl border border-gray-100">
+              <table class="min-w-[850px] w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th class="px-4 py-3 text-left font-bold">Type</th>
+                    <th class="px-4 py-3 text-left font-bold">Display name</th>
+                    <th class="px-4 py-3 text-left font-bold">Source</th>
+                    <th class="px-4 py-3 text-left font-bold">Status</th>
+                  </tr>
+                </thead>
+
+                <tbody class="divide-y divide-gray-100">
+                  {% for f in files %}
+                    <tr>
+                      <td class="px-4 py-3 font-semibold text-gray-800">{{ f.get_file_type_display }}</td>
+                      <td class="px-4 py-3">{{ f.display_name }}</td>
+                      <td class="px-4 py-3">
+                        {% if f.file %}
+                          <span class="text-gray-700">{{ f.file.name }}</span>
+                        {% elif f.source_url %}
+                          <span class="text-blue-700 font-semibold">Source URL</span>
+                        {% else %}
+                          <span class="text-gray-400">No file yet</span>
+                        {% endif %}
+                      </td>
+                      <td class="px-4 py-3">
+                        {% if f.is_active %}
+                          <span class="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Active</span>
+                        {% else %}
+                          <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">Inactive</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="p-10 text-center">
+        <div class="text-6xl mb-4">📁</div>
+        <h3 class="text-xl font-extrabold text-gray-900">No deliverables added yet</h3>
+        <p class="text-sm text-gray-500 mt-2 max-w-xl mx-auto">
+          The package was created successfully. In the next phase we will add the option to select Client Reports, Photo Reports, Photos ZIP and other files by Project ID.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  document.addEventListener("click", function(e){
+    const btn = e.target.closest(".copy-btn");
+    if(!btn) return;
+
+    const targetId = btn.dataset.copyTarget;
+    const el = document.getElementById(targetId);
+    if(!el) return;
+
+    try{
+      el.select();
+      el.setSelectionRange(0, 999999);
+      document.execCommand("copy");
+
+      const old = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(function(){
+        btn.textContent = old;
+      }, 1200);
+    }catch(_){
+      alert("Could not copy. Please copy manually.");
+    }
+  });
+})();
+</script>
+{% endblock %}
