@@ -29,6 +29,13 @@ ALLOWED_HOSTS = [
     "192.168.1.44",
     "192.168.1.39",
     "192.168.1.51",
+    ".ngrok-free.app",
+    ".ngrok-free.dev",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.ngrok-free.app",
+    "https://*.ngrok-free.dev",
 ]
 
 # Permitir mostrar errores detallados en navegador
@@ -59,6 +66,33 @@ TWO_FACTOR_ENFORCE_DATE = date(2026, 10, 28)
 
 
 # ==============================
+
 # Storage: Wasabi también en desarrollo
+
 # ==============================
-DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+
+# ==============================
+
+# Direct uploads a Wasabi en desarrollo
+
+# ==============================
+
+DIRECT_UPLOADS_ENABLED = True
+
+DIRECT_UPLOADS_MAX_MB = 15
+
+DIRECT_UPLOADS_SAFE_PREFIX = "operaciones/reporte_fotografico/"
+
+# Aliases Wasabi para presigned POST en desarrollo
+
+WASABI_BUCKET_NAME = AWS_STORAGE_BUCKET_NAME
+
+WASABI_ENDPOINT_URL = AWS_S3_ENDPOINT_URL
+
+WASABI_REGION_NAME = AWS_S3_REGION_NAME
+
+WASABI_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID
+
+WASABI_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY
