@@ -4,7 +4,7 @@
 {% block title %}Delivery Package{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto space-y-6">
+<div id="package-actions-section" class="w-full max-w-none mx-0 space-y-6">
 
   <!-- Header -->
   <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
@@ -14,7 +14,7 @@
     </a>
 
     <div class="mt-4 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
-      <div>
+      <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2 mb-3">
           {% if package.status == "published" %}
             <span class="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Published</span>
@@ -43,29 +43,42 @@
           {% endif %}
         </div>
 
-        <h1 class="text-3xl font-extrabold text-gray-900">{{ package.name }}</h1>
+        <h1 class="text-3xl font-extrabold text-gray-900 break-words">{{ package.name }}</h1>
 
         {% if package.message %}
           <p class="text-gray-500 mt-2 max-w-3xl">{{ package.message }}</p>
         {% else %}
           <p class="text-gray-500 mt-2 max-w-3xl">
-            Manage the delivery link, Outlook email preview and project deliverables included in this package.
+            Build a secure client delivery link using reports and files already available in Hyperlink.
           </p>
         {% endif %}
       </div>
 
-      <div class="flex flex-col sm:flex-row gap-2">
-        {% if package.status != "published" %}
-          <form method="post" action="{% url 'client_deliverables:admin_package_publish' package.id %}">
+      <div class="flex flex-col sm:flex-row gap-2 shrink-0">
+        <a href="{% url 'client_deliverables:admin_package_edit' package.id %}"
+           class="w-full sm:w-auto inline-flex items-center justify-center bg-gray-900 hover:bg-black text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+          Edit settings
+        </a>
+
+        {% if package.status == "revoked" %}
+          <form method="post" action="{% url 'client_deliverables:admin_package_reopen' package.id %}">
             {% csrf_token %}
             <button type="submit"
-                    class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
-              Publish package
+                    class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Reopen as Draft
             </button>
           </form>
-        {% endif %}
+        {% else %}
+          {% if package.status != "published" %}
+            <form method="post" action="{% url 'client_deliverables:admin_package_publish' package.id %}">
+              {% csrf_token %}
+              <button type="submit"
+                      class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+                Publish package
+              </button>
+            </form>
+          {% endif %}
 
-        {% if package.status != "revoked" %}
           <form method="post" action="{% url 'client_deliverables:admin_package_revoke' package.id %}">
             {% csrf_token %}
             <button type="submit"
@@ -78,27 +91,80 @@
     </div>
   </div>
 
-  {% if generated_key %}
-    <div class="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow">
-      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h2 class="text-xl font-extrabold text-amber-900">Access key generated</h2>
-          <p class="text-sm text-amber-800 mt-1">
-            Copy this key now and send it separately. It will not be shown again.
-          </p>
+  {% if package.status == "revoked" %}
+    <div class="rounded-3xl border border-red-200 bg-red-50 p-6 shadow">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center text-2xl shrink-0">
+          ⛔
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-          <input id="generated-key"
-                 value="{{ generated_key }}"
-                 readonly
-                 class="w-full lg:w-64 border border-amber-300 rounded-2xl px-4 py-3 font-mono bg-white text-lg font-bold text-amber-900">
-          <button type="button"
-                  data-copy-target="generated-key"
-                  class="copy-btn bg-amber-600 hover:bg-amber-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
-            Copy key
-          </button>
+        <div>
+          <h2 class="text-xl font-extrabold text-red-900">This package is revoked</h2>
+          <p class="text-sm text-red-700 mt-1">
+            You cannot add deliverables or publish this package while it is revoked.
+            Reopen it as draft first.
+          </p>
         </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if package.requires_access_key %}
+    <div class="rounded-3xl border {% if generated_key %}border-amber-200 bg-amber-50{% else %}border-blue-200 bg-blue-50{% endif %} p-6 shadow">
+      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+        <div class="flex items-start gap-4">
+          <div class="w-12 h-12 rounded-2xl {% if generated_key %}bg-amber-100 text-amber-700{% else %}bg-blue-100 text-blue-700{% endif %} flex items-center justify-center text-2xl shrink-0">
+            🔐
+          </div>
+
+          <div>
+            <h2 class="text-xl font-extrabold {% if generated_key %}text-amber-900{% else %}text-blue-950{% endif %}">
+              {% if generated_key %}
+                Access key generated
+              {% else %}
+                Package access key
+              {% endif %}
+            </h2>
+
+            {% if visible_access_key %}
+              <p class="text-sm {% if generated_key %}text-amber-800{% else %}text-blue-800{% endif %} mt-1">
+                Use the eye button to show or hide the key. Copy it and send it separately from the link.
+              </p>
+            {% else %}
+              <p class="text-sm {% if generated_key %}text-amber-800{% else %}text-blue-800{% endif %} mt-1">
+                This package requires an access key, but the current key is not available in plain text.
+                Generate a new key from Edit settings if you need to copy it again.
+              </p>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if visible_access_key %}
+          <div class="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+            <input id="stored-access-key"
+                   value="{{ visible_access_key }}"
+                   readonly
+                   type="password"
+                   class="secret-input w-full xl:w-72 border {% if generated_key %}border-amber-300 text-amber-900{% else %}border-blue-300 text-blue-950{% endif %} rounded-2xl px-4 py-3 font-mono bg-white text-lg font-bold">
+
+            <button type="button"
+                    data-toggle-secret="stored-access-key"
+                    class="toggle-secret-btn bg-white {% if generated_key %}hover:bg-amber-100 text-amber-800 border-amber-300{% else %}hover:bg-blue-100 text-blue-800 border-blue-300{% endif %} border px-4 py-3 rounded-2xl text-sm font-bold shadow">
+              👁️
+            </button>
+
+            <button type="button"
+                    data-copy-target="stored-access-key"
+                    class="copy-btn {% if generated_key %}bg-amber-600 hover:bg-amber-700{% else %}bg-blue-600 hover:bg-blue-700{% endif %} text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Copy key
+            </button>
+          </div>
+        {% else %}
+          <a href="{% url 'client_deliverables:admin_package_edit' package.id %}"
+             class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+            Generate new key
+          </a>
+        {% endif %}
       </div>
     </div>
   {% endif %}
@@ -107,11 +173,11 @@
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
     <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
       <div class="flex items-start gap-4">
-        <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl">
+        <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl shrink-0">
           🔗
         </div>
 
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <h2 class="text-xl font-extrabold text-gray-900">Client link</h2>
           <p class="text-sm text-gray-500 mt-1">
             Share this link with the client. If an access key is required, send the key separately.
@@ -122,12 +188,19 @@
                    value="{{ public_url }}"
                    readonly
                    class="w-full border rounded-2xl px-4 py-3 text-sm bg-gray-50">
+
             <button type="button"
                     data-copy-target="public-url"
                     class="copy-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow whitespace-nowrap">
               Copy link
             </button>
           </div>
+
+          {% if package.requires_access_key %}
+            <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <b>Security:</b> the access key is not included in the email. Send it through another channel.
+            </div>
+          {% endif %}
 
           <div class="mt-4 flex flex-col sm:flex-row gap-2">
             <a href="{{ outlook_href }}"
@@ -147,11 +220,11 @@
 
     <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
       <div class="flex items-start gap-4">
-        <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl shrink-0">
           ✉️
         </div>
 
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <h2 class="text-xl font-extrabold text-gray-900">Outlook email preview</h2>
           <p class="text-sm text-gray-500 mt-1">
             The recipient is intentionally empty. The user chooses the final recipients in Outlook.
@@ -159,7 +232,7 @@
 
           <div class="mt-4">
             <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Subject</label>
-            <div class="bg-gray-50 border rounded-2xl px-4 py-3 text-sm font-semibold text-gray-800">
+            <div class="bg-gray-50 border rounded-2xl px-4 py-3 text-sm font-semibold text-gray-800 break-words">
               {{ outlook_subject }}
             </div>
           </div>
@@ -175,13 +248,237 @@
     </div>
   </div>
 
-  <!-- Deliverables -->
-  <div class="bg-white rounded-3xl shadow border border-gray-100 overflow-hidden">
+  {% if package.status != "revoked" %}
+    <!-- Load deliverables by Project ID -->
+    <div id="load-deliverables-section" class="bg-white rounded-3xl shadow border border-gray-100 p-6 scroll-mt-6">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-2xl bg-green-100 text-green-700 flex items-center justify-center text-xl shrink-0">
+          🔎
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-gray-900">Load deliverables by Project ID</h2>
+              <p class="text-sm text-gray-500 mt-1 max-w-3xl">
+                Enter a Project ID. Hyperlink will validate access, approval status, project type and available deliverables already generated in the system.
+              </p>
+            </div>
+
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-3 py-1 rounded-full bg-blue-50 text-blue-700 font-bold">No manual upload</span>
+              <span class="px-3 py-1 rounded-full bg-green-50 text-green-700 font-bold">Supervisor approved only</span>
+              <span class="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold">Fiber / Cable aware</span>
+            </div>
+          </div>
+
+          <form method="get"
+                action="{% url 'client_deliverables:admin_package_detail' package.id %}#load-deliverables-section"
+                class="mt-5 flex flex-col lg:flex-row gap-3 preserve-scroll-form">
+            <input type="text"
+                   name="project_id"
+                   value="{{ project_lookup_id }}"
+                   class="w-full lg:max-w-sm border rounded-2xl px-4 py-3 text-sm"
+                   placeholder="Enter Project ID, for example 100245">
+
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+              Load deliverables
+            </button>
+          </form>
+
+          {% if project_lookup %}
+            {% if not project_lookup.ok %}
+              <div class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <div class="flex items-start gap-3">
+                  <div class="text-2xl">⚠️</div>
+                  <div>
+                    <h3 class="font-extrabold text-amber-900">Project not ready</h3>
+                    <p class="text-sm text-amber-800 mt-1">{{ project_lookup.message }}</p>
+                  </div>
+                </div>
+              </div>
+            {% else %}
+              <div class="mt-6 rounded-3xl border border-green-200 bg-green-50 p-5">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <h3 class="text-lg font-extrabold text-green-900">
+                      Project ID: {{ project_lookup.project_id }}
+                    </h3>
+                    <p class="text-sm text-green-800 mt-1">
+                      Project approved. Type: <b>{{ project_lookup.project_type }}</b>.
+                    </p>
+                  </div>
+
+                  <div class="flex flex-wrap gap-2">
+                    <span class="inline-flex px-3 py-1 rounded-full bg-white text-green-800 text-xs font-bold">
+                      {{ project_lookup.deliverables|length }} available deliverable{{ project_lookup.deliverables|length|pluralize }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <form method="post"
+                    action="{% url 'client_deliverables:admin_package_add_selected' package.id %}"
+                    class="mt-5 preserve-scroll-form">
+                {% csrf_token %}
+                <input type="hidden" name="project_id" value="{{ project_lookup.project_id }}">
+
+                <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+                  <!-- Available -->
+                  <div class="xl:col-span-5 border rounded-3xl p-4 bg-gray-50">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                      <div>
+                        <h3 class="font-extrabold text-gray-900">Available deliverables</h3>
+                        <p class="text-xs text-gray-500">Existing files/reports generated from Hyperlink.</p>
+                      </div>
+
+                      <button type="button"
+                              id="move-all-right"
+                              class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                        Add all →
+                      </button>
+                    </div>
+
+                    <div id="available-list"
+                         class="space-y-3 min-h-[280px] rounded-2xl border border-dashed border-gray-300 p-3 bg-white/60">
+                      {% for item in project_lookup.deliverables %}
+                        {% if item.source_key not in selected_source_keys %}
+                          <div class="deliverable-card bg-white border rounded-2xl p-4 shadow-sm cursor-move hover:shadow-md transition"
+                               draggable="true"
+                               data-key="{{ item.source_key }}"
+                               data-title="{{ item.title }}"
+                               data-type="{{ item.file_type }}"
+                               data-project="{{ item.project_id }}"
+                               data-source="{{ item.source_url }}">
+                            <div class="flex items-start justify-between gap-3">
+                              <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                  <span class="text-xl">{{ item.icon }}</span>
+                                  <h4 class="font-extrabold text-gray-900 break-words">{{ item.title }}</h4>
+                                </div>
+
+                                <p class="text-xs text-gray-500 mt-1">{{ item.description }}</p>
+
+                                <div class="flex flex-wrap gap-2 mt-2">
+                                  <span class="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold">
+                                    {{ item.project_type }}
+                                  </span>
+                                  <span class="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold">
+                                    {{ item.file_type }}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div class="flex flex-col gap-2 shrink-0" data-actions>
+                                <a href="{{ item.source_url }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-xl text-xs font-bold text-center">
+                                  Preview
+                                </a>
+
+                                <button type="button"
+                                        class="move-right bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                                  Add →
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        {% else %}
+                          <div class="bg-green-50 border border-green-200 rounded-2xl p-4">
+                            <div class="flex items-start gap-3">
+                              <div class="text-xl">✅</div>
+                              <div>
+                                <h4 class="font-extrabold text-green-900">{{ item.title }}</h4>
+                                <p class="text-xs text-green-700 mt-1">
+                                  Already included in this package.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        {% endif %}
+                      {% empty %}
+                        <div class="text-center text-gray-500 py-10">
+                          No deliverables available for this project.
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <!-- Middle instructions -->
+                  <div class="xl:col-span-2 flex flex-col items-center justify-center gap-3">
+                    <div class="hidden xl:block text-center">
+                      <div class="w-14 h-14 rounded-3xl bg-blue-100 text-blue-700 flex items-center justify-center text-2xl mx-auto">
+                        ⇄
+                      </div>
+                      <p class="text-xs text-gray-500 mt-2">
+                        Move deliverables using buttons or drag and drop.
+                      </p>
+                    </div>
+
+                    <div class="xl:hidden rounded-2xl bg-blue-50 text-blue-800 p-3 text-xs font-semibold">
+                      Use “Add” buttons or drag cards into the selected area.
+                    </div>
+                  </div>
+
+                  <!-- Selected -->
+                  <div class="xl:col-span-5 border rounded-3xl p-4 bg-blue-50">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                      <div>
+                        <h3 class="font-extrabold text-gray-900">Selected for this link</h3>
+                        <p class="text-xs text-gray-500">These deliverables will be attached to the package.</p>
+                      </div>
+
+                      <button type="button"
+                              id="move-all-left"
+                              class="bg-gray-700 hover:bg-gray-900 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                        ← Remove all
+                      </button>
+                    </div>
+
+                    <div id="selected-list"
+                         class="space-y-3 min-h-[280px] rounded-2xl border border-dashed border-blue-300 p-3 bg-white/70">
+                      <div id="selected-empty-state" class="text-center text-gray-500 py-10">
+                        <div class="text-4xl mb-2">📥</div>
+                        <p class="font-bold text-gray-700">No deliverables selected yet</p>
+                        <p class="text-xs text-gray-500 mt-1">Move files here before attaching them to the link.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="selected-hidden-inputs"></div>
+
+                <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gray-50 rounded-3xl p-5">
+                  <div>
+                    <h4 class="font-extrabold text-gray-900">Attach selected deliverables</h4>
+                    <p class="text-sm text-gray-500">
+                      After attaching, you can search another Project ID and add more deliverables to the same link.
+                    </p>
+                  </div>
+
+                  <button type="submit"
+                          class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow">
+                    Add selected to package
+                  </button>
+                </div>
+              </form>
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Included deliverables -->
+  <div id="included-deliverables-section" class="bg-white rounded-3xl shadow border border-gray-100 overflow-hidden scroll-mt-6">
     <div class="p-6 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
       <div>
         <h2 class="text-xl font-extrabold text-gray-900">Included deliverables</h2>
         <p class="text-sm text-gray-500 mt-1">
-          Files are grouped by Project ID. Next step: add files directly from Billing reports and photo ZIPs.
+          Files are grouped by Project ID. The final ZIP will create one folder per Project ID.
         </p>
       </div>
 
@@ -199,18 +496,21 @@
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
               <div>
                 <h3 class="text-lg font-extrabold text-gray-900">Project ID: {{ project_id }}</h3>
-                <p class="text-sm text-gray-500">{{ files|length }} deliverable{{ files|length|pluralize }}</p>
+                <p class="text-sm text-gray-500">
+                  {{ files|length }} deliverable{{ files|length|pluralize }}
+                </p>
               </div>
             </div>
 
-            <div class="overflow-x-auto rounded-2xl border border-gray-100">
-              <table class="min-w-[850px] w-full text-sm">
+            <div class="overflow-x-auto rounded-2xl border border-gray-100 pb-2">
+              <table class="table-auto min-w-[1300px] w-full text-sm" style="white-space: nowrap;">
                 <thead class="bg-gray-50 text-gray-600">
                   <tr>
                     <th class="px-4 py-3 text-left font-bold">Type</th>
                     <th class="px-4 py-3 text-left font-bold">Display name</th>
                     <th class="px-4 py-3 text-left font-bold">Source</th>
                     <th class="px-4 py-3 text-left font-bold">Status</th>
+                    <th class="px-4 py-3 text-right font-bold">Action</th>
                   </tr>
                 </thead>
 
@@ -218,22 +518,46 @@
                   {% for f in files %}
                     <tr>
                       <td class="px-4 py-3 font-semibold text-gray-800">{{ f.get_file_type_display }}</td>
-                      <td class="px-4 py-3">{{ f.display_name }}</td>
+
+                      <td class="px-4 py-3">
+                        <div class="font-bold text-gray-900">{{ f.display_name }}</div>
+                        <div class="text-xs text-gray-500">Project ID: {{ f.project_id }}</div>
+                      </td>
+
                       <td class="px-4 py-3">
                         {% if f.file %}
                           <span class="text-gray-700">{{ f.file.name }}</span>
                         {% elif f.source_url %}
-                          <span class="text-blue-700 font-semibold">Source URL</span>
+                          <a href="{{ f.source_url }}"
+                             target="_blank"
+                             rel="noopener"
+                             class="inline-flex bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-xl text-xs font-bold">
+                            Preview
+                          </a>
                         {% else %}
-                          <span class="text-gray-400">No file yet</span>
+                          <span class="text-gray-400">No source</span>
                         {% endif %}
                       </td>
+
                       <td class="px-4 py-3">
                         {% if f.is_active %}
                           <span class="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Active</span>
                         {% else %}
                           <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">Inactive</span>
                         {% endif %}
+                      </td>
+
+                      <td class="px-4 py-3 text-right">
+                        <form method="post"
+                              action="{% url 'client_deliverables:admin_package_delete_file' package.id f.id %}"
+                              class="preserve-scroll-form"
+                              onsubmit="return confirm('Remove this deliverable from the package?');">
+                          {% csrf_token %}
+                          <button type="submit"
+                                  class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-xl text-xs font-bold">
+                            Remove
+                          </button>
+                        </form>
                       </td>
                     </tr>
                   {% endfor %}
@@ -246,9 +570,9 @@
     {% else %}
       <div class="p-10 text-center">
         <div class="text-6xl mb-4">📁</div>
-        <h3 class="text-xl font-extrabold text-gray-900">No deliverables added yet</h3>
+        <h3 class="text-xl font-extrabold text-gray-900">No deliverables included yet</h3>
         <p class="text-sm text-gray-500 mt-2 max-w-xl mx-auto">
-          The package was created successfully. In the next phase we will add the option to select Client Reports, Photo Reports, Photos ZIP and other files by Project ID.
+          Search a Project ID above and select existing deliverables from Hyperlink.
         </p>
       </div>
     {% endif %}
@@ -257,28 +581,297 @@
 
 <script>
 (function(){
-  document.addEventListener("click", function(e){
-    const btn = e.target.closest(".copy-btn");
-    if(!btn) return;
-
-    const targetId = btn.dataset.copyTarget;
+  function copyElementValue(targetId, btn) {
     const el = document.getElementById(targetId);
-    if(!el) return;
+    if (!el) return;
 
-    try{
+    const oldType = el.getAttribute("type");
+
+    try {
+      if (oldType === "password") {
+        el.setAttribute("type", "text");
+      }
+
       el.select();
       el.setSelectionRange(0, 999999);
       document.execCommand("copy");
 
-      const old = btn.textContent;
-      btn.textContent = "Copied";
-      setTimeout(function(){
-        btn.textContent = old;
-      }, 1200);
-    }catch(_){
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function(){
+          btn.textContent = old;
+        }, 1200);
+      }
+    } catch (_) {
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
       alert("Could not copy. Please copy manually.");
     }
+  }
+
+  document.addEventListener("click", function(e){
+    const copyBtn = e.target.closest(".copy-btn");
+
+    if (copyBtn) {
+      const targetId = copyBtn.dataset.copyTarget;
+      copyElementValue(targetId, copyBtn);
+      return;
+    }
+
+    const toggleBtn = e.target.closest(".toggle-secret-btn");
+
+    if (toggleBtn) {
+      const targetId = toggleBtn.dataset.toggleSecret;
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      if (el.getAttribute("type") === "password") {
+        el.setAttribute("type", "text");
+        toggleBtn.textContent = "🙈";
+      } else {
+        el.setAttribute("type", "password");
+        toggleBtn.textContent = "👁️";
+      }
+    }
   });
+})();
+</script>
+
+<script>
+(function(){
+  const availableList = document.getElementById("available-list");
+  const selectedList = document.getElementById("selected-list");
+  const hiddenInputs = document.getElementById("selected-hidden-inputs");
+  const emptyState = document.getElementById("selected-empty-state");
+
+  if (!availableList || !selectedList || !hiddenInputs) return;
+
+  let draggedCard = null;
+
+  function updateEmptyState() {
+    if (!emptyState) return;
+
+    const selectedCards = selectedList.querySelectorAll(".deliverable-card");
+    emptyState.style.display = selectedCards.length ? "none" : "block";
+  }
+
+  function refreshHiddenInputs() {
+    hiddenInputs.innerHTML = "";
+
+    selectedList.querySelectorAll(".deliverable-card").forEach(function(card){
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "selected_deliverables";
+      input.value = card.dataset.key;
+      hiddenInputs.appendChild(input);
+    });
+
+    updateEmptyState();
+  }
+
+  function ensureAddButton(card) {
+    const actions = card.querySelector("[data-actions]");
+    if (!actions) return;
+
+    let addBtn = card.querySelector(".move-right");
+    let removeBtn = card.querySelector(".move-left");
+
+    if (removeBtn) removeBtn.remove();
+
+    if (!addBtn) {
+      addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "move-right bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl text-xs font-bold";
+      addBtn.textContent = "Add →";
+      actions.appendChild(addBtn);
+    }
+  }
+
+  function ensureRemoveButton(card) {
+    const actions = card.querySelector("[data-actions]");
+    if (!actions) return;
+
+    let addBtn = card.querySelector(".move-right");
+    let removeBtn = card.querySelector(".move-left");
+
+    if (addBtn) addBtn.remove();
+
+    if (!removeBtn) {
+      removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "move-left bg-red-50 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl text-xs font-bold";
+      removeBtn.textContent = "← Remove";
+      actions.appendChild(removeBtn);
+    }
+  }
+
+  function moveCard(card, targetList) {
+    if (!card || !targetList) return;
+
+    targetList.appendChild(card);
+
+    if (targetList === selectedList) {
+      ensureRemoveButton(card);
+    } else {
+      ensureAddButton(card);
+    }
+
+    refreshHiddenInputs();
+  }
+
+  document.addEventListener("click", function(e){
+    const addBtn = e.target.closest(".move-right");
+    if (addBtn) {
+      const card = addBtn.closest(".deliverable-card");
+      moveCard(card, selectedList);
+      return;
+    }
+
+    const removeBtn = e.target.closest(".move-left");
+    if (removeBtn) {
+      const card = removeBtn.closest(".deliverable-card");
+      moveCard(card, availableList);
+      return;
+    }
+
+    if (e.target.closest("#move-all-right")) {
+      Array.from(availableList.querySelectorAll(".deliverable-card")).forEach(function(card){
+        moveCard(card, selectedList);
+      });
+      return;
+    }
+
+    if (e.target.closest("#move-all-left")) {
+      Array.from(selectedList.querySelectorAll(".deliverable-card")).forEach(function(card){
+        moveCard(card, availableList);
+      });
+      return;
+    }
+  });
+
+  document.addEventListener("dragstart", function(e){
+    const card = e.target.closest(".deliverable-card");
+    if (!card) return;
+
+    draggedCard = card;
+    card.classList.add("opacity-50");
+  });
+
+  document.addEventListener("dragend", function(e){
+    const card = e.target.closest(".deliverable-card");
+    if (card) card.classList.remove("opacity-50");
+    draggedCard = null;
+  });
+
+  [availableList, selectedList].forEach(function(list){
+    list.addEventListener("dragover", function(e){
+      e.preventDefault();
+      list.classList.add("ring-2", "ring-blue-300");
+    });
+
+    list.addEventListener("dragleave", function(){
+      list.classList.remove("ring-2", "ring-blue-300");
+    });
+
+    list.addEventListener("drop", function(e){
+      e.preventDefault();
+      list.classList.remove("ring-2", "ring-blue-300");
+
+      if (draggedCard) {
+        moveCard(draggedCard, list);
+      }
+    });
+  });
+
+  refreshHiddenInputs();
+})();
+</script>
+
+<script>
+(function(){
+  const storageKey = "client_delivery_scroll_{{ package.id }}";
+
+  function saveScrollPosition() {
+    try {
+      sessionStorage.setItem(storageKey, String(window.scrollY || window.pageYOffset || 0));
+    } catch (_) {}
+  }
+
+  function restoreScrollPosition() {
+    try {
+      if (window.location.hash) {
+        const target = document.querySelector(window.location.hash);
+        if (target) {
+          setTimeout(function(){
+            target.scrollIntoView({
+              behavior: "smooth",
+              block: "start"
+            });
+          }, 120);
+          return;
+        }
+      }
+
+      const saved = sessionStorage.getItem(storageKey);
+
+      if (saved !== null && saved !== "") {
+        const y = parseInt(saved, 10);
+
+        if (!isNaN(y) && y > 0) {
+          setTimeout(function(){
+            window.scrollTo({
+              top: y,
+              behavior: "smooth"
+            });
+          }, 120);
+        }
+      }
+    } catch (_) {}
+  }
+
+  document.addEventListener("submit", function(e){
+    const form = e.target;
+
+    if (!form || !form.matches("form")) return;
+
+    saveScrollPosition();
+
+    const submitButton = form.querySelector("button[type='submit']");
+
+    if (submitButton && !submitButton.dataset.originalText) {
+      submitButton.dataset.originalText = submitButton.textContent.trim();
+      submitButton.textContent = "Working...";
+      submitButton.disabled = true;
+      submitButton.classList.add("opacity-70", "cursor-not-allowed");
+    }
+  }, true);
+
+  document.addEventListener("click", function(e){
+    const clickable = e.target.closest("button, a");
+
+    if (!clickable) return;
+
+    if (
+      clickable.classList.contains("move-right") ||
+      clickable.classList.contains("move-left") ||
+      clickable.id === "move-all-right" ||
+      clickable.id === "move-all-left" ||
+      clickable.classList.contains("copy-btn") ||
+      clickable.classList.contains("toggle-secret-btn")
+    ) {
+      return;
+    }
+
+    saveScrollPosition();
+  }, true);
+
+  window.addEventListener("load", restoreScrollPosition);
 })();
 </script>
 {% endblock %}

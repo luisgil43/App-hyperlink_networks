@@ -1,40 +1,160 @@
-{% extends "dashboard/base.html" %}
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Project Deliverables</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
 
-{% block title %}Project Deliverables{% endblock %}
+<body class="min-h-screen bg-gray-100 text-gray-900">
 
-{% block content %}
-<div class="max-w-5xl mx-auto px-4 py-6">
-  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
-    <div class="flex items-start gap-4">
-      <div class="w-14 h-14 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-2xl">
-        📤
-      </div>
+  <div class="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
 
-      <div class="flex-1">
-        <h1 class="text-3xl font-extrabold text-gray-900">Project Deliverables</h1>
-        <p class="text-gray-500 mt-2">
-          Package: <b>{{ package.name }}</b>
-        </p>
+    <!-- Top brand -->
+    <div class="max-w-6xl mx-auto mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <div class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
+            <span>📤</span>
+            <span>Hyperlink Networks Secure Delivery</span>
+          </div>
+          <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-900 mt-3">
+            Project Deliverables
+          </h1>
+          <p class="text-gray-500 mt-2">
+            Package: <b>{{ package.name }}</b>
+          </p>
+        </div>
 
-        {% if package.requires_access_key %}
-          <div class="mt-6 bg-blue-50 border border-blue-200 rounded-2xl p-5">
-            <h2 class="font-extrabold text-blue-900">This package is protected</h2>
-            <p class="text-sm text-blue-800 mt-1">
-              Please enter the access key provided separately by Hyperlink Networks.
+        {% if package.expires_at %}
+          <div class="bg-white border rounded-2xl px-4 py-3 shadow-sm">
+            <p class="text-xs text-gray-500 font-bold uppercase">Expires</p>
+            <p class="font-extrabold text-gray-900">
+              {{ package.expires_at|date:"m/d/Y h:i A" }}
             </p>
-
-            <a href="{% url 'client_deliverables:public_package_unlock' package.token %}"
-               class="inline-flex mt-4 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-bold shadow">
-              Enter access key
-            </a>
           </div>
         {% else %}
-          <div class="mt-6 border rounded-2xl p-5 text-center text-gray-500">
-            Public deliverables view will be connected in the next step.
+          <div class="bg-white border rounded-2xl px-4 py-3 shadow-sm">
+            <p class="text-xs text-gray-500 font-bold uppercase">Expiration</p>
+            <p class="font-extrabold text-gray-900">No expiration</p>
           </div>
         {% endif %}
       </div>
     </div>
+
+    <!-- Main card -->
+    <div class="max-w-6xl mx-auto bg-white rounded-3xl shadow border border-gray-100 overflow-hidden">
+
+      <!-- Summary -->
+      <div class="p-6 border-b border-gray-100">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-extrabold text-gray-900">Available files</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Download each deliverable separately or download all files together.
+            </p>
+          </div>
+
+          <a href="{% url 'client_deliverables:public_download_all' package.token %}"
+             class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+            Download all
+          </a>
+        </div>
+      </div>
+
+      {% if grouped %}
+        <div class="divide-y divide-gray-100">
+          {% for project_id, files in grouped.items %}
+            <div class="p-6">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+                <div>
+                  <h3 class="text-xl font-extrabold text-gray-900">
+                    Project ID: {{ project_id }}
+                  </h3>
+                  <p class="text-sm text-gray-500">
+                    {{ files|length }} deliverable{{ files|length|pluralize }}
+                  </p>
+                </div>
+
+                <span class="inline-flex w-fit px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
+                  Project folder: {{ project_id }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {% for f in files %}
+                  <div class="border rounded-3xl p-5 bg-gray-50 hover:bg-white hover:shadow-md transition">
+                    <div class="flex items-start gap-3">
+                      <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl shrink-0">
+                        {% if f.file_type == "client_report" %}
+                          📊
+                        {% elif f.file_type == "photos_zip" %}
+                          🗂️
+                        {% elif f.file_type == "light_levels" %}
+                          💡
+                        {% elif f.file_type == "photo_report" %}
+                          🖼️
+                        {% else %}
+                          📄
+                        {% endif %}
+                      </div>
+
+                      <div class="min-w-0 flex-1">
+                        <h4 class="font-extrabold text-gray-900 break-words">
+                          {{ f.display_name }}
+                        </h4>
+
+                        <p class="text-xs text-gray-500 mt-1">
+                          {{ f.get_file_type_display }}
+                        </p>
+
+                        <div class="mt-3 flex flex-wrap gap-2">
+                          <span class="px-2 py-1 rounded-full bg-white text-gray-700 text-[11px] font-bold border">
+                            Project {{ f.project_id }}
+                          </span>
+
+                          {% if f.source_url %}
+                            <span class="px-2 py-1 rounded-full bg-green-50 text-green-700 text-[11px] font-bold border border-green-100">
+                              Available
+                            </span>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-col gap-2">
+                      <a href="{% url 'client_deliverables:public_download_file' package.token f.id %}"
+                         class="inline-flex items-center justify-center bg-gray-900 hover:bg-black text-white px-4 py-3 rounded-2xl text-sm font-bold">
+                        Download
+                      </a>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="p-10 text-center">
+          <div class="text-6xl mb-4">📁</div>
+          <h3 class="text-xl font-extrabold text-gray-900">No deliverables available</h3>
+          <p class="text-sm text-gray-500 mt-2">
+            This package does not have active deliverables yet.
+          </p>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Footer -->
+    <div class="max-w-6xl mx-auto mt-6 text-center text-xs text-gray-500">
+      <p>Secure delivery powered by Hyperlink Networks.</p>
+      {% if package.requires_access_key %}
+        <p class="mt-1">This package is protected with an access key.</p>
+      {% endif %}
+    </div>
   </div>
-</div>
-{% endblock %}
+
+</body>
+</html>

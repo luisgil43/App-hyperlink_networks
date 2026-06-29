@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Preparing ZIP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    @keyframes pulseSoft {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.04);
+        opacity: .92;
+      }
+    }
+
+    @keyframes spinSoft {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .status-pulse {
+      animation: pulseSoft 1.8s ease-in-out infinite;
+    }
+
+    .status-spinner {
+      animation: spinSoft 1.2s linear infinite;
+    }
+  </style>
+</head>
+
+<body class="min-h-screen bg-slate-100 text-slate-900">
+
+  <div class="min-h-screen flex items-center justify-center px-4 py-8">
+
+    <div class="w-full max-w-2xl">
+
+      <!-- Brand / top -->
+      <div class="text-center mb-5">
+        <div class="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-2 shadow-sm">
+          <span class="text-lg">📤</span>
+          <span class="text-xs sm:text-sm font-extrabold text-slate-700">
+            Hyperlink Networks Secure Delivery
+          </span>
+        </div>
+      </div>
+
+      <!-- Main card -->
+      <div class="bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden">
+
+        <!-- Top gradient -->
+        <div class="h-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-green-500"></div>
+
+        <div class="p-6 sm:p-8 text-center">
+
+          <!-- Icon -->
+          <div id="status-icon-wrap"
+               class="w-24 h-24 mx-auto rounded-[2rem] bg-blue-100 text-blue-700 flex items-center justify-center status-pulse">
+            <div id="status-icon" class="text-5xl status-spinner">
+              ⏳
+            </div>
+          </div>
+
+          <!-- Title -->
+          <h1 id="status-title" class="text-2xl sm:text-3xl font-black text-slate-900 mt-6">
+            Preparing your ZIP file
+          </h1>
+
+          <p id="status-message" class="text-slate-500 mt-3 max-w-xl mx-auto leading-relaxed">
+            We are collecting all project deliverables and creating folders by Project ID.
+            This may take a few minutes depending on the number of photos.
+          </p>
+
+          <!-- Info box -->
+          <div class="mt-7 bg-slate-50 rounded-3xl p-5 border border-slate-100 text-left">
+            <div class="space-y-3">
+
+              <div class="flex items-start justify-between gap-4">
+                <span class="text-sm text-slate-500">Package</span>
+                <span class="text-sm font-extrabold text-slate-900 text-right break-words">
+                  {{ package.name }}
+                </span>
+              </div>
+
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-sm text-slate-500">Status</span>
+                <span id="job-status"
+                      class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-3 py-1 text-xs font-extrabold uppercase tracking-wide">
+                  {{ job.get_status_display }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3 pt-2">
+                <div class="rounded-2xl bg-white border border-slate-100 p-4">
+                  <p class="text-xs text-slate-500 font-bold uppercase">Files included</p>
+                  <p id="files-added" class="text-2xl font-black text-slate-900 mt-1">
+                    {{ job.files_added }}
+                  </p>
+                </div>
+
+                <div class="rounded-2xl bg-white border border-slate-100 p-4">
+                  <p class="text-xs text-slate-500 font-bold uppercase">Files with errors</p>
+                  <p id="files-failed" class="text-2xl font-black text-slate-900 mt-1">
+                    {{ job.files_failed }}
+                  </p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Progress -->
+          <div class="mt-7">
+            <div class="flex justify-between text-xs font-bold text-slate-500 mb-2">
+              <span id="progress-label">Preparing package</span>
+              <span id="progress-percent">20%</span>
+            </div>
+
+            <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+              <div id="progress-bar"
+                   class="bg-blue-600 h-3 rounded-full transition-all duration-500"
+                   style="width: 20%;"></div>
+            </div>
+          </div>
+
+          <!-- Ready actions -->
+          <div id="download-area" class="mt-7 hidden space-y-3">
+            <a id="download-link"
+               href="#"
+               class="inline-flex w-full items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 py-4 rounded-2xl font-extrabold shadow-lg transition">
+              <span>⬇️</span>
+              <span>Download ZIP</span>
+            </a>
+
+            <a href="{% url 'client_deliverables:public_package_detail' package.token %}"
+               class="inline-flex w-full items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 px-5 py-4 rounded-2xl font-extrabold border border-slate-200 transition">
+              <span>←</span>
+              <span>Back to deliverables</span>
+            </a>
+
+            <p class="text-xs text-slate-400">
+              You can keep this page open and download the ZIP again if needed.
+            </p>
+          </div>
+
+          <!-- Error -->
+          <div id="error-area"
+               class="mt-7 hidden rounded-3xl bg-red-50 border border-red-200 p-5 text-sm text-red-700 font-semibold text-left">
+          </div>
+
+          <!-- Footer note -->
+          <div id="footer-note" class="mt-7 text-xs sm:text-sm text-slate-400 leading-relaxed">
+            You can keep this page open. The download button will appear automatically when the file is ready.
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Bottom small footer -->
+      <div class="text-center mt-5 text-xs text-slate-400">
+        Secure delivery powered by Hyperlink Networks.
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(function(){
+  const statusUrl = "{% url 'client_deliverables:public_download_all_status_json' package.token job.id %}";
+
+  const iconWrap = document.getElementById("status-icon-wrap");
+  const icon = document.getElementById("status-icon");
+  const title = document.getElementById("status-title");
+  const message = document.getElementById("status-message");
+  const statusText = document.getElementById("job-status");
+  const filesAdded = document.getElementById("files-added");
+  const filesFailed = document.getElementById("files-failed");
+  const progressBar = document.getElementById("progress-bar");
+  const progressLabel = document.getElementById("progress-label");
+  const progressPercent = document.getElementById("progress-percent");
+  const downloadArea = document.getElementById("download-area");
+  const downloadLink = document.getElementById("download-link");
+  const errorArea = document.getElementById("error-area");
+  const footerNote = document.getElementById("footer-note");
+
+  let attempts = 0;
+  let completed = false;
+
+  function setText(el, value) {
+    if (el) el.textContent = value;
+  }
+
+  function setProgress(width, label) {
+    const value = Math.max(0, Math.min(100, width));
+
+    progressBar.style.width = value + "%";
+    setText(progressPercent, value + "%");
+
+    if (label) {
+      setText(progressLabel, label);
+    }
+  }
+
+  function setBadge(status) {
+    statusText.textContent = status;
+
+    statusText.className = "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-wide";
+
+    if (status === "ready") {
+      statusText.classList.add("bg-green-50", "text-green-700");
+    } else if (status === "failed") {
+      statusText.classList.add("bg-red-50", "text-red-700");
+    } else if (status === "processing") {
+      statusText.classList.add("bg-indigo-50", "text-indigo-700");
+    } else {
+      statusText.classList.add("bg-blue-50", "text-blue-700");
+    }
+  }
+
+  function setVisualStatus(status) {
+    attempts += 1;
+
+    if (status === "pending") {
+      setProgress(20, "Waiting to start");
+      return;
+    }
+
+    if (status === "processing") {
+      const width = Math.min(88, 30 + attempts * 4);
+      setProgress(width, "Building ZIP");
+      return;
+    }
+
+    if (status === "ready") {
+      setProgress(100, "Completed");
+      return;
+    }
+
+    if (status === "failed") {
+      setProgress(100, "Failed");
+      progressBar.classList.remove("bg-blue-600");
+      progressBar.classList.add("bg-red-600");
+    }
+  }
+
+  function markReady(downloadUrl) {
+    completed = true;
+
+    icon.textContent = "✅";
+    icon.classList.remove("status-spinner");
+    iconWrap.classList.remove("status-pulse", "bg-blue-100", "text-blue-700");
+    iconWrap.classList.add("bg-green-100", "text-green-700");
+
+    title.textContent = "Your ZIP file is ready";
+    message.textContent = "The package has been prepared successfully. You can download it now.";
+
+    downloadLink.href = downloadUrl;
+    downloadArea.classList.remove("hidden");
+
+    footerNote.textContent = "Your ZIP is ready. You can download it again from this page or return to the deliverables list.";
+  }
+
+  function markFailed(errorMessage) {
+    completed = true;
+
+    icon.textContent = "❌";
+    icon.classList.remove("status-spinner");
+    iconWrap.classList.remove("status-pulse", "bg-blue-100", "text-blue-700");
+    iconWrap.classList.add("bg-red-100", "text-red-700");
+
+    title.textContent = "ZIP generation failed";
+    message.textContent = "The ZIP file could not be generated.";
+
+    errorArea.textContent = errorMessage || "Unknown error.";
+    errorArea.classList.remove("hidden");
+
+    footerNote.textContent = "Please contact Hyperlink Networks if the problem continues.";
+  }
+
+  async function poll(){
+    if (completed) return;
+
+    try {
+      const response = await fetch(statusUrl, {
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+
+      const data = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.message || "Could not check ZIP status.");
+      }
+
+      setBadge(data.status);
+      filesAdded.textContent = data.files_added;
+      filesFailed.textContent = data.files_failed;
+
+      setVisualStatus(data.status);
+
+      if (data.status === "ready") {
+        markReady(data.download_url);
+        return;
+      }
+
+      if (data.status === "failed") {
+        markFailed(data.error_message);
+        return;
+      }
+
+      setTimeout(poll, 3000);
+
+    } catch (error) {
+      errorArea.textContent = String(error);
+      errorArea.classList.remove("hidden");
+      setTimeout(poll, 5000);
+    }
+  }
+
+  poll();
+})();
+</script>
+
+</body>
+</html>

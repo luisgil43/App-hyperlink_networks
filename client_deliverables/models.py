@@ -89,9 +89,13 @@ class ClientProjectAssignment(models.Model):
 
 
 class DeliveryPackage(models.Model):
+
     STATUS_DRAFT = "draft"
+
     STATUS_PUBLISHED = "published"
+
     STATUS_EXPIRED = "expired"
+
     STATUS_REVOKED = "revoked"
 
     STATUS_CHOICES = [
@@ -102,7 +106,9 @@ class DeliveryPackage(models.Model):
     ]
 
     EXPIRATION_NONE = "none"
+
     EXPIRATION_DAYS = "days"
+
     EXPIRATION_DATE = "date"
 
     EXPIRATION_CHOICES = [
@@ -180,7 +186,13 @@ class DeliveryPackage(models.Model):
     access_key_hash = models.CharField(
         max_length=255,
         blank=True,
-        help_text="Clave hasheada. Nunca guardar clave en texto plano.",
+        help_text="Clave hasheada. Se usa para validar la clave de acceso.",
+    )
+
+    access_key_plain = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Clave visible para copiar y enviar al cliente por otro canal.",
     )
 
     access_key_hint = models.CharField(
@@ -190,6 +202,7 @@ class DeliveryPackage(models.Model):
     )
 
     failed_attempts = models.PositiveIntegerField(default=0)
+
     locked_until = models.DateTimeField(null=True, blank=True)
 
     message = models.TextField(
@@ -198,115 +211,169 @@ class DeliveryPackage(models.Model):
     )
 
     published_at = models.DateTimeField(null=True, blank=True)
+
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+
         verbose_name = "Delivery Package"
+
         verbose_name_plural = "Delivery Packages"
+
         ordering = ["-created_at"]
+
         indexes = [
             models.Index(fields=["status", "expires_at"]),
             models.Index(fields=["token"]),
         ]
 
     def __str__(self):
+
         return self.name
 
     def save(self, *args, **kwargs):
+
         if not self.token:
+
             self.token = self.generate_token()
 
         if self.expiration_mode == self.EXPIRATION_NONE:
+
             self.expiration_days = None
+
             self.expires_at = None
 
         super().save(*args, **kwargs)
 
     @staticmethod
     def generate_token():
+
         return secrets.token_urlsafe(48)
 
     @staticmethod
     def generate_access_key(length=6):
         """
+
         Genera una clave numérica simple para enviar por otro canal.
+
         Similar al flujo de seguridad del onboarding.
+
         """
+
         digits = "0123456789"
+
         return "".join(secrets.choice(digits) for _ in range(length))
 
     def set_access_key(self, raw_key):
+
+        raw_key = str(raw_key or "").strip()
+
         if raw_key:
+
             self.access_key_hash = make_password(raw_key)
+
+            self.access_key_plain = raw_key
+
             self.requires_access_key = True
+
         else:
+
             self.access_key_hash = ""
+
+            self.access_key_plain = ""
+
             self.requires_access_key = False
 
     def check_access_key(self, raw_key):
+
         if not self.requires_access_key:
+
             return True
 
         if not self.access_key_hash:
+
             return False
 
         return check_password(raw_key or "", self.access_key_hash)
 
     def is_expired(self):
+
         if self.status == self.STATUS_REVOKED:
+
             return False
 
         if not self.expires_at:
+
             return False
 
         return timezone.now() > self.expires_at
 
     def is_locked(self):
+
         return bool(self.locked_until and timezone.now() < self.locked_until)
 
     def can_be_opened(self):
+
         if self.status != self.STATUS_PUBLISHED:
+
             return False
 
         if self.is_expired():
+
             return False
 
         if self.is_locked():
+
             return False
 
         return True
 
     def publish(self, user=None):
+
         now = timezone.now()
 
         if self.expiration_mode == self.EXPIRATION_DAYS and self.expiration_days:
+
             self.expires_at = now + timedelta(days=int(self.expiration_days))
 
         self.status = self.STATUS_PUBLISHED
+
         self.published_at = now
+
         self.published_by = user
+
         self.revoked_at = None
+
         self.revoked_by = None
 
     def revoke(self, user=None):
+
         self.status = self.STATUS_REVOKED
+
         self.revoked_at = timezone.now()
+
         self.revoked_by = user
 
     def register_failed_attempt(self):
+
         self.failed_attempts = (self.failed_attempts or 0) + 1
 
         if self.failed_attempts >= 5:
+
             self.locked_until = timezone.now() + timedelta(minutes=15)
 
     def reset_failed_attempts(self):
+
         self.failed_attempts = 0
+
         self.locked_until = None
 
     def project_ids(self):
+
         return list(
             self.files.exclude(project_id="")
             .values_list("project_id", flat=True)
@@ -314,6 +381,7 @@ class DeliveryPackage(models.Model):
         )
 
     def public_url_path(self):
+
         return f"/client-deliverables/p/{self.token}/"
 
 
@@ -491,3 +559,77 @@ class DeliveryAccessLog(models.Model):
 
     def __str__(self):
         return f"{self.package} - {self.action} - {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DeliveryZipJob(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
+    STATUS_READY = "ready"
+    STATUS_FAILED = "failed"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_PROCESSING, "Processing"),
+        (STATUS_READY, "Ready"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    package = models.ForeignKey(
+        DeliveryPackage,
+        on_delete=models.CASCADE,
+        related_name="zip_jobs",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+
+    zip_file = models.FileField(
+        upload_to="client_deliverables/zips/%Y/%m/",
+        null=True,
+        blank=True,
+    )
+
+    filename = models.CharField(max_length=255, blank=True)
+
+    total_files = models.PositiveIntegerField(default=0)
+    files_added = models.PositiveIntegerField(default=0)
+    files_failed = models.PositiveIntegerField(default=0)
+
+    error_message = models.TextField(blank=True)
+    errors = models.JSONField(default=list, blank=True)
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_zip_jobs_requested",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Delivery ZIP Job"
+        verbose_name_plural = "Delivery ZIP Jobs"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["package", "status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.package} - {self.status}"
+
+    def is_ready(self):
+        return self.status == self.STATUS_READY and bool(self.zip_file)
+
+    def is_failed(self):
+        return self.status == self.STATUS_FAILED

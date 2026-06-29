@@ -4,7 +4,7 @@
 {% block title %}Client Deliverables{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full max-w-none mx-0 space-y-6">
 
   <!-- Header -->
   <div class="bg-gradient-to-r from-blue-700 to-indigo-700 rounded-3xl shadow-lg p-6 text-white">
@@ -69,17 +69,18 @@
       </div>
     </div>
 
-    <!-- Desktop table -->
-    <div class="hidden lg:block overflow-x-auto">
-      <table class="w-full text-sm">
+<!-- Desktop table -->
+<div class="hidden lg:block overflow-x-auto pb-2">
+  <table class="table-auto w-full min-w-[1550px] text-sm" style="white-space: nowrap;">
         <thead class="bg-gray-50 text-gray-600">
           <tr>
             <th class="px-5 py-3 text-left font-bold">Package</th>
             <th class="px-5 py-3 text-left font-bold">Status</th>
             <th class="px-5 py-3 text-left font-bold">Expiration</th>
             <th class="px-5 py-3 text-left font-bold">Security</th>
+            <th class="px-5 py-3 text-left font-bold">Client link</th>
+            <th class="px-5 py-3 text-left font-bold">Access key</th>
             <th class="px-5 py-3 text-left font-bold">Files</th>
-            <th class="px-5 py-3 text-left font-bold">Created by</th>
             <th class="px-5 py-3 text-left font-bold">Created</th>
             <th class="px-5 py-3 text-right font-bold">Action</th>
           </tr>
@@ -88,14 +89,18 @@
         <tbody class="divide-y divide-gray-100">
           {% for package in packages %}
             <tr class="hover:bg-gray-50 transition">
-              <td class="px-5 py-4">
+              <td class="px-5 py-4 align-top">
                 <div class="font-bold text-gray-900">{{ package.name }}</div>
                 <div class="text-xs text-gray-500 mt-1">
                   Token: {{ package.token|slice:":12" }}...
                 </div>
+                <div class="text-xs text-gray-500 mt-1">
+                  Created by:
+                  {{ package.created_by.get_full_name|default:package.created_by.username|default:"—" }}
+                </div>
               </td>
 
-              <td class="px-5 py-4">
+              <td class="px-5 py-4 align-top">
                 {% if package.status == "published" %}
                   <span class="inline-flex px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Published</span>
                 {% elif package.status == "revoked" %}
@@ -107,7 +112,7 @@
                 {% endif %}
               </td>
 
-              <td class="px-5 py-4">
+              <td class="px-5 py-4 align-top">
                 {% if package.expires_at %}
                   <div class="font-semibold text-gray-800">{{ package.expires_at|date:"m/d/Y" }}</div>
                   <div class="text-xs text-gray-500">{{ package.expires_at|date:"h:i A" }}</div>
@@ -116,7 +121,7 @@
                 {% endif %}
               </td>
 
-              <td class="px-5 py-4">
+              <td class="px-5 py-4 align-top">
                 {% if package.requires_access_key %}
                   <span class="inline-flex px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-bold">Access key</span>
                 {% else %}
@@ -124,20 +129,63 @@
                 {% endif %}
               </td>
 
-              <td class="px-5 py-4 font-semibold text-gray-800">
+              <td class="px-5 py-4 align-top">
+                <div class="flex items-center gap-2 min-w-[280px]">
+                  <input id="package-link-{{ package.id }}"
+                         value="{{ package.public_url_for_copy }}"
+                         readonly
+                         class="w-full border rounded-xl px-3 py-2 text-xs bg-gray-50 text-gray-700">
+                  <button type="button"
+                          data-copy-target="package-link-{{ package.id }}"
+                          class="copy-btn shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                    Copy
+                  </button>
+                </div>
+              </td>
+
+              <td class="px-5 py-4 align-top">
+                {% if package.requires_access_key %}
+                  {% if package.visible_access_key %}
+                    <div class="flex items-center gap-2 min-w-[220px]">
+                      <input id="package-key-{{ package.id }}"
+                             value="{{ package.visible_access_key }}"
+                             readonly
+                             type="password"
+                             class="secret-input w-full border rounded-xl px-3 py-2 text-xs bg-amber-50 text-amber-900 font-mono font-bold">
+                      <button type="button"
+                              data-toggle-secret="package-key-{{ package.id }}"
+                              class="toggle-secret-btn shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-xl text-xs font-bold">
+                        👁️
+                      </button>
+                      <button type="button"
+                              data-copy-target="package-key-{{ package.id }}"
+                              class="copy-btn shrink-0 bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                        Copy
+                      </button>
+                    </div>
+                  {% else %}
+                    <div class="min-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p class="text-xs font-bold text-amber-800">Key hidden</p>
+                      <p class="text-[11px] text-amber-700 mt-1">
+                        Open package and generate a new key if you need to copy it again.
+                      </p>
+                    </div>
+                  {% endif %}
+                {% else %}
+                  <span class="text-gray-400 text-xs">Not required</span>
+                {% endif %}
+              </td>
+
+              <td class="px-5 py-4 align-top font-semibold text-gray-800">
                 {{ package.files.count }}
               </td>
 
-              <td class="px-5 py-4">
-                {{ package.created_by.get_full_name|default:package.created_by.username|default:"—" }}
-              </td>
-
-              <td class="px-5 py-4">
+              <td class="px-5 py-4 align-top">
                 <div class="font-semibold text-gray-800">{{ package.created_at|date:"m/d/Y" }}</div>
                 <div class="text-xs text-gray-500">{{ package.created_at|naturaltime }}</div>
               </td>
 
-              <td class="px-5 py-4 text-right">
+              <td class="px-5 py-4 text-right align-top">
                 <a href="{% url 'client_deliverables:admin_package_detail' package.id %}"
                    class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold text-xs shadow">
                   Open
@@ -146,7 +194,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="8" class="px-5 py-14 text-center">
+              <td colspan="9" class="px-5 py-14 text-center">
                 <div class="text-5xl mb-3">📭</div>
                 <h3 class="text-lg font-bold text-gray-800">No delivery packages yet</h3>
                 <p class="text-sm text-gray-500 mt-1">Create your first secure client delivery package.</p>
@@ -176,6 +224,8 @@
               <span class="px-2 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Published</span>
             {% elif package.status == "revoked" %}
               <span class="px-2 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">Revoked</span>
+            {% elif package.status == "expired" %}
+              <span class="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-bold">Expired</span>
             {% else %}
               <span class="px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-bold">Draft</span>
             {% endif %}
@@ -204,6 +254,51 @@
                 {% endif %}
               </p>
             </div>
+
+            <div class="bg-blue-50 rounded-xl p-3 col-span-2">
+              <p class="text-xs text-blue-700 font-bold mb-2">Client link</p>
+              <div class="flex gap-2">
+                <input id="mobile-package-link-{{ package.id }}"
+                       value="{{ package.public_url_for_copy }}"
+                       readonly
+                       class="w-full border rounded-xl px-3 py-2 text-xs bg-white">
+                <button type="button"
+                        data-copy-target="mobile-package-link-{{ package.id }}"
+                        class="copy-btn bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            {% if package.requires_access_key %}
+              <div class="bg-amber-50 rounded-xl p-3 col-span-2">
+                <p class="text-xs text-amber-700 font-bold mb-2">Access key</p>
+
+                {% if package.visible_access_key %}
+                  <div class="flex gap-2">
+                    <input id="mobile-package-key-{{ package.id }}"
+                           value="{{ package.visible_access_key }}"
+                           readonly
+                           type="password"
+                           class="secret-input w-full border rounded-xl px-3 py-2 text-xs bg-white font-mono font-bold text-amber-900">
+                    <button type="button"
+                            data-toggle-secret="mobile-package-key-{{ package.id }}"
+                            class="toggle-secret-btn bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-xl text-xs font-bold">
+                      👁️
+                    </button>
+                    <button type="button"
+                            data-copy-target="mobile-package-key-{{ package.id }}"
+                            class="copy-btn bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-bold">
+                      Copy
+                    </button>
+                  </div>
+                {% else %}
+                  <p class="text-xs text-amber-700 font-semibold">
+                    Key hidden. Open package and generate a new key if needed.
+                  </p>
+                {% endif %}
+              </div>
+            {% endif %}
           </div>
 
           <a href="{% url 'client_deliverables:admin_package_detail' package.id %}"
@@ -224,4 +319,68 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  function copyElementValue(targetId, btn) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+
+    const oldType = el.getAttribute("type");
+
+    try {
+      if (oldType === "password") {
+        el.setAttribute("type", "text");
+      }
+
+      el.select();
+      el.setSelectionRange(0, 999999);
+      document.execCommand("copy");
+
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function(){
+          btn.textContent = old;
+        }, 1200);
+      }
+    } catch (_) {
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+      alert("Could not copy. Please copy manually.");
+    }
+  }
+
+  document.addEventListener("click", function(e){
+    const copyBtn = e.target.closest(".copy-btn");
+
+    if (copyBtn) {
+      const targetId = copyBtn.dataset.copyTarget;
+      copyElementValue(targetId, copyBtn);
+      return;
+    }
+
+    const toggleBtn = e.target.closest(".toggle-secret-btn");
+
+    if (toggleBtn) {
+      const targetId = toggleBtn.dataset.toggleSecret;
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      if (el.getAttribute("type") === "password") {
+        el.setAttribute("type", "text");
+        toggleBtn.textContent = "🙈";
+      } else {
+        el.setAttribute("type", "password");
+        toggleBtn.textContent = "👁️";
+      }
+    }
+  });
+})();
+</script>
 {% endblock %}

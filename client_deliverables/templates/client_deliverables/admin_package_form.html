@@ -1,27 +1,119 @@
 {% extends "dashboard_admin/base.html" %}
 
-{% block title %}New Delivery Package{% endblock %}
+{% block title %}
+  {% if mode == "edit" %}Edit Delivery Package{% else %}New Delivery Package{% endif %}
+{% endblock %}
 
 {% block dashboard_content %}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<style>
+  .flatpickr-calendar {
+    border-radius: 22px !important;
+    overflow: hidden !important;
+    border: 1px solid #e5e7eb !important;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18) !important;
+    font-family: inherit !important;
+  }
+
+  .flatpickr-months {
+    background: #2563eb !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .flatpickr-current-month,
+  .flatpickr-current-month .flatpickr-monthDropdown-months,
+  .flatpickr-current-month input.cur-year {
+    color: white !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-monthDropdown-months {
+    background: #2563eb !important;
+  }
+
+  .flatpickr-weekdays {
+    background: #eff6ff !important;
+  }
+
+  span.flatpickr-weekday {
+    color: #1d4ed8 !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-day {
+    border-radius: 12px !important;
+  }
+
+  .flatpickr-day.selected,
+  .flatpickr-day.startRange,
+  .flatpickr-day.endRange {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: white !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-day.today {
+    border-color: #2563eb !important;
+    color: #1d4ed8 !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-time {
+    border-top: 1px solid #e5e7eb !important;
+  }
+
+  .flatpickr-time input,
+  .flatpickr-time .flatpickr-am-pm {
+    font-weight: 800 !important;
+    color: #111827 !important;
+  }
+</style>
+
 <div class="max-w-5xl mx-auto space-y-6">
 
   <!-- Header -->
   <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
-    <a href="{% url 'client_deliverables:admin_package_list' %}"
-       class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
-      ← Back to packages
-    </a>
+    {% if mode == "edit" and package %}
+      <a href="{% url 'client_deliverables:admin_package_detail' package.id %}"
+         class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
+        ← Back to package
+      </a>
+    {% else %}
+      <a href="{% url 'client_deliverables:admin_package_list' %}"
+         class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
+        ← Back to packages
+      </a>
+    {% endif %}
 
     <div class="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
       <div>
         <div class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold mb-3">
           <span>📦</span>
-          <span>New secure package</span>
+          {% if mode == "edit" %}
+            <span>Edit secure package</span>
+          {% else %}
+            <span>New secure package</span>
+          {% endif %}
         </div>
 
-        <h1 class="text-3xl font-extrabold text-gray-900">Create Delivery Package</h1>
+        <h1 class="text-3xl font-extrabold text-gray-900">
+          {% if mode == "edit" %}
+            Edit Delivery Package
+          {% else %}
+            Create Delivery Package
+          {% endif %}
+        </h1>
+
         <p class="text-gray-500 mt-2 max-w-2xl">
-          Prepare a secure link for client deliverables. You can set expiration, require an access key and later add files by Project ID.
+          {% if mode == "edit" %}
+            Update the package name, message, expiration rules and access key security.
+          {% else %}
+            Prepare a secure link for client deliverables. You can set expiration, require an access key and later add files by Project ID.
+          {% endif %}
         </p>
       </div>
     </div>
@@ -106,7 +198,15 @@
 
             <div>
               <label class="block text-sm font-bold text-gray-700 mb-2">Specific expiration date</label>
-              {{ form.expires_at }}
+              <div class="relative">
+                {{ form.expires_at }}
+                <div class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-gray-400">
+                  📅
+                </div>
+              </div>
+              <p id="expiration-auto-note" class="text-xs text-gray-500 mt-1">
+                This date is calculated automatically when using “Expires in days”.
+              </p>
               {% for error in form.expires_at.errors %}
                 <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
               {% endfor %}
@@ -115,6 +215,7 @@
 
           <div class="mt-5 bg-blue-50 border border-blue-100 rounded-2xl p-4 text-sm text-blue-800">
             <b>Tip:</b> Use “No expiration” for permanent portal access, or “Expires in days” for temporary links.
+            If you select “No expiration”, the days and date fields will be cleared automatically.
           </div>
         </div>
       </div>
@@ -133,6 +234,13 @@
             Protect the link with an access key. The key must be sent separately and never inside the same email as the link.
           </p>
 
+          {% if mode == "edit" and package.requires_access_key %}
+            <div class="mt-5 rounded-2xl bg-green-50 border border-green-200 p-4 text-sm text-green-800">
+              <b>Current status:</b> this package already requires an access key.
+              You can keep the current key, generate a new one, enter a custom key, or disable access key protection.
+            </div>
+          {% endif %}
+
           <div class="mt-5 space-y-4">
             <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
               {{ form.requires_access_key }}
@@ -148,19 +256,67 @@
             <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
               {{ form.generate_access_key }}
               <div>
-                <div class="font-bold text-gray-900">Generate numeric access key automatically</div>
-                <div class="text-xs text-gray-500">Recommended. The key will be shown once after creating the package.</div>
+                <div class="font-bold text-gray-900">
+                  {% if mode == "edit" %}
+                    Generate new numeric access key
+                  {% else %}
+                    Generate numeric access key automatically
+                  {% endif %}
+                </div>
+                <div class="text-xs text-gray-500">
+                  The key will be saved after submitting the package and will be available to copy later.
+                </div>
               </div>
             </label>
             {% for error in form.generate_access_key.errors %}
               <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
             {% endfor %}
 
+            {% if recommended_access_key %}
+              <div id="recommended-key-box"
+                   class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-extrabold text-blue-950">Recommended access key</p>
+                    <p class="text-xs text-blue-700 mt-1">
+                      This is the key that will be saved if “Generate new numeric access key” is selected.
+                    </p>
+                  </div>
+
+                  <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                    {{ form.recommended_access_key }}
+
+                    <input id="recommended-access-key-preview"
+                           value="{{ recommended_access_key }}"
+                           readonly
+                           type="password"
+                           class="secret-input w-full lg:w-64 border border-blue-300 rounded-2xl px-4 py-3 font-mono bg-white text-lg font-bold text-blue-950">
+
+                    <button type="button"
+                            data-toggle-secret="recommended-access-key-preview"
+                            class="toggle-secret-btn bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 px-4 py-3 rounded-2xl text-sm font-bold shadow">
+                      👁️
+                    </button>
+
+                    <button type="button"
+                            data-copy-target="recommended-access-key-preview"
+                            class="copy-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {% else %}
+              {{ form.recommended_access_key }}
+            {% endif %}
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-bold text-gray-700 mb-2">Custom access key</label>
                 {{ form.custom_access_key }}
-                <p class="text-xs text-gray-500 mt-1">Optional. Leave empty if auto-generate is selected.</p>
+                <p class="text-xs text-gray-500 mt-1">
+                  Optional. Leave empty if auto-generate is selected or if you want to keep the current key.
+                </p>
                 {% for error in form.custom_access_key.errors %}
                   <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
                 {% endfor %}
@@ -188,22 +344,333 @@
     <div class="sticky bottom-0 bg-gray-100/95 backdrop-blur py-4">
       <div class="bg-white rounded-3xl shadow border border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div class="text-sm text-gray-500">
-          After creating the package, you will be able to add deliverables and publish the link.
+          {% if mode == "edit" %}
+            Save changes and return to the package detail.
+          {% else %}
+            After creating the package, you will be able to add deliverables and publish the link.
+          {% endif %}
         </div>
 
         <div class="flex flex-col sm:flex-row gap-2">
-          <a href="{% url 'client_deliverables:admin_package_list' %}"
-             class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
-            Cancel
-          </a>
+          {% if mode == "edit" and package %}
+            <a href="{% url 'client_deliverables:admin_package_detail' package.id %}"
+               class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
+              Cancel
+            </a>
+          {% else %}
+            <a href="{% url 'client_deliverables:admin_package_list' %}"
+               class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
+              Cancel
+            </a>
+          {% endif %}
 
           <button type="submit"
                   class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow">
-            Create package
+            {% if mode == "edit" %}
+              Save changes
+            {% else %}
+              Create package
+            {% endif %}
           </button>
         </div>
       </div>
     </div>
   </form>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<script>
+(function(){
+  function copyElementValue(targetId, btn) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+
+    const oldType = el.getAttribute("type");
+
+    try {
+      if (oldType === "password") {
+        el.setAttribute("type", "text");
+      }
+
+      el.select();
+      el.setSelectionRange(0, 999999);
+      document.execCommand("copy");
+
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function(){
+          btn.textContent = old;
+        }, 1200);
+      }
+    } catch (_) {
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+      alert("Could not copy. Please copy manually.");
+    }
+  }
+
+  document.addEventListener("click", function(e){
+    const copyBtn = e.target.closest(".copy-btn");
+
+    if (copyBtn) {
+      const targetId = copyBtn.dataset.copyTarget;
+      copyElementValue(targetId, copyBtn);
+      return;
+    }
+
+    const toggleBtn = e.target.closest(".toggle-secret-btn");
+
+    if (toggleBtn) {
+      const targetId = toggleBtn.dataset.toggleSecret;
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      if (el.getAttribute("type") === "password") {
+        el.setAttribute("type", "text");
+        toggleBtn.textContent = "🙈";
+      } else {
+        el.setAttribute("type", "password");
+        toggleBtn.textContent = "👁️";
+      }
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  const requiresKeyField = document.getElementById("id_requires_access_key");
+  const generateKeyField = document.getElementById("id_generate_access_key");
+  const customKeyField = document.getElementById("id_custom_access_key");
+  const recommendedBox = document.getElementById("recommended-key-box");
+
+  function syncSecurityState() {
+    if (!requiresKeyField || !generateKeyField) return;
+
+    if (generateKeyField.checked) {
+      requiresKeyField.checked = true;
+    }
+
+    if (customKeyField && customKeyField.value.trim()) {
+      requiresKeyField.checked = true;
+      generateKeyField.checked = false;
+    }
+
+    if (recommendedBox) {
+      recommendedBox.style.display = generateKeyField.checked ? "block" : "none";
+    }
+  }
+
+  if (requiresKeyField) {
+    requiresKeyField.addEventListener("change", function(){
+      if (!requiresKeyField.checked && generateKeyField) {
+        generateKeyField.checked = false;
+      }
+      syncSecurityState();
+    });
+  }
+
+  if (generateKeyField) {
+    generateKeyField.addEventListener("change", syncSecurityState);
+  }
+
+  if (customKeyField) {
+    customKeyField.addEventListener("input", syncSecurityState);
+  }
+
+  syncSecurityState();
+})();
+</script>
+
+<script>
+(function(){
+  const modeField = document.getElementById("id_expiration_mode");
+  const daysField = document.getElementById("id_expiration_days");
+  const dateField = document.getElementById("id_expires_at");
+  const note = document.getElementById("expiration-auto-note");
+
+  if (!modeField || !daysField || !dateField) return;
+
+  let expirationPicker = null;
+
+  function pad(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  function toDateTimeValue(date) {
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  }
+
+  function calculateExpirationDateFromDays() {
+    const days = parseInt(daysField.value || "0", 10);
+
+    if (!days || days < 1) {
+      if (expirationPicker) {
+        expirationPicker.clear();
+      } else {
+        dateField.value = "";
+      }
+      return;
+    }
+
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+
+    if (expirationPicker) {
+      expirationPicker.setDate(date, true);
+    } else {
+      dateField.value = toDateTimeValue(date);
+    }
+  }
+
+  expirationPicker = flatpickr(dateField, {
+    enableTime: true,
+    dateFormat: "Y-m-d H:i",
+    altInput: true,
+    altFormat: "F j, Y - h:i K",
+    time_24hr: false,
+    minuteIncrement: 5,
+    allowInput: true,
+    disableMobile: true,
+    locale: {
+      firstDayOfWeek: 1,
+      weekdays: {
+        shorthand: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+        longhand: [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday"
+        ]
+      },
+      months: {
+        shorthand: [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec"
+        ],
+        longhand: [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December"
+        ]
+      }
+    }
+  });
+
+  function setFieldDisabled(field, disabled) {
+    field.disabled = disabled;
+
+    if (field._flatpickr && field._flatpickr.altInput) {
+      field._flatpickr.altInput.disabled = disabled;
+    }
+
+    const visibleField = field._flatpickr && field._flatpickr.altInput
+      ? field._flatpickr.altInput
+      : field;
+
+    if (disabled) {
+      visibleField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+    } else {
+      visibleField.classList.remove("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+    }
+  }
+
+  function applyExpirationMode() {
+    const mode = modeField.value;
+
+    if (mode === "none") {
+      daysField.value = "";
+
+      if (expirationPicker) {
+        expirationPicker.clear();
+      } else {
+        dateField.value = "";
+      }
+
+      daysField.disabled = true;
+      setFieldDisabled(dateField, true);
+
+      daysField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      if (note) {
+        note.textContent = "No expiration selected. Days and specific date are cleared.";
+      }
+
+      return;
+    }
+
+    if (mode === "days") {
+      daysField.disabled = false;
+      setFieldDisabled(dateField, false);
+
+      daysField.classList.remove("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      calculateExpirationDateFromDays();
+
+      if (note) {
+        note.textContent = "This date is calculated automatically from the number of days.";
+      }
+
+      return;
+    }
+
+    if (mode === "date") {
+      daysField.value = "";
+      daysField.disabled = true;
+      setFieldDisabled(dateField, false);
+
+      daysField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      if (note) {
+        note.textContent = "Select the exact date and time when the link should expire.";
+      }
+    }
+  }
+
+  modeField.addEventListener("change", applyExpirationMode);
+
+  daysField.addEventListener("input", function(){
+    if (modeField.value === "days") {
+      calculateExpirationDateFromDays();
+    }
+  });
+
+  applyExpirationMode();
+})();
+</script>
 {% endblock %}

@@ -1,39 +1,72 @@
-{% extends "dashboard/base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Protected Deliverables</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
 
-{% block title %}Protected Deliverables{% endblock %}
+<body class="min-h-screen bg-gray-100 text-gray-900">
 
-{% block content %}
-<div class="min-h-[70vh] flex items-center justify-center px-4 py-8">
-  <div class="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 p-6">
-    <div class="text-center">
-      <div class="w-16 h-16 mx-auto rounded-3xl bg-blue-100 text-blue-700 flex items-center justify-center text-3xl">
-        🔐
+  <div class="min-h-screen flex items-center justify-center px-4 py-8">
+    <div class="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 p-6">
+
+      <div class="text-center">
+        <div class="w-16 h-16 mx-auto rounded-3xl bg-blue-100 text-blue-700 flex items-center justify-center text-3xl">
+          🔐
+        </div>
+
+        <h1 class="text-2xl font-extrabold text-gray-900 mt-4">
+          Protected Deliverables
+        </h1>
+
+        <p class="text-sm text-gray-500 mt-2">
+          Enter the access key provided separately by Hyperlink Networks.
+        </p>
+
+        <p class="text-xs text-gray-400 mt-2">
+          Package: {{ package.name }}
+        </p>
       </div>
 
-      <h1 class="text-2xl font-extrabold text-gray-900 mt-4">Protected Deliverables</h1>
+      {% if messages %}
+        <div class="mt-5 space-y-2">
+          {% for message in messages %}
+            <div class="rounded-2xl px-4 py-3 text-sm font-semibold
+                        {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+                        {% elif message.tags == 'warning' %}bg-amber-50 text-amber-700 border border-amber-200
+                        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
 
-      <p class="text-sm text-gray-500 mt-2">
-        Enter the access key provided separately by Hyperlink Networks.
-      </p>
+      <form method="post" class="mt-6 space-y-4">
+        {% csrf_token %}
+
+        <div>
+          <label class="block text-sm font-bold text-gray-700 mb-2">Access key</label>
+          <input type="text"
+                 name="access_key"
+                 class="w-full border rounded-2xl px-4 py-3 text-center text-lg font-bold tracking-widest"
+                 autocomplete="off"
+                 placeholder="Enter key"
+                 autofocus>
+        </div>
+
+        <button type="submit"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-bold shadow">
+          Continue
+        </button>
+      </form>
+
+      <div class="mt-5 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800">
+        For security reasons, the access key is sent separately from the link.
+      </div>
     </div>
-
-    <form method="post" class="mt-6 space-y-4">
-      {% csrf_token %}
-
-      <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2">Access key</label>
-        <input type="text"
-               name="access_key"
-               class="w-full border rounded-2xl px-4 py-3 text-center text-lg font-bold tracking-widest"
-               autocomplete="off"
-               placeholder="Enter key">
-      </div>
-
-      <button type="submit"
-              class="w-full bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-bold shadow">
-        Continue
-      </button>
-    </form>
   </div>
-</div>
-{% endblock %}
+
+</body>
+</html>
