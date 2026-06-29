@@ -168,7 +168,21 @@
         <div class="line" id="ov-cp">{{ project_id }}</div>
       </div>
 
-      <video id="video" class="cam-video" playsinline autoplay muted></video>
+    <video
+
+  id="video"
+
+  class="cam-video"
+
+  playsinline
+
+  webkit-playsinline
+
+  autoplay
+
+  muted
+
+></video>
 
       <div class="cam-bottom">
         <button type="button" id="btn-cancel" class="cam-cancel">Cancel</button>
@@ -599,38 +613,65 @@
   // ---------------------------
   // Camera
   // ---------------------------
-  async function startCamera(){
+async function startCamera(){
+  hide(banner);
+
+  if(!isSecureEnough()){
+    show(banner);
+    show(enableBox);
+    toast('Camera requires HTTPS.', 'error');
+    return false;
+  }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    show(banner);
+    show(enableBox);
+    toast('Camera API not available in this WebView.', 'error');
+    return false;
+  }
+
+  try{
+    stopCamera();
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height:{ ideal: 1080 }
+      },
+      audio: false
+    });
+
+    video.srcObject = stream;
+
+    await new Promise((resolve) => {
+      video.onloadedmetadata = resolve;
+      setTimeout(resolve, 1200);
+    });
+
+    try {
+      await video.play();
+    } catch (playErr) {
+      console.log('VIDEO PLAY ERROR:', playErr);
+    }
+
+    hide(enableBox);
     hide(banner);
 
-    if(!isSecureEnough()){
-      show(banner);
-      show(enableBox);
-      return false;
-    }
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      show(banner);
-      show(enableBox);
-      return false;
-    }
+    return true;
 
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height:{ ideal: 1080 }
-        },
-        audio: false
-      });
-      video.srcObject = stream;
-      hide(enableBox);
-      return true;
-    }catch(_){
-      show(banner);
-      show(enableBox);
-      return false;
-    }
+  }catch(err){
+    console.log('CAMERA ERROR:', err);
+
+    show(banner);
+    show(enableBox);
+
+    const msg = err && err.name ? err.name : 'Camera error';
+    toast(`Camera not available: ${msg}`, 'error');
+
+    return false;
   }
+}
 
   function stopCamera(){
     try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(_){}
