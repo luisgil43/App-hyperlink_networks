@@ -1192,8 +1192,27 @@ def admin_package_publish(request, pk):
             )
         )
 
+    # Publicar nuevamente debe limpiar cualquier marca anterior de revocación.
     package.publish(user=request.user)
-    package.save()
+    package.revoked_at = None
+    package.revoked_by = None
+
+    # También limpiamos bloqueos anteriores por seguridad.
+    package.failed_attempts = 0
+    package.locked_until = None
+
+    package.save(
+        update_fields=[
+            "status",
+            "published_at",
+            "published_by",
+            "revoked_at",
+            "revoked_by",
+            "failed_attempts",
+            "locked_until",
+            "updated_at",
+        ]
+    )
 
     messages.success(request, "Delivery package published successfully.")
     return redirect("client_deliverables:admin_package_list")
@@ -2710,7 +2729,23 @@ def admin_package_from_invoices(request):
                 )
             else:
                 package.publish(user=request.user)
-                package.save()
+                package.revoked_at = None
+                package.revoked_by = None
+                package.failed_attempts = 0
+                package.locked_until = None
+
+                package.save(
+                    update_fields=[
+                        "status",
+                        "published_at",
+                        "published_by",
+                        "revoked_at",
+                        "revoked_by",
+                        "failed_attempts",
+                        "locked_until",
+                        "updated_at",
+                    ]
+                )
 
                 messages.success(
                     request,

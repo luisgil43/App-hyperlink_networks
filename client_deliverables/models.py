@@ -333,22 +333,22 @@ class DeliveryPackage(models.Model):
         return True
 
     def publish(self, user=None):
-
         now = timezone.now()
 
         if self.expiration_mode == self.EXPIRATION_DAYS and self.expiration_days:
-
             self.expires_at = now + timedelta(days=int(self.expiration_days))
 
         self.status = self.STATUS_PUBLISHED
-
         self.published_at = now
-
         self.published_by = user
 
+        # Si estaba revocado, al republicar se limpia totalmente.
         self.revoked_at = None
-
         self.revoked_by = None
+
+        # Si estaba bloqueado por intentos fallidos, al republicar se limpia.
+        self.failed_attempts = 0
+        self.locked_until = None
 
     def revoke(self, user=None):
 
