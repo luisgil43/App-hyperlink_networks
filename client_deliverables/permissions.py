@@ -1,5 +1,6 @@
 from django.db.models import Q
 
+from access_control.services import user_can as access_user_can
 from facturacion.models import Proyecto
 
 try:
@@ -53,20 +54,18 @@ def user_is_client(user):
 
 
 def can_manage_deliverables(user):
-    return bool(
-        user_is_admin_general(user)
-        or user_is_pm(user)
-        or user_is_supervisor(user)
-        or user_is_facturacion(user)
-    )
+
+    return access_user_can(user, "client_deliverables.manage")
 
 
 def can_publish_deliverables(user):
-    return bool(user_is_admin_general(user) or user_is_pm(user))
+
+    return access_user_can(user, "client_deliverables.publish")
 
 
 def can_revoke_deliverables(user):
-    return bool(user_is_admin_general(user) or user_is_pm(user))
+
+    return access_user_can(user, "client_deliverables.revoke")
 
 
 def can_view_client_portal(user):

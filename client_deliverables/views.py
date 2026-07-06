@@ -1240,14 +1240,12 @@ def admin_package_outlook(request, pk):
     subject = _build_outlook_subject(package)
     body = _build_outlook_body(request, package)
 
-    outlook_web_url = (
-        "https://outlook.office.com/mail/deeplink/compose?subject={}&body={}".format(
-            quote(subject),
-            quote(body),
-        )
+    href = "mailto:?subject={}&body={}".format(
+        quote(subject),
+        quote(body),
     )
 
-    return redirect(outlook_web_url)
+    return redirect(href)
 
 
 @login_required

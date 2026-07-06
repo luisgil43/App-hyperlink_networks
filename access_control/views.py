@@ -163,6 +163,48 @@ BILLING_PERMISSION_SEED = [
             "emision_facturacion": False,
         },
     },
+    {
+        "key": "client_deliverables.manage",
+        "label": "Manage client deliverables",
+        "description": "Allows accessing and managing Client Deliverables packages.",
+        "module": "Client Deliverables",
+        "order": 1,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": False,
+            "facturacion": True,
+            "emision_facturacion": False,
+        },
+    },
+    {
+        "key": "client_deliverables.publish",
+        "label": "Publish client deliverables",
+        "description": "Allows publishing Client Deliverables packages.",
+        "module": "Client Deliverables",
+        "order": 2,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": False,
+            "facturacion": False,
+            "emision_facturacion": False,
+        },
+    },
+    {
+        "key": "client_deliverables.revoke",
+        "label": "Revoke client deliverables",
+        "description": "Allows revoking Client Deliverables packages.",
+        "module": "Client Deliverables",
+        "order": 3,
+        "defaults": {
+            "admin": True,
+            "pm": True,
+            "supervisor": False,
+            "facturacion": False,
+            "emision_facturacion": False,
+        },
+    },
 ]
 
 
