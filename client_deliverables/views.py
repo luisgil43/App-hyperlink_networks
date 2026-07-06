@@ -13,6 +13,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.files import File
+from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.test import Client as DjangoTestClient
@@ -28,7 +30,8 @@ from .permissions import (can_manage_deliverables, can_publish_deliverables,
                           can_revoke_deliverables, can_view_client_portal,
                           filter_delivery_packages_by_user,
                           user_can_access_delivery_package)
-from .services import discover_project_deliverables
+from .services import (build_available_deliverables_for_sessions,
+                       discover_project_deliverables)
 from .utils import log_delivery_access, package_or_404_if_unavailable
 
 # ============================================================
@@ -754,25 +757,107 @@ def _detail_url_with_project(package, project_id, anchor="load-deliverables-sect
 def admin_package_list(request):
     _require_manager(request.user)
 
-    packages = (
+    packages_qs = (
         DeliveryPackage.objects.select_related("created_by", "published_by")
         .prefetch_related("files")
         .order_by("-created_at")
     )
 
-    packages = filter_delivery_packages_by_user(packages, request.user)
+    packages_qs = filter_delivery_packages_by_user(packages_qs, request.user)
 
-    for package in packages:
+    cantidad = request.GET.get("cantidad", "10")
+
+    if cantidad not in ["5", "10", "20", "50", "100"]:
+        cantidad = "10"
+
+    paginator = Paginator(packages_qs, int(cantidad))
+    page_number = request.GET.get("page")
+    pagina = paginator.get_page(page_number)
+
+    for package in pagina.object_list:
         package.public_url_for_copy = _package_public_url(request, package)
         package.visible_access_key = getattr(package, "access_key_plain", "") or ""
+
+        project_ids = []
+
+        try:
+            files = package.files.all()
+        except Exception:
+            files = []
+
+        for file_obj in files:
+            project_id = str(getattr(file_obj, "project_id", "") or "").strip()
+
+            if project_id and project_id not in project_ids:
+                project_ids.append(project_id)
+
+        package.preview_project_ids = project_ids[:1]
+        package.extra_project_ids = project_ids[1:]
+        package.extra_project_count = len(package.extra_project_ids)
+
+        client_suffix = ""
+
+        if str(package.name or "").startswith("Project - ") and " - " in str(
+            package.name or ""
+        ):
+            possible_client = str(package.name or "").rsplit(" - ", 1)[-1].strip()
+
+            if possible_client and possible_client not in project_ids:
+                client_suffix = f" - {possible_client}"
+
+        if project_ids:
+            first_project = project_ids[0]
+
+            if package.extra_project_count:
+                package.list_display_name = (
+                    f"Project - {first_project} + {package.extra_project_count} more"
+                    f"{client_suffix}"
+                )
+            else:
+                package.list_display_name = f"Project - {first_project}{client_suffix}"
+        else:
+            package.list_display_name = package.name
+
+    qs = request.GET.copy()
+    qs.pop("page", None)
+    qs.pop("cantidad", None)
+    qs_keep = qs.urlencode()
 
     return render(
         request,
         "client_deliverables/admin_package_list.html",
         {
-            "packages": packages,
+            "pagina": pagina,
+            "packages": pagina.object_list,
+            "total_packages": paginator.count,
+            "cantidad": cantidad,
+            "qs_keep": qs_keep,
         },
     )
+
+
+@login_required
+@require_POST
+def admin_package_delete(request, pk):
+    _require_manager(request.user)
+
+    package = get_object_or_404(
+        DeliveryPackage.objects.prefetch_related("files"),
+        pk=pk,
+    )
+
+    if not user_can_access_delivery_package(request.user, package):
+        raise PermissionDenied("You do not have access to delete this package.")
+
+    package_name = package.name
+    package.delete()
+
+    messages.warning(
+        request,
+        f"Delivery package deleted: {package_name}.",
+    )
+
+    return redirect("client_deliverables:admin_package_list")
 
 
 @login_required
@@ -1042,13 +1127,7 @@ def admin_package_publish(request, pk):
     package.save()
 
     messages.success(request, "Delivery package published successfully.")
-    return redirect(
-        _detail_url_with_project(
-            package,
-            "",
-            anchor="package-actions-section",
-        )
-    )
+    return redirect("client_deliverables:admin_package_list")
 
 
 @login_required
@@ -2100,3 +2179,455 @@ def admin_package_edit(request, pk):
             "recommended_access_key": recommended_access_key,
         },
     )
+
+
+@login_required
+def admin_package_from_invoices(request):
+    """
+    Flujo especial desde Finance / Invoices.
+
+    Paso 1:
+      GET /client-deliverables/from-invoices/?ids=1,2,3
+      Muestra los deliverables disponibles de los invoices seleccionados.
+
+    Paso 2:
+      POST action=review_settings
+      Muestra el formulario de configuración del package.
+
+    Paso 3:
+      POST action=create_package
+      Crea el DeliveryPackage y los DeliveryPackageFile seleccionados.
+
+    No toca el flujo normal de Client Deliverables.
+    No modifica SesionBilling.
+    No crea package en GET.
+    """
+    _require_manager(request.user)
+
+    def parse_invoice_ids(raw_ids):
+        parsed = []
+
+        for raw in str(raw_ids or "").split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+
+            try:
+                parsed.append(int(raw))
+            except ValueError:
+                continue
+
+        return list(dict.fromkeys(parsed))
+
+    def get_allowed_invoices(invoice_ids):
+        from operaciones.models import SesionBilling
+
+        invoices_qs = (
+            SesionBilling.objects.filter(id__in=invoice_ids)
+            .prefetch_related("items", "tecnicos_sesion")
+            .order_by("-creado_en")
+        )
+
+        invoices = list(invoices_qs)
+
+        if not invoices:
+            return []
+
+        allowed = []
+
+        is_full_history_user = request.user.is_superuser or getattr(
+            request.user,
+            "es_usuario_historial",
+            False,
+        )
+
+        allowed_keys = set()
+
+        if not is_full_history_user:
+            from core.permissions import filter_queryset_by_access
+            from facturacion.models import Proyecto
+
+            proyectos_user = filter_queryset_by_access(
+                Proyecto.objects.all(),
+                request.user,
+                "id",
+            )
+
+            for p in proyectos_user:
+                if getattr(p, "nombre", None):
+                    allowed_keys.add(str(p.nombre).strip())
+                    allowed_keys.add(str(p.nombre).strip().lower())
+
+                if getattr(p, "codigo", None):
+                    allowed_keys.add(str(p.codigo).strip())
+                    allowed_keys.add(str(p.codigo).strip().lower())
+
+                allowed_keys.add(str(p.id).strip())
+                allowed_keys.add(str(p.id).strip().lower())
+
+        for invoice in invoices:
+            proyecto_key = str(getattr(invoice, "proyecto", "") or "").strip()
+            proyecto_id_key = str(getattr(invoice, "proyecto_id", "") or "").strip()
+
+            if is_full_history_user:
+                allowed.append(invoice)
+                continue
+
+            if (
+                proyecto_key in allowed_keys
+                or proyecto_id_key in allowed_keys
+                or proyecto_key.lower() in allowed_keys
+                or proyecto_id_key.lower() in allowed_keys
+            ):
+                allowed.append(invoice)
+
+        return allowed
+
+    def build_available_from_invoices(invoices):
+        invoices_by_project = {}
+
+        for invoice in invoices:
+            project_id = str(getattr(invoice, "proyecto_id", "") or "").strip()
+
+            if not project_id:
+                continue
+
+            invoices_by_project.setdefault(project_id, []).append(invoice)
+
+        grouped = {}
+        available_by_key = {}
+
+        for project_id, project_invoices in invoices_by_project.items():
+            deliverables = build_available_deliverables_for_sessions(
+                project_invoices,
+                project_id,
+            )
+
+            clean_items = []
+
+            for item in deliverables:
+                source_key = str(item.get("source_key") or "").strip()
+                source_url = str(item.get("source_url") or "").strip()
+
+                if not source_key or not source_url:
+                    continue
+
+                item["project_id"] = str(item.get("project_id") or project_id).strip()
+                item["title"] = str(item.get("title") or "Deliverable").strip()
+                item["file_type"] = str(
+                    item.get("file_type") or DeliveryPackageFile.FILE_OTHER
+                ).strip()
+                item["source_key"] = source_key
+                item["source_url"] = source_url
+
+                clean_items.append(item)
+                available_by_key[source_key] = item
+
+            grouped[project_id] = clean_items
+
+        return grouped, available_by_key
+
+    raw_ids = (request.GET.get("ids") or request.POST.get("invoice_ids") or "").strip()
+
+    invoice_ids = parse_invoice_ids(raw_ids)
+
+    if not invoice_ids:
+        messages.error(request, "Invalid project selection.")
+        return redirect("facturacion:invoices")
+
+    allowed_invoices = get_allowed_invoices(invoice_ids)
+
+    if not allowed_invoices:
+        messages.error(request, "You do not have access to the selected projects.")
+        return redirect("facturacion:invoices")
+
+    grouped_available, available_by_key = build_available_from_invoices(
+        allowed_invoices
+    )
+
+    if not available_by_key:
+        messages.warning(
+            request,
+            "No available deliverables were found for the selected projects.",
+        )
+
+    first = allowed_invoices[0]
+    client = str(getattr(first, "cliente", "") or "").strip()
+
+    project_ids = []
+
+    for invoice in allowed_invoices:
+        project_id = str(getattr(invoice, "proyecto_id", "") or "").strip()
+
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
+
+    if project_ids:
+        project_summary = ", ".join(project_ids)
+        default_name = f"Project - {project_summary}"
+    else:
+        default_name = f"Project - {len(allowed_invoices)} project(s)"
+
+    if client:
+        default_name = f"{default_name} - {client}"
+
+    default_message = "Please find the selected project documentation available through this secure delivery link."
+
+    recommended_session_key = "delivery_package_from_invoices_recommended_key"
+
+    if not request.session.get(recommended_session_key):
+        request.session[recommended_session_key] = DeliveryPackage.generate_access_key()
+        request.session.modified = True
+
+    recommended_access_key = request.session.get(recommended_session_key, "")
+
+    action = request.POST.get("action", "")
+
+    # ============================================================
+    # PASO 1: Mostrar selector de archivos
+    # ============================================================
+    if request.method == "GET" or action == "":
+        form = DeliveryPackageForm(
+            recommended_access_key=recommended_access_key,
+            initial={
+                "name": default_name[:180],
+                "message": default_message,
+                "requires_access_key": True,
+                "generate_access_key": True,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+        return render(
+            request,
+            "client_deliverables/admin_package_from_invoices.html",
+            {
+                "step": "select_files",
+                "form": form,
+                "invoice_ids_csv": ",".join(str(i) for i in invoice_ids),
+                "allowed_invoices": allowed_invoices,
+                "grouped_available": grouped_available,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+    # ============================================================
+    # VOLVER AL PASO 1: Selector de archivos
+    # ============================================================
+    if action == "back_to_files":
+        form = DeliveryPackageForm(
+            recommended_access_key=recommended_access_key,
+            initial={
+                "name": default_name[:180],
+                "message": default_message,
+                "requires_access_key": True,
+                "generate_access_key": True,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+        return render(
+            request,
+            "client_deliverables/admin_package_from_invoices.html",
+            {
+                "step": "select_files",
+                "form": form,
+                "invoice_ids_csv": ",".join(str(i) for i in invoice_ids),
+                "allowed_invoices": allowed_invoices,
+                "grouped_available": grouped_available,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+    # ============================================================
+    # PASO 2: Revisar settings del package
+    # ============================================================
+    if action == "review_settings":
+        selected_keys = request.POST.getlist("selected_deliverables")
+
+        selected_keys = [key for key in selected_keys if key in available_by_key]
+
+        if not selected_keys:
+            messages.error(request, "Select at least one deliverable.")
+            form = DeliveryPackageForm(
+                recommended_access_key=recommended_access_key,
+                initial={
+                    "name": default_name[:180],
+                    "message": default_message,
+                    "requires_access_key": True,
+                    "generate_access_key": True,
+                    "recommended_access_key": recommended_access_key,
+                },
+            )
+
+            return render(
+                request,
+                "client_deliverables/admin_package_from_invoices.html",
+                {
+                    "step": "select_files",
+                    "form": form,
+                    "invoice_ids_csv": ",".join(str(i) for i in invoice_ids),
+                    "allowed_invoices": allowed_invoices,
+                    "grouped_available": grouped_available,
+                    "recommended_access_key": recommended_access_key,
+                },
+            )
+
+        form = DeliveryPackageForm(
+            recommended_access_key=recommended_access_key,
+            initial={
+                "name": default_name[:180],
+                "message": default_message,
+                "requires_access_key": True,
+                "generate_access_key": True,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+        selected_items = [available_by_key[key] for key in selected_keys]
+
+        return render(
+            request,
+            "client_deliverables/admin_package_from_invoices.html",
+            {
+                "step": "settings",
+                "form": form,
+                "invoice_ids_csv": ",".join(str(i) for i in invoice_ids),
+                "allowed_invoices": allowed_invoices,
+                "grouped_available": grouped_available,
+                "selected_keys": selected_keys,
+                "selected_items": selected_items,
+                "recommended_access_key": recommended_access_key,
+            },
+        )
+
+    # ============================================================
+    # PASO 3: Crear package
+    # ============================================================
+    if action == "create_package":
+        selected_keys = request.POST.getlist("selected_deliverables")
+
+        selected_keys = [key for key in selected_keys if key in available_by_key]
+
+        if not selected_keys:
+            messages.error(request, "Select at least one deliverable.")
+            return redirect(
+                f"{reverse('client_deliverables:admin_package_from_invoices')}?ids={quote(','.join(str(i) for i in invoice_ids))}"
+            )
+
+        posted_recommended_key = (
+            request.POST.get("recommended_access_key")
+            or recommended_access_key
+            or DeliveryPackage.generate_access_key()
+        )
+
+        form = DeliveryPackageForm(
+            request.POST,
+            recommended_access_key=posted_recommended_key,
+        )
+
+        if not form.is_valid():
+            selected_items = [available_by_key[key] for key in selected_keys]
+
+            return render(
+                request,
+                "client_deliverables/admin_package_from_invoices.html",
+                {
+                    "step": "settings",
+                    "form": form,
+                    "invoice_ids_csv": ",".join(str(i) for i in invoice_ids),
+                    "allowed_invoices": allowed_invoices,
+                    "grouped_available": grouped_available,
+                    "selected_keys": selected_keys,
+                    "selected_items": selected_items,
+                    "recommended_access_key": posted_recommended_key,
+                },
+            )
+
+        with transaction.atomic():
+            package = form.save(commit=False)
+            package.created_by = request.user
+            package.save()
+
+            generated_key = form.generated_key
+
+            if generated_key:
+                request.session[f"delivery_package_key_{package.id}"] = generated_key
+
+            request.session.pop(recommended_session_key, None)
+            request.session.modified = True
+
+            created_count = 0
+            skipped_count = 0
+
+            invoice_by_id = {str(invoice.id): invoice for invoice in allowed_invoices}
+
+            for source_key in selected_keys:
+                item = available_by_key.get(source_key)
+
+                if not item:
+                    skipped_count += 1
+                    continue
+
+                source_url = str(item.get("source_url") or "").strip()
+                display_name = str(item.get("title") or "Deliverable").strip()
+                file_type = str(
+                    item.get("file_type") or DeliveryPackageFile.FILE_OTHER
+                ).strip()
+                project_id = str(item.get("project_id") or "").strip()
+                session_id = str(item.get("session_id") or "").strip()
+
+                if not source_url or not project_id:
+                    skipped_count += 1
+                    continue
+
+                exists = DeliveryPackageFile.objects.filter(
+                    package=package,
+                    source_key=source_key,
+                    is_active=True,
+                ).exists()
+
+                if exists:
+                    skipped_count += 1
+                    continue
+
+                DeliveryPackageFile.objects.create(
+                    package=package,
+                    billing_session=invoice_by_id.get(session_id),
+                    project_id=project_id,
+                    file_type=file_type[:40],
+                    display_name=display_name[:255],
+                    source_url=source_url,
+                    source_key=source_key,
+                    order=package.files.count() + 1,
+                    is_active=True,
+                    created_by=request.user,
+                )
+
+                created_count += 1
+
+        if created_count:
+            if not can_publish_deliverables(request.user):
+                messages.success(
+                    request,
+                    f"Delivery package created with {created_count} file(s), but it was left as Draft because you do not have permission to publish packages.",
+                )
+            else:
+                package.publish(user=request.user)
+                package.save()
+
+                messages.success(
+                    request,
+                    f"Delivery package created and published with {created_count} file(s).",
+                )
+
+        if skipped_count:
+            messages.warning(
+                request,
+                f"{skipped_count} deliverable(s) were skipped because they were unavailable or duplicated.",
+            )
+
+        return redirect("client_deliverables:admin_package_list")
+
+    messages.error(request, "Invalid action.")
+    return redirect("facturacion:invoices")

@@ -78,4 +78,10 @@ urlpatterns = [
         name="admin_package_reopen",
     ),
     path("<uuid:pk>/edit/", views.admin_package_edit, name="admin_package_edit"),
+    path(
+        "from-invoices/",
+        views.admin_package_from_invoices,
+        name="admin_package_from_invoices",
+    ),
+    path("<uuid:pk>/delete/", views.admin_package_delete, name="admin_package_delete"),
 ]

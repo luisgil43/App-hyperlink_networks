@@ -73,8 +73,35 @@
 >
   Duplicate
 </button>
- <!-- Export XLSX (con los filtros actuales) -->
- <a
+
+<button
+  id="btn-create-delivery-link"
+  type="button"
+  class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+  disabled
+  title="Create a client delivery link from selected invoices"
+>
+  Create Delivery Link
+</button>
+
+<span
+  id="invoice-selection-counter"
+  class="hidden text-sm px-3 py-2 rounded-lg bg-gray-100 text-gray-700 border"
+>
+  0 selected
+</span>
+
+<button
+  id="btn-clear-invoice-selection"
+  type="button"
+  class="hidden px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50"
+  title="Clear selected invoices"
+>
+  Clear selection
+</button>
+
+<!-- Export XLSX (con los filtros actuales) -->
+<a
      href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
       class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
       title="Export all fields to Excel"
@@ -230,7 +257,15 @@
 <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
   <tr>
     <!-- Sin filtro Excel -->
-    <th class="p-2 border w-8"></th> <!-- Select -->
+    <th class="p-2 border w-8 text-center">
+  <input
+    type="checkbox"
+    id="invoice-select-visible"
+    class="w-4 h-4"
+    title="Select all visible invoices"
+    aria-label="Select all visible invoices"
+  >
+</th> <!-- Select -->
     <th class="p-2 border w-10"></th> <!-- Expand -->
 
     <th class="p-2 border text-left" data-excel-col data-excel-key="0">
@@ -370,11 +405,15 @@
 <td class="p-2 border text-center align-top">
   {% if not s.is_direct_discount %}
     <input
-      type="checkbox"
-      class="dup-select w-4 h-4"
-      value="{{ s.id }}"
-      aria-label="Select invoice {{ s.id }}"
-    />
+
+  type="checkbox"
+  class="dup-select invoice-select w-4 h-4"
+  value="{{ s.id }}"
+  data-invoice-id="{{ s.id }}"
+  data-project-id="{{ s.proyecto_id|default:'' }}"
+  data-client="{{ s.cliente|default:'' }}"
+  aria-label="Select invoice {{ s.id }}"
+/>
   {% else %}
     <!-- Sin checkbox. Muestra un lock/etiqueta para que el usuario entienda por qué no puede seleccionarlo -->
     <span
@@ -1928,44 +1967,158 @@ document.addEventListener('click', function(e){
 
 <script>
 (function () {
-  const topBtn = document.getElementById('btn-duplicate-top');
+  const STORAGE_KEY = 'invoiceDeliverySelection:' + location.pathname;
+
+  const duplicateBtn = document.getElementById('btn-duplicate-top');
+  const deliveryBtn = document.getElementById('btn-create-delivery-link');
+  const counter = document.getElementById('invoice-selection-counter');
+  const clearBtn = document.getElementById('btn-clear-invoice-selection');
+
+  function getSelectVisible() {
+    return document.getElementById('invoice-select-visible');
+  }
+
+  function readSelection() {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function saveSelection(set) {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set)));
+    } catch (_) {}
+  }
 
   function getChecks() {
-    return Array.from(document.querySelectorAll('input.dup-select[type="checkbox"]'));
+    return Array.from(document.querySelectorAll('input.invoice-select[type="checkbox"]'));
   }
 
-  function updateTopButton() {
+  function syncVisibleChecks() {
+    const selected = readSelection();
+
+    getChecks().forEach(chk => {
+      chk.checked = selected.has(String(chk.value));
+    });
+
+    syncMasterCheckbox();
+  }
+
+  function syncMasterCheckbox() {
+    const selectVisible = getSelectVisible();
+    if (!selectVisible) return;
+
     const checks = getChecks();
-    const selected = checks.filter(c => c.checked);
-    if (selected.length === 1) {
-      topBtn.disabled = false;
-      topBtn.dataset.selectedId = selected[0].value;
-      topBtn.title = `Duplicate / Split invoice #${selected[0].value}`;
-    } else {
-      topBtn.disabled = true;
-      delete topBtn.dataset.selectedId;
-      topBtn.title = "Duplicate / Split selected invoice";
+
+    if (!checks.length) {
+      selectVisible.checked = false;
+      selectVisible.indeterminate = false;
+      return;
     }
+
+    const checkedCount = checks.filter(chk => chk.checked).length;
+
+    selectVisible.checked = checkedCount === checks.length;
+    selectVisible.indeterminate = checkedCount > 0 && checkedCount < checks.length;
   }
 
-  // Selección única: al marcar uno, desmarca los demás
-  document.addEventListener('change', (e) => {
-    const chk = e.target.closest('input.dup-select[type="checkbox"]');
+  function updateButtons() {
+    const selected = readSelection();
+    const count = selected.size;
+
+    if (duplicateBtn) {
+      if (count === 1) {
+        const onlyId = Array.from(selected)[0];
+        duplicateBtn.disabled = false;
+        duplicateBtn.dataset.selectedId = onlyId;
+        duplicateBtn.title = `Duplicate / Split invoice #${onlyId}`;
+      } else {
+        duplicateBtn.disabled = true;
+        delete duplicateBtn.dataset.selectedId;
+
+        duplicateBtn.title = count > 1
+          ? "Duplicate / Split works with only one selected invoice."
+          : "Duplicate / Split selected invoice";
+      }
+    }
+
+    if (deliveryBtn) {
+      deliveryBtn.disabled = count === 0;
+      deliveryBtn.title = count
+        ? `Create delivery link with ${count} selected invoice(s)`
+        : "Select at least one invoice to create a delivery link";
+    }
+
+    if (counter) {
+      counter.textContent = `${count} selected`;
+      counter.classList.toggle('hidden', count === 0);
+    }
+
+    if (clearBtn) {
+      clearBtn.classList.toggle('hidden', count === 0);
+    }
+
+    syncMasterCheckbox();
+  }
+
+  function refreshSelectionUI() {
+    syncVisibleChecks();
+    updateButtons();
+  }
+
+  document.addEventListener('change', function (e) {
+    const chk = e.target.closest('input.invoice-select[type="checkbox"]');
     if (!chk) return;
 
+    const selected = readSelection();
+    const id = String(chk.value);
+
     if (chk.checked) {
-      getChecks().forEach(other => {
-        if (other !== chk) other.checked = false;
-      });
+      selected.add(id);
+    } else {
+      selected.delete(id);
     }
-    updateTopButton();
+
+    saveSelection(selected);
+    updateButtons();
   });
 
-  // Click en el botón superior => abre modal del seleccionado
-  topBtn?.addEventListener('click', () => {
-    const id = topBtn.dataset.selectedId;
+  document.addEventListener('change', function (e) {
+    const selectVisible = e.target.closest('#invoice-select-visible');
+    if (!selectVisible) return;
+
+    const selected = readSelection();
+    const checks = getChecks();
+
+    checks.forEach(chk => {
+      const id = String(chk.value);
+
+      if (selectVisible.checked) {
+        selected.add(id);
+        chk.checked = true;
+      } else {
+        selected.delete(id);
+        chk.checked = false;
+      }
+    });
+
+    saveSelection(selected);
+    updateButtons();
+  });
+
+  clearBtn?.addEventListener('click', function () {
+    saveSelection(new Set());
+    refreshSelectionUI();
+  });
+
+  duplicateBtn?.addEventListener('click', function () {
+    const id = duplicateBtn.dataset.selectedId;
     if (!id) return;
-    // Usa la función que ya definiste en tu template
+
     if (typeof openDuplicateModal === 'function') {
       openDuplicateModal(id);
     } else {
@@ -1973,11 +2126,26 @@ document.addEventListener('click', function(e){
     }
   });
 
-  // Inicial
-  document.addEventListener('DOMContentLoaded', updateTopButton);
+deliveryBtn?.addEventListener('click', function () {
+  const ids = Array.from(readSelection());
+  if (!ids.length) return;
+
+  const url = new URL('/client-deliverables/from-invoices/', window.location.origin);
+  url.searchParams.set('ids', ids.join(','));
+
+  // Limpia la selección antes de salir del listado.
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch (_) {}
+
+  window.location.href = url.toString();
+});
+
+  document.addEventListener('DOMContentLoaded', refreshSelectionUI);
+
+  window.refreshInvoiceSelectionUI = refreshSelectionUI;
 })();
 </script>
-
 <script>
 (function(){
   const modal  = document.getElementById('modal-split-delete');
@@ -2053,16 +2221,15 @@ document.addEventListener('click', function(e){
 </script>
 <script>
 (function () {
-  const select = document.getElementById('cantidad');
-  if (!select) return;
+  document.addEventListener('change', function (e) {
+    const select = e.target.closest('#cantidad');
+    if (!select) return;
 
-  select.addEventListener('change', function () {
     const url = new URL(window.location.href);
-    // setear cantidad nueva
+
     url.searchParams.set('cantidad', select.value);
-    // resetear a página 1 para que no se quede en una página fuera de rango
     url.searchParams.set('page', '1');
-    // recargar con los mismos filtros + nueva cantidad
+
     window.location.href = url.toString();
   });
 })();
@@ -2231,15 +2398,15 @@ document.addEventListener('click', function(e){
     }
   }
 
- function updateHeaderStates(){
-  activeFilters = loadFilters();
+  function updateHeaderStates(){
+    activeFilters = loadFilters();
 
-  zona.querySelectorAll('th[data-excel-col]').forEach(th => {
-    const key = th.dataset.excelKey;
-    const has = activeFilters[key] && activeFilters[key].size > 0;
-    th.classList.toggle('excel-col-filtered', !!has);
-  });
-}
+    zona.querySelectorAll('th[data-excel-col]').forEach(th => {
+      const key = th.dataset.excelKey;
+      const has = activeFilters[key] && activeFilters[key].size > 0;
+      th.classList.toggle('excel-col-filtered', !!has);
+    });
+  }
 
   function renderOptions(key){
     const globalVals = getExcelGlobal();
@@ -2269,15 +2436,18 @@ document.addEventListener('click', function(e){
 
     const selectAll = document.getElementById('excel-select-all');
     const opts = Array.from(optionsBox.querySelectorAll('.excel-opt'));
-    selectAll.checked = !selected || selected.size === values.length;
 
-    selectAll.addEventListener('change', () => {
-      opts.forEach(o => {
-        const row = o.closest('[data-option-label]');
-        if (row && row.style.display === 'none' && searchInput.value.trim()) return;
-        o.checked = selectAll.checked;
+    if (selectAll) {
+      selectAll.checked = !selected || selected.size === values.length;
+
+      selectAll.addEventListener('change', () => {
+        opts.forEach(o => {
+          const row = o.closest('[data-option-label]');
+          if (row && row.style.display === 'none' && searchInput.value.trim()) return;
+          o.checked = selectAll.checked;
+        });
       });
-    });
+    }
   }
 
   function filterOptionList(q){
@@ -2296,59 +2466,59 @@ document.addEventListener('click', function(e){
     btnApply.classList.toggle('cursor-not-allowed', btnApply.disabled);
   }
 
-function openPanel(th){
-  currentKey = th.dataset.excelKey;
-  titleEl.textContent = th.innerText.trim();
-  activeFilters = loadFilters();
-  renderOptions(currentKey);
+  function openPanel(th){
+    currentKey = th.dataset.excelKey;
+    titleEl.textContent = th.innerText.trim();
+    activeFilters = loadFilters();
+    renderOptions(currentKey);
 
-  const scrollBox = zona.querySelector('.overflow-x-auto');
-  const thRect = th.getBoundingClientRect();
-  const boxRect = scrollBox.getBoundingClientRect();
+    const scrollBox = zona.querySelector('.overflow-x-auto');
+    const thRect = th.getBoundingClientRect();
+    const boxRect = scrollBox ? scrollBox.getBoundingClientRect() : document.body.getBoundingClientRect();
 
-  panel.classList.remove('hidden');
+    panel.classList.remove('hidden');
 
-  const panelWidth = panel.offsetWidth || 260;
-  const panelHeight = panel.offsetHeight || 220;
+    const panelWidth = panel.offsetWidth || 260;
+    const panelHeight = panel.offsetHeight || 220;
 
-  let left = thRect.left;
-  let top  = thRect.bottom + 4;
+    let left = thRect.left;
+    let top  = thRect.bottom + 4;
 
-  const minLeft = boxRect.left + 8;
-  const maxLeft = boxRect.right - panelWidth - 8;
+    const minLeft = boxRect.left + 8;
+    const maxLeft = boxRect.right - panelWidth - 8;
 
-  if (left < minLeft) left = minLeft;
-  if (left > maxLeft) left = maxLeft;
+    if (left < minLeft) left = minLeft;
+    if (left > maxLeft) left = maxLeft;
 
-  const maxTop = window.innerHeight - panelHeight - 8;
-  if (top > maxTop) top = maxTop;
+    const maxTop = window.innerHeight - panelHeight - 8;
+    if (top > maxTop) top = maxTop;
 
-  panel.style.left = left + 'px';
-  panel.style.top  = top + 'px';
+    panel.style.left = left + 'px';
+    panel.style.top  = top + 'px';
 
-  searchInput.value = '';
-  filterOptionList('');
-  searchInput.focus();
-}
-
- function buildParams(resetPage=true){
-  const p = new URLSearchParams(location.search);
-
-  if (resetPage) p.set('page', '1');
-
-  const plain = {};
-  Object.entries(activeFilters).forEach(([k,v]) => {
-    if(v && v.size) plain[k] = Array.from(v);
-  });
-
-  if(Object.keys(plain).length){
-    p.set('excel_filters', JSON.stringify(plain));
-  }else{
-    p.delete('excel_filters');
+    searchInput.value = '';
+    filterOptionList('');
+    searchInput.focus();
   }
 
-  return p;
-}
+  function buildParams(resetPage=true){
+    const p = new URLSearchParams(location.search);
+
+    if (resetPage) p.set('page', '1');
+
+    const plain = {};
+    Object.entries(activeFilters).forEach(([k,v]) => {
+      if(v && v.size) plain[k] = Array.from(v);
+    });
+
+    if(Object.keys(plain).length){
+      p.set('excel_filters', JSON.stringify(plain));
+    }else{
+      p.delete('excel_filters');
+    }
+
+    return p;
+  }
 
   async function reloadWithParams(params){
     const url = `${location.pathname}?${params.toString()}`;
@@ -2372,7 +2542,14 @@ function openPanel(th){
 
     const pager = document.getElementById('pager');
     const newPager = doc.getElementById('pager');
-    if (pager && newPager) pager.innerHTML = newPager.innerHTML;
+
+    if (pager && newPager) {
+      pager.innerHTML = newPager.innerHTML;
+    }
+
+    if (typeof window.refreshInvoiceSelectionUI === 'function') {
+      window.refreshInvoiceSelectionUI();
+    }
   }
 
   function bindHeaders(){
@@ -2384,7 +2561,7 @@ function openPanel(th){
     });
   }
 
-   bindHeaders();
+  bindHeaders();
   updateHeaderStates();
 
   searchInput.addEventListener('input', () => filterOptionList(searchInput.value));
@@ -2409,6 +2586,7 @@ function openPanel(th){
     });
 
     const total = new Set(getExcelGlobal()[currentKey] || []);
+
     if(selected.size === 0 || selected.size === total.size){
       delete activeFilters[currentKey];
     }else{
@@ -2450,5 +2628,4 @@ function openPanel(th){
   });
 })();
 </script>
-
 {% endblock %}

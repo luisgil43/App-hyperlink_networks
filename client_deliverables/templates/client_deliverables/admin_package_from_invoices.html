@@ -1,0 +1,1172 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Create Delivery Package from Projects{% endblock %}
+
+{% block dashboard_content %}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<style>
+  .deliverable-box {
+    transition: all .18s ease;
+  }
+
+  .deliverable-box.is-selected {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, .18);
+  }
+
+  .deliverable-box:not(.is-selected) {
+    background: #f9fafb;
+  }
+
+  .type-filter-btn.is-full {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #2563eb;
+  }
+
+  .type-filter-btn.is-partial {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+  }
+
+  .type-filter-btn.is-empty {
+    background: #ffffff;
+    color: #374151;
+    border-color: #e5e7eb;
+  }
+
+  #id_requires_access_key,
+  #id_generate_access_key {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    min-width: 1.25rem !important;
+    min-height: 1.25rem !important;
+    flex-shrink: 0 !important;
+    accent-color: #2563eb;
+  }
+
+  .flatpickr-calendar {
+    border-radius: 22px !important;
+    overflow: hidden !important;
+    border: 1px solid #e5e7eb !important;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18) !important;
+    font-family: inherit !important;
+  }
+
+  .flatpickr-months {
+    background: #2563eb !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .flatpickr-current-month,
+  .flatpickr-current-month .flatpickr-monthDropdown-months,
+  .flatpickr-current-month input.cur-year {
+    color: white !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-monthDropdown-months {
+    background: #2563eb !important;
+  }
+
+  .flatpickr-weekdays {
+    background: #eff6ff !important;
+  }
+
+  span.flatpickr-weekday {
+    color: #1d4ed8 !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-day {
+    border-radius: 12px !important;
+  }
+
+  .flatpickr-day.selected,
+  .flatpickr-day.startRange,
+  .flatpickr-day.endRange {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: white !important;
+    font-weight: 800 !important;
+  }
+
+  .flatpickr-day.today {
+    border-color: #2563eb !important;
+    color: #1d4ed8 !important;
+    font-weight: 800 !important;
+  }
+</style>
+
+<div class="w-full max-w-none mx-0 space-y-6">
+
+  <!-- Header -->
+  <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+    <a href="{% url 'facturacion:invoices' %}"
+       class="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 font-semibold">
+      ← Back to projects
+    </a>
+
+    <div class="mt-4 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+      <div class="min-w-0">
+        <div class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold mb-3">
+          <span>📦</span>
+          <span>Project delivery flow</span>
+        </div>
+
+        <h1 class="text-3xl font-extrabold text-gray-900">
+          Create Delivery Package from Projects
+        </h1>
+
+        <p class="text-gray-500 mt-2 max-w-3xl">
+          Select the deliverables you want to send to the client, then configure the secure package.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class="px-3 py-1 rounded-full bg-green-50 text-green-700 font-bold">
+          Selected projects
+        </span>
+        <span class="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold">
+          Fiber / Cable aware
+        </span>
+        <span class="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-bold">
+          Secure client link
+        </span>
+      </div>
+    </div>
+  </div>
+
+  {% if step == "select_files" %}
+    <form method="post" class="space-y-6" id="invoice-delivery-select-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="review_settings">
+      <input type="hidden" name="invoice_ids" value="{{ invoice_ids_csv }}">
+
+      <!-- Step 1 -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-extrabold shrink-0">
+            1
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+              <div>
+                <h2 class="text-xl font-extrabold text-gray-900">Select deliverables</h2>
+                <p class="text-sm text-gray-500 mt-1">
+                  Choose which files will be included in the client delivery link.
+                </p>
+              </div>
+
+              <div id="selected-summary"
+                   class="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-100 text-gray-700 text-sm font-bold border w-full sm:w-auto">
+                0 selected
+              </div>
+            </div>
+
+            <div class="mt-5 grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+              <!-- Main global actions -->
+              <div class="xl:col-span-4 rounded-3xl border border-gray-100 bg-gray-50 p-4">
+                <h3 class="text-sm font-extrabold text-gray-900">
+                  Global selection
+                </h3>
+                <p class="text-xs text-gray-500 mt-1">
+                  Apply the selection to all available files.
+                </p>
+
+                <div class="mt-4 flex flex-col sm:flex-row xl:flex-col 2xl:flex-row gap-2">
+                  <button type="button"
+                          id="select-all-deliverables"
+                          class="inline-flex items-center justify-center px-4 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow">
+                    Select all
+                  </button>
+
+                  <button type="button"
+                          id="clear-all-deliverables"
+                          class="inline-flex items-center justify-center px-4 py-3 rounded-2xl bg-white hover:bg-gray-100 text-gray-700 text-sm font-bold border">
+                    Clear all
+                  </button>
+                </div>
+              </div>
+
+              <!-- Type actions -->
+              <div class="xl:col-span-8 rounded-3xl border border-gray-100 bg-gray-50 p-4">
+                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                  <div>
+                    <h3 class="text-sm font-extrabold text-gray-900">
+                      Apply selection by deliverable type
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                      Select or unselect the same type across every selected Project ID.
+                    </p>
+                  </div>
+                </div>
+
+                <div id="deliverable-type-actions"
+                     class="mt-4 flex flex-wrap gap-2">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Available files -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 overflow-hidden">
+        <div class="p-6 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <h2 class="text-xl font-extrabold text-gray-900">Available files</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Files are grouped by Project ID. Select only what should be sent to the client.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-700 font-bold">
+              {{ allowed_invoices|length }} project{{ allowed_invoices|length|pluralize }}
+            </span>
+          </div>
+        </div>
+
+        {% if grouped_available %}
+          <div class="divide-y divide-gray-100">
+            {% for project_id, items in grouped_available.items %}
+              <div class="p-6">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 class="text-lg font-extrabold text-gray-900">
+                      Project ID: {{ project_id }}
+                    </h3>
+                    <p class="text-sm text-gray-500">
+                      {{ items|length }} available file{{ items|length|pluralize }}
+                    </p>
+                  </div>
+
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button"
+                            class="project-select-all inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-100"
+                            data-project-id="{{ project_id }}">
+                      Select project files
+                    </button>
+
+                    <button type="button"
+                            class="project-clear-all inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-bold border"
+                            data-project-id="{{ project_id }}">
+                      Clear project files
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {% for item in items %}
+                    <label class="deliverable-box block border rounded-3xl p-4 cursor-pointer transition"
+                           data-deliverable-card
+                           data-project-id="{{ project_id }}"
+                           data-file-type="{{ item.file_type }}">
+                      <div class="flex items-start gap-3">
+                        <input type="checkbox"
+                               name="selected_deliverables"
+                               value="{{ item.source_key }}"
+                               class="deliverable-check mt-1 w-5 h-5 shrink-0"
+                               data-project-id="{{ project_id }}"
+                               data-file-type="{{ item.file_type }}"
+                               data-file-title="{{ item.title }}"
+                               checked>
+
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-start gap-2">
+                            <span class="text-xl shrink-0">{{ item.icon }}</span>
+
+                            <div class="min-w-0">
+                              <h4 class="font-extrabold text-gray-900 break-words">
+                                {{ item.title }}
+                              </h4>
+
+                              <p class="text-xs text-gray-500 mt-1 leading-relaxed">
+                                {{ item.description }}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div class="flex flex-wrap gap-2 mt-3">
+                            <span class="px-2 py-1 rounded-full bg-white text-gray-700 text-[11px] font-bold border">
+                              {{ item.file_type }}
+                            </span>
+
+                            {% if item.project_type %}
+                              <span class="px-2 py-1 rounded-full bg-white text-gray-700 text-[11px] font-bold border">
+                                {{ item.project_type }}
+                              </span>
+                            {% endif %}
+                          </div>
+
+                          <div class="mt-4 flex flex-wrap gap-2">
+                            <a href="{{ item.source_url }}"
+                               target="_blank"
+                               rel="noopener"
+                               class="inline-flex bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-xl text-xs font-bold"
+                               onclick="event.stopPropagation();">
+                              Preview
+                            </a>
+
+                            <span class="selected-pill hidden inline-flex bg-blue-100 text-blue-700 px-3 py-2 rounded-xl text-xs font-bold">
+                              Selected
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="p-10 text-center">
+            <div class="text-5xl mb-3">📁</div>
+            <h3 class="text-xl font-extrabold text-gray-900">No deliverables found</h3>
+            <p class="text-sm text-gray-500 mt-2">
+              The selected projects do not have available deliverables.
+            </p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Sticky actions -->
+      <div class="sticky bottom-0 bg-gray-100/95 backdrop-blur py-4 z-20">
+        <div class="bg-white rounded-3xl shadow border border-gray-100 p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div class="text-sm text-gray-500">
+            After selecting the files, you will configure the package settings.
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <a href="{% url 'facturacion:invoices' %}"
+               class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
+              Cancel
+            </a>
+
+            <button type="submit"
+                    id="continue-to-settings-btn"
+                    class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow disabled:opacity-50 disabled:cursor-not-allowed">
+              Continue to package settings
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if step == "settings" %}
+    <form method="post" class="space-y-6" id="invoice-delivery-settings-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create_package">
+      <input type="hidden" name="invoice_ids" value="{{ invoice_ids_csv }}">
+
+      {% for key in selected_keys %}
+        <input type="hidden" name="selected_deliverables" value="{{ key }}">
+      {% endfor %}
+
+      {% if form.non_field_errors %}
+        <div class="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 text-sm font-semibold">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      <!-- Selected summary -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div class="w-12 h-12 rounded-2xl bg-green-100 text-green-700 flex items-center justify-center font-extrabold shrink-0">
+            ✓
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+              <div>
+                <h2 class="text-xl font-extrabold text-gray-900">Selected files</h2>
+                <p class="text-sm text-gray-500 mt-1">
+                  These files will be included in the package.
+                </p>
+              </div>
+
+              <button type="submit"
+        name="action"
+        value="back_to_files"
+        class="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold w-full sm:w-auto">
+  ← Back to files
+</button>
+            </div>
+
+            <div class="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {% for item in selected_items %}
+                <div class="border rounded-2xl bg-gray-50 p-4">
+                  <div class="flex items-start gap-2">
+                    <span class="text-lg">{{ item.icon }}</span>
+                    <div class="min-w-0">
+                      <div class="font-extrabold text-gray-900 break-words">{{ item.title }}</div>
+                      <div class="text-xs text-gray-500 mt-1">Project ID: {{ item.project_id }}</div>
+                      <div class="text-xs text-gray-500">Type: {{ item.file_type }}</div>
+                    </div>
+                  </div>
+                </div>
+              {% empty %}
+                <div class="col-span-full rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+                  No selected files were received. Go back and select at least one deliverable.
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Package info -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-extrabold shrink-0">
+            2
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-extrabold text-gray-900">Package information</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Use a clear name so your team can identify this delivery later.
+            </p>
+
+            <div class="mt-5 space-y-5">
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Package name</label>
+                {{ form.name }}
+                {% for error in form.name.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Internal notes / message</label>
+                {{ form.message }}
+                <p class="text-xs text-gray-500 mt-1">
+                  Optional. This can help your team understand what this package is for.
+                </p>
+                {% for error in form.message.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Expiration -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold shrink-0">
+            3
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-extrabold text-gray-900">Expiration</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Choose whether the link expires or remains available without an expiration date.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Expiration mode</label>
+                {{ form.expiration_mode }}
+                {% for error in form.expiration_mode.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Expires in days</label>
+                {{ form.expiration_days }}
+                <p class="text-xs text-gray-500 mt-1">Example: 7, 15, 30.</p>
+                {% for error in form.expiration_days.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Specific expiration date</label>
+                <div class="relative">
+                  {{ form.expires_at }}
+                  <div class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-gray-400">
+                    📅
+                  </div>
+                </div>
+                <p id="expiration-auto-note" class="text-xs text-gray-500 mt-1">
+                  This date is calculated automatically when using “Expires in days”.
+                </p>
+                {% for error in form.expires_at.errors %}
+                  <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="mt-5 bg-blue-50 border border-blue-100 rounded-2xl p-4 text-sm text-blue-800">
+              <b>Tip:</b> Use “No expiration” for permanent portal access, or “Expires in days” for temporary links.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Security -->
+      <div class="bg-white rounded-3xl shadow border border-gray-100 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-extrabold shrink-0">
+            4
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-extrabold text-gray-900">Security</h2>
+            <p class="text-sm text-gray-500 mt-1">
+              Protect the link with an access key. The key must be sent separately and never inside the same email as the link.
+            </p>
+
+            <div class="mt-5 space-y-4">
+              <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
+                {{ form.requires_access_key }}
+                <div>
+                  <div class="font-bold text-gray-900">Require access key</div>
+                  <div class="text-xs text-gray-500">The client must enter a key before seeing files.</div>
+                </div>
+              </label>
+              {% for error in form.requires_access_key.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+
+              <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-4 cursor-pointer">
+                {{ form.generate_access_key }}
+                <div>
+                  <div class="font-bold text-gray-900">Generate numeric access key automatically</div>
+                  <div class="text-xs text-gray-500">The key will be available to copy after creating the package.</div>
+                </div>
+              </label>
+              {% for error in form.generate_access_key.errors %}
+                <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+              {% endfor %}
+
+              {% if recommended_access_key %}
+                <div id="recommended-key-box"
+                     class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                    <div>
+                      <p class="text-sm font-extrabold text-blue-950">Recommended access key</p>
+                      <p class="text-xs text-blue-700 mt-1">
+                        This is the key that will be saved if automatic generation is selected.
+                      </p>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                      {{ form.recommended_access_key }}
+
+                      <input id="recommended-access-key-preview"
+                             value="{{ recommended_access_key }}"
+                             readonly
+                             type="password"
+                             class="secret-input w-full xl:w-64 border border-blue-300 rounded-2xl px-4 py-3 font-mono bg-white text-lg font-bold text-blue-950">
+
+                      <button type="button"
+                              data-toggle-secret="recommended-access-key-preview"
+                              class="toggle-secret-btn bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 px-4 py-3 rounded-2xl text-sm font-bold shadow">
+                        👁️
+                      </button>
+
+                      <button type="button"
+                              data-copy-target="recommended-access-key-preview"
+                              class="copy-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow">
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                {{ form.recommended_access_key }}
+              {% endif %}
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-bold text-gray-700 mb-2">Custom access key</label>
+                  {{ form.custom_access_key }}
+                  <p class="text-xs text-gray-500 mt-1">
+                    Optional. Leave empty if auto-generate is selected.
+                  </p>
+                  {% for error in form.custom_access_key.errors %}
+                    <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                  {% endfor %}
+                </div>
+
+                <div>
+                  <label class="block text-sm font-bold text-gray-700 mb-2">Access key hint</label>
+                  {{ form.access_key_hint }}
+                  <p class="text-xs text-gray-500 mt-1">Do not reveal the key here.</p>
+                  {% for error in form.access_key_hint.errors %}
+                    <p class="text-xs text-red-600 mt-1 font-semibold">{{ error }}</p>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+                <b>Security rule:</b> the email will include only the link. The access key must be sent through another channel.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sticky settings actions -->
+      <div class="sticky bottom-0 bg-gray-100/95 backdrop-blur py-4 z-20">
+        <div class="bg-white rounded-3xl shadow border border-gray-100 p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div class="text-sm text-gray-500">
+            Create the package with the selected deliverables.
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <button type="submit"
+
+        name="action"
+
+        value="back_to_files"
+
+        class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold">
+
+  Back to files
+
+</button>
+
+            <button type="submit"
+                    name="action"
+                    value="create_package"
+                    class="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-bold shadow">
+              Create and publish package
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<script>
+(function(){
+  const selectAllBtn = document.getElementById("select-all-deliverables");
+  const clearAllBtn = document.getElementById("clear-all-deliverables");
+  const typeActionsBox = document.getElementById("deliverable-type-actions");
+  const summary = document.getElementById("selected-summary");
+  const continueBtn = document.getElementById("continue-to-settings-btn");
+
+  function checks() {
+    return Array.from(document.querySelectorAll(".deliverable-check"));
+  }
+
+  function normalizeType(value) {
+    return String(value || "other").trim() || "other";
+  }
+
+  function humanizeType(value) {
+    const raw = normalizeType(value);
+
+    return raw
+      .replace(/_/g, " ")
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, function(letter){
+        return letter.toUpperCase();
+      });
+  }
+
+  function syncCardState() {
+    const allChecks = checks();
+    const selectedCount = allChecks.filter(function(chk){
+      return chk.checked;
+    }).length;
+
+    allChecks.forEach(function(chk){
+      const card = chk.closest("[data-deliverable-card]");
+      if (!card) return;
+
+      const pill = card.querySelector(".selected-pill");
+
+      if (chk.checked) {
+        card.classList.add("is-selected");
+        if (pill) pill.classList.remove("hidden");
+      } else {
+        card.classList.remove("is-selected");
+        if (pill) pill.classList.add("hidden");
+      }
+    });
+
+    if (summary) {
+      summary.textContent = selectedCount + " selected";
+      summary.classList.toggle("bg-blue-50", selectedCount > 0);
+      summary.classList.toggle("text-blue-700", selectedCount > 0);
+      summary.classList.toggle("bg-gray-100", selectedCount === 0);
+      summary.classList.toggle("text-gray-700", selectedCount === 0);
+    }
+
+    if (continueBtn) {
+      continueBtn.disabled = selectedCount === 0;
+    }
+
+    syncTypeButtonsState();
+  }
+
+  function selectByType(fileType, checked) {
+    const targetType = normalizeType(fileType);
+
+    checks().forEach(function(chk){
+      if (normalizeType(chk.dataset.fileType) === targetType) {
+        chk.checked = checked;
+      }
+    });
+
+    syncCardState();
+  }
+
+  function selectByProject(projectId, checked) {
+    const targetProject = String(projectId || "").trim();
+
+    checks().forEach(function(chk){
+      if (String(chk.dataset.projectId || "").trim() === targetProject) {
+        chk.checked = checked;
+      }
+    });
+
+    syncCardState();
+  }
+
+  function syncTypeButtonsState() {
+    if (!typeActionsBox) return;
+
+    const buttons = Array.from(typeActionsBox.querySelectorAll("[data-select-type]"));
+
+    buttons.forEach(function(btn){
+      const type = normalizeType(btn.dataset.selectType);
+      const typeChecks = checks().filter(function(chk){
+        return normalizeType(chk.dataset.fileType) === type;
+      });
+
+      const total = typeChecks.length;
+      const selected = typeChecks.filter(function(chk){
+        return chk.checked;
+      }).length;
+
+      const counter = btn.querySelector("[data-type-counter]");
+      if (counter) {
+        counter.textContent = selected + "/" + total;
+      }
+
+      btn.classList.remove("is-full", "is-partial", "is-empty");
+
+      if (total > 0 && selected === total) {
+        btn.classList.add("is-full");
+      } else if (selected > 0) {
+        btn.classList.add("is-partial");
+      } else {
+        btn.classList.add("is-empty");
+      }
+    });
+  }
+
+  function buildTypeActions() {
+    if (!typeActionsBox) return;
+
+    const typeMap = new Map();
+
+    checks().forEach(function(chk){
+      const type = normalizeType(chk.dataset.fileType);
+
+      if (!typeMap.has(type)) {
+        typeMap.set(type, {
+          type: type,
+          label: humanizeType(type),
+          count: 0
+        });
+      }
+
+      typeMap.get(type).count += 1;
+    });
+
+    typeActionsBox.innerHTML = "";
+
+    if (!typeMap.size) {
+      typeActionsBox.innerHTML = `
+        <span class="text-xs text-gray-500">
+          No deliverable types available.
+        </span>
+      `;
+      return;
+    }
+
+    Array.from(typeMap.values())
+      .sort(function(a, b){
+        return a.label.localeCompare(b.label);
+      })
+      .forEach(function(item){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.dataset.selectType = item.type;
+        btn.className = "type-filter-btn is-empty inline-flex items-center gap-2 px-4 py-2 rounded-2xl border text-sm font-bold transition hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200";
+
+        btn.innerHTML = `
+          <span>Select all ${item.label}</span>
+          <span data-type-counter class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${item.count}/${item.count}</span>
+        `;
+
+        btn.addEventListener("click", function(){
+          const typeChecks = checks().filter(function(chk){
+            return normalizeType(chk.dataset.fileType) === item.type;
+          });
+
+          const allSelected = typeChecks.length > 0 && typeChecks.every(function(chk){
+            return chk.checked;
+          });
+
+          selectByType(item.type, !allSelected);
+        });
+
+        typeActionsBox.appendChild(btn);
+      });
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", function(){
+      checks().forEach(function(chk){
+        chk.checked = true;
+      });
+
+      syncCardState();
+    });
+  }
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener("click", function(){
+      checks().forEach(function(chk){
+        chk.checked = false;
+      });
+
+      syncCardState();
+    });
+  }
+
+  document.addEventListener("click", function(e){
+    const selectProjectBtn = e.target.closest(".project-select-all");
+    if (selectProjectBtn) {
+      selectByProject(selectProjectBtn.dataset.projectId, true);
+      return;
+    }
+
+    const clearProjectBtn = e.target.closest(".project-clear-all");
+    if (clearProjectBtn) {
+      selectByProject(clearProjectBtn.dataset.projectId, false);
+      return;
+    }
+  });
+
+  document.addEventListener("change", function(e){
+    const chk = e.target.closest(".deliverable-check");
+    if (!chk) return;
+
+    syncCardState();
+  });
+
+  buildTypeActions();
+  syncCardState();
+})();
+</script>
+
+<script>
+(function(){
+  function copyElementValue(targetId, btn) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+
+    const oldType = el.getAttribute("type");
+
+    try {
+      if (oldType === "password") {
+        el.setAttribute("type", "text");
+      }
+
+      el.select();
+      el.setSelectionRange(0, 999999);
+      document.execCommand("copy");
+
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function(){
+          btn.textContent = old;
+        }, 1200);
+      }
+    } catch (_) {
+      if (oldType === "password") {
+        el.setAttribute("type", "password");
+      }
+      alert("Could not copy. Please copy manually.");
+    }
+  }
+
+  document.addEventListener("click", function(e){
+    const copyBtn = e.target.closest(".copy-btn");
+
+    if (copyBtn) {
+      const targetId = copyBtn.dataset.copyTarget;
+      copyElementValue(targetId, copyBtn);
+      return;
+    }
+
+    const toggleBtn = e.target.closest(".toggle-secret-btn");
+
+    if (toggleBtn) {
+      const targetId = toggleBtn.dataset.toggleSecret;
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      if (el.getAttribute("type") === "password") {
+        el.setAttribute("type", "text");
+        toggleBtn.textContent = "🙈";
+      } else {
+        el.setAttribute("type", "password");
+        toggleBtn.textContent = "👁️";
+      }
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  const requiresKeyField = document.getElementById("id_requires_access_key");
+  const generateKeyField = document.getElementById("id_generate_access_key");
+  const customKeyField = document.getElementById("id_custom_access_key");
+  const recommendedBox = document.getElementById("recommended-key-box");
+
+  function syncSecurityState() {
+    if (!requiresKeyField || !generateKeyField) return;
+
+    if (generateKeyField.checked) {
+      requiresKeyField.checked = true;
+    }
+
+    if (customKeyField && customKeyField.value.trim()) {
+      requiresKeyField.checked = true;
+      generateKeyField.checked = false;
+    }
+
+    if (recommendedBox) {
+      recommendedBox.style.display = generateKeyField.checked ? "block" : "none";
+    }
+  }
+
+  if (requiresKeyField) {
+    requiresKeyField.addEventListener("change", function(){
+      if (!requiresKeyField.checked && generateKeyField) {
+        generateKeyField.checked = false;
+      }
+
+      syncSecurityState();
+    });
+  }
+
+  if (generateKeyField) {
+    generateKeyField.addEventListener("change", syncSecurityState);
+  }
+
+  if (customKeyField) {
+    customKeyField.addEventListener("input", syncSecurityState);
+  }
+
+  syncSecurityState();
+})();
+</script>
+
+<script>
+(function(){
+  const modeField = document.getElementById("id_expiration_mode");
+  const daysField = document.getElementById("id_expiration_days");
+  const dateField = document.getElementById("id_expires_at");
+  const note = document.getElementById("expiration-auto-note");
+
+  if (!modeField || !daysField || !dateField) return;
+
+  let expirationPicker = null;
+
+  function pad(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  function toDateTimeValue(date) {
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  }
+
+  function calculateExpirationDateFromDays() {
+    const days = parseInt(daysField.value || "0", 10);
+
+    if (!days || days < 1) {
+      if (expirationPicker) {
+        expirationPicker.clear();
+      } else {
+        dateField.value = "";
+      }
+      return;
+    }
+
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+
+    if (expirationPicker) {
+      expirationPicker.setDate(date, true);
+    } else {
+      dateField.value = toDateTimeValue(date);
+    }
+  }
+
+  expirationPicker = flatpickr(dateField, {
+    enableTime: true,
+    dateFormat: "Y-m-d H:i",
+    altInput: true,
+    altFormat: "F j, Y - h:i K",
+    time_24hr: false,
+    minuteIncrement: 5,
+    allowInput: true,
+    disableMobile: true
+  });
+
+  function setFieldDisabled(field, disabled) {
+    field.disabled = disabled;
+
+    if (field._flatpickr && field._flatpickr.altInput) {
+      field._flatpickr.altInput.disabled = disabled;
+    }
+
+    const visibleField = field._flatpickr && field._flatpickr.altInput
+      ? field._flatpickr.altInput
+      : field;
+
+    if (disabled) {
+      visibleField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+    } else {
+      visibleField.classList.remove("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+    }
+  }
+
+  function applyExpirationMode() {
+    const mode = modeField.value;
+
+    if (mode === "none") {
+      daysField.value = "";
+
+      if (expirationPicker) {
+        expirationPicker.clear();
+      } else {
+        dateField.value = "";
+      }
+
+      daysField.disabled = true;
+      setFieldDisabled(dateField, true);
+
+      daysField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      if (note) {
+        note.textContent = "No expiration selected. Days and specific date are cleared.";
+      }
+
+      return;
+    }
+
+    if (mode === "days") {
+      daysField.disabled = false;
+      setFieldDisabled(dateField, false);
+
+      daysField.classList.remove("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      calculateExpirationDateFromDays();
+
+      if (note) {
+        note.textContent = "This date is calculated automatically from the number of days.";
+      }
+
+      return;
+    }
+
+    if (mode === "date") {
+      daysField.value = "";
+      daysField.disabled = true;
+      setFieldDisabled(dateField, false);
+
+      daysField.classList.add("bg-gray-100", "text-gray-400", "cursor-not-allowed");
+
+      if (note) {
+        note.textContent = "Select the exact date and time when the link should expire.";
+      }
+    }
+  }
+
+  modeField.addEventListener("change", applyExpirationMode);
+
+  daysField.addEventListener("input", function(){
+    if (modeField.value === "days") {
+      calculateExpirationDateFromDays();
+    }
+  });
+
+  applyExpirationMode();
+})();
+</script>
+
+<script>
+(function(){
+  document.addEventListener("submit", function(e){
+    const form = e.target;
+    if (!form || !form.matches("form")) return;
+
+    const btn = e.submitter || form.querySelector("button[type='submit']");
+    if (!btn) return;
+
+    if (btn.name) {
+      let hidden = form.querySelector(`input[type="hidden"][name="${CSS.escape(btn.name)}"][data-submit-clone="1"]`);
+
+      if (!hidden) {
+        hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.name = btn.name;
+        hidden.dataset.submitClone = "1";
+        form.appendChild(hidden);
+      }
+
+      hidden.value = btn.value || "";
+    }
+
+    if (!btn.dataset.originalText) {
+      btn.dataset.originalText = btn.textContent.trim();
+    }
+
+    btn.textContent = "Working...";
+    btn.disabled = true;
+    btn.classList.add("opacity-70", "cursor-not-allowed");
+  }, true);
+})();
+</script>
+
+{% endblock %}

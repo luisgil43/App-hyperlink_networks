@@ -3222,3 +3222,5 @@ def invoices_export(request):
     resp["Content-Disposition"] = f'attachment; filename="invoices_{now_str}.xlsx"'
     wb.save(resp)
     return resp
+
+

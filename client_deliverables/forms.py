@@ -12,6 +12,11 @@ class DeliveryPackageForm(forms.ModelForm):
         initial=True,
         label="Generate new numeric access key",
         help_text="The key will be shown after saving and will remain available to copy.",
+        widget=forms.CheckboxInput(
+            attrs={
+                "class": "h-5 w-5 rounded border-gray-300 text-blue-600",
+            }
+        ),
     )
 
     custom_access_key = forms.CharField(

@@ -81,4 +81,5 @@ urlpatterns = [
         views_split.delete_split_child,
         name="invoices_split_delete",
     ),
+    
 ]

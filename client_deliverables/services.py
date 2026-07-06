@@ -80,17 +80,41 @@ def find_project_sessions(project_id):
     if not project_id:
         return SesionBilling.objects.none()
 
-    return SesionBilling.objects.filter(
-        Q(proyecto_id__iexact=project_id) | Q(proyecto__iexact=project_id)
-    ).order_by("-creado_en")
+    valid_finance_statuses = [
+        "discount_applied",
+        "sent",
+        "in_review",
+        "pending",
+        "rejected",
+        "paid",
+    ]
+
+    return (
+        SesionBilling.objects.filter(
+            Q(proyecto_id__iexact=project_id) | Q(proyecto__iexact=project_id)
+        )
+        .filter(
+            Q(finance_status__in=valid_finance_statuses)
+            | Q(finance_status="review_discount")
+        )
+        .exclude(finance_status__isnull=True)
+        .exclude(finance_status="")
+        .exclude(is_direct_discount=True)
+        .order_by("-creado_en")
+    )
 
 
 def get_project_delivery_status(user, project_id):
     """
+
     Valida Project ID:
+
     - acceso por proyecto
-    - existencia
-    - estado aprobado supervisor/superior
+
+    - existencia dentro del flujo de invoices/finance
+
+    - estado operativo aprobado supervisor/PM
+
     """
 
     project_id = str(project_id or "").strip()
