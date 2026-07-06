@@ -71,6 +71,30 @@
     font-weight: 800 !important;
     color: #111827 !important;
   }
+
+    .flatpickr-custom-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 30px;
+    height: 30px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.95);
+    color: #1d4ed8;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 28px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+    cursor: pointer;
+    z-index: 50;
+  }
+
+  .flatpickr-custom-close:hover {
+    background: #ffffff;
+    color: #dc2626;
+  }
 </style>
 
 <div class="max-w-5xl mx-auto space-y-6">
@@ -536,7 +560,44 @@
     }
   }
 
-  expirationPicker = flatpickr(dateField, {
+  function closeFlatpickrOnOutsideClick(event) {
+    if (!expirationPicker || !expirationPicker.isOpen) return;
+
+    const calendar = expirationPicker.calendarContainer;
+    const input = expirationPicker.input;
+    const altInput = expirationPicker.altInput;
+    const target = event.target;
+
+    if (calendar && calendar.contains(target)) return;
+    if (input && input.contains(target)) return;
+    if (altInput && altInput.contains(target)) return;
+
+    expirationPicker.close();
+  }
+
+  function addFlatpickrCloseButton(instance) {
+    if (!instance || !instance.calendarContainer) return;
+
+    if (instance.calendarContainer.querySelector(".flatpickr-custom-close")) {
+      return;
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "flatpickr-custom-close";
+    closeBtn.innerHTML = "×";
+    closeBtn.setAttribute("aria-label", "Close calendar");
+
+    closeBtn.addEventListener("click", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      instance.close();
+    });
+
+    instance.calendarContainer.appendChild(closeBtn);
+  }
+
+    expirationPicker = flatpickr(dateField, {
     enableTime: true,
     dateFormat: "Y-m-d H:i",
     altInput: true,
@@ -545,6 +606,22 @@
     minuteIncrement: 5,
     allowInput: true,
     disableMobile: true,
+    closeOnSelect: false,
+
+    onOpen: function(selectedDates, dateStr, instance) {
+      addFlatpickrCloseButton(instance);
+
+      setTimeout(function() {
+        document.addEventListener("mousedown", closeFlatpickrOnOutsideClick, true);
+        document.addEventListener("touchstart", closeFlatpickrOnOutsideClick, true);
+      }, 0);
+    },
+
+    onClose: function(selectedDates, dateStr, instance) {
+      document.removeEventListener("mousedown", closeFlatpickrOnOutsideClick, true);
+      document.removeEventListener("touchstart", closeFlatpickrOnOutsideClick, true);
+    },
+
     locale: {
       firstDayOfWeek: 1,
       weekdays: {
