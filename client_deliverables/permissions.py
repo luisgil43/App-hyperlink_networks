@@ -107,6 +107,7 @@ def get_user_allowed_project_keys(user):
     for p in proyectos_user:
         nombre = (getattr(p, "nombre", "") or "").strip()
         codigo = (getattr(p, "codigo", "") or "").strip()
+        project_pk = str(p.id).strip()
 
         if nombre:
             allowed_keys.add(nombre)
@@ -116,7 +117,9 @@ def get_user_allowed_project_keys(user):
             allowed_keys.add(str(codigo).strip())
             allowed_keys.add(str(codigo).strip().lower())
 
-        allowed_keys.add(str(p.id).strip())
+        if project_pk:
+            allowed_keys.add(project_pk)
+            allowed_keys.add(project_pk.lower())
 
     return allowed_keys
 
@@ -182,9 +185,11 @@ def filter_delivery_packages_by_user(qs, user):
     """
     Filtra la lista de paquetes según acceso por proyecto.
 
-    Admin/historial: ve todo.
-    Usuario normal: ve paquetes con archivos de sus proyectos.
-    Draft sin archivos: solo si lo creó él.
+    Regla segura:
+    - Admin/historial: ve todo.
+    - Usuario normal: solo ve paquetes donde TODOS los Project IDs activos
+      del paquete pertenecen a sus proyectos permitidos.
+    - Draft sin archivos: solo si lo creó él.
     """
     if not user or not user.is_authenticated:
         return qs.none()
@@ -198,17 +203,46 @@ def filter_delivery_packages_by_user(qs, user):
     allowed_keys = get_user_allowed_project_keys(user)
 
     if not allowed_keys:
-        return qs.filter(created_by=user, files__isnull=True)
+        return qs.filter(created_by=user, files__isnull=True).distinct()
 
     allowed_variants = set()
 
     for key in allowed_keys:
         key = str(key or "").strip()
+
         if key:
             allowed_variants.add(key)
             allowed_variants.add(key.lower())
 
-    return qs.filter(
-        Q(files__project_id__in=allowed_variants)
-        | Q(created_by=user, files__isnull=True)
-    ).distinct()
+    package_ids = []
+
+    packages = qs.prefetch_related("files")
+
+    for package in packages:
+        files = list(package.files.filter(is_active=True).only("project_id"))
+
+        if not files:
+            if package.created_by_id == user.id:
+                package_ids.append(package.id)
+            continue
+
+        can_access_all = True
+
+        for f in files:
+            project_id = str(getattr(f, "project_id", "") or "").strip()
+
+            if not project_id:
+                can_access_all = False
+                break
+
+            if (
+                project_id not in allowed_variants
+                and project_id.lower() not in allowed_variants
+            ):
+                can_access_all = False
+                break
+
+        if can_access_all:
+            package_ids.append(package.id)
+
+    return qs.filter(id__in=package_ids).distinct()

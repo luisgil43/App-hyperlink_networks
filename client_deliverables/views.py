@@ -719,6 +719,65 @@ def _mark_package_unlocked(request, package):
     request.session[f"delivery_package_unlocked_{package.id}"] = True
     request.session.modified = True
 
+def _render_public_package_unavailable(request, package, reason="unavailable"):
+    title = "Delivery link unavailable"
+    message = "This delivery link is no longer available."
+    icon = "⚠️"
+
+    if reason == "revoked":
+        title = "Delivery link revoked"
+        message = (
+            "This secure delivery link has been revoked and is no longer available. "
+            "Please contact Hyperlink Networks if you need a new link."
+        )
+        icon = "🔒"
+
+    elif reason == "expired":
+        title = "Delivery link expired"
+        message = (
+            "This secure delivery link has expired. "
+            "Please contact Hyperlink Networks if you need a new link."
+        )
+        icon = "⏰"
+
+    elif reason == "no_files":
+        title = "No files available"
+        message = (
+            "This delivery package does not currently have available files."
+        )
+        icon = "📁"
+
+    return render(
+        request,
+        "client_deliverables/public_package_unavailable.html",
+        {
+            "package": package,
+            "title": title,
+            "message": message,
+            "reason": reason,
+            "icon": icon,
+        },
+        status=410,
+    )
+
+
+def _public_package_unavailable_response(request, package):
+    if package.status == DeliveryPackage.STATUS_REVOKED:
+        return _render_public_package_unavailable(
+            request,
+            package,
+            reason="revoked",
+        )
+
+    if package.is_expired():
+        return _render_public_package_unavailable(
+            request,
+            package,
+            reason="expired",
+        )
+
+    return None
+
 
 def _client_has_project_assignment(user, project_id):
     project_id = str(project_id or "").strip()
@@ -765,12 +824,22 @@ def admin_package_list(request):
 
     packages_qs = filter_delivery_packages_by_user(packages_qs, request.user)
 
+    # Seguridad final:
+    # El filtro anterior ayuda a reducir resultados en DB, pero aquí validamos
+    # estrictamente package por package para evitar mostrar un package donde
+    # el usuario tenga acceso solo a 1 proyecto, pero no a todos.
+    safe_packages = []
+
+    for package in packages_qs:
+        if user_can_access_delivery_package(request.user, package):
+            safe_packages.append(package)
+
     cantidad = request.GET.get("cantidad", "10")
 
     if cantidad not in ["5", "10", "20", "50", "100"]:
         cantidad = "10"
 
-    paginator = Paginator(packages_qs, int(cantidad))
+    paginator = Paginator(safe_packages, int(cantidad))
     page_number = request.GET.get("page")
     pagina = paginator.get_page(page_number)
 
@@ -1171,12 +1240,14 @@ def admin_package_outlook(request, pk):
     subject = _build_outlook_subject(package)
     body = _build_outlook_body(request, package)
 
-    href = "mailto:?subject={}&body={}".format(
-        quote(subject),
-        quote(body),
+    outlook_web_url = (
+        "https://outlook.office.com/mail/deeplink/compose?subject={}&body={}".format(
+            quote(subject),
+            quote(body),
+        )
     )
 
-    return redirect(href)
+    return redirect(outlook_web_url)
 
 
 @login_required
@@ -1228,7 +1299,15 @@ def public_package_detail(request, token):
         token=token,
     )
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        log_delivery_access(
+            request,
+            package,
+            DeliveryAccessLog.ACTION_VIEW,
+        )
+        return unavailable_response
 
     log_delivery_access(
         request,
@@ -1253,11 +1332,13 @@ def public_package_detail(request, token):
         },
     )
 
-
 def public_package_unlock(request, token):
     package = get_object_or_404(DeliveryPackage, token=token)
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return unavailable_response
 
     if not package.requires_access_key:
         return redirect(
@@ -1739,7 +1820,10 @@ def public_download_file(request, token, file_id):
         token=token,
     )
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return unavailable_response
 
     if package.requires_access_key and not _is_package_unlocked(request, package):
         return redirect(
@@ -1784,14 +1868,16 @@ def public_download_file(request, token, file_id):
 
     return response
 
-
 def public_download_all(request, token):
     package = get_object_or_404(
         DeliveryPackage.objects.prefetch_related("files"),
         token=token,
     )
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return unavailable_response
 
     if package.requires_access_key and not _is_package_unlocked(request, package):
         return redirect(
@@ -1802,10 +1888,10 @@ def public_download_all(request, token):
     files_count = package.files.filter(is_active=True).count()
 
     if not files_count:
-        messages.error(request, "This package does not have active deliverables.")
-        return redirect(
-            "client_deliverables:public_package_detail",
-            token=package.token,
+        return _render_public_package_unavailable(
+            request,
+            package,
+            reason="no_files",
         )
 
     job = DeliveryZipJob.objects.create(
@@ -1830,14 +1916,16 @@ def public_download_all(request, token):
         job_id=job.id,
     )
 
-
 def public_download_all_status(request, token, job_id):
     package = get_object_or_404(
         DeliveryPackage.objects.prefetch_related("files"),
         token=token,
     )
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return unavailable_response
 
     if package.requires_access_key and not _is_package_unlocked(request, package):
         return redirect(
@@ -1860,11 +1948,20 @@ def public_download_all_status(request, token, job_id):
         },
     )
 
-
 def public_download_all_status_json(request, token, job_id):
     package = get_object_or_404(DeliveryPackage, token=token)
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return JsonResponse(
+            {
+                "ok": False,
+                "status": "unavailable",
+                "message": "This delivery link is no longer available.",
+            },
+            status=410,
+        )
 
     if package.requires_access_key and not _is_package_unlocked(request, package):
         return JsonResponse(
@@ -1906,7 +2003,10 @@ def public_download_all_status_json(request, token, job_id):
 def public_download_all_file(request, token, job_id):
     package = get_object_or_404(DeliveryPackage, token=token)
 
-    package_or_404_if_unavailable(request, package)
+    unavailable_response = _public_package_unavailable_response(request, package)
+
+    if unavailable_response:
+        return unavailable_response
 
     if package.requires_access_key and not _is_package_unlocked(request, package):
         return redirect(
@@ -1939,8 +2039,6 @@ def public_download_all_file(request, token, job_id):
     response["X-Content-Type-Options"] = "nosniff"
 
     return response
-
-
 # ============================================================
 # Client portal
 # ============================================================
