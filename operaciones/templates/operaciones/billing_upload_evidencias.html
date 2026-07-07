@@ -1007,7 +1007,10 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     status.textContent = 'Optimizing…';
     const small = await resizeImage(file).catch(()=>file);
 
+    status.textContent = 'Getting location…';
     await bestEffortGps(form);
+
+    status.textContent = 'Starting upload…';
 
     const lat   = form.querySelector('input[name="lat"]')?.value || "";
     const lng   = form.querySelector('input[name="lng"]')?.value || "";
