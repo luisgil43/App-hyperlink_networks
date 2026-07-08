@@ -2237,17 +2237,14 @@ deliveryBtn?.addEventListener('click', function () {
 
 <script>
 (function () {
-  // Panel de columnas
   const panel = document.getElementById('columnToggles');
   if (!panel) return;
 
-  // Tabla asociada: usa la que tenga data-columns-table
- const table = document.getElementById('billing-table');
-  if (!table) return;
+  const STORAGE_KEY = 'cols:' + location.pathname + ':invoices:v3';
 
-  // Clave para recordar las columnas por vista/tabla
-  const tableId = table.dataset.columnsTable || location.pathname;
- const STORAGE_KEY = 'cols:' + tableId + ':v2';
+  function getTable() {
+    return document.getElementById('billing-table');
+  }
 
   function loadState() {
     try {
@@ -2255,7 +2252,7 @@ deliveryBtn?.addEventListener('click', function () {
       if (!raw) return {};
       const obj = JSON.parse(raw);
       return obj && typeof obj === 'object' ? obj : {};
-    } catch (e) {
+    } catch (_) {
       return {};
     }
   }
@@ -2263,42 +2260,81 @@ deliveryBtn?.addEventListener('click', function () {
   function saveState(state) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {}
+    } catch (_) {}
+  }
+
+  function setCellVisible(cell, visible) {
+    if (!cell) return;
+    cell.style.display = visible ? '' : 'none';
   }
 
   function applyVisibility() {
-    const state = loadState(); // {0: true, 1: false, ...}
+    const table = getTable();
+    if (!table) return;
 
-    // Encabezados
+    const state = loadState();
+
     const theadCells = table.querySelectorAll('thead tr th');
     theadCells.forEach((th, idx) => {
-      const visible = state[idx] !== false; // por defecto visible
-      th.style.display = visible ? '' : 'none';
+      const visible = state[idx] !== false;
+      setCellVisible(th, visible);
     });
 
-    // Celdas
-    table.querySelectorAll('tbody tr').forEach((tr) => {
-      const tds = tr.querySelectorAll('td');
-      tds.forEach((td, idx) => {
+    table.querySelectorAll('tbody tr[data-row="main"]').forEach((tr) => {
+      const cells = tr.querySelectorAll(':scope > td');
+      cells.forEach((td, idx) => {
         const visible = state[idx] !== false;
-        td.style.display = visible ? '' : 'none';
+        setCellVisible(td, visible);
       });
     });
 
-    // Sincronizar checkboxes + master
+    /*
+      Importante:
+      Las filas de detalle no tienen las mismas 22 columnas.
+      Tienen:
+      td vacío select
+      td vacío expand
+      td con colspan
+      Por eso solo ocultamos las dos primeras según columnas 0 y 1.
+    */
+    table.querySelectorAll('tbody tr[id^="detalle-"]').forEach((tr) => {
+      const cells = tr.querySelectorAll(':scope > td');
+
+      if (cells[0]) {
+        setCellVisible(cells[0], state[0] !== false);
+      }
+
+      if (cells[1]) {
+        setCellVisible(cells[1], state[1] !== false);
+      }
+
+      if (cells[2]) {
+        cells[2].style.display = '';
+      }
+    });
+
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
+
     let allOn = true;
 
     checks.forEach((cb) => {
       const idx = parseInt(cb.dataset.col || '0', 10);
       const visible = state[idx] !== false;
+
       cb.checked = visible;
-      if (!visible) allOn = false;
+
+      if (!visible) {
+        allOn = false;
+      }
     });
 
     if (master) {
       master.checked = allOn;
+      master.indeterminate = !allOn && Array.from(checks).some((cb) => {
+        const idx = parseInt(cb.dataset.col || '0', 10);
+        return state[idx] !== false;
+      });
     }
   }
 
@@ -2306,28 +2342,30 @@ deliveryBtn?.addEventListener('click', function () {
     const checks = panel.querySelectorAll('.col-toggle');
     const master = panel.querySelector('#col-toggle-all');
 
-    // Individuales
     checks.forEach((cb) => {
       cb.addEventListener('change', () => {
         const idx = parseInt(cb.dataset.col || '0', 10);
         const state = loadState();
+
         state[idx] = cb.checked;
+
         saveState(state);
         applyVisibility();
       });
     });
 
-    // Master "Show all columns"
     if (master) {
       master.addEventListener('change', () => {
-        const val = master.checked;
         const state = loadState();
+        const val = master.checked;
 
         checks.forEach((cb) => {
           const idx = parseInt(cb.dataset.col || '0', 10);
-          cb.checked = val;
           state[idx] = val;
+          cb.checked = val;
         });
+
+        master.indeterminate = false;
 
         saveState(state);
         applyVisibility();
@@ -2335,7 +2373,6 @@ deliveryBtn?.addEventListener('click', function () {
     }
   }
 
-  // Cerrar el <details> al hacer clic fuera
   function bindOutsideClickToClose() {
     const details = panel.closest('details');
     if (!details) return;
@@ -2347,10 +2384,12 @@ deliveryBtn?.addEventListener('click', function () {
     });
   }
 
-  // Inicializar
   bindToggles();
-  applyVisibility();
   bindOutsideClickToClose();
+
+  document.addEventListener('DOMContentLoaded', applyVisibility);
+
+  window.applyInvoiceColumnVisibility = applyVisibility;
 })();
 </script>
 <script>
@@ -2535,10 +2574,14 @@ deliveryBtn?.addEventListener('click', function () {
     }
 
     zona.innerHTML = nuevaZona.innerHTML;
-    zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
+zona.dataset.excelGlobal = nuevaZona.dataset.excelGlobal || '{}';
 
-    bindHeaders();
-    updateHeaderStates();
+bindHeaders();
+updateHeaderStates();
+
+if (typeof window.applyInvoiceColumnVisibility === 'function') {
+  window.applyInvoiceColumnVisibility();
+}
 
     const pager = document.getElementById('pager');
     const newPager = doc.getElementById('pager');
