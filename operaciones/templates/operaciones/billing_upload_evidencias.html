@@ -735,7 +735,7 @@
 </script>
 
 <script>
-/* Passive geo helper for AJAX (best-effort) */
+/* Passive geo helper for AJAX (best-effort, nunca bloquea el upload) */
 window.__stampGeoIntoForm = async function(form){
   const latEl   = form.querySelector('input[name="lat"]');
   const lngEl   = form.querySelector('input[name="lng"]');
@@ -745,43 +745,107 @@ window.__stampGeoIntoForm = async function(form){
   const timeStatus = form.querySelector('.time-status');
 
   const now = new Date();
-  if (takenEl && !takenEl.value) takenEl.value = now.toISOString();
-  if (timeStatus) timeStatus.textContent = "🕒 " + now.toLocaleString();
 
-  if (latEl?.value && lngEl?.value) return true;
+  if (takenEl && !takenEl.value) {
+    takenEl.value = now.toISOString();
+  }
+
+  if (timeStatus) {
+    timeStatus.textContent = "🕒 " + now.toLocaleString();
+  }
+
+  if (latEl?.value && lngEl?.value) {
+    return true;
+  }
 
   if (!('geolocation' in navigator)) {
-    if (gpsStatus) gpsStatus.textContent = "📍 Geolocation not supported";
+    if (gpsStatus) {
+      gpsStatus.textContent = "📍 No GPS (will upload without coordinates)";
+    }
     return false;
   }
-  if (gpsStatus) gpsStatus.textContent = "📍 Trying to get location…";
 
-  return new Promise(resolve=>{
-    navigator.geolocation.getCurrentPosition(
-      (pos)=>{
-        const c = pos.coords||{};
-        if (latEl) latEl.value = isFinite(c.latitude) ? c.latitude : '';
-        if (lngEl) lngEl.value = isFinite(c.longitude)? c.longitude: '';
-        if (accEl) accEl.value = isFinite(c.accuracy) ? c.accuracy : '';
-        if (latEl.value && lngEl.value) {
-          if (gpsStatus) gpsStatus.textContent =
-            `📍 ${Number(latEl.value).toFixed(6)}, ${Number(lngEl.value).toFixed(6)}${accEl.value ? " (±"+Math.round(accEl.value)+"m)" : ""}`;
-          resolve(true);
-        } else {
-          if (gpsStatus) gpsStatus.textContent = "📍 Location unavailable";
-          resolve(false);
+  if (gpsStatus) {
+    gpsStatus.textContent = "📍 Trying to get location…";
+  }
+
+  return new Promise((resolve) => {
+    let finished = false;
+
+    const finish = (ok) => {
+      if (finished) return;
+      finished = true;
+      resolve(!!ok);
+    };
+
+    const hardTimeout = setTimeout(() => {
+      if (gpsStatus) {
+        gpsStatus.textContent = "📍 No GPS (will upload without coordinates)";
+      }
+      finish(false);
+    }, 2500);
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          clearTimeout(hardTimeout);
+
+          const c = pos.coords || {};
+
+          if (latEl) {
+            latEl.value = Number.isFinite(c.latitude) ? String(c.latitude) : '';
+          }
+
+          if (lngEl) {
+            lngEl.value = Number.isFinite(c.longitude) ? String(c.longitude) : '';
+          }
+
+          if (accEl) {
+            accEl.value = Number.isFinite(c.accuracy) ? String(c.accuracy) : '';
+          }
+
+          if (latEl?.value && lngEl?.value) {
+            if (gpsStatus) {
+              gpsStatus.textContent =
+                `📍 ${Number(latEl.value).toFixed(6)}, ${Number(lngEl.value).toFixed(6)}${accEl?.value ? " (±" + Math.round(Number(accEl.value)) + "m)" : ""}`;
+            }
+
+            finish(true);
+          } else {
+            if (gpsStatus) {
+              gpsStatus.textContent = "📍 No GPS (will upload without coordinates)";
+            }
+
+            finish(false);
+          }
+        },
+        () => {
+          clearTimeout(hardTimeout);
+
+          if (gpsStatus) {
+            gpsStatus.textContent = "📍 No GPS (will upload without coordinates)";
+          }
+
+          finish(false);
+        },
+        {
+          enableHighAccuracy: false,
+          maximumAge: 60000,
+          timeout: 2000
         }
-      },
-      ()=>{
-        if (gpsStatus) gpsStatus.textContent = "📍 Permission denied or unavailable";
-        resolve(false);
-      },
-      { enableHighAccuracy:true, maximumAge:0, timeout:12000 }
-    );
+      );
+    } catch (_) {
+      clearTimeout(hardTimeout);
+
+      if (gpsStatus) {
+        gpsStatus.textContent = "📍 No GPS (will upload without coordinates)";
+      }
+
+      finish(false);
+    }
   });
 };
 </script>
-
 <script>
 /* Image resize helper */
 async function resizeImage(file, maxSide=1600, quality=0.85) {
@@ -972,18 +1036,33 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
     el.textContent = `${parseInt(m,10)+1} uploaded (you)`;
   }
 
-  async function bestEffortGps(form){
-    if (window.__stampGeoIntoForm) {
-      const ok = await window.__stampGeoIntoForm(form);
-      if (ok) return true;
-    }
-    const lbl = form.querySelector('.gps-status');
-    if (lbl) lbl.textContent = '📍 Trying to get location…';
-    const takenEl = form.querySelector('input[name="client_taken_at"]');
-    if (takenEl && !takenEl.value) takenEl.value = new Date().toISOString();
-    if (lbl) lbl.textContent = '📍 No GPS (will upload without coordinates)';
-    return false;
+async function bestEffortGps(form){
+  const lbl = form.querySelector('.gps-status');
+  const takenEl = form.querySelector('input[name="client_taken_at"]');
+
+  if (takenEl && !takenEl.value) {
+    takenEl.value = new Date().toISOString();
   }
+
+  try {
+    if (window.__stampGeoIntoForm) {
+      const ok = await Promise.race([
+        window.__stampGeoIntoForm(form),
+        new Promise(resolve => setTimeout(() => resolve(false), 3000))
+      ]);
+
+      if (ok) {
+        return true;
+      }
+    }
+  } catch (_) {}
+
+  if (lbl) {
+    lbl.textContent = '📍 No GPS (will upload without coordinates)';
+  }
+
+  return false;
+}
 
   async function uploadOne(form, file){
     const queueBox = form.querySelector('.upload-queue') || form;

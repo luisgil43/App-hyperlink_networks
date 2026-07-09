@@ -29,6 +29,7 @@ ALLOWED_HOSTS = [
     "192.168.1.44",
     "192.168.1.39",
     "192.168.1.51",
+
     ".ngrok-free.app",
     ".ngrok-free.dev",
 ]
