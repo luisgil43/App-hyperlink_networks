@@ -103,17 +103,18 @@
           ▼
         </summary>
 
-        <div class="mt-2 rounded-2xl border border-gray-200 bg-white shadow-lg p-3 absolute z-30 min-w-[260px] max-w-[420px] whitespace-normal">
-          <p class="text-xs font-bold text-gray-700 mb-2">Additional projects</p>
-
-          <div class="flex flex-wrap gap-2">
-            {% for project_id in package.extra_project_ids %}
-              <span class="inline-flex items-center px-2 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200 text-xs">
-                {{ project_id }}
-              </span>
-            {% endfor %}
-          </div>
-        </div>
+       <div class="mt-2 rounded-2xl border border-gray-200 bg-white shadow-lg p-3 absolute z-30 min-w-[260px] max-w-[420px] whitespace-normal">
+  <p class="text-xs font-bold text-gray-700 mb-2">
+    Additional projects
+  </p>
+  <div class="max-h-[220px] overflow-y-auto pr-1 flex flex-wrap gap-2">
+    {% for project_id in package.extra_project_ids %}
+      <span class="inline-flex items-center px-2 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200 text-xs">
+        {{ project_id }}
+      </span>
+    {% endfor %}
+  </div>
+</div>
       </details>
     {% endif %}
   </div>
@@ -266,17 +267,18 @@
       ▼
     </summary>
 
-    <div class="mt-2 rounded-2xl border border-gray-200 bg-white shadow-lg p-3 absolute z-30 right-0 min-w-[240px] max-w-[320px]">
-      <p class="text-xs font-bold text-gray-700 mb-2">Additional projects</p>
-
-      <div class="flex flex-wrap gap-1">
-        {% for project_id in package.extra_project_ids %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200 text-xs">
-            {{ project_id }}
-          </span>
-        {% endfor %}
-      </div>
-    </div>
+   <div class="mt-2 rounded-2xl border border-gray-200 bg-white shadow-lg p-3 absolute z-30 right-0 min-w-[240px] max-w-[320px]">
+  <p class="text-xs font-bold text-gray-700 mb-2">
+    Additional projects
+  </p>
+  <div class="max-h-[220px] overflow-y-auto pr-1 flex flex-wrap gap-1">
+    {% for project_id in package.extra_project_ids %}
+      <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200 text-xs">
+        {{ project_id }}
+      </span>
+    {% endfor %}
+  </div>
+</div>
   </details>
 {% endif %}
   </div>
