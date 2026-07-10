@@ -5,9 +5,72 @@
 {% block dashboard_content %}
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 
+<style>
+  .excel-header-btn{
+    width:100%;
+    justify-content:center;
+    font-size:0.875rem;
+  }
+
+  .excel-header-btn .excel-arrow{
+    font-size:0.65rem;
+    margin-left:2px;
+  }
+
+  .excel-panel{
+    position:fixed;
+    z-index:50;
+    width:260px;
+    background:#fff;
+    border-radius:0.75rem;
+    border:1px solid #d1d5db;
+    box-shadow:0 10px 30px rgba(0,0,0,.15);
+    padding:0.75rem;
+    font-size:0.8rem;
+  }
+
+  .excel-panel h3{
+    font-weight:600;
+    margin-bottom:0.5rem;
+  }
+
+  .excel-panel small{
+    font-size:0.7rem;
+    color:#6b7280;
+  }
+
+  .excel-panel .excel-options{
+    max-height:180px;
+    overflow-y:auto;
+    border:1px solid #e5e7eb;
+    border-radius:0.5rem;
+    padding:0.25rem 0.5rem;
+    margin-top:0.25rem;
+    background:#f9fafb;
+  }
+
+  .excel-col-filtered .excel-header-btn{
+    background:#e0f2fe;
+    border-radius:999px;
+  }
+
+  .excel-col-filtered .excel-arrow{
+    color:#2563eb !important;
+  }
+</style>
+
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">🧠 DFN Plan Reader</h1>
+      <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        🧠 DFN Plan Reader
+
+        <span id="plan-reader-total-count"
+              class="inline-flex items-center gap-1 rounded-full bg-gray-100 border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-700">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+          {{ pagina.paginator.count }} job{{ pagina.paginator.count|pluralize }}
+        </span>
+      </h1>
+
       <p class="text-sm text-gray-500 mt-1">
         Upload DFN plan PDFs and generate Bulk Billing Excel files.
       </p>
@@ -22,93 +85,810 @@
     </a>
   </div>
 
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm border">
-      <thead class="bg-gray-100 text-gray-700">
-        <tr>
-          <th class="px-3 py-2 border text-left">ID</th>
-          <th class="px-3 py-2 border text-left">PDF</th>
-          <th class="px-3 py-2 border text-left">Client</th>
-          <th class="px-3 py-2 border text-left">City</th>
-          <th class="px-3 py-2 border text-left">Project</th>
-          <th class="px-3 py-2 border text-left">Office</th>
-          <th class="px-3 py-2 border text-left">CO</th>
-          <th class="px-3 py-2 border text-left">DFN</th>
-          <th class="px-3 py-2 border text-left">Status</th>
-          <th class="px-3 py-2 border text-left">Progress</th>
-          <th class="px-3 py-2 border text-left">Created by</th>
-          <th class="px-3 py-2 border text-left">Created</th>
-          <th class="px-3 py-2 border text-left">Actions</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {% for job in jobs %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-3 py-2 border font-semibold">#{{ job.id }}</td>
-            <td class="px-3 py-2 border">
-              {{ job.original_filename|default:"PDF" }}
-            </td>
-            <td class="px-3 py-2 border">{{ job.client|default:"-" }}</td>
-            <td class="px-3 py-2 border">{{ job.city|default:"-" }}</td>
-            <td class="px-3 py-2 border">{{ job.project|default:"-" }}</td>
-            <td class="px-3 py-2 border">{{ job.office|default:"-" }}</td>
-            <td class="px-3 py-2 border">{{ job.co|default:"-" }}</td>
-            <td class="px-3 py-2 border">{{ job.dfn|default:"-" }}</td>
-            <td class="px-3 py-2 border">
-              <span class="px-2 py-1 rounded-full text-xs font-bold
-                {% if job.status == 'completed' %}bg-green-100 text-green-700
-                {% elif job.status == 'failed' %}bg-red-100 text-red-700
-                {% elif job.status == 'processing' %}bg-blue-100 text-blue-700
-                {% elif job.status == 'needs_review' %}bg-yellow-100 text-yellow-700
-                {% elif job.status == 'pending' %}bg-gray-100 text-gray-700
-                {% else %}bg-gray-100 text-gray-700{% endif %}">
-                {{ job.get_status_display }}
-              </span>
-            </td>
-            <td class="px-3 py-2 border">
-              {{ job.processed_pages }}/{{ job.total_pages }} pages
-              <span class="text-gray-400">({{ job.progress_percent }}%)</span>
-            </td>
-            <td class="px-3 py-2 border">
-              {{ job.uploaded_by.get_full_name|default:job.uploaded_by.username }}
-            </td>
-            <td class="px-3 py-2 border">{{ job.created_at|date:"Y-m-d H:i" }}</td>
-            <td class="px-3 py-2 border">
-              <div class="flex items-center gap-2">
-                <a href="{% url 'plan_reader:job_detail' job.id %}"
-                   class="text-blue-600 hover:underline font-semibold">
-                  View
-                </a>
-
-                {% if job.status != "processing" %}
-                  <form method="post"
-                        action="{% url 'plan_reader:queue_job_processing' job.id %}"
-                        class="inline">
-                    {% csrf_token %}
-                    <button type="submit"
-                            class="text-xs font-bold px-2 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200">
-                      {% if job.status == "pending" %}
-                        Process
-                      {% else %}
-                        Reprocess
-                      {% endif %}
-                    </button>
-                  </form>
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="13" class="px-3 py-8 border text-center text-gray-500">
-              No Plan Reader jobs yet.
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="flex justify-start mb-2">
+    <button type="button"
+            id="btnExcelClearAll"
+            class="px-3 py-1 text-xs border rounded-full bg-white hover:bg-blue-50">
+      ❌ Clear filters
+    </button>
   </div>
 
+  <div id="excelFilterPanel" class="excel-panel hidden">
+    <h3 id="excelPanelTitle">Column</h3>
+    <small>Filter values</small>
+
+    <div class="mt-2">
+      <input id="excelFilterSearch"
+             type="text"
+             placeholder="Search..."
+             class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
+    </div>
+
+    <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+
+    <div class="mt-3 flex justify-end gap-2">
+      <button type="button"
+              id="excelFilterClearAll"
+              class="px-2 py-1 border rounded-md text-xs">
+        Clear
+      </button>
+      <button type="button"
+              id="excelFilterApply"
+              class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">
+        Apply
+      </button>
+    </div>
+  </div>
+
+  <div id="zonaTabla"
+       data-excel-global='{{ excel_global_json|default:"{}"|safe }}'
+       data-total-count="{{ pagina.paginator.count }}">
+
+    <div class="overflow-x-auto">
+      <table id="plan-reader-table" class="min-w-full text-sm border">
+        <thead class="bg-gray-100 text-gray-700">
+          <tr>
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="0">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>ID</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="1">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>PDF</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="2">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Client</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="3">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>City</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="4">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="5">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Office</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="6">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>CO</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="7">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>DFN</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="8">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Status</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="9">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Progress</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="10">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Created by</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left" data-excel-col data-excel-key="11">
+              <button type="button" class="excel-header-btn flex items-center gap-1">
+                <span>Created</span><span class="excel-arrow text-gray-500">▼</span>
+              </button>
+            </th>
+
+            <th class="px-3 py-2 border text-left">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for job in pagina.object_list %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-3 py-2 border font-semibold">#{{ job.id }}</td>
+              <td class="px-3 py-2 border">
+                {{ job.original_filename|default:"PDF" }}
+              </td>
+              <td class="px-3 py-2 border">{{ job.client|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ job.city|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ job.project|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ job.office|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ job.co|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ job.dfn|default:"-" }}</td>
+              <td class="px-3 py-2 border">
+                <span class="px-2 py-1 rounded-full text-xs font-bold
+                  {% if job.status == 'completed' %}bg-green-100 text-green-700
+                  {% elif job.status == 'failed' %}bg-red-100 text-red-700
+                  {% elif job.status == 'processing' %}bg-blue-100 text-blue-700
+                  {% elif job.status == 'needs_review' %}bg-yellow-100 text-yellow-700
+                  {% elif job.status == 'pending' %}bg-gray-100 text-gray-700
+                  {% else %}bg-gray-100 text-gray-700{% endif %}">
+                  {{ job.get_status_display }}
+                </span>
+              </td>
+              <td class="px-3 py-2 border">
+                {{ job.processed_pages }}/{{ job.total_pages }} pages
+                <span class="text-gray-400">({{ job.progress_percent }}%)</span>
+              </td>
+              <td class="px-3 py-2 border">
+                {{ job.uploaded_by.get_full_name|default:job.uploaded_by.username }}
+              </td>
+              <td class="px-3 py-2 border">{{ job.created_at|date:"Y-m-d H:i" }}</td>
+              <td class="px-3 py-2 border">
+                <div class="flex items-center gap-2 whitespace-nowrap">
+                  <a href="{% url 'plan_reader:job_detail' job.id %}"
+                     class="text-blue-600 hover:underline font-semibold">
+                    View
+                  </a>
+
+                  {% if job.status != "processing" %}
+                    <a href="{% url 'plan_reader:job_edit' job.id %}"
+                       class="text-indigo-600 hover:underline font-semibold">
+                      Edit
+                    </a>
+
+                    <form method="post"
+                          action="{% url 'plan_reader:queue_job_processing' job.id %}"
+                          class="inline">
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                      <button type="submit"
+                              class="text-xs font-bold px-2 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200">
+                        {% if job.status == "pending" %}
+                          Process
+                        {% else %}
+                          Reprocess
+                        {% endif %}
+                      </button>
+                    </form>
+
+                    <button type="button"
+                            class="btn-open-delete-modal text-xs font-bold px-2 py-1 rounded-lg bg-red-100 text-red-700 hover:bg-red-200"
+                            data-delete-url="{% url 'plan_reader:job_delete' job.id %}"
+                            data-job-title="#{{ job.id }} - {{ job.original_filename|default:'PDF' }}">
+                      Delete
+                    </button>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="13" class="px-3 py-8 border text-center text-gray-500">
+                No Plan Reader jobs yet.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div id="pager">
+      <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
+        <form method="get" class="flex items-center gap-2">
+          <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
+          <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+            <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
+            <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
+            <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
+            <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
+          </select>
+        </form>
+
+        <div class="text-gray-500">
+          Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}
+        </div>
+      </div>
+
+      <div class="mt-2 flex justify-center gap-2 text-sm">
+        {% if pagina.has_previous %}
+          <a href="?page=1&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">« First</a>
+          <a href="?page={{ pagina.previous_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">‹ Previous</a>
+        {% endif %}
+
+        {% if pagina.has_next %}
+          <a href="?page={{ pagina.next_page_number }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next ›</a>
+          <a href="?page={{ pagina.paginator.num_pages }}&{{ qs_keep }}" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Last »</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
+
+<!-- Delete confirmation modal -->
+<div id="delete-job-modal"
+     class="hidden fixed inset-0 z-[9999] bg-black/50 px-4 py-6 flex items-center justify-center">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+    <div class="px-5 py-4 border-b">
+      <h2 class="text-lg font-bold text-gray-900">Delete Plan Reader Job</h2>
+      <p class="text-sm text-gray-500 mt-1">
+        This action cannot be undone.
+      </p>
+    </div>
+
+    <div class="px-5 py-4">
+      <p class="text-sm text-gray-700">
+        Are you sure you want to delete this job?
+      </p>
+
+      <p id="delete-job-title"
+         class="mt-3 text-sm font-bold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+      </p>
+    </div>
+
+    <div class="px-5 py-4 border-t flex justify-end gap-2 bg-gray-50">
+      <button type="button"
+              id="btn-cancel-delete-job"
+              class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-sm">
+        Cancel
+      </button>
+
+      <form id="delete-job-form" method="post" action="">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit"
+                class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-sm">
+          Yes, delete
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const modal = document.getElementById("delete-job-modal");
+  const form = document.getElementById("delete-job-form");
+  const title = document.getElementById("delete-job-title");
+  const cancelButton = document.getElementById("btn-cancel-delete-job");
+
+  function openModal(deleteUrl, jobTitle) {
+    if (!modal || !form || !title) return;
+
+    form.setAttribute("action", deleteUrl || "");
+    title.textContent = jobTitle || "Selected job";
+    modal.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    if (!modal || !form || !title) return;
+
+    modal.classList.add("hidden");
+    form.setAttribute("action", "");
+    title.textContent = "";
+  }
+
+  document.querySelectorAll(".btn-open-delete-modal").forEach(function (button) {
+    button.addEventListener("click", function () {
+      openModal(
+        this.dataset.deleteUrl,
+        this.dataset.jobTitle
+      );
+    });
+  });
+
+  if (cancelButton) {
+    cancelButton.addEventListener("click", closeModal);
+  }
+
+  if (modal) {
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+  }
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      closeModal();
+    }
+  });
+});
+</script>
+
+<script>
+function updatePlanReaderTotalCount(){
+  const zona = document.getElementById('zonaTabla');
+  const badge = document.getElementById('plan-reader-total-count');
+
+  if (!zona || !badge) return;
+
+  const total = Number(zona.dataset.totalCount || 0);
+  const label = total === 1 ? 'job' : 'jobs';
+
+  badge.innerHTML = `
+    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+    ${total} ${label}
+  `;
+}
+</script>
+
+<script>
+(function(){
+  const zona = document.getElementById('zonaTabla');
+  if(!zona) return;
+
+  const panel = document.getElementById('excelFilterPanel');
+  const titleEl = document.getElementById('excelPanelTitle');
+  const searchInput = document.getElementById('excelFilterSearch');
+  const optionsBox = document.getElementById('excelFilterOptions');
+  const btnApply = document.getElementById('excelFilterApply');
+  const btnClear = document.getElementById('excelFilterClearAll');
+  const btnClearAll = document.getElementById('btnExcelClearAll');
+
+  const EXCEL_OPTIONS_URL = "{% url 'plan_reader:job_excel_options' %}";
+
+  let currentKey = null;
+  let activeFilters = loadFilters();
+  let excelOptionsLoading = false;
+
+  function activeFiltersToPlain(filters){
+    const plain = {};
+
+    Object.entries(filters || {}).forEach(([k, v]) => {
+      if (v instanceof Set && v.size) {
+        plain[k] = Array.from(v);
+      } else if (Array.isArray(v) && v.length) {
+        plain[k] = v;
+      }
+    });
+
+    return plain;
+  }
+
+  function hasPlainFilters(plain){
+    return plain && Object.keys(plain).some(k => {
+      return Array.isArray(plain[k]) && plain[k].length > 0;
+    });
+  }
+
+  function syncStoredFiltersToUrlIfNeeded(){
+    const plain = activeFiltersToPlain(activeFilters);
+
+    if (!hasPlainFilters(plain)) {
+      return false;
+    }
+
+    const url = new URL(window.location.href);
+    const urlFilters = (url.searchParams.get('excel_filters') || '').trim();
+
+    if (urlFilters) {
+      return false;
+    }
+
+    url.searchParams.set('excel_filters', JSON.stringify(plain));
+    url.searchParams.set('page', '1');
+
+    window.location.replace(url.toString());
+    return true;
+  }
+
+  function loadFilters(){
+    try{
+      const raw = sessionStorage.getItem('excelFiltersPlanReader:' + location.pathname);
+      if(!raw) return {};
+      const obj = JSON.parse(raw);
+      const out = {};
+      Object.entries(obj).forEach(([k,v]) => out[k] = new Set(v));
+      return out;
+    }catch(_){
+      return {};
+    }
+  }
+
+  function saveFilters(){
+    const plain = {};
+    Object.entries(activeFilters).forEach(([k,v]) => {
+      plain[k] = Array.from(v);
+    });
+    sessionStorage.setItem('excelFiltersPlanReader:' + location.pathname, JSON.stringify(plain));
+  }
+
+  function getExcelGlobal(){
+    try{
+      return JSON.parse(zona.dataset.excelGlobal || '{}');
+    }catch(_){
+      return {};
+    }
+  }
+
+  function setExcelGlobal(obj){
+    zona.dataset.excelGlobal = JSON.stringify(obj || {});
+  }
+
+  function updateHeaderStates(){
+    activeFilters = loadFilters();
+
+    zona.querySelectorAll('th[data-excel-col]').forEach(th => {
+      const key = th.dataset.excelKey;
+      const has = activeFilters[key] && activeFilters[key].size > 0;
+      th.classList.toggle('excel-col-filtered', !!has);
+    });
+  }
+
+  async function loadExcelOptions(){
+    if (excelOptionsLoading) return;
+
+    excelOptionsLoading = true;
+
+    try{
+      const resp = await fetch(EXCEL_OPTIONS_URL, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await resp.json();
+
+      if(!resp.ok || !data || data.ok !== true){
+        throw new Error((data && (data.error || data.message)) || `HTTP ${resp.status}`);
+      }
+
+      setExcelGlobal(data.excel_global || {});
+
+      if (currentKey !== null && !panel.classList.contains('hidden')) {
+        renderOptions(currentKey);
+      }
+
+    }catch(err){
+      console.error('Error loading Plan Reader Excel filter options:', err);
+      setExcelGlobal({});
+    }finally{
+      excelOptionsLoading = false;
+    }
+  }
+
+  function renderOptions(key){
+    const globalVals = getExcelGlobal();
+    const values = Array.from(globalVals[key] || []).sort((a,b) => String(a).localeCompare(String(b)));
+    const selected = activeFilters[key];
+
+    optionsBox.innerHTML = '';
+
+    if (!values.length) {
+      const empty = document.createElement('div');
+      empty.className = 'text-xs text-gray-500 py-2';
+      empty.textContent = excelOptionsLoading ? 'Loading filters...' : 'No values available yet.';
+      optionsBox.appendChild(empty);
+      return;
+    }
+
+    const allWrap = document.createElement('label');
+    allWrap.className = 'flex items-center gap-2 mb-2';
+    allWrap.innerHTML = `<input type="checkbox" id="excel-select-all"> <span>(Select all)</span>`;
+    optionsBox.appendChild(allWrap);
+
+    values.forEach(val => {
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 text-xs mt-1';
+      label.dataset.optionLabel = "1";
+
+      const checked = !selected || selected.has(val);
+
+      label.innerHTML = `
+        <input type="checkbox" class="excel-opt" data-value="${String(val).replace(/"/g, '&quot;')}" ${checked ? 'checked' : ''}>
+        <span>${val}</span>
+      `;
+      optionsBox.appendChild(label);
+    });
+
+    const selectAll = document.getElementById('excel-select-all');
+    const opts = Array.from(optionsBox.querySelectorAll('.excel-opt'));
+
+    if (selectAll) {
+      selectAll.checked = !selected || selected.size === values.length;
+
+      selectAll.addEventListener('change', () => {
+        opts.forEach(o => {
+          const row = o.closest('[data-option-label]');
+          if (row && row.style.display === 'none' && searchInput.value.trim()) return;
+          o.checked = selectAll.checked;
+        });
+      });
+    }
+  }
+
+  function filterOptionList(q){
+    const query = (q || '').trim().toLowerCase();
+    let visible = 0;
+
+    optionsBox.querySelectorAll('[data-option-label]').forEach(lbl => {
+      const txt = lbl.textContent.toLowerCase();
+      const show = !query || txt.includes(query);
+      lbl.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+
+    btnApply.disabled = !!query && visible === 0;
+    btnApply.classList.toggle('opacity-50', btnApply.disabled);
+    btnApply.classList.toggle('cursor-not-allowed', btnApply.disabled);
+  }
+
+  function openPanel(th){
+    currentKey = th.dataset.excelKey;
+    titleEl.textContent = th.innerText.trim();
+
+    activeFilters = loadFilters();
+
+    const globalVals = getExcelGlobal();
+
+    if (!globalVals || !Object.keys(globalVals).length) {
+      optionsBox.innerHTML = '<div class="text-xs text-gray-500 py-2">Loading filters...</div>';
+      loadExcelOptions();
+    } else {
+      renderOptions(currentKey);
+    }
+
+    const scrollBox = zona.querySelector('.overflow-x-auto');
+    const thRect = th.getBoundingClientRect();
+    const boxRect = scrollBox.getBoundingClientRect();
+
+    panel.classList.remove('hidden');
+
+    const panelWidth = panel.offsetWidth || 260;
+    const panelHeight = panel.offsetHeight || 220;
+
+    let left = thRect.left;
+    let top  = thRect.bottom + 4;
+
+    const minLeft = boxRect.left + 8;
+    const maxLeft = boxRect.right - panelWidth - 8;
+
+    if (left < minLeft) left = minLeft;
+    if (left > maxLeft) left = maxLeft;
+
+    const maxTop = window.innerHeight - panelHeight - 8;
+    if (top > maxTop) top = maxTop;
+
+    panel.style.left = left + 'px';
+    panel.style.top  = top + 'px';
+
+    searchInput.value = '';
+    filterOptionList('');
+    searchInput.focus();
+  }
+
+  function buildParams(resetPage=true){
+    const p = new URLSearchParams(location.search);
+
+    if (resetPage) p.set('page', '1');
+
+    p.delete('clear_excel_filters');
+
+    const cantidadSelect = document.getElementById('cantidad');
+    if (cantidadSelect && cantidadSelect.value) {
+      p.set('cantidad', cantidadSelect.value);
+    }
+
+    const plain = {};
+    Object.entries(activeFilters).forEach(([k,v]) => {
+      if(v && v.size) plain[k] = Array.from(v);
+    });
+
+    if(Object.keys(plain).length){
+      p.set('excel_filters', JSON.stringify(plain));
+    }else{
+      p.delete('excel_filters');
+    }
+
+    return p;
+  }
+
+  async function reloadWithParams(params){
+    const url = `${location.pathname}?${params.toString()}`;
+    history.replaceState(null, '', url);
+
+    const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    const nuevaZona = doc.getElementById('zonaTabla');
+    if(!nuevaZona) {
+      location.href = url;
+      return;
+    }
+
+    zona.innerHTML = nuevaZona.innerHTML;
+    zona.dataset.excelGlobal = '{}';
+    zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
+
+    updatePlanReaderTotalCount();
+    bindHeaders();
+    updateHeaderStates();
+    loadExcelOptions();
+  }
+
+  function bindHeaders(){
+    zona.querySelectorAll('th[data-excel-col] .excel-header-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        openPanel(btn.closest('th[data-excel-col]'));
+      });
+    });
+  }
+
+  if (syncStoredFiltersToUrlIfNeeded()) {
+    return;
+  }
+
+  bindHeaders();
+  updateHeaderStates();
+  loadExcelOptions();
+
+  searchInput.addEventListener('input', () => filterOptionList(searchInput.value));
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    if (btnApply.disabled || currentKey == null) return;
+    btnApply.click();
+  });
+
+  btnApply.addEventListener('click', async () => {
+    if(currentKey == null) return;
+
+    const selected = new Set();
+
+    optionsBox.querySelectorAll('.excel-opt').forEach(opt => {
+      const row = opt.closest('[data-option-label]');
+      if(searchInput.value.trim() && row.style.display === 'none') return;
+      if(opt.checked) selected.add(opt.dataset.value);
+    });
+
+    const total = new Set(getExcelGlobal()[currentKey] || []);
+
+    if(selected.size === 0 || selected.size === total.size){
+      delete activeFilters[currentKey];
+    }else{
+      activeFilters[currentKey] = selected;
+    }
+
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    const params = buildParams(true);
+
+    if (!hasPlainFilters(activeFiltersToPlain(activeFilters))) {
+      params.set('clear_excel_filters', '1');
+    }
+
+    await reloadWithParams(params);
+  });
+
+  btnClear.addEventListener('click', async () => {
+    if(currentKey == null) return;
+
+    delete activeFilters[currentKey];
+
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    const params = buildParams(true);
+
+    if (!hasPlainFilters(activeFiltersToPlain(activeFilters))) {
+      params.set('clear_excel_filters', '1');
+    }
+
+    await reloadWithParams(params);
+  });
+
+  btnClearAll?.addEventListener('click', async () => {
+    activeFilters = {};
+    saveFilters();
+    updateHeaderStates();
+    panel.classList.add('hidden');
+
+    const params = buildParams(true);
+    params.set('clear_excel_filters', '1');
+
+    await reloadWithParams(params);
+  });
+
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('#pager a[href]');
+    if (a) {
+      e.preventDefault();
+
+      const url = new URL(a.href, location.origin);
+      history.replaceState(null, '', url.toString());
+
+      const resp = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      const nuevaZona = doc.getElementById('zonaTabla');
+      if(!nuevaZona){
+        location.href = url.toString();
+        return;
+      }
+
+      zona.innerHTML = nuevaZona.innerHTML;
+      zona.dataset.excelGlobal = '{}';
+      zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
+
+      updatePlanReaderTotalCount();
+      bindHeaders();
+      updateHeaderStates();
+      loadExcelOptions();
+      return;
+    }
+
+    if(panel.classList.contains('hidden')) return;
+    if(panel.contains(e.target)) return;
+    if(e.target.closest('.excel-header-btn')) return;
+
+    panel.classList.add('hidden');
+  });
+
+  document.addEventListener('change', async function (e) {
+    const select = e.target.closest('#cantidad');
+    if (!select) return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('cantidad', select.value);
+    url.searchParams.set('page', '1');
+
+    history.replaceState(null, '', url.toString());
+
+    const resp = await fetch(url.toString(), {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    const nuevaZona = doc.getElementById('zonaTabla');
+
+    if (!nuevaZona) {
+      location.href = url.toString();
+      return;
+    }
+
+    zona.innerHTML = nuevaZona.innerHTML;
+    zona.dataset.excelGlobal = '{}';
+    zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
+
+    updatePlanReaderTotalCount();
+    bindHeaders();
+    updateHeaderStates();
+    loadExcelOptions();
+  });
+
+  window.addEventListener('pageshow', function(){
+    activeFilters = loadFilters();
+
+    if (syncStoredFiltersToUrlIfNeeded()) {
+      return;
+    }
+
+    updateHeaderStates();
+  });
+})();
+</script>
 {% endblock %}
