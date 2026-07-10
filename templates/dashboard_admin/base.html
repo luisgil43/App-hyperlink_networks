@@ -342,34 +342,95 @@
         <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center">🏠 Home</a>
       </li>
 
-      <!-- SECCIÓN: Operations -->
-      {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
+<!-- SECCIÓN: Operations -->
+{% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
+<li class="group">
+  <div class="flex justify-between items-center cursor-pointer"
+       onclick="toggleMenu(this)">
+    <span class="flex items-center gap-2">🛠 Operations</span>
+    <span class="flecha transition-transform duration-200">▶</span>
+  </div>
+
+  <ul class="ml-4 submenu space-y-1 hidden">
+
+    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      <li>
+        <a href="{% url 'operaciones:produccion_admin' %}">
+          Salaries & Productions
+        </a>
+      </li>
+    {% endif %}
+
+    <li>
+      <a href="{% url 'operaciones:vista_rendiciones' %}">
+        Expense Reports
+      </a>
+    </li>
+
+    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      <li>
+        <a href="{% url 'operaciones:listar_precios_tecnico' %}">
+          Technician Pricing Table
+        </a>
+      </li>
+    {% endif %}
+
+    <li>
+      <a href="{% url 'operaciones:listar_billing' %}">
+        Create Billing
+      </a>
+    </li>
+
+    {# DFN Plan Reader - Beta solo admin #}
+    {% if request.user.es_admin_general %}
       <li class="group">
         <div class="flex justify-between items-center cursor-pointer"
-            onclick="toggleMenu(this)">
-            <span class="flex items-center gap-2">🛠 Operations</span>
-            <span class="flecha transition-transform duration-200">▶</span>
+             onclick="toggleMenu(this)">
+          <span class="flex items-center gap-2">
+            🧠 DFN Plan Reader
+            <span class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white">
+              Beta
+            </span>
+          </span>
+          <span class="flecha transition-transform duration-200">▶</span>
         </div>
+
         <ul class="ml-4 submenu space-y-1 hidden">
-
-          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-            <li><a href="{% url 'operaciones:produccion_admin'%}">Salaries & Productions</a></li>
-          {% endif %}
-
-          <li><a href="{% url 'operaciones:vista_rendiciones' %}">Expense Reports</a></li>
-
-          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-            <li><a href="{% url 'operaciones:listar_precios_tecnico' %}">Technician Pricing Table</a></li>
-          {% endif %}
-
-          <li><a href="{% url 'operaciones:listar_billing' %}">Create Billing</a></li>
-
-          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-            <li><a href="{% url 'operaciones:resumen_operativo' %}">Operational Summary</a></li>
-          {% endif %}
+          <li>
+            <a href="{% url 'plan_reader:job_list' %}">
+              Jobs
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'plan_reader:job_create' %}">
+              Upload Plan
+            </a>
+          </li>
         </ul>
       </li>
-      {% endif %}
+    {% else %}
+      <li>
+        <span class="block rounded-lg px-3 py-2 text-sm font-semibold text-blue-100/80 cursor-not-allowed opacity-70"
+              title="Coming soon">
+          🧠 DFN Plan Reader
+          <span class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white">
+            Coming soon
+          </span>
+        </span>
+      </li>
+    {% endif %}
+
+    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+      <li>
+        <a href="{% url 'operaciones:resumen_operativo' %}">
+          Operational Summary
+        </a>
+      </li>
+    {% endif %}
+
+  </ul>
+</li>
+{% endif %}
 
 
               <!-- SECCIÓN: Client Deliverables -->

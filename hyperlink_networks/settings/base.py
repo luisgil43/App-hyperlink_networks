@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "ombording",
     "invoicing",
     "usuarios",
+    "plan_reader.apps.PlanReaderConfig",
     "api",
     "cable_installation",
     "client_deliverables",

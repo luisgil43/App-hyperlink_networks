@@ -177,6 +177,7 @@ urlpatterns = [
             namespace="client_deliverables",
         ),
     ),
+    path("plan-reader/", include("plan_reader.urls")),
 ]
 
 
