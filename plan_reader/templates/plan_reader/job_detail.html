@@ -1,0 +1,843 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Plan Reader Job #{{ job.id }}{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6"
+     data-job-status-url="{% url 'plan_reader:job_status_json' job.id %}"
+     data-initial-status="{{ job.status }}">
+
+  <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">🧠 Plan Reader Job #{{ job.id }}</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        {{ job.original_filename|default:"Uploaded PDF" }}
+      </p>
+
+      <p id="polling-status-text" class="text-xs text-gray-500 mt-1">
+        {% if job.status == "processing" %}
+          Auto-refresh active while the Render worker is processing this job...
+        {% elif job.status == "pending" %}
+          Job is queued. Waiting for the Render worker...
+        {% else %}
+          Last updated from server.
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'plan_reader:job_list' %}"
+         class="inline-flex items-center bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        ← Back
+      </a>
+
+      {% if job.pdf_file %}
+        <a href="{{ job.pdf_file.url }}" target="_blank"
+           class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+          View PDF
+        </a>
+      {% endif %}
+
+      {% if job.status != "processing" %}
+        <form method="post"
+              action="{% url 'plan_reader:queue_job_processing' job.id %}"
+              class="inline-flex">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+            {% if job.status == "pending" %}
+              Queue Job
+            {% else %}
+              Reprocess
+            {% endif %}
+          </button>
+        </form>
+      {% else %}
+        <span class="inline-flex items-center bg-blue-100 text-blue-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+          Processing...
+        </span>
+      {% endif %}
+
+      {% if items or duplicate_items %}
+        {% if job.status != "processing" %}
+          <form method="post"
+                action="{% url 'plan_reader:recalculate_job_duplicates' job.id %}"
+                class="inline-flex">
+            {% csrf_token %}
+            <button type="submit"
+                    class="inline-flex items-center bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+              Recalculate duplicates
+            </button>
+          </form>
+        {% endif %}
+      {% endif %}
+
+      <span id="download-excel-wrapper" class="inline-flex">
+        {% if items %}
+          <a href="{% url 'plan_reader:download_excel' job.id %}"
+             class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+            Download Excel
+          </a>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+    <div class="border rounded-xl p-4 bg-gray-50">
+      <p class="text-xs text-gray-500 font-bold uppercase">Status</p>
+      <p id="job-status-display" class="text-lg font-bold">{{ job.get_status_display }}</p>
+    </div>
+
+    <div class="border rounded-xl p-4 bg-gray-50">
+      <p class="text-xs text-gray-500 font-bold uppercase">Progress</p>
+      <p class="text-lg font-bold">
+        <span id="job-processed-pages">{{ job.processed_pages }}</span>/<span id="job-total-pages">{{ job.total_pages }}</span>
+      </p>
+      <p class="text-xs text-gray-500 mt-1">
+        <span id="job-progress-percent">{{ job.progress_percent }}</span>%
+      </p>
+
+      <div class="mt-2 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+        <div id="job-progress-bar"
+             class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+             style="width: {{ job.progress_percent }}%;">
+        </div>
+      </div>
+    </div>
+
+    <div class="border rounded-xl p-4 bg-gray-50">
+      <p class="text-xs text-gray-500 font-bold uppercase">CO / DFN</p>
+      <p class="text-lg font-bold">{{ job.co|default:"-" }} / {{ job.dfn|default:"-" }}</p>
+    </div>
+
+    <div class="border rounded-xl p-4 bg-green-50">
+      <p class="text-xs text-green-700 font-bold uppercase">Included items</p>
+      <p id="job-items-count" class="text-lg font-bold text-green-800">{{ included_items_count|default:items|length }}</p>
+    </div>
+
+    <div class="border rounded-xl p-4 bg-yellow-50">
+      <p class="text-xs text-yellow-700 font-bold uppercase">Needs review</p>
+      <p id="job-needs-review-count" class="text-lg font-bold text-yellow-800">{{ needs_review_count|default:"0" }}</p>
+    </div>
+
+    <div class="border rounded-xl p-4 bg-red-50">
+      <p class="text-xs text-red-700 font-bold uppercase">Duplicates</p>
+      <p id="job-duplicate-items-count" class="text-lg font-bold text-red-800">{{ duplicate_items_count|default:"0" }}</p>
+      <p class="text-[11px] text-red-600 mt-1">Excluded from billing</p>
+    </div>
+  </div>
+
+  <div id="job-error-box"
+       class="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 {% if not job.error_message %}hidden{% endif %}">
+    <b>Error:</b> <span id="job-error-message">{{ job.error_message }}</span>
+  </div>
+
+  <div class="mb-6">
+    <h2 class="text-lg font-bold mb-2">Job information</h2>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border">
+        <tbody>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left w-48">Client</th>
+            <td class="px-3 py-2 border">{{ job.client|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">City</th>
+            <td class="px-3 py-2 border">{{ job.city|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Project</th>
+            <td class="px-3 py-2 border">{{ job.project|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Office</th>
+            <td class="px-3 py-2 border">{{ job.office|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">CO</th>
+            <td class="px-3 py-2 border">{{ job.co|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">DFN</th>
+            <td class="px-3 py-2 border">{{ job.dfn|default:"-" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Uploaded by</th>
+            <td class="px-3 py-2 border">{{ job.uploaded_by.get_full_name|default:job.uploaded_by.username }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Created</th>
+            <td class="px-3 py-2 border">{{ job.created_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Started</th>
+            <td id="job-started-at" class="px-3 py-2 border">
+              {% if job.started_at %}
+                {{ job.started_at|date:"Y-m-d H:i" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Completed</th>
+            <td id="job-completed-at" class="px-3 py-2 border">
+              {% if job.completed_at %}
+                {{ job.completed_at|date:"Y-m-d H:i" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th class="px-3 py-2 border bg-gray-100 text-left">Notes</th>
+            <td class="px-3 py-2 border">{{ job.notes|default:"-"|linebreaksbr }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mb-6">
+    <h2 class="text-lg font-bold mb-2">PDF pages</h2>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-3 py-2 border text-left">Page</th>
+            <th class="px-3 py-2 border text-left">Sheet</th>
+            <th class="px-3 py-2 border text-left">Status</th>
+            <th class="px-3 py-2 border text-left">Confidence</th>
+            <th class="px-3 py-2 border text-left">Processed at</th>
+            <th class="px-3 py-2 border text-left">Error</th>
+          </tr>
+        </thead>
+
+        <tbody id="pages-table-body">
+          {% for page in pages %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-3 py-2 border font-semibold">{{ page.page_number }}</td>
+              <td class="px-3 py-2 border">{{ page.sheet_name|default:"-" }}</td>
+              <td class="px-3 py-2 border">
+                <span class="px-2 py-1 rounded-full text-xs font-bold
+                  {% if page.status == 'completed' %}bg-green-100 text-green-700
+                  {% elif page.status == 'failed' %}bg-red-100 text-red-700
+                  {% elif page.status == 'processing' %}bg-blue-100 text-blue-700
+                  {% else %}bg-gray-100 text-gray-700{% endif %}">
+                  {{ page.get_status_display }}
+                </span>
+              </td>
+              <td class="px-3 py-2 border">
+                {% if page.confidence %}
+                  {{ page.confidence }}%
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 border">
+                {% if page.processed_at %}
+                  {{ page.processed_at|date:"Y-m-d H:i" }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 border text-red-600">{{ page.error_message|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="px-3 py-8 border text-center text-gray-500">
+                No PDF pages registered yet. The worker will create them when processing starts.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <button type="button"
+            id="btn-toggle-duplicate-detail"
+            class="bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+      View duplicate detail
+      (<span id="duplicate-detail-count">{{ duplicate_items_count|default:"0" }}</span>)
+    </button>
+  </div>
+
+  <div id="duplicate-detail-panel" class="hidden mb-6 border border-red-200 rounded-xl bg-red-50 p-4">
+    <h2 class="text-lg font-bold text-red-800 mb-3">Duplicate detail</h2>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border bg-white">
+        <thead class="bg-red-100">
+          <tr>
+            <th class="px-3 py-2 border text-left">#</th>
+            <th class="px-3 py-2 border text-left">Sheet</th>
+            <th class="px-3 py-2 border text-left">Project ID</th>
+            <th class="px-3 py-2 border text-left">Primary Feed</th>
+            <th class="px-3 py-2 border text-left">Final Box Type</th>
+            <th class="px-3 py-2 border text-left">Splices</th>
+            <th class="px-3 py-2 border text-left">Observation</th>
+            <th class="px-3 py-2 border text-left">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="duplicates-table-body">
+          {% for item in duplicate_items %}
+            <tr>
+              <td class="px-3 py-2 border">{{ forloop.counter }}</td>
+              <td class="px-3 py-2 border">{{ item.sheet|default:"-" }}</td>
+              <td class="px-3 py-2 border font-semibold">{{ item.project_name|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.primary_feed|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.calculated_box_type|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.splice_count }}</td>
+              <td class="px-3 py-2 border">{{ item.observation|default:"-" }}</td>
+              <td class="px-3 py-2 border">
+                <div class="flex items-center gap-2">
+                  <a href="{% url 'plan_reader:item_review' item.id %}"
+                     class="text-blue-600 hover:underline font-semibold">
+                    Edit
+                  </a>
+
+                  <button type="button"
+                          data-toggle-duplicate-url="{% url 'plan_reader:toggle_item_duplicate' item.id %}"
+                          class="btn-toggle-duplicate px-2 py-1 rounded-lg text-xs font-bold bg-green-100 text-green-700 hover:bg-green-200">
+                    Maintain
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="px-3 py-6 border text-center text-gray-500">
+                No duplicates.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+      <h2 class="text-lg font-bold">Detected items</h2>
+
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class="inline-flex items-center px-2 py-1 rounded-full bg-green-100 text-green-700 font-bold">
+          Included
+        </span>
+        <span class="inline-flex items-center px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 font-bold">
+          Needs review
+        </span>
+        <span class="inline-flex items-center px-2 py-1 rounded-full bg-red-100 text-red-700 font-bold">
+          Duplicate review
+        </span>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-3 py-2 border text-left">#</th>
+            <th class="px-3 py-2 border text-left">Sheet</th>
+            <th class="px-3 py-2 border text-left">Project ID</th>
+            <th class="px-3 py-2 border text-left">Primary Feed</th>
+            <th class="px-3 py-2 border text-left">Visible Type</th>
+            <th class="px-3 py-2 border text-left">Detected Box</th>
+            <th class="px-3 py-2 border text-left">Final Box Type</th>
+            <th class="px-3 py-2 border text-left">P</th>
+            <th class="px-3 py-2 border text-left">S</th>
+            <th class="px-3 py-2 border text-left">T</th>
+            <th class="px-3 py-2 border text-left">Splices</th>
+            <th class="px-3 py-2 border text-left">C-108</th>
+            <th class="px-3 py-2 border text-left">C-109</th>
+            <th class="px-3 py-2 border text-left">C-110</th>
+            <th class="px-3 py-2 border text-left">Billing</th>
+            <th class="px-3 py-2 border text-left">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="items-table-body">
+          {% for item in items %}
+            <tr class="hover:bg-gray-50
+              {% if item.project_name|upper in duplicate_project_names %}
+                bg-red-50
+              {% elif item.needs_review %}
+                bg-yellow-50
+              {% else %}
+                bg-green-50/30
+              {% endif %}">
+              
+              <td class="px-3 py-2 border font-bold text-gray-700">{{ forloop.counter }}</td>
+              <td class="px-3 py-2 border">{{ item.sheet|default:"-" }}</td>
+              <td class="px-3 py-2 border font-semibold">{{ item.project_name|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.primary_feed|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.visible_type|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.detected_box_type|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.calculated_box_type|default:"-" }}</td>
+              <td class="px-3 py-2 border">{% if item.has_p %}Yes{% else %}No{% endif %}</td>
+              <td class="px-3 py-2 border">{{ item.s_splitter|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.t_splitter|default:"-" }}</td>
+              <td class="px-3 py-2 border">{{ item.splice_count }}</td>
+              <td class="px-3 py-2 border">{{ item.c108_ug }}</td>
+              <td class="px-3 py-2 border">{{ item.c109_splices }}</td>
+              <td class="px-3 py-2 border">{{ item.c110_splitters }}</td>
+
+              <td class="px-3 py-2 border">
+                <span class="inline-flex px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                  Included
+                </span>
+              </td>
+
+              <td class="px-3 py-2 border">
+                <div class="flex items-center gap-2">
+                  <a href="{% url 'plan_reader:item_review' item.id %}"
+                     class="text-blue-600 hover:underline font-semibold">
+                    Edit
+                  </a>
+
+                  <button type="button"
+                          data-toggle-duplicate-url="{% url 'plan_reader:toggle_item_duplicate' item.id %}"
+                          class="btn-toggle-duplicate px-2 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200">
+                    Mark duplicate
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="16" class="px-3 py-8 border text-center text-gray-500">
+                No detected items yet. The worker will create them when processing starts.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="job-status-message-wrapper">
+    {% if job.status == "pending" %}
+      <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
+        <b>Queued:</b> this job is waiting for the Render worker.
+      </div>
+    {% elif job.status == "needs_review" %}
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <b>Ready for review:</b> PDF pages and detected items were registered successfully. Review the table and download the Excel.
+      </div>
+    {% elif job.status == "processing" %}
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <b>Processing:</b> this job is currently being processed by the Render worker. This page updates automatically.
+      </div>
+    {% elif job.status == "failed" %}
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+        <b>Failed:</b> review the job error or page errors above. You can queue it again after fixing the issue.
+      </div>
+    {% else %}
+      <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700">
+        <b>Status:</b> {{ job.get_status_display }}
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const root = document.querySelector("[data-job-status-url]");
+  if (!root) return;
+
+  const statusUrl = root.dataset.jobStatusUrl;
+  let currentStatus = root.dataset.initialStatus || "";
+  let timer = null;
+  let isFetching = false;
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function getCsrfToken() {
+    const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    return input ? input.value : "";
+  }
+
+  function safeSetText(id, value) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.textContent = value ?? "";
+  }
+
+  function shouldPoll(status) {
+    return ["pending", "processing"].includes(status);
+  }
+
+  function statusMessageHtml(status, statusDisplay) {
+    if (status === "pending") {
+      return `
+        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
+          <b>Queued:</b> this job is waiting for the Render worker.
+        </div>
+      `;
+    }
+
+    if (status === "processing") {
+      return `
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+          <b>Processing:</b> this job is currently being processed by the Render worker. This page updates automatically.
+        </div>
+      `;
+    }
+
+    if (status === "needs_review") {
+      return `
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+          <b>Ready for review:</b> PDF pages and detected items were registered successfully. Review the table and download the Excel.
+        </div>
+      `;
+    }
+
+    if (status === "failed") {
+      return `
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+          <b>Failed:</b> review the job error or page errors above. You can queue it again after fixing the issue.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700">
+        <b>Status:</b> ${escapeHtml(statusDisplay)}
+      </div>
+    `;
+  }
+
+  function renderPages(pages) {
+    const tbody = document.getElementById("pages-table-body");
+    if (!tbody) return;
+
+    if (!pages || pages.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="px-3 py-8 border text-center text-gray-500">
+            No PDF pages registered yet. The worker will create them when processing starts.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = pages.map(page => `
+      <tr class="hover:bg-gray-50">
+        <td class="px-3 py-2 border font-semibold">${escapeHtml(page.page_number)}</td>
+        <td class="px-3 py-2 border">${escapeHtml(page.sheet_name || "-")}</td>
+        <td class="px-3 py-2 border">
+          <span class="px-2 py-1 rounded-full text-xs font-bold ${escapeHtml(page.status_badge_class)}">
+            ${escapeHtml(page.status_display)}
+          </span>
+        </td>
+        <td class="px-3 py-2 border">${escapeHtml(page.confidence || "-")}</td>
+        <td class="px-3 py-2 border">${escapeHtml(page.processed_at || "-")}</td>
+        <td class="px-3 py-2 border text-red-600">${escapeHtml(page.error_message || "-")}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function toggleDuplicate(url) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": getCsrfToken(),
+        },
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+
+      if (!payload.ok) {
+        throw new Error(payload.error || "Could not update item.");
+      }
+
+      fetchStatus();
+    } catch (error) {
+      alert("Could not update duplicate status.");
+      console.error("Toggle duplicate error:", error);
+    }
+  }
+
+  function bindDuplicateButtons() {
+    document.querySelectorAll(".btn-toggle-duplicate").forEach(button => {
+      button.addEventListener("click", function () {
+        const url = this.dataset.toggleDuplicateUrl;
+        if (!url) return;
+        toggleDuplicate(url);
+      });
+    });
+  }
+
+  function renderItems(items) {
+    const tbody = document.getElementById("items-table-body");
+    if (!tbody) return;
+
+    if (!items || items.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="16" class="px-3 py-8 border text-center text-gray-500">
+            No detected items yet. The worker will create them when processing starts.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const rowClass = item.duplicate_review
+        ? "bg-red-50"
+        : (item.needs_review ? "bg-yellow-50" : "bg-green-50/30");
+
+      return `
+        <tr class="hover:bg-gray-50 ${rowClass}">
+          <td class="px-3 py-2 border font-bold text-gray-700">${escapeHtml(item.row_number)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.sheet)}</td>
+          <td class="px-3 py-2 border font-semibold">${escapeHtml(item.project_name)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.primary_feed)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.visible_type)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.detected_box_type)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.calculated_box_type)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.has_p)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.s_splitter)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.t_splitter)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.splice_count)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.c108_ug)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.c109_splices)}</td>
+          <td class="px-3 py-2 border">${escapeHtml(item.c110_splitters)}</td>
+          <td class="px-3 py-2 border">
+            <span class="inline-flex px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+              Included
+            </span>
+          </td>
+          <td class="px-3 py-2 border">
+            <div class="flex items-center gap-2">
+              <a href="${escapeHtml(item.edit_url)}"
+                 class="text-blue-600 hover:underline font-semibold">
+                Edit
+              </a>
+
+              <button type="button"
+                      data-toggle-duplicate-url="${escapeHtml(item.toggle_duplicate_url)}"
+                      class="btn-toggle-duplicate px-2 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200">
+                Mark duplicate
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    bindDuplicateButtons();
+  }
+
+  function renderDuplicateDetail(duplicateItems) {
+    const body = document.getElementById("duplicates-table-body");
+    if (!body) return;
+
+    if (!duplicateItems || duplicateItems.length === 0) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="8" class="px-3 py-6 border text-center text-gray-500">
+            No duplicates.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    body.innerHTML = duplicateItems.map((item, index) => `
+      <tr>
+        <td class="px-3 py-2 border">${index + 1}</td>
+        <td class="px-3 py-2 border">${escapeHtml(item.sheet)}</td>
+        <td class="px-3 py-2 border font-semibold">${escapeHtml(item.project_name)}</td>
+        <td class="px-3 py-2 border">${escapeHtml(item.primary_feed)}</td>
+        <td class="px-3 py-2 border">${escapeHtml(item.calculated_box_type)}</td>
+        <td class="px-3 py-2 border">${escapeHtml(item.splice_count)}</td>
+        <td class="px-3 py-2 border">${escapeHtml(item.observation || "-")}</td>
+        <td class="px-3 py-2 border">
+          <div class="flex items-center gap-2">
+            <a href="${escapeHtml(item.edit_url)}"
+               class="text-blue-600 hover:underline font-semibold">
+              Edit
+            </a>
+
+            <button type="button"
+                    data-toggle-duplicate-url="${escapeHtml(item.toggle_duplicate_url)}"
+                    class="btn-toggle-duplicate px-2 py-1 rounded-lg text-xs font-bold bg-green-100 text-green-700 hover:bg-green-200">
+              Maintain
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+
+    bindDuplicateButtons();
+  }
+
+  function renderDownloadButton(job) {
+    const wrapper = document.getElementById("download-excel-wrapper");
+    if (!wrapper) return;
+
+    if (!job.can_download_excel || !job.download_excel_url) {
+      wrapper.innerHTML = "";
+      return;
+    }
+
+    wrapper.innerHTML = `
+      <a href="${escapeHtml(job.download_excel_url)}"
+         class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        Download Excel
+      </a>
+    `;
+  }
+
+  function updateFromPayload(payload) {
+    if (!payload || !payload.ok) return;
+
+    const job = payload.job;
+    currentStatus = job.status;
+
+    safeSetText("job-status-display", job.status_display);
+    safeSetText("job-processed-pages", job.processed_pages);
+    safeSetText("job-total-pages", job.total_pages);
+    safeSetText("job-progress-percent", job.progress_percent);
+    safeSetText("job-items-count", job.items_count);
+    safeSetText("job-needs-review-count", job.needs_review_count || 0);
+    safeSetText("job-duplicate-items-count", job.duplicate_items_count || 0);
+    safeSetText("duplicate-detail-count", job.duplicate_items_count || 0);
+
+    safeSetText("job-started-at", job.started_at || "-");
+    safeSetText("job-completed-at", job.completed_at || "-");
+
+    const progressBar = document.getElementById("job-progress-bar");
+    if (progressBar) {
+      progressBar.style.width = `${job.progress_percent || 0}%`;
+    }
+
+    const errorBox = document.getElementById("job-error-box");
+    const errorText = document.getElementById("job-error-message");
+
+    if (errorBox && errorText) {
+      if (job.error_message) {
+        errorBox.classList.remove("hidden");
+        errorText.textContent = job.error_message;
+      } else {
+        errorBox.classList.add("hidden");
+        errorText.textContent = "";
+      }
+    }
+
+    renderPages(payload.pages);
+    renderItems(payload.items);
+    renderDuplicateDetail(payload.duplicate_items);
+    renderDownloadButton(job);
+
+    const messageWrapper = document.getElementById("job-status-message-wrapper");
+    if (messageWrapper) {
+      messageWrapper.innerHTML = statusMessageHtml(job.status, job.status_display);
+    }
+
+    const pollingText = document.getElementById("polling-status-text");
+    if (pollingText) {
+      const now = new Date();
+      if (shouldPoll(job.status)) {
+        pollingText.textContent = `Auto-refresh active. Last update: ${now.toLocaleTimeString()}`;
+      } else {
+        pollingText.textContent = `Finished or stopped. Last update: ${now.toLocaleTimeString()}`;
+      }
+    }
+
+    if (!shouldPoll(job.status)) {
+      stopPolling();
+    }
+  }
+
+  async function fetchStatus() {
+    if (isFetching) return;
+    isFetching = true;
+
+    try {
+      const response = await fetch(statusUrl, {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      updateFromPayload(payload);
+    } catch (error) {
+      const pollingText = document.getElementById("polling-status-text");
+      if (pollingText) {
+        pollingText.textContent = `Auto-refresh error. Retrying...`;
+      }
+      console.error("Plan Reader polling error:", error);
+    } finally {
+      isFetching = false;
+    }
+  }
+
+  function startPolling() {
+    fetchStatus();
+
+    if (timer) {
+      clearInterval(timer);
+    }
+
+    timer = setInterval(fetchStatus, 2500);
+  }
+
+  function stopPolling() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  const duplicateDetailButton = document.getElementById("btn-toggle-duplicate-detail");
+  const duplicateDetailPanel = document.getElementById("duplicate-detail-panel");
+
+  if (duplicateDetailButton && duplicateDetailPanel) {
+    duplicateDetailButton.addEventListener("click", function () {
+      duplicateDetailPanel.classList.toggle("hidden");
+    });
+  }
+
+  bindDuplicateButtons();
+
+  if (shouldPoll(currentStatus)) {
+    startPolling();
+  } else {
+    fetchStatus();
+  }
+});
+</script>
+{% endblock %}

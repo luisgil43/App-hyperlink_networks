@@ -55,7 +55,22 @@ DATABASES = {
 # ==============================
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Modelo usado por funcionalidades existentes. No tocar para no afectar procesos actuales.
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
+
+# Configuración exclusiva de DFN Plan Reader.
+PLAN_READER_USE_OPENAI = os.getenv(
+    "PLAN_READER_USE_OPENAI", "False"
+).strip().lower() in [
+    "1",
+    "true",
+    "yes",
+    "y",
+]
+
+PLAN_READER_MODEL = os.getenv("PLAN_READER_MODEL", "gpt-5.2")
+PLAN_READER_RENDER_ZOOM = os.getenv("PLAN_READER_RENDER_ZOOM", "3")
 
 # Desactivar seguridad estricta en cookies y HTTPS
 CSRF_COOKIE_SECURE = False

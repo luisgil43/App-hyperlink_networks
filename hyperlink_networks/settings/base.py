@@ -155,7 +155,24 @@ WSGI_APPLICATION = 'hyperlink_networks.wsgi.application'
 # ==============================
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Modelo usado por funcionalidades existentes, como lectura de niveles.
+# NO modificar para no afectar módulos actuales.
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
+
+# Modelo exclusivo para DFN Plan Reader.
+# No afecta OPENAI_VISION_MODEL ni los procesos actuales.
+PLAN_READER_USE_OPENAI = os.getenv(
+    "PLAN_READER_USE_OPENAI", "False"
+).strip().lower() in [
+    "1",
+    "true",
+    "yes",
+    "y",
+]
+
+PLAN_READER_MODEL = os.getenv("PLAN_READER_MODEL", "gpt-5.2")
+PLAN_READER_RENDER_ZOOM = os.getenv("PLAN_READER_RENDER_ZOOM", "3")
 # ==============================
 # TEMPLATES
 # ==============================

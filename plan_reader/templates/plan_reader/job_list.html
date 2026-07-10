@@ -1,0 +1,110 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}DFN Plan Reader{% endblock %}
+
+{% block dashboard_content %}
+<div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">🧠 DFN Plan Reader</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Upload DFN plan PDFs and generate Bulk Billing Excel files.
+      </p>
+      <p class="text-xs text-gray-400 mt-1">
+        Jobs are processed by the Render worker.
+      </p>
+    </div>
+
+    <a href="{% url 'plan_reader:job_create' %}"
+       class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+      + Upload Plan
+    </a>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm border">
+      <thead class="bg-gray-100 text-gray-700">
+        <tr>
+          <th class="px-3 py-2 border text-left">ID</th>
+          <th class="px-3 py-2 border text-left">PDF</th>
+          <th class="px-3 py-2 border text-left">Client</th>
+          <th class="px-3 py-2 border text-left">City</th>
+          <th class="px-3 py-2 border text-left">Project</th>
+          <th class="px-3 py-2 border text-left">Office</th>
+          <th class="px-3 py-2 border text-left">CO</th>
+          <th class="px-3 py-2 border text-left">DFN</th>
+          <th class="px-3 py-2 border text-left">Status</th>
+          <th class="px-3 py-2 border text-left">Progress</th>
+          <th class="px-3 py-2 border text-left">Created by</th>
+          <th class="px-3 py-2 border text-left">Created</th>
+          <th class="px-3 py-2 border text-left">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for job in jobs %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2 border font-semibold">#{{ job.id }}</td>
+            <td class="px-3 py-2 border">
+              {{ job.original_filename|default:"PDF" }}
+            </td>
+            <td class="px-3 py-2 border">{{ job.client|default:"-" }}</td>
+            <td class="px-3 py-2 border">{{ job.city|default:"-" }}</td>
+            <td class="px-3 py-2 border">{{ job.project|default:"-" }}</td>
+            <td class="px-3 py-2 border">{{ job.office|default:"-" }}</td>
+            <td class="px-3 py-2 border">{{ job.co|default:"-" }}</td>
+            <td class="px-3 py-2 border">{{ job.dfn|default:"-" }}</td>
+            <td class="px-3 py-2 border">
+              <span class="px-2 py-1 rounded-full text-xs font-bold
+                {% if job.status == 'completed' %}bg-green-100 text-green-700
+                {% elif job.status == 'failed' %}bg-red-100 text-red-700
+                {% elif job.status == 'processing' %}bg-blue-100 text-blue-700
+                {% elif job.status == 'needs_review' %}bg-yellow-100 text-yellow-700
+                {% elif job.status == 'pending' %}bg-gray-100 text-gray-700
+                {% else %}bg-gray-100 text-gray-700{% endif %}">
+                {{ job.get_status_display }}
+              </span>
+            </td>
+            <td class="px-3 py-2 border">
+              {{ job.processed_pages }}/{{ job.total_pages }} pages
+              <span class="text-gray-400">({{ job.progress_percent }}%)</span>
+            </td>
+            <td class="px-3 py-2 border">
+              {{ job.uploaded_by.get_full_name|default:job.uploaded_by.username }}
+            </td>
+            <td class="px-3 py-2 border">{{ job.created_at|date:"Y-m-d H:i" }}</td>
+            <td class="px-3 py-2 border">
+              <div class="flex items-center gap-2">
+                <a href="{% url 'plan_reader:job_detail' job.id %}"
+                   class="text-blue-600 hover:underline font-semibold">
+                  View
+                </a>
+
+                {% if job.status != "processing" %}
+                  <form method="post"
+                        action="{% url 'plan_reader:queue_job_processing' job.id %}"
+                        class="inline">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="text-xs font-bold px-2 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200">
+                      Queue
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="13" class="px-3 py-8 border text-center text-gray-500">
+              No Plan Reader jobs yet.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}
