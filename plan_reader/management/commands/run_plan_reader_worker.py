@@ -102,7 +102,10 @@ class Command(BaseCommand):
             )
 
             try:
-                process_plan_reader_job(job.id)
+                process_plan_reader_job(
+                    job.id,
+                    allow_processing=True,
+                )
 
                 self.stdout.write(
                     self.style.SUCCESS(

@@ -764,7 +764,7 @@ def mark_duplicates(job):
             )
 
 
-def process_plan_reader_job(job_id):
+def process_plan_reader_job(job_id, allow_processing=False):
     """
     Procesa un PlanReaderJob.
 
@@ -773,11 +773,14 @@ def process_plan_reader_job(job_id):
 
     Si PLAN_READER_USE_OPENAI=True:
         renderiza cada página como PNG, manda a OpenAI, crea items y aplica reglas.
+
+    allow_processing=True se usa solo desde el worker.
+    El worker primero marca el job como processing para evitar que otro worker lo tome.
     """
 
     job = PlanReaderJob.objects.get(id=job_id)
 
-    if job.status == PlanReaderJob.STATUS_PROCESSING:
+    if job.status == PlanReaderJob.STATUS_PROCESSING and not allow_processing:
         raise RuntimeError(f"PlanReaderJob #{job.id} is already processing.")
 
     run_openai = use_openai()
