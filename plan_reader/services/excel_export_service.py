@@ -36,6 +36,7 @@ BILLINGS_HEADERS = [
 TECHNICIANS_HEADERS = [
     "bulk_key",
     "technician_username",
+    "primary_feed",
 ]
 
 ITEMS_HEADERS = [
@@ -514,6 +515,7 @@ def build_plan_reader_excel_response(job_id):
             [
                 bulk_key,
                 "",
+                item.primary_feed or "",
             ]
         )
 

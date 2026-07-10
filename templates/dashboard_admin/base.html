@@ -16,7 +16,6 @@
 <link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32.png' %}">
 <link rel="icon" type="image/png" sizes="16x16" href="{% static 'icons/favicon-16.png' %}">
 
-
 <!-- PWA (opcional pero recomendado) -->
 <link rel="manifest" href="{% static 'icons/site.webmanifest' %}">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -139,12 +138,13 @@
     }
 
     #side-nav .submenu li a,
+    #side-nav .submenu li > div,
     #side-nav .submenu > a {
-      display: block;
       color: var(--sidebar-text-soft);
       border-radius: 10px;
       padding: 8px 12px;
       font-weight: 600;
+      font-size: 1rem;
       transition:
         background-color 0.2s ease,
         color 0.2s ease,
@@ -152,7 +152,12 @@
         box-shadow 0.2s ease;
     }
 
+    #side-nav .submenu li a {
+      display: block;
+    }
+
     #side-nav .submenu li a:hover,
+    #side-nav .submenu li > div:hover,
     #side-nav .submenu > a:hover {
       background: var(--sidebar-hover-strong);
       color: #ffffff;
@@ -339,126 +344,111 @@
     <h2 class="text-2xl font-bold mb-8">Menu</h2>
     <ul class="space-y-4 text-base">
       <li>
-        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center">🏠 Home</a>
+        <a href="{% url 'dashboard_admin:inicio_admin' %}" class="font-bold flex items-center gap-2">🏠 Home</a>
       </li>
 
-<!-- SECCIÓN: Operations -->
-{% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
-<li class="group">
-  <div class="flex justify-between items-center cursor-pointer"
-       onclick="toggleMenu(this)">
-    <span class="flex items-center gap-2">🛠 Operations</span>
-    <span class="flecha transition-transform duration-200">▶</span>
-  </div>
-
-  <ul class="ml-4 submenu space-y-1 hidden">
-
-    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-      <li>
-        <a href="{% url 'operaciones:produccion_admin' %}">
-          Salaries & Productions
-        </a>
-      </li>
-    {% endif %}
-
-    <li>
-      <a href="{% url 'operaciones:vista_rendiciones' %}">
-        Expense Reports
-      </a>
-    </li>
-
-    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-      <li>
-        <a href="{% url 'operaciones:listar_precios_tecnico' %}">
-          Technician Pricing Table
-        </a>
-      </li>
-    {% endif %}
-
-    <li>
-      <a href="{% url 'operaciones:listar_billing' %}">
-        Create Billing
-      </a>
-    </li>
-
-    {# DFN Plan Reader - Beta solo admin #}
-    {% if request.user.es_admin_general %}
+      <!-- SECCIÓN: Operations -->
+      {% if request.user.es_admin_general or request.user.es_supervisor or request.user.es_pm %}
       <li class="group">
         <div class="flex justify-between items-center cursor-pointer"
              onclick="toggleMenu(this)">
-          <span class="flex items-center gap-2">
-            🧠 DFN Plan Reader
-            <span class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white">
-              Beta
-            </span>
-          </span>
+          <span class="flex items-center gap-2">🛠 Operations</span>
           <span class="flecha transition-transform duration-200">▶</span>
         </div>
 
         <ul class="ml-4 submenu space-y-1 hidden">
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li>
+              <a href="{% url 'operaciones:produccion_admin' %}">
+                💵 Salaries & Productions
+              </a>
+            </li>
+          {% endif %}
+
           <li>
-            <a href="{% url 'plan_reader:job_list' %}">
-              Jobs
-            </a>
-          </li>
-          <li>
-            <a href="{% url 'plan_reader:job_create' %}">
-              Upload Plan
-            </a>
-          </li>
-        </ul>
-      </li>
-    {% else %}
-      <li>
-        <span class="block rounded-lg px-3 py-2 text-sm font-semibold text-blue-100/80 cursor-not-allowed opacity-70"
-              title="Coming soon">
-          🧠 DFN Plan Reader
-          <span class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white">
-            Coming soon
-          </span>
-        </span>
-      </li>
-    {% endif %}
-
-    {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-      <li>
-        <a href="{% url 'operaciones:resumen_operativo' %}">
-          Operational Summary
-        </a>
-      </li>
-    {% endif %}
-
-  </ul>
-</li>
-{% endif %}
-
-
-              <!-- SECCIÓN: Client Deliverables -->
-      {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
-      <li class="group">
-        <div class="flex justify-between items-center cursor-pointer"
-             onclick="toggleMenu(this)">
-          <span class="flex items-center gap-2">📤 Client Deliverables</span>
-          <span class="flecha transition-transform duration-200">▶</span>
-        </div>
-
-        <ul class="ml-4 submenu space-y-1 hidden">
-          <li>
-            <a href="{% url 'client_deliverables:admin_package_list' %}">
-              Delivery Packages
+            <a href="{% url 'operaciones:vista_rendiciones' %}">
+              🧾 Expense Reports
             </a>
           </li>
 
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li>
+              <a href="{% url 'operaciones:listar_precios_tecnico' %}">
+                💲 Technician Pricing Table
+              </a>
+            </li>
+          {% endif %}
+
           <li>
-            <a href="{% url 'client_deliverables:admin_package_create' %}">
-              New Delivery Package
+            <a href="{% url 'operaciones:listar_billing' %}">
+              📋 Create Billing
             </a>
           </li>
+
+          {% if request.user.es_admin_general %}
+            <li class="group">
+              <div class="flex justify-between items-center cursor-pointer"
+                   onclick="toggleMenu(this)">
+                <span class="flex items-center gap-2">
+                  🧠 DFN Plan Reader
+                </span>
+                <span class="flecha transition-transform duration-200">▶</span>
+              </div>
+
+              <ul class="ml-4 submenu space-y-1 hidden">
+                <li>
+                  <a href="{% url 'plan_reader:job_list' %}">
+                    📄 Jobs
+                  </a>
+                </li>
+                <li>
+                  <a href="{% url 'plan_reader:job_create' %}">
+                    ⬆️ Upload Plan
+                  </a>
+                </li>
+              </ul>
+            </li>
+          {% endif %}
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li class="group">
+              <div class="flex justify-between items-center cursor-pointer"
+                   onclick="toggleMenu(this)">
+                <span class="flex items-center gap-2">
+                  📤 Client Deliverables
+                </span>
+                <span class="flecha transition-transform duration-200">▶</span>
+              </div>
+
+              <ul class="ml-4 submenu space-y-1 hidden">
+                <li>
+                  <a href="{% url 'client_deliverables:admin_package_list' %}">
+                    📦 Delivery Packages
+                  </a>
+                </li>
+
+                <li>
+                  <a href="{% url 'client_deliverables:admin_package_create' %}">
+                    ➕ New Delivery Package
+                  </a>
+                </li>
+              </ul>
+            </li>
+          {% endif %}
+
+          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+            <li>
+              <a href="{% url 'operaciones:resumen_operativo' %}">
+                📊 Operational Summary
+              </a>
+            </li>
+          {% endif %}
+
         </ul>
       </li>
       {% endif %}
 
-      
       <!-- SECCIÓN: Human Resources -->
       {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
       <li class="group">
@@ -468,11 +458,11 @@
         </div>
         <ul class="ml-4 submenu space-y-1 hidden">
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'rrhh:list_rate_sheets' %}">Rate Sheets</a></li>
+            <li><a href="{% url 'rrhh:list_rate_sheets' %}">📑 Rate Sheets</a></li>
           {% endif %}
           {% if request.user.es_admin_general or request.user.es_rrhh or request.user.es_pm %}
-            <li><a href="{% url 'ombording:ombording_list' %}">Onboarding</a></li>
-            <li><a href="{% url 'rrhh:listar_firmas' %}">Signature Records</a></li>
+            <li><a href="{% url 'ombording:ombording_list' %}">📝 Onboarding</a></li>
+            <li><a href="{% url 'rrhh:listar_firmas' %}">✍️ Signature Records</a></li>
           {% endif %}
         </ul>
       </li>
@@ -490,13 +480,13 @@
         <ul class="ml-4 submenu space-y-1 hidden">
           <li>
             <a href="{% url 'logistica:herramientas_list' %}">
-              Equipment & Tools
+              🧰 Equipment & Tools
             </a>
           </li>
 
           <li>
             <a href="{% url 'logistica:herramientas_asignaciones_panel' %}">
-              Tool Assignments
+              🔁 Tool Assignments
             </a>
           </li>
         </ul>
@@ -515,25 +505,25 @@
         <ul class="ml-4 submenu space-y-1 hidden">
           <li>
             <a href="{% url 'fleet:vehicles_list' %}">
-              Vehicles
+              🚗 Vehicles
             </a>
           </li>
 
           <li>
             <a href="{% url 'fleet:odometer_logs_list' %}">
-              Odometer Logs
+              🧭 Odometer Logs
             </a>
           </li>
 
           <li>
             <a href="{% url 'fleet:assignments_list' %}">
-              Assignments
+              👤 Assignments
             </a>
           </li>
 
           <li>
             <a href="{% url 'fleet:service_list' %}">
-              Services
+              🔧 Services
             </a>
           </li>
         </ul>
@@ -549,9 +539,9 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="{% url 'facturacion:listar_cartola' %}">Account Transactions</a></li>
-              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}">Available Balances</a></li>
-              <li><a href="{% url 'facturacion:invoices' %}">Ready to Invoice</a></li>
+              <li><a href="{% url 'facturacion:listar_cartola' %}">🏦 Account Transactions</a></li>
+              <li><a href="{% url 'facturacion:listar_saldos_usuarios' %}">💰 Available Balances</a></li>
+              <li><a href="{% url 'facturacion:invoices' %}">✅ Ready to Invoice</a></li>
 
               {% if request.user.es_admin_general or request.user.es_emision_facturacion %}
               <li class="group">
@@ -560,11 +550,11 @@
                   <span class="flecha transition-transform duration-200">▶</span>
                 </div>
                 <ul class="ml-4 submenu space-y-1 hidden">
-                  <li><a href="{% url 'invoicing:branding' %}">Branding & Logos</a></li>
-                  <li><a href="{% url 'invoicing:customers_list' %}">Customers</a></li>
-                  <li><a href="{% url 'invoicing:invoices_list' %}">Invoices</a></li>
-                  <li><a href="{% url 'invoicing:itemcodes_list' %}">Item Codes</a></li>
-                  <li><a href="{% url 'invoicing:templates' %}">Templates</a></li>
+                  <li><a href="{% url 'invoicing:branding' %}">🎨 Branding & Logos</a></li>
+                  <li><a href="{% url 'invoicing:customers_list' %}">👥 Customers</a></li>
+                  <li><a href="{% url 'invoicing:invoices_list' %}">🧾 Invoices</a></li>
+                  <li><a href="{% url 'invoicing:itemcodes_list' %}">🔢 Item Codes</a></li>
+                  <li><a href="{% url 'invoicing:templates' %}">📄 Templates</a></li>
                 </ul>
               </li>
               {% endif %}
@@ -583,19 +573,19 @@
           <ul class="ml-4 submenu space-y-1 hidden">
               <li>
                   <a href="{% url 'access_control:matrix' %}">
-                      Permissions Matrix
+                      🧩 Permissions Matrix
                   </a>
               </li>
 
               <li>
                   <a href="{% url 'usuarios:two_factor_setup' %}">
-                      Two-factor authentication & devices
+                      🔑 Two-factor authentication & devices
                   </a>
               </li>
 
               <li>
                   <a href="{% url 'api:api_feature_list' %}">
-                      API Management
+                      🔌 API Management
                   </a>
               </li>
           </ul>
@@ -611,7 +601,7 @@
               <span class="flecha transition-transform duration-200">▶</span>
           </div>
           <ul class="ml-4 submenu space-y-1 hidden">
-              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}">Users</a></li>
+              <li><a href="{% url 'dashboard_admin:listar_usuarios' %}">👥 Users</a></li>
           </ul>
       </li>
       {% endif %}
