@@ -18,13 +18,17 @@ PLAN_READER_EXCEL_SESSION_KEY = "plan_reader_job_list_excel_filters"
 
 
 def can_access_plan_reader(user):
-    return user.is_authenticated and getattr(user, "es_admin_general", False)
+    return user.is_authenticated and (
+        getattr(user, "es_admin_general", False)
+        or getattr(user, "es_pm", False)
+        or getattr(user, "es_facturacion", False)
+    )
 
 
 def deny_plan_reader_access(request):
     messages.warning(
         request,
-        "DFN Plan Reader is coming soon. Access is currently limited to administrators.",
+        "You do not have permission to access DFN Plan Reader.",
     )
     return redirect("dashboard_admin:inicio_admin")
 
