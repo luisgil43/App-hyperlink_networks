@@ -480,7 +480,7 @@ def build_plan_reader_excel_response(job_id):
 
     default_requirement_type = "fiber"
 
-    job_code_c108 = _setting("PLAN_READER_BULK_JOB_CODE_C108", "C-108_UG")
+    job_code_c108 = _setting("PLAN_READER_BULK_JOB_CODE_C108", "C-108-UG")
     job_code_c109 = _setting("PLAN_READER_BULK_JOB_CODE_C109", "C-109")
     job_code_c110 = _setting("PLAN_READER_BULK_JOB_CODE_C110", "C-110")
 
