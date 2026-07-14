@@ -67,7 +67,7 @@ urlpatterns = [
         name="billing_excel_options",
     ),
     path(
-        "billing/export-operational-excel/",
+        "billing/operational-report/run/",
         views.exportar_billing_operational_excel,
         name="exportar_billing_operational_excel",
     ),

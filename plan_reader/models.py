@@ -171,9 +171,36 @@ class PlanReaderItem(models.Model):
     visible_type = models.CharField(max_length=120, blank=True)
     detected_box_type = models.CharField(max_length=120, blank=True)
 
+    # Campos legacy.
+    # Se mantienen por compatibilidad con producción y con la lógica existente.
     has_p = models.BooleanField(default=False)
     s_splitter = models.CharField(max_length=50, blank=True)
     t_splitter = models.CharField(max_length=50, blank=True)
+
+    # Nueva fuente principal de información de splitters.
+    #
+    # Ejemplo:
+    # [
+    #     {
+    #         "level": "P",
+    #         "ratio": "1:8",
+    #         "raw_text": "P-1:8(P0049)",
+    #     },
+    #     {
+    #         "level": "S",
+    #         "ratio": "1:2",
+    #         "raw_text": "S-1:2(P0049:S3)",
+    #     },
+    #     {
+    #         "level": "T",
+    #         "ratio": "1:4",
+    #         "raw_text": "T-1:4(P0049,S3:T1)",
+    #     },
+    # ]
+    splitter_lines = models.JSONField(
+        default=list,
+        blank=True,
+    )
 
     splice_count = models.PositiveIntegerField(default=0)
 

@@ -152,20 +152,34 @@ def _build_project_id(job, item):
     """
     Project ID final para Bulk Billing.
 
-    Regla actual:
-    - Debe ser solo el número de caja.
-    - No concatena CO ni DFN.
+    Regla:
+    CO_DFN_PROJECT_ID
 
-    Ejemplo:
-    box = 7020-014
+    Ejemplos:
+
+    CO = 0913RA
+    DFN = 04
+    box = 5003-002-5
 
     Resultado:
-    7020-014
+    0913RA_04_5003-002-5
     """
+    co = _safe_text_for_id(job.co)
+    dfn = _safe_text_for_id(job.dfn)
     box = _safe_text_for_id(item.project_name)
 
-    if box:
-        return box
+    parts = [
+        value
+        for value in [
+            co,
+            dfn,
+            box,
+        ]
+        if value
+    ]
+
+    if parts:
+        return "_".join(parts)
 
     return f"PLAN_READER_ITEM_{item.id}"
 

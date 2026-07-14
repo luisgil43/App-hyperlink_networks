@@ -50,7 +50,6 @@ def safe_decimal(value):
     except Exception:
         return None
 
-
 # =============================================================================
 # LIMPIEZA DEFENSIVA DE LECTURA IA
 # =============================================================================
@@ -87,6 +86,68 @@ def _extract_box_from_text(value):
     return matches[0].strip()
 
 
+def _extract_primary_feed_from_text(value):
+    """
+    Extrae un Primary Feed con formato P + 4 dígitos.
+
+    Ejemplos válidos:
+    - P0018
+    - P0049
+    - P1234
+
+    Si no encuentra uno, devuelve "".
+    """
+    text = _clean_read_text(value).upper()
+
+    if not text:
+        return ""
+
+    match = re.search(r"\bP\d{4}\b", text)
+
+    if not match:
+        return ""
+
+    return match.group(0).strip()
+
+
+def _normalize_primary_feed_from_raw(raw_item):
+    """
+    Decide el Primary Feed final.
+
+    Prioridad:
+    1. primary_feed entregado por OpenAI.
+    2. raw_text completo del item.
+    3. raw_text de splitter_lines, respetando su orden.
+
+    Si no existe un patrón P#### válido, devuelve "".
+    """
+    raw_item = raw_item or {}
+
+    primary_feed = _extract_primary_feed_from_text(raw_item.get("primary_feed"))
+
+    if primary_feed:
+        return primary_feed
+
+    primary_feed = _extract_primary_feed_from_text(raw_item.get("raw_text"))
+
+    if primary_feed:
+        return primary_feed
+
+    splitter_lines = raw_item.get("splitter_lines")
+
+    if isinstance(splitter_lines, list):
+        for line in splitter_lines:
+            if not isinstance(line, dict):
+                continue
+
+            primary_feed = _extract_primary_feed_from_text(line.get("raw_text"))
+
+            if primary_feed:
+                return primary_feed
+
+    return ""
+
+
 def _normalize_ai_box_family(value):
     """
     Corrige familias mal leídas por la IA antes de pasar a rules_engine.
@@ -98,6 +159,7 @@ def _normalize_ai_box_family(value):
     - B6G
     - B86
     - B8C
+    - BBG
 
     Todo eso se interpreta como B8G.
     """
@@ -108,18 +170,36 @@ def _normalize_ai_box_family(value):
 
     text = text.upper().strip()
 
-    if re.search(r"\b(BGP|BBP|BG8|B6G|B86|B8C)\b", text):
-        text = re.sub(r"\b(BGP|BBP|BG8|B6G|B86|B8C)\b", "B8G", text)
+    variants_pattern = r"\b(BGP|BBP|BG8|B6G|B86|B8C|BBG)\b"
+
+    if re.search(variants_pattern, text):
+        text = re.sub(
+            variants_pattern,
+            "B8G",
+            text,
+        )
 
     return text
 
 
 def _normalize_final_box_type(value):
     """
-    Última defensa para que nunca quede BGP/BBP como Final Box Type.
+    Última defensa para que nunca quede una variante OCR inválida
+    como Final Box Type.
 
-    No modifica rules_engine.py.
-    Solo corrige el resultado antes de guardar en DB.
+    Valores como:
+    - BGP
+    - BBP
+    - BG8
+    - B6G
+    - B86
+    - B8C
+    - BBG
+
+    se normalizan a B8G.
+
+    No modifica la lógica de rules_engine.py.
+    Solo protege el valor final antes de guardar en DB.
     """
     text = _clean_read_text(value)
 
@@ -128,37 +208,123 @@ def _normalize_final_box_type(value):
 
     upper = text.upper().strip()
 
-    if upper in {"BGP", "BBP", "BG8", "B6G", "B86", "B8C"}:
+    invalid_b8g_variants = {
+        "BGP",
+        "BBP",
+        "BG8",
+        "B6G",
+        "B86",
+        "B8C",
+        "BBG",
+    }
+
+    if upper in invalid_b8g_variants:
         return "B8G"
 
-    if upper.startswith("BGP") or upper.startswith("BBP"):
-        return text.replace("BGP", "B8G").replace("BBP", "B8G")
+    replacements = {
+        "BGP": "B8G",
+        "BBP": "B8G",
+        "BG8": "B8G",
+        "B6G": "B8G",
+        "B86": "B8G",
+        "B8C": "B8G",
+        "BBG": "B8G",
+    }
 
-    return text
+    normalized = upper
+
+    for old_value, new_value in replacements.items():
+        normalized = normalized.replace(
+            old_value,
+            new_value,
+        )
+
+    return normalized
 
 
 def _normalize_project_name_from_raw(raw_item):
     """
-    Decide el project_name final.
+    Decide el project_name final sin perder sufijos válidos.
 
-    Prioridad:
-    1) raw_text, porque normalmente trae la caja completa.
-    2) project_name entregado por OpenAI.
+    Compara:
+    - project_name entregado por OpenAI.
+    - project ID encontrado dentro de raw_text.
+
+    Cuando ambos pertenecen a la misma caja base,
+    conserva siempre la versión más completa.
+
+    Ejemplos:
+
+    project_name = 5005-009-7
+    raw_text     = 5005-009
+    resultado    = 5005-009-7
+
+    project_name = 5005-009
+    raw_text     = 5005-009-7
+    resultado    = 5005-009-7
     """
+    raw_item = raw_item or {}
+
     raw_project_name = _clean_read_text(raw_item.get("project_name"))
+
     raw_text = _clean_read_text(raw_item.get("raw_text"))
-
-    box_from_raw = _extract_box_from_text(raw_text)
-
-    if box_from_raw:
-        return box_from_raw
 
     box_from_project = _extract_box_from_text(raw_project_name)
 
+    box_from_raw = _extract_box_from_text(raw_text)
+
+    candidates = []
+
+    if box_from_project:
+        candidates.append(box_from_project)
+
+    if box_from_raw:
+        candidates.append(box_from_raw)
+
+    if not candidates:
+        return raw_project_name
+
+    unique_candidates = []
+
+    for candidate in candidates:
+        if candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+
+    if len(unique_candidates) == 1:
+        return unique_candidates[0]
+
+    def base_without_suffix(value):
+        match = re.match(
+            r"^(?P<base>\d{4}-\d{3})(?:-\d+)?$",
+            value,
+        )
+
+        if not match:
+            return value
+
+        return match.group("base")
+
+    candidate_bases = {
+        base_without_suffix(candidate) for candidate in unique_candidates
+    }
+
+    # Misma caja base:
+    # conserva la versión con mayor nivel de detalle.
+    if len(candidate_bases) == 1:
+        return max(
+            unique_candidates,
+            key=lambda value: (
+                value.count("-"),
+                len(value),
+            ),
+        )
+
+    # Si son IDs diferentes, prioriza el campo específico
+    # project_name entregado por OpenAI.
     if box_from_project:
         return box_from_project
 
-    return raw_project_name
+    return box_from_raw
 
 
 def _clean_ai_item(raw_item):
@@ -167,22 +333,64 @@ def _clean_ai_item(raw_item):
 
     Corrige:
     - project_name incompleto.
-    - BGP/BBP/BG8/etc. como B8G.
+    - primary_feed P####.
+    - BGP/BBP/BG8/B6G/B86/B8C/BBG como B8G.
+
+    splitter_lines se conserva como lista completa y ordenada.
+    La validación final de sus líneas la realiza rules_engine.py.
     """
     raw_item = raw_item or {}
 
     cleaned = dict(raw_item)
 
     cleaned["project_name"] = _normalize_project_name_from_raw(raw_item)
+
+    cleaned["primary_feed"] = _normalize_primary_feed_from_raw(raw_item)
+
     cleaned["visible_type"] = _normalize_ai_box_family(raw_item.get("visible_type"))
+
     cleaned["detected_box_type"] = _normalize_ai_box_family(
         raw_item.get("detected_box_type")
     )
 
+    splitter_lines = raw_item.get("splitter_lines")
+
+    if isinstance(splitter_lines, list):
+        cleaned["splitter_lines"] = splitter_lines
+    else:
+        cleaned["splitter_lines"] = []
+
     return cleaned
 
 
-def create_item_from_extraction(job, page_obj, page_data, raw_item):
+def create_item_from_extraction(
+    job,
+    page_obj,
+    page_data,
+    raw_item,
+):
+    """
+    Crea un PlanReaderItem desde la extracción de OpenAI.
+
+    Fuente principal de splitters:
+    - splitter_lines
+
+    Compatibilidad legacy:
+    - has_p
+    - s_splitter
+    - t_splitter
+
+    El rules_engine:
+    - normaliza splitter_lines;
+    - deriva los campos legacy;
+    - calcula BOX TYPE;
+    - calcula C-108, C-109 y C-110;
+    - decide needs_review y observation.
+
+    Importante:
+    - No modifica la lógica de duplicados.
+    - No modifica la exportación.
+    """
     raw_item = _clean_ai_item(raw_item)
 
     sheet = (
@@ -192,6 +400,11 @@ def create_item_from_extraction(job, page_obj, page_data, raw_item):
         or ""
     )
 
+    raw_splitter_lines = raw_item.get("splitter_lines")
+
+    if not isinstance(raw_splitter_lines, list):
+        raw_splitter_lines = []
+
     base_data = {
         "sheet": sheet,
         "co": job.co,
@@ -200,54 +413,119 @@ def create_item_from_extraction(job, page_obj, page_data, raw_item):
         "primary_feed": str(raw_item.get("primary_feed") or "").strip(),
         "visible_type": str(raw_item.get("visible_type") or "").strip(),
         "detected_box_type": str(raw_item.get("detected_box_type") or "").strip(),
+        # Nueva fuente principal.
+        "splitter_lines": raw_splitter_lines,
+        # Campos legacy.
+        # Se siguen enviando como fallback para compatibilidad.
         "has_p": bool(raw_item.get("has_p")),
         "s_splitter": str(raw_item.get("s_splitter") or "").strip(),
         "t_splitter": str(raw_item.get("t_splitter") or "").strip(),
-        "splice_count": safe_int(raw_item.get("splice_count"), 0),
+        "splice_count": safe_int(
+            raw_item.get("splice_count"),
+            0,
+        ),
     }
 
     calculated = apply_box_rules(base_data)
 
     calculated["calculated_box_type"] = _normalize_final_box_type(
-        calculated.get("calculated_box_type", "")
+        calculated.get(
+            "calculated_box_type",
+            "",
+        )
     )
 
     calculated["detected_box_type"] = _normalize_ai_box_family(
-        calculated.get("detected_box_type", "")
+        calculated.get(
+            "detected_box_type",
+            "",
+        )
     )
 
     calculated["visible_type"] = _normalize_ai_box_family(
-        calculated.get("visible_type", "")
+        calculated.get(
+            "visible_type",
+            "",
+        )
     )
 
-    raw_text = str(raw_item.get("raw_text") or "").strip()
+    calculated_splitter_lines = calculated.get(
+        "splitter_lines",
+        [],
+    )
 
-    if raw_text:
-        calculated["observation"] = (
-            f"{calculated.get('observation', '')} Raw: {raw_text}"
-        ).strip()
+    if not isinstance(calculated_splitter_lines, list):
+        calculated_splitter_lines = []
 
     item_confidence = safe_decimal(raw_item.get("confidence"))
 
     return PlanReaderItem.objects.create(
         job=job,
         page=page_obj,
-        sheet=calculated.get("sheet", ""),
-        co=calculated.get("co", ""),
-        dfn=calculated.get("dfn", ""),
-        project_name=calculated.get("project_name", ""),
-        primary_feed=calculated.get("primary_feed", ""),
-        visible_type=calculated.get("visible_type", ""),
-        detected_box_type=calculated.get("detected_box_type", ""),
+        sheet=calculated.get(
+            "sheet",
+            "",
+        ),
+        co=calculated.get(
+            "co",
+            "",
+        ),
+        dfn=calculated.get(
+            "dfn",
+            "",
+        ),
+        project_name=calculated.get(
+            "project_name",
+            "",
+        ),
+        primary_feed=calculated.get(
+            "primary_feed",
+            "",
+        ),
+        visible_type=calculated.get(
+            "visible_type",
+            "",
+        ),
+        detected_box_type=calculated.get(
+            "detected_box_type",
+            "",
+        ),
+        # Nueva fuente principal.
+        splitter_lines=calculated_splitter_lines,
+        # Compatibilidad con todo lo existente.
         has_p=bool(calculated.get("has_p")),
-        s_splitter=calculated.get("s_splitter", ""),
-        t_splitter=calculated.get("t_splitter", ""),
-        splice_count=safe_int(calculated.get("splice_count"), 0),
-        calculated_box_type=calculated.get("calculated_box_type", ""),
-        c108_ug=safe_int(calculated.get("c108_ug"), 0),
-        c109_splices=safe_int(calculated.get("c109_splices"), 0),
-        c110_splitters=safe_int(calculated.get("c110_splitters"), 0),
-        observation=calculated.get("observation", ""),
+        s_splitter=calculated.get(
+            "s_splitter",
+            "",
+        ),
+        t_splitter=calculated.get(
+            "t_splitter",
+            "",
+        ),
+        splice_count=safe_int(
+            calculated.get("splice_count"),
+            0,
+        ),
+        calculated_box_type=calculated.get(
+            "calculated_box_type",
+            "",
+        ),
+        c108_ug=safe_int(
+            calculated.get("c108_ug"),
+            0,
+        ),
+        c109_splices=safe_int(
+            calculated.get("c109_splices"),
+            0,
+        ),
+        c110_splitters=safe_int(
+            calculated.get("c110_splitters"),
+            0,
+        ),
+        observation=calculated.get(
+            "observation",
+            "",
+        ),
         confidence=item_confidence,
         needs_review=bool(calculated.get("needs_review")),
         is_duplicate=False,
