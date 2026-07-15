@@ -175,8 +175,10 @@ urlpatterns = [
         include(
             ("client_deliverables.urls", "client_deliverables"),
             namespace="client_deliverables",
+        ),),
+    path("client-submissions/",include("client_submissions.urls"),
         ),
-    ),
+    
     path("plan-reader/", include("plan_reader.urls")),
 ]
 

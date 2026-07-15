@@ -1,0 +1,103 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Human Verification{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+
+  <div class="text-center mb-6">
+    <div class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl">
+      ⚠️
+    </div>
+
+    <h1 class="text-2xl font-bold text-gray-800 mt-4">
+      Human verification required
+    </h1>
+
+    <p class="text-sm text-gray-500 mt-2">
+      The automated browser completed the form but requires human verification before it can continue.
+    </p>
+  </div>
+
+  <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-6">
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div>
+        <p class="text-xs uppercase tracking-wide text-amber-700">
+          Project ID
+        </p>
+        <p class="font-semibold text-gray-900 mt-1">
+          {{ submission.project_id }}
+        </p>
+      </div>
+
+      <div>
+        <p class="text-xs uppercase tracking-wide text-amber-700">
+          Batch
+        </p>
+        <p class="font-semibold text-gray-900 mt-1">
+          #{{ batch.id }}
+        </p>
+      </div>
+
+      <div>
+        <p class="text-xs uppercase tracking-wide text-amber-700">
+          DFN Name
+        </p>
+        <p class="font-semibold text-gray-900 mt-1">
+          {{ submission.dfn_name|default:"—" }}
+        </p>
+      </div>
+
+      <div>
+        <p class="text-xs uppercase tracking-wide text-amber-700">
+          Access Point ID
+        </p>
+        <p class="font-semibold text-gray-900 mt-1">
+          {{ submission.access_point_id|default:"—" }}
+        </p>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="rounded-xl border p-5 mb-6">
+    <h2 class="font-semibold text-gray-800">
+      Current status
+    </h2>
+
+    <p class="mt-2 text-amber-700 font-medium">
+      {{ submission.get_status_display }}
+    </p>
+
+    {% if submission.verification_required_at %}
+      <p class="text-sm text-gray-500 mt-1">
+        Requested at:
+        {{ submission.verification_required_at|date:"Y-m-d H:i:s" }}
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="rounded-xl border border-blue-200 bg-blue-50 p-5 mb-6">
+    <h2 class="font-semibold text-blue-900">
+      Verification session
+    </h2>
+
+    <p class="text-sm text-blue-800 mt-2">
+      The browser session connection will be added when the Playwright worker is connected.
+    </p>
+  </div>
+
+  <div class="flex justify-end">
+    <a
+      href="{% url 'client_submissions:batch_detail' batch.public_id %}"
+      class="px-5 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+    >
+      Back to Batch
+    </a>
+  </div>
+
+</div>
+{% endblock %}

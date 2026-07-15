@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     "api",
     "cable_installation",
     "client_deliverables",
+    "client_submissions",
     "dashboard_admin.apps.DashboardAdminConfig",
 ]
 

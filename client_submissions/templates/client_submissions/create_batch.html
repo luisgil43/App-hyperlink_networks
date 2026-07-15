@@ -1,0 +1,1663 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Create Client Submission Batch{% endblock %}
+
+{% block dashboard_content %}
+<div class="w-full mx-auto bg-white p-3 sm:p-6 rounded-none sm:rounded-2xl shadow mt-3 sm:mt-6">
+
+  <!-- ===================================================== -->
+  <!-- Header -->
+  <!-- ===================================================== -->
+
+  <div class="flex items-start justify-between gap-3 flex-wrap mb-6">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-800">
+        Submit to Client Portal
+      </h1>
+
+      <p class="text-sm text-gray-500 mt-1">
+        Configure {{ selected_count }} selected
+        project{{ selected_count|pluralize }} for client submission.
+      </p>
+    </div>
+
+    <a
+      href="{% url 'facturacion:invoices' %}"
+      class="w-full sm:w-auto text-center px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+    >
+      Back to Invoices
+    </a>
+  </div>
+
+  {% if missing_ids %}
+    <div class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      Some selected invoices could not be loaded:
+      {{ missing_ids|join:", " }}
+    </div>
+  {% endif %}
+
+  <form
+    method="post"
+    action="{% url 'client_submissions:create_batch_submit' %}"
+    class="space-y-6"
+    id="client-submission-create-form"
+  >
+    {% csrf_token %}
+
+    <input
+      type="hidden"
+      name="ids"
+      value="{{ selected_ids_csv }}"
+    >
+
+    <!-- ===================================================== -->
+    <!-- Batch configuration -->
+    <!-- ===================================================== -->
+
+    <section class="rounded-2xl border border-gray-200 p-4 sm:p-5">
+
+      <div class="mb-5">
+        <h2 class="text-lg font-semibold text-gray-800">
+          Batch configuration
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Administrative values shared by every project in this batch.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+        <!-- Internal name -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Internal batch name
+          </label>
+
+          <input
+            type="text"
+            name="name"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            placeholder="Example: Green Bay July submissions"
+          >
+        </div>
+
+        <!-- Execution mode -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Execution mode
+          </label>
+
+          <select
+            name="execution_mode"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            required
+          >
+            {% for value, label in execution_modes %}
+              <option
+                value="{{ value }}"
+                {% if value == initial_data.execution_mode %}selected{% endif %}
+              >
+                {{ label }}
+              </option>
+            {% endfor %}
+          </select>
+
+          <p class="text-xs text-gray-500 mt-1">
+            Dry Run completes the form without submitting it.
+          </p>
+        </div>
+
+        <!-- Production Completed Date -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Production Completed Date
+          </label>
+
+          {% if common_finish_date %}
+
+            <div
+              class="w-full border border-green-300 bg-green-50 rounded-lg px-3 py-2"
+            >
+              <div class="flex items-center justify-between gap-3">
+
+                <span class="font-medium text-green-800">
+                  {{ common_finish_date|date:"Y-m-d" }}
+                </span>
+
+                <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                  Common date
+                </span>
+
+              </div>
+            </div>
+
+            <input
+              type="hidden"
+              name="production_completed_date"
+              value="{{ initial_data.production_completed_date }}"
+            >
+
+            <p class="text-xs text-gray-500 mt-1">
+              All selected projects have the same Invoice finish date.
+            </p>
+
+          {% else %}
+
+            <div
+              class="w-full border border-amber-300 bg-amber-50 rounded-lg px-3 py-2"
+            >
+              <div class="flex items-center justify-between gap-3">
+
+                <span class="font-medium text-amber-800">
+                  Project-specific dates
+                </span>
+
+                <span class="inline-flex px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
+                  Mixed dates
+                </span>
+
+              </div>
+            </div>
+
+            <input
+              type="hidden"
+              name="production_completed_date"
+              value=""
+            >
+
+            <p class="text-xs text-gray-500 mt-1">
+              Each project will use its own Invoice finish date shown below.
+            </p>
+
+          {% endif %}
+        </div>
+
+        <!-- Submitted by -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Submitted by
+          </label>
+
+          <input
+            type="email"
+            name="submitted_by_email"
+            value="{{ initial_data.submitted_by_email }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            required
+          >
+        </div>
+
+        <!-- Copy email -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Copy email
+          </label>
+
+          <input
+            type="email"
+            name="copy_email"
+            value="{{ initial_data.copy_email }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            required
+          >
+        </div>
+
+        <!-- Additional copies -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Additional internal copy emails
+          </label>
+
+          <input
+            type="text"
+            name="additional_copy_emails"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            placeholder="email1@company.com, email2@company.com"
+          >
+        </div>
+
+        <!-- Sub Contractor -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Sub Contractor Name
+          </label>
+
+          <input
+            type="text"
+            name="subcontractor_name"
+            value="{{ initial_data.subcontractor_name }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            required
+          >
+        </div>
+
+        <!-- Market -->
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Market
+          </label>
+
+          <input
+            type="text"
+            name="market"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2"
+            placeholder="Example: TDS Green Bay"
+            required
+          >
+        </div>
+
+        <!-- Copy responses -->
+
+        <div class="flex items-end">
+          <label class="w-full flex items-start gap-3 border rounded-xl px-4 py-3 hover:bg-gray-50 cursor-pointer">
+
+            <input
+              type="checkbox"
+              name="send_copy_of_responses"
+              value="1"
+              {% if initial_data.send_copy_of_responses %}checked{% endif %}
+              class="w-4 h-4 mt-0.5"
+            >
+
+            <span>
+              <span class="block text-sm font-medium text-gray-700">
+                Send me a copy of my responses
+              </span>
+
+              <span class="block text-xs text-gray-500 mt-1">
+                Smartsheet will send a copy to the configured email.
+              </span>
+            </span>
+
+          </label>
+        </div>
+
+        <!-- Subcontractor checkbox -->
+
+        <div class="flex items-end">
+          <label class="w-full flex items-start gap-3 border rounded-xl px-4 py-3 hover:bg-gray-50 cursor-pointer">
+
+            <input
+              type="checkbox"
+              name="is_subcontractor"
+              value="1"
+              {% if initial_data.is_subcontractor %}checked{% endif %}
+              class="w-4 h-4 mt-0.5"
+            >
+
+            <span>
+              <span class="block text-sm font-medium text-gray-700">
+                Sub Contractor
+              </span>
+
+              <span class="block text-xs text-gray-500 mt-1">
+                Use the configured subcontractor name in the client form.
+              </span>
+            </span>
+
+          </label>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ===================================================== -->
+    <!-- Work completed configuration -->
+    <!-- ===================================================== -->
+
+    <section class="rounded-2xl border border-gray-200 p-4 sm:p-5">
+
+      <div class="mb-5">
+        <h2 class="text-lg font-semibold text-gray-800">
+          Work completed configuration
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Configure Fiber Placed, Splicing and Testing.
+          Aerial Case and Re-Entry are detected automatically from Invoice codes.
+        </p>
+      </div>
+
+      <!-- ================================================= -->
+      <!-- Automatic rules -->
+      <!-- ================================================= -->
+
+      <div class="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4">
+
+        <p class="text-sm font-semibold text-blue-900">
+          Automatic Invoice code rules
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-xs">
+
+          <div class="rounded-lg bg-white border border-blue-100 px-3 py-3">
+            <span class="block font-semibold text-gray-900">
+              C-108-UG
+            </span>
+
+            <span class="block text-gray-600 mt-1">
+              Underground Splice Case quantity.
+              Aerial Case remains NO.
+            </span>
+          </div>
+
+          <div class="rounded-lg bg-white border border-blue-100 px-3 py-3">
+            <span class="block font-semibold text-gray-900">
+              C-108-AER
+            </span>
+
+            <span class="block text-gray-600 mt-1">
+              Aerial Splice Case quantity.
+              Aerial Case automatically becomes YES.
+            </span>
+          </div>
+
+          <div class="rounded-lg bg-white border border-blue-100 px-3 py-3">
+            <span class="block font-semibold text-gray-900">
+              C-108.1
+            </span>
+
+            <span class="block text-gray-600 mt-1">
+              Re-Entry automatically becomes YES.
+              Quantity is not submitted as a form quantity.
+            </span>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Configuration mode -->
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
+
+        <label
+          class="configuration-mode-card flex items-start gap-3 border-2 rounded-xl px-4 py-4 cursor-pointer transition"
+          data-mode-card="common"
+        >
+
+          <input
+            type="radio"
+            name="configuration_mode"
+            value="common"
+            {% if initial_data.configuration_mode == "common" %}checked{% endif %}
+            class="w-4 h-4 mt-1 configuration-mode-radio"
+          >
+
+          <span>
+            <span class="block text-sm font-semibold text-gray-800">
+              Same Work Types for all projects
+            </span>
+
+            <span class="block text-xs text-gray-500 mt-1">
+              Fiber Placed, Splicing and Testing will be applied to every selected project.
+            </span>
+          </span>
+
+        </label>
+
+        <label
+          class="configuration-mode-card flex items-start gap-3 border-2 rounded-xl px-4 py-4 cursor-pointer transition"
+          data-mode-card="individual"
+        >
+
+          <input
+            type="radio"
+            name="configuration_mode"
+            value="individual"
+            {% if initial_data.configuration_mode == "individual" %}checked{% endif %}
+            class="w-4 h-4 mt-1 configuration-mode-radio"
+          >
+
+          <span>
+            <span class="block text-sm font-semibold text-gray-800">
+              Configure Work Types by project
+            </span>
+
+            <span class="block text-xs text-gray-500 mt-1">
+              Each project can use different Fiber Placed, Splicing and Testing answers.
+            </span>
+          </span>
+
+        </label>
+
+      </div>
+
+      <!-- ================================================= -->
+      <!-- Common configuration -->
+      <!-- ================================================= -->
+
+      <div
+        id="common-configuration-panel"
+        class="rounded-2xl border border-gray-200 bg-gray-50 p-4 sm:p-5"
+      >
+
+        <div class="mb-4">
+          <h3 class="font-semibold text-gray-800">
+            Common Work Completed
+          </h3>
+
+          <p class="text-xs text-gray-500 mt-1">
+            These Work Type answers will be copied to all selected projects.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+
+          <label class="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 hover:bg-gray-50 cursor-pointer">
+
+            <input
+              type="checkbox"
+              name="fiber_placed"
+              value="1"
+              {% if initial_data.fiber_placed %}checked{% endif %}
+              class="w-4 h-4"
+            >
+
+            <span class="text-sm font-medium">
+              Fiber Placed
+            </span>
+
+          </label>
+
+          <label class="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 hover:bg-gray-50 cursor-pointer">
+
+            <input
+              type="checkbox"
+              name="splicing"
+              value="1"
+              {% if initial_data.splicing %}checked{% endif %}
+              class="w-4 h-4"
+            >
+
+            <span class="text-sm font-medium">
+              Splicing
+            </span>
+
+          </label>
+
+          <label class="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 hover:bg-gray-50 cursor-pointer">
+
+            <input
+              type="checkbox"
+              name="testing"
+              value="1"
+              {% if initial_data.testing %}checked{% endif %}
+              class="w-4 h-4"
+            >
+
+            <span class="text-sm font-medium">
+              Testing
+            </span>
+
+          </label>
+
+        </div>
+
+      </div>
+
+      <!-- ================================================= -->
+      <!-- Individual notice -->
+      <!-- ================================================= -->
+
+      <div
+        id="individual-configuration-notice"
+        class="hidden rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-800"
+      >
+        Configure Fiber Placed, Splicing and Testing directly in the
+        Selected Projects section below.
+        Aerial Case and Re-Entry remain automatic for every project.
+      </div>
+
+    </section>
+
+    <!-- ===================================================== -->
+    <!-- Notes -->
+    <!-- ===================================================== -->
+
+    <section class="rounded-2xl border border-gray-200 p-4 sm:p-5">
+
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        Internal notes
+      </label>
+
+      <textarea
+        name="notes"
+        rows="3"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2"
+        placeholder="Optional internal note..."
+      ></textarea>
+
+    </section>
+
+    <!-- ===================================================== -->
+    <!-- Selected projects -->
+    <!-- ===================================================== -->
+
+    <section class="rounded-2xl border border-gray-200 overflow-hidden">
+
+      <div class="px-4 sm:px-5 py-4 border-b bg-gray-50">
+
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+
+          <div>
+            <h2 class="text-lg font-semibold text-gray-800">
+              Selected projects
+            </h2>
+
+            <p class="text-sm text-gray-500 mt-1">
+              {{ selected_count }}
+              project{{ selected_count|pluralize }} selected.
+            </p>
+          </div>
+
+          <span
+            id="project-configuration-mode-badge"
+            class="inline-flex px-3 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-medium"
+          >
+            Common Work Types
+          </span>
+
+        </div>
+
+      </div>
+
+      <!-- ================================================= -->
+      <!-- Mobile cards -->
+      <!-- ================================================= -->
+
+      <div class="lg:hidden divide-y">
+
+        {% for row in selected_rows %}
+
+          <article
+            class="p-4 individual-project-container"
+            data-project-id="{{ row.id }}"
+            data-aerial-case="{% if row.aerial_case %}yes{% else %}no{% endif %}"
+            data-re-entry="{% if row.re_entry %}yes{% else %}no{% endif %}"
+          >
+
+            <!-- Header -->
+
+            <div class="flex items-start justify-between gap-3">
+
+              <div class="min-w-0">
+
+                <p class="text-xs text-gray-500">
+                  Invoice #{{ row.id }}
+                </p>
+
+                <p class="font-semibold text-gray-900 mt-1 break-words">
+                  {{ row.project_id|default:"—" }}
+                </p>
+
+              </div>
+
+              {% if row.evidence_count > 0 %}
+
+                <span class="shrink-0 inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                  {{ row.evidence_count }} photos
+                </span>
+
+              {% else %}
+
+                <span class="shrink-0 inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                  0 photos
+                </span>
+
+              {% endif %}
+
+            </div>
+
+            <!-- General project information -->
+
+            <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+
+              <div>
+                <span class="block text-gray-500">
+                  Client
+                </span>
+
+                <span class="block text-gray-800 mt-1">
+                  {{ row.client|default:"—" }}
+                </span>
+              </div>
+
+              <div>
+                <span class="block text-gray-500">
+                  City
+                </span>
+
+                <span class="block text-gray-800 mt-1">
+                  {{ row.city|default:"—" }}
+                </span>
+              </div>
+
+              <div>
+                <span class="block text-gray-500">
+                  Office
+                </span>
+
+                <span class="block text-gray-800 mt-1">
+                  {{ row.office|default:"—" }}
+                </span>
+              </div>
+
+              <div>
+                <span class="block text-gray-500">
+                  Billing Items
+                </span>
+
+                <span class="block text-gray-800 mt-1">
+                  {{ row.items_count }}
+                </span>
+              </div>
+
+              <div class="col-span-2">
+
+                <span class="block text-gray-500">
+                  Production Completed Date
+                </span>
+
+                {% if row.finish_date %}
+
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-800 font-semibold">
+                    {{ row.finish_date|date:"Y-m-d" }}
+                  </span>
+
+                {% else %}
+
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-lg bg-red-100 text-red-700 font-semibold">
+                    Missing finish date
+                  </span>
+
+                {% endif %}
+
+              </div>
+
+            </div>
+
+            <!-- ============================================= -->
+            <!-- Client Items -->
+            <!-- ============================================= -->
+
+            <div class="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3">
+
+              <div class="flex items-center justify-between gap-3">
+
+                <p class="text-xs uppercase tracking-wide font-semibold text-blue-800">
+                  Client Items
+                </p>
+
+                <span class="text-xs text-blue-600">
+                  Smartsheet quantities
+                </span>
+
+              </div>
+
+              {% if row.client_items %}
+
+                <div class="mt-3 space-y-2">
+
+                  {% for item in row.client_items %}
+
+                    <div class="flex items-center justify-between gap-3 bg-white border border-blue-100 rounded-lg px-3 py-2">
+
+                      <div class="min-w-0">
+
+                        <span class="font-semibold text-gray-900 text-xs">
+                          {{ item.code }}
+                        </span>
+
+                        <span class="block text-xs text-gray-500 mt-0.5">
+                          {{ item.label }}
+                        </span>
+
+                      </div>
+
+                      <span class="shrink-0 inline-flex items-center justify-center min-w-[48px] px-2 py-1 rounded-lg bg-blue-100 text-blue-800 font-bold text-sm">
+                        × {{ item.quantity }}
+                      </span>
+
+                    </div>
+
+                  {% endfor %}
+
+                </div>
+
+              {% else %}
+
+                <p class="text-xs text-red-600 mt-3">
+                  No mapped client quantities found.
+                </p>
+
+              {% endif %}
+
+            </div>
+
+            <!-- ============================================= -->
+            <!-- Automatic flags -->
+            <!-- ============================================= -->
+
+            <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+
+              <p class="text-xs uppercase tracking-wide font-semibold text-gray-600">
+                Automatic project configuration
+              </p>
+
+              <div class="grid grid-cols-2 gap-3 mt-3">
+
+                <div>
+
+                  <span class="block text-xs text-gray-500">
+                    Aerial Case
+                  </span>
+
+                  {% if row.aerial_case %}
+
+                    <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                      YES
+                    </span>
+
+                    <span class="block text-[11px] text-gray-500 mt-1">
+                      Detected from C-108-AER
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold">
+                      NO
+                    </span>
+
+                  {% endif %}
+
+                </div>
+
+                <div>
+
+                  <span class="block text-xs text-gray-500">
+                    Re-Entry
+                  </span>
+
+                  {% if row.re_entry %}
+
+                    <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                      YES
+                    </span>
+
+                    <span class="block text-[11px] text-gray-500 mt-1">
+                      Detected from C-108.1
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold">
+                      NO
+                    </span>
+
+                  {% endif %}
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- ============================================= -->
+            <!-- Individual Work Types -->
+            <!-- ============================================= -->
+
+            <div class="individual-project-controls hidden mt-5 pt-5 border-t">
+
+              <p class="text-sm font-semibold text-gray-800 mb-3">
+                Work Completed
+              </p>
+
+              <div class="grid grid-cols-1 gap-2">
+
+                <label class="flex items-center gap-3 border rounded-lg px-3 py-2">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_fiber_placed"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                  <span class="text-sm">
+                    Fiber Placed
+                  </span>
+
+                </label>
+
+                <label class="flex items-center gap-3 border rounded-lg px-3 py-2">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_splicing"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                  <span class="text-sm">
+                    Splicing
+                  </span>
+
+                </label>
+
+                <label class="flex items-center gap-3 border rounded-lg px-3 py-2">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_testing"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                  <span class="text-sm">
+                    Testing
+                  </span>
+
+                </label>
+
+              </div>
+
+            </div>
+
+            <!-- ============================================= -->
+            <!-- Aerial details -->
+            <!-- ============================================= -->
+
+            {% if row.aerial_case %}
+
+              <div class="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-3">
+
+                <div class="mb-3">
+
+                  <p class="text-sm font-semibold text-blue-900">
+                    Aerial Case details
+                  </p>
+
+                  <p class="text-xs text-blue-700 mt-1">
+                    Required because this project contains C-108-AER.
+                  </p>
+
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+
+                  <div>
+
+                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                      Aerial Sequential IN
+                      <span class="text-red-500">*</span>
+                    </label>
+
+                    <input
+                      type="text"
+                      name="project_{{ row.id }}_aerial_case_value_1"
+                      class="project-aerial-required w-full border border-gray-300 rounded-lg px-3 py-2"
+                      data-project-id="{{ row.id }}"
+                      placeholder="Aerial Sequential IN"
+                      required
+                    >
+
+                  </div>
+
+                  <div>
+
+                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                      Aerial Sequential OUT
+                      <span class="text-red-500">*</span>
+                    </label>
+
+                    <input
+                      type="text"
+                      name="project_{{ row.id }}_aerial_case_value_2"
+                      class="project-aerial-required w-full border border-gray-300 rounded-lg px-3 py-2"
+                      data-project-id="{{ row.id }}"
+                      placeholder="Aerial Sequential OUT"
+                      required
+                    >
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            {% endif %}
+
+          </article>
+
+        {% endfor %}
+
+      </div>
+
+      <!-- ================================================= -->
+      <!-- Desktop table -->
+      <!-- ================================================= -->
+
+      <div class="hidden lg:block overflow-x-auto">
+
+        <table class="min-w-[2200px] w-full text-sm">
+
+          <thead class="bg-white">
+
+            <tr class="text-left text-gray-600 border-b">
+
+              <th class="px-4 py-3">
+                Invoice
+              </th>
+
+              <th class="px-4 py-3">
+                Project ID
+              </th>
+
+              <th class="px-4 py-3">
+                Production Date
+              </th>
+
+              <th class="px-4 py-3">
+                Client
+              </th>
+
+              <th class="px-4 py-3">
+                City
+              </th>
+
+              <th class="px-4 py-3">
+                Office
+              </th>
+
+              <th class="px-4 py-3 min-w-[390px]">
+                Client Items
+              </th>
+
+              <th class="px-4 py-3 text-center">
+                Photos
+              </th>
+
+              <th class="px-4 py-3">
+                Current status
+              </th>
+
+              <th class="px-4 py-3 text-center">
+                Aerial Case
+              </th>
+
+              <th class="px-4 py-3 text-center">
+                Re-Entry
+              </th>
+
+              <th class="individual-project-column hidden px-4 py-3 text-center">
+                Fiber
+              </th>
+
+              <th class="individual-project-column hidden px-4 py-3 text-center">
+                Splicing
+              </th>
+
+              <th class="individual-project-column hidden px-4 py-3 text-center">
+                Testing
+              </th>
+
+              <th class="px-4 py-3 min-w-[340px]">
+                Aerial Case Details
+              </th>
+
+            </tr>
+
+          </thead>
+
+          <tbody>
+
+            {% for row in selected_rows %}
+
+              <tr
+                class="border-b last:border-b-0 align-top"
+                data-desktop-project-id="{{ row.id }}"
+              >
+
+                <!-- Invoice -->
+
+                <td class="px-4 py-3">
+                  #{{ row.id }}
+                </td>
+
+                <!-- Project ID -->
+
+                <td class="px-4 py-3 font-medium text-gray-900 max-w-[220px] break-words">
+                  {{ row.project_id|default:"—" }}
+                </td>
+
+                <!-- Production date -->
+
+                <td class="px-4 py-3">
+
+                  {% if row.finish_date %}
+
+                    <span class="inline-flex px-2 py-1 rounded-lg bg-slate-100 text-slate-800 font-medium">
+                      {{ row.finish_date|date:"Y-m-d" }}
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-lg bg-red-100 text-red-700 text-xs font-semibold">
+                      Missing
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+                <!-- Client -->
+
+                <td class="px-4 py-3">
+                  {{ row.client|default:"—" }}
+                </td>
+
+                <!-- City -->
+
+                <td class="px-4 py-3">
+                  {{ row.city|default:"—" }}
+                </td>
+
+                <!-- Office -->
+
+                <td class="px-4 py-3">
+                  {{ row.office|default:"—" }}
+                </td>
+
+                <!-- Client Items -->
+
+                <td class="px-4 py-3">
+
+                  {% if row.client_items %}
+
+                    <div class="space-y-1.5">
+
+                      {% for item in row.client_items %}
+
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+
+                          <div class="min-w-0">
+
+                            <span class="font-semibold text-gray-900 text-xs">
+                              {{ item.code }}
+                            </span>
+
+                            <span class="text-xs text-gray-500 ml-1">
+                              {{ item.label }}
+                            </span>
+
+                          </div>
+
+                          <span class="shrink-0 inline-flex min-w-[45px] justify-center px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
+                            × {{ item.quantity }}
+                          </span>
+
+                        </div>
+
+                      {% endfor %}
+
+                    </div>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                      No mapped quantities
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+                <!-- Photos -->
+
+                <td class="px-4 py-3 text-center">
+
+                  {% if row.evidence_count > 0 %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                      {{ row.evidence_count }}
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                      0
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+                <!-- Status -->
+
+                <td class="px-4 py-3">
+                  {{ row.finance_status_label|default:"—" }}
+                </td>
+
+                <!-- Aerial Case -->
+
+                <td class="px-4 py-3 text-center">
+
+                  {% if row.aerial_case %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                      YES
+                    </span>
+
+                    <span class="block text-[11px] text-gray-500 mt-1">
+                      C-108-AER
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                      NO
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+                <!-- Re-Entry -->
+
+                <td class="px-4 py-3 text-center">
+
+                  {% if row.re_entry %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                      YES
+                    </span>
+
+                    <span class="block text-[11px] text-gray-500 mt-1">
+                      C-108.1
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                      NO
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+                <!-- Fiber -->
+
+                <td class="individual-project-column hidden px-4 py-3 text-center">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_fiber_placed"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                </td>
+
+                <!-- Splicing -->
+
+                <td class="individual-project-column hidden px-4 py-3 text-center">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_splicing"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                </td>
+
+                <!-- Testing -->
+
+                <td class="individual-project-column hidden px-4 py-3 text-center">
+
+                  <input
+                    type="checkbox"
+                    name="project_{{ row.id }}_testing"
+                    value="1"
+                    class="w-4 h-4"
+                  >
+
+                </td>
+
+                <!-- Aerial details -->
+
+                <td class="px-4 py-3">
+
+                  {% if row.aerial_case %}
+
+                    <div class="space-y-3">
+
+                      <div>
+
+                        <label class="block text-xs font-medium text-gray-600 mb-1">
+                          Aerial Sequential IN
+                        </label>
+
+                        <input
+                          type="text"
+                          name="project_{{ row.id }}_aerial_case_value_1"
+                          class="project-aerial-required w-full border border-gray-300 rounded-lg px-2 py-2"
+                          data-project-id="{{ row.id }}"
+                          placeholder="Sequential IN"
+                          required
+                        >
+
+                      </div>
+
+                      <div>
+
+                        <label class="block text-xs font-medium text-gray-600 mb-1">
+                          Aerial Sequential OUT
+                        </label>
+
+                        <input
+                          type="text"
+                          name="project_{{ row.id }}_aerial_case_value_2"
+                          class="project-aerial-required w-full border border-gray-300 rounded-lg px-2 py-2"
+                          data-project-id="{{ row.id }}"
+                          placeholder="Sequential OUT"
+                          required
+                        >
+
+                      </div>
+
+                    </div>
+
+                  {% else %}
+
+                    <span class="text-xs text-gray-400">
+                      Not applicable
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+              </tr>
+
+            {% endfor %}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+    </section>
+
+    <!-- ===================================================== -->
+    <!-- Actions -->
+    <!-- ===================================================== -->
+
+    <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 pb-2">
+
+      <a
+        href="{% url 'facturacion:invoices' %}"
+        class="text-center px-5 py-2.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+      >
+        Cancel
+      </a>
+
+      <button
+        type="submit"
+        id="create-batch-button"
+        class="px-5 py-2.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        Create Batch
+      </button>
+
+    </div>
+
+  </form>
+
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById(
+    'client-submission-create-form'
+  );
+
+  if (!form) {
+    return;
+  }
+
+  const modeRadios = document.querySelectorAll(
+    '.configuration-mode-radio'
+  );
+
+  const modeCards = document.querySelectorAll(
+    '.configuration-mode-card'
+  );
+
+  const commonPanel = document.getElementById(
+    'common-configuration-panel'
+  );
+
+  const individualNotice = document.getElementById(
+    'individual-configuration-notice'
+  );
+
+  const modeBadge = document.getElementById(
+    'project-configuration-mode-badge'
+  );
+
+  const individualColumns = document.querySelectorAll(
+    '.individual-project-column'
+  );
+
+  const individualMobileControls = document.querySelectorAll(
+    '.individual-project-controls'
+  );
+
+  // =========================================================
+  // Configuration mode
+  // =========================================================
+
+  function getConfigurationMode() {
+    const checked = document.querySelector(
+      'input[name="configuration_mode"]:checked'
+    );
+
+    return checked
+      ? checked.value
+      : 'common';
+  }
+
+  function refreshModeCards() {
+    const mode = getConfigurationMode();
+
+    modeCards.forEach(
+      (card) => {
+        const active =
+          card.dataset.modeCard === mode;
+
+        card.classList.toggle(
+          'border-purple-500',
+          active
+        );
+
+        card.classList.toggle(
+          'bg-purple-50',
+          active
+        );
+
+        card.classList.toggle(
+          'border-gray-200',
+          !active
+        );
+      }
+    );
+  }
+
+  function refreshConfigurationMode() {
+    const mode = getConfigurationMode();
+
+    const isCommon =
+      mode === 'common';
+
+    commonPanel?.classList.toggle(
+      'hidden',
+      !isCommon
+    );
+
+    individualNotice?.classList.toggle(
+      'hidden',
+      isCommon
+    );
+
+    individualColumns.forEach(
+      (element) => {
+        element.classList.toggle(
+          'hidden',
+          isCommon
+        );
+      }
+    );
+
+    individualMobileControls.forEach(
+      (element) => {
+        element.classList.toggle(
+          'hidden',
+          isCommon
+        );
+      }
+    );
+
+    if (modeBadge) {
+      modeBadge.textContent = isCommon
+        ? 'Common Work Types'
+        : 'Individual Work Types';
+
+      modeBadge.classList.toggle(
+        'bg-purple-100',
+        !isCommon
+      );
+
+      modeBadge.classList.toggle(
+        'text-purple-700',
+        !isCommon
+      );
+
+      modeBadge.classList.toggle(
+        'bg-gray-200',
+        isCommon
+      );
+
+      modeBadge.classList.toggle(
+        'text-gray-700',
+        isCommon
+      );
+    }
+
+    refreshModeCards();
+  }
+
+  modeRadios.forEach(
+    (radio) => {
+      radio.addEventListener(
+        'change',
+        refreshConfigurationMode
+      );
+    }
+  );
+
+  // =========================================================
+  // Synchronize desktop/mobile Work Type checkboxes
+  // =========================================================
+
+  document.addEventListener(
+    'change',
+    function (event) {
+      const checkbox = event.target;
+
+      if (
+        checkbox.tagName !== 'INPUT' ||
+        checkbox.type !== 'checkbox' ||
+        !checkbox.name ||
+        !checkbox.name.match(
+          /^project_\d+_(fiber_placed|splicing|testing)$/
+        )
+      ) {
+        return;
+      }
+
+      document.querySelectorAll(
+        `input[type="checkbox"][name="${checkbox.name}"]`
+      ).forEach(
+        (otherCheckbox) => {
+          if (
+            otherCheckbox !== checkbox
+          ) {
+            otherCheckbox.checked =
+              checkbox.checked;
+          }
+        }
+      );
+    }
+  );
+
+  // =========================================================
+  // Synchronize Aerial Sequential IN / OUT desktop/mobile
+  // =========================================================
+
+  document.addEventListener(
+    'input',
+    function (event) {
+      const input = event.target;
+
+      if (
+        input.tagName !== 'INPUT' ||
+        !input.name ||
+        !input.name.match(
+          /^project_\d+_aerial_case_value_[12]$/
+        )
+      ) {
+        return;
+      }
+
+      document.querySelectorAll(
+        `input[name="${input.name}"]`
+      ).forEach(
+        (otherInput) => {
+          if (
+            otherInput !== input
+          ) {
+            otherInput.value =
+              input.value;
+          }
+        }
+      );
+    }
+  );
+
+  // =========================================================
+  // Validate before submit
+  // =========================================================
+
+  form.addEventListener(
+    'submit',
+    function (event) {
+      const projectContainers =
+        document.querySelectorAll(
+          '.individual-project-container'
+        );
+
+      // =====================================================
+      // Validate Aerial Sequential values only for projects
+      // automatically detected as Aerial Case YES.
+      // =====================================================
+
+      for (
+        const container
+        of projectContainers
+      ) {
+        const projectId =
+          container.dataset.projectId;
+
+        const aerialCase =
+          container.dataset.aerialCase;
+
+        if (
+          !projectId ||
+          aerialCase !== 'yes'
+        ) {
+          continue;
+        }
+
+        const sequentialInputs =
+          document.querySelectorAll(
+            `input[name="project_${projectId}_aerial_case_value_1"]`
+          );
+
+        const sequentialOutInputs =
+          document.querySelectorAll(
+            `input[name="project_${projectId}_aerial_case_value_2"]`
+          );
+
+        const sequentialInValue =
+          Array.from(
+            sequentialInputs
+          )
+          .map(
+            (input) => input.value.trim()
+          )
+          .find(
+            (value) => value
+          )
+          || '';
+
+        const sequentialOutValue =
+          Array.from(
+            sequentialOutInputs
+          )
+          .map(
+            (input) => input.value.trim()
+          )
+          .find(
+            (value) => value
+          )
+          || '';
+
+        if (
+          !sequentialInValue ||
+          !sequentialOutValue
+        ) {
+          event.preventDefault();
+
+          alert(
+            `Invoice #${projectId}: ` +
+            `Aerial Sequential IN and OUT are required ` +
+            `because the project contains C-108-AER.`
+          );
+
+          return;
+        }
+      }
+
+      // =====================================================
+      // Disable submit button
+      // =====================================================
+
+      const button = document.getElementById(
+        'create-batch-button'
+      );
+
+      if (!button) {
+        return;
+      }
+
+      button.disabled = true;
+
+      button.textContent =
+        'Creating Batch...';
+    }
+  );
+
+  // =========================================================
+  // Initial state
+  // =========================================================
+
+  refreshConfigurationMode();
+
+})();
+</script>
+
+{% endblock %}

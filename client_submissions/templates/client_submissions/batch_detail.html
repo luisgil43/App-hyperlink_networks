@@ -1,0 +1,1058 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Client Submission Batch #{{ batch.id }}{% endblock %}
+
+{% block dashboard_content %}
+<div
+  class="max-w-7xl mx-auto bg-white p-3 sm:p-6 rounded-none sm:rounded-2xl shadow mt-3 sm:mt-6"
+  id="client-submission-batch"
+  data-status-url="{% url 'client_submissions:batch_status_json' batch.public_id %}"
+>
+
+  <!-- ===================================================== -->
+  <!-- Header -->
+  <!-- ===================================================== -->
+
+  <div class="flex items-start justify-between gap-4 flex-wrap mb-6">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <h1 class="text-xl sm:text-2xl font-bold text-gray-800">
+          Client Submission Batch #{{ batch.id }}
+        </h1>
+
+        <span
+          id="batch-status-badge"
+          class="inline-flex px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs sm:text-sm"
+        >
+          {{ batch.get_status_display }}
+        </span>
+
+        {% if batch.execution_mode == "dry_run" %}
+          <span class="inline-flex px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs sm:text-sm">
+            Dry Run
+          </span>
+        {% else %}
+          <span class="inline-flex px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs sm:text-sm">
+            Live submission
+          </span>
+        {% endif %}
+      </div>
+
+      <p class="text-sm text-gray-500 mt-2">
+        {{ batch.name|default:"Client submission batch" }}
+      </p>
+    </div>
+
+    <div class="w-full xl:w-auto grid grid-cols-2 sm:flex sm:items-center gap-2 sm:flex-wrap">
+
+      <a
+        href="{% url 'client_submissions:batch_list' %}"
+        class="text-center px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+      >
+        All Batches
+      </a>
+
+      <form
+        method="post"
+        action="{% url 'client_submissions:batch_revalidate' batch.public_id %}"
+      >
+        {% csrf_token %}
+
+        <button
+          type="submit"
+          class="w-full px-4 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50"
+        >
+          Revalidate
+        </button>
+      </form>
+
+      {% if can_start %}
+        <form
+          method="post"
+          action="{% url 'client_submissions:batch_start' batch.public_id %}"
+          class="col-span-2 sm:col-span-1"
+        >
+          {% csrf_token %}
+
+          <button
+            type="submit"
+            class="w-full px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            {% if has_validation_errors %}disabled{% endif %}
+          >
+            Start Processing
+          </button>
+        </form>
+      {% endif %}
+
+      {% if can_pause %}
+        <form
+          method="post"
+          action="{% url 'client_submissions:batch_pause' batch.public_id %}"
+        >
+          {% csrf_token %}
+
+          <button
+            type="submit"
+            class="w-full px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+          >
+            Pause
+          </button>
+        </form>
+      {% endif %}
+
+      {% if can_cancel %}
+        <form
+          method="post"
+          action="{% url 'client_submissions:batch_cancel' batch.public_id %}"
+          onsubmit="return confirm('Cancel this batch? Projects already sent will not be changed.');"
+        >
+          {% csrf_token %}
+
+          <button
+            type="submit"
+            class="w-full px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
+          >
+            Cancel
+          </button>
+        </form>
+      {% endif %}
+
+    </div>
+  </div>
+
+  {% if has_validation_errors %}
+    <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      Some projects have validation errors.
+      Revalidate them after correcting the Billing data,
+      photos or Work Completed configuration.
+    </div>
+  {% endif %}
+
+  <!-- ===================================================== -->
+  <!-- Batch configuration -->
+  <!-- ===================================================== -->
+
+  <section class="mb-6">
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-800">
+          Batch configuration
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Shared administrative values for this submission batch.
+        </p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Submitted by
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1 break-all">
+          {{ batch.submitted_by_email }}
+        </p>
+      </div>
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Market
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1">
+          {{ batch.market|default:"—" }}
+        </p>
+      </div>
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Production Completed Date
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1">
+          {{ batch.production_completed_date|date:"Y-m-d"|default:"—" }}
+        </p>
+      </div>
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Sub Contractor
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1">
+          {% if batch.is_subcontractor %}
+            Yes — {{ batch.subcontractor_name }}
+          {% else %}
+            No
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Copy email
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1 break-all">
+          {{ batch.copy_email|default:"—" }}
+        </p>
+      </div>
+
+      <div class="rounded-xl border p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-500">
+          Work configuration
+        </p>
+
+        <p class="font-medium text-gray-800 mt-1">
+          Project-specific configuration
+        </p>
+
+        <p class="text-xs text-gray-500 mt-1">
+          Review the Work Completed answers for each project below.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- Counters -->
+  <!-- ===================================================== -->
+
+  <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-6">
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Total</p>
+      <p id="count-total" class="text-xl sm:text-2xl font-bold">
+        {{ counts.total }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Ready</p>
+      <p id="count-ready" class="text-xl sm:text-2xl font-bold text-green-600">
+        {{ counts.ready }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Pending</p>
+      <p id="count-pending" class="text-xl sm:text-2xl font-bold">
+        {{ counts.pending_client_submission }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Preparing</p>
+      <p id="count-preparing" class="text-xl sm:text-2xl font-bold text-blue-600">
+        {{ counts.preparing }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Verification</p>
+      <p id="count-verification" class="text-xl sm:text-2xl font-bold text-amber-600">
+        {{ counts.awaiting_verification }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Sent</p>
+      <p id="count-sent" class="text-xl sm:text-2xl font-bold text-green-700">
+        {{ counts.sent_to_client }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Dry Run</p>
+      <p id="count-dry-run" class="text-xl sm:text-2xl font-bold text-blue-700">
+        {{ counts.dry_run_completed }}
+      </p>
+    </div>
+
+    <div class="rounded-xl border p-3 sm:p-4">
+      <p class="text-xs text-gray-500">Failed</p>
+      <p id="count-failed" class="text-xl sm:text-2xl font-bold text-red-600">
+        {{ counts.failed }}
+      </p>
+    </div>
+
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- Projects -->
+  <!-- ===================================================== -->
+
+  <section class="rounded-2xl border overflow-hidden">
+
+    <div class="px-4 sm:px-5 py-4 border-b bg-gray-50">
+      <h2 class="text-lg font-semibold text-gray-800">
+        Projects
+      </h2>
+
+      <p class="text-sm text-gray-500 mt-1">
+        Review the actual Work Completed configuration that will be used for each Smartsheet submission.
+      </p>
+    </div>
+
+    <!-- =================================================== -->
+    <!-- Mobile cards -->
+    <!-- =================================================== -->
+
+    <div class="lg:hidden divide-y">
+
+      {% for submission in submissions %}
+        <article
+          class="p-4"
+          data-submission-id="{{ submission.id }}"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-xs text-gray-500">
+                Project {{ submission.sequence_number }}
+              </p>
+
+              <p class="font-semibold text-gray-900 mt-1 break-words">
+                {{ submission.project_id }}
+              </p>
+
+              <p class="text-xs text-gray-500 mt-1">
+                {{ submission.dfn_name|default:"No DFN Name" }}
+              </p>
+            </div>
+
+            <span
+              class="submission-status text-xs text-gray-700"
+              data-status="{{ submission.status }}"
+            >
+              {{ submission.get_status_display }}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+
+            <div>
+              <span class="block text-gray-500">
+                Access Point ID
+              </span>
+
+              <span class="block font-medium text-gray-800 mt-1 break-all">
+                {{ submission.access_point_id|default:"—" }}
+              </span>
+            </div>
+
+            <div>
+              <span class="block text-gray-500">
+                Photos
+              </span>
+
+              <span class="block font-medium text-gray-800 mt-1">
+                {{ submission.form_payload.zip.evidence_count|default:0 }}
+              </span>
+            </div>
+
+          </div>
+
+          <div class="mt-4 rounded-xl border bg-gray-50 p-3">
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Work Completed
+            </p>
+
+            <div class="flex flex-wrap gap-2 mt-2">
+
+              {% if submission.form_payload.fiber_placed %}
+                <span class="inline-flex px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs">
+                  Fiber Placed
+                </span>
+              {% endif %}
+
+              {% if submission.form_payload.splicing %}
+                <span class="inline-flex px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs">
+                  Splicing
+                </span>
+              {% endif %}
+
+              {% if submission.form_payload.testing %}
+                <span class="inline-flex px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs">
+                  Testing
+                </span>
+              {% endif %}
+
+              {% if not submission.form_payload.fiber_placed and not submission.form_payload.splicing and not submission.form_payload.testing %}
+                <span class="inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                  No work type
+                </span>
+              {% endif %}
+
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mt-4">
+
+              <div>
+                <span class="block text-xs text-gray-500">
+                  Aerial Case
+                </span>
+
+                {% if submission.form_payload.aerial_case %}
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                    YES
+                  </span>
+                {% else %}
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                    NO
+                  </span>
+                {% endif %}
+              </div>
+
+              <div>
+                <span class="block text-xs text-gray-500">
+                  Re-Entry
+                </span>
+
+                {% if submission.form_payload.re_entry %}
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                    YES
+                  </span>
+                {% else %}
+                  <span class="inline-flex mt-1 px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                    NO
+                  </span>
+                {% endif %}
+              </div>
+
+            </div>
+
+            {% if submission.form_payload.aerial_case %}
+              <div class="mt-4 pt-3 border-t">
+                <p class="text-xs text-gray-500">
+                  Aerial Sequential IN
+                </p>
+
+                <p class="text-sm font-medium text-gray-800 mt-1">
+                  {{ submission.form_payload.aerial_case_value_1|default:"—" }}
+                </p>
+
+                <p class="text-xs text-gray-500 mt-3">
+                  Aerial Sequential OUT
+                </p>
+
+                <p class="text-sm font-medium text-gray-800 mt-1">
+                  {{ submission.form_payload.aerial_case_value_2|default:"—" }}
+                </p>
+              </div>
+            {% endif %}
+
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+
+            <div>
+              <span class="block text-gray-500">
+                ZIP
+              </span>
+
+              {% if submission.zip_available %}
+                <span class="block text-green-600 font-medium mt-1">
+                  Available
+                </span>
+              {% else %}
+                <span class="block text-red-600 font-medium mt-1">
+                  Missing
+                </span>
+              {% endif %}
+            </div>
+
+            <div>
+              <span class="block text-gray-500">
+                Validation
+              </span>
+
+              {% if submission.validation_ok %}
+                <span class="block text-green-600 font-medium mt-1">
+                  Ready
+                </span>
+              {% else %}
+                <span class="block text-red-600 font-medium mt-1">
+                  Review required
+                </span>
+              {% endif %}
+            </div>
+
+          </div>
+
+          {% if submission.validation_errors %}
+            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
+              <p class="text-xs font-semibold text-red-700">
+                Validation errors
+              </p>
+
+              <ul class="text-xs text-red-600 space-y-1 mt-2">
+                {% for error in submission.validation_errors %}
+                  <li>{{ error }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% elif submission.last_error_message %}
+            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+              {{ submission.last_error_message }}
+            </div>
+          {% endif %}
+
+          <div class="flex items-center gap-3 mt-4">
+
+            <button
+              type="button"
+              class="btn-revalidate-submission text-blue-600 hover:underline"
+              data-url="{% url 'client_submissions:submission_revalidate' submission.public_id %}"
+            >
+              Revalidate
+            </button>
+
+            {% if submission.status == "awaiting_verification" %}
+              <a
+                href="{% url 'client_submissions:verification_detail' submission.public_id %}"
+                class="text-amber-600 hover:underline"
+              >
+                Verification
+              </a>
+            {% endif %}
+
+          </div>
+
+        </article>
+      {% endfor %}
+
+    </div>
+
+    <!-- =================================================== -->
+    <!-- Desktop table -->
+    <!-- =================================================== -->
+
+    <div class="hidden lg:block overflow-x-auto">
+
+      <table class="min-w-[2100px] w-full text-sm">
+
+        <thead class="bg-white text-gray-600">
+          <tr class="border-b">
+            <th class="px-4 py-3 text-left">#</th>
+            <th class="px-4 py-3 text-left">Project ID</th>
+            <th class="px-4 py-3 text-left">DFN Name</th>
+            <th class="px-4 py-3 text-left">Access Point ID</th>
+            <th class="px-4 py-3 text-left">Work Types</th>
+            <th class="px-4 py-3 text-center">Aerial Case</th>
+            <th class="px-4 py-3 text-center">Re-Entry</th>
+            <th class="px-4 py-3 text-left">Aerial Details</th>
+            <th class="px-4 py-3 text-left">Status</th>
+            <th class="px-4 py-3 text-center">ZIP</th>
+            <th class="px-4 py-3 text-center">Photos</th>
+            <th class="px-4 py-3 text-left">Browser confirmation</th>
+            <th class="px-4 py-3 text-left">Email confirmation</th>
+            <th class="px-4 py-3 text-left">Validation</th>
+            <th class="px-4 py-3 text-left">Error</th>
+            <th class="px-4 py-3 text-center">Action</th>
+          </tr>
+        </thead>
+
+        <tbody id="submission-table-body">
+
+          {% for submission in submissions %}
+            <tr
+              class="border-b last:border-b-0 align-top"
+              data-submission-id="{{ submission.id }}"
+            >
+
+              <td class="px-4 py-3">
+                {{ submission.sequence_number }}
+              </td>
+
+              <td class="px-4 py-3 font-medium text-gray-900">
+                {{ submission.project_id }}
+              </td>
+
+              <td class="px-4 py-3">
+                {{ submission.dfn_name|default:"—" }}
+              </td>
+
+              <td class="px-4 py-3">
+                {{ submission.access_point_id|default:"—" }}
+              </td>
+
+              <td class="px-4 py-3 min-w-[220px]">
+                <div class="flex flex-wrap gap-1.5">
+
+                  {% if submission.form_payload.fiber_placed %}
+                    <span class="inline-flex px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs">
+                      Fiber Placed
+                    </span>
+                  {% endif %}
+
+                  {% if submission.form_payload.splicing %}
+                    <span class="inline-flex px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs">
+                      Splicing
+                    </span>
+                  {% endif %}
+
+                  {% if submission.form_payload.testing %}
+                    <span class="inline-flex px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs">
+                      Testing
+                    </span>
+                  {% endif %}
+
+                  {% if not submission.form_payload.fiber_placed and not submission.form_payload.splicing and not submission.form_payload.testing %}
+                    <span class="inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                      No work type
+                    </span>
+                  {% endif %}
+
+                </div>
+              </td>
+
+              <td class="px-4 py-3 text-center">
+                {% if submission.form_payload.aerial_case %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                    YES
+                  </span>
+                {% else %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                    NO
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3 text-center">
+                {% if submission.form_payload.re_entry %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                    YES
+                  </span>
+                {% else %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs">
+                    NO
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3 min-w-[240px]">
+                {% if submission.form_payload.aerial_case %}
+                  <div class="text-xs">
+                    <p>
+                      <span class="text-gray-500">
+                        Sequential IN:
+                      </span>
+                      {{ submission.form_payload.aerial_case_value_1|default:"—" }}
+                    </p>
+
+                    <p class="mt-1">
+                      <span class="text-gray-500">
+                        Sequential OUT:
+                      </span>
+                      {{ submission.form_payload.aerial_case_value_2|default:"—" }}
+                    </p>
+                  </div>
+                {% else %}
+                  <span class="text-gray-400">
+                    Not applicable
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3">
+                <span
+                  class="submission-status"
+                  data-status="{{ submission.status }}"
+                >
+                  {{ submission.get_status_display }}
+                </span>
+              </td>
+
+              <td class="px-4 py-3 text-center">
+                {% if submission.zip_available %}
+                  <span class="text-green-600 font-semibold">
+                    ✓
+                  </span>
+                {% else %}
+                  <span class="text-red-600 font-semibold">
+                    ✕
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3 text-center">
+                {{ submission.form_payload.zip.evidence_count|default:0 }}
+              </td>
+
+              <td class="px-4 py-3">
+                {% if submission.browser_confirmation_received %}
+                  <span class="text-green-600">
+                    Confirmed
+                  </span>
+                {% else %}
+                  <span class="text-gray-400">
+                    Pending
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3">
+                {% if submission.email_confirmation_received %}
+                  <span class="text-green-600">
+                    Confirmed
+                  </span>
+                {% else %}
+                  <span class="text-gray-400">
+                    Pending
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3">
+                {% if submission.validation_ok %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                    Ready
+                  </span>
+                {% else %}
+                  <span class="inline-flex px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">
+                    Review required
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3 max-w-[340px] whitespace-normal">
+                {% if submission.validation_errors %}
+                  <ul class="text-xs text-red-600 space-y-1">
+                    {% for error in submission.validation_errors %}
+                      <li>{{ error }}</li>
+                    {% endfor %}
+                  </ul>
+                {% elif submission.last_error_message %}
+                  <span class="text-xs text-red-600">
+                    {{ submission.last_error_message }}
+                  </span>
+                {% else %}
+                  <span class="text-gray-400">
+                    —
+                  </span>
+                {% endif %}
+              </td>
+
+              <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-2">
+
+                  <button
+                    type="button"
+                    class="btn-revalidate-submission text-blue-600 hover:underline"
+                    data-url="{% url 'client_submissions:submission_revalidate' submission.public_id %}"
+                  >
+                    Revalidate
+                  </button>
+
+                  {% if submission.status == "awaiting_verification" %}
+                    <a
+                      href="{% url 'client_submissions:verification_detail' submission.public_id %}"
+                      class="text-amber-600 hover:underline"
+                    >
+                      Verification
+                    </a>
+                  {% endif %}
+
+                </div>
+              </td>
+
+            </tr>
+          {% endfor %}
+
+        </tbody>
+      </table>
+
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  function getCsrfToken() {
+    const meta = document.querySelector(
+      'meta[name="csrf-token"]'
+    );
+
+    if (
+      meta &&
+      meta.content
+    ) {
+      return meta.content;
+    }
+
+    const input = document.querySelector(
+      'input[name="csrfmiddlewaretoken"]'
+    );
+
+    if (
+      input &&
+      input.value
+    ) {
+      return input.value;
+    }
+
+    const match = document.cookie.match(
+      /(?:^|;\s*)csrftoken=([^;]+)/
+    );
+
+    return match
+      ? decodeURIComponent(match[1])
+      : '';
+  }
+
+  function showToast(
+    message,
+    type = 'info'
+  ) {
+    const bg =
+      type === 'success'
+        ? 'bg-green-600'
+        : type === 'error'
+          ? 'bg-red-600'
+          : 'bg-blue-600';
+
+    const element = document.createElement(
+      'div'
+    );
+
+    element.className =
+      `fixed top-5 left-1/2 -translate-x-1/2 ${bg} ` +
+      `text-white px-4 py-3 rounded-xl shadow-lg ` +
+      `z-[100] max-w-[calc(100vw-2rem)] text-sm`;
+
+    element.textContent = message;
+
+    document.body.appendChild(
+      element
+    );
+
+    setTimeout(
+      () => element.remove(),
+      2500
+    );
+  }
+
+  document.addEventListener(
+    'click',
+    async function (event) {
+      const button = event.target.closest(
+        '.btn-revalidate-submission'
+      );
+
+      if (!button) {
+        return;
+      }
+
+      const url = button.dataset.url;
+
+      if (!url) {
+        return;
+      }
+
+      button.disabled = true;
+
+      const originalText =
+        button.textContent;
+
+      button.textContent =
+        'Checking...';
+
+      try {
+        const response = await fetch(
+          url,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'X-CSRFToken': getCsrfToken(),
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.ok
+        ) {
+          throw new Error(
+            data.error ||
+            `HTTP ${response.status}`
+          );
+        }
+
+        showToast(
+          'Project revalidated.',
+          'success'
+        );
+
+        window.location.reload();
+
+      } catch (error) {
+        showToast(
+          error.message ||
+          'Revalidation failed.',
+          'error'
+        );
+
+        button.disabled = false;
+
+        button.textContent =
+          originalText;
+      }
+    }
+  );
+
+  const wrapper = document.getElementById(
+    'client-submission-batch'
+  );
+
+  const statusUrl =
+    wrapper?.dataset.statusUrl;
+
+  if (!statusUrl) {
+    return;
+  }
+
+  async function refreshBatchStatus() {
+    try {
+      const response = await fetch(
+        statusUrl,
+        {
+          credentials: 'same-origin',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.ok
+      ) {
+        return;
+      }
+
+      const counts =
+        data.batch.counts || {};
+
+      const assignments = {
+        'count-total': (
+          counts.total
+        ),
+        'count-ready': (
+          counts.ready
+        ),
+        'count-pending': (
+          counts.pending_client_submission
+        ),
+        'count-preparing': (
+          counts.preparing
+        ),
+        'count-verification': (
+          counts.awaiting_verification
+        ),
+        'count-sent': (
+          counts.sent_to_client
+        ),
+        'count-dry-run': (
+          counts.dry_run_completed
+        ),
+        'count-failed': (
+          counts.failed
+        ),
+      };
+
+      Object.entries(
+        assignments
+      ).forEach(
+        ([id, value]) => {
+          const element =
+            document.getElementById(
+              id
+            );
+
+          if (
+            element &&
+            value !== undefined
+          ) {
+            element.textContent =
+              value;
+          }
+        }
+      );
+
+      const batchStatus =
+        document.getElementById(
+          'batch-status-badge'
+        );
+
+      if (batchStatus) {
+        batchStatus.textContent =
+          data.batch.status_label ||
+          data.batch.status;
+      }
+
+      let shouldReload = false;
+
+      for (
+        const submission
+        of data.submissions || []
+      ) {
+        const rows =
+          document.querySelectorAll(
+            `[data-submission-id="${submission.id}"]`
+          );
+
+        for (const row of rows) {
+          const statusElement =
+            row.querySelector(
+              '.submission-status'
+            );
+
+          if (
+            statusElement &&
+            statusElement.dataset.status !==
+              submission.status
+          ) {
+            shouldReload = true;
+            break;
+          }
+        }
+
+        if (shouldReload) {
+          break;
+        }
+      }
+
+      if (shouldReload) {
+        window.location.reload();
+      }
+
+    } catch (_) {
+      /*
+       * No interrumpir la página por un fallo temporal
+       * de polling.
+       */
+    }
+  }
+
+  setInterval(
+    refreshBatchStatus,
+    5000
+  );
+})();
+</script>
+{% endblock %}

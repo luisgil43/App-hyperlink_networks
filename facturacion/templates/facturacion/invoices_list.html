@@ -60,55 +60,74 @@
 </style>
 
 
-  <!-- Header -->
-  <div class="flex flex-wrap items-center gap-3 mb-4">
-    <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">💼 Invoices</h1>
+<!-- Header -->
+<div class="flex flex-wrap items-center gap-3 mb-4">
+  <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+    💼 Invoices
+  </h1>
 
-<button
-  id="btn-duplicate-top"
-  type="button"
-  class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-  disabled
-  title="Duplicate / Split selected invoice"
->
-  Duplicate
-</button>
+  <button
+    id="btn-duplicate-top"
+    type="button"
+    class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled
+    title="Duplicate / Split selected invoice"
+  >
+    Duplicate
+  </button>
 
-<button
-  id="btn-create-delivery-link"
-  type="button"
-  class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-  disabled
-  title="Create a client delivery link from selected invoices"
->
-  Create Delivery Link
-</button>
+  <button
+    id="btn-create-delivery-link"
+    type="button"
+    class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled
+    title="Create a client delivery link from selected invoices"
+  >
+    Create Delivery Link
+  </button>
 
-<span
-  id="invoice-selection-counter"
-  class="hidden text-sm px-3 py-2 rounded-lg bg-gray-100 text-gray-700 border"
->
-  0 selected
-</span>
+  <button
+    id="btn-submit-client-portal"
+    type="button"
+    class="px-3 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled
+    title="Submit selected projects to the client portal"
+  >
+    Submit to Client Portal
+  </button>
 
-<button
-  id="btn-clear-invoice-selection"
-  type="button"
-  class="hidden px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50"
-  title="Clear selected invoices"
->
-  Clear selection
-</button>
+  <a
+    href="{% url 'client_submissions:batch_list' %}"
+    class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800"
+    title="Open client submission batch list"
+  >
+    📋 Batch List
+  </a>
 
-<!-- Export XLSX (con los filtros actuales) -->
-<a
-     href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
-      class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-      title="Export all fields to Excel"
-    >
-      ⬇️ Export
-    </a>
-  </div>
+  <span
+    id="invoice-selection-counter"
+    class="hidden text-sm px-3 py-2 rounded-lg bg-gray-100 text-gray-700 border"
+  >
+    0 selected
+  </span>
+
+  <button
+    id="btn-clear-invoice-selection"
+    type="button"
+    class="hidden px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50"
+    title="Clear selected invoices"
+  >
+    Clear selection
+  </button>
+
+  <a
+    href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
+    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+    title="Export all fields to Excel"
+  >
+    ⬇️ Export
+  </a>
+</div>
 
 <div class="flex justify-start mb-2">
   <details class="relative">
@@ -1971,6 +1990,7 @@ document.addEventListener('click', function(e){
 
   const duplicateBtn = document.getElementById('btn-duplicate-top');
   const deliveryBtn = document.getElementById('btn-create-delivery-link');
+  const clientPortalBtn = document.getElementById('btn-submit-client-portal');
   const counter = document.getElementById('invoice-selection-counter');
   const clearBtn = document.getElementById('btn-clear-invoice-selection');
 
@@ -2053,6 +2073,13 @@ document.addEventListener('click', function(e){
         : "Select at least one invoice to create a delivery link";
     }
 
+    if (clientPortalBtn) {
+  clientPortalBtn.disabled = count === 0;
+
+  clientPortalBtn.title = count
+    ? `Submit ${count} selected project(s) to the client portal`
+    : "Select at least one invoice to submit to the client portal";
+}
     if (counter) {
       counter.textContent = `${count} selected`;
       counter.classList.toggle('hidden', count === 0);
@@ -2137,6 +2164,23 @@ deliveryBtn?.addEventListener('click', function () {
   try {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch (_) {}
+
+  window.location.href = url.toString();
+});
+
+clientPortalBtn?.addEventListener('click', function () {
+  const ids = Array.from(readSelection());
+
+  if (!ids.length) {
+    return;
+  }
+
+  const url = new URL(
+    '{% url "client_submissions:create_batch_from_invoices" %}',
+    window.location.origin
+  );
+
+  url.searchParams.set('ids', ids.join(','));
 
   window.location.href = url.toString();
 });

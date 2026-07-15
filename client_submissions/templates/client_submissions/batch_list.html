@@ -1,0 +1,1357 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Client Submissions{% endblock %}
+
+{% block dashboard_content %}
+
+<div
+  class="w-full max-w-none bg-white p-3 sm:p-6 rounded-none sm:rounded-2xl shadow mt-3 sm:mt-6"
+  id="client-submission-list"
+  data-status-url="{% url 'client_submissions:batch_list_status_json' %}"
+>
+
+  <!-- ===================================================== -->
+  <!-- Header -->
+  <!-- ===================================================== -->
+
+  <div class="flex items-start justify-between gap-3 flex-wrap mb-6">
+
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-800">
+        Client Submissions
+      </h1>
+
+      <p class="text-sm text-gray-500 mt-1">
+        Submission batches sent to the client portal.
+      </p>
+    </div>
+
+    <a
+      href="{% url 'facturacion:invoices' %}"
+      class="w-full sm:w-auto text-center px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+    >
+      Go to Invoices
+    </a>
+
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- Filters -->
+  <!-- ===================================================== -->
+
+  <form
+    method="get"
+    class="mb-5 flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3"
+  >
+
+    <div class="w-full sm:w-auto">
+
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        Status
+      </label>
+
+      <select
+        name="status"
+        class="w-full sm:w-auto border border-gray-300 rounded-lg px-3 py-2"
+      >
+
+        <option value="">
+          All statuses
+        </option>
+
+        {% for value, label in batch_status_choices %}
+
+          <option
+            value="{{ value }}"
+            {% if status_filter == value %}selected{% endif %}
+          >
+            {{ label }}
+          </option>
+
+        {% endfor %}
+
+      </select>
+
+    </div>
+
+    <input
+      type="hidden"
+      name="cantidad"
+      value="{{ cantidad }}"
+    >
+
+    <button
+      type="submit"
+      class="w-full sm:w-auto px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+    >
+      Filter
+    </button>
+
+    <a
+      href="{% url 'client_submissions:batch_list' %}"
+      class="w-full sm:w-auto text-center px-4 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50"
+    >
+      Clear
+    </a>
+
+  </form>
+
+  <!-- ===================================================== -->
+  <!-- Mobile cards -->
+  <!-- ===================================================== -->
+
+  <div class="lg:hidden rounded-2xl border border-gray-200 overflow-hidden divide-y">
+
+    {% for batch in batches %}
+
+      <article
+        class="p-4"
+        data-batch-id="{{ batch.id }}"
+      >
+
+        <div class="flex items-start justify-between gap-3">
+
+          <div class="min-w-0">
+
+            <p class="text-xs text-gray-500">
+              Batch #{{ batch.id }}
+            </p>
+
+            <p class="font-semibold text-gray-900 mt-1 break-words">
+              {{ batch.name|default:"Client submission batch" }}
+            </p>
+
+          </div>
+
+          {% if batch.execution_mode == "dry_run" %}
+
+            <span class="shrink-0 inline-flex px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs">
+              Dry Run
+            </span>
+
+          {% else %}
+
+            <span class="shrink-0 inline-flex px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs">
+              Live
+            </span>
+
+          {% endif %}
+
+        </div>
+
+        <!-- Status -->
+
+        <div class="mt-4">
+
+          <p class="text-xs text-gray-500">
+            Status
+          </p>
+
+          <span
+            class="batch-status inline-flex mt-1 px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-medium"
+            data-status="{{ batch.status }}"
+          >
+            {{ batch.get_status_display }}
+          </span>
+
+        </div>
+
+        <!-- Processing -->
+
+        <div class="batch-processing mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3">
+
+          <div class="flex items-center justify-between gap-3">
+
+            <p class="text-xs uppercase tracking-wide font-semibold text-blue-800">
+              Processing
+            </p>
+
+            <span class="batch-progress-percent text-xs font-bold text-blue-800">
+              0%
+            </span>
+
+          </div>
+
+          <div class="flex items-center justify-between gap-3 mt-3 text-xs">
+
+            <span class="batch-progress-text text-gray-600">
+              Checking processing status...
+            </span>
+
+          </div>
+
+          <div class="w-full h-2 bg-blue-100 rounded-full overflow-hidden mt-2">
+
+            <div
+              class="batch-progress-bar h-full bg-blue-600 rounded-full transition-all duration-500"
+              style="width: 0%;"
+            ></div>
+
+          </div>
+
+          <div class="batch-active-project text-xs text-gray-600 mt-3">
+            Waiting for processing status...
+          </div>
+
+        </div>
+
+        <!-- Information -->
+
+        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+
+          <div>
+
+            <span class="block text-gray-500">
+              Market
+            </span>
+
+            <span class="block text-gray-800 font-medium mt-1">
+              {{ batch.market|default:"—" }}
+            </span>
+
+          </div>
+
+          <div>
+
+            <span class="block text-gray-500">
+              Projects
+            </span>
+
+            <span class="block text-gray-800 font-medium mt-1">
+              {{ batch.submissions.count }}
+            </span>
+
+          </div>
+
+          <div>
+
+            <span class="block text-gray-500">
+              Production Date
+            </span>
+
+            <span class="block text-gray-800 font-medium mt-1">
+              {{ batch.production_completed_date|date:"Y-m-d"|default:"—" }}
+            </span>
+
+          </div>
+
+          <div>
+
+            <span class="block text-gray-500">
+              Created
+            </span>
+
+            <span class="block text-gray-800 font-medium mt-1">
+              {{ batch.created_at|date:"Y-m-d H:i" }}
+            </span>
+
+          </div>
+
+        </div>
+
+        <div class="mt-4 text-xs">
+
+          <span class="block text-gray-500">
+            Created by
+          </span>
+
+          <span class="block text-gray-800 font-medium mt-1">
+            {{ batch.created_by.get_full_name|default:batch.created_by.username }}
+          </span>
+
+        </div>
+
+        <!-- Actions -->
+
+        <div class="grid grid-cols-2 gap-2 mt-4">
+
+          <a
+            href="{% url 'client_submissions:batch_detail' batch.public_id %}"
+            class="text-center px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Open Batch
+          </a>
+
+          <button
+            type="button"
+            class="btn-delete-batch px-4 py-2.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100"
+            data-batch-id="{{ batch.id }}"
+            data-batch-name="{{ batch.name|default:'Client submission batch' }}"
+            data-batch-status="{{ batch.status }}"
+            data-delete-url="{% url 'client_submissions:batch_delete' batch.public_id %}"
+          >
+            Delete
+          </button>
+
+        </div>
+
+      </article>
+
+    {% empty %}
+
+      <div class="px-4 py-8 text-center text-gray-500">
+        No client submission batches found.
+      </div>
+
+    {% endfor %}
+
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- Desktop table -->
+  <!-- ===================================================== -->
+
+  <div class="hidden lg:block overflow-x-auto rounded-xl border border-gray-200">
+
+    <table class="min-w-[1700px] w-full text-sm">
+
+      <thead class="bg-gray-50 text-gray-700">
+
+        <tr>
+
+          <th class="px-4 py-3 text-left">
+            Batch
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Name
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Mode
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Status
+          </th>
+
+          <th class="px-4 py-3 text-left min-w-[380px]">
+            Processing
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Market
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Production Date
+          </th>
+
+          <th class="px-4 py-3 text-left min-w-[180px]">
+            Created by
+          </th>
+
+          <th class="px-4 py-3 text-left">
+            Created
+          </th>
+
+          <th class="px-4 py-3 text-center">
+            Projects
+          </th>
+
+          <th class="px-4 py-3 text-center min-w-[180px]">
+            Actions
+          </th>
+
+        </tr>
+
+      </thead>
+
+      <tbody>
+
+        {% for batch in batches %}
+
+          <tr
+            class="border-t align-top"
+            data-batch-id="{{ batch.id }}"
+          >
+
+            <td class="px-4 py-3 font-medium">
+              #{{ batch.id }}
+            </td>
+
+            <td class="px-4 py-3 max-w-[220px]">
+
+              <span class="break-words">
+                {{ batch.name|default:"—" }}
+              </span>
+
+            </td>
+
+            <td class="px-4 py-3">
+
+              {% if batch.execution_mode == "dry_run" %}
+
+                <span class="inline-flex px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs">
+                  Dry Run
+                </span>
+
+              {% else %}
+
+                <span class="inline-flex px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs">
+                  Live
+                </span>
+
+              {% endif %}
+
+            </td>
+
+            <td class="px-4 py-3">
+
+              <span
+                class="batch-status inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-medium"
+                data-status="{{ batch.status }}"
+              >
+                {{ batch.get_status_display }}
+              </span>
+
+            </td>
+
+            <!-- Processing -->
+
+            <td class="px-4 py-3">
+
+              <div class="batch-processing">
+
+                <div class="flex items-center justify-between gap-3 text-xs">
+
+                  <span class="batch-progress-text text-gray-600">
+                    Checking processing status...
+                  </span>
+
+                  <span class="batch-progress-percent font-semibold text-gray-700">
+                    0%
+                  </span>
+
+                </div>
+
+                <div class="w-full h-2 bg-gray-200 rounded-full overflow-hidden mt-2">
+
+                  <div
+                    class="batch-progress-bar h-full bg-blue-600 rounded-full transition-all duration-500"
+                    style="width: 0%;"
+                  ></div>
+
+                </div>
+
+                <div class="batch-active-project text-xs text-gray-500 mt-2">
+                  Waiting for processing status...
+                </div>
+
+              </div>
+
+            </td>
+
+            <td class="px-4 py-3">
+              {{ batch.market|default:"—" }}
+            </td>
+
+            <td class="px-4 py-3">
+              {{ batch.production_completed_date|date:"Y-m-d"|default:"—" }}
+            </td>
+
+            <td class="px-4 py-3">
+              {{ batch.created_by.get_full_name|default:batch.created_by.username }}
+            </td>
+
+            <td class="px-4 py-3">
+              {{ batch.created_at|date:"Y-m-d H:i" }}
+            </td>
+
+            <td class="px-4 py-3 text-center">
+              {{ batch.submissions.count }}
+            </td>
+
+            <td class="px-4 py-3">
+
+              <div class="flex items-center justify-center gap-2">
+
+                <a
+                  href="{% url 'client_submissions:batch_detail' batch.public_id %}"
+                  class="inline-flex px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100"
+                >
+                  Open
+                </a>
+
+                <button
+                  type="button"
+                  class="btn-delete-batch inline-flex px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100"
+                  data-batch-id="{{ batch.id }}"
+                  data-batch-name="{{ batch.name|default:'Client submission batch' }}"
+                  data-batch-status="{{ batch.status }}"
+                  data-delete-url="{% url 'client_submissions:batch_delete' batch.public_id %}"
+                >
+                  Delete
+                </button>
+
+              </div>
+
+            </td>
+
+          </tr>
+
+        {% empty %}
+
+          <tr>
+
+            <td
+              colspan="11"
+              class="px-4 py-8 text-center text-gray-500"
+            >
+              No client submission batches found.
+            </td>
+
+          </tr>
+
+        {% endfor %}
+
+      </tbody>
+
+    </table>
+
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- Pagination -->
+  <!-- ===================================================== -->
+
+  <div
+    id="pager"
+    class="mt-5"
+  >
+
+    <div class="flex flex-wrap justify-between items-center gap-3 text-sm">
+
+      <form
+        method="get"
+        class="flex items-center gap-2"
+      >
+
+        {% if status_filter %}
+          <input
+            type="hidden"
+            name="status"
+            value="{{ status_filter }}"
+          >
+        {% endif %}
+
+        <label
+          for="cantidad"
+          class="text-sm font-medium text-gray-700"
+        >
+          Show:
+        </label>
+
+        <select
+          name="cantidad"
+          id="cantidad"
+          class="border rounded-lg px-3 py-1.5"
+        >
+
+          <option
+            value="5"
+            {% if cantidad == "5" %}selected{% endif %}
+          >
+            5
+          </option>
+
+          <option
+            value="10"
+            {% if cantidad == "10" %}selected{% endif %}
+          >
+            10
+          </option>
+
+          <option
+            value="20"
+            {% if cantidad == "20" %}selected{% endif %}
+          >
+            20
+          </option>
+
+          <option
+            value="50"
+            {% if cantidad == "50" %}selected{% endif %}
+          >
+            50
+          </option>
+
+          <option
+            value="100"
+            {% if cantidad == "100" %}selected{% endif %}
+          >
+            100
+          </option>
+
+        </select>
+
+      </form>
+
+      <span class="text-gray-600">
+        Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}
+      </span>
+
+    </div>
+
+    <div class="mt-3 flex flex-wrap justify-center gap-2 text-sm">
+
+      {% if pagina.has_previous %}
+
+        <a
+          href="?page=1{% if qs_keep %}&{{ qs_keep }}{% endif %}"
+          class="px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          « First
+        </a>
+
+        <a
+          href="?page={{ pagina.previous_page_number }}{% if qs_keep %}&{{ qs_keep }}{% endif %}"
+          class="px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          ‹ Previous
+        </a>
+
+      {% endif %}
+
+      {% if pagina.has_next %}
+
+        <a
+          href="?page={{ pagina.next_page_number }}{% if qs_keep %}&{{ qs_keep }}{% endif %}"
+          class="px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          Next ›
+        </a>
+
+        <a
+          href="?page={{ pagina.paginator.num_pages }}{% if qs_keep %}&{{ qs_keep }}{% endif %}"
+          class="px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          Last »
+        </a>
+
+      {% endif %}
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ======================================================= -->
+<!-- Delete Batch Modal -->
+<!-- ======================================================= -->
+
+<div
+  id="delete-batch-modal"
+  class="fixed inset-0 z-[100] hidden items-center justify-center p-4"
+>
+
+  <div
+    class="absolute inset-0 bg-black/50"
+    data-close-delete-batch
+  ></div>
+
+  <div
+    class="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-2xl p-6"
+  >
+
+    <div class="flex items-start justify-between gap-3">
+
+      <div>
+
+        <h3 class="text-lg font-semibold text-gray-900">
+          Delete Client Submission Batch
+        </h3>
+
+        <p class="text-sm text-gray-500 mt-1">
+          This action cannot be undone.
+        </p>
+
+      </div>
+
+      <button
+        type="button"
+        class="text-gray-400 hover:text-gray-700"
+        data-close-delete-batch
+      >
+        ✕
+      </button>
+
+    </div>
+
+    <div class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+      <p class="text-sm text-red-800">
+        You are deleting
+        <strong id="delete-batch-label"></strong>.
+      </p>
+
+    </div>
+
+    <p class="text-sm text-gray-600 mt-5">
+      Type
+      <span class="font-mono px-1.5 py-0.5 bg-gray-100 border rounded">
+        DELETE
+      </span>
+      to confirm.
+    </p>
+
+    <input
+      type="text"
+      id="delete-batch-confirmation"
+      class="w-full border border-gray-300 rounded-lg px-3 py-2 mt-3"
+      placeholder="DELETE"
+      autocomplete="off"
+    >
+
+    <div
+      id="delete-batch-error"
+      class="hidden mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+    ></div>
+
+    <div class="flex justify-end gap-2 mt-6">
+
+      <button
+        type="button"
+        class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+        data-close-delete-batch
+      >
+        Cancel
+      </button>
+
+      <button
+        type="button"
+        id="delete-batch-confirm-button"
+        class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled
+      >
+        Delete Batch
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const wrapper = document.getElementById(
+    'client-submission-list'
+  );
+
+  if (!wrapper) {
+    return;
+  }
+
+  const statusUrl =
+    wrapper.dataset.statusUrl;
+
+  function getCsrfToken() {
+    const meta = document.querySelector(
+      'meta[name="csrf-token"]'
+    );
+
+    if (
+      meta &&
+      meta.content
+    ) {
+      return meta.content;
+    }
+
+    const input = document.querySelector(
+      'input[name="csrfmiddlewaretoken"]'
+    );
+
+    if (
+      input &&
+      input.value
+    ) {
+      return input.value;
+    }
+
+    const match = document.cookie.match(
+      /(?:^|;\s*)csrftoken=([^;]+)/
+    );
+
+    return match
+      ? decodeURIComponent(match[1])
+      : '';
+  }
+
+  function showToast(
+    message,
+    type = 'info'
+  ) {
+    const bg =
+      type === 'success'
+        ? 'bg-green-600'
+        : type === 'error'
+          ? 'bg-red-600'
+          : 'bg-blue-600';
+
+    const element = document.createElement(
+      'div'
+    );
+
+    element.className =
+      `fixed top-5 left-1/2 -translate-x-1/2 ${bg} ` +
+      `text-white px-4 py-3 rounded-xl shadow-lg z-[200] ` +
+      `max-w-[calc(100vw-2rem)] text-sm`;
+
+    element.textContent =
+      message;
+
+    document.body.appendChild(
+      element
+    );
+
+    setTimeout(
+      () => element.remove(),
+      2500
+    );
+  }
+
+  function setStatusStyle(
+    element,
+    status
+  ) {
+    if (!element) {
+      return;
+    }
+
+    element.classList.remove(
+      'bg-gray-100',
+      'text-gray-700',
+      'bg-blue-100',
+      'text-blue-700',
+      'bg-green-100',
+      'text-green-700',
+      'bg-amber-100',
+      'text-amber-700',
+      'bg-red-100',
+      'text-red-700',
+      'bg-purple-100',
+      'text-purple-700'
+    );
+
+    if (status === 'running') {
+      element.classList.add(
+        'bg-blue-100',
+        'text-blue-700'
+      );
+
+      return;
+    }
+
+    if (status === 'completed') {
+      element.classList.add(
+        'bg-green-100',
+        'text-green-700'
+      );
+
+      return;
+    }
+
+    if (
+      status === 'paused' ||
+      status === 'awaiting_verification'
+    ) {
+      element.classList.add(
+        'bg-amber-100',
+        'text-amber-700'
+      );
+
+      return;
+    }
+
+    if (
+      status === 'failed' ||
+      status === 'cancelled'
+    ) {
+      element.classList.add(
+        'bg-red-100',
+        'text-red-700'
+      );
+
+      return;
+    }
+
+    if (status === 'pending') {
+      element.classList.add(
+        'bg-purple-100',
+        'text-purple-700'
+      );
+
+      return;
+    }
+
+    element.classList.add(
+      'bg-gray-100',
+      'text-gray-700'
+    );
+  }
+
+  function updateBatchRow(
+    row,
+    batch
+  ) {
+    const statusElement =
+      row.querySelector(
+        '.batch-status'
+      );
+
+    const progressText =
+      row.querySelector(
+        '.batch-progress-text'
+      );
+
+    const progressPercent =
+      row.querySelector(
+        '.batch-progress-percent'
+      );
+
+    const progressBar =
+      row.querySelector(
+        '.batch-progress-bar'
+      );
+
+    const activeProject =
+      row.querySelector(
+        '.batch-active-project'
+      );
+
+    if (statusElement) {
+      statusElement.textContent =
+        batch.status_label ||
+        batch.status;
+
+      statusElement.dataset.status =
+        batch.status;
+
+      setStatusStyle(
+        statusElement,
+        batch.status
+      );
+    }
+
+    if (progressText) {
+      progressText.textContent =
+        `${batch.completed} / ${batch.total} projects`;
+    }
+
+    if (progressPercent) {
+      progressPercent.textContent =
+        `${batch.progress_percent}%`;
+    }
+
+    if (progressBar) {
+      progressBar.style.width =
+        `${batch.progress_percent}%`;
+    }
+
+    if (!activeProject) {
+      return;
+    }
+
+    if (batch.active_submission) {
+      activeProject.textContent =
+        `Project ${batch.active_submission.sequence_number} ` +
+        `of ${batch.total} · ` +
+        `${batch.active_submission.project_id || 'No Project ID'} · ` +
+        `${batch.active_submission.status_label}`;
+
+      return;
+    }
+
+    if (
+      batch.completed === batch.total &&
+      batch.total > 0
+    ) {
+      activeProject.textContent =
+        'Processing completed';
+
+      return;
+    }
+
+    if (batch.status === 'running') {
+      activeProject.textContent =
+        'Processing the next project...';
+
+      return;
+    }
+
+    if (batch.status === 'pending') {
+      activeProject.textContent =
+        'Waiting for processing to begin...';
+
+      return;
+    }
+
+    if (batch.status === 'paused') {
+      activeProject.textContent =
+        'Batch processing is paused';
+
+      return;
+    }
+
+    if (batch.status === 'failed') {
+      activeProject.textContent =
+        'Batch processing failed';
+
+      return;
+    }
+
+    if (batch.status === 'cancelled') {
+      activeProject.textContent =
+        'Batch was cancelled';
+
+      return;
+    }
+
+    activeProject.textContent =
+      'Waiting for processing';
+  }
+
+  async function refreshBatchStatuses() {
+    if (!statusUrl) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        statusUrl,
+        {
+          credentials: 'same-origin',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.ok
+      ) {
+        return;
+      }
+
+      for (
+        const batch
+        of data.batches || []
+      ) {
+        const rows =
+          document.querySelectorAll(
+            `[data-batch-id="${batch.id}"]`
+          );
+
+        rows.forEach(
+          (row) => {
+            updateBatchRow(
+              row,
+              batch
+            );
+          }
+        );
+      }
+
+    } catch (_) {
+    }
+  }
+
+  refreshBatchStatuses();
+
+  setInterval(
+    refreshBatchStatuses,
+    5000
+  );
+
+  // =========================================================
+  // Pagination amount
+  // =========================================================
+
+  document.addEventListener(
+    'change',
+    function (event) {
+      const select = event.target.closest(
+        '#cantidad'
+      );
+
+      if (!select) {
+        return;
+      }
+
+      const url = new URL(
+        window.location.href
+      );
+
+      url.searchParams.set(
+        'cantidad',
+        select.value
+      );
+
+      url.searchParams.set(
+        'page',
+        '1'
+      );
+
+      window.location.href =
+        url.toString();
+    }
+  );
+
+  // =========================================================
+  // Delete modal
+  // =========================================================
+
+  const deleteModal = document.getElementById(
+    'delete-batch-modal'
+  );
+
+  const deleteLabel = document.getElementById(
+    'delete-batch-label'
+  );
+
+  const deleteInput = document.getElementById(
+    'delete-batch-confirmation'
+  );
+
+  const deleteButton = document.getElementById(
+    'delete-batch-confirm-button'
+  );
+
+  const deleteError = document.getElementById(
+    'delete-batch-error'
+  );
+
+  let currentDeleteUrl = '';
+  let currentBatchId = '';
+
+  function closeDeleteModal() {
+    if (!deleteModal) {
+      return;
+    }
+
+    deleteModal.classList.add(
+      'hidden'
+    );
+
+    deleteModal.classList.remove(
+      'flex'
+    );
+
+    currentDeleteUrl = '';
+    currentBatchId = '';
+
+    if (deleteInput) {
+      deleteInput.value = '';
+    }
+
+    if (deleteButton) {
+      deleteButton.disabled = true;
+      deleteButton.textContent =
+        'Delete Batch';
+    }
+
+    if (deleteError) {
+      deleteError.classList.add(
+        'hidden'
+      );
+
+      deleteError.textContent = '';
+    }
+  }
+
+  function openDeleteModal(
+    button
+  ) {
+    if (!deleteModal) {
+      return;
+    }
+
+    const status =
+      button.dataset.batchStatus;
+
+    if (status === 'running') {
+      showToast(
+        'A batch cannot be deleted while it is processing.',
+        'error'
+      );
+
+      return;
+    }
+
+    currentDeleteUrl =
+      button.dataset.deleteUrl || '';
+
+    currentBatchId =
+      button.dataset.batchId || '';
+
+    const batchName =
+      button.dataset.batchName ||
+      'Client submission batch';
+
+    if (deleteLabel) {
+      deleteLabel.textContent =
+        `Batch #${currentBatchId} — ${batchName}`;
+    }
+
+    deleteModal.classList.remove(
+      'hidden'
+    );
+
+    deleteModal.classList.add(
+      'flex'
+    );
+
+    setTimeout(
+      () => {
+        deleteInput?.focus();
+      },
+      50
+    );
+  }
+
+  document.addEventListener(
+    'click',
+    function (event) {
+      const deleteTrigger =
+        event.target.closest(
+          '.btn-delete-batch'
+        );
+
+      if (deleteTrigger) {
+        openDeleteModal(
+          deleteTrigger
+        );
+
+        return;
+      }
+
+      const closeTrigger =
+        event.target.closest(
+          '[data-close-delete-batch]'
+        );
+
+      if (closeTrigger) {
+        closeDeleteModal();
+      }
+    }
+  );
+
+  deleteInput?.addEventListener(
+    'input',
+    function () {
+      if (!deleteButton) {
+        return;
+      }
+
+      deleteButton.disabled =
+        deleteInput.value.trim() !==
+        'DELETE';
+    }
+  );
+
+  deleteButton?.addEventListener(
+    'click',
+    async function () {
+      if (
+        !currentDeleteUrl ||
+        deleteInput?.value.trim() !== 'DELETE'
+      ) {
+        return;
+      }
+
+      deleteButton.disabled = true;
+      deleteButton.textContent =
+        'Deleting...';
+
+      if (deleteError) {
+        deleteError.classList.add(
+          'hidden'
+        );
+
+        deleteError.textContent = '';
+      }
+
+      try {
+        const response = await fetch(
+          currentDeleteUrl,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'X-CSRFToken': getCsrfToken(),
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.ok
+        ) {
+          throw new Error(
+            data.error ||
+            `HTTP ${response.status}`
+          );
+        }
+
+        closeDeleteModal();
+
+        showToast(
+          'Client Submission Batch deleted.',
+          'success'
+        );
+
+        setTimeout(
+          () => {
+            window.location.reload();
+          },
+          500
+        );
+
+      } catch (error) {
+        if (deleteError) {
+          deleteError.textContent =
+            error.message ||
+            'The batch could not be deleted.';
+
+          deleteError.classList.remove(
+            'hidden'
+          );
+        }
+
+        deleteButton.disabled = false;
+        deleteButton.textContent =
+          'Delete Batch';
+      }
+    }
+  );
+
+  document.addEventListener(
+    'keydown',
+    function (event) {
+      if (
+        event.key === 'Escape' &&
+        deleteModal &&
+        !deleteModal.classList.contains(
+          'hidden'
+        )
+      ) {
+        closeDeleteModal();
+      }
+    }
+  );
+})();
+</script>
+
+{% endblock %}

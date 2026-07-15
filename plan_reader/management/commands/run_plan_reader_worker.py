@@ -1,69 +1,281 @@
+from __future__ import annotations
+
+import logging
 import time
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
+from client_submissions.automation.worker import \
+    run_once as run_client_submission_once
 from plan_reader.models import PlanReaderJob
 from plan_reader.services.processor import process_plan_reader_job
 
+logger = logging.getLogger(__name__)
+
 
 class Command(BaseCommand):
-    help = "Runs the Plan Reader worker loop and processes pending jobs."
+    """
+    Worker compartido de Hyperlink.
 
-    def add_arguments(self, parser):
+    Atiende dos colas completamente independientes:
+
+    1. Client Submissions
+       - Busca ClientSubmissionBatch pendientes.
+       - Procesa como máximo un Batch por ciclo.
+       - Ejecuta Playwright y genera/sube el ZIP correspondiente.
+
+    2. Plan Reader
+       - Busca PlanReaderJob pendientes.
+       - Procesa como máximo --limit jobs por ciclo.
+
+    Una solicitud de Client Submission no activa una lectura
+    de planos.
+
+    El worker revisa ambas colas y únicamente procesa aquella
+    que tenga trabajo pendiente.
+    """
+
+    help = (
+        "Runs the shared Hyperlink background worker for "
+        "Client Submissions and Plan Reader."
+    )
+
+    # ========================================================
+    # Argumentos
+    # ========================================================
+
+    def add_arguments(
+        self,
+        parser,
+    ):
         parser.add_argument(
             "--sleep",
-            type=int,
-            default=10,
-            help="Seconds to wait between polling cycles.",
+            type=float,
+            default=10.0,
+            help=(
+                "Seconds to wait when neither queue contains work. "
+                "Default: 10 seconds."
+            ),
         )
-        parser.add_argument(
-            "--once",
-            action="store_true",
-            help="Run one cycle and exit.",
-        )
+
         parser.add_argument(
             "--limit",
             type=int,
             default=1,
-            help="Maximum pending jobs to process per cycle.",
+            help=("Maximum Plan Reader jobs processed per cycle. " "Default: 1."),
         )
 
-    def handle(self, *args, **options):
-        sleep_seconds = int(options["sleep"] or 10)
-        run_once = bool(options["once"])
-        limit = int(options["limit"] or 1)
+        parser.add_argument(
+            "--once",
+            action="store_true",
+            help="Run one complete polling cycle and exit.",
+        )
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Plan Reader worker started. sleep={sleep_seconds}s limit={limit}"
+    # ========================================================
+    # Worker principal
+    # ========================================================
+
+    def handle(
+        self,
+        *args,
+        **options,
+    ):
+        sleep_seconds = max(
+            float(
+                options.get(
+                    "sleep",
+                    10.0,
+                )
+                or 10.0
+            ),
+            0.5,
+        )
+
+        plan_limit = max(
+            int(
+                options.get(
+                    "limit",
+                    1,
+                )
+                or 1
+            ),
+            1,
+        )
+
+        run_only_once = bool(
+            options.get(
+                "once",
+                False,
             )
         )
 
-        while True:
-            processed_any = self._run_cycle(limit=limit)
+        self.stdout.write(
+            self.style.SUCCESS("Hyperlink shared background worker started.")
+        )
 
-            if run_once:
-                break
+        self.stdout.write(
+            (
+                "Queues: Client Submissions + Plan Reader. "
+                f"Idle sleep: {sleep_seconds} second(s). "
+                f"Plan Reader limit: {plan_limit}. "
+                f"Mode: "
+                f"{'single cycle' if run_only_once else 'continuous'}."
+            )
+        )
 
-            if not processed_any:
-                time.sleep(sleep_seconds)
+        try:
+            while True:
+                processed_any = False
 
-    def _claim_pending_jobs(self, limit=1):
+                close_old_connections()
+
+                # ====================================================
+                # 1. Client Submissions
+                # ====================================================
+
+                try:
+                    client_submission_processed = (
+                        self._process_client_submission_queue()
+                    )
+
+                    if client_submission_processed:
+                        processed_any = True
+
+                except Exception:
+                    logger.exception("Unexpected Client Submissions worker error.")
+
+                    self.stderr.write(
+                        self.style.ERROR(
+                            (
+                                "Client Submissions cycle failed. "
+                                "Review the traceback above."
+                            )
+                        )
+                    )
+
+                finally:
+                    close_old_connections()
+
+                # ====================================================
+                # 2. Plan Reader
+                # ====================================================
+
+                try:
+                    plan_reader_processed = self._process_plan_reader_queue(
+                        limit=plan_limit,
+                    )
+
+                    if plan_reader_processed:
+                        processed_any = True
+
+                except Exception:
+                    logger.exception("Unexpected Plan Reader worker error.")
+
+                    self.stderr.write(
+                        self.style.ERROR(
+                            ("Plan Reader cycle failed. " "Review the traceback above.")
+                        )
+                    )
+
+                finally:
+                    close_old_connections()
+
+                # ====================================================
+                # Una sola iteración
+                # ====================================================
+
+                if run_only_once:
+                    break
+
+                # ====================================================
+                # Esperar solamente cuando no hubo trabajo
+                # ====================================================
+
+                if not processed_any:
+                    time.sleep(
+                        sleep_seconds,
+                    )
+
+        except KeyboardInterrupt:
+            self.stdout.write("")
+
+            self.stdout.write(
+                self.style.WARNING("Hyperlink shared background worker stopped.")
+            )
+
+        finally:
+            close_old_connections()
+
+    # ========================================================
+    # Client Submissions
+    # ========================================================
+
+    def _process_client_submission_queue(
+        self,
+    ) -> bool:
         """
-        Toma jobs pending de forma segura para worker.
+        Ejecuta una iteración de Client Submissions.
 
-        Importante para producción:
-        - Usa select_for_update(skip_locked=True)
-        - Marca los jobs como processing dentro de la misma transacción
-        - Evita que otro worker tome el mismo job
+        run_client_submission_once() busca y reclama un único
+        ClientSubmissionBatch con estado PENDING.
+
+        Retorna:
+
+            True:
+                encontró y procesó un Batch.
+
+            False:
+                no existían Batches pendientes.
         """
+
+        found_work = run_client_submission_once()
+
+        if not found_work:
+            return False
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                (f"[{timezone.now()}] " "Client Submission Batch processed.")
+            )
+        )
+
+        return True
+
+    # ========================================================
+    # Plan Reader — reclamar jobs
+    # ========================================================
+
+    def _claim_pending_plan_reader_jobs(
+        self,
+        *,
+        limit: int,
+    ) -> list[PlanReaderJob]:
+        """
+        Reclama PlanReaderJob pendientes de forma segura.
+
+        Protecciones:
+
+        - select_for_update()
+        - skip_locked=True
+        - cambio a PROCESSING dentro de la transacción
+
+        Esto evita que dos workers procesen el mismo job.
+        """
+
         with transaction.atomic():
             jobs = list(
-                PlanReaderJob.objects.select_for_update(skip_locked=True)
-                .filter(status=PlanReaderJob.STATUS_PENDING)
-                .order_by("created_at")[:limit]
+                PlanReaderJob.objects.select_for_update(
+                    skip_locked=True,
+                )
+                .filter(
+                    status=PlanReaderJob.STATUS_PENDING,
+                )
+                .order_by(
+                    "created_at",
+                    "id",
+                )[:limit]
             )
 
             if not jobs:
@@ -73,9 +285,13 @@ class Command(BaseCommand):
 
             for job in jobs:
                 job.status = PlanReaderJob.STATUS_PROCESSING
+
                 job.started_at = now
+
                 job.completed_at = None
+
                 job.error_message = ""
+
                 job.save(
                     update_fields=[
                         "status",
@@ -88,36 +304,67 @@ class Command(BaseCommand):
 
             return jobs
 
-    def _run_cycle(self, limit=1):
-        jobs = self._claim_pending_jobs(limit=limit)
+    # ========================================================
+    # Plan Reader — procesar cola
+    # ========================================================
+
+    def _process_plan_reader_queue(
+        self,
+        *,
+        limit: int,
+    ) -> bool:
+        """
+        Procesa los PlanReaderJob reclamados durante este ciclo.
+
+        No se inicia ninguna lectura de planos cuando la cola
+        de Plan Reader está vacía.
+        """
+
+        jobs = self._claim_pending_plan_reader_jobs(
+            limit=limit,
+        )
 
         if not jobs:
             return False
 
         for job in jobs:
+            close_old_connections()
+
             self.stdout.write(
                 self.style.WARNING(
-                    f"[{timezone.now()}] Processing PlanReaderJob #{job.id}"
+                    (f"[{timezone.now()}] " f"Processing PlanReaderJob #{job.pk}.")
                 )
             )
 
             try:
                 process_plan_reader_job(
-                    job.id,
+                    job.pk,
                     allow_processing=True,
                 )
 
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"[{timezone.now()}] Finished PlanReaderJob #{job.id}"
+                        (f"[{timezone.now()}] " f"Finished PlanReaderJob #{job.pk}.")
                     )
                 )
 
             except Exception as exc:
-                self.stdout.write(
+                logger.exception(
+                    "PlanReaderJob #%s failed.",
+                    job.pk,
+                )
+
+                self.stderr.write(
                     self.style.ERROR(
-                        f"[{timezone.now()}] Failed PlanReaderJob #{job.id}: {exc}"
+                        (
+                            f"[{timezone.now()}] "
+                            f"Failed PlanReaderJob #{job.pk}: "
+                            f"{exc}"
+                        )
                     )
                 )
+
+            finally:
+                close_old_connections()
 
         return True

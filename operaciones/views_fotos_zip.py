@@ -21,6 +21,249 @@ _slug_cleanup_re = re.compile(r"[^-a-zA-Z0-9_.]+")
 SAFE_REPLACEMENT = "–"  # en-dash para reemplazar / y \
 
 
+def generar_fotos_zip_sesion(
+    sesion: SesionBilling,
+):
+    """
+    Genera el ZIP oficial de fotografías de una SesionBilling.
+
+    Devuelve:
+        (
+            spooled_file,
+            filename,
+            stats
+        )
+
+    stats:
+        {
+            "total_vistas": int,
+            "total_agregadas": int,
+            "total_fallidas": int,
+        }
+
+    El caller es responsable de cerrar el archivo.
+    """
+
+    root_name = _safe_component_preserve(
+        sesion.proyecto_id or f"Billing_{sesion.id}",
+        max_len=80,
+    )
+
+    asignaciones = (
+        sesion.tecnicos_sesion.select_related("tecnico")
+        .prefetch_related("evidencias__requisito")
+        .all()
+    )
+
+    spooled = SpooledTemporaryFile(
+        max_size=100 * 1024 * 1024,
+    )
+
+    total_agregadas = 0
+    total_fallidas = 0
+    total_vistas = 0
+
+    used_paths = set()
+
+    try:
+        with zipfile.ZipFile(
+            spooled,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=6,
+        ) as zf:
+
+            for asignacion in asignaciones:
+                evs_rel = getattr(
+                    asignacion,
+                    "evidencias",
+                    None,
+                )
+
+                if not evs_rel:
+                    continue
+
+                for ev in evs_rel.all():
+                    total_vistas += 1
+
+                    imagen_field = getattr(
+                        ev,
+                        "imagen",
+                        None,
+                    )
+
+                    if not imagen_field:
+                        total_fallidas += 1
+                        continue
+
+                    field_storage = getattr(
+                        imagen_field,
+                        "storage",
+                        None,
+                    )
+
+                    storage_name = (
+                        getattr(
+                            imagen_field,
+                            "name",
+                            "",
+                        )
+                        or ""
+                    )
+
+                    public_url = ""
+
+                    try:
+                        public_url = imagen_field.url or ""
+                    except Exception:
+                        public_url = ""
+
+                    # ----------------------------------------
+                    # Título de la evidencia
+                    # ----------------------------------------
+
+                    if getattr(
+                        sesion,
+                        "proyecto_especial",
+                        False,
+                    ) and not getattr(
+                        ev,
+                        "requisito_id",
+                        None,
+                    ):
+                        req_title_raw = (
+                            getattr(
+                                ev,
+                                "titulo_manual",
+                                "",
+                            )
+                            or "Extra"
+                        )
+
+                    else:
+                        req = getattr(
+                            ev,
+                            "requisito",
+                            None,
+                        )
+
+                        req_title_raw = (
+                            getattr(
+                                req,
+                                "titulo",
+                                "",
+                            )
+                            or "Extra"
+                        )
+
+                    # ----------------------------------------
+                    # Leer archivo
+                    # ----------------------------------------
+
+                    data = _read_from_storage_or_url(
+                        field_storage,
+                        storage_name,
+                        public_url,
+                    )
+
+                    if data is None:
+                        total_fallidas += 1
+                        continue
+
+                    ext = _guess_ext(
+                        storage_name or public_url,
+                        default=".jpg",
+                    )
+
+                    file_title = _safe_component_preserve(
+                        req_title_raw,
+                        max_len=120,
+                    )
+
+                    # ----------------------------------------
+                    # Evitar colisiones
+                    # ----------------------------------------
+
+                    arcname = f"{root_name}/" f"{file_title}" f"{ext}"
+
+                    if arcname in used_paths:
+                        arcname = f"{root_name}/" f"{file_title} " f"({ev.id})" f"{ext}"
+
+                        if arcname in used_paths:
+                            n = 2
+
+                            while True:
+                                arcname_try = (
+                                    f"{root_name}/"
+                                    f"{file_title} "
+                                    f"({ev.id})_"
+                                    f"{n}"
+                                    f"{ext}"
+                                )
+
+                                if arcname_try not in used_paths:
+                                    arcname = arcname_try
+                                    break
+
+                                n += 1
+
+                    used_paths.add(arcname)
+
+                    try:
+                        zf.writestr(
+                            arcname,
+                            data,
+                        )
+
+                        total_agregadas += 1
+
+                    except Exception as exc:
+                        total_fallidas += 1
+
+                        logger.warning(
+                            "ZIP fotos: fallo writestr '%s': %s",
+                            arcname,
+                            exc,
+                        )
+
+        logger.info(
+            ("ZIP fotos sesion=%s -> " "vistas=%s agregadas=%s fallidas=%s"),
+            sesion.id,
+            total_vistas,
+            total_agregadas,
+            total_fallidas,
+        )
+
+        if total_agregadas == 0:
+            spooled.close()
+
+            raise RuntimeError("No photos available for this billing session.")
+
+        spooled.seek(0)
+
+        filename = f"{root_name}.zip"
+
+        stats = {
+            "total_vistas": total_vistas,
+            "total_agregadas": total_agregadas,
+            "total_fallidas": total_fallidas,
+        }
+
+        return (
+            spooled,
+            filename,
+            stats,
+        )
+
+    except Exception:
+        try:
+            spooled.close()
+        except Exception:
+            pass
+
+        raise
+
+
 def _safe_component_preserve(s: str, fallback="(sin-titulo)", max_len=120) -> str:
     if not s:
         s = fallback
@@ -69,126 +312,46 @@ def _read_from_storage_or_url(storage_obj, storage_name: str, url: str):
 
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
-def descargar_fotos_zip(request, sesion_id: int):
+def descargar_fotos_zip(
+    request,
+    sesion_id: int,
+):
     """
-    Genera un .zip con TODAS las fotos de la sesión en UNA SOLA CARPETA:
-      <PROJECT_ID>/
-        <TÍTULO>.ext   (si se repite, agrega sufijo)
+    Descarga el ZIP oficial con todas las fotografías
+    de una SesionBilling.
+    """
 
-    Importante: evita colisiones de nombres dentro del ZIP.
-    """
     from django.contrib import messages
     from django.shortcuts import redirect
 
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
-
-    root_name = _safe_component_preserve(
-        s.proyecto_id or f"Billing_{s.id}",
-        max_len=80
+    s = get_object_or_404(
+        SesionBilling,
+        pk=sesion_id,
     )
 
-    asignaciones = (
-        s.tecnicos_sesion
-         .select_related("tecnico")
-         .prefetch_related("evidencias__requisito")
-         .all()
-    )
+    try:
+        spooled, filename, _stats = generar_fotos_zip_sesion(
+            s,
+        )
 
-    spooled = SpooledTemporaryFile(max_size=100 * 1024 * 1024)  # 100MB antes de disco
+    except RuntimeError:
+        messages.warning(
+            request,
+            "No photos available for this billing session.",
+        )
 
-    total_agregadas = 0
-    total_fallidas = 0
-    total_vistas = 0
+        return redirect(
+            "operaciones:revisar_sesion",
+            sesion_id=s.id,
+        )
 
-    # Para evitar que ZIP sobreescriba archivos por nombre repetido
-    used_paths = set()
-
-    with zipfile.ZipFile(
-        spooled,
-        mode="w",
-        compression=zipfile.ZIP_DEFLATED,
-        compresslevel=6
-    ) as zf:
-
-        for a in asignaciones:
-            evs_rel = getattr(a, "evidencias", None)
-            if not evs_rel:
-                continue
-
-            for ev in evs_rel.all():
-                total_vistas += 1
-
-                imagen_field = getattr(ev, "imagen", None)
-                if not imagen_field:
-                    total_fallidas += 1
-                    continue
-
-                field_storage = getattr(imagen_field, "storage", None)
-                storage_name = getattr(imagen_field, "name", "") or ""
-                public_url = ""
-                try:
-                    public_url = imagen_field.url or ""
-                except Exception:
-                    public_url = ""
-
-                # Título del requisito o "Extra"
-                if getattr(s, "proyecto_especial", False) and not getattr(ev, "requisito_id", None):
-                    req_title_raw = getattr(ev, "titulo_manual", "") or "Extra"
-                else:
-                    req = getattr(ev, "requisito", None)
-                    req_title_raw = getattr(req, "titulo", "") or "Extra"
-
-                data = _read_from_storage_or_url(field_storage, storage_name, public_url)
-                if data is None:
-                    total_fallidas += 1
-                    continue
-
-                ext = _guess_ext(storage_name or public_url, default=".jpg")
-                file_title = _safe_component_preserve(req_title_raw, max_len=120)
-
-                # --------- ✅ NOMBRE ÚNICO (evita overwrite en ZIP) ----------
-                base_arc = f"{root_name}/{file_title}{ext}"
-                arcname = base_arc
-
-                if arcname in used_paths:
-                    # Preferencia: agregar ev.id (siempre único) y si aún choca, contador
-                    arcname = f"{root_name}/{file_title} ({ev.id}){ext}"
-                    if arcname in used_paths:
-                        n = 2
-                        while True:
-                            arcname_try = f"{root_name}/{file_title} ({ev.id})_{n}{ext}"
-                            if arcname_try not in used_paths:
-                                arcname = arcname_try
-                                break
-                            n += 1
-
-                used_paths.add(arcname)
-                # ------------------------------------------------------------
-
-                try:
-                    zf.writestr(arcname, data)
-                    total_agregadas += 1
-                except Exception as e:
-                    total_fallidas += 1
-                    logger.warning("ZIP fotos: fallo writestr '%s': %s", arcname, e)
-
-    logger.info(
-        "ZIP fotos sesion=%s -> vistas=%s agregadas=%s fallidas=%s",
-        s.id, total_vistas, total_agregadas, total_fallidas
-    )
-
-    # ✅ En vez de tirar 404 feo, volvemos a la sesión con mensaje
-    if total_agregadas == 0:
-        messages.warning(request, "No photos available for this billing session.")
-        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
-
-    spooled.seek(0)
-    filename = f"{root_name}.zip"
     resp = FileResponse(
         spooled,
         as_attachment=True,
         filename=filename,
-        content_type="application/zip"
+        content_type="application/zip",
     )
+
     resp["Cache-Control"] = "no-store"
+
     return resp
