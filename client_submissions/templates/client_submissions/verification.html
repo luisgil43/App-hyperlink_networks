@@ -3,21 +3,49 @@
 {% block title %}Human Verification{% endblock %}
 
 {% block dashboard_content %}
-<div class="max-w-3xl mx-auto bg-white p-6 rounded-2xl shadow mt-6">
+<div
+  id="verification-page"
+  class="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6"
+  data-status-url="{% url 'client_submissions:verification_status_json' submission.public_id %}"
+  data-continue-url="{% url 'client_submissions:verification_continue' submission.public_id %}"
+  data-cancel-url="{% url 'client_submissions:verification_cancel' submission.public_id %}"
+  data-batch-url="{% url 'client_submissions:batch_detail' batch.public_id %}"
+>
+
+  {% csrf_token %}
+
+  <!-- =======================================================
+       Encabezado
+       ======================================================= -->
 
   <div class="text-center mb-6">
-    <div class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl">
+
+    <div
+      id="status-icon"
+      class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl"
+    >
       ⚠️
     </div>
 
-    <h1 class="text-2xl font-bold text-gray-800 mt-4">
+    <h1
+      id="page-title"
+      class="text-2xl font-bold text-gray-800 mt-4"
+    >
       Human verification required
     </h1>
 
-    <p class="text-sm text-gray-500 mt-2">
-      The automated browser completed the form but requires human verification before it can continue.
+    <p
+      id="page-description"
+      class="text-sm text-gray-500 mt-2"
+    >
+      Smartsheet requires human verification before the automated submission can continue.
     </p>
+
   </div>
+
+  <!-- =======================================================
+       Información del proyecto
+       ======================================================= -->
 
   <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-6">
 
@@ -27,6 +55,7 @@
         <p class="text-xs uppercase tracking-wide text-amber-700">
           Project ID
         </p>
+
         <p class="font-semibold text-gray-900 mt-1">
           {{ submission.project_id }}
         </p>
@@ -36,6 +65,7 @@
         <p class="text-xs uppercase tracking-wide text-amber-700">
           Batch
         </p>
+
         <p class="font-semibold text-gray-900 mt-1">
           #{{ batch.id }}
         </p>
@@ -45,6 +75,7 @@
         <p class="text-xs uppercase tracking-wide text-amber-700">
           DFN Name
         </p>
+
         <p class="font-semibold text-gray-900 mt-1">
           {{ submission.dfn_name|default:"—" }}
         </p>
@@ -54,6 +85,7 @@
         <p class="text-xs uppercase tracking-wide text-amber-700">
           Access Point ID
         </p>
+
         <p class="font-semibold text-gray-900 mt-1">
           {{ submission.access_point_id|default:"—" }}
         </p>
@@ -63,41 +95,501 @@
 
   </div>
 
-  <div class="rounded-xl border p-5 mb-6">
-    <h2 class="font-semibold text-gray-800">
-      Current status
-    </h2>
+  <!-- =======================================================
+       Estado actual
+       ======================================================= -->
 
-    <p class="mt-2 text-amber-700 font-medium">
-      {{ submission.get_status_display }}
-    </p>
+  <div class="rounded-xl border border-gray-200 p-5 mb-6">
 
-    {% if submission.verification_required_at %}
-      <p class="text-sm text-gray-500 mt-1">
-        Requested at:
-        {{ submission.verification_required_at|date:"Y-m-d H:i:s" }}
-      </p>
-    {% endif %}
+    <div class="flex items-start justify-between gap-4">
+
+      <div>
+        <h2 class="font-semibold text-gray-800">
+          Current status
+        </h2>
+
+        <p
+          id="submission-status"
+          class="mt-2 text-amber-700 font-semibold"
+        >
+          {{ submission.get_status_display }}
+        </p>
+
+        {% if submission.verification_required_at %}
+          <p class="text-sm text-gray-500 mt-1">
+            Requested at:
+            {{ submission.verification_required_at|date:"Y-m-d H:i:s" }}
+          </p>
+        {% endif %}
+      </div>
+
+      <div
+        id="status-indicator"
+        class="flex items-center gap-2 text-sm text-gray-500"
+      >
+        <span
+          id="status-dot"
+          class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"
+        ></span>
+
+        <span id="status-indicator-text">
+          Waiting
+        </span>
+      </div>
+
+    </div>
+
   </div>
 
+  <!-- =======================================================
+       Sesión del navegador
+       ======================================================= -->
+
   <div class="rounded-xl border border-blue-200 bg-blue-50 p-5 mb-6">
+
     <h2 class="font-semibold text-blue-900">
       Verification session
     </h2>
 
     <p class="text-sm text-blue-800 mt-2">
-      The browser session connection will be added when the Playwright worker is connected.
+      The automated browser is paused at the Smartsheet verification step.
+      Complete the CAPTCHA in the connected browser session and then press
+      <strong>Verification completed</strong>.
     </p>
+
+    <div class="mt-4 rounded-lg border border-blue-200 bg-white p-4">
+
+      <div class="flex items-start gap-3">
+
+        <div class="text-xl">
+          🌐
+        </div>
+
+        <div>
+          <p class="font-medium text-gray-900">
+            Browser connection
+          </p>
+
+          <p
+            id="browser-connection-status"
+            class="text-sm text-gray-500 mt-1"
+          >
+            Waiting for the Playwright browser connection.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
   </div>
 
-  <div class="flex justify-end">
+  <!-- =======================================================
+       Mensajes
+       ======================================================= -->
+
+  <div
+    id="verification-message"
+    class="hidden rounded-xl border p-4 mb-6"
+  ></div>
+
+  <!-- =======================================================
+       Botones
+       ======================================================= -->
+
+  <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-3">
+
     <a
       href="{% url 'client_submissions:batch_detail' batch.public_id %}"
-      class="px-5 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+      class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-center font-medium transition"
     >
       Back to Batch
     </a>
+
+    <div class="flex flex-col sm:flex-row gap-3">
+
+      <button
+        id="cancel-verification-button"
+        type="button"
+        class="w-full sm:w-auto px-5 py-2.5 rounded-lg border border-red-300 bg-white text-red-700 hover:bg-red-50 font-medium transition"
+      >
+        Cancel submission
+      </button>
+
+      <button
+        id="continue-verification-button"
+        type="button"
+        class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-semibold transition"
+      >
+        Verification completed
+      </button>
+
+    </div>
+
   </div>
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const page = document.getElementById("verification-page");
+
+  if (!page) {
+    return;
+  }
+
+  const statusUrl = page.dataset.statusUrl;
+  const continueUrl = page.dataset.continueUrl;
+  const cancelUrl = page.dataset.cancelUrl;
+  const batchUrl = page.dataset.batchUrl;
+
+  const statusElement = document.getElementById("submission-status");
+  const statusIndicatorText = document.getElementById(
+    "status-indicator-text"
+  );
+  const statusDot = document.getElementById("status-dot");
+
+  const continueButton = document.getElementById(
+    "continue-verification-button"
+  );
+  const cancelButton = document.getElementById(
+    "cancel-verification-button"
+  );
+
+  const messageElement = document.getElementById(
+    "verification-message"
+  );
+
+  let pollingTimer = null;
+  let requestRunning = false;
+
+  function getCsrfToken() {
+    const input = page.querySelector(
+      'input[name="csrfmiddlewaretoken"]'
+    );
+
+    return input ? input.value : "";
+  }
+
+  function showMessage(message, type = "info") {
+    messageElement.className =
+      "rounded-xl border p-4 mb-6";
+
+    if (type === "success") {
+      messageElement.classList.add(
+        "border-green-200",
+        "bg-green-50",
+        "text-green-800"
+      );
+    } else if (type === "error") {
+      messageElement.classList.add(
+        "border-red-200",
+        "bg-red-50",
+        "text-red-800"
+      );
+    } else {
+      messageElement.classList.add(
+        "border-blue-200",
+        "bg-blue-50",
+        "text-blue-800"
+      );
+    }
+
+    messageElement.textContent = message;
+    messageElement.classList.remove("hidden");
+  }
+
+  function setButtonsDisabled(disabled) {
+    continueButton.disabled = disabled;
+    cancelButton.disabled = disabled;
+
+    continueButton.classList.toggle(
+      "opacity-50",
+      disabled
+    );
+
+    continueButton.classList.toggle(
+      "cursor-not-allowed",
+      disabled
+    );
+
+    cancelButton.classList.toggle(
+      "opacity-50",
+      disabled
+    );
+
+    cancelButton.classList.toggle(
+      "cursor-not-allowed",
+      disabled
+    );
+  }
+
+  function updateStatusAppearance(data) {
+    statusElement.textContent =
+      data.status_label || data.status || "Unknown";
+
+    const awaitingVerification =
+      data.status === "awaiting_verification";
+
+    if (awaitingVerification) {
+      statusElement.className =
+        "mt-2 text-amber-700 font-semibold";
+
+      statusDot.className =
+        "inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
+
+      statusIndicatorText.textContent =
+        "Waiting for verification";
+
+      return;
+    }
+
+    if (data.status === "failed") {
+      statusElement.className =
+        "mt-2 text-red-700 font-semibold";
+
+      statusDot.className =
+        "inline-block w-2.5 h-2.5 rounded-full bg-red-500";
+
+      statusIndicatorText.textContent =
+        "Submission failed";
+
+      showMessage(
+        data.last_error_message ||
+          "The submission failed.",
+        "error"
+      );
+
+      setButtonsDisabled(true);
+
+      return;
+    }
+
+    if (data.status === "cancelled") {
+      statusElement.className =
+        "mt-2 text-gray-700 font-semibold";
+
+      statusDot.className =
+        "inline-block w-2.5 h-2.5 rounded-full bg-gray-500";
+
+      statusIndicatorText.textContent =
+        "Submission cancelled";
+
+      setButtonsDisabled(true);
+
+      return;
+    }
+
+    statusElement.className =
+      "mt-2 text-green-700 font-semibold";
+
+    statusDot.className =
+      "inline-block w-2.5 h-2.5 rounded-full bg-green-500";
+
+    statusIndicatorText.textContent =
+      "Verification completed";
+
+    setButtonsDisabled(true);
+
+    showMessage(
+      "Verification was accepted. Returning to the Batch.",
+      "success"
+    );
+
+    window.setTimeout(function () {
+      window.location.href = batchUrl;
+    }, 1500);
+  }
+
+  async function checkStatus() {
+    try {
+      const response = await fetch(statusUrl, {
+        method: "GET",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "Accept": "application/json"
+        },
+        credentials: "same-origin"
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.error ||
+          "Could not retrieve verification status."
+        );
+      }
+
+      updateStatusAppearance(data);
+
+      if (data.status !== "awaiting_verification") {
+        stopPolling();
+      }
+    } catch (error) {
+      console.error(
+        "Verification status error:",
+        error
+      );
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+
+    checkStatus();
+
+    pollingTimer = window.setInterval(
+      checkStatus,
+      3000
+    );
+  }
+
+  function stopPolling() {
+    if (pollingTimer) {
+      window.clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+  }
+
+  continueButton.addEventListener(
+    "click",
+    async function () {
+      if (requestRunning) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Confirm that you completed the CAPTCHA in the browser session."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      requestRunning = true;
+      setButtonsDisabled(true);
+
+      continueButton.textContent =
+        "Continuing...";
+
+      try {
+        const response = await fetch(continueUrl, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCsrfToken(),
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+          },
+          credentials: "same-origin"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.error ||
+            "The submission could not continue."
+          );
+        }
+
+        showMessage(
+          "Verification confirmation was sent. Waiting for the browser process to continue.",
+          "success"
+        );
+
+        await checkStatus();
+      } catch (error) {
+        showMessage(
+          error.message ||
+          "The verification could not be confirmed.",
+          "error"
+        );
+
+        setButtonsDisabled(false);
+      } finally {
+        requestRunning = false;
+
+        continueButton.textContent =
+          "Verification completed";
+      }
+    }
+  );
+
+  cancelButton.addEventListener(
+    "click",
+    async function () {
+      if (requestRunning) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Cancel this submission? This action will stop processing this project."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      requestRunning = true;
+      setButtonsDisabled(true);
+
+      cancelButton.textContent =
+        "Cancelling...";
+
+      try {
+        const response = await fetch(cancelUrl, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCsrfToken(),
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+          },
+          credentials: "same-origin"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.error ||
+            "The submission could not be cancelled."
+          );
+        }
+
+        showMessage(
+          "The submission was cancelled.",
+          "success"
+        );
+
+        stopPolling();
+
+        window.setTimeout(function () {
+          window.location.href = batchUrl;
+        }, 1200);
+      } catch (error) {
+        showMessage(
+          error.message ||
+          "The submission could not be cancelled.",
+          "error"
+        );
+
+        setButtonsDisabled(false);
+      } finally {
+        requestRunning = false;
+
+        cancelButton.textContent =
+          "Cancel submission";
+      }
+    }
+  );
+
+  window.addEventListener(
+    "beforeunload",
+    stopPolling
+  );
+
+  startPolling();
+});
+</script>
 {% endblock %}

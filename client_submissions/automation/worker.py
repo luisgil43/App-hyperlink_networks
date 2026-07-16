@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from client_submissions.automation.smartsheet_form import (
+    _detect_verification_challenge, close_active_browser, get_active_browser,
     run_smartsheet_dry_run, run_smartsheet_live)
 from client_submissions.models import (ClientSubmission,
                                        ClientSubmissionAttempt,
@@ -22,6 +23,174 @@ from operaciones.views_fotos_zip import (SMARTSHEET_MAX_ZIP_PART_BYTES,
                                          generar_fotos_zip_partes_smartsheet)
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# Estado de verificación humana
+# ============================================================
+
+
+def get_human_verification_state(
+    submission: ClientSubmission,
+) -> dict:
+    """
+    Obtiene browser_state["human_verification"] de forma segura.
+    """
+
+    browser_state = (
+        submission.browser_state
+        if isinstance(
+            submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    return verification_state
+
+
+def set_human_verification_state(
+    submission: ClientSubmission,
+    **changes,
+) -> dict:
+    """
+    Actualiza browser_state["human_verification"] sin eliminar
+    el resto de la información guardada por Playwright.
+    """
+
+    browser_state = (
+        dict(
+            submission.browser_state,
+        )
+        if isinstance(
+            submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    verification_state = {
+        **verification_state,
+        **changes,
+    }
+
+    browser_state["human_verification"] = verification_state
+
+    submission.browser_state = browser_state
+
+    return verification_state
+
+
+def mark_verification_session_available(
+    submission: ClientSubmission,
+    *,
+    stage: str,
+    result_metadata: dict | None = None,
+):
+    """
+    Registra que existe una sesión activa de navegador esperando
+    que una persona resuelva el CAPTCHA.
+
+    La URL almacenada aquí es informativa. No significa que el
+    navegador pueda abrirse directamente desde otra máquina.
+    """
+
+    browser_data = get_active_browser(
+        submission,
+    )
+
+    page = (
+        browser_data.get(
+            "page",
+        )
+        if isinstance(
+            browser_data,
+            dict,
+        )
+        else None
+    )
+
+    session_url = ""
+
+    if page is not None:
+        try:
+            session_url = str(
+                page.url or "",
+            ).strip()
+
+        except Exception:
+            session_url = ""
+
+    now = timezone.now()
+
+    set_human_verification_state(
+        submission,
+        stage=stage,
+        session_available=(browser_data is not None),
+        session_url=session_url,
+        detected_at=now.isoformat(),
+        continue_requested_at=None,
+        continue_requested_by=None,
+        cancel_requested_at=None,
+        cancel_requested_by=None,
+        worker_checked_at=None,
+        captcha_cleared=False,
+        completed_at=None,
+        result_metadata=(
+            result_metadata
+            if isinstance(
+                result_metadata,
+                dict,
+            )
+            else {}
+        ),
+        message=(
+            "The browser is waiting for human verification."
+            if browser_data is not None
+            else "Verification was detected, but no active browser session was found."
+        ),
+    )
+
+    submission.save(
+        update_fields=[
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+
+def get_latest_submission_attempt(
+    submission: ClientSubmission,
+):
+    """
+    Recupera el último intento creado para el Submission.
+    """
+
+    return submission.attempts.order_by(
+        "-attempt_number",
+        "-id",
+    ).first()
 
 
 def prepare_local_zip_parts(
@@ -725,6 +894,17 @@ def save_attempt_screenshot(
 def process_dry_run_submission(
     submission: ClientSubmission,
 ):
+    """
+    Procesa un ClientSubmission en modo Dry Run.
+
+    Completa el formulario y adjunta los archivos, pero no
+    presiona Submit.
+
+    Si Smartsheet presenta una verificación humana durante la
+    carga o el llenado, registra la sesión activa para permitir
+    continuarla desde el flujo de verificación.
+    """
+
     batch = submission.batch
 
     attempt = create_attempt(
@@ -741,9 +921,11 @@ def process_dry_run_submission(
 
     zip_filenames: list[str] = []
 
+    verification_session_active = False
+
     try:
         # ====================================================
-        # ZIP divididos exclusivamente para Smartsheet
+        # Preparar ZIP divididos exclusivamente para Smartsheet
         # ====================================================
 
         (
@@ -778,6 +960,9 @@ def process_dry_run_submission(
 
             file_size = path.stat().st_size
 
+            if file_size <= 0:
+                raise RuntimeError(f"Prepared ZIP part is empty: {path.name}")
+
             if file_size > SMARTSHEET_MAX_ZIP_PART_BYTES:
                 raise RuntimeError(
                     (
@@ -789,11 +974,15 @@ def process_dry_run_submission(
                     )
                 )
 
+        # ====================================================
+        # Evento de inicio
+        # ====================================================
+
         create_event(
             batch=batch,
             submission=submission,
             event_type="dry_run_started",
-            message=(f"Dry Run started for " f"{submission.project_id}."),
+            message=(f"Dry Run started for {submission.project_id}."),
             metadata={
                 "attempt_number": attempt.attempt_number,
                 "zip_parts": zip_filenames,
@@ -805,7 +994,7 @@ def process_dry_run_submission(
         )
 
         # ====================================================
-        # Browser visibility
+        # Visibilidad del navegador
         # ====================================================
 
         headless = (
@@ -831,7 +1020,7 @@ def process_dry_run_submission(
         )
 
         # ====================================================
-        # Playwright
+        # Ejecutar Playwright
         # ====================================================
 
         result = asyncio.run(
@@ -839,61 +1028,118 @@ def process_dry_run_submission(
                 submission=submission,
                 attachment_paths=local_zip_paths,
                 headless=headless,
+                submit_form=False,
             )
         )
 
+        if result is None:
+            raise RuntimeError(
+                (
+                    "Smartsheet automation returned no result. "
+                    "Check that run_smartsheet_dry_run() does not "
+                    "execute 'return' from inside its finally block."
+                )
+            )
+
         # ====================================================
-        # Challenge
+        # Verificación humana
         # ====================================================
 
         if result.verification_required:
+            verification_session_active = True
+
+            submission.refresh_from_db()
+
             submission.mark_awaiting_verification()
+
+            batch.refresh_from_db()
 
             batch.mark_awaiting_verification()
 
+            result_metadata = (
+                result.metadata
+                if isinstance(
+                    result.metadata,
+                    dict,
+                )
+                else {}
+            )
+
+            verification_stage = str(
+                result_metadata.get(
+                    "stage",
+                    "before_form_fill",
+                )
+                or "before_form_fill"
+            ).strip()
+
             attempt.result = ClientSubmissionAttempt.Result.AWAITING_VERIFICATION
 
-            attempt.browser_url = result.final_url
+            attempt.browser_url = result.final_url or ""
 
-            attempt.browser_title = result.page_title
+            attempt.browser_title = result.page_title or ""
+
+            attempt.page_html_snapshot = result.html_snapshot or ""
 
             attempt.error_details = {
                 "zip_parts": zip_filenames,
                 "zip_stats": zip_stats,
-                "metadata": result.metadata,
+                "verification_stage": verification_stage,
+                "metadata": result_metadata,
             }
+
+            if result.screenshot_path:
+                save_attempt_screenshot(
+                    attempt,
+                    result.screenshot_path,
+                )
 
             attempt.finished_at = timezone.now()
 
-            attempt.save(
-                update_fields=[
-                    "result",
-                    "browser_url",
-                    "browser_title",
-                    "error_details",
-                    "finished_at",
-                    "updated_at",
-                ]
+            attempt.save()
+
+            # ================================================
+            # Registrar la sesión viva en browser_state
+            # ================================================
+
+            submission.refresh_from_db()
+
+            mark_verification_session_available(
+                submission,
+                stage=verification_stage,
+                result_metadata=result_metadata,
             )
 
             create_event(
                 batch=batch,
                 submission=submission,
-                level=(ClientSubmissionEvent.Level.WARNING),
+                level=ClientSubmissionEvent.Level.WARNING,
                 event_type="verification_required",
                 message=(
-                    "Human verification is required " f"for {submission.project_id}."
+                    "Human verification is required for " f"{submission.project_id}."
                 ),
                 metadata={
+                    "attempt_number": attempt.attempt_number,
                     "zip_parts": zip_filenames,
                     "zip_stats": zip_stats,
+                    "verification_stage": verification_stage,
+                    "result_metadata": result_metadata,
                 },
             )
 
             return
 
         # ====================================================
-        # Validar resultado de archivos
+        # Validar resultado general
+        # ====================================================
+
+        if not result.ok:
+            raise RuntimeError(
+                ("Smartsheet Dry Run returned " "an unsuccessful result.")
+            )
+
+        # ====================================================
+        # Validar archivos
         # ====================================================
 
         if not result.attachments_uploaded:
@@ -920,16 +1166,25 @@ def process_dry_run_submission(
             )
 
         # ====================================================
+        # Validación específica de Dry Run
+        # ====================================================
+
+        if result.submit_clicked:
+            raise RuntimeError(
+                ("Dry Run unexpectedly reported that " "the Submit button was clicked.")
+            )
+
+        # ====================================================
         # Guardar intento
         # ====================================================
 
         attempt.result = ClientSubmissionAttempt.Result.DRY_RUN_COMPLETED
 
-        attempt.browser_url = result.final_url
+        attempt.browser_url = result.final_url or ""
 
-        attempt.browser_title = result.page_title
+        attempt.browser_title = result.page_title or ""
 
-        attempt.page_html_snapshot = result.html_snapshot
+        attempt.page_html_snapshot = result.html_snapshot or ""
 
         attempt.error_details = {
             "fields_filled": result.fields_filled,
@@ -938,8 +1193,16 @@ def process_dry_run_submission(
             "attachment_count": len(
                 result.attachment_filenames,
             ),
+            "submit_clicked": result.submit_clicked,
             "zip_stats": zip_stats,
-            "metadata": result.metadata,
+            "metadata": (
+                result.metadata
+                if isinstance(
+                    result.metadata,
+                    dict,
+                )
+                else {}
+            ),
         }
 
         if result.screenshot_path:
@@ -960,10 +1223,21 @@ def process_dry_run_submission(
 
         submission.mark_dry_run_completed()
 
+        batch.refresh_from_db()
+
+        batch.last_activity_at = timezone.now()
+
+        batch.save(
+            update_fields=[
+                "last_activity_at",
+                "updated_at",
+            ]
+        )
+
         create_event(
             batch=batch,
             submission=submission,
-            level=(ClientSubmissionEvent.Level.SUCCESS),
+            level=ClientSubmissionEvent.Level.SUCCESS,
             event_type="dry_run_completed",
             message=(
                 f"Dry Run completed for "
@@ -973,13 +1247,14 @@ def process_dry_run_submission(
                 "The form was not submitted."
             ),
             metadata={
-                "attempt_number": (attempt.attempt_number),
-                "fields_filled": (result.fields_filled),
+                "attempt_number": attempt.attempt_number,
+                "fields_filled": result.fields_filled,
                 "attachments_uploaded": (result.attachments_uploaded),
                 "attachment_filenames": (result.attachment_filenames),
                 "attachment_count": len(
                     result.attachment_filenames,
                 ),
+                "submit_clicked": result.submit_clicked,
                 "zip_stats": zip_stats,
             },
         )
@@ -992,36 +1267,58 @@ def process_dry_run_submission(
 
         submission.refresh_from_db()
 
-        submission.mark_failed(
-            str(
+        # No convertir en FAILED cuando ya quedó correctamente
+        # esperando intervención humana.
+        if submission.status != ClientSubmission.Status.AWAITING_VERIFICATION:
+            submission.mark_failed(
+                str(
+                    exc,
+                ),
+                code=exc.__class__.__name__,
+            )
+
+        attempt.refresh_from_db()
+
+        if attempt.result != ClientSubmissionAttempt.Result.AWAITING_VERIFICATION:
+            attempt.result = ClientSubmissionAttempt.Result.FAILED
+
+            attempt.error_code = exc.__class__.__name__
+
+            attempt.error_message = str(
                 exc,
-            ),
-            code=exc.__class__.__name__,
-        )
+            )
 
-        attempt.result = ClientSubmissionAttempt.Result.FAILED
+            attempt.error_details = {
+                "zip_parts": [Path(path).name for path in local_zip_paths],
+                "zip_stats": zip_stats,
+                "error_type": exc.__class__.__name__,
+            }
 
-        attempt.error_code = exc.__class__.__name__
+            attempt.finished_at = timezone.now()
 
-        attempt.error_message = str(
+            attempt.save(
+                update_fields=[
+                    "result",
+                    "error_code",
+                    "error_message",
+                    "error_details",
+                    "finished_at",
+                    "updated_at",
+                ]
+            )
+
+        batch.refresh_from_db()
+
+        batch.last_error = str(
             exc,
         )
 
-        attempt.error_details = {
-            "zip_parts": [Path(path).name for path in local_zip_paths],
-            "zip_stats": zip_stats,
-            "error_type": (exc.__class__.__name__),
-        }
+        batch.last_activity_at = timezone.now()
 
-        attempt.finished_at = timezone.now()
-
-        attempt.save(
+        batch.save(
             update_fields=[
-                "result",
-                "error_code",
-                "error_message",
-                "error_details",
-                "finished_at",
+                "last_error",
+                "last_activity_at",
                 "updated_at",
             ]
         )
@@ -1029,12 +1326,12 @@ def process_dry_run_submission(
         create_event(
             batch=batch,
             submission=submission,
-            level=(ClientSubmissionEvent.Level.ERROR),
+            level=ClientSubmissionEvent.Level.ERROR,
             event_type="dry_run_failed",
-            message=(f"Dry Run failed for " f"{submission.project_id}: " f"{exc}"),
+            message=(f"Dry Run failed for " f"{submission.project_id}: {exc}"),
             metadata={
-                "error_type": (exc.__class__.__name__),
-                "attempt_number": (attempt.attempt_number),
+                "error_type": exc.__class__.__name__,
+                "attempt_number": attempt.attempt_number,
                 "zip_parts": [Path(path).name for path in local_zip_paths],
                 "zip_stats": zip_stats,
             },
@@ -1059,6 +1356,12 @@ def process_dry_run_submission(
                         ("Could not delete temporary " "ZIP part: %s"),
                         local_zip_path,
                     )
+
+        if verification_session_active:
+            logger.info(
+                ("Dry Run submission %s remains awaiting " "human verification."),
+                submission.pk,
+            )
 
 
 # ============================================================
@@ -1216,8 +1519,9 @@ def process_live_submission(
     4. Adjunta los ZIP.
     5. Presiona Submit.
     6. Espera la confirmación visual de Smartsheet.
-    7. Marca la confirmación del navegador.
-    8. Deja el proyecto esperando confirmación por correo,
+    7. Si aparece CAPTCHA, conserva la sesión del navegador.
+    8. Marca la confirmación del navegador cuando corresponda.
+    9. Deja el proyecto esperando confirmación por correo,
        salvo que esta ya exista.
     """
 
@@ -1236,6 +1540,8 @@ def process_live_submission(
     zip_stats: dict = {}
 
     zip_filenames: list[str] = []
+
+    verification_session_active = False
 
     try:
         # ====================================================
@@ -1311,7 +1617,7 @@ def process_live_submission(
             batch=batch,
             submission=submission,
             event_type="live_submission_started",
-            message=(f"Live submission started for " f"{submission.project_id}."),
+            message=("Live submission started for " f"{submission.project_id}."),
             metadata={
                 "attempt_number": attempt.attempt_number,
                 "zip_parts": zip_filenames,
@@ -1323,7 +1629,7 @@ def process_live_submission(
         )
 
         # ====================================================
-        # Browser visibility
+        # Visibilidad del navegador
         # ====================================================
 
         headless = (
@@ -1360,16 +1666,46 @@ def process_live_submission(
             )
         )
 
+        if result is None:
+            raise RuntimeError(
+                (
+                    "Smartsheet automation returned no result. "
+                    "Check that run_smartsheet_dry_run() does not "
+                    "execute 'return' from inside its finally block."
+                )
+            )
+
         # ====================================================
         # Verificación humana
         # ====================================================
 
         if result.verification_required:
+            verification_session_active = True
+
             submission.refresh_from_db()
 
             submission.mark_awaiting_verification()
 
+            batch.refresh_from_db()
+
             batch.mark_awaiting_verification()
+
+            result_metadata = (
+                result.metadata
+                if isinstance(
+                    result.metadata,
+                    dict,
+                )
+                else {}
+            )
+
+            verification_stage = str(
+                result_metadata.get(
+                    "stage",
+                    "after_submit",
+                )
+                or "after_submit"
+            ).strip()
 
             attempt.result = ClientSubmissionAttempt.Result.AWAITING_VERIFICATION
 
@@ -1382,7 +1718,8 @@ def process_live_submission(
             attempt.error_details = {
                 "zip_parts": zip_filenames,
                 "zip_stats": zip_stats,
-                "metadata": result.metadata or {},
+                "verification_stage": verification_stage,
+                "metadata": result_metadata,
             }
 
             if result.screenshot_path:
@@ -1394,6 +1731,18 @@ def process_live_submission(
             attempt.finished_at = timezone.now()
 
             attempt.save()
+
+            # ================================================
+            # Registrar la sesión viva en browser_state
+            # ================================================
+
+            submission.refresh_from_db()
+
+            mark_verification_session_available(
+                submission,
+                stage=verification_stage,
+                result_metadata=result_metadata,
+            )
 
             create_event(
                 batch=batch,
@@ -1407,7 +1756,8 @@ def process_live_submission(
                     "attempt_number": attempt.attempt_number,
                     "zip_parts": zip_filenames,
                     "zip_stats": zip_stats,
-                    "result_metadata": result.metadata or {},
+                    "verification_stage": verification_stage,
+                    "result_metadata": result_metadata,
                 },
             )
 
@@ -1450,7 +1800,7 @@ def process_live_submission(
             )
 
         # ====================================================
-        # Validar que realmente se presionó Submit
+        # Obtener metadata segura
         # ====================================================
 
         result_metadata = (
@@ -1462,8 +1812,13 @@ def process_live_submission(
             else {}
         )
 
+        # ====================================================
+        # Validar que Submit fue presionado
+        # ====================================================
+
         submit_clicked = bool(
-            result_metadata.get(
+            result.submit_clicked
+            or result_metadata.get(
                 "submit_clicked",
                 False,
             )
@@ -1478,11 +1833,12 @@ def process_live_submission(
             )
 
         # ====================================================
-        # Validar confirmación visual del navegador
+        # Validar confirmación del navegador
         # ====================================================
 
         browser_confirmation_received = bool(
-            result_metadata.get(
+            result.browser_confirmation_received
+            or result_metadata.get(
                 "browser_confirmation_received",
                 False,
             )
@@ -1498,8 +1854,18 @@ def process_live_submission(
             )
 
         confirmation_reference = str(
-            result_metadata.get(
+            result.confirmation_reference
+            or result_metadata.get(
                 "confirmation_reference",
+                "",
+            )
+            or ""
+        ).strip()
+
+        confirmation_text = str(
+            result.confirmation_text
+            or result_metadata.get(
+                "confirmation_text",
                 "",
             )
             or ""
@@ -1526,7 +1892,8 @@ def process_live_submission(
             ),
             "submit_clicked": submit_clicked,
             "browser_confirmation_received": (browser_confirmation_received),
-            "confirmation_reference": (confirmation_reference),
+            "confirmation_reference": confirmation_reference,
+            "confirmation_text": confirmation_text,
             "zip_stats": zip_stats,
             "metadata": result_metadata,
         }
@@ -1543,11 +1910,6 @@ def process_live_submission(
 
         # ====================================================
         # Marcar confirmación del navegador
-        #
-        # Este método dejará el proyecto:
-        #
-        # - SENT_TO_CLIENT si el correo ya fue confirmado.
-        # - AWAITING_EMAIL_CONFIRMATION si falta el correo.
         # ====================================================
 
         submission.refresh_from_db()
@@ -1555,6 +1917,8 @@ def process_live_submission(
         submission.mark_browser_confirmed(
             reference=confirmation_reference,
         )
+
+        batch.refresh_from_db()
 
         batch.last_activity_at = timezone.now()
 
@@ -1589,7 +1953,7 @@ def process_live_submission(
                 ),
                 "submit_clicked": submit_clicked,
                 "browser_confirmation_received": (browser_confirmation_received),
-                "confirmation_reference": (confirmation_reference),
+                "confirmation_reference": confirmation_reference,
                 "submission_status": submission.status,
                 "zip_stats": zip_stats,
             },
@@ -1603,39 +1967,47 @@ def process_live_submission(
 
         submission.refresh_from_db()
 
-        submission.mark_failed(
-            str(
+        # No transformar en FAILED una sesión que sí quedó
+        # esperando verificación humana.
+        if submission.status != ClientSubmission.Status.AWAITING_VERIFICATION:
+            submission.mark_failed(
+                str(
+                    exc,
+                ),
+                code=exc.__class__.__name__,
+            )
+
+        attempt.refresh_from_db()
+
+        if attempt.result != ClientSubmissionAttempt.Result.AWAITING_VERIFICATION:
+            attempt.result = ClientSubmissionAttempt.Result.FAILED
+
+            attempt.error_code = exc.__class__.__name__
+
+            attempt.error_message = str(
                 exc,
-            ),
-            code=exc.__class__.__name__,
-        )
+            )
 
-        attempt.result = ClientSubmissionAttempt.Result.FAILED
+            attempt.error_details = {
+                "zip_parts": [Path(path).name for path in local_zip_paths],
+                "zip_stats": zip_stats,
+                "error_type": exc.__class__.__name__,
+            }
 
-        attempt.error_code = exc.__class__.__name__
+            attempt.finished_at = timezone.now()
 
-        attempt.error_message = str(
-            exc,
-        )
+            attempt.save(
+                update_fields=[
+                    "result",
+                    "error_code",
+                    "error_message",
+                    "error_details",
+                    "finished_at",
+                    "updated_at",
+                ]
+            )
 
-        attempt.error_details = {
-            "zip_parts": [Path(path).name for path in local_zip_paths],
-            "zip_stats": zip_stats,
-            "error_type": exc.__class__.__name__,
-        }
-
-        attempt.finished_at = timezone.now()
-
-        attempt.save(
-            update_fields=[
-                "result",
-                "error_code",
-                "error_message",
-                "error_details",
-                "finished_at",
-                "updated_at",
-            ]
-        )
+        batch.refresh_from_db()
 
         batch.last_error = str(
             exc,
@@ -1656,7 +2028,7 @@ def process_live_submission(
             submission=submission,
             level=ClientSubmissionEvent.Level.ERROR,
             event_type="live_submission_failed",
-            message=(f"Live submission failed for " f"{submission.project_id}: {exc}"),
+            message=("Live submission failed for " f"{submission.project_id}: {exc}"),
             metadata={
                 "error_type": exc.__class__.__name__,
                 "attempt_number": attempt.attempt_number,
@@ -1668,6 +2040,10 @@ def process_live_submission(
     finally:
         # ====================================================
         # Eliminar ZIP temporales
+        #
+        # Los ZIP ya fueron cargados al navegador antes de que
+        # aparezca el CAPTCHA. Se conserva solamente la sesión
+        # Playwright, no es necesario conservar estos archivos.
         # ====================================================
 
         if temporary_zips:
@@ -1685,6 +2061,882 @@ def process_live_submission(
                         local_zip_path,
                     )
 
+        if verification_session_active:
+            logger.info(
+                ("Live submission %s remains awaiting " "human verification."),
+                submission.pk,
+            )
+
+
+# ============================================================
+# Confirmación posterior al CAPTCHA
+# ============================================================
+
+
+async def wait_for_confirmation_after_verification(
+    page,
+    *,
+    timeout_ms: int = 90_000,
+) -> dict:
+    """
+    Espera el resultado del formulario después de que una persona
+    haya resuelto el CAPTCHA.
+
+    Esta función NO vuelve a presionar Submit automáticamente.
+
+    El Submit ya pudo haberse presionado antes de que Smartsheet
+    mostrara el challenge. Por eso primero se espera una respuesta
+    confiable del navegador.
+    """
+
+    success_markers = [
+        "thank you",
+        "your response has been recorded",
+        "your response was submitted",
+        "your response has been submitted",
+        "response submitted",
+        "submission received",
+        "successfully submitted",
+        "form submitted",
+    ]
+
+    error_markers = [
+        "please complete all required fields",
+        "please fill out this field",
+        "there was an error submitting",
+        "could not submit",
+        "submission failed",
+        "please try again",
+        "exceeds the max file size",
+        "file is too large",
+    ]
+
+    original_url = page.url
+
+    original_form_count = await page.locator(
+        'form[aria-label*="questions in this form" i]'
+    ).count()
+
+    submit_button = page.get_by_role(
+        "button",
+        name="Submit",
+        exact=True,
+    )
+
+    elapsed_ms = 0
+
+    poll_interval_ms = 1000
+
+    final_body_text = ""
+
+    final_form_count = original_form_count
+
+    submit_button_visible = True
+
+    while elapsed_ms < timeout_ms:
+        await page.wait_for_timeout(
+            poll_interval_ms,
+        )
+
+        elapsed_ms += poll_interval_ms
+
+        challenge_visible = await _detect_verification_challenge(
+            page,
+        )
+
+        if challenge_visible:
+            return {
+                "confirmed": False,
+                "verification_required": True,
+                "confirmation_reference": "",
+                "confirmation_text": "",
+                "final_url": page.url,
+            }
+
+        try:
+            final_body_text = await page.locator(
+                "body",
+            ).inner_text(
+                timeout=5000,
+            )
+
+        except Exception:
+            final_body_text = ""
+
+        normalized_body = final_body_text.lower()
+
+        detected_error = next(
+            (marker for marker in error_markers if marker in normalized_body),
+            None,
+        )
+
+        if detected_error:
+            raise RuntimeError(
+                "Smartsheet showed an error after human verification. "
+                f"Detected message: {detected_error!r}. "
+                f"Visible body: {final_body_text[:5000]!r}"
+            )
+
+        detected_success = next(
+            (marker for marker in success_markers if marker in normalized_body),
+            None,
+        )
+
+        if detected_success:
+            return {
+                "confirmed": True,
+                "verification_required": False,
+                "confirmation_reference": detected_success,
+                "confirmation_text": final_body_text[:5000],
+                "final_url": page.url,
+            }
+
+        try:
+            final_form_count = await page.locator(
+                'form[aria-label*="questions in this form" i]'
+            ).count()
+
+        except Exception:
+            final_form_count = 0
+
+        try:
+            submit_button_visible = await submit_button.is_visible()
+
+        except Exception:
+            submit_button_visible = False
+
+        if (
+            original_form_count > 0
+            and final_form_count == 0
+            and not submit_button_visible
+        ):
+            return {
+                "confirmed": True,
+                "verification_required": False,
+                "confirmation_reference": ("form_disappeared_after_verification"),
+                "confirmation_text": final_body_text[:5000],
+                "final_url": page.url,
+            }
+
+        if page.url != original_url and not submit_button_visible:
+            return {
+                "confirmed": True,
+                "verification_required": False,
+                "confirmation_reference": ("url_changed_after_verification"),
+                "confirmation_text": final_body_text[:5000],
+                "final_url": page.url,
+            }
+
+    return {
+        "confirmed": False,
+        "verification_required": False,
+        "confirmation_reference": "",
+        "confirmation_text": final_body_text[:5000],
+        "final_url": page.url,
+        "final_form_count": final_form_count,
+        "submit_button_visible": submit_button_visible,
+    }
+
+
+async def inspect_active_verification_browser(
+    submission: ClientSubmission,
+) -> dict:
+    """
+    Inspecciona el navegador vivo asociado al Submission.
+
+    No modifica la base de datos. Solamente devuelve el estado
+    actual de Playwright.
+    """
+
+    browser_data = get_active_browser(
+        submission,
+    )
+
+    if not browser_data:
+        return {
+            "session_available": False,
+            "captcha_visible": False,
+            "page": None,
+            "url": "",
+            "title": "",
+        }
+
+    page = browser_data.get(
+        "page",
+    )
+
+    if page is None:
+        return {
+            "session_available": False,
+            "captcha_visible": False,
+            "page": None,
+            "url": "",
+            "title": "",
+        }
+
+    try:
+        captcha_visible = await _detect_verification_challenge(
+            page,
+        )
+
+    except Exception:
+        logger.exception(
+            "Could not inspect CAPTCHA for submission %s.",
+            submission.pk,
+        )
+
+        captcha_visible = True
+
+    try:
+        page_title = await page.title()
+
+    except Exception:
+        page_title = ""
+
+    return {
+        "session_available": True,
+        "captcha_visible": captcha_visible,
+        "page": page,
+        "url": page.url,
+        "title": page_title,
+    }
+
+
+def restart_submission_after_pre_submit_verification(
+    submission: ClientSubmission,
+):
+    """
+    Reinicia el proyecto cuando el CAPTCHA apareció antes de que
+    el formulario pudiera enviarse.
+
+    Como la ejecución async original ya terminó, el flujo completo
+    debe iniciarse otra vez desde el worker.
+    """
+
+    now = timezone.now()
+
+    attempt = get_latest_submission_attempt(
+        submission,
+    )
+
+    if attempt:
+        attempt.result = ClientSubmissionAttempt.Result.CANCELLED
+
+        attempt.error_code = "RESTART_AFTER_VERIFICATION"
+
+        attempt.error_message = (
+            "The browser challenge was cleared. "
+            "The submission will restart from the beginning."
+        )
+
+        attempt.finished_at = now
+
+        attempt.save(
+            update_fields=[
+                "result",
+                "error_code",
+                "error_message",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+
+    submission.status = ClientSubmission.Status.PENDING_CLIENT_SUBMISSION
+
+    submission.started_at = None
+
+    submission.form_loaded_at = None
+
+    submission.form_completed_at = None
+
+    submission.verification_completed_at = now
+
+    submission.verification_required_at = None
+
+    submission.submit_clicked_at = None
+
+    submission.finished_at = None
+
+    submission.last_error_code = ""
+
+    submission.last_error_message = ""
+
+    submission.last_error_at = None
+
+    submission.browser_session_key = ""
+
+    set_human_verification_state(
+        submission,
+        session_available=False,
+        session_url="",
+        captcha_cleared=True,
+        completed_at=now.isoformat(),
+        continue_requested_at=None,
+        continue_requested_by=None,
+        worker_checked_at=now.isoformat(),
+        message=("Verification was completed. " "The project was queued to restart."),
+    )
+
+    submission.save(
+        update_fields=[
+            "status",
+            "started_at",
+            "form_loaded_at",
+            "form_completed_at",
+            "verification_completed_at",
+            "verification_required_at",
+            "submit_clicked_at",
+            "finished_at",
+            "last_error_code",
+            "last_error_message",
+            "last_error_at",
+            "browser_session_key",
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+    batch = submission.batch
+
+    batch.status = ClientSubmissionBatch.Status.PENDING
+
+    batch.paused_at = None
+
+    batch.finished_at = None
+
+    batch.current_submission = None
+
+    batch.last_error = ""
+
+    batch.last_activity_at = now
+
+    batch.worker_identifier = ""
+
+    batch.save(
+        update_fields=[
+            "status",
+            "paused_at",
+            "finished_at",
+            "current_submission",
+            "last_error",
+            "last_activity_at",
+            "worker_identifier",
+            "updated_at",
+        ]
+    )
+
+    create_event(
+        batch=batch,
+        submission=submission,
+        level=ClientSubmissionEvent.Level.INFO,
+        event_type="verification_cleared_restart_queued",
+        message=(
+            "Human verification was completed for "
+            f"{submission.project_id}. "
+            "The project was queued to restart."
+        ),
+        metadata={
+            "completed_at": now.isoformat(),
+        },
+    )
+
+
+def complete_submission_after_verification(
+    submission: ClientSubmission,
+    confirmation_result: dict,
+):
+    """
+    Registra una confirmación real de Smartsheet después de que
+    el CAPTCHA fue resuelto.
+    """
+
+    now = timezone.now()
+
+    confirmation_reference = str(
+        confirmation_result.get(
+            "confirmation_reference",
+            "",
+        )
+        or ""
+    ).strip()
+
+    confirmation_text = str(
+        confirmation_result.get(
+            "confirmation_text",
+            "",
+        )
+        or ""
+    ).strip()
+
+    final_url = str(
+        confirmation_result.get(
+            "final_url",
+            "",
+        )
+        or ""
+    ).strip()
+
+    attempt = get_latest_submission_attempt(
+        submission,
+    )
+
+    if attempt:
+        attempt.result = ClientSubmissionAttempt.Result.BROWSER_CONFIRMED
+
+        attempt.browser_url = final_url
+
+        error_details = (
+            dict(
+                attempt.error_details,
+            )
+            if isinstance(
+                attempt.error_details,
+                dict,
+            )
+            else {}
+        )
+
+        attempt.error_details = {
+            **error_details,
+            "verification_completed_at": now.isoformat(),
+            "browser_confirmation_received": True,
+            "confirmation_reference": confirmation_reference,
+            "confirmation_text": confirmation_text,
+        }
+
+        attempt.finished_at = now
+
+        attempt.save(
+            update_fields=[
+                "result",
+                "browser_url",
+                "error_details",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+
+    set_human_verification_state(
+        submission,
+        session_available=False,
+        session_url="",
+        captcha_cleared=True,
+        completed_at=now.isoformat(),
+        continue_requested_at=None,
+        continue_requested_by=None,
+        worker_checked_at=now.isoformat(),
+        message=(
+            "Human verification was completed and "
+            "Smartsheet confirmed the submission."
+        ),
+    )
+
+    submission.verification_completed_at = now
+
+    submission.save(
+        update_fields=[
+            "verification_completed_at",
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+    submission.mark_browser_confirmed(
+        reference=confirmation_reference,
+    )
+
+    batch = submission.batch
+
+    batch.status = ClientSubmissionBatch.Status.PENDING
+
+    batch.paused_at = None
+
+    batch.current_submission = None
+
+    batch.worker_identifier = ""
+
+    batch.last_error = ""
+
+    batch.last_activity_at = now
+
+    batch.save(
+        update_fields=[
+            "status",
+            "paused_at",
+            "current_submission",
+            "worker_identifier",
+            "last_error",
+            "last_activity_at",
+            "updated_at",
+        ]
+    )
+
+    create_event(
+        batch=batch,
+        submission=submission,
+        level=ClientSubmissionEvent.Level.SUCCESS,
+        event_type="verification_completed_browser_confirmed",
+        message=(
+            "Human verification was completed for "
+            f"{submission.project_id}. "
+            "Smartsheet confirmed the submission."
+        ),
+        metadata={
+            "confirmation_reference": confirmation_reference,
+            "final_url": final_url,
+            "completed_at": now.isoformat(),
+        },
+    )
+
+
+def process_single_pending_verification(
+    submission: ClientSubmission,
+) -> bool:
+    """
+    Procesa una solicitud de Continue o Cancel correspondiente
+    a un Submission que quedó esperando CAPTCHA.
+    """
+
+    submission.refresh_from_db()
+
+    verification_state = get_human_verification_state(
+        submission,
+    )
+
+    continue_requested_at = verification_state.get(
+        "continue_requested_at",
+    )
+
+    cancel_requested_at = verification_state.get(
+        "cancel_requested_at",
+    )
+
+    session_available = bool(
+        verification_state.get(
+            "session_available",
+            False,
+        )
+    )
+
+    if cancel_requested_at:
+        browser_data = get_active_browser(
+            submission,
+        )
+
+        if browser_data:
+            asyncio.run(
+                close_active_browser(
+                    submission,
+                )
+            )
+
+        now = timezone.now()
+
+        set_human_verification_state(
+            submission,
+            session_available=False,
+            session_url="",
+            worker_checked_at=now.isoformat(),
+            message=("The active browser was closed after cancellation."),
+        )
+
+        submission.save(
+            update_fields=[
+                "browser_state",
+                "updated_at",
+            ]
+        )
+
+        return True
+
+    if not continue_requested_at:
+        return False
+
+    if not session_available:
+        now = timezone.now()
+
+        set_human_verification_state(
+            submission,
+            worker_checked_at=now.isoformat(),
+            message=(
+                "Continuation was requested, but the active "
+                "browser session is no longer available."
+            ),
+        )
+
+        submission.save(
+            update_fields=[
+                "browser_state",
+                "updated_at",
+            ]
+        )
+
+        return False
+
+    inspection = asyncio.run(
+        inspect_active_verification_browser(
+            submission,
+        )
+    )
+
+    now = timezone.now()
+
+    if not inspection.get(
+        "session_available",
+        False,
+    ):
+        set_human_verification_state(
+            submission,
+            session_available=False,
+            session_url="",
+            worker_checked_at=now.isoformat(),
+            message=(
+                "The browser session is no longer available. "
+                "The project must be restarted."
+            ),
+        )
+
+        submission.save(
+            update_fields=[
+                "browser_state",
+                "updated_at",
+            ]
+        )
+
+        return False
+
+    if inspection.get(
+        "captcha_visible",
+        False,
+    ):
+        set_human_verification_state(
+            submission,
+            worker_checked_at=now.isoformat(),
+            captcha_cleared=False,
+            message=(
+                "The CAPTCHA is still visible. "
+                "Complete it before pressing Continue again."
+            ),
+        )
+
+        submission.save(
+            update_fields=[
+                "browser_state",
+                "updated_at",
+            ]
+        )
+
+        return False
+
+    stage = str(
+        verification_state.get(
+            "stage",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if stage == "after_submit":
+        page = inspection["page"]
+
+        confirmation_result = asyncio.run(
+            wait_for_confirmation_after_verification(
+                page,
+            )
+        )
+
+        if confirmation_result.get(
+            "verification_required",
+            False,
+        ):
+            set_human_verification_state(
+                submission,
+                worker_checked_at=timezone.now().isoformat(),
+                captcha_cleared=False,
+                message=("Smartsheet is still requesting verification."),
+            )
+
+            submission.save(
+                update_fields=[
+                    "browser_state",
+                    "updated_at",
+                ]
+            )
+
+            return False
+
+        if not confirmation_result.get(
+            "confirmed",
+            False,
+        ):
+            set_human_verification_state(
+                submission,
+                worker_checked_at=timezone.now().isoformat(),
+                captcha_cleared=True,
+                message=(
+                    "The CAPTCHA is no longer visible, but "
+                    "Smartsheet has not confirmed the submission yet."
+                ),
+            )
+
+            submission.save(
+                update_fields=[
+                    "browser_state",
+                    "updated_at",
+                ]
+            )
+
+            return False
+
+        complete_submission_after_verification(
+            submission,
+            confirmation_result,
+        )
+
+        asyncio.run(
+            close_active_browser(
+                submission,
+            )
+        )
+
+        return True
+
+    asyncio.run(
+        close_active_browser(
+            submission,
+        )
+    )
+
+    restart_submission_after_pre_submit_verification(
+        submission,
+    )
+
+    return True
+
+
+def process_pending_verifications() -> bool:
+    """
+    Revisa submissions que están esperando una acción humana.
+
+    También incluye submissions cancelados cuya sesión activa
+    todavía deba cerrarse.
+    """
+
+    candidates = (
+        ClientSubmission.objects.select_related(
+            "batch",
+        )
+        .filter(
+            status__in=[
+                ClientSubmission.Status.AWAITING_VERIFICATION,
+                ClientSubmission.Status.CANCELLED,
+            ]
+        )
+        .order_by(
+            "verification_required_at",
+            "id",
+        )
+    )
+
+    found_action = False
+
+    for submission in candidates:
+        verification_state = get_human_verification_state(
+            submission,
+        )
+
+        has_continue_request = bool(
+            verification_state.get(
+                "continue_requested_at",
+            )
+        )
+
+        has_cancel_request = bool(
+            verification_state.get(
+                "cancel_requested_at",
+            )
+        )
+
+        session_available = bool(
+            verification_state.get(
+                "session_available",
+                False,
+            )
+        )
+
+        if not (
+            has_continue_request
+            or has_cancel_request
+            or (
+                submission.status == ClientSubmission.Status.CANCELLED
+                and session_available
+            )
+        ):
+            continue
+
+        try:
+            processed = process_single_pending_verification(
+                submission,
+            )
+
+            if processed:
+                found_action = True
+
+        except Exception as exc:
+            logger.exception(
+                "Could not process human verification for submission %s.",
+                submission.pk,
+            )
+
+            submission.refresh_from_db()
+
+            now = timezone.now()
+
+            set_human_verification_state(
+                submission,
+                worker_checked_at=now.isoformat(),
+                message=(
+                    "The worker could not continue verification. " f"Error: {exc}"
+                ),
+            )
+
+            submission.last_error_code = exc.__class__.__name__
+
+            submission.last_error_message = str(
+                exc,
+            )
+
+            submission.last_error_at = now
+
+            submission.save(
+                update_fields=[
+                    "browser_state",
+                    "last_error_code",
+                    "last_error_message",
+                    "last_error_at",
+                    "updated_at",
+                ]
+            )
+
+            create_event(
+                batch=submission.batch,
+                submission=submission,
+                level=ClientSubmissionEvent.Level.ERROR,
+                event_type="verification_worker_failed",
+                message=(
+                    "The worker could not process human verification "
+                    f"for {submission.project_id}: {exc}"
+                ),
+                metadata={
+                    "error_type": exc.__class__.__name__,
+                    "error": str(
+                        exc,
+                    ),
+                },
+            )
+
+    return found_action
+
 
 # ============================================================
 # Una iteración
@@ -1693,18 +2945,28 @@ def process_live_submission(
 
 def run_once() -> bool:
     """
-    Procesa un Batch pendiente.
+    Ejecuta una iteración completa del worker.
+
+    Orden:
+
+    1. Revisa verificaciones humanas pendientes.
+    2. Busca un Batch nuevo en estado PENDING.
+    3. Procesa el Batch cuando exista.
 
     Retorna:
-        True  -> encontró un Batch.
+        True  -> realizó alguna acción.
         False -> no había trabajo.
     """
+
+    verification_work_found = process_pending_verifications()
 
     batch_id = claim_next_pending_batch()
 
     if not batch_id:
-        return False
+        return verification_work_found
 
-    process_batch(batch_id)
+    process_batch(
+        batch_id,
+    )
 
     return True

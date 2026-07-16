@@ -2184,57 +2184,6 @@ def batch_status_json(
     )
 
 
-# ============================================================
-# Vista de verificación humana
-# ============================================================
-
-
-@login_required
-@rol_requerido(
-    "admin",
-    "pm",
-    "supervisor",
-    "facturacion",
-    "emision_facturacion",
-)
-@require_GET
-def verification_detail(
-    request: HttpRequest,
-    public_id,
-) -> HttpResponse:
-    _assert_manage_permission(
-        request,
-    )
-
-    submission = get_object_or_404(
-        ClientSubmission.objects.select_related(
-            "batch",
-            "billing_session",
-        ),
-        public_id=public_id,
-    )
-
-    if submission.status != ClientSubmission.Status.AWAITING_VERIFICATION:
-        messages.warning(
-            request,
-            ("This project is not currently waiting " "for human verification."),
-        )
-
-        return redirect(
-            "client_submissions:batch_detail",
-            public_id=submission.batch.public_id,
-        )
-
-    context = {
-        "submission": submission,
-        "batch": submission.batch,
-    }
-
-    return render(
-        request,
-        "client_submissions/verification.html",
-        context,
-    )
 
 
 # ============================================================

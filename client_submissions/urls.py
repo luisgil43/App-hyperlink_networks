@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_verification
 
 app_name = "client_submissions"
 
@@ -26,6 +26,11 @@ urlpatterns = [
         "",
         views.batch_list,
         name="batch_list",
+    ),
+    path(
+        "batches/status/",
+        views.batch_list_status_json,
+        name="batch_list_status_json",
     ),
     # ========================================================
     # Batch
@@ -60,6 +65,11 @@ urlpatterns = [
         views.batch_cancel,
         name="batch_cancel",
     ),
+    path(
+        "batch/<uuid:public_id>/delete/",
+        views.batch_delete,
+        name="batch_delete",
+    ),
     # ========================================================
     # Submission individual
     # ========================================================
@@ -68,19 +78,27 @@ urlpatterns = [
         views.submission_revalidate,
         name="submission_revalidate",
     ),
+    # ========================================================
+    # Verificación humana / CAPTCHA
+    # ========================================================
     path(
         "submission/<uuid:public_id>/verification/",
-        views.verification_detail,
+        views_verification.verification_detail,
         name="verification_detail",
     ),
     path(
-        "batches/status/",
-        views.batch_list_status_json,
-        name="batch_list_status_json",
+        "submission/<uuid:public_id>/verification/status/",
+        views_verification.verification_status_json,
+        name="verification_status_json",
     ),
     path(
-        "batch/<uuid:public_id>/delete/",
-        views.batch_delete,
-        name="batch_delete",
+        "submission/<uuid:public_id>/verification/continue/",
+        views_verification.verification_continue,
+        name="verification_continue",
+    ),
+    path(
+        "submission/<uuid:public_id>/verification/cancel/",
+        views_verification.verification_cancel,
+        name="verification_cancel",
     ),
 ]

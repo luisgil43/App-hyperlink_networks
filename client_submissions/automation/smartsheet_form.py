@@ -14,6 +14,95 @@ from playwright.async_api import (Browser, BrowserContext, Locator, Page,
 
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# Navegadores vivos
+# ============================================================
+
+ACTIVE_BROWSERS: dict[str, dict] = {}
+
+
+def register_active_browser(
+    *,
+    submission,
+    playwright: Playwright,
+    browser: Browser,
+    context: BrowserContext,
+    page: Page,
+):
+    """
+    Registra un navegador vivo.
+
+    Mientras exista en ACTIVE_BROWSERS el navegador NO debe
+    cerrarse automáticamente.
+
+    La clave utilizada será el public_id del Submission.
+    """
+
+    ACTIVE_BROWSERS[str(submission.public_id)] = {
+        "submission_id": submission.pk,
+        "playwright": playwright,
+        "browser": browser,
+        "context": context,
+        "page": page,
+        "created_at": timezone.now(),
+    }
+
+
+def get_active_browser(
+    submission,
+):
+    return ACTIVE_BROWSERS.get(
+        str(submission.public_id),
+    )
+
+
+def remove_active_browser(
+    submission,
+):
+    return ACTIVE_BROWSERS.pop(
+        str(submission.public_id),
+        None,
+    )
+
+
+async def close_active_browser(
+    submission,
+):
+    """
+    Cierra completamente un navegador registrado.
+    """
+
+    browser_data = remove_active_browser(
+        submission,
+    )
+
+    if not browser_data:
+        return
+
+    try:
+        await browser_data["context"].close()
+    except Exception:
+        logger.exception("Could not close browser context.")
+
+    try:
+        await browser_data["browser"].close()
+    except Exception:
+        logger.exception("Could not close browser.")
+
+    try:
+        await browser_data["playwright"].stop()
+    except Exception:
+        logger.exception("Could not stop Playwright.")
+
+@sync_to_async(thread_sensitive=True)
+def _mark_browser_confirmed(
+    submission,
+    reference="",
+):
+    submission.mark_browser_confirmed(
+        reference=reference,
+        save=True,
+    )
 
 # ============================================================
 # Excepciones
@@ -46,6 +135,39 @@ class SmartsheetVerificationRequired(SmartsheetAutomationError):
     - reCAPTCHA
     - challenge inesperado
     """
+
+
+@sync_to_async(thread_sensitive=True)
+def _mark_submit_clicked(
+    submission,
+):
+    """
+    Registra el momento exacto en que el botón Submit fue
+    presionado en el navegador.
+
+    Esto NO significa que Smartsheet haya confirmado el envío;
+    únicamente indica que el clic fue ejecutado.
+    """
+
+    now = timezone.now()
+
+    submission.submit_clicked_at = now
+
+    browser_state = submission.browser_state or {}
+
+    browser_state["submit_clicked_at"] = now.isoformat()
+
+    submission.browser_state = browser_state
+
+    submission.save(
+        update_fields=[
+            "submit_clicked_at",
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+    return now
 
 
 # ============================================================
@@ -236,28 +358,407 @@ def _mark_form_completed(
 
 
 @sync_to_async(thread_sensitive=True)
-def _mark_submit_clicked(
+def _mark_verification_required(
     submission,
 ):
     """
-    Registra el momento exacto en que Playwright presiona
-    el botón Submit del formulario Smartsheet.
+    Marca el Submission como esperando intervención humana.
+
+    El navegador permanecerá abierto para continuar
+    posteriormente.
     """
 
     now = timezone.now()
 
-    submission.submit_clicked_at = now
+    submission.status = submission.Status.AWAITING_VERIFICATION
+    submission.verification_required_at = now
 
     submission.save(
         update_fields=[
-            "submit_clicked_at",
+            "status",
+            "verification_required_at",
             "updated_at",
         ]
     )
 
     return now
 
+@sync_to_async(thread_sensitive=True)
+def _get_human_verification_state(
+    submission,
+) -> dict:
+    """
+    Recarga el Submission desde la base de datos y devuelve
+    el estado persistido de verificación humana.
+    """
 
+    from client_submissions.models import ClientSubmission
+
+    current_submission = ClientSubmission.objects.select_related(
+        "batch",
+    ).get(
+        pk=submission.pk,
+    )
+
+    browser_state = (
+        current_submission.browser_state
+        if isinstance(
+            current_submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    return {
+        "submission_status": current_submission.status,
+        "batch_status": current_submission.batch.status,
+        "verification_state": verification_state,
+    }
+
+
+@sync_to_async(thread_sensitive=True)
+def _update_human_verification_state(
+    submission,
+    **changes,
+) -> dict:
+    """
+    Actualiza browser_state["human_verification"] sin eliminar
+    el resto del estado del navegador.
+    """
+
+    from client_submissions.models import ClientSubmission
+
+    current_submission = ClientSubmission.objects.select_related(
+        "batch",
+    ).get(
+        pk=submission.pk,
+    )
+
+    browser_state = (
+        dict(
+            current_submission.browser_state,
+        )
+        if isinstance(
+            current_submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    verification_state = {
+        **verification_state,
+        **changes,
+    }
+
+    browser_state["human_verification"] = verification_state
+
+    current_submission.browser_state = browser_state
+
+    current_submission.save(
+        update_fields=[
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+    return verification_state
+
+
+@sync_to_async(thread_sensitive=True)
+def _mark_verification_completed(
+    submission,
+):
+    """
+    Marca la verificación como completada y devuelve tanto el
+    Submission como el Batch al estado de procesamiento.
+    """
+
+    from client_submissions.models import (ClientSubmission,
+                                           ClientSubmissionBatch)
+
+    current_submission = ClientSubmission.objects.select_related(
+        "batch",
+    ).get(
+        pk=submission.pk,
+    )
+
+    now = timezone.now()
+
+    browser_state = (
+        dict(
+            current_submission.browser_state,
+        )
+        if isinstance(
+            current_submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    verification_state.update(
+        {
+            "continue_requested_at": None,
+            "continue_requested_by": None,
+            "continue_requested_username": "",
+            "worker_checked_at": now.isoformat(),
+            "captcha_cleared": True,
+            "session_available": False,
+            "message": (
+                "Human verification was completed. "
+                "Automation resumed successfully."
+            ),
+        }
+    )
+
+    browser_state["human_verification"] = verification_state
+
+    current_submission.browser_state = browser_state
+    current_submission.verification_completed_at = now
+    current_submission.status = ClientSubmission.Status.SUBMITTING
+
+    current_submission.save(
+        update_fields=[
+            "browser_state",
+            "verification_completed_at",
+            "status",
+            "updated_at",
+        ]
+    )
+
+    batch = current_submission.batch
+
+    if batch.status == ClientSubmissionBatch.Status.AWAITING_VERIFICATION:
+        batch.status = ClientSubmissionBatch.Status.RUNNING
+        batch.paused_at = None
+        batch.last_activity_at = now
+        batch.current_submission = current_submission
+
+        batch.save(
+            update_fields=[
+                "status",
+                "paused_at",
+                "last_activity_at",
+                "current_submission",
+                "updated_at",
+            ]
+        )
+
+    return verification_state
+
+
+async def _wait_for_human_verification(
+    *,
+    page: Page,
+    submission,
+    playwright: Playwright,
+    browser: Browser,
+    context: BrowserContext,
+    stage: str,
+    timeout_ms: int = 30 * 60 * 1000,
+) -> bool:
+    """
+    Mantiene el navegador y el mismo event loop activos mientras
+    el usuario resuelve la verificación.
+
+    Flujo:
+
+    1. Registra temporalmente el navegador.
+    2. Marca el Submission como AWAITING_VERIFICATION.
+    3. Espera que verification_continue establezca
+       continue_requested_at.
+    4. Comprueba que el CAPTCHA realmente desapareció.
+    5. Reanuda la automatización.
+
+    Retorna True cuando la verificación fue completada.
+
+    Lanza una excepción si fue cancelada o expira.
+    """
+
+    await _mark_verification_required(
+        submission,
+    )
+
+    register_active_browser(
+        submission=submission,
+        playwright=playwright,
+        browser=browser,
+        context=context,
+        page=page,
+    )
+
+    now = timezone.now()
+
+    await _update_human_verification_state(
+        submission,
+        stage=stage,
+        requested_at=now.isoformat(),
+        continue_requested_at=None,
+        continue_requested_by=None,
+        continue_requested_username="",
+        cancel_requested_at=None,
+        cancel_requested_by=None,
+        worker_checked_at=None,
+        captcha_cleared=False,
+        session_available=True,
+        session_url="",
+        message=(
+            "The browser is waiting for human verification. "
+            "Complete the challenge and then press Continue."
+        ),
+    )
+
+    print(
+        "WAITING FOR HUMAN VERIFICATION:",
+        {
+            "submission_id": submission.pk,
+            "project_id": submission.project_id,
+            "stage": stage,
+            "url": page.url,
+        },
+    )
+
+    elapsed_ms = 0
+
+    poll_interval_ms = 2000
+
+    try:
+        while elapsed_ms < timeout_ms:
+            await page.wait_for_timeout(
+                poll_interval_ms,
+            )
+
+            elapsed_ms += poll_interval_ms
+
+            state_data = await _get_human_verification_state(
+                submission,
+            )
+
+            verification_state = state_data.get(
+                "verification_state",
+                {},
+            )
+
+            submission_status = state_data.get(
+                "submission_status",
+                "",
+            )
+
+            cancel_requested_at = verification_state.get(
+                "cancel_requested_at",
+            )
+
+            if (
+                cancel_requested_at
+                or submission_status == "cancelled"
+            ):
+                raise SmartsheetVerificationRequired(
+                    "Human verification was cancelled."
+                )
+
+            continue_requested_at = verification_state.get(
+                "continue_requested_at",
+            )
+
+            if not continue_requested_at:
+                continue
+
+            challenge_visible = await _detect_verification_challenge(
+                page,
+            )
+
+            worker_checked_at = timezone.now()
+
+            if challenge_visible:
+                await _update_human_verification_state(
+                    submission,
+                    worker_checked_at=worker_checked_at.isoformat(),
+                    captcha_cleared=False,
+                    continue_requested_at=None,
+                    continue_requested_by=None,
+                    continue_requested_username="",
+                    message=(
+                        "The verification challenge is still visible. "
+                        "Complete it before pressing Continue again."
+                    ),
+                )
+
+                print(
+                    "HUMAN VERIFICATION STILL VISIBLE:",
+                    {
+                        "submission_id": submission.pk,
+                        "stage": stage,
+                        "url": page.url,
+                    },
+                )
+
+                continue
+
+            await _mark_verification_completed(
+                submission,
+            )
+
+            print(
+                "HUMAN VERIFICATION COMPLETED:",
+                {
+                    "submission_id": submission.pk,
+                    "stage": stage,
+                    "url": page.url,
+                },
+            )
+
+            return True
+
+        await _update_human_verification_state(
+            submission,
+            worker_checked_at=timezone.now().isoformat(),
+            session_available=False,
+            message=(
+                "The human verification session expired "
+                "before it was completed."
+            ),
+        )
+
+        raise SmartsheetVerificationRequired(
+            "Human verification timed out after 30 minutes."
+        )
+
+    finally:
+        remove_active_browser(
+            submission,
+        )
 # ============================================================
 # Helpers generales
 # ============================================================
@@ -2702,335 +3203,6 @@ def build_form_values(
     }
 
 
-async def _inspect_production_date_dom(
-    page: Page,
-):
-    """
-    Inspecciona el DOM real alrededor de
-    Production Completed Date.
-
-    No intenta llenar la fecha.
-    Solo imprime la estructura HTML real para
-    dejar de adivinar selectores.
-    """
-
-    print("\n")
-    print("=" * 100)
-    print("INSPECTING PRODUCTION COMPLETED DATE DOM")
-    print("=" * 100)
-
-    # ========================================================
-    # Esperar que aparezca el texto
-    # ========================================================
-
-    question = page.get_by_text(
-        "Production Completed Date",
-        exact=False,
-    ).first
-
-    await question.wait_for(
-        state="visible",
-        timeout=15_000,
-    )
-
-    await page.wait_for_timeout(1000)
-
-    # ========================================================
-    # Información del elemento que contiene el texto
-    # ========================================================
-
-    question_info = await question.evaluate("""
-        el => ({
-            tag: el.tagName || "",
-            id: el.id || "",
-            className:
-                typeof el.className === "string"
-                    ? el.className
-                    : "",
-            text: el.innerText || el.textContent || "",
-            html: el.outerHTML || ""
-        })
-        """)
-
-    print("\n===== QUESTION ELEMENT =====")
-    print(question_info)
-
-    # ========================================================
-    # Ancestros del label/pregunta
-    # ========================================================
-
-    ancestors = await question.evaluate("""
-        el => {
-            const result = [];
-
-            let current = el;
-
-            for (let level = 0; level < 10; level++) {
-                if (!current) {
-                    break;
-                }
-
-                result.push({
-                    level: level,
-                    tag: current.tagName || "",
-                    id: current.id || "",
-                    className:
-                        typeof current.className === "string"
-                            ? current.className
-                            : "",
-                    role:
-                        current.getAttribute
-                            ? (
-                                current.getAttribute("role")
-                                || ""
-                            )
-                            : "",
-                    ariaLabel:
-                        current.getAttribute
-                            ? (
-                                current.getAttribute("aria-label")
-                                || ""
-                            )
-                            : "",
-                    ariaLabelledBy:
-                        current.getAttribute
-                            ? (
-                                current.getAttribute(
-                                    "aria-labelledby"
-                                )
-                                || ""
-                            )
-                            : "",
-                    html:
-                        (current.outerHTML || "")
-                        .slice(0, 10000)
-                });
-
-                current = current.parentElement;
-            }
-
-            return result;
-        }
-        """)
-
-    print("\n===== QUESTION ANCESTORS =====")
-
-    for ancestor in ancestors:
-        print("\n")
-        print("-" * 100)
-        print("LEVEL:", ancestor["level"])
-        print("TAG:", ancestor["tag"])
-        print("ID:", ancestor["id"])
-        print("CLASS:", ancestor["className"])
-        print("ROLE:", ancestor["role"])
-        print("ARIA-LABEL:", ancestor["ariaLabel"])
-        print(
-            "ARIA-LABELLEDBY:",
-            ancestor["ariaLabelledBy"],
-        )
-        print("HTML:")
-        print(ancestor["html"])
-
-    # ========================================================
-    # Todos los inputs visibles
-    # ========================================================
-
-    controls = await page.locator("""
-        input,
-        textarea,
-        button,
-        select,
-        [role="textbox"],
-        [role="combobox"],
-        [contenteditable="true"]
-        """).evaluate_all(
-        """
-        elements => elements.map(
-            (el, index) => {
-                const rect =
-                    el.getBoundingClientRect();
-
-                const style =
-                    window.getComputedStyle(el);
-
-                return {
-                    index: index,
-                    tag: el.tagName || "",
-                    type: el.type || "",
-                    id: el.id || "",
-                    name: el.name || "",
-                    className:
-                        typeof el.className === "string"
-                            ? el.className
-                            : "",
-                    placeholder:
-                        el.placeholder || "",
-                    value:
-                        el.value || "",
-                    role:
-                        el.getAttribute("role") || "",
-                    ariaLabel:
-                        el.getAttribute("aria-label") || "",
-                    ariaLabelledBy:
-                        el.getAttribute(
-                            "aria-labelledby"
-                        )
-                        || "",
-                    contenteditable:
-                        el.getAttribute(
-                            "contenteditable"
-                        )
-                        || "",
-                    visible:
-                        !!(
-                            rect.width
-                            && rect.height
-                            && style.visibility !== "hidden"
-                            && style.display !== "none"
-                        ),
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    html:
-                        (el.outerHTML || "")
-                        .slice(0, 5000)
-                };
-            }
-        )
-        """
-    )
-
-    print("\n===== ALL CONTROLS =====")
-
-    for control in controls:
-        print("\n")
-        print("-" * 100)
-
-        for key, value in control.items():
-            print(
-                f"{key}:",
-                value,
-            )
-
-    # ========================================================
-    # Elementos debajo del punto visual de la fecha
-    # ========================================================
-
-    question_box = await question.bounding_box()
-
-    if question_box:
-        points = [
-            {
-                "name": "below_20",
-                "x": (question_box["x"] + 100),
-                "y": (question_box["y"] + question_box["height"] + 20),
-            },
-            {
-                "name": "below_40",
-                "x": (question_box["x"] + 100),
-                "y": (question_box["y"] + question_box["height"] + 40),
-            },
-            {
-                "name": "below_60",
-                "x": (question_box["x"] + 100),
-                "y": (question_box["y"] + question_box["height"] + 60),
-            },
-            {
-                "name": "center_field_guess",
-                "x": (question_box["x"] + 400),
-                "y": (question_box["y"] + question_box["height"] + 45),
-            },
-        ]
-
-        print("\n===== ELEMENTS FROM POINT =====")
-
-        for point in points:
-            info = await page.evaluate(
-                """
-                point => {
-                    const el = document.elementFromPoint(
-                        point.x,
-                        point.y
-                    );
-
-                    if (!el) {
-                        return null;
-                    }
-
-                    return {
-                        point: point,
-                        tag: el.tagName || "",
-                        type: el.type || "",
-                        id: el.id || "",
-                        name: el.name || "",
-                        className:
-                            typeof el.className === "string"
-                                ? el.className
-                                : "",
-                        role:
-                            el.getAttribute("role") || "",
-                        placeholder:
-                            el.placeholder || "",
-                        value:
-                            el.value || "",
-                        ariaLabel:
-                            el.getAttribute("aria-label")
-                            || "",
-                        ariaLabelledBy:
-                            el.getAttribute(
-                                "aria-labelledby"
-                            )
-                            || "",
-                        html:
-                            (el.outerHTML || "")
-                            .slice(0, 10000),
-                        parentHtml:
-                            (
-                                el.parentElement
-                                && el.parentElement.outerHTML
-                                || ""
-                            )
-                            .slice(0, 15000)
-                    };
-                }
-                """,
-                point,
-            )
-
-            print("\nPOINT:", point["name"])
-            print(info)
-
-    # ========================================================
-    # Guardar HTML completo localmente
-    # ========================================================
-
-    html = await page.content()
-
-    debug_dir = Path("tmp/client_submissions/debug")
-
-    debug_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    html_path = debug_dir / "smartsheet_after_hyperlink.html"
-
-    html_path.write_text(
-        html,
-        encoding="utf-8",
-    )
-
-    print("\n===== HTML SAVED =====")
-    print(str(html_path.resolve()))
-
-    print("\n")
-    print("=" * 100)
-    print("END PRODUCTION COMPLETED DATE DOM INSPECTION")
-    print("=" * 100)
-    print("\n")
-
-
 # ============================================================
 # Rellenar formulario progresivamente
 # ============================================================
@@ -3741,101 +3913,20 @@ async def fill_smartsheet_form(
     return filled
 
 
-# ============================================================
-# Debug del estado actual del formulario
-# ============================================================
-
-
-async def _debug_form_state(
-    page: Page,
-    title: str,
-):
-    """
-    Muestra el estado actual del formulario.
-
-    Útil porque Smartsheet agrega campos progresivamente.
-    """
-
-    try:
-        labels_debug = await page.locator("label").all_inner_texts()
-
-        inputs_debug = await page.locator(
-            "input, textarea, select, [role='combobox']"
-        ).evaluate_all(
-            """
-            elements => elements.map((el, index) => ({
-                index: index,
-                tag: el.tagName || '',
-                type: el.type || '',
-                name: el.name || '',
-                id: el.id || '',
-                placeholder: el.placeholder || '',
-                ariaLabel:
-                    el.getAttribute('aria-label') || '',
-                ariaLabelledBy:
-                    el.getAttribute('aria-labelledby') || '',
-                role:
-                    el.getAttribute('role') || '',
-                value:
-                    el.value || ''
-            }))
-            """
-        )
-
-        body_text = await page.locator("body").inner_text()
-
-        print("\n")
-        print("=" * 80)
-        print(title)
-        print("=" * 80)
-
-        print("\n===== LABELS =====")
-
-        for index, label_text in enumerate(
-            labels_debug,
-            start=1,
-        ):
-            print(f"{index}: {label_text!r}")
-
-        print("\n===== CONTROLS =====")
-
-        for item in inputs_debug:
-            print(item)
-
-        print("\n===== VISIBLE TEXT SAMPLE =====")
-
-        print(body_text[:20_000])
-
-        print("=" * 80)
-
-        print(f"END {title}")
-
-        print("=" * 80)
-
-        print("\n")
-
-    except Exception:
-        logger.exception("Could not inspect current Smartsheet form state.")
-
-
 async def _submit_smartsheet_form(
     page: Page,
+    *,
+    submission,
+    playwright: Playwright,
+    browser: Browser,
+    context: BrowserContext,
 ) -> dict[str, Any]:
     """
-    Presiona Submit una sola vez y espera una confirmación
-    real de Smartsheet.
+    Presiona Submit una sola vez y espera una confirmación real.
 
-    No considera exitoso únicamente el clic.
-
-    El envío se confirma cuando ocurre al menos una de estas
-    condiciones:
-
-    - Aparece un mensaje de agradecimiento o recepción.
-    - Aparece un mensaje indicando que la respuesta fue enviada.
-    - El formulario desaparece después del clic.
-    - El botón Submit desaparece y aparece una pantalla distinta.
-
-    Devuelve información de confirmación del navegador.
+    Si aparece un CAPTCHA después de Submit, mantiene la misma
+    sesión del navegador abierta hasta que el usuario lo resuelva
+    y solicite continuar desde la plataforma.
     """
 
     submit_button = page.get_by_role(
@@ -3937,21 +4028,14 @@ async def _submit_smartsheet_form(
     ]
 
     confirmation_received = False
-
     confirmation_text = ""
-
     confirmation_reference = ""
-
     final_body_text = ""
-
     final_form_count = original_form_count
-
     submit_button_visible = True
 
     timeout_ms = 90_000
-
     poll_interval_ms = 1000
-
     elapsed_ms = 0
 
     while elapsed_ms < timeout_ms:
@@ -3992,9 +4076,7 @@ async def _submit_smartsheet_form(
 
         if detected_success:
             confirmation_received = True
-
             confirmation_text = final_body_text[:5000]
-
             confirmation_reference = detected_success
 
             break
@@ -4019,34 +4101,35 @@ async def _submit_smartsheet_form(
             and not submit_button_visible
         ):
             confirmation_received = True
-
             confirmation_text = final_body_text[:5000]
-
             confirmation_reference = "form_disappeared_after_submit"
 
             break
 
         if page.url != original_url and not submit_button_visible:
             confirmation_received = True
-
             confirmation_text = final_body_text[:5000]
-
             confirmation_reference = "url_changed_after_submit"
 
             break
 
-        if await _detect_verification_challenge(
+        challenge_visible = await _detect_verification_challenge(
             page,
-        ):
-            return {
-                "submit_clicked": True,
-                "verification_required": True,
-                "browser_confirmation_received": False,
-                "confirmation_reference": "",
-                "confirmation_text": final_body_text[:5000],
-                "final_url": page.url,
-                "submitted_at": submit_clicked_at.isoformat(),
-            }
+        )
+
+        if challenge_visible:
+            await _wait_for_human_verification(
+                page=page,
+                submission=submission,
+                playwright=playwright,
+                browser=browser,
+                context=context,
+                stage="after_submit",
+            )
+
+            elapsed_ms = 0
+
+            continue
 
     if not confirmation_received:
         raise SmartsheetAutomationError(
@@ -4094,14 +4177,12 @@ async def run_smartsheet_dry_run(
     Abre el formulario Smartsheet, completa los campos,
     adjunta los ZIP y ejecuta según el modo seleccionado.
 
-    Dry Run:
-        Completa todo pero no presiona Submit.
+    Cuando aparece una verificación humana, mantiene el mismo
+    navegador y el mismo event loop activos hasta que:
 
-    Live:
-        Completa todo, presiona Submit y espera una
-        confirmación real del navegador.
-
-    Cuando submit_form es None, utiliza el modo del Batch.
+    - El usuario resuelva el challenge.
+    - El usuario presione Continue.
+    - El worker confirme que el challenge desapareció.
     """
 
     batch = await _load_batch_for_submission(
@@ -4120,11 +4201,7 @@ async def run_smartsheet_dry_run(
     execution_mode = "live" if submit_form else "dry_run"
 
     attachment_paths = [
-        str(path)
-        for path in (attachment_paths or [])
-        if str(
-            path,
-        ).strip()
+        str(path) for path in (attachment_paths or []) if str(path).strip()
     ]
 
     SCREENSHOT_DIR.mkdir(
@@ -4133,13 +4210,11 @@ async def run_smartsheet_dry_run(
     )
 
     screenshot_path = SCREENSHOT_DIR / (
-        f"submission_" f"{submission.pk}_" f"{submission.public_id}.png"
+        f"submission_{submission.pk}_{submission.public_id}.png"
     )
 
     playwright: Playwright | None = None
-
     browser: Browser | None = None
-
     context: BrowserContext | None = None
 
     try:
@@ -4208,9 +4283,7 @@ async def run_smartsheet_dry_run(
             "pageerror",
             lambda error: print(
                 "BROWSER PAGE ERROR:",
-                str(
-                    error,
-                ),
+                str(error),
             ),
         )
 
@@ -4226,15 +4299,10 @@ async def run_smartsheet_dry_run(
         )
 
         navigation_attempts = 5
-
         navigation_attempt = 0
-
         navigation_error = None
-
         form_loaded = False
-
         last_http_status = None
-
         last_body_text = ""
 
         retryable_http_statuses = {
@@ -4311,32 +4379,12 @@ async def run_smartsheet_dry_run(
                         f"Visible body: {last_body_text[:1000]!r}"
                     )
 
-                    try:
-                        http_error_path = SCREENSHOT_DIR / (
-                            f"submission_"
-                            f"{submission.pk}_"
-                            f"http_error_attempt_"
-                            f"{navigation_attempt}.png"
-                        )
-
-                        await page.screenshot(
-                            path=str(
-                                http_error_path.resolve(),
-                            ),
-                            full_page=True,
-                        )
-
-                    except Exception:
-                        pass
-
                     if navigation_attempt < navigation_attempts:
-                        retry_delay_ms = min(
-                            navigation_attempt * 5000,
-                            20_000,
-                        )
-
                         await page.wait_for_timeout(
-                            retry_delay_ms,
+                            min(
+                                navigation_attempt * 5000,
+                                20_000,
+                            )
                         )
 
                         continue
@@ -4368,19 +4416,13 @@ async def run_smartsheet_dry_run(
                 if await _detect_verification_challenge(
                     page,
                 ):
-                    return SmartsheetDryRunResult(
-                        ok=False,
-                        final_url=page.url,
-                        page_title=(await page.title()),
-                        verification_required=True,
-                        submit_clicked=False,
-                        browser_confirmation_received=False,
-                        metadata={
-                            "stage": "form_load",
-                            "execution_mode": execution_mode,
-                            "navigation_attempt": (navigation_attempt),
-                            "http_status": last_http_status,
-                        },
+                    await _wait_for_human_verification(
+                        page=page,
+                        submission=submission,
+                        playwright=playwright,
+                        browser=browser,
+                        context=context,
+                        stage="form_load",
                     )
 
                 form_locator = page.locator(
@@ -4388,7 +4430,7 @@ async def run_smartsheet_dry_run(
                 )
 
                 submitted_by_input = page.locator(
-                    'input[type="email"]' '[data-client-id="form-field"]'
+                    'input[type="email"][data-client-id="form-field"]'
                 )
 
                 generic_email_input = page.locator(
@@ -4428,7 +4470,6 @@ async def run_smartsheet_dry_run(
 
                 if submitted_ready:
                     form_loaded = True
-
                     navigation_error = None
 
                     print(
@@ -4442,89 +4483,32 @@ async def run_smartsheet_dry_run(
 
                     break
 
-                try:
-                    last_body_text = await page.locator(
-                        "body",
-                    ).inner_text(
-                        timeout=10_000,
-                    )
-
-                except Exception:
-                    last_body_text = ""
-
-                try:
-                    failed_load_path = SCREENSHOT_DIR / (
-                        f"submission_"
-                        f"{submission.pk}_"
-                        f"load_attempt_"
-                        f"{navigation_attempt}.png"
-                    )
-
-                    await page.screenshot(
-                        path=str(
-                            failed_load_path.resolve(),
-                        ),
-                        full_page=True,
-                    )
-
-                except Exception:
-                    pass
-
                 if navigation_attempt < navigation_attempts:
-                    retry_delay_ms = min(
-                        navigation_attempt * 5000,
-                        20_000,
-                    )
-
                     await page.wait_for_timeout(
-                        retry_delay_ms,
+                        min(
+                            navigation_attempt * 5000,
+                            20_000,
+                        )
                     )
 
                     continue
 
                 break
 
+            except SmartsheetVerificationRequired:
+                raise
+
             except Exception as exc:
                 navigation_error = exc
-
-                try:
-                    last_body_text = await page.locator(
-                        "body",
-                    ).inner_text(
-                        timeout=5000,
-                    )
-
-                except Exception:
-                    last_body_text = ""
-
-                try:
-                    exception_path = SCREENSHOT_DIR / (
-                        f"submission_"
-                        f"{submission.pk}_"
-                        f"navigation_exception_"
-                        f"{navigation_attempt}.png"
-                    )
-
-                    await page.screenshot(
-                        path=str(
-                            exception_path.resolve(),
-                        ),
-                        full_page=True,
-                    )
-
-                except Exception:
-                    pass
 
                 if navigation_attempt >= navigation_attempts:
                     break
 
-                retry_delay_ms = min(
-                    navigation_attempt * 5000,
-                    20_000,
-                )
-
                 await page.wait_for_timeout(
-                    retry_delay_ms,
+                    min(
+                        navigation_attempt * 5000,
+                        20_000,
+                    )
                 )
 
         if not form_loaded:
@@ -4547,7 +4531,7 @@ async def run_smartsheet_dry_run(
 
         try:
             initial_screenshot_path = SCREENSHOT_DIR / (
-                f"submission_" f"{submission.pk}_" "form_loaded.png"
+                f"submission_{submission.pk}_form_loaded.png"
             )
 
             await page.screenshot(
@@ -4560,33 +4544,20 @@ async def run_smartsheet_dry_run(
         except Exception as exc:
             print(
                 "COULD NOT SAVE INITIAL FORM SCREENSHOT:",
-                str(
-                    exc,
-                ),
+                str(exc),
             )
 
         if await _detect_verification_challenge(
             page,
         ):
-            return SmartsheetDryRunResult(
-                ok=False,
-                final_url=page.url,
-                page_title=(await page.title()),
-                verification_required=True,
-                submit_clicked=False,
-                browser_confirmation_received=False,
-                metadata={
-                    "stage": "before_form_fill",
-                    "execution_mode": execution_mode,
-                    "navigation_attempt": (navigation_attempt),
-                    "http_status": last_http_status,
-                },
+            await _wait_for_human_verification(
+                page=page,
+                submission=submission,
+                playwright=playwright,
+                browser=browser,
+                context=context,
+                stage="before_form_fill",
             )
-
-        await _debug_form_state(
-            page,
-            "SMARTSHEET FORM INITIAL STATE",
-        )
 
         fields_filled = await fill_smartsheet_form(
             page,
@@ -4595,7 +4566,6 @@ async def run_smartsheet_dry_run(
         )
 
         attachments_uploaded = False
-
         attachment_filenames: list[str] = []
 
         if attachment_paths:
@@ -4608,25 +4578,6 @@ async def run_smartsheet_dry_run(
             print(
                 "SMARTSHEET FILE INPUT COUNT:",
                 file_input_count,
-            )
-
-            print(
-                "SMARTSHEET ZIP PARTS TO UPLOAD:",
-                {
-                    "count": len(
-                        attachment_paths,
-                    ),
-                    "filenames": [
-                        Path(
-                            path,
-                        ).name
-                        for path in attachment_paths
-                    ],
-                    "sizes": {
-                        Path(path).name: (Path(path).stat().st_size)
-                        for path in attachment_paths
-                    },
-                },
             )
 
             if file_input_count <= 0:
@@ -4650,46 +4601,12 @@ async def run_smartsheet_dry_run(
         if attachment_paths and not attachments_uploaded:
             raise SmartsheetAttachmentError("The ZIP attachments were not uploaded.")
 
-        if attachment_paths and len(
-            attachment_filenames,
-        ) != len(
-            attachment_paths,
-        ):
+        if attachment_paths and len(attachment_filenames) != len(attachment_paths):
             raise SmartsheetAttachmentError(
                 "Not all ZIP parts were attached. "
                 f"Expected: {len(attachment_paths)}. "
                 f"Attached: {len(attachment_filenames)}."
             )
-
-        try:
-            email_label = page.get_by_text(
-                "Email address",
-                exact=False,
-            ).last
-
-            await email_label.wait_for(
-                state="visible",
-                timeout=10_000,
-            )
-
-            await email_label.scroll_into_view_if_needed()
-
-            await page.wait_for_timeout(
-                1000,
-            )
-
-        except Exception as exc:
-            print(
-                "COULD NOT SCROLL TO COPY EMAIL FIELD:",
-                str(
-                    exc,
-                ),
-            )
-
-        await _debug_form_state(
-            page,
-            "SMARTSHEET FORM AFTER PROGRESSIVE FILL",
-        )
 
         await page.screenshot(
             path=str(
@@ -4706,18 +4623,17 @@ async def run_smartsheet_dry_run(
         )
 
         submit_clicked = False
-
         browser_confirmation_received = False
-
         confirmation_reference = ""
-
         confirmation_text = ""
-
-        verification_required = False
 
         if submit_form:
             submit_result = await _submit_smartsheet_form(
                 page,
+                submission=submission,
+                playwright=playwright,
+                browser=browser,
+                context=context,
             )
 
             submit_clicked = bool(
@@ -4753,18 +4669,14 @@ async def run_smartsheet_dry_run(
                 )
             )
 
-            verification_required = bool(
-                submit_result.get(
-                    "verification_required",
-                    False,
+            if not browser_confirmation_received:
+                raise SmartsheetAutomationError(
+                    "Smartsheet Submit was clicked, but no "
+                    "browser confirmation was received."
                 )
-            )
 
             confirmation_screenshot_path = SCREENSHOT_DIR / (
-                f"submission_"
-                f"{submission.pk}_"
-                f"{submission.public_id}_"
-                "submitted.png"
+                f"submission_{submission.pk}_" f"{submission.public_id}_submitted.png"
             )
 
             try:
@@ -4780,47 +4692,7 @@ async def run_smartsheet_dry_run(
             except Exception as exc:
                 print(
                     "COULD NOT SAVE SUBMISSION " "CONFIRMATION SCREENSHOT:",
-                    str(
-                        exc,
-                    ),
-                )
-
-            if verification_required:
-                return SmartsheetDryRunResult(
-                    ok=False,
-                    final_url=page.url,
-                    page_title=(await page.title()),
-                    screenshot_path=str(
-                        screenshot_path.resolve(),
-                    ),
-                    fields_filled=fields_filled,
-                    attachments_uploaded=(attachments_uploaded),
-                    attachment_filenames=(attachment_filenames),
-                    verification_required=True,
-                    submit_clicked=submit_clicked,
-                    browser_confirmation_received=False,
-                    confirmation_reference="",
-                    confirmation_text=confirmation_text,
-                    metadata={
-                        "execution_mode": execution_mode,
-                        "submit_clicked": submit_clicked,
-                        "browser_confirmation_received": False,
-                        "confirmation_reference": "",
-                        "confirmation_text": confirmation_text,
-                        "stage": "after_submit",
-                        "navigation_attempts": (navigation_attempt),
-                        "http_status": last_http_status,
-                        "headless": headless,
-                        "attachment_count": len(
-                            attachment_filenames,
-                        ),
-                    },
-                )
-
-            if not browser_confirmation_received:
-                raise SmartsheetAutomationError(
-                    "Smartsheet Submit was clicked, but no "
-                    "browser confirmation was received."
+                    str(exc),
                 )
 
         await page.wait_for_timeout(
@@ -4847,7 +4719,7 @@ async def run_smartsheet_dry_run(
         return SmartsheetDryRunResult(
             ok=True,
             final_url=page.url,
-            page_title=(await page.title()),
+            page_title=await page.title(),
             screenshot_path=str(
                 screenshot_path.resolve(),
             ),
@@ -4877,6 +4749,10 @@ async def run_smartsheet_dry_run(
         )
 
     finally:
+        remove_active_browser(
+            submission,
+        )
+
         if context:
             try:
                 await context.close()
