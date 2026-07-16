@@ -75,6 +75,14 @@ class SmartsheetDryRunResult:
 
     verification_required: bool = False
 
+    submit_clicked: bool = False
+
+    browser_confirmation_received: bool = False
+
+    confirmation_reference: str = ""
+
+    confirmation_text: str = ""
+
     metadata: dict[str, Any] = field(
         default_factory=dict,
     )
@@ -108,6 +116,26 @@ DEFAULT_TIMEOUT_MS = 30_000
 
 SCREENSHOT_DIR = Path("tmp/client_submissions/screenshots")
 
+
+async def run_smartsheet_live(
+    *,
+    submission,
+    attachment_paths: list[str] | None = None,
+    headless: bool = True,
+) -> SmartsheetDryRunResult:
+    """
+    Ejecuta el formulario Smartsheet en modo LIVE.
+
+    Completa los campos, adjunta los ZIP, presiona Submit
+    y espera una confirmación real del navegador.
+    """
+
+    return await run_smartsheet_dry_run(
+        submission=submission,
+        attachment_paths=attachment_paths,
+        headless=headless,
+        submit_form=True,
+    )
 
 # ============================================================
 # Helpers Django ORM para contexto async
@@ -150,32 +178,49 @@ def _mark_form_loaded(
 def _mark_form_completed(
     submission,
     *,
+    execution_mode: str,
     final_url: str,
     fields_filled: dict,
     attachments_uploaded: bool,
     attachment_filenames: list[str],
+    submit_clicked: bool,
+    browser_confirmation_received: bool,
+    confirmation_reference: str,
+    confirmation_text: str,
 ):
     """
     Guarda el resultado del llenado del formulario.
 
-    Permite registrar uno o varios ZIP adjuntos.
+    Funciona tanto para:
+
+        dry_run
+        live
+
+    También registra si Submit fue presionado y si el
+    navegador confirmó el envío.
     """
 
     now = timezone.now()
 
     submission.form_completed_at = now
 
+    execution_key = "live" if execution_mode == "live" else "dry_run"
+
     submission.browser_state = {
         **(submission.browser_state or {}),
-        "dry_run": {
+        execution_key: {
             "completed_at": now.isoformat(),
             "final_url": final_url,
             "fields_filled": fields_filled,
-            "attachments_uploaded": (attachments_uploaded),
-            "attachment_filenames": (attachment_filenames),
+            "attachments_uploaded": attachments_uploaded,
+            "attachment_filenames": attachment_filenames,
             "attachment_count": len(
                 attachment_filenames,
             ),
+            "submit_clicked": submit_clicked,
+            "browser_confirmation_received": (browser_confirmation_received),
+            "confirmation_reference": confirmation_reference,
+            "confirmation_text": confirmation_text,
         },
     }
 
@@ -183,6 +228,29 @@ def _mark_form_completed(
         update_fields=[
             "form_completed_at",
             "browser_state",
+            "updated_at",
+        ]
+    )
+
+    return now
+
+
+@sync_to_async(thread_sensitive=True)
+def _mark_submit_clicked(
+    submission,
+):
+    """
+    Registra el momento exacto en que Playwright presiona
+    el botón Submit del formulario Smartsheet.
+    """
+
+    now = timezone.now()
+
+    submission.submit_clicked_at = now
+
+    submission.save(
+        update_fields=[
+            "submit_clicked_at",
             "updated_at",
         ]
     )
@@ -3441,6 +3509,266 @@ async def _debug_form_state(
         logger.exception("Could not inspect current Smartsheet form state.")
 
 
+async def _submit_smartsheet_form(
+    page: Page,
+) -> dict[str, Any]:
+    """
+    Presiona Submit una sola vez y espera una confirmación
+    real de Smartsheet.
+
+    No considera exitoso únicamente el clic.
+
+    El envío se confirma cuando ocurre al menos una de estas
+    condiciones:
+
+    - Aparece un mensaje de agradecimiento o recepción.
+    - Aparece un mensaje indicando que la respuesta fue enviada.
+    - El formulario desaparece después del clic.
+    - El botón Submit desaparece y aparece una pantalla distinta.
+
+    Devuelve información de confirmación del navegador.
+    """
+
+    submit_button = page.get_by_role(
+        "button",
+        name="Submit",
+        exact=True,
+    )
+
+    try:
+        await submit_button.wait_for(
+            state="visible",
+            timeout=15_000,
+        )
+
+    except Exception as exc:
+        raise SmartsheetFieldNotFoundError(
+            f"Smartsheet Submit button was not found: {exc}"
+        ) from exc
+
+    try:
+        disabled = await submit_button.is_disabled()
+
+    except Exception:
+        disabled = False
+
+    if disabled:
+        body_text = ""
+
+        try:
+            body_text = await page.locator(
+                "body",
+            ).inner_text()
+
+        except Exception:
+            body_text = ""
+
+        raise SmartsheetAutomationError(
+            "Smartsheet Submit button is disabled. "
+            f"Visible body: {body_text[:3000]!r}"
+        )
+
+    original_url = page.url
+
+    original_form_count = await page.locator(
+        'form[aria-label*="questions in this form" i]'
+    ).count()
+
+    print(
+        "SMARTSHEET SUBMIT STARTING:",
+        {
+            "original_url": original_url,
+            "original_form_count": original_form_count,
+        },
+    )
+
+    try:
+        await submit_button.scroll_into_view_if_needed()
+
+        await submit_button.click(
+            timeout=15_000,
+        )
+
+    except Exception as exc:
+        raise SmartsheetAutomationError(
+            f"Could not click the Smartsheet Submit button: {exc}"
+        ) from exc
+
+    submit_clicked_at = timezone.now()
+
+    print(
+        "SMARTSHEET SUBMIT CLICKED:",
+        {
+            "clicked_at": submit_clicked_at.isoformat(),
+            "url": page.url,
+        },
+    )
+
+    success_markers = [
+        "thank you",
+        "your response has been recorded",
+        "your response was submitted",
+        "your response has been submitted",
+        "response submitted",
+        "submission received",
+        "successfully submitted",
+        "form submitted",
+    ]
+
+    error_markers = [
+        "please complete all required fields",
+        "please fill out this field",
+        "required field",
+        "there was an error submitting",
+        "could not submit",
+        "submission failed",
+        "please try again",
+        "exceeds the max file size",
+        "file is too large",
+    ]
+
+    confirmation_received = False
+
+    confirmation_text = ""
+
+    confirmation_reference = ""
+
+    final_body_text = ""
+
+    final_form_count = original_form_count
+
+    submit_button_visible = True
+
+    timeout_ms = 90_000
+
+    poll_interval_ms = 1000
+
+    elapsed_ms = 0
+
+    while elapsed_ms < timeout_ms:
+        await page.wait_for_timeout(
+            poll_interval_ms,
+        )
+
+        elapsed_ms += poll_interval_ms
+
+        try:
+            final_body_text = await page.locator(
+                "body",
+            ).inner_text(
+                timeout=5000,
+            )
+
+        except Exception:
+            final_body_text = ""
+
+        normalized_body = final_body_text.lower()
+
+        detected_error = next(
+            (marker for marker in error_markers if marker in normalized_body),
+            None,
+        )
+
+        if detected_error:
+            raise SmartsheetAutomationError(
+                "Smartsheet showed an error after Submit. "
+                f"Detected message: {detected_error!r}. "
+                f"Visible body: {final_body_text[:5000]!r}"
+            )
+
+        detected_success = next(
+            (marker for marker in success_markers if marker in normalized_body),
+            None,
+        )
+
+        if detected_success:
+            confirmation_received = True
+
+            confirmation_text = final_body_text[:5000]
+
+            confirmation_reference = detected_success
+
+            break
+
+        try:
+            final_form_count = await page.locator(
+                'form[aria-label*="questions in this form" i]'
+            ).count()
+
+        except Exception:
+            final_form_count = 0
+
+        try:
+            submit_button_visible = await submit_button.is_visible()
+
+        except Exception:
+            submit_button_visible = False
+
+        if (
+            original_form_count > 0
+            and final_form_count == 0
+            and not submit_button_visible
+        ):
+            confirmation_received = True
+
+            confirmation_text = final_body_text[:5000]
+
+            confirmation_reference = "form_disappeared_after_submit"
+
+            break
+
+        if page.url != original_url and not submit_button_visible:
+            confirmation_received = True
+
+            confirmation_text = final_body_text[:5000]
+
+            confirmation_reference = "url_changed_after_submit"
+
+            break
+
+        if await _detect_verification_challenge(
+            page,
+        ):
+            return {
+                "submit_clicked": True,
+                "verification_required": True,
+                "browser_confirmation_received": False,
+                "confirmation_reference": "",
+                "confirmation_text": final_body_text[:5000],
+                "final_url": page.url,
+                "submitted_at": submit_clicked_at.isoformat(),
+            }
+
+    if not confirmation_received:
+        raise SmartsheetAutomationError(
+            "Submit was clicked, but Smartsheet did not show "
+            "a reliable browser confirmation within 90 seconds. "
+            f"Current URL: {page.url!r}. "
+            f"Form count: {final_form_count}. "
+            f"Submit visible: {submit_button_visible}. "
+            f"Visible body: {final_body_text[:5000]!r}"
+        )
+
+    print(
+        "SMARTSHEET BROWSER CONFIRMATION RECEIVED:",
+        {
+            "final_url": page.url,
+            "confirmation_reference": confirmation_reference,
+            "confirmation_text": confirmation_text[:1000],
+        },
+    )
+
+    return {
+        "submit_clicked": True,
+        "verification_required": False,
+        "browser_confirmation_received": True,
+        "confirmation_reference": confirmation_reference,
+        "confirmation_text": confirmation_text,
+        "final_url": page.url,
+        "submitted_at": submit_clicked_at.isoformat(),
+    }
+
+
 # ============================================================
 # Ejecución principal Dry Run
 # ============================================================
@@ -3451,40 +3779,44 @@ async def run_smartsheet_dry_run(
     submission,
     attachment_paths: list[str] | None = None,
     headless: bool = False,
+    submit_form: bool | None = None,
 ) -> SmartsheetDryRunResult:
     """
-    Abre el formulario real de Smartsheet, lo completa
-    progresivamente y se detiene antes de Submit.
+    Abre el formulario Smartsheet, completa los campos,
+    adjunta los ZIP y ejecuta según el modo seleccionado.
 
-    IMPORTANTE:
+    Dry Run:
+        Completa todo pero no presiona Submit.
 
-    - Dry Run nunca presiona Submit.
-    - En producción el navegador se ejecuta dentro del worker.
-    - No aparecerá una ventana visible en la computadora
-      del usuario.
-    - Se generan screenshots para comprobar el resultado.
-    - Permite adjuntar uno o varios ZIP al mismo formulario.
+    Live:
+        Completa todo, presiona Submit y espera una
+        confirmación real del navegador.
+
+    Cuando submit_form es None, utiliza el modo del Batch.
     """
-
-    # ========================================================
-    # Cargar Batch de forma segura
-    # ========================================================
 
     batch = await _load_batch_for_submission(
         submission,
     )
 
-    # ========================================================
-    # Normalizar archivos adjuntos
-    # ========================================================
+    if submit_form is None:
+        submit_form = bool(
+            getattr(
+                batch,
+                "is_live",
+                False,
+            )
+        )
+
+    execution_mode = "live" if submit_form else "dry_run"
 
     attachment_paths = [
-        str(path) for path in (attachment_paths or []) if str(path).strip()
+        str(path)
+        for path in (attachment_paths or [])
+        if str(
+            path,
+        ).strip()
     ]
-
-    # ========================================================
-    # Directorio de screenshots
-    # ========================================================
 
     SCREENSHOT_DIR.mkdir(
         parents=True,
@@ -3496,14 +3828,12 @@ async def run_smartsheet_dry_run(
     )
 
     playwright: Playwright | None = None
+
     browser: Browser | None = None
+
     context: BrowserContext | None = None
 
     try:
-        # ====================================================
-        # Iniciar Playwright
-        # ====================================================
-
         playwright = await async_playwright().start()
 
         print(
@@ -3512,6 +3842,8 @@ async def run_smartsheet_dry_run(
                 "submission_id": submission.pk,
                 "project_id": submission.project_id,
                 "headless": headless,
+                "execution_mode": execution_mode,
+                "submit_form": submit_form,
                 "attachment_count": len(
                     attachment_paths,
                 ),
@@ -3552,10 +3884,6 @@ async def run_smartsheet_dry_run(
             DEFAULT_TIMEOUT_MS,
         )
 
-        # ====================================================
-        # Eventos de diagnóstico del navegador
-        # ====================================================
-
         page.on(
             "console",
             lambda message: print(
@@ -3588,29 +3916,16 @@ async def run_smartsheet_dry_run(
             ),
         )
 
-        # ====================================================
-        # Abrir formulario con reintentos completos
-        #
-        # Cada intento incluye:
-        #
-        # 1. Abrir URL.
-        # 2. Revisar HTTP.
-        # 3. Esperar React.
-        # 4. Esperar Submitted by.
-        #
-        # page.goto() puede completar sin error aunque
-        # Smartsheet responda 503. Por eso revisamos status.
-        # ====================================================
-
         navigation_attempts = 5
 
         navigation_attempt = 0
-        navigation_response = None
+
         navigation_error = None
 
         form_loaded = False
 
         last_http_status = None
+
         last_body_text = ""
 
         retryable_http_statuses = {
@@ -3637,10 +3952,6 @@ async def run_smartsheet_dry_run(
             )
 
             try:
-                # ============================================
-                # Limpiar página anterior
-                # ============================================
-
                 try:
                     await page.goto(
                         "about:blank",
@@ -3654,10 +3965,6 @@ async def run_smartsheet_dry_run(
                 await page.wait_for_timeout(
                     1000,
                 )
-
-                # ============================================
-                # Navegar a Smartsheet
-                # ============================================
 
                 navigation_response = await page.goto(
                     batch.form_url,
@@ -3678,10 +3985,6 @@ async def run_smartsheet_dry_run(
                     },
                 )
 
-                # ============================================
-                # Obtener body visible
-                # ============================================
-
                 try:
                     last_body_text = await page.locator(
                         "body",
@@ -3692,28 +3995,13 @@ async def run_smartsheet_dry_run(
                 except Exception:
                     last_body_text = ""
 
-                # ============================================
-                # HTTP temporal: volver a intentar
-                # ============================================
-
                 if last_http_status in retryable_http_statuses:
                     navigation_error = SmartsheetFormLoadError(
                         "Smartsheet returned temporary HTTP "
                         f"{last_http_status}. "
-                        "Visible body: "
-                        f"{last_body_text[:1000]!r}"
+                        f"Visible body: {last_body_text[:1000]!r}"
                     )
 
-                    print(
-                        "SMARTSHEET TEMPORARY HTTP ERROR:",
-                        {
-                            "attempt": navigation_attempt,
-                            "status": last_http_status,
-                            "body": last_body_text[:500],
-                        },
-                    )
-
-                    # Guardar screenshot del error HTTP.
                     try:
                         http_error_path = SCREENSHOT_DIR / (
                             f"submission_"
@@ -3729,32 +4017,13 @@ async def run_smartsheet_dry_run(
                             full_page=True,
                         )
 
-                        print(
-                            "SMARTSHEET HTTP ERROR SCREENSHOT:",
-                            str(
-                                http_error_path.resolve(),
-                            ),
-                        )
-
-                    except Exception as screenshot_exc:
-                        print(
-                            "COULD NOT SAVE HTTP ERROR SCREENSHOT:",
-                            str(
-                                screenshot_exc,
-                            ),
-                        )
+                    except Exception:
+                        pass
 
                     if navigation_attempt < navigation_attempts:
                         retry_delay_ms = min(
                             navigation_attempt * 5000,
                             20_000,
-                        )
-
-                        print(
-                            "SMARTSHEET RETRYING AFTER HTTP ERROR:",
-                            {
-                                "delay_ms": retry_delay_ms,
-                            },
                         )
 
                         await page.wait_for_timeout(
@@ -3765,23 +4034,14 @@ async def run_smartsheet_dry_run(
 
                     break
 
-                # ============================================
-                # Otros errores HTTP no temporales
-                # ============================================
-
                 if last_http_status is not None and last_http_status >= 400:
                     navigation_error = SmartsheetFormLoadError(
                         "Smartsheet returned HTTP "
                         f"{last_http_status}. "
-                        "Visible body: "
-                        f"{last_body_text[:1000]!r}"
+                        f"Visible body: {last_body_text[:1000]!r}"
                     )
 
                     break
-
-                # ============================================
-                # Esperar que el frontend termine de cargar
-                # ============================================
 
                 try:
                     await page.wait_for_load_state(
@@ -3796,52 +4056,35 @@ async def run_smartsheet_dry_run(
                     3000,
                 )
 
-                # ============================================
-                # Detectar challenge antes de esperar
-                # indefinidamente el formulario
-                # ============================================
-
                 if await _detect_verification_challenge(
                     page,
                 ):
-                    print(
-                        "SMARTSHEET VERIFICATION CHALLENGE DETECTED:",
-                        {
-                            "attempt": navigation_attempt,
-                            "url": page.url,
-                        },
-                    )
-
                     return SmartsheetDryRunResult(
                         ok=False,
                         final_url=page.url,
                         page_title=(await page.title()),
                         verification_required=True,
+                        submit_clicked=False,
+                        browser_confirmation_received=False,
                         metadata={
                             "stage": "form_load",
+                            "execution_mode": execution_mode,
                             "navigation_attempt": (navigation_attempt),
-                            "http_status": (last_http_status),
+                            "http_status": last_http_status,
                         },
                     )
 
-                # ============================================
-                # El formulario puede identificarse por:
-                #
-                # 1. El elemento <form>.
-                # 2. Submitted by.
-                #
-                # No dependemos exclusivamente del aria-label.
-                # ============================================
-
                 form_locator = page.locator(
-                    ("form[" 'aria-label*="questions in this form" i' "]")
+                    'form[aria-label*="questions in this form" i]'
                 )
 
                 submitted_by_input = page.locator(
-                    ('input[type="email"]' '[data-client-id="form-field"]')
+                    'input[type="email"]' '[data-client-id="form-field"]'
                 )
 
-                generic_email_input = page.locator('input[type="email"]')
+                generic_email_input = page.locator(
+                    'input[type="email"]',
+                )
 
                 try:
                     await form_locator.wait_for(
@@ -3849,24 +4092,8 @@ async def run_smartsheet_dry_run(
                         timeout=30_000,
                     )
 
-                    print(
-                        "SMARTSHEET FORM ELEMENT ATTACHED:",
-                        {
-                            "attempt": navigation_attempt,
-                        },
-                    )
-
                 except Exception:
-                    print(
-                        "SMARTSHEET FORM ELEMENT NOT FOUND BY ARIA-LABEL:",
-                        {
-                            "attempt": navigation_attempt,
-                        },
-                    )
-
-                # ============================================
-                # Esperar Submitted by
-                # ============================================
+                    pass
 
                 submitted_ready = False
 
@@ -3878,14 +4105,6 @@ async def run_smartsheet_dry_run(
 
                     submitted_ready = True
 
-                    print(
-                        "SUBMITTED BY INPUT READY:",
-                        {
-                            "method": "data-client-id",
-                            "attempt": navigation_attempt,
-                        },
-                    )
-
                 except Exception:
                     try:
                         await generic_email_input.first.wait_for(
@@ -3895,19 +4114,12 @@ async def run_smartsheet_dry_run(
 
                         submitted_ready = True
 
-                        print(
-                            "SUBMITTED BY INPUT READY:",
-                            {
-                                "method": "generic-email",
-                                "attempt": navigation_attempt,
-                            },
-                        )
-
                     except Exception as submitted_exc:
                         navigation_error = submitted_exc
 
                 if submitted_ready:
                     form_loaded = True
+
                     navigation_error = None
 
                     print(
@@ -3921,10 +4133,6 @@ async def run_smartsheet_dry_run(
 
                     break
 
-                # ============================================
-                # Formulario no montó correctamente
-                # ============================================
-
                 try:
                     last_body_text = await page.locator(
                         "body",
@@ -3934,23 +4142,6 @@ async def run_smartsheet_dry_run(
 
                 except Exception:
                     last_body_text = ""
-
-                print(
-                    "SMARTSHEET FORM DID NOT BECOME READY:",
-                    {
-                        "attempt": navigation_attempt,
-                        "status": last_http_status,
-                        "url": page.url,
-                        "body": last_body_text[:1000],
-                        "error": str(
-                            navigation_error,
-                        ),
-                    },
-                )
-
-                # ============================================
-                # Screenshot de carga fallida
-                # ============================================
 
                 try:
                     failed_load_path = SCREENSHOT_DIR / (
@@ -3967,32 +4158,13 @@ async def run_smartsheet_dry_run(
                         full_page=True,
                     )
 
-                    print(
-                        "SMARTSHEET LOAD FAILURE SCREENSHOT:",
-                        str(
-                            failed_load_path.resolve(),
-                        ),
-                    )
-
-                except Exception as screenshot_exc:
-                    print(
-                        "COULD NOT SAVE LOAD FAILURE SCREENSHOT:",
-                        str(
-                            screenshot_exc,
-                        ),
-                    )
+                except Exception:
+                    pass
 
                 if navigation_attempt < navigation_attempts:
                     retry_delay_ms = min(
                         navigation_attempt * 5000,
                         20_000,
-                    )
-
-                    print(
-                        "SMARTSHEET FORM RETRY SCHEDULED:",
-                        {
-                            "delay_ms": retry_delay_ms,
-                        },
                     )
 
                     await page.wait_for_timeout(
@@ -4005,18 +4177,6 @@ async def run_smartsheet_dry_run(
 
             except Exception as exc:
                 navigation_error = exc
-
-                print(
-                    "SMARTSHEET NAVIGATION ATTEMPT FAILED:",
-                    {
-                        "attempt": navigation_attempt,
-                        "max_attempts": navigation_attempts,
-                        "error": str(
-                            exc,
-                        ),
-                        "current_url": page.url,
-                    },
-                )
 
                 try:
                     last_body_text = await page.locator(
@@ -4058,45 +4218,27 @@ async def run_smartsheet_dry_run(
                     retry_delay_ms,
                 )
 
-        # ====================================================
-        # Validar resultado final de navegación
-        # ====================================================
-
         if not form_loaded:
             raise SmartsheetFormLoadError(
                 "Could not load the Smartsheet form after "
                 f"{navigation_attempts} attempts. "
-                "Last HTTP status: "
-                f"{last_http_status!r}. "
+                f"Last HTTP status: {last_http_status!r}. "
                 f"Current URL: {page.url!r}. "
-                "Visible body: "
-                f"{last_body_text[:1000]!r}. "
+                f"Visible body: {last_body_text[:1000]!r}. "
                 f"Last error: {navigation_error}"
             ) from navigation_error
-
-        # ====================================================
-        # Estabilización
-        # ====================================================
 
         await page.wait_for_timeout(
             1500,
         )
 
-        # ====================================================
-        # Marcar formulario cargado
-        # ====================================================
-
         await _mark_form_loaded(
             submission,
         )
 
-        # ====================================================
-        # Screenshot inicial del formulario cargado
-        # ====================================================
-
         try:
             initial_screenshot_path = SCREENSHOT_DIR / (
-                f"submission_" f"{submission.pk}_" f"form_loaded.png"
+                f"submission_" f"{submission.pk}_" "form_loaded.png"
             )
 
             await page.screenshot(
@@ -4104,13 +4246,6 @@ async def run_smartsheet_dry_run(
                     initial_screenshot_path.resolve(),
                 ),
                 full_page=True,
-            )
-
-            print(
-                "SMARTSHEET INITIAL FORM SCREENSHOT:",
-                str(
-                    initial_screenshot_path.resolve(),
-                ),
             )
 
         except Exception as exc:
@@ -4121,10 +4256,6 @@ async def run_smartsheet_dry_run(
                 ),
             )
 
-        # ====================================================
-        # Challenge inicial
-        # ====================================================
-
         if await _detect_verification_challenge(
             page,
         ):
@@ -4133,35 +4264,26 @@ async def run_smartsheet_dry_run(
                 final_url=page.url,
                 page_title=(await page.title()),
                 verification_required=True,
+                submit_clicked=False,
+                browser_confirmation_received=False,
                 metadata={
                     "stage": "before_form_fill",
+                    "execution_mode": execution_mode,
                     "navigation_attempt": (navigation_attempt),
-                    "http_status": (last_http_status),
+                    "http_status": last_http_status,
                 },
             )
-
-        # ====================================================
-        # Estado inicial
-        # ====================================================
 
         await _debug_form_state(
             page,
             "SMARTSHEET FORM INITIAL STATE",
         )
 
-        # ====================================================
-        # Llenar formulario progresivamente
-        # ====================================================
-
         fields_filled = await fill_smartsheet_form(
             page,
             submission,
             batch,
         )
-
-        # ====================================================
-        # ZIP PARTS
-        # ====================================================
 
         attachments_uploaded = False
 
@@ -4185,7 +4307,12 @@ async def run_smartsheet_dry_run(
                     "count": len(
                         attachment_paths,
                     ),
-                    "filenames": [Path(path).name for path in attachment_paths],
+                    "filenames": [
+                        Path(
+                            path,
+                        ).name
+                        for path in attachment_paths
+                    ],
                     "sizes": {
                         Path(path).name: (Path(path).stat().st_size)
                         for path in attachment_paths
@@ -4193,37 +4320,37 @@ async def run_smartsheet_dry_run(
                 },
             )
 
-            if file_input_count > 0:
-                attachment_filenames = await _upload_attachments(
-                    page,
-                    attachment_paths,
-                )
-
-                attachments_uploaded = bool(attachment_filenames)
-
-                await page.wait_for_timeout(
-                    3000,
-                )
-
-                print(
-                    "SMARTSHEET ZIP PARTS UPLOADED:",
-                    {
-                        "uploaded": (attachments_uploaded),
-                        "count": len(
-                            attachment_filenames,
-                        ),
-                        "filenames": (attachment_filenames),
-                    },
-                )
-
-            else:
+            if file_input_count <= 0:
                 raise SmartsheetAttachmentError(
-                    "The attachment field did not " "appear in the Smartsheet form."
+                    "The attachment field did not appear " "in the Smartsheet form."
                 )
 
-        # ====================================================
-        # Llevar vista hacia el final
-        # ====================================================
+            attachment_filenames = await _upload_attachments(
+                page,
+                attachment_paths,
+            )
+
+            attachments_uploaded = bool(
+                attachment_filenames,
+            )
+
+            await page.wait_for_timeout(
+                3000,
+            )
+
+        if attachment_paths and not attachments_uploaded:
+            raise SmartsheetAttachmentError("The ZIP attachments were not uploaded.")
+
+        if attachment_paths and len(
+            attachment_filenames,
+        ) != len(
+            attachment_paths,
+        ):
+            raise SmartsheetAttachmentError(
+                "Not all ZIP parts were attached. "
+                f"Expected: {len(attachment_paths)}. "
+                f"Attached: {len(attachment_filenames)}."
+            )
 
         try:
             email_label = page.get_by_text(
@@ -4250,18 +4377,10 @@ async def run_smartsheet_dry_run(
                 ),
             )
 
-        # ====================================================
-        # Estado final para logs
-        # ====================================================
-
         await _debug_form_state(
             page,
             "SMARTSHEET FORM AFTER PROGRESSIVE FILL",
         )
-
-        # ====================================================
-        # Screenshot final
-        # ====================================================
 
         await page.screenshot(
             path=str(
@@ -4277,40 +4396,144 @@ async def run_smartsheet_dry_run(
             ),
         )
 
-        # ====================================================
-        # Mantener abierto algunos segundos
-        #
-        # En Render no se verá una ventana, pero permite
-        # terminar cargas visuales antes del screenshot.
-        # ====================================================
+        submit_clicked = False
+
+        browser_confirmation_received = False
+
+        confirmation_reference = ""
+
+        confirmation_text = ""
+
+        verification_required = False
+
+        if submit_form:
+            submit_result = await _submit_smartsheet_form(
+                page,
+            )
+
+            submit_clicked = bool(
+                submit_result.get(
+                    "submit_clicked",
+                    False,
+                )
+            )
+
+            if submit_clicked:
+                await _mark_submit_clicked(
+                    submission,
+                )
+
+            browser_confirmation_received = bool(
+                submit_result.get(
+                    "browser_confirmation_received",
+                    False,
+                )
+            )
+
+            confirmation_reference = _clean(
+                submit_result.get(
+                    "confirmation_reference",
+                    "",
+                )
+            )
+
+            confirmation_text = _clean(
+                submit_result.get(
+                    "confirmation_text",
+                    "",
+                )
+            )
+
+            verification_required = bool(
+                submit_result.get(
+                    "verification_required",
+                    False,
+                )
+            )
+
+            confirmation_screenshot_path = SCREENSHOT_DIR / (
+                f"submission_"
+                f"{submission.pk}_"
+                f"{submission.public_id}_"
+                "submitted.png"
+            )
+
+            try:
+                await page.screenshot(
+                    path=str(
+                        confirmation_screenshot_path.resolve(),
+                    ),
+                    full_page=True,
+                )
+
+                screenshot_path = confirmation_screenshot_path
+
+            except Exception as exc:
+                print(
+                    "COULD NOT SAVE SUBMISSION " "CONFIRMATION SCREENSHOT:",
+                    str(
+                        exc,
+                    ),
+                )
+
+            if verification_required:
+                return SmartsheetDryRunResult(
+                    ok=False,
+                    final_url=page.url,
+                    page_title=(await page.title()),
+                    screenshot_path=str(
+                        screenshot_path.resolve(),
+                    ),
+                    fields_filled=fields_filled,
+                    attachments_uploaded=(attachments_uploaded),
+                    attachment_filenames=(attachment_filenames),
+                    verification_required=True,
+                    submit_clicked=submit_clicked,
+                    browser_confirmation_received=False,
+                    confirmation_reference="",
+                    confirmation_text=confirmation_text,
+                    metadata={
+                        "execution_mode": execution_mode,
+                        "submit_clicked": submit_clicked,
+                        "browser_confirmation_received": False,
+                        "confirmation_reference": "",
+                        "confirmation_text": confirmation_text,
+                        "stage": "after_submit",
+                        "navigation_attempts": (navigation_attempt),
+                        "http_status": last_http_status,
+                        "headless": headless,
+                        "attachment_count": len(
+                            attachment_filenames,
+                        ),
+                    },
+                )
+
+            if not browser_confirmation_received:
+                raise SmartsheetAutomationError(
+                    "Smartsheet Submit was clicked, but no "
+                    "browser confirmation was received."
+                )
 
         await page.wait_for_timeout(
-            5000,
+            3000,
         )
-
-        # ====================================================
-        # HTML final
-        # ====================================================
 
         html_snapshot = await page.content()
 
         html_snapshot = html_snapshot[:500_000]
 
-        # ====================================================
-        # Guardar resultado
-        # ====================================================
-
         await _mark_form_completed(
             submission,
+            execution_mode=execution_mode,
             final_url=page.url,
             fields_filled=fields_filled,
-            attachments_uploaded=(attachments_uploaded),
-            attachment_filenames=(attachment_filenames),
+            attachments_uploaded=attachments_uploaded,
+            attachment_filenames=attachment_filenames,
+            submit_clicked=submit_clicked,
+            browser_confirmation_received=(browser_confirmation_received),
+            confirmation_reference=confirmation_reference,
+            confirmation_text=confirmation_text,
         )
-
-        # ====================================================
-        # NO HACEMOS CLICK EN SUBMIT
-        # ====================================================
 
         return SmartsheetDryRunResult(
             ok=True,
@@ -4321,15 +4544,22 @@ async def run_smartsheet_dry_run(
             ),
             html_snapshot=html_snapshot,
             fields_filled=fields_filled,
-            attachments_uploaded=(attachments_uploaded),
-            attachment_filenames=(attachment_filenames),
+            attachments_uploaded=attachments_uploaded,
+            attachment_filenames=attachment_filenames,
             verification_required=False,
+            submit_clicked=submit_clicked,
+            browser_confirmation_received=(browser_confirmation_received),
+            confirmation_reference=confirmation_reference,
+            confirmation_text=confirmation_text,
             metadata={
-                "execution_mode": (batch.execution_mode),
-                "submit_clicked": False,
+                "execution_mode": execution_mode,
+                "submit_clicked": submit_clicked,
+                "browser_confirmation_received": (browser_confirmation_received),
+                "confirmation_reference": (confirmation_reference),
+                "confirmation_text": confirmation_text,
                 "progressive_form": True,
-                "navigation_attempts": (navigation_attempt),
-                "http_status": (last_http_status),
+                "navigation_attempts": navigation_attempt,
+                "http_status": last_http_status,
                 "headless": headless,
                 "attachment_count": len(
                     attachment_filenames,
@@ -4338,10 +4568,6 @@ async def run_smartsheet_dry_run(
         )
 
     finally:
-        # ====================================================
-        # Cerrar context
-        # ====================================================
-
         if context:
             try:
                 await context.close()
@@ -4349,20 +4575,12 @@ async def run_smartsheet_dry_run(
             except Exception:
                 logger.exception("Could not close browser context.")
 
-        # ====================================================
-        # Cerrar browser
-        # ====================================================
-
         if browser:
             try:
                 await browser.close()
 
             except Exception:
                 logger.exception("Could not close browser.")
-
-        # ====================================================
-        # Cerrar Playwright
-        # ====================================================
 
         if playwright:
             try:

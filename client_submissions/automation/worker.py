@@ -11,8 +11,8 @@ from django.core.files import File
 from django.db import transaction
 from django.utils import timezone
 
-from client_submissions.automation.smartsheet_form import \
-    run_smartsheet_dry_run
+from client_submissions.automation.smartsheet_form import (
+    run_smartsheet_dry_run, run_smartsheet_live)
 from client_submissions.models import (ClientSubmission,
                                        ClientSubmissionAttempt,
                                        ClientSubmissionBatch,
@@ -1069,7 +1069,9 @@ def process_dry_run_submission(
 def process_batch(
     batch_id: int,
 ):
-    batch = ClientSubmissionBatch.objects.get(pk=batch_id)
+    batch = ClientSubmissionBatch.objects.get(
+        pk=batch_id,
+    )
 
     while True:
         batch.refresh_from_db()
@@ -1086,23 +1088,30 @@ def process_batch(
             return
 
         # ====================================================
-        # Próximo proyecto
+        # Próximo proyecto pendiente y validado
         # ====================================================
 
-        submission = get_next_submission(batch)
+        submission = get_next_submission(
+            batch,
+        )
 
         if not submission:
             batch.refresh_final_status()
 
+            batch.refresh_from_db()
+
             create_event(
                 batch=batch,
-                event_type=("batch_processing_finished"),
+                event_type="batch_processing_finished",
                 message=(
-                    f"Batch #{batch.pk} "
-                    f"processing finished "
+                    f"Batch #{batch.pk} processing finished "
                     f"with status "
                     f"{batch.get_status_display()}."
                 ),
+                metadata={
+                    "execution_mode": batch.execution_mode,
+                    "final_status": batch.status,
+                },
             )
 
             return
@@ -1115,42 +1124,566 @@ def process_batch(
 
         batch.last_activity_at = timezone.now()
 
+        batch.last_error = ""
+
         batch.save(
             update_fields=[
                 "current_submission",
+                "last_activity_at",
+                "last_error",
+                "updated_at",
+            ]
+        )
+
+        # ====================================================
+        # Ejecutar según modo
+        # ====================================================
+
+        if batch.is_dry_run:
+            process_dry_run_submission(
+                submission,
+            )
+
+        elif batch.is_live:
+            process_live_submission(
+                submission,
+            )
+
+        else:
+            submission.mark_failed(
+                (
+                    "Unknown Client Submission execution mode: "
+                    f"{batch.execution_mode!r}."
+                ),
+                code="INVALID_EXECUTION_MODE",
+            )
+
+            batch.last_error = (
+                "Unknown Client Submission execution mode: "
+                f"{batch.execution_mode!r}."
+            )
+
+            batch.last_activity_at = timezone.now()
+
+            batch.save(
+                update_fields=[
+                    "last_error",
+                    "last_activity_at",
+                    "updated_at",
+                ]
+            )
+
+            create_event(
+                batch=batch,
+                submission=submission,
+                level=ClientSubmissionEvent.Level.ERROR,
+                event_type="invalid_execution_mode",
+                message=(
+                    f"Submission {submission.project_id} "
+                    "was blocked because the Batch has an "
+                    "invalid execution mode."
+                ),
+                metadata={
+                    "execution_mode": batch.execution_mode,
+                },
+            )
+
+        # ====================================================
+        # Revisar si el proceso debe detenerse
+        # ====================================================
+
+        batch.refresh_from_db()
+
+        if batch.status in {
+            ClientSubmissionBatch.Status.PAUSED,
+            ClientSubmissionBatch.Status.CANCELLED,
+            ClientSubmissionBatch.Status.AWAITING_VERIFICATION,
+        }:
+            return
+
+
+def process_live_submission(
+    submission: ClientSubmission,
+):
+    """
+    Procesa un ClientSubmission en modo LIVE.
+
+    Flujo:
+
+    1. Crea el intento.
+    2. Genera las partes ZIP.
+    3. Abre y completa el formulario.
+    4. Adjunta los ZIP.
+    5. Presiona Submit.
+    6. Espera la confirmación visual de Smartsheet.
+    7. Marca la confirmación del navegador.
+    8. Deja el proyecto esperando confirmación por correo,
+       salvo que esta ya exista.
+    """
+
+    batch = submission.batch
+
+    attempt = create_attempt(
+        submission,
+    )
+
+    submission.refresh_from_db()
+
+    local_zip_paths: list[str] = []
+
+    temporary_zips = False
+
+    zip_stats: dict = {}
+
+    zip_filenames: list[str] = []
+
+    try:
+        # ====================================================
+        # Preparar ZIP divididos para Smartsheet
+        # ====================================================
+
+        (
+            local_zip_paths,
+            temporary_zips,
+            zip_stats,
+        ) = prepare_local_zip_parts(
+            submission,
+        )
+
+        zip_filenames = [Path(path).name for path in local_zip_paths]
+
+        if not local_zip_paths:
+            raise RuntimeError("No ZIP files were prepared for Smartsheet.")
+
+        if len(local_zip_paths) > SMARTSHEET_MAX_ZIP_PARTS:
+            raise RuntimeError(
+                (
+                    "Too many ZIP parts were prepared. "
+                    f"Received: {len(local_zip_paths)}. "
+                    f"Maximum: {SMARTSHEET_MAX_ZIP_PARTS}."
+                )
+            )
+
+        for local_zip_path in local_zip_paths:
+            path = Path(
+                local_zip_path,
+            )
+
+            if not path.exists():
+                raise RuntimeError(f"Prepared ZIP part does not exist: {path}")
+
+            file_size = path.stat().st_size
+
+            if file_size <= 0:
+                raise RuntimeError(f"Prepared ZIP part is empty: {path.name}")
+
+            if file_size > SMARTSHEET_MAX_ZIP_PART_BYTES:
+                raise RuntimeError(
+                    (
+                        f"Prepared ZIP part {path.name} exceeds "
+                        "the Smartsheet limit. "
+                        f"Size: {file_size} bytes. "
+                        "Maximum: "
+                        f"{SMARTSHEET_MAX_ZIP_PART_BYTES} bytes."
+                    )
+                )
+
+        # ====================================================
+        # Marcar Submission como submitting
+        # ====================================================
+
+        submission.mark_submitting()
+
+        batch.last_activity_at = timezone.now()
+
+        batch.save(
+            update_fields=[
                 "last_activity_at",
                 "updated_at",
             ]
         )
 
         # ====================================================
-        # Solo Dry Run por ahora
+        # Evento de inicio
         # ====================================================
 
-        if batch.is_dry_run:
-            process_dry_run_submission(submission)
-
-        else:
-            submission.mark_failed(
-                (
-                    "Live submission is not enabled yet. "
-                    "Use Dry Run while validating "
-                    "the form automation."
+        create_event(
+            batch=batch,
+            submission=submission,
+            event_type="live_submission_started",
+            message=(f"Live submission started for " f"{submission.project_id}."),
+            metadata={
+                "attempt_number": attempt.attempt_number,
+                "zip_parts": zip_filenames,
+                "zip_part_count": len(
+                    zip_filenames,
                 ),
-                code=("LIVE_NOT_IMPLEMENTED"),
+                "zip_stats": zip_stats,
+            },
+        )
+
+        # ====================================================
+        # Browser visibility
+        # ====================================================
+
+        headless = (
+            os.getenv(
+                "CLIENT_SUBMISSIONS_HEADLESS",
+                "1",
+            ).strip()
+            == "1"
+        )
+
+        logger.info(
+            (
+                "Starting Smartsheet Live submission "
+                "submission=%s project=%s "
+                "headless=%s zip_parts=%s"
+            ),
+            submission.pk,
+            submission.project_id,
+            headless,
+            len(
+                local_zip_paths,
+            ),
+        )
+
+        # ====================================================
+        # Ejecutar Playwright LIVE
+        # ====================================================
+
+        result = asyncio.run(
+            run_smartsheet_live(
+                submission=submission,
+                attachment_paths=local_zip_paths,
+                headless=headless,
             )
+        )
+
+        # ====================================================
+        # Verificación humana
+        # ====================================================
+
+        if result.verification_required:
+            submission.refresh_from_db()
+
+            submission.mark_awaiting_verification()
+
+            batch.mark_awaiting_verification()
+
+            attempt.result = ClientSubmissionAttempt.Result.AWAITING_VERIFICATION
+
+            attempt.browser_url = result.final_url or ""
+
+            attempt.browser_title = result.page_title or ""
+
+            attempt.page_html_snapshot = result.html_snapshot or ""
+
+            attempt.error_details = {
+                "zip_parts": zip_filenames,
+                "zip_stats": zip_stats,
+                "metadata": result.metadata or {},
+            }
+
+            if result.screenshot_path:
+                save_attempt_screenshot(
+                    attempt,
+                    result.screenshot_path,
+                )
+
+            attempt.finished_at = timezone.now()
+
+            attempt.save()
 
             create_event(
                 batch=batch,
                 submission=submission,
-                level=(ClientSubmissionEvent.Level.ERROR),
-                event_type=("live_submission_not_implemented"),
+                level=ClientSubmissionEvent.Level.WARNING,
+                event_type="verification_required",
                 message=(
-                    "Live submission was blocked because "
-                    "the production submit step "
-                    "is not enabled yet."
+                    "Human verification is required for " f"{submission.project_id}."
                 ),
+                metadata={
+                    "attempt_number": attempt.attempt_number,
+                    "zip_parts": zip_filenames,
+                    "zip_stats": zip_stats,
+                    "result_metadata": result.metadata or {},
+                },
             )
+
+            return
+
+        # ====================================================
+        # Validar resultado general
+        # ====================================================
+
+        if not result.ok:
+            raise RuntimeError(
+                ("Smartsheet Live submission returned " "an unsuccessful result.")
+            )
+
+        # ====================================================
+        # Validar archivos adjuntos
+        # ====================================================
+
+        if not result.attachments_uploaded:
+            raise RuntimeError(
+                (
+                    "The Smartsheet form was completed, "
+                    "but the ZIP attachments were not accepted."
+                )
+            )
+
+        if len(
+            result.attachment_filenames,
+        ) != len(
+            local_zip_paths,
+        ):
+            raise RuntimeError(
+                (
+                    "Smartsheet did not report all ZIP parts "
+                    "as attached. "
+                    f"Expected: {len(local_zip_paths)}. "
+                    "Reported: "
+                    f"{len(result.attachment_filenames)}."
+                )
+            )
+
+        # ====================================================
+        # Validar que realmente se presionó Submit
+        # ====================================================
+
+        result_metadata = (
+            result.metadata
+            if isinstance(
+                result.metadata,
+                dict,
+            )
+            else {}
+        )
+
+        submit_clicked = bool(
+            result_metadata.get(
+                "submit_clicked",
+                False,
+            )
+        )
+
+        if not submit_clicked:
+            raise RuntimeError(
+                (
+                    "Smartsheet Live submission did not confirm "
+                    "that the Submit button was clicked."
+                )
+            )
+
+        # ====================================================
+        # Validar confirmación visual del navegador
+        # ====================================================
+
+        browser_confirmation_received = bool(
+            result_metadata.get(
+                "browser_confirmation_received",
+                False,
+            )
+        )
+
+        if not browser_confirmation_received:
+            raise RuntimeError(
+                (
+                    "The Submit button was clicked, but "
+                    "Smartsheet browser confirmation "
+                    "was not detected."
+                )
+            )
+
+        confirmation_reference = str(
+            result_metadata.get(
+                "confirmation_reference",
+                "",
+            )
+            or ""
+        ).strip()
+
+        # ====================================================
+        # Guardar intento exitoso
+        # ====================================================
+
+        attempt.result = ClientSubmissionAttempt.Result.BROWSER_CONFIRMED
+
+        attempt.browser_url = result.final_url or ""
+
+        attempt.browser_title = result.page_title or ""
+
+        attempt.page_html_snapshot = result.html_snapshot or ""
+
+        attempt.error_details = {
+            "fields_filled": result.fields_filled,
+            "attachments_uploaded": (result.attachments_uploaded),
+            "attachment_filenames": (result.attachment_filenames),
+            "attachment_count": len(
+                result.attachment_filenames,
+            ),
+            "submit_clicked": submit_clicked,
+            "browser_confirmation_received": (browser_confirmation_received),
+            "confirmation_reference": (confirmation_reference),
+            "zip_stats": zip_stats,
+            "metadata": result_metadata,
+        }
+
+        if result.screenshot_path:
+            save_attempt_screenshot(
+                attempt,
+                result.screenshot_path,
+            )
+
+        attempt.finished_at = timezone.now()
+
+        attempt.save()
+
+        # ====================================================
+        # Marcar confirmación del navegador
+        #
+        # Este método dejará el proyecto:
+        #
+        # - SENT_TO_CLIENT si el correo ya fue confirmado.
+        # - AWAITING_EMAIL_CONFIRMATION si falta el correo.
+        # ====================================================
+
+        submission.refresh_from_db()
+
+        submission.mark_browser_confirmed(
+            reference=confirmation_reference,
+        )
+
+        batch.last_activity_at = timezone.now()
+
+        batch.save(
+            update_fields=[
+                "last_activity_at",
+                "updated_at",
+            ]
+        )
+
+        # ====================================================
+        # Evento exitoso
+        # ====================================================
+
+        create_event(
+            batch=batch,
+            submission=submission,
+            level=ClientSubmissionEvent.Level.SUCCESS,
+            event_type="live_submission_browser_confirmed",
+            message=(
+                f"Live submission completed for "
+                f"{submission.project_id}. "
+                "Smartsheet confirmed the browser submission."
+            ),
+            metadata={
+                "attempt_number": attempt.attempt_number,
+                "fields_filled": result.fields_filled,
+                "attachments_uploaded": (result.attachments_uploaded),
+                "attachment_filenames": (result.attachment_filenames),
+                "attachment_count": len(
+                    result.attachment_filenames,
+                ),
+                "submit_clicked": submit_clicked,
+                "browser_confirmation_received": (browser_confirmation_received),
+                "confirmation_reference": (confirmation_reference),
+                "submission_status": submission.status,
+                "zip_stats": zip_stats,
+            },
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Live submission failed for submission %s",
+            submission.pk,
+        )
+
+        submission.refresh_from_db()
+
+        submission.mark_failed(
+            str(
+                exc,
+            ),
+            code=exc.__class__.__name__,
+        )
+
+        attempt.result = ClientSubmissionAttempt.Result.FAILED
+
+        attempt.error_code = exc.__class__.__name__
+
+        attempt.error_message = str(
+            exc,
+        )
+
+        attempt.error_details = {
+            "zip_parts": [Path(path).name for path in local_zip_paths],
+            "zip_stats": zip_stats,
+            "error_type": exc.__class__.__name__,
+        }
+
+        attempt.finished_at = timezone.now()
+
+        attempt.save(
+            update_fields=[
+                "result",
+                "error_code",
+                "error_message",
+                "error_details",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+
+        batch.last_error = str(
+            exc,
+        )
+
+        batch.last_activity_at = timezone.now()
+
+        batch.save(
+            update_fields=[
+                "last_error",
+                "last_activity_at",
+                "updated_at",
+            ]
+        )
+
+        create_event(
+            batch=batch,
+            submission=submission,
+            level=ClientSubmissionEvent.Level.ERROR,
+            event_type="live_submission_failed",
+            message=(f"Live submission failed for " f"{submission.project_id}: {exc}"),
+            metadata={
+                "error_type": exc.__class__.__name__,
+                "attempt_number": attempt.attempt_number,
+                "zip_parts": [Path(path).name for path in local_zip_paths],
+                "zip_stats": zip_stats,
+            },
+        )
+
+    finally:
+        # ====================================================
+        # Eliminar ZIP temporales
+        # ====================================================
+
+        if temporary_zips:
+            for local_zip_path in local_zip_paths:
+                try:
+                    Path(
+                        local_zip_path,
+                    ).unlink(
+                        missing_ok=True,
+                    )
+
+                except Exception:
+                    logger.exception(
+                        ("Could not delete temporary " "ZIP part: %s"),
+                        local_zip_path,
+                    )
 
 
 # ============================================================

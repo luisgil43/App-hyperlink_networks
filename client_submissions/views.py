@@ -1084,7 +1084,7 @@ def create_batch_from_invoices(
         "production_completed_date": (
             common_finish_date.isoformat() if common_finish_date else ""
         ),
-        "execution_mode": (ClientSubmissionBatch.ExecutionMode.DRY_RUN),
+        "execution_mode": (ClientSubmissionBatch.ExecutionMode.LIVE),
         "send_copy_of_responses": True,
         "is_subcontractor": True,
         "configuration_mode": "common",
@@ -1156,6 +1156,10 @@ def create_batch_submit(
 
     Aerial Case y Re-Entry también serán resueltos desde
     los códigos reales del Billing.
+
+    El modo de ejecución predeterminado es LIVE. Dry Run
+    continúa disponible cuando el usuario lo selecciona
+    explícitamente en el formulario.
     """
 
     _assert_manage_permission(
@@ -1198,9 +1202,18 @@ def create_batch_submit(
 
     billing_ids = [billing.pk for billing in billings]
 
+    # ========================================================
+    # Modo de ejecución
+    #
+    # LIVE es el modo predeterminado.
+    # DRY_RUN se conserva cuando el usuario lo selecciona
+    # explícitamente desde el formulario.
+    # ========================================================
+
     execution_mode = _clean_text(
         request.POST.get(
             "execution_mode",
+            ClientSubmissionBatch.ExecutionMode.LIVE,
         )
     )
 
@@ -1209,7 +1222,7 @@ def create_batch_submit(
     }
 
     if execution_mode not in valid_execution_modes:
-        execution_mode = ClientSubmissionBatch.ExecutionMode.DRY_RUN
+        execution_mode = ClientSubmissionBatch.ExecutionMode.LIVE
 
     # ========================================================
     # Configuración común / individual
@@ -1350,7 +1363,9 @@ def create_batch_submit(
         )
 
         back_url = (
-            reverse("client_submissions:" "create_batch_from_invoices")
+            reverse(
+                "client_submissions:create_batch_from_invoices",
+            )
             + "?ids="
             + ",".join(
                 str(
@@ -1371,7 +1386,9 @@ def create_batch_submit(
         )
 
         back_url = (
-            reverse("client_submissions:" "create_batch_from_invoices")
+            reverse(
+                "client_submissions:create_batch_from_invoices",
+            )
             + "?ids="
             + ",".join(
                 str(
@@ -1406,12 +1423,18 @@ def create_batch_submit(
         )
 
     else:
+        execution_label = (
+            "Live submission"
+            if execution_mode == ClientSubmissionBatch.ExecutionMode.LIVE
+            else "Dry Run"
+        )
+
         messages.success(
             request,
             (
                 "Batch created successfully. "
-                f"{result.total_ready} "
-                "project(s) are ready."
+                f"{result.total_ready} project(s) are ready. "
+                f"Execution mode: {execution_label}."
             ),
         )
 

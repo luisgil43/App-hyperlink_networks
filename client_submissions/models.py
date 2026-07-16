@@ -91,7 +91,7 @@ class ClientSubmissionBatch(models.Model):
     execution_mode = models.CharField(
         max_length=20,
         choices=ExecutionMode.choices,
-        default=ExecutionMode.DRY_RUN,
+        default=ExecutionMode.LIVE,
         db_index=True,
     )
 
