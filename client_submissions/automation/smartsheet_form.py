@@ -3295,11 +3295,16 @@ async def run_smartsheet_dry_run(
     headless: bool = False,
 ) -> SmartsheetDryRunResult:
     """
-    Abre el formulario real, lo llena progresivamente
-    y se detiene antes de Submit.
+    Abre el formulario real de Smartsheet, lo completa
+    progresivamente y se detiene antes de Submit.
 
     IMPORTANTE:
-    NO hace click en Submit.
+
+    - Dry Run nunca presiona Submit.
+    - En producción el navegador se ejecuta dentro del worker.
+    - No aparecerá una ventana visible en la computadora
+      del usuario.
+    - Se generan screenshots para comprobar el resultado.
     """
 
     # ========================================================
@@ -3311,7 +3316,7 @@ async def run_smartsheet_dry_run(
     )
 
     # ========================================================
-    # Screenshot
+    # Directorio de screenshots
     # ========================================================
 
     SCREENSHOT_DIR.mkdir(
@@ -3324,22 +3329,33 @@ async def run_smartsheet_dry_run(
     )
 
     playwright: Playwright | None = None
-
     browser: Browser | None = None
-
     context: BrowserContext | None = None
 
     try:
-
         # ====================================================
         # Iniciar Playwright
         # ====================================================
 
         playwright = await async_playwright().start()
 
+        print(
+            "STARTING PLAYWRIGHT:",
+            {
+                "submission_id": submission.pk,
+                "project_id": submission.project_id,
+                "headless": headless,
+            },
+        )
+
         browser = await playwright.chromium.launch(
             headless=headless,
             slow_mo=(120 if not headless else 0),
+            args=[
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ],
         )
 
         context = await browser.new_context(
@@ -3348,6 +3364,16 @@ async def run_smartsheet_dry_run(
                 "height": 1100,
             },
             accept_downloads=True,
+            ignore_https_errors=True,
+            user_agent=(
+                "Mozilla/5.0 "
+                "(X11; Linux x86_64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/131.0.0.0 "
+                "Safari/537.36"
+            ),
+            locale="en-US",
         )
 
         page = await context.new_page()
@@ -3357,74 +3383,93 @@ async def run_smartsheet_dry_run(
         )
 
         # ====================================================
-        # Abrir formulario
-        #
-        # Smartsheet puede tardar de forma intermitente.
-        #
-        # Se permiten hasta 3 intentos de navegación.
-        #
-        # wait_until="commit" confirma que el servidor respondió
-        # y que el documento comenzó a cargar.
-        #
-        # Después esperamos explícitamente el formulario real.
+        # Eventos de diagnóstico del navegador
         # ====================================================
 
-        navigation_attempts = 3
+        page.on(
+            "console",
+            lambda message: print(
+                "BROWSER CONSOLE:",
+                {
+                    "type": message.type,
+                    "text": message.text,
+                },
+            ),
+        )
 
+        page.on(
+            "pageerror",
+            lambda error: print(
+                "BROWSER PAGE ERROR:",
+                str(
+                    error,
+                ),
+            ),
+        )
+
+        page.on(
+            "requestfailed",
+            lambda request: print(
+                "BROWSER REQUEST FAILED:",
+                {
+                    "url": request.url,
+                    "failure": request.failure,
+                },
+            ),
+        )
+
+        # ====================================================
+        # Abrir formulario con reintentos completos
+        #
+        # Cada intento incluye:
+        #
+        # 1. Abrir URL.
+        # 2. Revisar HTTP.
+        # 3. Esperar React.
+        # 4. Esperar Submitted by.
+        #
+        # page.goto() puede completar sin error aunque
+        # Smartsheet responda 503. Por eso revisamos status.
+        # ====================================================
+
+        navigation_attempts = 5
+
+        navigation_attempt = 0
+        navigation_response = None
         navigation_error = None
 
-        navigation_response = None
+        form_loaded = False
+
+        last_http_status = None
+        last_body_text = ""
+
+        retryable_http_statuses = {
+            408,
+            425,
+            429,
+            500,
+            502,
+            503,
+            504,
+        }
 
         for navigation_attempt in range(
             1,
             navigation_attempts + 1,
         ):
+            print(
+                "OPENING SMARTSHEET FORM:",
+                {
+                    "url": batch.form_url,
+                    "attempt": navigation_attempt,
+                    "max_attempts": navigation_attempts,
+                },
+            )
+
             try:
-                print(
-                    "OPENING SMARTSHEET FORM:",
-                    {
-                        "url": batch.form_url,
-                        "attempt": navigation_attempt,
-                        "max_attempts": navigation_attempts,
-                    },
-                )
-
-                navigation_response = await page.goto(
-                    batch.form_url,
-                    wait_until="commit",
-                    timeout=90_000,
-                )
-
-                print(
-                    "SMARTSHEET NAVIGATION RESPONSE:",
-                    {
-                        "attempt": navigation_attempt,
-                        "status": (
-                            navigation_response.status if navigation_response else None
-                        ),
-                        "url": page.url,
-                    },
-                )
-
-                navigation_error = None
-
-                break
-
-            except Exception as exc:
-                navigation_error = exc
-
-                print(
-                    "SMARTSHEET NAVIGATION ATTEMPT FAILED:",
-                    {
-                        "attempt": navigation_attempt,
-                        "max_attempts": navigation_attempts,
-                        "error": str(exc),
-                        "current_url": page.url,
-                    },
-                )
-
-                if navigation_attempt >= navigation_attempts:
-                    break
+                # ============================================
+                # Limpiar página anterior
+                # ============================================
 
                 try:
                     await page.goto(
@@ -3437,101 +3482,432 @@ async def run_smartsheet_dry_run(
                     pass
 
                 await page.wait_for_timeout(
+                    1000,
+                )
+
+                # ============================================
+                # Navegar a Smartsheet
+                # ============================================
+
+                navigation_response = await page.goto(
+                    batch.form_url,
+                    wait_until="domcontentloaded",
+                    timeout=90_000,
+                )
+
+                last_http_status = (
+                    navigation_response.status if navigation_response else None
+                )
+
+                print(
+                    "SMARTSHEET NAVIGATION RESPONSE:",
+                    {
+                        "attempt": navigation_attempt,
+                        "status": last_http_status,
+                        "url": page.url,
+                    },
+                )
+
+                # ============================================
+                # Obtener body visible
+                # ============================================
+
+                try:
+                    last_body_text = await page.locator(
+                        "body",
+                    ).inner_text(
+                        timeout=10_000,
+                    )
+
+                except Exception:
+                    last_body_text = ""
+
+                # ============================================
+                # HTTP temporal: volver a intentar
+                # ============================================
+
+                if last_http_status in retryable_http_statuses:
+                    navigation_error = SmartsheetFormLoadError(
+                        "Smartsheet returned temporary HTTP "
+                        f"{last_http_status}. "
+                        f"Visible body: "
+                        f"{last_body_text[:1000]!r}"
+                    )
+
+                    print(
+                        "SMARTSHEET TEMPORARY HTTP ERROR:",
+                        {
+                            "attempt": navigation_attempt,
+                            "status": last_http_status,
+                            "body": last_body_text[:500],
+                        },
+                    )
+
+                    # Guardar screenshot del error HTTP.
+                    try:
+                        http_error_path = SCREENSHOT_DIR / (
+                            f"submission_"
+                            f"{submission.pk}_"
+                            f"http_error_attempt_"
+                            f"{navigation_attempt}.png"
+                        )
+
+                        await page.screenshot(
+                            path=str(
+                                http_error_path.resolve(),
+                            ),
+                            full_page=True,
+                        )
+
+                        print(
+                            "SMARTSHEET HTTP ERROR SCREENSHOT:",
+                            str(
+                                http_error_path.resolve(),
+                            ),
+                        )
+
+                    except Exception as screenshot_exc:
+                        print(
+                            "COULD NOT SAVE HTTP ERROR SCREENSHOT:",
+                            str(
+                                screenshot_exc,
+                            ),
+                        )
+
+                    if navigation_attempt < navigation_attempts:
+                        retry_delay_ms = min(
+                            navigation_attempt * 5000,
+                            20_000,
+                        )
+
+                        print(
+                            "SMARTSHEET RETRYING AFTER HTTP ERROR:",
+                            {
+                                "delay_ms": retry_delay_ms,
+                            },
+                        )
+
+                        await page.wait_for_timeout(
+                            retry_delay_ms,
+                        )
+
+                        continue
+
+                    break
+
+                # ============================================
+                # Otros errores HTTP no temporales
+                # ============================================
+
+                if last_http_status is not None and last_http_status >= 400:
+                    navigation_error = SmartsheetFormLoadError(
+                        "Smartsheet returned HTTP "
+                        f"{last_http_status}. "
+                        f"Visible body: "
+                        f"{last_body_text[:1000]!r}"
+                    )
+
+                    break
+
+                # ============================================
+                # Esperar que el frontend termine de cargar
+                # ============================================
+
+                try:
+                    await page.wait_for_load_state(
+                        "domcontentloaded",
+                        timeout=30_000,
+                    )
+
+                except Exception:
+                    pass
+
+                await page.wait_for_timeout(
                     3000,
                 )
 
-        if navigation_error is not None:
+                # ============================================
+                # Detectar challenge antes de esperar
+                # indefinidamente el formulario
+                # ============================================
+
+                if await _detect_verification_challenge(
+                    page,
+                ):
+                    print(
+                        "SMARTSHEET VERIFICATION CHALLENGE DETECTED:",
+                        {
+                            "attempt": navigation_attempt,
+                            "url": page.url,
+                        },
+                    )
+
+                    return SmartsheetDryRunResult(
+                        ok=False,
+                        final_url=page.url,
+                        page_title=(await page.title()),
+                        verification_required=True,
+                        metadata={
+                            "stage": "form_load",
+                            "navigation_attempt": (navigation_attempt),
+                            "http_status": last_http_status,
+                        },
+                    )
+
+                # ============================================
+                # El formulario puede identificarse por:
+                #
+                # 1. El elemento <form>.
+                # 2. Submitted by.
+                #
+                # No dependemos exclusivamente del aria-label.
+                # ============================================
+
+                form_locator = page.locator(
+                    'form[aria-label*="questions in this form" i]'
+                )
+
+                submitted_by_input = page.locator(
+                    'input[type="email"]' '[data-client-id="form-field"]'
+                )
+
+                generic_email_input = page.locator('input[type="email"]')
+
+                try:
+                    await form_locator.wait_for(
+                        state="attached",
+                        timeout=30_000,
+                    )
+
+                    print(
+                        "SMARTSHEET FORM ELEMENT ATTACHED:",
+                        {
+                            "attempt": navigation_attempt,
+                        },
+                    )
+
+                except Exception:
+                    print(
+                        "SMARTSHEET FORM ELEMENT NOT FOUND BY ARIA-LABEL:",
+                        {
+                            "attempt": navigation_attempt,
+                        },
+                    )
+
+                # ============================================
+                # Esperar Submitted by
+                # ============================================
+
+                submitted_ready = False
+
+                try:
+                    await submitted_by_input.first.wait_for(
+                        state="visible",
+                        timeout=30_000,
+                    )
+
+                    submitted_ready = True
+
+                    print(
+                        "SUBMITTED BY INPUT READY:",
+                        {
+                            "method": "data-client-id",
+                            "attempt": navigation_attempt,
+                        },
+                    )
+
+                except Exception:
+                    try:
+                        await generic_email_input.first.wait_for(
+                            state="visible",
+                            timeout=15_000,
+                        )
+
+                        submitted_ready = True
+
+                        print(
+                            "SUBMITTED BY INPUT READY:",
+                            {
+                                "method": "generic-email",
+                                "attempt": navigation_attempt,
+                            },
+                        )
+
+                    except Exception as submitted_exc:
+                        navigation_error = submitted_exc
+
+                if submitted_ready:
+                    form_loaded = True
+                    navigation_error = None
+
+                    print(
+                        "SMARTSHEET FORM FULLY READY:",
+                        {
+                            "attempt": navigation_attempt,
+                            "status": last_http_status,
+                            "url": page.url,
+                        },
+                    )
+
+                    break
+
+                # ============================================
+                # Formulario no montó correctamente
+                # ============================================
+
+                try:
+                    last_body_text = await page.locator(
+                        "body",
+                    ).inner_text(
+                        timeout=10_000,
+                    )
+
+                except Exception:
+                    last_body_text = ""
+
+                print(
+                    "SMARTSHEET FORM DID NOT BECOME READY:",
+                    {
+                        "attempt": navigation_attempt,
+                        "status": last_http_status,
+                        "url": page.url,
+                        "body": last_body_text[:1000],
+                        "error": str(
+                            navigation_error,
+                        ),
+                    },
+                )
+
+                # ============================================
+                # Screenshot de carga fallida
+                # ============================================
+
+                try:
+                    failed_load_path = SCREENSHOT_DIR / (
+                        f"submission_"
+                        f"{submission.pk}_"
+                        f"load_attempt_"
+                        f"{navigation_attempt}.png"
+                    )
+
+                    await page.screenshot(
+                        path=str(
+                            failed_load_path.resolve(),
+                        ),
+                        full_page=True,
+                    )
+
+                    print(
+                        "SMARTSHEET LOAD FAILURE SCREENSHOT:",
+                        str(
+                            failed_load_path.resolve(),
+                        ),
+                    )
+
+                except Exception as screenshot_exc:
+                    print(
+                        "COULD NOT SAVE LOAD FAILURE SCREENSHOT:",
+                        str(
+                            screenshot_exc,
+                        ),
+                    )
+
+                if navigation_attempt < navigation_attempts:
+                    retry_delay_ms = min(
+                        navigation_attempt * 5000,
+                        20_000,
+                    )
+
+                    print(
+                        "SMARTSHEET FORM RETRY SCHEDULED:",
+                        {
+                            "delay_ms": retry_delay_ms,
+                        },
+                    )
+
+                    await page.wait_for_timeout(
+                        retry_delay_ms,
+                    )
+
+                    continue
+
+                break
+
+            except Exception as exc:
+                navigation_error = exc
+
+                print(
+                    "SMARTSHEET NAVIGATION ATTEMPT FAILED:",
+                    {
+                        "attempt": navigation_attempt,
+                        "max_attempts": navigation_attempts,
+                        "error": str(
+                            exc,
+                        ),
+                        "current_url": page.url,
+                    },
+                )
+
+                try:
+                    last_body_text = await page.locator(
+                        "body",
+                    ).inner_text(
+                        timeout=5000,
+                    )
+
+                except Exception:
+                    last_body_text = ""
+
+                try:
+                    exception_path = SCREENSHOT_DIR / (
+                        f"submission_"
+                        f"{submission.pk}_"
+                        f"navigation_exception_"
+                        f"{navigation_attempt}.png"
+                    )
+
+                    await page.screenshot(
+                        path=str(
+                            exception_path.resolve(),
+                        ),
+                        full_page=True,
+                    )
+
+                except Exception:
+                    pass
+
+                if navigation_attempt >= navigation_attempts:
+                    break
+
+                retry_delay_ms = min(
+                    navigation_attempt * 5000,
+                    20_000,
+                )
+
+                await page.wait_for_timeout(
+                    retry_delay_ms,
+                )
+
+        # ====================================================
+        # Validar resultado final de navegación
+        # ====================================================
+
+        if not form_loaded:
             raise SmartsheetFormLoadError(
-                "Could not open Smartsheet form after "
-                f"{navigation_attempts} navigation attempts: "
-                f"{navigation_error}"
+                "Could not load the Smartsheet form after "
+                f"{navigation_attempts} attempts. "
+                f"Last HTTP status: {last_http_status!r}. "
+                f"Current URL: {page.url!r}. "
+                f"Visible body: {last_body_text[:1000]!r}. "
+                f"Last error: {navigation_error}"
             ) from navigation_error
 
         # ====================================================
-        # Esperar montaje real del formulario Smartsheet
-        #
-        # La navegación solo confirma que el documento empezó
-        # a cargar.
-        #
-        # Aquí esperamos específicamente el formulario React.
-        # ====================================================
-
-        try:
-            form_locator = page.locator('form[aria-label*="questions in this form" i]')
-
-            await form_locator.wait_for(
-                state="visible",
-                timeout=90_000,
-            )
-
-            print(
-                "SMARTSHEET FORM ELEMENT IS VISIBLE",
-            )
-
-        except Exception as exc:
-            body_text = ""
-
-            try:
-                body_text = await page.locator(
-                    "body",
-                ).inner_text()
-
-            except Exception:
-                pass
-
-            raise SmartsheetFormLoadError(
-                "Smartsheet page opened but the form "
-                "did not finish rendering. "
-                f"Current URL: {page.url!r}. "
-                f"Visible body: {body_text[:1000]!r}. "
-                f"Original error: {exc}"
-            ) from exc
-
-        # ====================================================
-        # Esperar primer campo real
-        #
-        # Corresponde a Submitted by.
-        # ====================================================
-
-        try:
-            submitted_by_input = page.locator(
-                'input[type="email"]' '[data-client-id="form-field"]'
-            )
-
-            await submitted_by_input.first.wait_for(
-                state="visible",
-                timeout=60_000,
-            )
-
-            print(
-                "SUBMITTED BY INPUT IS READY",
-            )
-
-        except Exception as exc:
-            body_text = ""
-
-            try:
-                body_text = await page.locator(
-                    "body",
-                ).inner_text()
-
-            except Exception:
-                pass
-
-            raise SmartsheetFormLoadError(
-                "Smartsheet form became visible but "
-                "Submitted by did not become ready. "
-                f"Current URL: {page.url!r}. "
-                f"Visible body: {body_text[:1000]!r}. "
-                f"Original error: {exc}"
-            ) from exc
-
-        # ====================================================
-        # Dar una pequeña estabilización al formulario
+        # Estabilización
         # ====================================================
 
         await page.wait_for_timeout(
-            1000,
+            1500,
         )
 
         # ====================================================
@@ -3541,6 +3917,37 @@ async def run_smartsheet_dry_run(
         await _mark_form_loaded(
             submission,
         )
+
+        # ====================================================
+        # Screenshot inicial del formulario cargado
+        # ====================================================
+
+        try:
+            initial_screenshot_path = SCREENSHOT_DIR / (
+                f"submission_" f"{submission.pk}_" f"form_loaded.png"
+            )
+
+            await page.screenshot(
+                path=str(
+                    initial_screenshot_path.resolve(),
+                ),
+                full_page=True,
+            )
+
+            print(
+                "SMARTSHEET INITIAL FORM SCREENSHOT:",
+                str(
+                    initial_screenshot_path.resolve(),
+                ),
+            )
+
+        except Exception as exc:
+            print(
+                "COULD NOT SAVE INITIAL FORM SCREENSHOT:",
+                str(
+                    exc,
+                ),
+            )
 
         # ====================================================
         # Challenge inicial
@@ -3556,6 +3963,8 @@ async def run_smartsheet_dry_run(
                 verification_required=True,
                 metadata={
                     "stage": "before_form_fill",
+                    "navigation_attempt": navigation_attempt,
+                    "http_status": last_http_status,
                 },
             )
 
@@ -3579,9 +3988,53 @@ async def run_smartsheet_dry_run(
         )
 
         # ====================================================
-        # PRUEBA VISUAL TEMPORAL
-        #
-        # Mostrar Email address al final.
+        # ZIP
+        # ====================================================
+
+        attachment_uploaded = False
+        attachment_filename = ""
+
+        if attachment_path:
+            file_inputs = page.locator('input[type="file"]')
+
+            file_input_count = await file_inputs.count()
+
+            print(
+                "SMARTSHEET FILE INPUT COUNT:",
+                file_input_count,
+            )
+
+            if file_input_count > 0:
+                attachment_uploaded = await _upload_attachment(
+                    page,
+                    attachment_path,
+                )
+
+                attachment_filename = Path(
+                    attachment_path,
+                ).name
+
+                await page.wait_for_timeout(
+                    2500,
+                )
+
+                print(
+                    "SMARTSHEET ATTACHMENT UPLOADED:",
+                    {
+                        "uploaded": attachment_uploaded,
+                        "filename": attachment_filename,
+                    },
+                )
+
+            else:
+                logger.warning(
+                    "The attachment field has not appeared yet. "
+                    "The progressive form reached its current "
+                    "visible stage without uploading the ZIP."
+                )
+
+        # ====================================================
+        # Llevar vista hacia el final
         # ====================================================
 
         try:
@@ -3598,74 +4051,24 @@ async def run_smartsheet_dry_run(
             await email_label.scroll_into_view_if_needed()
 
             await page.wait_for_timeout(
-                500,
-            )
-
-            print(
-                "SHOWING COPY EMAIL FIELD VISUALLY",
-            )
-
-            await page.wait_for_timeout(
-                10_000,
+                1000,
             )
 
         except Exception as exc:
             print(
-                "COULD NOT SHOW COPY EMAIL VISUALLY:",
-                exc,
+                "COULD NOT SCROLL TO COPY EMAIL FIELD:",
+                str(
+                    exc,
+                ),
             )
 
         # ====================================================
-        # Estado después de completar
+        # Estado final para logs
         # ====================================================
 
         await _debug_form_state(
             page,
             "SMARTSHEET FORM AFTER PROGRESSIVE FILL",
-        )
-
-        # ====================================================
-        # ZIP
-        # ====================================================
-
-        attachment_uploaded = False
-
-        attachment_filename = ""
-
-        if attachment_path:
-            file_inputs = page.locator('input[type="file"]')
-
-            if await file_inputs.count() > 0:
-                attachment_uploaded = await _upload_attachment(
-                    page,
-                    attachment_path,
-                )
-
-                attachment_filename = Path(
-                    attachment_path,
-                ).name
-
-                await page.wait_for_timeout(
-                    2500,
-                )
-
-            else:
-                logger.warning(
-                    "The attachment field has not appeared yet. "
-                    "The progressive form reached its current "
-                    "visible stage without uploading the ZIP."
-                )
-
-        # ====================================================
-        # Guardar resultado
-        # ====================================================
-
-        await _mark_form_completed(
-            submission,
-            final_url=page.url,
-            fields_filled=fields_filled,
-            attachment_uploaded=attachment_uploaded,
-            attachment_filename=attachment_filename,
         )
 
         # ====================================================
@@ -3679,13 +4082,43 @@ async def run_smartsheet_dry_run(
             full_page=True,
         )
 
+        print(
+            "SMARTSHEET FINAL SCREENSHOT:",
+            str(
+                screenshot_path.resolve(),
+            ),
+        )
+
         # ====================================================
-        # HTML
+        # Mantener abierto algunos segundos
+        #
+        # En Render no se verá una ventana, pero permite
+        # terminar cargas visuales antes del screenshot.
+        # ====================================================
+
+        await page.wait_for_timeout(
+            5000,
+        )
+
+        # ====================================================
+        # HTML final
         # ====================================================
 
         html_snapshot = await page.content()
 
         html_snapshot = html_snapshot[:500_000]
+
+        # ====================================================
+        # Guardar resultado
+        # ====================================================
+
+        await _mark_form_completed(
+            submission,
+            final_url=page.url,
+            fields_filled=fields_filled,
+            attachment_uploaded=attachment_uploaded,
+            attachment_filename=attachment_filename,
+        )
 
         # ====================================================
         # NO HACEMOS CLICK EN SUBMIT
@@ -3704,15 +4137,16 @@ async def run_smartsheet_dry_run(
             attachment_filename=attachment_filename,
             verification_required=False,
             metadata={
-                "execution_mode": (batch.execution_mode),
+                "execution_mode": batch.execution_mode,
                 "submit_clicked": False,
                 "progressive_form": True,
-                "navigation_attempts": (navigation_attempt),
+                "navigation_attempts": navigation_attempt,
+                "http_status": last_http_status,
+                "headless": headless,
             },
         )
 
     finally:
-
         # ====================================================
         # Cerrar context
         # ====================================================
