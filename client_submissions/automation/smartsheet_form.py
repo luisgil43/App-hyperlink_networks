@@ -585,14 +585,8 @@ async def _detect_verification_challenge(
                     completely_outside_viewport = (
                         iframe_x + width < 0
                         or iframe_y + height < 0
-                        or (
-                            viewport_width > 0
-                            and iframe_x > viewport_width
-                        )
-                        or (
-                            viewport_height > 0
-                            and iframe_y > viewport_height
-                        )
+                        or (viewport_width > 0 and iframe_x > viewport_width)
+                        or (viewport_height > 0 and iframe_y > viewport_height)
                     )
 
                     if completely_outside_viewport:
@@ -698,6 +692,7 @@ async def _detect_verification_challenge(
     )
 
     return False
+
 
 # ============================================================
 # Esperar campos progresivos
