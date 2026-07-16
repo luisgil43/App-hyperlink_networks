@@ -356,34 +356,348 @@ async def _detect_verification_challenge(
     page: Page,
 ) -> bool:
     """
-    Detecta elementos típicos de CAPTCHA / challenge.
+    Detecta solamente challenges visibles y bloqueantes.
 
-    No intenta resolverlos automáticamente.
+    Smartsheet puede cargar iframes de reCAPTCHA en segundo
+    plano aunque no exista una verificación activa.
+
+    Por eso NO basta con detectar la existencia de un iframe.
+    El challenge se considera real únicamente cuando:
+
+    - Existe texto visible de verificación.
+    - Existe un diálogo visible de CAPTCHA.
+    - Existe un iframe visible con dimensiones suficientes.
+    - Existe un checkbox visible de reCAPTCHA/Turnstile.
     """
 
-    selectors = [
-        'iframe[src*="recaptcha"]',
-        'iframe[src*="turnstile"]',
-        'iframe[src*="captcha"]',
-        '[class*="captcha"]',
-        '[id*="captcha"]',
-        "text=/verify you are human/i",
-        "text=/verification required/i",
-        "text=/i am not a robot/i",
+    # ========================================================
+    # 1. Textos visibles que indican verificación real
+    # ========================================================
+
+    visible_text_markers = [
+        "verify you are human",
+        "verification required",
+        "i am not a robot",
+        "i'm not a robot",
+        "complete the captcha",
+        "complete the verification",
+        "security verification",
+        "checking your browser",
+        "confirm you are human",
+        "prove you are human",
     ]
 
-    for selector in selectors:
-        try:
-            locator = page.locator(selector)
+    try:
+        body_text = await page.locator(
+            "body",
+        ).inner_text(
+            timeout=5000,
+        )
 
-            if await locator.count() > 0:
-                return True
+    except Exception:
+        body_text = ""
+
+    normalized_body_text = body_text.lower()
+
+    for marker in visible_text_markers:
+        if marker in normalized_body_text:
+            print(
+                "VISIBLE VERIFICATION TEXT DETECTED:",
+                {
+                    "marker": marker,
+                    "url": page.url,
+                },
+            )
+
+            return True
+
+    # ========================================================
+    # 2. Contenedores visibles asociados con CAPTCHA
+    # ========================================================
+
+    visible_container_selectors = [
+        '[role="dialog"][class*="captcha" i]',
+        '[role="dialog"][id*="captcha" i]',
+        '[class*="captcha-container" i]',
+        '[class*="captcha-challenge" i]',
+        '[id*="captcha-container" i]',
+        '[id*="captcha-challenge" i]',
+        '[class*="turnstile" i]',
+        '[id*="turnstile" i]',
+        ".g-recaptcha",
+    ]
+
+    for selector in visible_container_selectors:
+        try:
+            locator = page.locator(
+                selector,
+            )
+
+            count = await locator.count()
+
+            for index in range(count):
+                candidate = locator.nth(
+                    index,
+                )
+
+                try:
+                    if not await candidate.is_visible():
+                        continue
+
+                    box = await candidate.bounding_box()
+
+                    if not box:
+                        continue
+
+                    if box["width"] < 100 or box["height"] < 40:
+                        continue
+
+                    print(
+                        "VISIBLE VERIFICATION CONTAINER DETECTED:",
+                        {
+                            "selector": selector,
+                            "index": index,
+                            "box": box,
+                            "url": page.url,
+                        },
+                    )
+
+                    return True
+
+                except Exception:
+                    continue
 
         except Exception:
             continue
 
-    return False
+    # ========================================================
+    # 3. Iframes de CAPTCHA
+    #
+    # Solo se consideran challenge si están realmente visibles
+    # y tienen dimensiones propias de una interfaz interactiva.
+    #
+    # Un iframe invisible, diminuto o fuera de pantalla no debe
+    # detener la automatización.
+    # ========================================================
 
+    iframe_selectors = [
+        'iframe[src*="recaptcha" i]',
+        'iframe[src*="turnstile" i]',
+        'iframe[src*="captcha" i]',
+        'iframe[title*="recaptcha" i]',
+        'iframe[title*="challenge" i]',
+        'iframe[title*="captcha" i]',
+    ]
+
+    for selector in iframe_selectors:
+        try:
+            iframes = page.locator(
+                selector,
+            )
+
+            iframe_count = await iframes.count()
+
+            for index in range(iframe_count):
+                iframe = iframes.nth(
+                    index,
+                )
+
+                try:
+                    if not await iframe.is_visible():
+                        continue
+
+                    box = await iframe.bounding_box()
+
+                    if not box:
+                        continue
+
+                    width = float(
+                        box.get(
+                            "width",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    height = float(
+                        box.get(
+                            "height",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    # ----------------------------------------
+                    # Ignorar iframe técnico/invisible.
+                    # ----------------------------------------
+
+                    if width < 150 or height < 60:
+                        print(
+                            "BACKGROUND CAPTCHA IFRAME IGNORED:",
+                            {
+                                "selector": selector,
+                                "index": index,
+                                "width": width,
+                                "height": height,
+                                "url": page.url,
+                            },
+                        )
+
+                        continue
+
+                    viewport = page.viewport_size or {
+                        "width": 0,
+                        "height": 0,
+                    }
+
+                    iframe_x = float(
+                        box.get(
+                            "x",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    iframe_y = float(
+                        box.get(
+                            "y",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    viewport_width = float(
+                        viewport.get(
+                            "width",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    viewport_height = float(
+                        viewport.get(
+                            "height",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    completely_outside_viewport = (
+                        iframe_x + width < 0
+                        or iframe_y + height < 0
+                        or (
+                            viewport_width > 0
+                            and iframe_x > viewport_width
+                        )
+                        or (
+                            viewport_height > 0
+                            and iframe_y > viewport_height
+                        )
+                    )
+
+                    if completely_outside_viewport:
+                        print(
+                            "OFFSCREEN CAPTCHA IFRAME IGNORED:",
+                            {
+                                "selector": selector,
+                                "index": index,
+                                "box": box,
+                                "viewport": viewport,
+                                "url": page.url,
+                            },
+                        )
+
+                        continue
+
+                    print(
+                        "VISIBLE CAPTCHA IFRAME DETECTED:",
+                        {
+                            "selector": selector,
+                            "index": index,
+                            "box": box,
+                            "viewport": viewport,
+                            "url": page.url,
+                        },
+                    )
+
+                    return True
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    # ========================================================
+    # 4. Botones o checkboxes visibles de verificación
+    # ========================================================
+
+    verification_controls = [
+        page.get_by_role(
+            "checkbox",
+            name="I'm not a robot",
+            exact=False,
+        ),
+        page.get_by_role(
+            "checkbox",
+            name="I am not a robot",
+            exact=False,
+        ),
+        page.get_by_role(
+            "button",
+            name="Verify",
+            exact=False,
+        ),
+        page.get_by_role(
+            "button",
+            name="Continue",
+            exact=False,
+        ),
+    ]
+
+    for locator in verification_controls:
+        try:
+            count = await locator.count()
+
+            for index in range(count):
+                candidate = locator.nth(
+                    index,
+                )
+
+                try:
+                    if not await candidate.is_visible():
+                        continue
+
+                    box = await candidate.bounding_box()
+
+                    if not box:
+                        continue
+
+                    print(
+                        "VISIBLE VERIFICATION CONTROL DETECTED:",
+                        {
+                            "index": index,
+                            "box": box,
+                            "url": page.url,
+                        },
+                    )
+
+                    return True
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    print(
+        "NO BLOCKING VERIFICATION CHALLENGE DETECTED:",
+        {
+            "url": page.url,
+        },
+    )
+
+    return False
 
 # ============================================================
 # Esperar campos progresivos
