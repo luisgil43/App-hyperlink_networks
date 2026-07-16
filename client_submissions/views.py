@@ -1805,15 +1805,13 @@ def batch_start(
 
         client_submissions.automation.worker.run_once()
 
-    De esta forma:
+    El worker procesa únicamente proyectos con estado:
 
-        Web
-            -> crea trabajo
+        PENDING_CLIENT_SUBMISSION
 
-        Background Worker
-            -> procesa trabajo
+    y con:
 
-    Esto evita ejecutar Chromium dentro de Gunicorn.
+        validation_ok=True
     """
 
     _assert_manage_permission(
@@ -1870,21 +1868,21 @@ def batch_start(
         )
 
     # ========================================================
-    # Proyectos pendientes de procesamiento
+    # Proyectos que realmente puede procesar el worker
     # ========================================================
 
-    processable_count = batch.submissions.exclude(
-        status__in=[
-            ClientSubmission.Status.SENT_TO_CLIENT,
-            ClientSubmission.Status.DRY_RUN_COMPLETED,
-            ClientSubmission.Status.CANCELLED,
-        ]
+    processable_count = batch.submissions.filter(
+        status=ClientSubmission.Status.PENDING_CLIENT_SUBMISSION,
+        validation_ok=True,
     ).count()
 
     if processable_count == 0:
         messages.warning(
             request,
-            "There are no projects left to process in this batch.",
+            (
+                "There are no pending and validated projects "
+                "left to process in this batch."
+            ),
         )
 
         return redirect(
@@ -1940,8 +1938,8 @@ def batch_start(
             f"{request.user.get_username()}."
         ),
         metadata={
-            "execution_mode": (batch.execution_mode),
-            "processable_count": (processable_count),
+            "execution_mode": batch.execution_mode,
+            "processable_count": processable_count,
             "user_id": request.user.pk,
         },
     )
@@ -2233,6 +2231,10 @@ def verification_detail(
 def batch_list_status_json(
     request: HttpRequest,
 ) -> JsonResponse:
+    _assert_manage_permission(
+        request,
+    )
+
     batches = ClientSubmissionBatch.objects.prefetch_related(
         "submissions",
     ).order_by(
@@ -2285,15 +2287,15 @@ def batch_list_status_json(
                     batch.public_id,
                 ),
                 "status": batch.status,
-                "status_label": (batch.get_status_display()),
+                "status_label": batch.get_status_display(),
                 "total": total,
                 "completed": completed,
-                "progress_percent": (progress_percent),
+                "progress_percent": progress_percent,
                 "active_submission": (
                     {
-                        "project_id": (active_submission.project_id),
+                        "project_id": active_submission.project_id,
                         "sequence_number": (active_submission.sequence_number),
-                        "status": (active_submission.status),
+                        "status": active_submission.status,
                         "status_label": (active_submission.get_status_display()),
                     }
                     if active_submission

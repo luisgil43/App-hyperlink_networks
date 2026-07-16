@@ -20,6 +20,311 @@ _slug_cleanup_re = re.compile(r"[^-a-zA-Z0-9_.]+")
 
 SAFE_REPLACEMENT = "–"  # en-dash para reemplazar / y \
 
+# ============================================================
+# Límites de ZIP para Client Submissions / Smartsheet
+# ============================================================
+
+SMARTSHEET_MAX_ZIP_PART_BYTES = 29_000_000
+
+SMARTSHEET_MAX_ZIP_PARTS = 10
+
+ZIP_SPOOL_MEMORY_LIMIT = 16 * 1024 * 1024
+
+
+def _zip_size_bytes(
+    spooled_file,
+) -> int:
+    """
+    Obtiene el tamaño real de un ZIP ya cerrado.
+
+    Conserva el cursor en el inicio para que el caller
+    pueda leerlo posteriormente.
+    """
+
+    spooled_file.seek(
+        0,
+        os.SEEK_END,
+    )
+
+    size = spooled_file.tell()
+
+    spooled_file.seek(
+        0,
+    )
+
+    return int(
+        size,
+    )
+
+
+def _build_spooled_zip_from_entries(
+    entries: list[tuple[str, bytes]],
+):
+    """
+    Construye un ZIP temporal a partir de:
+
+        [
+            (
+                arcname,
+                data,
+            ),
+        ]
+
+    Devuelve el SpooledTemporaryFile posicionado al inicio.
+    """
+
+    spooled = SpooledTemporaryFile(
+        max_size=ZIP_SPOOL_MEMORY_LIMIT,
+    )
+
+    try:
+        with zipfile.ZipFile(
+            spooled,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=6,
+        ) as zf:
+            for (
+                arcname,
+                data,
+            ) in entries:
+                zf.writestr(
+                    arcname,
+                    data,
+                )
+
+        spooled.seek(
+            0,
+        )
+
+        return spooled
+
+    except Exception:
+        try:
+            spooled.close()
+
+        except Exception:
+            pass
+
+        raise
+
+
+def _collect_photo_entries_for_zip(
+    sesion: SesionBilling,
+) -> tuple[
+    list[tuple[str, bytes]],
+    dict,
+]:
+    """
+    Recopila las fotografías de una SesionBilling utilizando
+    exactamente la misma estructura oficial del ZIP.
+
+    Devuelve:
+
+        (
+            entries,
+            stats,
+        )
+
+    entries:
+
+        [
+            (
+                "PROJECT_ID/Requirement.jpg",
+                b"...",
+            ),
+        ]
+    """
+
+    root_name = _safe_component_preserve(
+        sesion.proyecto_id or f"Billing_{sesion.id}",
+        max_len=80,
+    )
+
+    asignaciones = (
+        sesion.tecnicos_sesion.select_related(
+            "tecnico",
+        )
+        .prefetch_related(
+            "evidencias__requisito",
+        )
+        .all()
+    )
+
+    entries: list[tuple[str, bytes]] = []
+
+    total_agregadas = 0
+    total_fallidas = 0
+    total_vistas = 0
+
+    used_paths = set()
+
+    for asignacion in asignaciones:
+        evs_rel = getattr(
+            asignacion,
+            "evidencias",
+            None,
+        )
+
+        if not evs_rel:
+            continue
+
+        for ev in evs_rel.all():
+            total_vistas += 1
+
+            imagen_field = getattr(
+                ev,
+                "imagen",
+                None,
+            )
+
+            if not imagen_field:
+                total_fallidas += 1
+
+                continue
+
+            field_storage = getattr(
+                imagen_field,
+                "storage",
+                None,
+            )
+
+            storage_name = (
+                getattr(
+                    imagen_field,
+                    "name",
+                    "",
+                )
+                or ""
+            )
+
+            public_url = ""
+
+            try:
+                public_url = imagen_field.url or ""
+
+            except Exception:
+                public_url = ""
+
+            # =================================================
+            # Título de la evidencia
+            # =================================================
+
+            if getattr(
+                sesion,
+                "proyecto_especial",
+                False,
+            ) and not getattr(
+                ev,
+                "requisito_id",
+                None,
+            ):
+                req_title_raw = (
+                    getattr(
+                        ev,
+                        "titulo_manual",
+                        "",
+                    )
+                    or "Extra"
+                )
+
+            else:
+                req = getattr(
+                    ev,
+                    "requisito",
+                    None,
+                )
+
+                req_title_raw = (
+                    getattr(
+                        req,
+                        "titulo",
+                        "",
+                    )
+                    or "Extra"
+                )
+
+            # =================================================
+            # Leer archivo desde Wasabi/storage o URL
+            # =================================================
+
+            data = _read_from_storage_or_url(
+                field_storage,
+                storage_name,
+                public_url,
+            )
+
+            if data is None:
+                total_fallidas += 1
+
+                continue
+
+            extension = _guess_ext(
+                storage_name or public_url,
+                default=".jpg",
+            )
+
+            file_title = _safe_component_preserve(
+                req_title_raw,
+                max_len=120,
+            )
+
+            # =================================================
+            # Nombre interno inicial
+            # =================================================
+
+            arcname = f"{root_name}/" f"{file_title}" f"{extension}"
+
+            # =================================================
+            # Evitar nombres duplicados
+            # =================================================
+
+            if arcname in used_paths:
+                arcname = f"{root_name}/" f"{file_title} " f"({ev.id})" f"{extension}"
+
+                if arcname in used_paths:
+                    counter = 2
+
+                    while True:
+                        arcname_try = (
+                            f"{root_name}/"
+                            f"{file_title} "
+                            f"({ev.id})_"
+                            f"{counter}"
+                            f"{extension}"
+                        )
+
+                        if arcname_try not in used_paths:
+                            arcname = arcname_try
+
+                            break
+
+                        counter += 1
+
+            used_paths.add(
+                arcname,
+            )
+
+            entries.append(
+                (
+                    arcname,
+                    data,
+                )
+            )
+
+            total_agregadas += 1
+
+    stats = {
+        "total_vistas": total_vistas,
+        "total_agregadas": total_agregadas,
+        "total_fallidas": total_fallidas,
+    }
+
+    return (
+        entries,
+        stats,
+    )
+
 
 def generar_fotos_zip_sesion(
     sesion: SesionBilling,
@@ -262,6 +567,321 @@ def generar_fotos_zip_sesion(
             pass
 
         raise
+
+
+def generar_fotos_zip_partes_smartsheet(
+    sesion: SesionBilling,
+    *,
+    max_part_bytes: int = SMARTSHEET_MAX_ZIP_PART_BYTES,
+    max_parts: int = SMARTSHEET_MAX_ZIP_PARTS,
+):
+    """
+    Genera ZIP divididos exclusivamente para Client Submissions.
+
+    Esta función NO modifica la descarga normal de Operations.
+
+    Reglas:
+
+    - Cada ZIP puede pesar como máximo 29.000.000 bytes.
+    - Puede generar como máximo 10 ZIP.
+    - Una fotografía nunca se divide entre dos ZIP.
+    - Conserva los nombres y carpetas internas del ZIP oficial.
+    - Si una sola fotografía produce un ZIP mayor al límite,
+      genera un error claro.
+
+    Devuelve:
+
+        (
+            parts,
+            stats,
+        )
+
+    Ejemplo de parts:
+
+        [
+            {
+                "file": SpooledTemporaryFile,
+                "filename": "0913RA_04_5005-009-7_part-01.zip",
+                "size_bytes": 28500000,
+                "photo_count": 14,
+                "part_number": 1,
+                "total_parts": 2,
+            },
+            {
+                "file": SpooledTemporaryFile,
+                "filename": "0913RA_04_5005-009-7_part-02.zip",
+                "size_bytes": 9000000,
+                "photo_count": 5,
+                "part_number": 2,
+                "total_parts": 2,
+            },
+        ]
+
+    El caller es responsable de cerrar los archivos.
+    """
+
+    if max_part_bytes <= 0:
+        raise ValueError("max_part_bytes must be greater than zero.")
+
+    if max_parts <= 0:
+        raise ValueError("max_parts must be greater than zero.")
+
+    entries, stats = _collect_photo_entries_for_zip(
+        sesion,
+    )
+
+    if not entries:
+        raise RuntimeError("No photos available for this billing session.")
+
+    root_name = _safe_component_preserve(
+        sesion.proyecto_id or f"Billing_{sesion.id}",
+        max_len=80,
+    )
+
+    completed_parts = []
+
+    current_entries = []
+
+    current_zip = None
+
+    try:
+        for arcname, data in entries:
+            candidate_entries = [
+                *current_entries,
+                (
+                    arcname,
+                    data,
+                ),
+            ]
+
+            candidate_zip = _build_spooled_zip_from_entries(
+                candidate_entries,
+            )
+
+            candidate_size = _zip_size_bytes(
+                candidate_zip,
+            )
+
+            # ================================================
+            # Todavía cabe dentro de la parte actual
+            # ================================================
+
+            if candidate_size <= max_part_bytes:
+                if current_zip is not None:
+                    try:
+                        current_zip.close()
+                    except Exception:
+                        pass
+
+                current_entries = candidate_entries
+
+                current_zip = candidate_zip
+
+                continue
+
+            # ================================================
+            # Una sola fotografía ya supera el límite
+            # ================================================
+
+            if not current_entries:
+                try:
+                    candidate_zip.close()
+                except Exception:
+                    pass
+
+                raise RuntimeError(
+                    (
+                        "A single evidence file exceeds the "
+                        "maximum Smartsheet ZIP size. "
+                        f"Evidence: {arcname}. "
+                        f"ZIP size: {candidate_size} bytes. "
+                        f"Maximum: {max_part_bytes} bytes."
+                    )
+                )
+
+            # ================================================
+            # La foto nueva no cabe en la parte actual
+            # ================================================
+
+            try:
+                candidate_zip.close()
+            except Exception:
+                pass
+
+            completed_parts.append(
+                {
+                    "file": current_zip,
+                    "size_bytes": _zip_size_bytes(
+                        current_zip,
+                    ),
+                    "photo_count": len(
+                        current_entries,
+                    ),
+                }
+            )
+
+            current_zip = None
+
+            current_entries = []
+
+            if len(completed_parts) >= max_parts:
+                raise RuntimeError(
+                    (
+                        "The project requires more than "
+                        f"{max_parts} ZIP files for Smartsheet. "
+                        "Reduce the size or number of photos."
+                    )
+                )
+
+            # ================================================
+            # Iniciar parte nueva con la foto pendiente
+            # ================================================
+
+            current_entries = [
+                (
+                    arcname,
+                    data,
+                ),
+            ]
+
+            current_zip = _build_spooled_zip_from_entries(
+                current_entries,
+            )
+
+            current_size = _zip_size_bytes(
+                current_zip,
+            )
+
+            if current_size > max_part_bytes:
+                raise RuntimeError(
+                    (
+                        "A single evidence file exceeds the "
+                        "maximum Smartsheet ZIP size. "
+                        f"Evidence: {arcname}. "
+                        f"ZIP size: {current_size} bytes. "
+                        f"Maximum: {max_part_bytes} bytes."
+                    )
+                )
+
+        # ================================================
+        # Guardar última parte
+        # ================================================
+
+        if current_zip is not None and current_entries:
+            completed_parts.append(
+                {
+                    "file": current_zip,
+                    "size_bytes": _zip_size_bytes(
+                        current_zip,
+                    ),
+                    "photo_count": len(
+                        current_entries,
+                    ),
+                }
+            )
+
+            current_zip = None
+
+            current_entries = []
+
+        if not completed_parts:
+            raise RuntimeError("No Smartsheet ZIP parts could be generated.")
+
+        if len(completed_parts) > max_parts:
+            raise RuntimeError(
+                (
+                    f"The project generated "
+                    f"{len(completed_parts)} ZIP files, "
+                    f"but only {max_parts} are allowed."
+                )
+            )
+
+        total_parts = len(
+            completed_parts,
+        )
+
+        for index, part in enumerate(
+            completed_parts,
+            start=1,
+        ):
+            if total_parts == 1:
+                filename = f"{root_name}.zip"
+
+            else:
+                filename = f"{root_name}_part-" f"{index:02d}.zip"
+
+            part["filename"] = filename
+
+            part["part_number"] = index
+
+            part["total_parts"] = total_parts
+
+            part["file"].seek(
+                0,
+            )
+
+        result_stats = {
+            **stats,
+            "total_parts": total_parts,
+            "max_part_bytes": max_part_bytes,
+            "max_parts": max_parts,
+            "parts": [
+                {
+                    "filename": part["filename"],
+                    "size_bytes": part["size_bytes"],
+                    "photo_count": part["photo_count"],
+                    "part_number": part["part_number"],
+                }
+                for part in completed_parts
+            ],
+        }
+
+        logger.info(
+            (
+                "Smartsheet ZIP parts sesion=%s -> "
+                "parts=%s vistas=%s agregadas=%s fallidas=%s"
+            ),
+            sesion.id,
+            total_parts,
+            result_stats.get(
+                "total_vistas",
+                0,
+            ),
+            result_stats.get(
+                "total_agregadas",
+                0,
+            ),
+            result_stats.get(
+                "total_fallidas",
+                0,
+            ),
+        )
+
+        return (
+            completed_parts,
+            result_stats,
+        )
+
+    except Exception:
+        if current_zip is not None:
+            try:
+                current_zip.close()
+            except Exception:
+                pass
+
+        for part in completed_parts:
+            part_file = part.get(
+                "file",
+            )
+
+            if part_file is not None:
+                try:
+                    part_file.close()
+                except Exception:
+                    pass
+
+        raise
+
 
 
 def _safe_component_preserve(s: str, fallback="(sin-titulo)", max_len=120) -> str:

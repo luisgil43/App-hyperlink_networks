@@ -63,14 +63,40 @@ class SmartsheetDryRunResult:
     screenshot_path: str = ""
     html_snapshot: str = ""
 
-    fields_filled: dict[str, Any] = field(default_factory=dict)
+    fields_filled: dict[str, Any] = field(
+        default_factory=dict,
+    )
 
-    attachment_uploaded: bool = False
-    attachment_filename: str = ""
+    attachments_uploaded: bool = False
+
+    attachment_filenames: list[str] = field(
+        default_factory=list,
+    )
 
     verification_required: bool = False
 
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(
+        default_factory=dict,
+    )
+
+    # ========================================================
+    # Compatibilidad con código anterior
+    # ========================================================
+
+    @property
+    def attachment_uploaded(
+        self,
+    ) -> bool:
+        return self.attachments_uploaded
+
+    @property
+    def attachment_filename(
+        self,
+    ) -> str:
+        if not self.attachment_filenames:
+            return ""
+
+        return self.attachment_filenames[0]
 
 
 # ============================================================
@@ -126,11 +152,13 @@ def _mark_form_completed(
     *,
     final_url: str,
     fields_filled: dict,
-    attachment_uploaded: bool,
-    attachment_filename: str,
+    attachments_uploaded: bool,
+    attachment_filenames: list[str],
 ):
     """
     Guarda el resultado del llenado del formulario.
+
+    Permite registrar uno o varios ZIP adjuntos.
     """
 
     now = timezone.now()
@@ -143,8 +171,11 @@ def _mark_form_completed(
             "completed_at": now.isoformat(),
             "final_url": final_url,
             "fields_filled": fields_filled,
-            "attachment_uploaded": attachment_uploaded,
-            "attachment_filename": attachment_filename,
+            "attachments_uploaded": (attachments_uploaded),
+            "attachment_filenames": (attachment_filenames),
+            "attachment_count": len(
+                attachment_filenames,
+            ),
         },
     }
 
@@ -1788,16 +1819,64 @@ async def _fill_date_field(
 # ============================================================
 
 
-async def _upload_attachment(
+async def _upload_attachments(
     page: Page,
-    file_path: str,
-) -> bool:
-    path = Path(file_path)
+    file_paths: list[str],
+) -> list[str]:
+    """
+    Adjunta uno o varios ZIP al campo de archivos de Smartsheet.
 
-    if not path.exists():
-        raise SmartsheetAttachmentError(f"Attachment file does not exist: {path}")
+    Playwright permite asignar varios archivos al mismo
+    input usando set_input_files([...]), siempre que el
+    input soporte múltiples archivos.
 
-    file_inputs = page.locator('input[type="file"]')
+    Devuelve los nombres de los archivos que quedaron
+    seleccionados en el navegador.
+    """
+
+    normalized_paths: list[Path] = []
+
+    for raw_path in file_paths:
+        path = Path(
+            raw_path,
+        )
+
+        if not path.exists():
+            raise SmartsheetAttachmentError(
+                ("Attachment file does not exist: " f"{path}")
+            )
+
+        file_size = path.stat().st_size
+
+        if file_size > 29_000_000:
+            raise SmartsheetAttachmentError(
+                (
+                    f"Attachment {path.name} exceeds "
+                    "the Smartsheet limit. "
+                    f"Size: {file_size} bytes. "
+                    "Maximum: 29000000 bytes."
+                )
+            )
+
+        normalized_paths.append(
+            path.resolve(),
+        )
+
+    if not normalized_paths:
+        return []
+
+    if len(normalized_paths) > 10:
+        raise SmartsheetAttachmentError(
+            (
+                "Smartsheet attachment limit exceeded. "
+                f"Received {len(normalized_paths)} ZIP files; "
+                "maximum allowed by this automation is 10."
+            )
+        )
+
+    file_inputs = page.locator(
+        'input[type="file"]',
+    )
 
     count = await file_inputs.count()
 
@@ -1808,18 +1887,97 @@ async def _upload_attachment(
 
     last_error = None
 
-    for index in range(count):
+    for index in range(
+        count,
+    ):
+        locator = file_inputs.nth(
+            index,
+        )
+
         try:
-            locator = file_inputs.nth(index)
+            await locator.set_input_files([str(path) for path in normalized_paths])
 
-            await locator.set_input_files(str(path.resolve()))
+            await page.wait_for_timeout(
+                3000,
+            )
 
-            return True
+            uploaded_filenames = [path.name for path in normalized_paths]
+
+            body_text = ""
+
+            try:
+                body_text = await page.locator(
+                    "body",
+                ).inner_text()
+
+            except Exception:
+                body_text = ""
+
+            # =================================================
+            # Smartsheet puede aceptar el input técnicamente,
+            # pero mostrar un error visual de tamaño.
+            # =================================================
+
+            size_error_messages = [
+                "Exceeds the max file size",
+                "exceeds the max file size",
+                "File is too large",
+                "file is too large",
+            ]
+
+            detected_size_error = next(
+                (message for message in size_error_messages if message in body_text),
+                None,
+            )
+
+            if detected_size_error:
+                raise SmartsheetAttachmentError(
+                    (
+                        "Smartsheet rejected one or more "
+                        "attachments because of file size. "
+                        f"Visible error: {detected_size_error}. "
+                        f"Files: {uploaded_filenames}"
+                    )
+                )
+
+            print(
+                "SMARTSHEET ATTACHMENTS UPLOADED:",
+                {
+                    "input_index": index,
+                    "count": len(
+                        uploaded_filenames,
+                    ),
+                    "filenames": (uploaded_filenames),
+                    "sizes": {
+                        path.name: path.stat().st_size for path in normalized_paths
+                    },
+                },
+            )
+
+            return uploaded_filenames
 
         except Exception as exc:
             last_error = exc
 
-    raise SmartsheetAttachmentError(f"Could not upload attachment: {last_error}")
+            print(
+                "SMARTSHEET ATTACHMENT INPUT FAILED:",
+                {
+                    "input_index": index,
+                    "error": str(
+                        exc,
+                    ),
+                },
+            )
+
+    if isinstance(
+        last_error,
+        SmartsheetAttachmentError,
+    ):
+        raise last_error
+
+    raise SmartsheetAttachmentError(
+        ("Could not upload Smartsheet attachments: " f"{last_error}")
+    )
 
 
 # ============================================================
@@ -3291,7 +3449,7 @@ async def _debug_form_state(
 async def run_smartsheet_dry_run(
     *,
     submission,
-    attachment_path: str | None = None,
+    attachment_paths: list[str] | None = None,
     headless: bool = False,
 ) -> SmartsheetDryRunResult:
     """
@@ -3305,6 +3463,7 @@ async def run_smartsheet_dry_run(
     - No aparecerá una ventana visible en la computadora
       del usuario.
     - Se generan screenshots para comprobar el resultado.
+    - Permite adjuntar uno o varios ZIP al mismo formulario.
     """
 
     # ========================================================
@@ -3314,6 +3473,14 @@ async def run_smartsheet_dry_run(
     batch = await _load_batch_for_submission(
         submission,
     )
+
+    # ========================================================
+    # Normalizar archivos adjuntos
+    # ========================================================
+
+    attachment_paths = [
+        str(path) for path in (attachment_paths or []) if str(path).strip()
+    ]
 
     # ========================================================
     # Directorio de screenshots
@@ -3345,6 +3512,9 @@ async def run_smartsheet_dry_run(
                 "submission_id": submission.pk,
                 "project_id": submission.project_id,
                 "headless": headless,
+                "attachment_count": len(
+                    attachment_paths,
+                ),
             },
         )
 
@@ -3530,7 +3700,7 @@ async def run_smartsheet_dry_run(
                     navigation_error = SmartsheetFormLoadError(
                         "Smartsheet returned temporary HTTP "
                         f"{last_http_status}. "
-                        f"Visible body: "
+                        "Visible body: "
                         f"{last_body_text[:1000]!r}"
                     )
 
@@ -3603,7 +3773,7 @@ async def run_smartsheet_dry_run(
                     navigation_error = SmartsheetFormLoadError(
                         "Smartsheet returned HTTP "
                         f"{last_http_status}. "
-                        f"Visible body: "
+                        "Visible body: "
                         f"{last_body_text[:1000]!r}"
                     )
 
@@ -3650,7 +3820,7 @@ async def run_smartsheet_dry_run(
                         metadata={
                             "stage": "form_load",
                             "navigation_attempt": (navigation_attempt),
-                            "http_status": last_http_status,
+                            "http_status": (last_http_status),
                         },
                     )
 
@@ -3664,11 +3834,11 @@ async def run_smartsheet_dry_run(
                 # ============================================
 
                 form_locator = page.locator(
-                    'form[aria-label*="questions in this form" i]'
+                    ("form[" 'aria-label*="questions in this form" i' "]")
                 )
 
                 submitted_by_input = page.locator(
-                    'input[type="email"]' '[data-client-id="form-field"]'
+                    ('input[type="email"]' '[data-client-id="form-field"]')
                 )
 
                 generic_email_input = page.locator('input[type="email"]')
@@ -3896,9 +4066,11 @@ async def run_smartsheet_dry_run(
             raise SmartsheetFormLoadError(
                 "Could not load the Smartsheet form after "
                 f"{navigation_attempts} attempts. "
-                f"Last HTTP status: {last_http_status!r}. "
+                "Last HTTP status: "
+                f"{last_http_status!r}. "
                 f"Current URL: {page.url!r}. "
-                f"Visible body: {last_body_text[:1000]!r}. "
+                "Visible body: "
+                f"{last_body_text[:1000]!r}. "
                 f"Last error: {navigation_error}"
             ) from navigation_error
 
@@ -3963,8 +4135,8 @@ async def run_smartsheet_dry_run(
                 verification_required=True,
                 metadata={
                     "stage": "before_form_fill",
-                    "navigation_attempt": navigation_attempt,
-                    "http_status": last_http_status,
+                    "navigation_attempt": (navigation_attempt),
+                    "http_status": (last_http_status),
                 },
             )
 
@@ -3988,14 +4160,17 @@ async def run_smartsheet_dry_run(
         )
 
         # ====================================================
-        # ZIP
+        # ZIP PARTS
         # ====================================================
 
-        attachment_uploaded = False
-        attachment_filename = ""
+        attachments_uploaded = False
 
-        if attachment_path:
-            file_inputs = page.locator('input[type="file"]')
+        attachment_filenames: list[str] = []
+
+        if attachment_paths:
+            file_inputs = page.locator(
+                'input[type="file"]',
+            )
 
             file_input_count = await file_inputs.count()
 
@@ -4004,33 +4179,46 @@ async def run_smartsheet_dry_run(
                 file_input_count,
             )
 
+            print(
+                "SMARTSHEET ZIP PARTS TO UPLOAD:",
+                {
+                    "count": len(
+                        attachment_paths,
+                    ),
+                    "filenames": [Path(path).name for path in attachment_paths],
+                    "sizes": {
+                        Path(path).name: (Path(path).stat().st_size)
+                        for path in attachment_paths
+                    },
+                },
+            )
+
             if file_input_count > 0:
-                attachment_uploaded = await _upload_attachment(
+                attachment_filenames = await _upload_attachments(
                     page,
-                    attachment_path,
+                    attachment_paths,
                 )
 
-                attachment_filename = Path(
-                    attachment_path,
-                ).name
+                attachments_uploaded = bool(attachment_filenames)
 
                 await page.wait_for_timeout(
-                    2500,
+                    3000,
                 )
 
                 print(
-                    "SMARTSHEET ATTACHMENT UPLOADED:",
+                    "SMARTSHEET ZIP PARTS UPLOADED:",
                     {
-                        "uploaded": attachment_uploaded,
-                        "filename": attachment_filename,
+                        "uploaded": (attachments_uploaded),
+                        "count": len(
+                            attachment_filenames,
+                        ),
+                        "filenames": (attachment_filenames),
                     },
                 )
 
             else:
-                logger.warning(
-                    "The attachment field has not appeared yet. "
-                    "The progressive form reached its current "
-                    "visible stage without uploading the ZIP."
+                raise SmartsheetAttachmentError(
+                    "The attachment field did not " "appear in the Smartsheet form."
                 )
 
         # ====================================================
@@ -4116,8 +4304,8 @@ async def run_smartsheet_dry_run(
             submission,
             final_url=page.url,
             fields_filled=fields_filled,
-            attachment_uploaded=attachment_uploaded,
-            attachment_filename=attachment_filename,
+            attachments_uploaded=(attachments_uploaded),
+            attachment_filenames=(attachment_filenames),
         )
 
         # ====================================================
@@ -4133,16 +4321,19 @@ async def run_smartsheet_dry_run(
             ),
             html_snapshot=html_snapshot,
             fields_filled=fields_filled,
-            attachment_uploaded=attachment_uploaded,
-            attachment_filename=attachment_filename,
+            attachments_uploaded=(attachments_uploaded),
+            attachment_filenames=(attachment_filenames),
             verification_required=False,
             metadata={
-                "execution_mode": batch.execution_mode,
+                "execution_mode": (batch.execution_mode),
                 "submit_clicked": False,
                 "progressive_form": True,
-                "navigation_attempts": navigation_attempt,
-                "http_status": last_http_status,
+                "navigation_attempts": (navigation_attempt),
+                "http_status": (last_http_status),
                 "headless": headless,
+                "attachment_count": len(
+                    attachment_filenames,
+                ),
             },
         )
 
