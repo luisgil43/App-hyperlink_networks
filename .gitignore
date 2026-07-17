@@ -73,3 +73,5 @@ dist/
 build/
 .parcel-cache/
 .pnp.*
+# Temporary Client Submission screenshots
+tmp/client_submissions/screenshots/
