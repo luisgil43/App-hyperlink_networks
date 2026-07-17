@@ -1030,27 +1030,13 @@ async def _wait_for_human_verification(
     timeout_ms: int = 30 * 60 * 1000,
 ) -> bool:
     """
-    Mantiene la misma página y la misma sesión Playwright abiertas
-    mientras el usuario resuelve una verificación humana.
+    Mantiene la misma página y sesión Playwright abiertas mientras
+    el usuario resuelve una verificación humana.
 
-    La función soporta simultáneamente dos canales:
+    Después de resolver un CAPTCHA posterior a Submit, detecta
+    automáticamente la confirmación real de Smartsheet.
 
-    1. Remote Browser Console:
-       - click
-       - double click
-       - multi click
-       - scroll
-       - refresh screenshot
-       - continue
-       - restart
-       - cancel
-
-    2. Controles anteriores almacenados en:
-       browser_state["human_verification"]
-
-    La consola remota no accede directamente al navegador.
-    Escribe acciones en PostgreSQL y este worker las ejecuta sobre
-    la página Playwright activa.
+    El botón Continue permanece disponible como respaldo.
     """
 
     await _mark_verification_required(
@@ -1067,6 +1053,24 @@ async def _wait_for_human_verification(
 
     started_at = timezone.now()
 
+    original_url = str(
+        page.url or "",
+    ).strip()
+
+    try:
+        original_form_count = await page.locator(
+            'form[aria-label*="questions in this form" i]'
+        ).count()
+
+    except Exception:
+        original_form_count = 0
+
+    submit_button = page.get_by_role(
+        "button",
+        name="Submit",
+        exact=True,
+    )
+
     remote_session = None
 
     remote_session_final_status = RemoteBrowserSession.Status.CLOSED
@@ -1075,7 +1079,7 @@ async def _wait_for_human_verification(
 
     try:
         # ====================================================
-        # Crear o recuperar la sesión remota
+        # Crear o recuperar sesión remota
         # ====================================================
 
         viewport_size = page.viewport_size or {
@@ -1125,10 +1129,6 @@ async def _wait_for_human_verification(
             },
         )
 
-        # ====================================================
-        # Mantener compatibilidad con browser_state anterior
-        # ====================================================
-
         await _update_human_verification_state(
             submission,
             stage=stage,
@@ -1156,10 +1156,9 @@ async def _wait_for_human_verification(
             remote_console_url=remote_console_url,
             message=(
                 "The browser is waiting for human verification. "
-                "Open the Remote Browser Console to interact with "
-                "the active browser. Complete the CAPTCHA and then "
-                "press Continue. If the CAPTCHA expires, use "
-                "Restart CAPTCHA."
+                "Complete the CAPTCHA. Smartsheet confirmation "
+                "will be detected automatically. Continue remains "
+                "available as a fallback."
             ),
         )
 
@@ -1237,11 +1236,97 @@ async def _wait_for_human_verification(
                 remote_session_final_status = RemoteBrowserSession.Status.FAILED
 
                 remote_session_final_message = (
-                    "The Playwright page was closed while waiting "
-                    "for human verification."
+                    "The Playwright page was closed while "
+                    "waiting for human verification."
                 )
 
                 raise SmartsheetVerificationRequired(remote_session_final_message)
+
+            # =================================================
+            # Detección automática posterior a Submit
+            # =================================================
+
+            if stage == "after_submit":
+                inspection = await _inspect_smartsheet_submission_result(
+                    page,
+                    original_url=original_url,
+                    original_form_count=(original_form_count),
+                    submit_button=submit_button,
+                )
+
+                inspection_error = str(
+                    inspection.get(
+                        "error",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
+                if inspection_error:
+                    raise SmartsheetAutomationError(
+                        inspection_error,
+                    )
+
+                if inspection.get(
+                    "confirmed",
+                    False,
+                ):
+                    completed_at = timezone.now()
+
+                    await _update_human_verification_state(
+                        submission,
+                        worker_checked_at=(completed_at.isoformat()),
+                        captcha_cleared=True,
+                        continue_requested_at=None,
+                        continue_requested_by=None,
+                        continue_requested_username="",
+                        session_available=False,
+                        session_url=page.url,
+                        automatic_confirmation=True,
+                        automatic_confirmation_reference=(
+                            inspection.get(
+                                "confirmation_reference",
+                                "",
+                            )
+                        ),
+                        automatic_confirmation_at=(completed_at.isoformat()),
+                        message=(
+                            "Smartsheet confirmation was "
+                            "detected automatically after "
+                            "human verification."
+                        ),
+                    )
+
+                    await _mark_verification_completed(
+                        submission,
+                    )
+
+                    remote_session_final_status = RemoteBrowserSession.Status.CLOSED
+
+                    remote_session_final_message = (
+                        "Smartsheet confirmation was detected "
+                        "automatically after human verification."
+                    )
+
+                    print(
+                        "AUTOMATIC SMARTSHEET CONFIRMATION:",
+                        {
+                            "submission_id": submission.pk,
+                            "project_id": (submission.project_id),
+                            "stage": stage,
+                            "remote_session_id": (remote_session.pk),
+                            "url": page.url,
+                            "confirmation_reference": (
+                                inspection.get(
+                                    "confirmation_reference",
+                                    "",
+                                )
+                            ),
+                            "elapsed_seconds": (elapsed_ms / 1000),
+                        },
+                    )
+
+                    return True
 
             # =================================================
             # Procesar una acción de la consola remota
@@ -1280,7 +1365,7 @@ async def _wait_for_human_verification(
                     )
 
                 # ---------------------------------------------
-                # Cancelar desde la consola
+                # Cancelar
                 # ---------------------------------------------
 
                 if remote_action_result.get(
@@ -1308,7 +1393,7 @@ async def _wait_for_human_verification(
                     raise SmartsheetVerificationRequired(remote_session_final_message)
 
                 # ---------------------------------------------
-                # Reiniciar desde la consola
+                # Reiniciar
                 # ---------------------------------------------
 
                 if remote_action_result.get(
@@ -1344,7 +1429,7 @@ async def _wait_for_human_verification(
                         "REMOTE CAPTCHA RESTART REQUESTED:",
                         {
                             "submission_id": submission.pk,
-                            "project_id": submission.project_id,
+                            "project_id": (submission.project_id),
                             "stage": stage,
                             "remote_session_id": (remote_session.pk),
                             "url": page.url,
@@ -1356,7 +1441,7 @@ async def _wait_for_human_verification(
                     )
 
                 # ---------------------------------------------
-                # Continue desde la consola
+                # Continue manual como respaldo
                 # ---------------------------------------------
 
                 if remote_action_result.get(
@@ -1414,16 +1499,6 @@ async def _wait_for_human_verification(
                                 remote_session.pk,
                             )
 
-                        print(
-                            "REMOTE HUMAN VERIFICATION " "STILL VISIBLE:",
-                            {
-                                "submission_id": submission.pk,
-                                "stage": stage,
-                                "remote_session_id": (remote_session.pk),
-                                "url": page.url,
-                            },
-                        )
-
                         continue
 
                     await _mark_verification_completed(
@@ -1450,8 +1525,7 @@ async def _wait_for_human_verification(
                     return True
 
                 # ---------------------------------------------
-                # Nueva captura después de click, scroll,
-                # doble click, multi click o refresh.
+                # Actualizar captura después de una acción
                 # ---------------------------------------------
 
                 try:
@@ -1579,9 +1653,9 @@ async def _wait_for_human_verification(
                 )
 
                 remote_session_final_message = (
-                    "The current CAPTCHA session expired or was "
-                    "closed. This project will restart from the "
-                    "beginning in a new browser session."
+                    "The current CAPTCHA session expired or "
+                    "was closed. This project will restart "
+                    "from the beginning in a new browser session."
                 )
 
                 await _update_human_verification_state(
@@ -1667,15 +1741,6 @@ async def _wait_for_human_verification(
                         "Could not capture screenshot after "
                         "legacy Continue validation."
                     )
-
-                print(
-                    "HUMAN VERIFICATION STILL VISIBLE:",
-                    {
-                        "submission_id": submission.pk,
-                        "stage": stage,
-                        "url": page.url,
-                    },
-                )
 
                 continue
 
@@ -2118,3 +2183,277 @@ async def _detect_verification_challenge(
     )
 
     return False
+
+
+async def _inspect_smartsheet_submission_result(
+    page: Page,
+    *,
+    original_url: str = "",
+    original_form_count: int | None = None,
+    submit_button: Locator | None = None,
+) -> dict[str, Any]:
+    """
+    Inspecciona el estado actual de Smartsheet después de Submit.
+
+    Detecta:
+
+    - Confirmación explícita mediante texto.
+    - Confirmación mediante URL con confirm=true.
+    - Desaparición del formulario y del botón Submit.
+    - Errores visibles.
+    - CAPTCHA todavía activo.
+
+    Esta función no modifica la base de datos.
+    """
+
+    if page.is_closed():
+        return {
+            "confirmed": False,
+            "verification_required": False,
+            "page_closed": True,
+            "error": (
+                "The Smartsheet page was closed before "
+                "the submission could be confirmed."
+            ),
+            "confirmation_reference": "",
+            "confirmation_text": "",
+            "final_url": "",
+            "form_count": 0,
+            "submit_button_visible": False,
+        }
+
+    current_url = str(
+        page.url or "",
+    ).strip()
+
+    final_body_text = ""
+
+    try:
+        final_body_text = await page.locator(
+            "body",
+        ).inner_text(
+            timeout=5000,
+        )
+
+    except Exception:
+        final_body_text = ""
+
+    normalized_body = " ".join(
+        str(
+            final_body_text or "",
+        )
+        .lower()
+        .split()
+    )
+
+    normalized_url = current_url.lower()
+
+    # ========================================================
+    # 1. Errores reales mostrados por Smartsheet
+    # ========================================================
+
+    error_markers = [
+        "please complete all required fields",
+        "please fill out this field",
+        "there was an error submitting",
+        "could not submit",
+        "submission failed",
+        "please try again",
+        "exceeds the max file size",
+        "file is too large",
+    ]
+
+    detected_error = next(
+        (marker for marker in error_markers if marker in normalized_body),
+        "",
+    )
+
+    if detected_error:
+        return {
+            "confirmed": False,
+            "verification_required": False,
+            "page_closed": False,
+            "error": (
+                "Smartsheet showed an error after Submit. "
+                f"Detected message: {detected_error!r}. "
+                f"Visible body: {final_body_text[:5000]!r}"
+            ),
+            "confirmation_reference": "",
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": None,
+            "submit_button_visible": None,
+        }
+
+    # ========================================================
+    # 2. Confirmación explícita por texto
+    # ========================================================
+
+    success_markers = [
+        "we've captured your response",
+        "we have captured your response",
+        "your response has been captured",
+        "your response has been recorded",
+        "your response was submitted",
+        "your response has been submitted",
+        "response submitted",
+        "submission received",
+        "successfully submitted",
+        "form submitted",
+    ]
+
+    detected_success = next(
+        (marker for marker in success_markers if marker in normalized_body),
+        "",
+    )
+
+    if detected_success:
+        return {
+            "confirmed": True,
+            "verification_required": False,
+            "page_closed": False,
+            "error": "",
+            "confirmation_reference": detected_success,
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": None,
+            "submit_button_visible": False,
+        }
+
+    # ========================================================
+    # 3. Confirmación explícita mediante URL
+    # ========================================================
+
+    url_confirmation_markers = [
+        "confirm=true",
+        "confirmation=true",
+        "submitted=true",
+        "success=true",
+    ]
+
+    detected_url_confirmation = next(
+        (marker for marker in url_confirmation_markers if marker in normalized_url),
+        "",
+    )
+
+    if detected_url_confirmation:
+        return {
+            "confirmed": True,
+            "verification_required": False,
+            "page_closed": False,
+            "error": "",
+            "confirmation_reference": (f"url:{detected_url_confirmation}"),
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": None,
+            "submit_button_visible": False,
+        }
+
+    # ========================================================
+    # 4. Comprobar si el CAPTCHA sigue visible
+    # ========================================================
+
+    challenge_visible = await _detect_verification_challenge(
+        page,
+    )
+
+    if challenge_visible:
+        return {
+            "confirmed": False,
+            "verification_required": True,
+            "page_closed": False,
+            "error": "",
+            "confirmation_reference": "",
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": None,
+            "submit_button_visible": None,
+        }
+
+    # ========================================================
+    # 5. Revisar formulario y botón Submit
+    # ========================================================
+
+    try:
+        final_form_count = await page.locator(
+            'form[aria-label*="questions in this form" i]'
+        ).count()
+
+    except Exception:
+        final_form_count = 0
+
+    submit_button_visible = False
+
+    if submit_button is not None:
+        try:
+            submit_button_visible = await submit_button.is_visible()
+
+        except Exception:
+            submit_button_visible = False
+
+    else:
+        try:
+            submit_button_visible = await page.get_by_role(
+                "button",
+                name="Submit",
+                exact=True,
+            ).is_visible()
+
+        except Exception:
+            submit_button_visible = False
+
+    # ========================================================
+    # 6. El formulario desapareció después de Submit
+    # ========================================================
+
+    if (
+        original_form_count is not None
+        and original_form_count > 0
+        and final_form_count == 0
+        and not submit_button_visible
+    ):
+        return {
+            "confirmed": True,
+            "verification_required": False,
+            "page_closed": False,
+            "error": "",
+            "confirmation_reference": ("form_disappeared_after_submit"),
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": final_form_count,
+            "submit_button_visible": (submit_button_visible),
+        }
+
+    # ========================================================
+    # 7. La URL cambió y el formulario ya no está disponible
+    # ========================================================
+
+    if (
+        original_url
+        and current_url != original_url
+        and not submit_button_visible
+        and final_form_count == 0
+    ):
+        return {
+            "confirmed": True,
+            "verification_required": False,
+            "page_closed": False,
+            "error": "",
+            "confirmation_reference": ("url_changed_after_submit"),
+            "confirmation_text": final_body_text[:5000],
+            "final_url": current_url,
+            "form_count": final_form_count,
+            "submit_button_visible": (submit_button_visible),
+        }
+
+    return {
+        "confirmed": False,
+        "verification_required": False,
+        "page_closed": False,
+        "error": "",
+        "confirmation_reference": "",
+        "confirmation_text": final_body_text[:5000],
+        "final_url": current_url,
+        "form_count": final_form_count,
+        "submit_button_visible": submit_button_visible,
+    }

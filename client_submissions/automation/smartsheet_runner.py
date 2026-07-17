@@ -19,6 +19,7 @@ from .smartsheet_state import (DEFAULT_TIMEOUT_MS, SCREENSHOT_DIR,
                                SmartsheetFormLoadError,
                                SmartsheetVerificationRequired,
                                _detect_verification_challenge,
+                               _inspect_smartsheet_submission_result,
                                _load_batch_for_submission,
                                _mark_form_completed, _mark_form_loaded,
                                _mark_submit_clicked,
@@ -44,9 +45,11 @@ async def _submit_smartsheet_form(
     """
     Presiona Submit una sola vez y espera una confirmación real.
 
-    Si aparece un CAPTCHA después de Submit, mantiene la misma
-    sesión del navegador abierta hasta que el usuario lo resuelva
-    y solicite continuar desde la plataforma.
+    Si aparece CAPTCHA después de Submit, conserva la misma
+    sesión. Una vez resuelto, la confirmación de Smartsheet se
+    detecta automáticamente sin exigir el botón Continue.
+
+    Continue permanece disponible como respaldo.
     """
 
     submit_button = page.get_by_role(
@@ -88,11 +91,17 @@ async def _submit_smartsheet_form(
             f"Visible body: {body_text[:3000]!r}"
         )
 
-    original_url = page.url
+    original_url = str(
+        page.url or "",
+    ).strip()
 
-    original_form_count = await page.locator(
-        'form[aria-label*="questions in this form" i]'
-    ).count()
+    try:
+        original_form_count = await page.locator(
+            'form[aria-label*="questions in this form" i]'
+        ).count()
+
+    except Exception:
+        original_form_count = 0
 
     print(
         "SMARTSHEET SUBMIT STARTING:",
@@ -124,46 +133,20 @@ async def _submit_smartsheet_form(
         },
     )
 
-    success_markers = [
-        "thank you",
-        "your response has been recorded",
-        "your response was submitted",
-        "your response has been submitted",
-        "response submitted",
-        "submission received",
-        "successfully submitted",
-        "form submitted",
-    ]
-
-    error_markers = [
-        "please complete all required fields",
-        "please fill out this field",
-        "required field",
-        "there was an error submitting",
-        "could not submit",
-        "submission failed",
-        "please try again",
-        "exceeds the max file size",
-        "file is too large",
-    ]
-
-    confirmation_received = False
-
-    confirmation_text = ""
-
-    confirmation_reference = ""
-
-    final_body_text = ""
-
-    final_form_count = original_form_count
-
-    submit_button_visible = True
-
     timeout_ms = 90_000
-
     poll_interval_ms = 1000
-
     elapsed_ms = 0
+
+    final_inspection = {
+        "confirmed": False,
+        "verification_required": False,
+        "error": "",
+        "confirmation_reference": "",
+        "confirmation_text": "",
+        "final_url": page.url,
+        "form_count": original_form_count,
+        "submit_button_visible": True,
+    }
 
     while elapsed_ms < timeout_ms:
         await page.wait_for_timeout(
@@ -172,85 +155,46 @@ async def _submit_smartsheet_form(
 
         elapsed_ms += poll_interval_ms
 
-        try:
-            final_body_text = await page.locator(
-                "body",
-            ).inner_text(
-                timeout=5000,
-            )
-
-        except Exception:
-            final_body_text = ""
-
-        normalized_body = final_body_text.lower()
-
-        detected_error = next(
-            (marker for marker in error_markers if marker in normalized_body),
-            None,
-        )
-
-        if detected_error:
-            raise SmartsheetAutomationError(
-                "Smartsheet showed an error after Submit. "
-                f"Detected message: {detected_error!r}. "
-                f"Visible body: {final_body_text[:5000]!r}"
-            )
-
-        detected_success = next(
-            (marker for marker in success_markers if marker in normalized_body),
-            None,
-        )
-
-        if detected_success:
-            confirmation_received = True
-
-            confirmation_text = final_body_text[:5000]
-
-            confirmation_reference = detected_success
-
-            break
-
-        try:
-            final_form_count = await page.locator(
-                'form[aria-label*="questions in this form" i]'
-            ).count()
-
-        except Exception:
-            final_form_count = 0
-
-        try:
-            submit_button_visible = await submit_button.is_visible()
-
-        except Exception:
-            submit_button_visible = False
-
-        if (
-            original_form_count > 0
-            and final_form_count == 0
-            and not submit_button_visible
-        ):
-            confirmation_received = True
-
-            confirmation_text = final_body_text[:5000]
-
-            confirmation_reference = "form_disappeared_after_submit"
-
-            break
-
-        if page.url != original_url and not submit_button_visible:
-            confirmation_received = True
-
-            confirmation_text = final_body_text[:5000]
-
-            confirmation_reference = "url_changed_after_submit"
-
-            break
-
-        challenge_visible = await _detect_verification_challenge(
+        final_inspection = await _inspect_smartsheet_submission_result(
             page,
+            original_url=original_url,
+            original_form_count=(original_form_count),
+            submit_button=submit_button,
         )
 
-        if challenge_visible:
+        inspection_error = str(
+            final_inspection.get(
+                "error",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if inspection_error:
+            raise SmartsheetAutomationError(
+                inspection_error,
+            )
+
+        if final_inspection.get(
+            "confirmed",
+            False,
+        ):
+            break
+
+        if final_inspection.get(
+            "verification_required",
+            False,
+        ):
+            print(
+                "SMARTSHEET VERIFICATION REQUIRED:",
+                {
+                    "submission_id": submission.pk,
+                    "project_id": submission.project_id,
+                    "url": page.url,
+                    "elapsed_seconds": (elapsed_ms / 1000),
+                },
+            )
+
             await _wait_for_human_verification(
                 page=page,
                 submission=submission,
@@ -260,26 +204,61 @@ async def _submit_smartsheet_form(
                 stage="after_submit",
             )
 
+            # La espera de confirmación vuelve a comenzar
+            # después de resolver el CAPTCHA.
             elapsed_ms = 0
 
             continue
 
-    if not confirmation_received:
+    if not final_inspection.get(
+        "confirmed",
+        False,
+    ):
         raise SmartsheetAutomationError(
             "Submit was clicked, but Smartsheet did not show "
             "a reliable browser confirmation within 90 seconds. "
             f"Current URL: {page.url!r}. "
-            f"Form count: {final_form_count}. "
-            f"Submit visible: {submit_button_visible}. "
-            f"Visible body: {final_body_text[:5000]!r}"
+            "Form count: "
+            f"{final_inspection.get('form_count')!r}. "
+            "Submit visible: "
+            f"{final_inspection.get('submit_button_visible')!r}. "
+            "Visible body: "
+            f"{str(final_inspection.get('confirmation_text', ''))[:5000]!r}"
         )
+
+    confirmation_reference = str(
+        final_inspection.get(
+            "confirmation_reference",
+            "",
+        )
+        or ""
+    ).strip()
+
+    confirmation_text = str(
+        final_inspection.get(
+            "confirmation_text",
+            "",
+        )
+        or ""
+    ).strip()
+
+    final_url = str(
+        final_inspection.get(
+            "final_url",
+            page.url,
+        )
+        or page.url
+    ).strip()
 
     print(
         "SMARTSHEET BROWSER CONFIRMATION RECEIVED:",
         {
-            "final_url": page.url,
+            "submission_id": submission.pk,
+            "project_id": submission.project_id,
+            "final_url": final_url,
             "confirmation_reference": (confirmation_reference),
             "confirmation_text": (confirmation_text[:1000]),
+            "elapsed_seconds": (elapsed_ms / 1000),
         },
     )
 
@@ -289,7 +268,7 @@ async def _submit_smartsheet_form(
         "browser_confirmation_received": True,
         "confirmation_reference": (confirmation_reference),
         "confirmation_text": confirmation_text,
-        "final_url": page.url,
+        "final_url": final_url,
         "submitted_at": (submit_clicked_at.isoformat()),
     }
 
@@ -339,8 +318,8 @@ async def run_smartsheet_dry_run(
     navegador y el mismo event loop activos hasta que:
 
     - El usuario resuelva el challenge.
-    - El usuario presione Continue.
-    - El worker confirme que el challenge desapareció.
+    - Smartsheet confirme automáticamente el envío.
+    - El usuario presione Continue únicamente como respaldo.
     """
 
     batch = await _load_batch_for_submission(
