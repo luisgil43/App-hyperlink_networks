@@ -11,8 +11,7 @@ from playwright.async_api import (Browser, BrowserContext, Page, Playwright,
 
 from .smartsheet_fields import (_clean, _upload_attachments,
                                 fill_smartsheet_form)
-from .smartsheet_state import (DEFAULT_TIMEOUT_MS, SCREENSHOT_DIR,
-                               SmartsheetAttachmentError,
+from .smartsheet_state import (DEFAULT_TIMEOUT_MS, SmartsheetAttachmentError,
                                SmartsheetAutomationError,
                                SmartsheetDryRunResult,
                                SmartsheetFieldNotFoundError,
@@ -158,7 +157,7 @@ async def _submit_smartsheet_form(
         final_inspection = await _inspect_smartsheet_submission_result(
             page,
             original_url=original_url,
-            original_form_count=(original_form_count),
+            original_form_count=original_form_count,
             submit_button=submit_button,
         )
 
@@ -191,7 +190,7 @@ async def _submit_smartsheet_form(
                     "submission_id": submission.pk,
                     "project_id": submission.project_id,
                     "url": page.url,
-                    "elapsed_seconds": (elapsed_ms / 1000),
+                    "elapsed_seconds": elapsed_ms / 1000,
                 },
             )
 
@@ -256,9 +255,9 @@ async def _submit_smartsheet_form(
             "submission_id": submission.pk,
             "project_id": submission.project_id,
             "final_url": final_url,
-            "confirmation_reference": (confirmation_reference),
-            "confirmation_text": (confirmation_text[:1000]),
-            "elapsed_seconds": (elapsed_ms / 1000),
+            "confirmation_reference": confirmation_reference,
+            "confirmation_text": confirmation_text[:1000],
+            "elapsed_seconds": elapsed_ms / 1000,
         },
     )
 
@@ -266,10 +265,10 @@ async def _submit_smartsheet_form(
         "submit_clicked": True,
         "verification_required": False,
         "browser_confirmation_received": True,
-        "confirmation_reference": (confirmation_reference),
+        "confirmation_reference": confirmation_reference,
         "confirmation_text": confirmation_text,
         "final_url": final_url,
-        "submitted_at": (submit_clicked_at.isoformat()),
+        "submitted_at": submit_clicked_at.isoformat(),
     }
 
 
@@ -347,15 +346,6 @@ async def run_smartsheet_dry_run(
         ).strip()
     ]
 
-    SCREENSHOT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    screenshot_path = SCREENSHOT_DIR / (
-        f"submission_{submission.pk}_" f"{submission.public_id}.png"
-    )
-
     playwright: Playwright | None = None
 
     browser: Browser | None = None
@@ -369,7 +359,7 @@ async def run_smartsheet_dry_run(
             "STARTING PLAYWRIGHT:",
             {
                 "submission_id": submission.pk,
-                "project_id": (submission.project_id),
+                "project_id": submission.project_id,
                 "headless": headless,
                 "execution_mode": execution_mode,
                 "submit_form": submit_form,
@@ -476,7 +466,7 @@ async def run_smartsheet_dry_run(
                 {
                     "url": batch.form_url,
                     "attempt": navigation_attempt,
-                    "max_attempts": (navigation_attempts),
+                    "max_attempts": navigation_attempts,
                 },
             )
 
@@ -580,11 +570,11 @@ async def run_smartsheet_dry_run(
                     )
 
                 form_locator = page.locator(
-                    "form[aria-label*=" '"questions in this form" i]'
+                    'form[aria-label*="questions in this form" i]'
                 )
 
                 submitted_by_input = page.locator(
-                    'input[type="email"]' '[data-client-id="form-field"]'
+                    'input[type="email"][data-client-id="form-field"]'
                 )
 
                 generic_email_input = page.locator(
@@ -630,8 +620,8 @@ async def run_smartsheet_dry_run(
                     print(
                         "SMARTSHEET FORM FULLY READY:",
                         {
-                            "attempt": (navigation_attempt),
-                            "status": (last_http_status),
+                            "attempt": navigation_attempt,
+                            "status": last_http_status,
                             "url": page.url,
                         },
                     )
@@ -686,26 +676,6 @@ async def run_smartsheet_dry_run(
             submission,
         )
 
-        try:
-            initial_screenshot_path = SCREENSHOT_DIR / (
-                f"submission_{submission.pk}_" "form_loaded.png"
-            )
-
-            await page.screenshot(
-                path=str(
-                    initial_screenshot_path.resolve(),
-                ),
-                full_page=True,
-            )
-
-        except Exception as exc:
-            print(
-                "COULD NOT SAVE INITIAL " "FORM SCREENSHOT:",
-                str(
-                    exc,
-                ),
-            )
-
         if await _detect_verification_challenge(
             page,
         ):
@@ -742,7 +712,7 @@ async def run_smartsheet_dry_run(
 
             if file_input_count <= 0:
                 raise SmartsheetAttachmentError(
-                    "The attachment field did not " "appear in the Smartsheet form."
+                    "The attachment field did not appear " "in the Smartsheet form."
                 )
 
             attachment_filenames = await _upload_attachments(
@@ -772,20 +742,6 @@ async def run_smartsheet_dry_run(
                 "Attached: "
                 f"{len(attachment_filenames)}."
             )
-
-        await page.screenshot(
-            path=str(
-                screenshot_path.resolve(),
-            ),
-            full_page=True,
-        )
-
-        print(
-            "SMARTSHEET FINAL SCREENSHOT:",
-            str(
-                screenshot_path.resolve(),
-            ),
-        )
 
         submit_clicked = False
 
@@ -844,30 +800,6 @@ async def run_smartsheet_dry_run(
                     "was received."
                 )
 
-            confirmation_screenshot_path = SCREENSHOT_DIR / (
-                f"submission_{submission.pk}_"
-                f"{submission.public_id}_"
-                "submitted.png"
-            )
-
-            try:
-                await page.screenshot(
-                    path=str(
-                        confirmation_screenshot_path.resolve(),
-                    ),
-                    full_page=True,
-                )
-
-                screenshot_path = confirmation_screenshot_path
-
-            except Exception as exc:
-                print(
-                    "COULD NOT SAVE SUBMISSION " "CONFIRMATION SCREENSHOT:",
-                    str(
-                        exc,
-                    ),
-                )
-
         await page.wait_for_timeout(
             3000,
         )
@@ -881,38 +813,36 @@ async def run_smartsheet_dry_run(
             execution_mode=execution_mode,
             final_url=page.url,
             fields_filled=fields_filled,
-            attachments_uploaded=(attachments_uploaded),
-            attachment_filenames=(attachment_filenames),
+            attachments_uploaded=attachments_uploaded,
+            attachment_filenames=attachment_filenames,
             submit_clicked=submit_clicked,
-            browser_confirmation_received=(browser_confirmation_received),
-            confirmation_reference=(confirmation_reference),
-            confirmation_text=(confirmation_text),
+            browser_confirmation_received=browser_confirmation_received,
+            confirmation_reference=confirmation_reference,
+            confirmation_text=confirmation_text,
         )
 
         return SmartsheetDryRunResult(
             ok=True,
             final_url=page.url,
             page_title=await page.title(),
-            screenshot_path=str(
-                screenshot_path.resolve(),
-            ),
+            screenshot_path="",
             html_snapshot=html_snapshot,
             fields_filled=fields_filled,
-            attachments_uploaded=(attachments_uploaded),
-            attachment_filenames=(attachment_filenames),
+            attachments_uploaded=attachments_uploaded,
+            attachment_filenames=attachment_filenames,
             verification_required=False,
             submit_clicked=submit_clicked,
-            browser_confirmation_received=(browser_confirmation_received),
-            confirmation_reference=(confirmation_reference),
+            browser_confirmation_received=browser_confirmation_received,
+            confirmation_reference=confirmation_reference,
             confirmation_text=confirmation_text,
             metadata={
                 "execution_mode": execution_mode,
                 "submit_clicked": submit_clicked,
-                "browser_confirmation_received": (browser_confirmation_received),
-                "confirmation_reference": (confirmation_reference),
-                "confirmation_text": (confirmation_text),
+                "browser_confirmation_received": browser_confirmation_received,
+                "confirmation_reference": confirmation_reference,
+                "confirmation_text": confirmation_text,
                 "progressive_form": True,
-                "navigation_attempts": (navigation_attempt),
+                "navigation_attempts": navigation_attempt,
                 "http_status": last_http_status,
                 "headless": headless,
                 "attachment_count": len(
