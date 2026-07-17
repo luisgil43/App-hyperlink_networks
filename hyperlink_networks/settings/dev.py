@@ -3,6 +3,8 @@
 import os
 from datetime import date
 
+import dj_database_url
+
 from .base import *
 
 # ==============================
@@ -43,15 +45,49 @@ CSRF_TRUSTED_ORIGINS = [
 INTERNAL_IPS = ['127.0.0.1']
 
 # Base de datos local (SQLite)
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        "OPTIONS": {
-            "timeout": 30,
-        },
+# ==============================
+
+# Base de datos
+
+# ==============================
+
+# Si existe DATABASE_URL, permite conectarse a PostgreSQL de producción.
+
+# Si no existe, mantiene SQLite para desarrollo local.
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "60")),
+            conn_health_checks=True,
+        )
     }
-}
+
+    if "postgresql" in DATABASES["default"]["ENGINE"]:
+
+        DATABASES["default"].setdefault("OPTIONS", {})
+
+        DATABASES["default"]["OPTIONS"].update(
+            {
+                "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "10")),
+            }
+        )
+
+else:
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            "OPTIONS": {
+                "timeout": 30,
+            },
+        }
+    }
 
 # ==============================
 # IA

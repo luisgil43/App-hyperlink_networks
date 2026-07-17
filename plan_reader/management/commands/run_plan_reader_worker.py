@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections, transaction
 from django.utils import timezone
@@ -13,6 +15,68 @@ from plan_reader.models import PlanReaderJob
 from plan_reader.services.processor import process_plan_reader_job
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(
+    name: str,
+    *,
+    default: bool,
+) -> bool:
+    """
+    Lee una variable booleana desde:
+
+    1. Variables de entorno.
+    2. Django settings.
+    3. Valor predeterminado.
+
+    Valores verdaderos:
+        1, true, yes, on, y
+
+    Valores falsos:
+        0, false, no, off, n
+    """
+
+    raw_value = os.getenv(name)
+
+    if raw_value is None:
+        raw_value = getattr(
+            settings,
+            name,
+            default,
+        )
+
+    if isinstance(raw_value, bool):
+        return raw_value
+
+    normalized_value = str(raw_value).strip().lower()
+
+    if normalized_value in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "y",
+    }:
+        return True
+
+    if normalized_value in {
+        "0",
+        "false",
+        "no",
+        "off",
+        "n",
+        "",
+    }:
+        return False
+
+    logger.warning(
+        "Invalid boolean value for %s=%r. Using default=%s.",
+        name,
+        raw_value,
+        default,
+    )
+
+    return default
 
 
 class Command(BaseCommand):
@@ -35,6 +99,11 @@ class Command(BaseCommand):
 
     El worker revisa ambas colas y únicamente procesa aquella
     que tenga trabajo pendiente.
+
+    Variables disponibles:
+
+        CLIENT_SUBMISSION_WORKER_ENABLED
+        PLAN_READER_WORKER_ENABLED
     """
 
     help = (
@@ -111,13 +180,64 @@ class Command(BaseCommand):
             )
         )
 
+        client_submission_enabled = _env_bool(
+            "CLIENT_SUBMISSION_WORKER_ENABLED",
+            default=True,
+        )
+
+        plan_reader_enabled = _env_bool(
+            "PLAN_READER_WORKER_ENABLED",
+            default=True,
+        )
+
+        if not client_submission_enabled and not plan_reader_enabled:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Client Submissions and Plan Reader are both disabled. "
+                    "Worker will exit."
+                )
+            )
+            return
+
+        enabled_queues = []
+
+        if client_submission_enabled:
+            enabled_queues.append(
+                "Client Submissions",
+            )
+
+        if plan_reader_enabled:
+            enabled_queues.append(
+                "Plan Reader",
+            )
+
+        disabled_queues = []
+
+        if not client_submission_enabled:
+            disabled_queues.append(
+                "Client Submissions",
+            )
+
+        if not plan_reader_enabled:
+            disabled_queues.append(
+                "Plan Reader",
+            )
+
         self.stdout.write(
             self.style.SUCCESS("Hyperlink shared background worker started.")
         )
 
         self.stdout.write(
+            self.style.SUCCESS(f"Enabled queues: {', '.join(enabled_queues)}.")
+        )
+
+        if disabled_queues:
+            self.stdout.write(
+                self.style.WARNING(f"Disabled queues: {', '.join(disabled_queues)}.")
+            )
+
+        self.stdout.write(
             (
-                "Queues: Client Submissions + Plan Reader. "
                 f"Idle sleep: {sleep_seconds} second(s). "
                 f"Plan Reader limit: {plan_limit}. "
                 f"Mode: "
@@ -135,52 +255,57 @@ class Command(BaseCommand):
                 # 1. Client Submissions
                 # ====================================================
 
-                try:
-                    client_submission_processed = (
-                        self._process_client_submission_queue()
-                    )
+                if client_submission_enabled:
+                    try:
+                        client_submission_processed = (
+                            self._process_client_submission_queue()
+                        )
 
-                    if client_submission_processed:
-                        processed_any = True
+                        if client_submission_processed:
+                            processed_any = True
 
-                except Exception:
-                    logger.exception("Unexpected Client Submissions worker error.")
+                    except Exception:
+                        logger.exception("Unexpected Client Submissions worker error.")
 
-                    self.stderr.write(
-                        self.style.ERROR(
-                            (
-                                "Client Submissions cycle failed. "
-                                "Review the traceback above."
+                        self.stderr.write(
+                            self.style.ERROR(
+                                (
+                                    "Client Submissions cycle failed. "
+                                    "Review the traceback above."
+                                )
                             )
                         )
-                    )
 
-                finally:
-                    close_old_connections()
+                    finally:
+                        close_old_connections()
 
                 # ====================================================
                 # 2. Plan Reader
                 # ====================================================
 
-                try:
-                    plan_reader_processed = self._process_plan_reader_queue(
-                        limit=plan_limit,
-                    )
-
-                    if plan_reader_processed:
-                        processed_any = True
-
-                except Exception:
-                    logger.exception("Unexpected Plan Reader worker error.")
-
-                    self.stderr.write(
-                        self.style.ERROR(
-                            ("Plan Reader cycle failed. " "Review the traceback above.")
+                if plan_reader_enabled:
+                    try:
+                        plan_reader_processed = self._process_plan_reader_queue(
+                            limit=plan_limit,
                         )
-                    )
 
-                finally:
-                    close_old_connections()
+                        if plan_reader_processed:
+                            processed_any = True
+
+                    except Exception:
+                        logger.exception("Unexpected Plan Reader worker error.")
+
+                        self.stderr.write(
+                            self.style.ERROR(
+                                (
+                                    "Plan Reader cycle failed. "
+                                    "Review the traceback above."
+                                )
+                            )
+                        )
+
+                    finally:
+                        close_old_connections()
 
                 # ====================================================
                 # Una sola iteración

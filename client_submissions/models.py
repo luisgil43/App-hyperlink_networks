@@ -948,6 +948,14 @@ class ClientSubmission(models.Model):
         reference="",
         save=True,
     ):
+        """
+        Marca el proyecto como enviado cuando Smartsheet confirma
+        visualmente que el formulario fue recibido.
+
+        La confirmación por correo se conserva como una validación
+        posterior y no bloquea el cierre operativo del proyecto.
+        """
+
         now = timezone.now()
 
         self.browser_confirmation_received = True
@@ -956,12 +964,9 @@ class ClientSubmission(models.Model):
         if reference:
             self.confirmation_reference = reference
 
-        if self.email_confirmation_received:
-            self.status = self.Status.SENT_TO_CLIENT
-            self.submitted_at = now
-            self.finished_at = now
-        else:
-            self.status = self.Status.AWAITING_EMAIL_CONFIRMATION
+        self.status = self.Status.SENT_TO_CLIENT
+        self.submitted_at = self.submitted_at or now
+        self.finished_at = now
 
         if save:
             self.save(
