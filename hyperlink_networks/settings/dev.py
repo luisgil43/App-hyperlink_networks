@@ -44,9 +44,12 @@ INTERNAL_IPS = ['127.0.0.1']
 
 # Base de datos local (SQLite)
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            "timeout": 30,
+        },
     }
 }
 

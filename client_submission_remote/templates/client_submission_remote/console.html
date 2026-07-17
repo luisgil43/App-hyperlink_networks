@@ -1,0 +1,1779 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}
+Remote Browser Console
+{% endblock %}
+
+{% block dashboard_content %}
+
+<div
+    id="remote-browser-console"
+    class="min-h-screen bg-slate-950 text-slate-100"
+    data-state-url="{{ remote_state_url }}"
+    data-action-url="{{ remote_action_url }}"
+>
+    <div class="mx-auto max-w-[1800px] px-3 py-4 sm:px-5 lg:px-6">
+
+        <!-- ==================================================
+        Header
+        =================================================== -->
+
+        <div class="mb-4 rounded-2xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="text-xl font-bold tracking-tight text-white sm:text-2xl">
+                            Remote Browser Console
+                        </h1>
+
+                        <span
+                            id="session-status-badge"
+                            class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold"
+                        >
+                            Loading
+                        </span>
+
+                        <span
+                            id="captcha-status-badge"
+                            class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold"
+                        >
+                            CAPTCHA
+                        </span>
+                    </div>
+
+                    <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-400">
+                        <span>
+                            Project:
+                            <strong
+                                id="project-id"
+                                class="font-semibold text-slate-100"
+                            >
+                                {{ remote_session.submission.project_id }}
+                            </strong>
+                        </span>
+
+                        <span>
+                            Stage:
+                            <strong
+                                id="session-stage"
+                                class="font-semibold text-slate-100"
+                            >
+                                {{ remote_session.stage|default:"-" }}
+                            </strong>
+                        </span>
+
+                        <span>
+                            Session:
+                            <strong class="font-mono text-xs text-slate-300">
+                                {{ remote_session.public_id }}
+                            </strong>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        id="refresh-state-button"
+                        class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-700 bg-slate-800 px-4 text-sm font-semibold text-white transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Refresh state
+                    </button>
+
+                    <button
+                        type="button"
+                        id="refresh-screenshot-button"
+                        class="inline-flex h-10 items-center justify-center rounded-xl border border-blue-500/50 bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Refresh screenshot
+                    </button>
+
+                    <button
+                        type="button"
+                        id="continue-button"
+                        class="inline-flex h-10 items-center justify-center rounded-xl border border-emerald-500/50 bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Continue
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================================================
+        Alerts
+        =================================================== -->
+
+        <div
+            id="console-alert"
+            class="mb-4 hidden rounded-xl border px-4 py-3 text-sm"
+            role="alert"
+        ></div>
+
+        <!-- ==================================================
+        Main grid
+        =================================================== -->
+
+        <div class="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+
+            <!-- ==============================================
+            Browser panel
+            =============================================== -->
+
+            <section class="min-w-0 rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+
+                <!-- Browser toolbar -->
+
+                <div class="border-b border-slate-800 p-3">
+                    <div class="flex flex-col gap-3">
+
+                        <div class="flex flex-wrap items-center gap-2">
+
+                            <button
+                                type="button"
+                                id="mode-click-button"
+                                class="tool-mode-button inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition"
+                                data-mode="click"
+                            >
+                                Click
+                            </button>
+
+                            <button
+                                type="button"
+                                id="mode-double-click-button"
+                                class="tool-mode-button inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition"
+                                data-mode="double_click"
+                            >
+                                Double click
+                            </button>
+
+                            <button
+                                type="button"
+                                id="mode-multi-click-button"
+                                class="tool-mode-button inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition"
+                                data-mode="multi_click"
+                            >
+                                Multi click
+                            </button>
+
+                            <button
+                                type="button"
+                                id="clear-points-button"
+                                class="inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Clear points
+                            </button>
+
+                            <button
+                                type="button"
+                                id="send-points-button"
+                                class="inline-flex h-9 items-center justify-center rounded-lg border border-violet-500/50 bg-violet-600 px-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Send points
+                            </button>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2">
+
+                            <button
+                                type="button"
+                                class="scroll-button inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                data-delta-x="0"
+                                data-delta-y="-700"
+                            >
+                                Scroll up
+                            </button>
+
+                            <button
+                                type="button"
+                                class="scroll-button inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                data-delta-x="0"
+                                data-delta-y="700"
+                            >
+                                Scroll down
+                            </button>
+
+                            <button
+                                type="button"
+                                class="scroll-button inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                data-delta-x="-700"
+                                data-delta-y="0"
+                            >
+                                Scroll left
+                            </button>
+
+                            <button
+                                type="button"
+                                class="scroll-button inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                data-delta-x="700"
+                                data-delta-y="0"
+                            >
+                                Scroll right
+                            </button>
+                        </div>
+
+                        <div class="flex min-w-0 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+                            <span class="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                URL
+                            </span>
+
+                            <span
+                                id="browser-url"
+                                class="min-w-0 truncate font-mono text-xs text-slate-300"
+                            >
+                                Loading...
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Screenshot -->
+
+                <div class="relative min-h-[520px] overflow-auto bg-black p-2 sm:p-4">
+
+                    <div
+                        id="screenshot-loading"
+                        class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/85"
+                    >
+                        <div class="rounded-xl border border-slate-700 bg-slate-900 px-5 py-4 text-center shadow-xl">
+                            <div class="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-slate-700 border-t-blue-500"></div>
+                            <p class="text-sm font-semibold text-slate-200">
+                                Loading browser screenshot
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        id="screenshot-empty"
+                        class="hidden min-h-[480px] items-center justify-center"
+                    >
+                        <div class="max-w-md rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-8 text-center">
+                            <h2 class="text-lg font-bold text-white">
+                                Screenshot not available
+                            </h2>
+
+                            <p
+                                id="screenshot-empty-message"
+                                class="mt-2 text-sm leading-6 text-slate-400"
+                            >
+                                The worker has not generated a screenshot yet.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        id="screenshot-stage"
+                        class="relative mx-auto hidden w-fit select-none"
+                    >
+                        <img
+                            id="browser-screenshot"
+                            src=""
+                            alt="Remote browser screenshot"
+                            draggable="false"
+                            class="block max-w-full cursor-crosshair rounded-lg border border-slate-700 bg-white shadow-2xl"
+                        >
+
+                        <div
+                            id="point-overlay"
+                            class="pointer-events-none absolute inset-0"
+                        ></div>
+
+                        <div
+                            id="action-overlay"
+                            class="pointer-events-none absolute inset-0 hidden items-center justify-center bg-slate-950/40"
+                        >
+                            <div class="rounded-xl border border-slate-600 bg-slate-900/95 px-4 py-3 shadow-xl">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400"></div>
+
+                                    <span class="text-sm font-semibold text-slate-100">
+                                        Processing browser action
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Screenshot footer -->
+
+                <div class="border-t border-slate-800 px-4 py-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span>
+                                Screenshot:
+                                <strong
+                                    id="screenshot-version"
+                                    class="text-slate-200"
+                                >
+                                    0
+                                </strong>
+                            </span>
+
+                            <span>
+                                Viewport:
+                                <strong
+                                    id="viewport-size"
+                                    class="text-slate-200"
+                                >
+                                    -
+                                </strong>
+                            </span>
+
+                            <span>
+                                Scroll:
+                                <strong
+                                    id="scroll-position"
+                                    class="text-slate-200"
+                                >
+                                    -
+                                </strong>
+                            </span>
+                        </div>
+
+                        <span id="screenshot-captured-at">
+                            -
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================
+            Side panel
+            =============================================== -->
+
+            <aside class="space-y-4">
+
+                <!-- Session information -->
+
+                <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-slate-300">
+                        Session
+                    </h2>
+
+                    <dl class="mt-4 space-y-3 text-sm">
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Controller
+                            </dt>
+
+                            <dd
+                                id="controller-name"
+                                class="text-right font-semibold text-slate-100"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Control
+                            </dt>
+
+                            <dd
+                                id="controller-state"
+                                class="text-right font-semibold"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                CAPTCHA round
+                            </dt>
+
+                            <dd
+                                id="captcha-round"
+                                class="text-right font-semibold text-slate-100"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Pending actions
+                            </dt>
+
+                            <dd
+                                id="pending-actions"
+                                class="text-right font-semibold text-slate-100"
+                            >
+                                0
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Worker
+                            </dt>
+
+                            <dd
+                                id="worker-identifier"
+                                class="max-w-[210px] break-words text-right font-mono text-xs text-slate-300"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Last worker activity
+                            </dt>
+
+                            <dd
+                                id="worker-last-activity"
+                                class="text-right text-xs text-slate-300"
+                            >
+                                -
+                            </dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <!-- Current mode -->
+
+                <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-slate-300">
+                        Interaction
+                    </h2>
+
+                    <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">
+                            Current mode
+                        </p>
+
+                        <p
+                            id="current-mode-label"
+                            class="mt-1 text-base font-bold text-white"
+                        >
+                            Click
+                        </p>
+
+                        <p
+                            id="current-mode-help"
+                            class="mt-2 text-sm leading-5 text-slate-400"
+                        >
+                            Click directly on the browser screenshot.
+                        </p>
+                    </div>
+
+                    <div
+                        id="multi-click-summary"
+                        class="mt-3 hidden rounded-xl border border-violet-500/30 bg-violet-500/10 p-3"
+                    >
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm font-semibold text-violet-100">
+                                Selected points
+                            </span>
+
+                            <strong
+                                id="selected-points-count"
+                                class="text-lg text-violet-200"
+                            >
+                                0
+                            </strong>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Message -->
+
+                <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-slate-300">
+                        Worker message
+                    </h2>
+
+                    <p
+                        id="worker-message"
+                        class="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-300"
+                    >
+                        Loading...
+                    </p>
+                </section>
+
+                <!-- Latest action -->
+
+                <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-slate-300">
+                        Latest action
+                    </h2>
+
+                    <div
+                        id="latest-action-empty"
+                        class="mt-3 text-sm text-slate-500"
+                    >
+                        No actions have been sent.
+                    </div>
+
+                    <dl
+                        id="latest-action-details"
+                        class="mt-4 hidden space-y-3 text-sm"
+                    >
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Action
+                            </dt>
+
+                            <dd
+                                id="latest-action-type"
+                                class="text-right font-semibold text-slate-100"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Status
+                            </dt>
+
+                            <dd
+                                id="latest-action-status"
+                                class="text-right font-semibold text-slate-100"
+                            >
+                                -
+                            </dd>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <dt class="text-slate-500">
+                                Requested
+                            </dt>
+
+                            <dd
+                                id="latest-action-requested"
+                                class="text-right text-xs text-slate-300"
+                            >
+                                -
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <div
+                        id="latest-action-error"
+                        class="mt-3 hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200"
+                    ></div>
+                </section>
+
+                <!-- Dangerous actions -->
+
+                <section class="rounded-2xl border border-red-950 bg-slate-900 p-4 shadow-xl">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-red-300">
+                        Session controls
+                    </h2>
+
+                    <div class="mt-4 grid grid-cols-1 gap-2">
+                        <button
+                            type="button"
+                            id="restart-button"
+                            class="inline-flex h-10 items-center justify-center rounded-xl border border-amber-500/40 bg-amber-600 px-4 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Restart CAPTCHA
+                        </button>
+
+                        <button
+                            type="button"
+                            id="cancel-button"
+                            class="inline-flex h-10 items-center justify-center rounded-xl border border-red-500/40 bg-red-700 px-4 text-sm font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Cancel browser session
+                        </button>
+                    </div>
+                </section>
+            </aside>
+        </div>
+    </div>
+</div>
+
+{{ remote_state|json_script:"remote-browser-initial-state" }}
+
+<style>
+    #remote-browser-console {
+        margin-top: -0.75rem;
+        margin-left: -0.75rem;
+        margin-right: -0.75rem;
+    }
+
+    .tool-mode-button {
+        border-color: rgb(51 65 85);
+        background: rgb(30 41 59);
+        color: rgb(203 213 225);
+    }
+
+    .tool-mode-button:hover {
+        background: rgb(51 65 85);
+    }
+
+    .tool-mode-button.is-active {
+        border-color: rgb(59 130 246 / 0.7);
+        background: rgb(37 99 235);
+        color: white;
+        box-shadow: 0 0 0 2px rgb(59 130 246 / 0.18);
+    }
+
+    .remote-click-point {
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        transform: translate(-50%, -50%);
+        border-radius: 9999px;
+        border: 3px solid white;
+        background: rgb(124 58 237 / 0.86);
+        box-shadow:
+            0 0 0 3px rgb(124 58 237 / 0.38),
+            0 4px 12px rgb(0 0 0 / 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 11px;
+        font-weight: 800;
+    }
+
+    @media (min-width: 640px) {
+        #remote-browser-console {
+            margin-left: 0;
+            margin-right: 0;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    "use strict";
+
+    const root = document.getElementById("remote-browser-console");
+
+    if (!root) {
+        return;
+    }
+
+    const stateUrl = root.dataset.stateUrl;
+    const actionUrl = root.dataset.actionUrl;
+
+    const initialStateElement = document.getElementById(
+        "remote-browser-initial-state"
+    );
+
+    let currentState = {};
+
+    try {
+        currentState = JSON.parse(
+            initialStateElement.textContent || "{}"
+        );
+    } catch (error) {
+        currentState = {};
+    }
+
+    let interactionMode = "click";
+    let selectedPoints = [];
+    let statePollTimer = null;
+    let stateRequestRunning = false;
+    let actionRequestRunning = false;
+    let loadedScreenshotVersion = null;
+
+    const elements = {
+        alert: document.getElementById("console-alert"),
+
+        statusBadge: document.getElementById(
+            "session-status-badge"
+        ),
+        captchaStatusBadge: document.getElementById(
+            "captcha-status-badge"
+        ),
+
+        projectId: document.getElementById("project-id"),
+        sessionStage: document.getElementById("session-stage"),
+        browserUrl: document.getElementById("browser-url"),
+
+        screenshotLoading: document.getElementById(
+            "screenshot-loading"
+        ),
+        screenshotEmpty: document.getElementById(
+            "screenshot-empty"
+        ),
+        screenshotEmptyMessage: document.getElementById(
+            "screenshot-empty-message"
+        ),
+        screenshotStage: document.getElementById(
+            "screenshot-stage"
+        ),
+        screenshot: document.getElementById(
+            "browser-screenshot"
+        ),
+        pointOverlay: document.getElementById("point-overlay"),
+        actionOverlay: document.getElementById("action-overlay"),
+
+        screenshotVersion: document.getElementById(
+            "screenshot-version"
+        ),
+        viewportSize: document.getElementById("viewport-size"),
+        scrollPosition: document.getElementById(
+            "scroll-position"
+        ),
+        screenshotCapturedAt: document.getElementById(
+            "screenshot-captured-at"
+        ),
+
+        controllerName: document.getElementById(
+            "controller-name"
+        ),
+        controllerState: document.getElementById(
+            "controller-state"
+        ),
+        captchaRound: document.getElementById("captcha-round"),
+        pendingActions: document.getElementById(
+            "pending-actions"
+        ),
+        workerIdentifier: document.getElementById(
+            "worker-identifier"
+        ),
+        workerLastActivity: document.getElementById(
+            "worker-last-activity"
+        ),
+        workerMessage: document.getElementById(
+            "worker-message"
+        ),
+
+        currentModeLabel: document.getElementById(
+            "current-mode-label"
+        ),
+        currentModeHelp: document.getElementById(
+            "current-mode-help"
+        ),
+
+        multiClickSummary: document.getElementById(
+            "multi-click-summary"
+        ),
+        selectedPointsCount: document.getElementById(
+            "selected-points-count"
+        ),
+
+        latestActionEmpty: document.getElementById(
+            "latest-action-empty"
+        ),
+        latestActionDetails: document.getElementById(
+            "latest-action-details"
+        ),
+        latestActionType: document.getElementById(
+            "latest-action-type"
+        ),
+        latestActionStatus: document.getElementById(
+            "latest-action-status"
+        ),
+        latestActionRequested: document.getElementById(
+            "latest-action-requested"
+        ),
+        latestActionError: document.getElementById(
+            "latest-action-error"
+        ),
+
+        refreshStateButton: document.getElementById(
+            "refresh-state-button"
+        ),
+        refreshScreenshotButton: document.getElementById(
+            "refresh-screenshot-button"
+        ),
+        continueButton: document.getElementById(
+            "continue-button"
+        ),
+        restartButton: document.getElementById(
+            "restart-button"
+        ),
+        cancelButton: document.getElementById(
+            "cancel-button"
+        ),
+        clearPointsButton: document.getElementById(
+            "clear-points-button"
+        ),
+        sendPointsButton: document.getElementById(
+            "send-points-button"
+        ),
+    };
+
+    function getCookie(name) {
+        const cookies = document.cookie
+            ? document.cookie.split(";")
+            : [];
+
+        for (const cookie of cookies) {
+            const trimmed = cookie.trim();
+
+            if (trimmed.startsWith(name + "=")) {
+                return decodeURIComponent(
+                    trimmed.substring(name.length + 1)
+                );
+            }
+        }
+
+        return "";
+    }
+
+    function escapeHtml(value) {
+        const temporary = document.createElement("div");
+
+        temporary.textContent = String(value || "");
+
+        return temporary.innerHTML;
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "-";
+        }
+
+        const parsed = new Date(value);
+
+        if (Number.isNaN(parsed.getTime())) {
+            return String(value);
+        }
+
+        return parsed.toLocaleString();
+    }
+
+    function setAlert(message, type = "info") {
+        if (!message) {
+            elements.alert.classList.add("hidden");
+            elements.alert.textContent = "";
+            return;
+        }
+
+        const classes = {
+            info: [
+                "border-blue-500/30",
+                "bg-blue-500/10",
+                "text-blue-100",
+            ],
+            success: [
+                "border-emerald-500/30",
+                "bg-emerald-500/10",
+                "text-emerald-100",
+            ],
+            warning: [
+                "border-amber-500/30",
+                "bg-amber-500/10",
+                "text-amber-100",
+            ],
+            error: [
+                "border-red-500/30",
+                "bg-red-500/10",
+                "text-red-100",
+            ],
+        };
+
+        elements.alert.className =
+            "mb-4 rounded-xl border px-4 py-3 text-sm";
+
+        for (const className of classes[type] || classes.info) {
+            elements.alert.classList.add(className);
+        }
+
+        elements.alert.textContent = message;
+    }
+
+    function setBadge(element, label, type) {
+        const styles = {
+            active: [
+                "border-emerald-500/40",
+                "bg-emerald-500/10",
+                "text-emerald-200",
+            ],
+            warning: [
+                "border-amber-500/40",
+                "bg-amber-500/10",
+                "text-amber-200",
+            ],
+            error: [
+                "border-red-500/40",
+                "bg-red-500/10",
+                "text-red-200",
+            ],
+            neutral: [
+                "border-slate-600",
+                "bg-slate-800",
+                "text-slate-300",
+            ],
+            processing: [
+                "border-blue-500/40",
+                "bg-blue-500/10",
+                "text-blue-200",
+            ],
+        };
+
+        element.className =
+            "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold";
+
+        for (const className of styles[type] || styles.neutral) {
+            element.classList.add(className);
+        }
+
+        element.textContent = label || "-";
+    }
+
+    function sessionStatusType(status) {
+        if (
+            status === "active" ||
+            status === "waiting_for_user"
+        ) {
+            return "active";
+        }
+
+        if (
+            status === "starting" ||
+            status === "processing_action"
+        ) {
+            return "processing";
+        }
+
+        if (
+            status === "restart_requested" ||
+            status === "expired"
+        ) {
+            return "warning";
+        }
+
+        if (
+            status === "failed" ||
+            status === "cancelled"
+        ) {
+            return "error";
+        }
+
+        return "neutral";
+    }
+
+    function captchaStatusType(status) {
+        if (status === "verification_passed") {
+            return "active";
+        }
+
+        if (
+            status === "challenge_active" ||
+            status === "dynamic_challenge" ||
+            status === "new_challenge_detected"
+        ) {
+            return "warning";
+        }
+
+        if (status === "verification_processing") {
+            return "processing";
+        }
+
+        if (status === "verification_failed") {
+            return "error";
+        }
+
+        return "neutral";
+    }
+
+    function cacheBustedUrl(url, version) {
+    if (!url) {
+        return "";
+    }
+
+    const isSignedStorageUrl =
+        url.includes("X-Amz-Signature=") ||
+        url.includes("X-Amz-Algorithm=") ||
+        url.includes("X-Amz-Credential=");
+
+    if (isSignedStorageUrl) {
+        return url;
+    }
+
+    const separator = url.includes("?") ? "&" : "?";
+
+    return (
+        url +
+        separator +
+        "remote_version=" +
+        encodeURIComponent(String(version || 0))
+    );
+}
+    function renderScreenshot(session) {
+        const screenshot = session.screenshot || {};
+
+        elements.screenshotVersion.textContent =
+            String(screenshot.version || 0);
+
+        elements.screenshotCapturedAt.textContent =
+            formatDate(screenshot.captured_at);
+
+        if (!screenshot.available || !screenshot.url) {
+            loadedScreenshotVersion = null;
+
+            elements.screenshotLoading.classList.add("hidden");
+            elements.screenshotStage.classList.add("hidden");
+            elements.screenshotEmpty.classList.remove("hidden");
+            elements.screenshotEmpty.classList.add("flex");
+
+            elements.screenshotEmptyMessage.textContent =
+                screenshot.error ||
+                "The worker has not generated a screenshot yet.";
+
+            return;
+        }
+
+        elements.screenshotEmpty.classList.add("hidden");
+        elements.screenshotEmpty.classList.remove("flex");
+
+        const screenshotVersion = Number(
+            screenshot.version || 0
+        );
+
+        if (
+            loadedScreenshotVersion === screenshotVersion &&
+            elements.screenshot.getAttribute("src")
+        ) {
+            elements.screenshotLoading.classList.add("hidden");
+            elements.screenshotStage.classList.remove("hidden");
+            return;
+        }
+
+        elements.screenshotLoading.classList.remove("hidden");
+        elements.screenshotStage.classList.add("hidden");
+
+        const nextUrl = cacheBustedUrl(
+            screenshot.url,
+            screenshotVersion
+        );
+
+        elements.screenshot.onload = function () {
+            loadedScreenshotVersion = screenshotVersion;
+
+            elements.screenshotLoading.classList.add("hidden");
+            elements.screenshotStage.classList.remove("hidden");
+
+            clearSelectedPoints();
+        };
+
+        elements.screenshot.onerror = function () {
+            loadedScreenshotVersion = null;
+
+            elements.screenshotLoading.classList.add("hidden");
+            elements.screenshotStage.classList.add("hidden");
+            elements.screenshotEmpty.classList.remove("hidden");
+            elements.screenshotEmpty.classList.add("flex");
+
+            elements.screenshotEmptyMessage.textContent =
+                "The screenshot could not be loaded from storage.";
+        };
+
+        elements.screenshot.src = nextUrl;
+    }
+
+    function renderLatestAction(session) {
+        const latest =
+            session.actions && session.actions.latest
+                ? session.actions.latest
+                : null;
+
+        elements.latestActionError.classList.add("hidden");
+        elements.latestActionError.textContent = "";
+
+        if (!latest) {
+            elements.latestActionEmpty.classList.remove("hidden");
+            elements.latestActionDetails.classList.add("hidden");
+            return;
+        }
+
+        elements.latestActionEmpty.classList.add("hidden");
+        elements.latestActionDetails.classList.remove("hidden");
+
+        elements.latestActionType.textContent =
+            latest.action_type_label || latest.action_type || "-";
+
+        elements.latestActionStatus.textContent =
+            latest.status_label || latest.status || "-";
+
+        elements.latestActionRequested.textContent =
+            formatDate(latest.requested_at);
+
+        if (latest.error_message) {
+            elements.latestActionError.textContent =
+                latest.error_message;
+
+            elements.latestActionError.classList.remove("hidden");
+        }
+    }
+
+    function renderState(session) {
+        currentState = session || {};
+
+        setBadge(
+            elements.statusBadge,
+            session.status_label || session.status,
+            sessionStatusType(session.status)
+        );
+
+        setBadge(
+            elements.captchaStatusBadge,
+            session.captcha_status_label ||
+                session.captcha_status,
+            captchaStatusType(session.captcha_status)
+        );
+
+        elements.projectId.textContent =
+            session.project && session.project.project_id
+                ? session.project.project_id
+                : "-";
+
+        elements.sessionStage.textContent =
+            session.stage || "-";
+
+        elements.browserUrl.textContent =
+            session.browser && session.browser.url
+                ? session.browser.url
+                : "-";
+
+        const viewport = session.viewport || {};
+
+        elements.viewportSize.textContent =
+            viewport.width && viewport.height
+                ? viewport.width + " × " + viewport.height
+                : "-";
+
+        const browser = session.browser || {};
+
+        elements.scrollPosition.textContent =
+            "X " +
+            String(browser.scroll_x || 0) +
+            " / Y " +
+            String(browser.scroll_y || 0);
+
+        const controller = session.controller || {};
+
+        elements.controllerName.textContent =
+            controller.display_name ||
+            controller.username ||
+            "Not assigned";
+
+        if (session.user_has_control) {
+            elements.controllerState.textContent =
+                "You have control";
+
+            elements.controllerState.className =
+                "text-right font-semibold text-emerald-300";
+        } else {
+            elements.controllerState.textContent =
+                controller.assigned
+                    ? "Read only"
+                    : "No controller";
+
+            elements.controllerState.className =
+                "text-right font-semibold text-amber-300";
+        }
+
+        const captcha = session.captcha || {};
+
+        elements.captchaRound.textContent =
+            String(captcha.round_number || 0) +
+            " / " +
+            String(captcha.max_rounds || 0);
+
+        const actions = session.actions || {};
+
+        elements.pendingActions.textContent =
+            String(
+                Number(actions.pending || 0) +
+                Number(actions.processing || 0)
+            );
+
+        const worker = session.worker || {};
+
+        elements.workerIdentifier.textContent =
+            worker.identifier || "-";
+
+        elements.workerLastActivity.textContent =
+            formatDate(worker.last_activity_at);
+
+        elements.workerMessage.textContent =
+            session.message || "-";
+
+        renderScreenshot(session);
+        renderLatestAction(session);
+        updateControls(session);
+    }
+
+    function updateControls(session) {
+        const hasControl = Boolean(session.user_has_control);
+        const canAccept = Boolean(session.can_accept_actions);
+        const processing =
+            session.status === "processing_action" ||
+            actionRequestRunning;
+
+        const disableGeneral =
+            !hasControl ||
+            !canAccept ||
+            processing;
+
+        document
+            .querySelectorAll(".tool-mode-button")
+            .forEach(function (button) {
+                button.disabled = !hasControl || !canAccept;
+            });
+
+        document
+            .querySelectorAll(".scroll-button")
+            .forEach(function (button) {
+                button.disabled = disableGeneral;
+            });
+
+        elements.refreshScreenshotButton.disabled =
+            disableGeneral;
+
+        elements.continueButton.disabled = disableGeneral;
+
+        elements.restartButton.disabled =
+            !hasControl ||
+            !session.is_open ||
+            processing;
+
+        elements.cancelButton.disabled =
+            !hasControl ||
+            !session.is_open ||
+            processing;
+
+        elements.clearPointsButton.disabled =
+            selectedPoints.length === 0;
+
+        elements.sendPointsButton.disabled =
+            disableGeneral ||
+            interactionMode !== "multi_click" ||
+            selectedPoints.length === 0;
+
+        const screenshotAvailable = Boolean(
+            session.screenshot &&
+            session.screenshot.available
+        );
+
+        elements.screenshot.style.cursor =
+            hasControl && canAccept && screenshotAvailable
+                ? "crosshair"
+                : "not-allowed";
+
+        if (processing) {
+            elements.actionOverlay.classList.remove("hidden");
+            elements.actionOverlay.classList.add("flex");
+        } else {
+            elements.actionOverlay.classList.add("hidden");
+            elements.actionOverlay.classList.remove("flex");
+        }
+    }
+
+    function setInteractionMode(mode) {
+        interactionMode = mode;
+        clearSelectedPoints();
+
+        const labels = {
+            click: {
+                label: "Click",
+                help: "Click directly on the browser screenshot.",
+            },
+            double_click: {
+                label: "Double click",
+                help: "Click a point to send a double-click action.",
+            },
+            multi_click: {
+                label: "Multi click",
+                help: "Select several points and then press Send points.",
+            },
+        };
+
+        const modeData = labels[mode] || labels.click;
+
+        elements.currentModeLabel.textContent = modeData.label;
+        elements.currentModeHelp.textContent = modeData.help;
+
+        document
+            .querySelectorAll(".tool-mode-button")
+            .forEach(function (button) {
+                button.classList.toggle(
+                    "is-active",
+                    button.dataset.mode === mode
+                );
+            });
+
+        if (mode === "multi_click") {
+            elements.multiClickSummary.classList.remove("hidden");
+        } else {
+            elements.multiClickSummary.classList.add("hidden");
+        }
+
+        updateControls(currentState);
+    }
+
+    function clearSelectedPoints() {
+        selectedPoints = [];
+        elements.pointOverlay.innerHTML = "";
+        elements.selectedPointsCount.textContent = "0";
+
+        if (currentState && currentState.status) {
+            updateControls(currentState);
+        }
+    }
+
+    function renderSelectedPoints() {
+        elements.pointOverlay.innerHTML = "";
+
+        selectedPoints.forEach(function (point, index) {
+            const marker = document.createElement("div");
+
+            marker.className = "remote-click-point";
+            marker.style.left = point.displayXPercent + "%";
+            marker.style.top = point.displayYPercent + "%";
+            marker.textContent = String(index + 1);
+
+            elements.pointOverlay.appendChild(marker);
+        });
+
+        elements.selectedPointsCount.textContent =
+            String(selectedPoints.length);
+
+        updateControls(currentState);
+    }
+
+    function screenshotPointFromEvent(event) {
+        const screenshot = currentState.screenshot || {};
+        const viewport = currentState.viewport || {};
+
+        if (
+            !screenshot.available ||
+            !viewport.width ||
+            !viewport.height
+        ) {
+            throw new Error(
+                "The browser viewport is not available."
+            );
+        }
+
+        const rectangle =
+            elements.screenshot.getBoundingClientRect();
+
+        if (
+            rectangle.width <= 0 ||
+            rectangle.height <= 0
+        ) {
+            throw new Error(
+                "The screenshot dimensions are invalid."
+            );
+        }
+
+        const relativeX = event.clientX - rectangle.left;
+        const relativeY = event.clientY - rectangle.top;
+
+        const normalizedX =
+            relativeX / rectangle.width;
+
+        const normalizedY =
+            relativeY / rectangle.height;
+
+        const playwrightX = Math.max(
+            0,
+            Math.min(
+                Number(viewport.width) - 1,
+                normalizedX * Number(viewport.width)
+            )
+        );
+
+        const playwrightY = Math.max(
+            0,
+            Math.min(
+                Number(viewport.height) - 1,
+                normalizedY * Number(viewport.height)
+            )
+        );
+
+        return {
+            x: Math.round(playwrightX * 100) / 100,
+            y: Math.round(playwrightY * 100) / 100,
+            displayXPercent: normalizedX * 100,
+            displayYPercent: normalizedY * 100,
+        };
+    }
+
+    async function requestState(options = {}) {
+        if (stateRequestRunning) {
+            return;
+        }
+
+        stateRequestRunning = true;
+
+        if (options.showLoading) {
+            elements.refreshStateButton.disabled = true;
+        }
+
+        try {
+            const response = await fetch(stateUrl, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                credentials: "same-origin",
+                cache: "no-store",
+            });
+
+            const payload = await response.json();
+
+            if (!response.ok || !payload.ok) {
+                throw new Error(
+                    payload.message ||
+                    "The remote browser state could not be loaded."
+                );
+            }
+
+            renderState(payload.session);
+        } catch (error) {
+            setAlert(
+                error.message ||
+                "The remote browser state could not be loaded.",
+                "error"
+            );
+        } finally {
+            stateRequestRunning = false;
+            elements.refreshStateButton.disabled = false;
+        }
+    }
+
+    async function sendAction(
+        actionType,
+        payload = {},
+        options = {}
+    ) {
+        if (actionRequestRunning) {
+            return null;
+        }
+
+        const screenshot =
+            currentState.screenshot || {};
+
+        actionRequestRunning = true;
+        updateControls(currentState);
+
+        if (options.message) {
+            setAlert(options.message, "info");
+        }
+
+        try {
+            const response = await fetch(actionUrl, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCookie("csrftoken"),
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                credentials: "same-origin",
+                body: JSON.stringify({
+                    action_type: actionType,
+                    screenshot_version:
+                        Number(screenshot.version || 0),
+                    payload: payload,
+                }),
+            });
+
+            const responsePayload = await response.json();
+
+            if (!response.ok || !responsePayload.ok) {
+                const error = new Error(
+                    responsePayload.message ||
+                    "The browser action could not be created."
+                );
+
+                error.code = responsePayload.code || "";
+                error.details = responsePayload.details || null;
+
+                throw error;
+            }
+
+            setAlert(
+                options.successMessage ||
+                "The browser action was queued.",
+                "success"
+            );
+
+            clearSelectedPoints();
+
+            await requestState();
+
+            return responsePayload;
+        } catch (error) {
+            if (error.code === "STALE_SCREENSHOT") {
+                loadedScreenshotVersion = null;
+
+                await requestState();
+
+                setAlert(
+                    "The screenshot changed. It was refreshed; click again.",
+                    "warning"
+                );
+            } else {
+                setAlert(
+                    error.message ||
+                    "The browser action could not be created.",
+                    "error"
+                );
+            }
+
+            return null;
+        } finally {
+            actionRequestRunning = false;
+            updateControls(currentState);
+        }
+    }
+
+    elements.screenshot.addEventListener(
+        "click",
+        async function (event) {
+            if (
+                !currentState.user_has_control ||
+                !currentState.can_accept_actions ||
+                actionRequestRunning
+            ) {
+                return;
+            }
+
+            let point;
+
+            try {
+                point = screenshotPointFromEvent(event);
+            } catch (error) {
+                setAlert(error.message, "error");
+                return;
+            }
+
+            if (interactionMode === "multi_click") {
+                if (selectedPoints.length >= 25) {
+                    setAlert(
+                        "A maximum of 25 points is allowed.",
+                        "warning"
+                    );
+                    return;
+                }
+
+                selectedPoints.push(point);
+                renderSelectedPoints();
+                return;
+            }
+
+            await sendAction(
+                interactionMode,
+                {
+                    x: point.x,
+                    y: point.y,
+                },
+                {
+                    message:
+                        interactionMode === "double_click"
+                            ? "Sending double click..."
+                            : "Sending click...",
+                    successMessage:
+                        interactionMode === "double_click"
+                            ? "Double click queued."
+                            : "Click queued.",
+                }
+            );
+        }
+    );
+
+    document
+        .querySelectorAll(".tool-mode-button")
+        .forEach(function (button) {
+            button.addEventListener("click", function () {
+                setInteractionMode(button.dataset.mode);
+            });
+        });
+
+    document
+        .querySelectorAll(".scroll-button")
+        .forEach(function (button) {
+            button.addEventListener(
+                "click",
+                async function () {
+                    await sendAction(
+                        "scroll",
+                        {
+                            delta_x: Number(
+                                button.dataset.deltaX || 0
+                            ),
+                            delta_y: Number(
+                                button.dataset.deltaY || 0
+                            ),
+                        },
+                        {
+                            message: "Sending scroll action...",
+                            successMessage: "Scroll action queued.",
+                        }
+                    );
+                }
+            );
+        });
+
+    elements.clearPointsButton.addEventListener(
+        "click",
+        function () {
+            clearSelectedPoints();
+        }
+    );
+
+    elements.sendPointsButton.addEventListener(
+        "click",
+        async function () {
+            if (selectedPoints.length === 0) {
+                return;
+            }
+
+            await sendAction(
+                "multi_click",
+                {
+                    points: selectedPoints.map(function (point) {
+                        return {
+                            x: point.x,
+                            y: point.y,
+                        };
+                    }),
+                },
+                {
+                    message: "Sending selected points...",
+                    successMessage: "Multiple clicks queued.",
+                }
+            );
+        }
+    );
+
+    elements.refreshStateButton.addEventListener(
+        "click",
+        async function () {
+            await requestState({
+                showLoading: true,
+            });
+        }
+    );
+
+    elements.refreshScreenshotButton.addEventListener(
+        "click",
+        async function () {
+            await sendAction(
+                "refresh_screenshot",
+                {},
+                {
+                    message: "Requesting a new screenshot...",
+                    successMessage: "Screenshot refresh queued.",
+                }
+            );
+        }
+    );
+
+    elements.continueButton.addEventListener(
+        "click",
+        async function () {
+            const confirmed = window.confirm(
+                "Continue only after the CAPTCHA is no longer visible. Continue?"
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            await sendAction(
+                "continue",
+                {},
+                {
+                    message: "Requesting continuation...",
+                    successMessage: "Continue request queued.",
+                }
+            );
+        }
+    );
+
+    elements.restartButton.addEventListener(
+        "click",
+        async function () {
+            const confirmed = window.confirm(
+                "Restart the CAPTCHA session for this project?"
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            await sendAction(
+                "restart",
+                {},
+                {
+                    message: "Requesting CAPTCHA restart...",
+                    successMessage: "Restart request queued.",
+                }
+            );
+        }
+    );
+
+    elements.cancelButton.addEventListener(
+        "click",
+        async function () {
+            const confirmed = window.confirm(
+                "Close the active browser session? This action cannot be undone."
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            await sendAction(
+                "cancel",
+                {},
+                {
+                    message: "Requesting browser cancellation...",
+                    successMessage: "Cancellation request queued.",
+                }
+            );
+        }
+    );
+
+    function startPolling() {
+        if (statePollTimer) {
+            window.clearInterval(statePollTimer);
+        }
+
+        statePollTimer = window.setInterval(
+            function () {
+                requestState();
+            },
+            2000
+        );
+    }
+
+    document.addEventListener(
+        "visibilitychange",
+        function () {
+            if (document.hidden) {
+                if (statePollTimer) {
+                    window.clearInterval(statePollTimer);
+                    statePollTimer = null;
+                }
+            } else {
+                requestState();
+                startPolling();
+            }
+        }
+    );
+
+    window.addEventListener(
+        "beforeunload",
+        function () {
+            if (statePollTimer) {
+                window.clearInterval(statePollTimer);
+            }
+        }
+    );
+
+    setInteractionMode("click");
+    renderState(currentState);
+    requestState();
+    startPolling();
+})();
+</script>
+
+{% endblock %}

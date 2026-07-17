@@ -14,6 +14,8 @@ from django.utils import timezone
 from client_submissions.automation.smartsheet_form import (
     _detect_verification_challenge, close_active_browser, get_active_browser,
     run_smartsheet_dry_run, run_smartsheet_live)
+from client_submissions.automation.smartsheet_state import \
+    SmartsheetRestartSubmissionRequested
 from client_submissions.models import (ClientSubmission,
                                        ClientSubmissionAttempt,
                                        ClientSubmissionBatch,
@@ -23,6 +25,233 @@ from operaciones.views_fotos_zip import (SMARTSHEET_MAX_ZIP_PART_BYTES,
                                          generar_fotos_zip_partes_smartsheet)
 
 logger = logging.getLogger(__name__)
+
+
+@transaction.atomic
+def requeue_single_submission_after_captcha_restart(
+    submission: ClientSubmission,
+    attempt: ClientSubmissionAttempt,
+    *,
+    reason: str,
+):
+    """
+    Reinicia únicamente el Submission actual después de que el
+    CAPTCHA venció o fue cerrado.
+
+    No modifica submissions que ya fueron enviados o completados.
+
+    El Batch permanece RUNNING para que process_batch() vuelva
+    a tomar inmediatamente este mismo proyecto.
+    """
+
+    submission = (
+        ClientSubmission.objects.select_for_update()
+        .select_related(
+            "batch",
+        )
+        .get(
+            pk=submission.pk,
+        )
+    )
+
+    batch = ClientSubmissionBatch.objects.select_for_update().get(
+        pk=submission.batch_id,
+    )
+
+    now = timezone.now()
+
+    # ========================================================
+    # Cerrar el intento bloqueado
+    # ========================================================
+
+    attempt = ClientSubmissionAttempt.objects.select_for_update().get(
+        pk=attempt.pk,
+    )
+
+    attempt.result = ClientSubmissionAttempt.Result.CANCELLED
+
+    attempt.error_code = "CAPTCHA_SESSION_RESTARTED"
+
+    attempt.error_message = reason
+
+    attempt_details = (
+        dict(
+            attempt.error_details,
+        )
+        if isinstance(
+            attempt.error_details,
+            dict,
+        )
+        else {}
+    )
+
+    attempt.error_details = {
+        **attempt_details,
+        "captcha_restart_requested": True,
+        "captcha_restart_requested_at": now.isoformat(),
+        "restart_reason": reason,
+    }
+
+    attempt.finished_at = now
+
+    attempt.save(
+        update_fields=[
+            "result",
+            "error_code",
+            "error_message",
+            "error_details",
+            "finished_at",
+            "updated_at",
+        ]
+    )
+
+    # ========================================================
+    # Reiniciar solamente este Submission
+    # ========================================================
+
+    browser_state = (
+        dict(
+            submission.browser_state,
+        )
+        if isinstance(
+            submission.browser_state,
+            dict,
+        )
+        else {}
+    )
+
+    verification_state = browser_state.get(
+        "human_verification",
+        {},
+    )
+
+    if not isinstance(
+        verification_state,
+        dict,
+    ):
+        verification_state = {}
+
+    verification_state.update(
+        {
+            "session_available": False,
+            "session_url": "",
+            "captcha_cleared": False,
+            "continue_requested_at": None,
+            "continue_requested_by": None,
+            "continue_requested_username": "",
+            "cancel_requested_at": None,
+            "cancel_requested_by": None,
+            "cancel_requested_username": "",
+            "retry_challenge_requested_at": None,
+            "retry_challenge_requested_by": None,
+            "retry_challenge_requested_username": "",
+            "retry_challenge_processed_at": now.isoformat(),
+            "retry_challenge_clicked_at": None,
+            "retry_challenge_error": "",
+            "worker_checked_at": now.isoformat(),
+            "restart_queued_at": now.isoformat(),
+            "message": (
+                "The expired CAPTCHA session was closed. "
+                "This project was queued to restart."
+            ),
+        }
+    )
+
+    browser_state["human_verification"] = verification_state
+
+    submission.browser_state = browser_state
+
+    submission.status = ClientSubmission.Status.PENDING_CLIENT_SUBMISSION
+
+    submission.started_at = None
+
+    submission.form_loaded_at = None
+
+    submission.form_completed_at = None
+
+    submission.verification_required_at = None
+
+    submission.verification_completed_at = None
+
+    submission.submit_clicked_at = None
+
+    submission.finished_at = None
+
+    submission.last_error_code = ""
+
+    submission.last_error_message = ""
+
+    submission.last_error_at = None
+
+    submission.browser_session_key = ""
+
+    submission.save(
+        update_fields=[
+            "status",
+            "started_at",
+            "form_loaded_at",
+            "form_completed_at",
+            "verification_required_at",
+            "verification_completed_at",
+            "submit_clicked_at",
+            "finished_at",
+            "last_error_code",
+            "last_error_message",
+            "last_error_at",
+            "browser_session_key",
+            "browser_state",
+            "updated_at",
+        ]
+    )
+
+    # ========================================================
+    # Mantener el Batch procesándose
+    #
+    # No se devuelve a PENDING para evitar que otro worker
+    # reclame el mismo Batch mientras process_batch() sigue vivo.
+    # ========================================================
+
+    batch.status = ClientSubmissionBatch.Status.RUNNING
+
+    batch.paused_at = None
+
+    batch.finished_at = None
+
+    batch.current_submission = None
+
+    batch.last_error = ""
+
+    batch.last_activity_at = now
+
+    batch.save(
+        update_fields=[
+            "status",
+            "paused_at",
+            "finished_at",
+            "current_submission",
+            "last_error",
+            "last_activity_at",
+            "updated_at",
+        ]
+    )
+
+    create_event(
+        batch=batch,
+        submission=submission,
+        level=ClientSubmissionEvent.Level.WARNING,
+        event_type="captcha_session_restart_queued",
+        message=(
+            f"The expired CAPTCHA session for "
+            f"{submission.project_id} was closed. "
+            "Only this project will restart."
+        ),
+        metadata={
+            "attempt_number": attempt.attempt_number,
+            "restart_queued_at": now.isoformat(),
+            "reason": reason,
+        },
+    )
+
 
 # ============================================================
 # Estado de verificación humana
@@ -1520,9 +1749,11 @@ def process_live_submission(
     5. Presiona Submit.
     6. Espera la confirmación visual de Smartsheet.
     7. Si aparece CAPTCHA, conserva la sesión del navegador.
-    8. Marca la confirmación del navegador cuando corresponda.
-    9. Deja el proyecto esperando confirmación por correo,
-       salvo que esta ya exista.
+    8. Si el CAPTCHA vence o se cierra, reinicia solamente
+       este proyecto.
+    9. Marca la confirmación del navegador cuando corresponda.
+    10. Deja el proyecto esperando confirmación por correo,
+        salvo que esta ya exista.
     """
 
     batch = submission.batch
@@ -1953,11 +2184,42 @@ def process_live_submission(
                 ),
                 "submit_clicked": submit_clicked,
                 "browser_confirmation_received": (browser_confirmation_received),
-                "confirmation_reference": confirmation_reference,
+                "confirmation_reference": (confirmation_reference),
                 "submission_status": submission.status,
                 "zip_stats": zip_stats,
             },
         )
+
+    # ========================================================
+    # Reiniciar solamente este proyecto por CAPTCHA vencido
+    # ========================================================
+
+    except SmartsheetRestartSubmissionRequested as exc:
+        logger.warning(
+            (
+                "Restarting only submission %s after "
+                "the CAPTCHA session expired or was closed."
+            ),
+            submission.pk,
+        )
+
+        restart_reason = str(
+            exc,
+        ).strip() or ("The CAPTCHA session expired or was closed.")
+
+        requeue_single_submission_after_captcha_restart(
+            submission,
+            attempt,
+            reason=restart_reason,
+        )
+
+        verification_session_active = False
+
+        return
+
+    # ========================================================
+    # Error general
+    # ========================================================
 
     except Exception as exc:
         logger.exception(
@@ -1991,7 +2253,7 @@ def process_live_submission(
             attempt.error_details = {
                 "zip_parts": [Path(path).name for path in local_zip_paths],
                 "zip_stats": zip_stats,
-                "error_type": exc.__class__.__name__,
+                "error_type": (exc.__class__.__name__),
             }
 
             attempt.finished_at = timezone.now()
@@ -2030,7 +2292,7 @@ def process_live_submission(
             event_type="live_submission_failed",
             message=("Live submission failed for " f"{submission.project_id}: {exc}"),
             metadata={
-                "error_type": exc.__class__.__name__,
+                "error_type": (exc.__class__.__name__),
                 "attempt_number": attempt.attempt_number,
                 "zip_parts": [Path(path).name for path in local_zip_paths],
                 "zip_stats": zip_stats,
@@ -2041,9 +2303,8 @@ def process_live_submission(
         # ====================================================
         # Eliminar ZIP temporales
         #
-        # Los ZIP ya fueron cargados al navegador antes de que
-        # aparezca el CAPTCHA. Se conserva solamente la sesión
-        # Playwright, no es necesario conservar estos archivos.
+        # Si se solicita reiniciar este proyecto, estas partes
+        # se eliminan y el próximo intento las generará otra vez.
         # ====================================================
 
         if temporary_zips:

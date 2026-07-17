@@ -10,45 +10,26 @@
   data-continue-url="{% url 'client_submissions:verification_continue' submission.public_id %}"
   data-cancel-url="{% url 'client_submissions:verification_cancel' submission.public_id %}"
   data-batch-url="{% url 'client_submissions:batch_detail' batch.public_id %}"
+  data-console-url="{{ remote_console_url }}"
 >
 
   {% csrf_token %}
 
-  <!-- =======================================================
-       Encabezado
-       ======================================================= -->
-
   <div class="text-center mb-6">
-
-    <div
-      id="status-icon"
-      class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl"
-    >
+    <div class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl">
       ⚠️
     </div>
 
-    <h1
-      id="page-title"
-      class="text-2xl font-bold text-gray-800 mt-4"
-    >
+    <h1 class="text-2xl font-bold text-gray-800 mt-4">
       Human verification required
     </h1>
 
-    <p
-      id="page-description"
-      class="text-sm text-gray-500 mt-2"
-    >
+    <p class="text-sm text-gray-500 mt-2">
       Smartsheet requires human verification before the automated submission can continue.
     </p>
-
   </div>
 
-  <!-- =======================================================
-       Información del proyecto
-       ======================================================= -->
-
   <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-6">
-
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
       <div>
@@ -92,15 +73,9 @@
       </div>
 
     </div>
-
   </div>
 
-  <!-- =======================================================
-       Estado actual
-       ======================================================= -->
-
   <div class="rounded-xl border border-gray-200 p-5 mb-6">
-
     <div class="flex items-start justify-between gap-4">
 
       <div>
@@ -123,79 +98,75 @@
         {% endif %}
       </div>
 
-      <div
-        id="status-indicator"
-        class="flex items-center gap-2 text-sm text-gray-500"
-      >
+      <div class="flex items-center gap-2 text-sm text-gray-500">
         <span
           id="status-dot"
           class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"
         ></span>
 
         <span id="status-indicator-text">
-          Waiting
+          Waiting for verification
         </span>
       </div>
 
     </div>
-
   </div>
 
-  <!-- =======================================================
-       Sesión del navegador
-       ======================================================= -->
-
   <div class="rounded-xl border border-blue-200 bg-blue-50 p-5 mb-6">
-
     <h2 class="font-semibold text-blue-900">
-      Verification session
+      Remote verification console
     </h2>
 
     <p class="text-sm text-blue-800 mt-2">
-      The automated browser is paused at the Smartsheet verification step.
-      Complete the CAPTCHA in the connected browser session and then press
-      <strong>Verification completed</strong>.
+      The Playwright browser is paused at the Smartsheet CAPTCHA.
+      Open the remote browser console and complete the verification
+      directly from the captured browser screen.
     </p>
 
     <div class="mt-4 rounded-lg border border-blue-200 bg-white p-4">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 
-      <div class="flex items-start gap-3">
+        <div class="flex items-start gap-3">
+          <div class="text-xl">
+            🌐
+          </div>
 
-        <div class="text-xl">
-          🌐
+          <div>
+            <p class="font-medium text-gray-900">
+              Browser connection
+            </p>
+
+            <p
+              id="browser-connection-status"
+              class="text-sm mt-1 {% if remote_session_available %}text-green-700 font-medium{% else %}text-amber-700{% endif %}"
+            >
+              {% if remote_session_available %}
+                The remote browser console is active and ready.
+              {% else %}
+                Waiting for the remote browser console.
+              {% endif %}
+            </p>
+          </div>
         </div>
 
-        <div>
-          <p class="font-medium text-gray-900">
-            Browser connection
-          </p>
-
-          <p
-            id="browser-connection-status"
-            class="text-sm text-gray-500 mt-1"
-          >
-            Waiting for the Playwright browser connection.
-          </p>
-        </div>
+        <a
+          id="open-remote-console-button"
+          href="{{ remote_console_url|default:'#' }}"
+          target="_blank"
+          rel="noopener"
+          class="{% if not remote_session_available or not remote_console_url %}pointer-events-none opacity-50{% endif %} inline-flex min-h-11 items-center justify-center rounded-xl bg-indigo-600 px-5 py-2.5 text-center font-semibold text-white transition hover:bg-indigo-700"
+        >
+          Open Remote Browser Console
+        </a>
 
       </div>
-
     </div>
-
   </div>
-
-  <!-- =======================================================
-       Mensajes
-       ======================================================= -->
 
   <div
     id="verification-message"
     class="hidden rounded-xl border p-4 mb-6"
   ></div>
-
-  <!-- =======================================================
-       Botones
-       ======================================================= -->
 
   <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-3">
 
@@ -221,13 +192,11 @@
         type="button"
         class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-semibold transition"
       >
-        Verification completed
+        Verify browser and continue
       </button>
 
     </div>
-
   </div>
-
 </div>
 
 <script>
@@ -243,15 +212,30 @@ document.addEventListener("DOMContentLoaded", function () {
   const cancelUrl = page.dataset.cancelUrl;
   const batchUrl = page.dataset.batchUrl;
 
-  const statusElement = document.getElementById("submission-status");
+  const statusElement = document.getElementById(
+    "submission-status"
+  );
+
   const statusIndicatorText = document.getElementById(
     "status-indicator-text"
   );
-  const statusDot = document.getElementById("status-dot");
+
+  const statusDot = document.getElementById(
+    "status-dot"
+  );
+
+  const browserConnectionStatus = document.getElementById(
+    "browser-connection-status"
+  );
+
+  const consoleButton = document.getElementById(
+    "open-remote-console-button"
+  );
 
   const continueButton = document.getElementById(
     "continue-verification-button"
   );
+
   const cancelButton = document.getElementById(
     "cancel-verification-button"
   );
@@ -299,7 +283,7 @@ document.addEventListener("DOMContentLoaded", function () {
     messageElement.classList.remove("hidden");
   }
 
-  function setButtonsDisabled(disabled) {
+  function setActionButtonsDisabled(disabled) {
     continueButton.disabled = disabled;
     cancelButton.disabled = disabled;
 
@@ -324,14 +308,55 @@ document.addEventListener("DOMContentLoaded", function () {
     );
   }
 
+  function updateRemoteConsole(data) {
+    const available = Boolean(
+      data.remote_console_available ||
+      data.session_available
+    );
+
+    const consoleUrl =
+      data.remote_console_url ||
+      data.session_url ||
+      "";
+
+    if (available && consoleUrl) {
+      browserConnectionStatus.textContent =
+        "The remote browser console is active and ready.";
+
+      browserConnectionStatus.className =
+        "text-sm text-green-700 font-medium mt-1";
+
+      consoleButton.href = consoleUrl;
+
+      consoleButton.classList.remove(
+        "pointer-events-none",
+        "opacity-50"
+      );
+
+      return;
+    }
+
+    browserConnectionStatus.textContent =
+      "Waiting for the remote browser console.";
+
+    browserConnectionStatus.className =
+      "text-sm text-amber-700 mt-1";
+
+    consoleButton.href = "#";
+
+    consoleButton.classList.add(
+      "pointer-events-none",
+      "opacity-50"
+    );
+  }
+
   function updateStatusAppearance(data) {
     statusElement.textContent =
       data.status_label || data.status || "Unknown";
 
-    const awaitingVerification =
-      data.status === "awaiting_verification";
+    updateRemoteConsole(data);
 
-    if (awaitingVerification) {
+    if (data.status === "awaiting_verification") {
       statusElement.className =
         "mt-2 text-amber-700 font-semibold";
 
@@ -356,11 +381,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
       showMessage(
         data.last_error_message ||
-          "The submission failed.",
+        "The submission failed.",
         "error"
       );
 
-      setButtonsDisabled(true);
+      setActionButtonsDisabled(true);
 
       return;
     }
@@ -375,7 +400,7 @@ document.addEventListener("DOMContentLoaded", function () {
       statusIndicatorText.textContent =
         "Submission cancelled";
 
-      setButtonsDisabled(true);
+      setActionButtonsDisabled(true);
 
       return;
     }
@@ -389,7 +414,7 @@ document.addEventListener("DOMContentLoaded", function () {
     statusIndicatorText.textContent =
       "Verification completed";
 
-    setButtonsDisabled(true);
+    setActionButtonsDisabled(true);
 
     showMessage(
       "Verification was accepted. Returning to the Batch.",
@@ -409,7 +434,8 @@ document.addEventListener("DOMContentLoaded", function () {
           "X-Requested-With": "XMLHttpRequest",
           "Accept": "application/json"
         },
-        credentials: "same-origin"
+        credentials: "same-origin",
+        cache: "no-store"
       });
 
       const data = await response.json();
@@ -441,7 +467,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     pollingTimer = window.setInterval(
       checkStatus,
-      3000
+      2000
     );
   }
 
@@ -460,7 +486,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       const confirmed = window.confirm(
-        "Confirm that you completed the CAPTCHA in the browser session."
+        "Continue only after the CAPTCHA is no longer visible in the remote browser console."
       );
 
       if (!confirmed) {
@@ -468,10 +494,10 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       requestRunning = true;
-      setButtonsDisabled(true);
+      setActionButtonsDisabled(true);
 
       continueButton.textContent =
-        "Continuing...";
+        "Checking browser...";
 
       try {
         const response = await fetch(continueUrl, {
@@ -494,7 +520,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         showMessage(
-          "Verification confirmation was sent. Waiting for the browser process to continue.",
+          "The worker is validating the browser session.",
           "success"
         );
 
@@ -506,12 +532,12 @@ document.addEventListener("DOMContentLoaded", function () {
           "error"
         );
 
-        setButtonsDisabled(false);
+        setActionButtonsDisabled(false);
       } finally {
         requestRunning = false;
 
         continueButton.textContent =
-          "Verification completed";
+          "Verify browser and continue";
       }
     }
   );
@@ -532,7 +558,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       requestRunning = true;
-      setButtonsDisabled(true);
+      setActionButtonsDisabled(true);
 
       cancelButton.textContent =
         "Cancelling...";
@@ -574,7 +600,7 @@ document.addEventListener("DOMContentLoaded", function () {
           "error"
         );
 
-        setButtonsDisabled(false);
+        setActionButtonsDisabled(false);
       } finally {
         requestRunning = false;
 

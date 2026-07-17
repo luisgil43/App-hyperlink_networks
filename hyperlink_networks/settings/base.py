@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "cable_installation",
     "client_deliverables",
     "client_submissions",
+    "client_submission_remote.apps.ClientSubmissionRemoteConfig",
     "dashboard_admin.apps.DashboardAdminConfig",
 ]
 

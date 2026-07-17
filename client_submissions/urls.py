@@ -92,6 +92,11 @@ urlpatterns = [
         name="verification_status_json",
     ),
     path(
+        "submission/<uuid:public_id>/verification/retry/",
+        views_verification.verification_retry,
+        name="verification_retry",
+    ),
+    path(
         "submission/<uuid:public_id>/verification/continue/",
         views_verification.verification_continue,
         name="verification_continue",
