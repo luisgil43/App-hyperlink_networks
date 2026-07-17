@@ -339,6 +339,13 @@ def _acquire_controller(
     """
     Asigna o conserva el control de la sesión remota.
 
+    La fila de RemoteBrowserSession se bloquea sin incluir relaciones
+    opcionales en la consulta FOR UPDATE. Esto evita el error de
+    PostgreSQL:
+
+        FOR UPDATE cannot be applied to the nullable side
+        of an outer join
+
     Para evitar escrituras constantes durante el polling:
 
     - guarda inmediatamente cuando cambia el controlador;
@@ -347,17 +354,8 @@ def _acquire_controller(
     - permite tomar el control cuando el anterior está inactivo.
     """
 
-    session = (
-        RemoteBrowserSession.objects.select_for_update()
-        .select_related(
-            "submission",
-            "submission__batch",
-            "attempt",
-            "controller_user",
-        )
-        .get(
-            pk=session_id,
-        )
+    session = RemoteBrowserSession.objects.select_for_update().get(
+        pk=session_id,
     )
 
     now = timezone.now()
@@ -372,44 +370,48 @@ def _acquire_controller(
         )
     )
 
-    if not controller_is_available:
-        return session
+    if controller_is_available:
+        if not controller_is_current_user:
+            session.controller_user = user
+            session.controller_acquired_at = now
+            session.controller_last_activity_at = now
 
-    if not controller_is_current_user:
-        session.controller_user = user
-        session.controller_acquired_at = now
-        session.controller_last_activity_at = now
+            session.save(
+                update_fields=[
+                    "controller_user",
+                    "controller_acquired_at",
+                    "controller_last_activity_at",
+                    "updated_at",
+                ]
+            )
 
-        session.save(
-            update_fields=[
-                "controller_user",
-                "controller_acquired_at",
-                "controller_last_activity_at",
-                "updated_at",
-            ]
-        )
+        else:
+            last_activity = (
+                session.controller_last_activity_at or session.controller_acquired_at
+            )
 
-        return session
+            should_refresh_activity = (
+                last_activity is None or (now - last_activity).total_seconds() >= 30
+            )
 
-    last_activity = (
-        session.controller_last_activity_at or session.controller_acquired_at
+            if should_refresh_activity:
+                session.controller_last_activity_at = now
+
+                session.save(
+                    update_fields=[
+                        "controller_last_activity_at",
+                        "updated_at",
+                    ]
+                )
+
+    return RemoteBrowserSession.objects.select_related(
+        "submission",
+        "submission__batch",
+        "attempt",
+        "controller_user",
+    ).get(
+        pk=session.pk,
     )
-
-    should_refresh_activity = (
-        last_activity is None or (now - last_activity).total_seconds() >= 30
-    )
-
-    if should_refresh_activity:
-        session.controller_last_activity_at = now
-
-        session.save(
-            update_fields=[
-                "controller_last_activity_at",
-                "updated_at",
-            ]
-        )
-
-    return session
 
 
 def _user_controls_session(
@@ -1038,17 +1040,8 @@ def remote_browser_action(
 
     try:
         with transaction.atomic():
-            session = (
-                RemoteBrowserSession.objects.select_for_update()
-                .select_related(
-                    "submission",
-                    "submission__batch",
-                    "attempt",
-                    "controller_user",
-                )
-                .get(
-                    public_id=public_id,
-                )
+            session = RemoteBrowserSession.objects.select_for_update().get(
+                public_id=public_id,
             )
 
             if session.is_expired:
@@ -1071,29 +1064,32 @@ def remote_browser_action(
             ):
                 controller_name = ""
 
-                if session.controller_user:
+                if session.controller_user_id:
+                    controller_user = session.controller_user
+
                     try:
-                        controller_name = session.controller_user.get_full_name()
+                        controller_name = controller_user.get_full_name()
 
                     except Exception:
                         controller_name = ""
 
                     if not controller_name:
                         controller_name = str(
-                            session.controller_user,
+                            controller_user,
                         )
 
                 return _json_error(
                     (
                         "This remote browser session is currently "
-                        f"controlled by {controller_name or 'another user'}."
+                        f"controlled by "
+                        f"{controller_name or 'another user'}."
                     ),
                     status=409,
                     code="CONTROLLER_CONFLICT",
                 )
 
             pending_action_count = RemoteBrowserAction.objects.filter(
-                session=session,
+                session_id=session.pk,
                 status__in=[
                     RemoteBrowserAction.Status.PENDING,
                     RemoteBrowserAction.Status.PROCESSING,
@@ -1121,7 +1117,8 @@ def remote_browser_action(
                 return _json_error(
                     (
                         "The screenshot changed before the action "
-                        "was submitted. Refresh the console and try again."
+                        "was submitted. Refresh the console and "
+                        "try again."
                     ),
                     status=409,
                     code="STALE_SCREENSHOT",
@@ -1185,7 +1182,7 @@ def remote_browser_action(
 
     except Exception as exc:
         logger.exception(
-            "Could not create remote browser action for session %s.",
+            "Could not create remote browser action " "for session %s.",
             public_id,
         )
 
@@ -1204,8 +1201,8 @@ def remote_browser_action(
             "action_type": action.action_type,
             "action_type_label": (action.get_action_type_display()),
             "status": action.status,
-            "status_label": action.get_status_display(),
+            "status_label": (action.get_status_display()),
             "screenshot_version": (action.screenshot_version),
-            "requested_at": action.requested_at.isoformat(),
+            "requested_at": (action.requested_at.isoformat()),
         },
     )

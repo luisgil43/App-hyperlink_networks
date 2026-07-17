@@ -190,6 +190,7 @@ class RemoteBrowserSession(models.Model):
 
     screenshot = models.ImageField(
         upload_to="client_submission_remote/screenshots/%Y/%m/",
+        max_length=500,
         null=True,
         blank=True,
     )

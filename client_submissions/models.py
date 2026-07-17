@@ -1211,6 +1211,7 @@ class ClientSubmissionAttempt(models.Model):
 
     screenshot = models.ImageField(
         upload_to="client_submissions/screenshots/%Y/%m/",
+        max_length=500,
         null=True,
         blank=True,
     )
