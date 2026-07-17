@@ -7,6 +7,7 @@
   id="verification-page"
   class="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-2xl shadow mt-6"
   data-status-url="{% url 'client_submissions:verification_status_json' submission.public_id %}"
+  data-retry-url="{% url 'client_submissions:verification_retry' submission.public_id %}"
   data-continue-url="{% url 'client_submissions:verification_continue' submission.public_id %}"
   data-cancel-url="{% url 'client_submissions:verification_cancel' submission.public_id %}"
   data-batch-url="{% url 'client_submissions:batch_detail' batch.public_id %}"
@@ -180,6 +181,14 @@
     <div class="flex flex-col sm:flex-row gap-3">
 
       <button
+        id="retry-verification-button"
+        type="button"
+        class="w-full sm:w-auto px-5 py-2.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 font-medium transition"
+      >
+        Show CAPTCHA again
+      </button>
+
+      <button
         id="cancel-verification-button"
         type="button"
         class="w-full sm:w-auto px-5 py-2.5 rounded-lg border border-red-300 bg-white text-red-700 hover:bg-red-50 font-medium transition"
@@ -208,6 +217,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   const statusUrl = page.dataset.statusUrl;
+  const retryUrl = page.dataset.retryUrl;
   const continueUrl = page.dataset.continueUrl;
   const cancelUrl = page.dataset.cancelUrl;
   const batchUrl = page.dataset.batchUrl;
@@ -230,6 +240,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const consoleButton = document.getElementById(
     "open-remote-console-button"
+  );
+
+  const retryButton = document.getElementById(
+    "retry-verification-button"
   );
 
   const continueButton = document.getElementById(
@@ -271,6 +285,12 @@ document.addEventListener("DOMContentLoaded", function () {
         "bg-red-50",
         "text-red-800"
       );
+    } else if (type === "warning") {
+      messageElement.classList.add(
+        "border-amber-200",
+        "bg-amber-50",
+        "text-amber-800"
+      );
     } else {
       messageElement.classList.add(
         "border-blue-200",
@@ -284,28 +304,25 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setActionButtonsDisabled(disabled) {
-    continueButton.disabled = disabled;
-    cancelButton.disabled = disabled;
+    [
+      retryButton,
+      continueButton,
+      cancelButton
+    ]
+      .filter(Boolean)
+      .forEach(function (button) {
+        button.disabled = disabled;
 
-    continueButton.classList.toggle(
-      "opacity-50",
-      disabled
-    );
+        button.classList.toggle(
+          "opacity-50",
+          disabled
+        );
 
-    continueButton.classList.toggle(
-      "cursor-not-allowed",
-      disabled
-    );
-
-    cancelButton.classList.toggle(
-      "opacity-50",
-      disabled
-    );
-
-    cancelButton.classList.toggle(
-      "cursor-not-allowed",
-      disabled
-    );
+        button.classList.toggle(
+          "cursor-not-allowed",
+          disabled
+        );
+      });
   }
 
   function updateRemoteConsole(data) {
@@ -350,9 +367,71 @@ document.addEventListener("DOMContentLoaded", function () {
     );
   }
 
+  function updateRetryAppearance(data) {
+    const retryRequestedAt =
+      data.retry_challenge_requested_at ||
+      data.verification?.retry_challenge_requested_at ||
+      null;
+
+    const retryProcessedAt =
+      data.retry_challenge_processed_at ||
+      data.verification?.retry_challenge_processed_at ||
+      null;
+
+    const retryClickedAt =
+      data.retry_challenge_clicked_at ||
+      data.verification?.retry_challenge_clicked_at ||
+      null;
+
+    const retryError =
+      data.retry_challenge_error ||
+      data.verification?.retry_challenge_error ||
+      "";
+
+    if (retryError) {
+      showMessage(
+        retryError,
+        "error"
+      );
+
+      return;
+    }
+
+    if (retryRequestedAt && !retryProcessedAt) {
+      statusIndicatorText.textContent =
+        "Requesting a new CAPTCHA";
+
+      retryButton.textContent =
+        "CAPTCHA requested...";
+
+      retryButton.disabled = true;
+
+      retryButton.classList.add(
+        "opacity-50",
+        "cursor-not-allowed"
+      );
+
+      return;
+    }
+
+    if (retryProcessedAt || retryClickedAt) {
+      retryButton.textContent =
+        "Show CAPTCHA again";
+
+      retryButton.disabled = false;
+
+      retryButton.classList.remove(
+        "opacity-50",
+        "cursor-not-allowed"
+      );
+    }
+  }
+
   function updateStatusAppearance(data) {
     statusElement.textContent =
-      data.status_label || data.status || "Unknown";
+      data.status_label ||
+      data.status ||
+      "Unknown";
 
     updateRemoteConsole(data);
 
@@ -365,6 +444,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       statusIndicatorText.textContent =
         "Waiting for verification";
+
+      setActionButtonsDisabled(false);
+      updateRetryAppearance(data);
 
       return;
     }
@@ -477,6 +559,77 @@ document.addEventListener("DOMContentLoaded", function () {
       pollingTimer = null;
     }
   }
+
+  retryButton.addEventListener(
+    "click",
+    async function () {
+      if (requestRunning) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Show the CAPTCHA again for this project? The worker will click Submit again using the current browser session."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      requestRunning = true;
+      setActionButtonsDisabled(true);
+
+      retryButton.textContent =
+        "Requesting CAPTCHA...";
+
+      try {
+        const response = await fetch(retryUrl, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCsrfToken(),
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+          },
+          credentials: "same-origin"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.error ||
+            "A new CAPTCHA could not be requested."
+          );
+        }
+
+        showMessage(
+          data.message ||
+          "A new CAPTCHA was requested. Waiting for the worker.",
+          "warning"
+        );
+
+        statusIndicatorText.textContent =
+          "Requesting a new CAPTCHA";
+
+        retryButton.textContent =
+          "CAPTCHA requested...";
+
+        await checkStatus();
+      } catch (error) {
+        showMessage(
+          error.message ||
+          "A new CAPTCHA could not be requested.",
+          "error"
+        );
+
+        retryButton.textContent =
+          "Show CAPTCHA again";
+
+        setActionButtonsDisabled(false);
+      } finally {
+        requestRunning = false;
+      }
+    }
+  );
 
   continueButton.addEventListener(
     "click",
@@ -591,7 +744,8 @@ document.addEventListener("DOMContentLoaded", function () {
         stopPolling();
 
         window.setTimeout(function () {
-          window.location.href = batchUrl;
+          window.location.href =
+            data.redirect_url || batchUrl;
         }, 1200);
       } catch (error) {
         showMessage(
