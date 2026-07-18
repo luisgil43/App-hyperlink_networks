@@ -2664,9 +2664,11 @@ async def _inspect_smartsheet_submission_result(
     Detecta:
 
     - Confirmación explícita mediante texto.
-    - Confirmación mediante URL con confirm=true.
+    - Confirmación mediante URL.
     - Desaparición del formulario y del botón Submit.
-    - Errores visibles.
+    - Errores visibles de validación.
+    - Errores transitorios que requieren reiniciar únicamente
+      el Submission actual.
     - CAPTCHA todavía activo.
 
     Esta función no modifica la base de datos.
@@ -2715,7 +2717,49 @@ async def _inspect_smartsheet_submission_result(
     normalized_url = current_url.lower()
 
     # ========================================================
-    # 1. Errores reales mostrados por Smartsheet
+    # 1. Errores transitorios de Smartsheet
+    #
+    # Estos errores indican que el formulario no fue enviado,
+    # pero normalmente pueden resolverse abriendo una sesión
+    # nueva y repitiendo solamente este Submission.
+    # ========================================================
+
+    restart_error_markers = [
+        "we weren't able to submit your form response",
+        "we were not able to submit your form response",
+        "please refresh and try again",
+        "unable to submit your form response",
+    ]
+
+    detected_restart_error = next(
+        (marker for marker in restart_error_markers if marker in normalized_body),
+        "",
+    )
+
+    if detected_restart_error:
+        print(
+            "SMARTSHEET TRANSIENT SUBMISSION ERROR:",
+            {
+                "marker": detected_restart_error,
+                "url": current_url,
+                "body": final_body_text[:2000],
+            },
+        )
+
+        raise SmartsheetRestartSubmissionRequested(
+            (
+                "Smartsheet could not submit the form response "
+                "in the current browser session. "
+                f"Detected message: {detected_restart_error!r}. "
+                "Only this Submission will restart in a new "
+                "browser session."
+            )
+        )
+
+    # ========================================================
+    # 2. Errores reales mostrados por Smartsheet
+    #
+    # Estos errores no deben tratarse como confirmación.
     # ========================================================
 
     error_markers = [
@@ -2724,7 +2768,6 @@ async def _inspect_smartsheet_submission_result(
         "there was an error submitting",
         "could not submit",
         "submission failed",
-        "please try again",
         "exceeds the max file size",
         "file is too large",
     ]
@@ -2752,7 +2795,10 @@ async def _inspect_smartsheet_submission_result(
         }
 
     # ========================================================
-    # 2. Confirmación explícita por texto
+    # 3. Confirmación explícita por texto
+    #
+    # No usar solamente "thank you", ya que es demasiado
+    # genérico y puede generar falsos positivos.
     # ========================================================
 
     success_markers = [
@@ -2787,7 +2833,7 @@ async def _inspect_smartsheet_submission_result(
         }
 
     # ========================================================
-    # 3. Confirmación explícita mediante URL
+    # 4. Confirmación explícita mediante URL
     # ========================================================
 
     url_confirmation_markers = [
@@ -2816,7 +2862,7 @@ async def _inspect_smartsheet_submission_result(
         }
 
     # ========================================================
-    # 4. Comprobar si el CAPTCHA sigue visible
+    # 5. Comprobar si el CAPTCHA sigue visible
     # ========================================================
 
     challenge_visible = await _detect_verification_challenge(
@@ -2837,7 +2883,7 @@ async def _inspect_smartsheet_submission_result(
         }
 
     # ========================================================
-    # 5. Revisar formulario y botón Submit
+    # 6. Revisar formulario y botón Submit
     # ========================================================
 
     try:
@@ -2869,7 +2915,7 @@ async def _inspect_smartsheet_submission_result(
             submit_button_visible = False
 
     # ========================================================
-    # 6. El formulario desapareció después de Submit
+    # 7. El formulario desapareció después de Submit
     # ========================================================
 
     if (
@@ -2887,11 +2933,11 @@ async def _inspect_smartsheet_submission_result(
             "confirmation_text": final_body_text[:5000],
             "final_url": current_url,
             "form_count": final_form_count,
-            "submit_button_visible": (submit_button_visible),
+            "submit_button_visible": submit_button_visible,
         }
 
     # ========================================================
-    # 7. La URL cambió y el formulario ya no está disponible
+    # 8. La URL cambió y el formulario desapareció
     # ========================================================
 
     if (
@@ -2909,8 +2955,12 @@ async def _inspect_smartsheet_submission_result(
             "confirmation_text": final_body_text[:5000],
             "final_url": current_url,
             "form_count": final_form_count,
-            "submit_button_visible": (submit_button_visible),
+            "submit_button_visible": submit_button_visible,
         }
+
+    # ========================================================
+    # 9. Todavía no existe un resultado definitivo
+    # ========================================================
 
     return {
         "confirmed": False,

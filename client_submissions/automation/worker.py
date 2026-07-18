@@ -2432,7 +2432,9 @@ async def wait_for_confirmation_after_verification(
     """
 
     success_markers = [
-        "thank you",
+        "we've captured your response",
+        "we have captured your response",
+        "your response has been captured",
         "your response has been recorded",
         "your response was submitted",
         "your response has been submitted",
