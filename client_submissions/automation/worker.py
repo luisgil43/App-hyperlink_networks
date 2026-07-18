@@ -26,6 +26,84 @@ from operaciones.views_fotos_zip import (SMARTSHEET_MAX_ZIP_PART_BYTES,
 
 logger = logging.getLogger(__name__)
 
+@transaction.atomic
+def mark_billing_sent_to_client(
+    submission: ClientSubmission,
+):
+    """
+    Marca el Billing asociado como enviado al cliente solamente
+    después de recibir confirmación real del navegador de
+    Smartsheet.
+
+    Los descuentos directos no se modifican porque no forman
+    parte del envío al portal del cliente.
+    """
+
+    submission = (
+        ClientSubmission.objects.select_for_update()
+        .select_related(
+            "billing_session",
+        )
+        .get(
+            pk=submission.pk,
+        )
+    )
+
+    billing = submission.billing_session
+
+    if billing is None:
+        return
+
+    if bool(
+        getattr(
+            billing,
+            "is_direct_discount",
+            False,
+        )
+    ):
+        return
+
+    now = timezone.now()
+
+    update_fields = []
+
+    if getattr(
+        billing,
+        "finance_status",
+        "",
+    ) != "sent_to_client":
+        billing.finance_status = "sent_to_client"
+
+        update_fields.append(
+            "finance_status",
+        )
+
+    if hasattr(
+        billing,
+        "finance_updated_at",
+    ):
+        billing.finance_updated_at = now
+
+        update_fields.append(
+            "finance_updated_at",
+        )
+
+    if update_fields:
+        if hasattr(
+            billing,
+            "updated_at",
+        ):
+            update_fields.append(
+                "updated_at",
+            )
+
+        billing.save(
+            update_fields=list(
+                dict.fromkeys(
+                    update_fields,
+                )
+            )
+        )
 
 @transaction.atomic
 def requeue_single_submission_after_captcha_restart(
@@ -2148,6 +2226,9 @@ def process_live_submission(
         submission.mark_browser_confirmed(
             reference=confirmation_reference,
         )
+        mark_billing_sent_to_client(
+            submission,
+        )
 
         batch.refresh_from_db()
 
@@ -2804,6 +2885,11 @@ def complete_submission_after_verification(
 
     submission.mark_browser_confirmed(
         reference=confirmation_reference,
+    )
+
+
+    mark_billing_sent_to_client(    
+        submission,
     )
 
     batch = submission.batch

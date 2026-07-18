@@ -107,13 +107,16 @@ def upload_to_reporte_fotografico_proyecto(instance, filename: str) -> str:
 
 FINANCE_STATUS = [
     ("none", "—"),
-    ("review_discount", "Review discount"),      # 👈 NUEVO
-    ("discount_applied", "Discount applied"),    # 👈 NUEVO
-    ("sent", "Enviado a Finanzas"),
-    ("pending", "Pendiente por cobrar"),
-    ("in_review", "En revisión"),
-    ("rejected", "Rechazado"),
-    ("paid", "Cobrado"),
+    # Direct Discounts: flujo interno de descuentos a trabajadores
+    ("review_discount", "Review discount"),
+    ("discount_applied", "Discount applied"),
+    # Billing normal: flujo de envío y cobro al cliente
+    ("sent", "Pending to send to client"),
+    ("sent_to_client", "Sent to client"),
+    ("pending", "Pending payment"),
+    ("in_review", "In review"),
+    ("rejected", "Rejected"),
+    ("paid", "Collected"),
 ]
 
 indexes = [
@@ -247,7 +250,7 @@ class SesionBilling(models.Model):
 
     # =============================== FINANZAS ============================== #
     finance_status = models.CharField(
-        max_length=20,
+        max_length=32,
         choices=FINANCE_STATUS,
         default="none",
         db_index=True,

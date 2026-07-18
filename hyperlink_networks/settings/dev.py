@@ -44,16 +44,14 @@ CSRF_TRUSTED_ORIGINS = [
 # Permitir mostrar errores detallados en navegador
 INTERNAL_IPS = ['127.0.0.1']
 
-# Base de datos local (SQLite)
+
 # ==============================
 
 # Base de datos
 
 # ==============================
 
-# Si existe DATABASE_URL, permite conectarse a PostgreSQL de producción.
 
-# Si no existe, mantiene SQLite para desarrollo local.
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
@@ -88,7 +86,18 @@ else:
             },
         }
     }
+"""
 
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            "timeout": 30,
+        },
+    }
+}
+"""
 # ==============================
 # IA
 # ==============================
