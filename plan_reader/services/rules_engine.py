@@ -404,6 +404,7 @@ def apply_box_rules(item_data):
     Observaciones:
     - Vacías en casos normales.
     - Solo se agregan cuando hay algo realmente relevante.
+    - Los mensajes visibles al usuario se generan en inglés.
     """
     project_name = str(item_data.get("project_name") or "").strip()
 
@@ -446,7 +447,7 @@ def apply_box_rules(item_data):
     if project_name and not has_visible_family and not splitter_lines:
         needs_review = True
         observation_parts.append(
-            "Tipo no visible; clasificada provisionalmente como B8G."
+            "Box type is not visible; provisionally classified as B8G."
         )
 
     # ======================================================
@@ -454,21 +455,21 @@ def apply_box_rules(item_data):
     # ======================================================
     if not project_name:
         needs_review = True
-        observation_parts.append("Project name incompleto o ilegible.")
+        observation_parts.append("Project name is incomplete or unreadable.")
 
     # ======================================================
     # Primary feed faltante
     # ======================================================
     if not primary_feed:
         needs_review = True
-        observation_parts.append("Primary feed faltante o dudoso.")
+        observation_parts.append("Primary feed is missing or uncertain.")
 
     # ======================================================
     # Familia no identificada
     # ======================================================
     if calculated_box_type == "UNKNOWN":
         needs_review = True
-        observation_parts.append("Familia de caja no identificada.")
+        observation_parts.append("Box family could not be identified.")
 
     # ======================================================
     # Contradicción entre tipo declarado y última línea
@@ -482,9 +483,9 @@ def apply_box_rules(item_data):
         needs_review = True
         observation_parts.append(
             (
-                f"Tipo declarado {declared_box_type} contradice "
-                f"la última línea de splitter; se aplicó "
-                f"{calculated_box_type}."
+                f"Declared box type {declared_box_type} conflicts "
+                f"with the last splitter line; "
+                f"{calculated_box_type} was applied."
             )
         )
 
@@ -499,7 +500,7 @@ def apply_box_rules(item_data):
 
         if raw_count > valid_count:
             needs_review = True
-            observation_parts.append("Información de splitter incompleta o no válida.")
+            observation_parts.append("Splitter information is incomplete or invalid.")
 
     result = {
         **item_data,

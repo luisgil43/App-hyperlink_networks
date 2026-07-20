@@ -61,29 +61,49 @@ def _clean_read_text(value):
 
 def _extract_box_from_text(value):
     """
-    Extrae el número de caja completo desde texto crudo.
+    Extrae un Project ID válido y completo desde texto crudo.
 
-    Casos:
+    Estructura obligatoria:
+    - cuatro dígitos;
+    - guion;
+    - tres dígitos;
+    - cero o más sufijos numéricos unidos por guiones.
+
+    Casos válidos:
     - 7020-001
     - 7020-001-1
-    - 7022-007-1
+    - 5005-009-7
+    - 5000-039-1-1
+    - 5000-039-1-3
+    - 7022-007-1-2
 
-    Esto evita que la IA corte una caja como:
-    7020-001-1 -> 7020-001
+    Casos inválidos:
+    - 0913RA_P0043:1-4;
+    - 0913RA,P0045;1-3;
+    - P0045
+    - 1-12XD
+    - 16-24XD
+
+    No inventa ni conserva textos que no tengan el patrón numérico
+    válido de Project ID.
     """
     text = _clean_read_text(value)
 
     if not text:
         return ""
 
-    text = text.replace("–", "-").replace("—", "-")
+    text = text.replace("–", "-").replace("—", "-").replace("−", "-")
 
-    matches = re.findall(r"\b\d{4}-\d{3}(?:-\d+)?\b", text)
+    match = re.search(
+        r"(?<![A-Z0-9])\d{4}-\d{3}(?:-\d+)*(?![A-Z0-9])",
+        text,
+        re.IGNORECASE,
+    )
 
-    if not matches:
+    if not match:
         return ""
 
-    return matches[0].strip()
+    return match.group(0).strip()
 
 
 def _extract_primary_feed_from_text(value):
@@ -244,24 +264,38 @@ def _normalize_final_box_type(value):
 
 def _normalize_project_name_from_raw(raw_item):
     """
-    Decide el project_name final sin perder sufijos válidos.
+    Decide el project_name final usando exclusivamente Project IDs
+    que cumplan el formato numérico válido.
 
     Compara:
-    - project_name entregado por OpenAI.
-    - project ID encontrado dentro de raw_text.
+    - project_name entregado por OpenAI;
+    - Project ID encontrado dentro de raw_text.
 
-    Cuando ambos pertenecen a la misma caja base,
+    Formato válido:
+    - ####-###
+    - ####-###-N
+    - ####-###-N-N
+    - y otros sufijos numéricos visiblemente conectados por guiones.
+
+    Cuando ambos candidatos pertenecen a la misma caja base,
     conserva siempre la versión más completa.
 
     Ejemplos:
 
-    project_name = 5005-009-7
-    raw_text     = 5005-009
-    resultado    = 5005-009-7
+    project_name = 5000-039-1
+    raw_text     = 5000-039-1-3
+    resultado    = 5000-039-1-3
 
-    project_name = 5005-009
-    raw_text     = 5005-009-7
-    resultado    = 5005-009-7
+    project_name = 5000-039-1-1
+    raw_text     = 5000-039-1
+    resultado    = 5000-039-1-1
+
+    project_name = 0913RA_P0043:1-4;
+    raw_text     = 0913RA_P0043:1-4;
+    resultado    = ""
+
+    Si OpenAI entrega un texto que no contiene un Project ID válido,
+    no se conserva como project_name.
     """
     raw_item = raw_item or {}
 
@@ -281,8 +315,11 @@ def _normalize_project_name_from_raw(raw_item):
     if box_from_raw:
         candidates.append(box_from_raw)
 
+    # No se conserva el texto original si no cumple el patrón válido.
+    # Esto elimina falsos Project IDs como:
+    # 0913RA_P0043:1-4;
     if not candidates:
-        return raw_project_name
+        return ""
 
     unique_candidates = []
 
@@ -294,8 +331,17 @@ def _normalize_project_name_from_raw(raw_item):
         return unique_candidates[0]
 
     def base_without_suffix(value):
-        match = re.match(
-            r"^(?P<base>\d{4}-\d{3})(?:-\d+)?$",
+        """
+        Obtiene la base ####-### sin importar cuántos sufijos tenga.
+
+        Ejemplos:
+        5000-039         -> 5000-039
+        5000-039-1       -> 5000-039
+        5000-039-1-1     -> 5000-039
+        5000-039-1-3     -> 5000-039
+        """
+        match = re.fullmatch(
+            r"(?P<base>\d{4}-\d{3})(?:-\d+)*",
             value,
         )
 
@@ -308,8 +354,8 @@ def _normalize_project_name_from_raw(raw_item):
         base_without_suffix(candidate) for candidate in unique_candidates
     }
 
-    # Misma caja base:
-    # conserva la versión con mayor nivel de detalle.
+    # Cuando pertenecen a la misma base, conserva el valor
+    # con mayor cantidad de sufijos numéricos.
     if len(candidate_bases) == 1:
         return max(
             unique_candidates,
@@ -319,8 +365,8 @@ def _normalize_project_name_from_raw(raw_item):
             ),
         )
 
-    # Si son IDs diferentes, prioriza el campo específico
-    # project_name entregado por OpenAI.
+    # Si OpenAI y raw_text contienen dos Project IDs realmente
+    # diferentes, se prioriza el campo específico project_name.
     if box_from_project:
         return box_from_project
 
@@ -1042,6 +1088,67 @@ def mark_duplicates(job):
             )
 
 
+class PlanReaderJobCancelled(Exception):
+    """
+    Excepción interna para terminar ordenadamente un PlanReaderJob
+    cuando el usuario solicita detenerlo.
+    """
+
+    pass
+
+
+def _plan_reader_cancel_requested(job_id):
+    """
+    Consulta directamente la base de datos para saber si el usuario
+    solicitó detener el PlanReaderJob.
+
+    No utiliza el objeto job que ya está en memoria porque ese objeto
+    puede tener un estado desactualizado.
+    """
+    current_status = (
+        PlanReaderJob.objects.filter(id=job_id).values_list("status", flat=True).first()
+    )
+
+    if current_status is None:
+        raise PlanReaderJobCancelled(f"PlanReaderJob #{job_id} no longer exists.")
+
+    return current_status == PlanReaderJob.STATUS_CANCELLED
+
+
+def _raise_if_plan_reader_cancelled(job_id):
+    """
+    Detiene el flujo cuando el job está marcado como CANCELLED.
+    """
+    if _plan_reader_cancel_requested(job_id):
+        raise PlanReaderJobCancelled(
+            f"PlanReaderJob #{job_id} was stopped by the user."
+        )
+
+
+def _finish_cancelled_plan_reader_job(job_id):
+    """
+    Confirma en la base de datos que el proceso fue detenido.
+
+    completed_at deja de ser None, por lo que la interfaz cambia de:
+
+        Stopping...
+
+    a:
+
+        Cancelled / Reprocess
+    """
+    now = timezone.now()
+
+    PlanReaderJob.objects.filter(id=job_id).update(
+        status=PlanReaderJob.STATUS_CANCELLED,
+        error_message="Processing stopped by user.",
+        completed_at=now,
+        updated_at=now,
+    )
+
+    return PlanReaderJob.objects.get(id=job_id)
+
+
 def process_plan_reader_job(job_id, allow_processing=False):
     """
     Procesa un PlanReaderJob.
@@ -1050,27 +1157,67 @@ def process_plan_reader_job(job_id, allow_processing=False):
         registra páginas solamente.
 
     Si PLAN_READER_USE_OPENAI=True:
-        renderiza cada página como PNG, manda a OpenAI, crea items y aplica reglas.
+        renderiza cada página como PNG, manda a OpenAI, crea items
+        y aplica reglas.
 
-    allow_processing=True se usa solo desde el worker.
-    El worker primero marca el job como processing para evitar que otro worker lo tome.
+    allow_processing=True:
+        se utiliza desde el worker porque el worker principal reclama
+        primero el job y lo marca como PROCESSING.
+
+    Cancelación cooperativa:
+
+    - Revisa CANCELLED antes de comenzar cada página.
+    - Revisa CANCELLED después de operaciones costosas.
+    - Revisa CANCELLED durante la creación de items.
+    - No convierte una cancelación en FAILED.
+    - No convierte una cancelación en NEEDS_REVIEW.
+    - Completa completed_at cuando confirma que el proceso se detuvo.
+
+    Nota:
+        Una solicitud que ya fue enviada a OpenAI no se puede interrumpir
+        a mitad de la respuesta. En ese caso, el proceso se detendrá
+        inmediatamente después de que termine la llamada actual.
     """
-
-    job = PlanReaderJob.objects.get(id=job_id)
-
-    if job.status == PlanReaderJob.STATUS_PROCESSING and not allow_processing:
-        raise RuntimeError(f"PlanReaderJob #{job.id} is already processing.")
 
     run_openai = use_openai()
     zoom = render_zoom()
 
+    # =========================================================
+    # Preparación inicial protegida
+    # =========================================================
+
     with transaction.atomic():
+        job = PlanReaderJob.objects.select_for_update().get(
+            id=job_id,
+        )
+
+        # Puede ocurrir que el worker haya reclamado el job y que el
+        # usuario presione Stop antes de que el subproceso termine
+        # de iniciar. No debemos devolverlo a PROCESSING.
+        if job.status == PlanReaderJob.STATUS_CANCELLED:
+            job.completed_at = timezone.now()
+            job.error_message = "Processing stopped by user."
+
+            job.save(
+                update_fields=[
+                    "completed_at",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+
+            return job
+
+        if job.status == PlanReaderJob.STATUS_PROCESSING and not allow_processing:
+            raise RuntimeError(f"PlanReaderJob #{job.id} is already processing.")
+
         job.status = PlanReaderJob.STATUS_PROCESSING
         job.started_at = job.started_at or timezone.now()
         job.completed_at = None
         job.error_message = ""
         job.processed_pages = 0
         job.failed_pages = 0
+
         job.save(
             update_fields=[
                 "status",
@@ -1086,29 +1233,50 @@ def process_plan_reader_job(job_id, allow_processing=False):
         job.pages.all().delete()
         job.items.all().delete()
 
+    processed_pages = 0
+    failed_pages = 0
+
     try:
+        _raise_if_plan_reader_cancelled(job_id)
+
         with get_pdf_temp_path(job.pdf_file) as pdf_path:
+            _raise_if_plan_reader_cancelled(job_id)
+
             total_pages = count_pdf_pages(pdf_path)
 
-            job.total_pages = total_pages
-            job.save(update_fields=["total_pages", "updated_at"])
+            _raise_if_plan_reader_cancelled(job_id)
 
-            processed_pages = 0
-            failed_pages = 0
+            PlanReaderJob.objects.filter(
+                id=job_id,
+            ).update(
+                total_pages=total_pages,
+                updated_at=timezone.now(),
+            )
 
             with get_plan_reader_temp_dir(job.id) as temp_dir:
-                for page_number in range(1, total_pages + 1):
+                for page_number in range(
+                    1,
+                    total_pages + 1,
+                ):
+                    # No iniciar una página nueva si el usuario
+                    # ya solicitó detener el proceso.
+                    _raise_if_plan_reader_cancelled(job_id)
+
                     page_obj = PlanReaderPage.objects.create(
-                        job=job,
+                        job_id=job_id,
                         page_number=page_number,
                         status=PlanReaderPage.STATUS_PROCESSING,
                     )
 
                     try:
+                        _raise_if_plan_reader_cancelled(job_id)
+
                         sheet_name = extract_sheet_name_from_page(
                             pdf_path=pdf_path,
                             page_number=page_number,
                         )
+
+                        _raise_if_plan_reader_cancelled(job_id)
 
                         page_obj.sheet_name = sheet_name
 
@@ -1120,6 +1288,8 @@ def process_plan_reader_job(job_id, allow_processing=False):
                                 zoom=zoom,
                             )
 
+                            _raise_if_plan_reader_cancelled(job_id)
+
                             page_data, raw_response, confidence_decimal = (
                                 extract_plan_page_with_openai(
                                     image_path=image_path,
@@ -1128,9 +1298,15 @@ def process_plan_reader_job(job_id, allow_processing=False):
                                 )
                             )
 
+                            # Si Stop fue presionado mientras OpenAI
+                            # respondía, se detiene aquí y no guarda
+                            # resultados parciales de esta página.
+                            _raise_if_plan_reader_cancelled(job_id)
+
                             extracted_sheet = str(
                                 page_data.get("sheet_name") or ""
                             ).strip()
+
                             if extracted_sheet:
                                 page_obj.sheet_name = extracted_sheet
 
@@ -1140,6 +1316,7 @@ def process_plan_reader_job(job_id, allow_processing=False):
                             page_obj.status = PlanReaderPage.STATUS_COMPLETED
                             page_obj.processed_at = timezone.now()
                             page_obj.error_message = ""
+
                             page_obj.save(
                                 update_fields=[
                                     "sheet_name",
@@ -1152,7 +1329,12 @@ def process_plan_reader_job(job_id, allow_processing=False):
                                 ]
                             )
 
-                            for raw_item in page_data.get("items", []):
+                            for raw_item in page_data.get(
+                                "items",
+                                [],
+                            ):
+                                _raise_if_plan_reader_cancelled(job_id)
+
                                 create_item_from_extraction(
                                     job=job,
                                     page_obj=page_obj,
@@ -1160,10 +1342,15 @@ def process_plan_reader_job(job_id, allow_processing=False):
                                     raw_item=raw_item,
                                 )
 
+                            _raise_if_plan_reader_cancelled(job_id)
+
                         else:
+                            _raise_if_plan_reader_cancelled(job_id)
+
                             page_obj.status = PlanReaderPage.STATUS_COMPLETED
                             page_obj.processed_at = timezone.now()
                             page_obj.error_message = ""
+
                             page_obj.save(
                                 update_fields=[
                                     "sheet_name",
@@ -1175,12 +1362,39 @@ def process_plan_reader_job(job_id, allow_processing=False):
 
                         processed_pages += 1
 
+                    except PlanReaderJobCancelled:
+                        # Elimina solamente los resultados parciales
+                        # de la página que estaba en ejecución.
+                        PlanReaderItem.objects.filter(
+                            job_id=job_id,
+                            page_id=page_obj.id,
+                        ).delete()
+
+                        page_obj.delete()
+
+                        raise
+
                     except Exception as exc:
+                        # Antes de registrar un error debemos verificar
+                        # que realmente no haya sido una cancelación.
+                        if _plan_reader_cancel_requested(job_id):
+                            PlanReaderItem.objects.filter(
+                                job_id=job_id,
+                                page_id=page_obj.id,
+                            ).delete()
+
+                            page_obj.delete()
+
+                            raise PlanReaderJobCancelled(
+                                (f"PlanReaderJob #{job_id} " "was stopped by the user.")
+                            ) from exc
+
                         failed_pages += 1
 
                         page_obj.status = PlanReaderPage.STATUS_FAILED
                         page_obj.error_message = str(exc)
                         page_obj.processed_at = timezone.now()
+
                         page_obj.save(
                             update_fields=[
                                 "status",
@@ -1189,48 +1403,97 @@ def process_plan_reader_job(job_id, allow_processing=False):
                             ]
                         )
 
-                    job.processed_pages = processed_pages
-                    job.failed_pages = failed_pages
-                    job.save(
-                        update_fields=[
-                            "processed_pages",
-                            "failed_pages",
-                            "updated_at",
-                        ]
+                    # Solo actualiza contadores; nunca toca status,
+                    # para no sobrescribir CANCELLED.
+                    PlanReaderJob.objects.filter(
+                        id=job_id,
+                    ).update(
+                        processed_pages=processed_pages,
+                        failed_pages=failed_pages,
+                        updated_at=timezone.now(),
                     )
+
+                    _raise_if_plan_reader_cancelled(job_id)
+
+        # =====================================================
+        # Finalización normal
+        # =====================================================
+
+        _raise_if_plan_reader_cancelled(job_id)
+
+        job = PlanReaderJob.objects.get(
+            id=job_id,
+        )
 
         mark_duplicates(job)
 
-        if failed_pages:
-            job.status = PlanReaderJob.STATUS_FAILED
-            job.error_message = f"{failed_pages} page(s) failed during processing."
-        else:
-            job.status = PlanReaderJob.STATUS_NEEDS_REVIEW
-            job.error_message = ""
+        _raise_if_plan_reader_cancelled(job_id)
 
-        job.completed_at = timezone.now()
-        job.save(
-            update_fields=[
-                "status",
-                "error_message",
-                "completed_at",
-                "updated_at",
-            ]
-        )
+        with transaction.atomic():
+            job = PlanReaderJob.objects.select_for_update().get(
+                id=job_id,
+            )
+
+            # Última defensa para no reemplazar CANCELLED por
+            # FAILED o NEEDS_REVIEW.
+            if job.status == PlanReaderJob.STATUS_CANCELLED:
+                job.completed_at = timezone.now()
+                job.error_message = "Processing stopped by user."
+
+                job.save(
+                    update_fields=[
+                        "completed_at",
+                        "error_message",
+                        "updated_at",
+                    ]
+                )
+
+                return job
+
+            if failed_pages:
+                job.status = PlanReaderJob.STATUS_FAILED
+                job.error_message = f"{failed_pages} page(s) failed during processing."
+            else:
+                job.status = PlanReaderJob.STATUS_NEEDS_REVIEW
+                job.error_message = ""
+
+            job.processed_pages = processed_pages
+            job.failed_pages = failed_pages
+            job.completed_at = timezone.now()
+
+            job.save(
+                update_fields=[
+                    "status",
+                    "processed_pages",
+                    "failed_pages",
+                    "error_message",
+                    "completed_at",
+                    "updated_at",
+                ]
+            )
 
         return job
 
+    except PlanReaderJobCancelled:
+        return _finish_cancelled_plan_reader_job(job_id)
+
     except Exception as exc:
-        job.status = PlanReaderJob.STATUS_FAILED
-        job.error_message = str(exc)
-        job.completed_at = timezone.now()
-        job.save(
-            update_fields=[
-                "status",
-                "error_message",
-                "completed_at",
-                "updated_at",
-            ]
+        # Si el usuario solicitó detenerlo mientras se producía
+        # otra excepción, la cancelación tiene prioridad.
+        if _plan_reader_cancel_requested(job_id):
+            return _finish_cancelled_plan_reader_job(job_id)
+
+        now = timezone.now()
+
+        PlanReaderJob.objects.filter(
+            id=job_id,
+        ).exclude(
+            status=PlanReaderJob.STATUS_CANCELLED,
+        ).update(
+            status=PlanReaderJob.STATUS_FAILED,
+            error_message=str(exc),
+            completed_at=now,
+            updated_at=now,
         )
 
         raise

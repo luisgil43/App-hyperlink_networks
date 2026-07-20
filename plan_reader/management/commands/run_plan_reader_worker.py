@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
 import time
 
 from django.conf import settings
@@ -12,7 +14,6 @@ from django.utils import timezone
 from client_submissions.automation.worker import \
     run_once as run_client_submission_once
 from plan_reader.models import PlanReaderJob
-from plan_reader.services.processor import process_plan_reader_job
 
 logger = logging.getLogger(__name__)
 
@@ -410,11 +411,8 @@ class Command(BaseCommand):
 
             for job in jobs:
                 job.status = PlanReaderJob.STATUS_PROCESSING
-
                 job.started_at = now
-
                 job.completed_at = None
-
                 job.error_message = ""
 
                 job.save(
@@ -430,6 +428,128 @@ class Command(BaseCommand):
             return jobs
 
     # ========================================================
+    # Plan Reader — ejecutar subproceso
+    # ========================================================
+
+    def _run_plan_reader_subprocess(
+        self,
+        *,
+        job_id: int,
+    ) -> str:
+        """
+        Ejecuta un PlanReaderJob dentro de un subproceso independiente.
+
+        Mientras el subproceso está activo, el worker principal revisa
+        periódicamente el estado del job.
+
+        Si el estado cambia a CANCELLED:
+
+        - termina el subproceso;
+        - espera hasta 5 segundos;
+        - aplica kill() si sigue activo;
+        - conserva el job como CANCELLED;
+        - mantiene vivo el worker compartido.
+        """
+
+        manage_py_path = os.path.join(
+            str(settings.BASE_DIR),
+            "manage.py",
+        )
+
+        command = [
+            sys.executable,
+            manage_py_path,
+            "process_plan_reader_job",
+            str(job_id),
+            "--allow-processing",
+        ]
+
+        self.stdout.write(
+            self.style.WARNING(
+                (
+                    f"[{timezone.now()}] "
+                    f"Starting isolated process for PlanReaderJob #{job_id}."
+                )
+            )
+        )
+
+        process = subprocess.Popen(
+            command,
+            cwd=str(settings.BASE_DIR),
+        )
+
+        while True:
+            return_code = process.poll()
+
+            if return_code is not None:
+                if return_code == 0:
+                    return "finished"
+
+                return "failed"
+
+            close_old_connections()
+
+            current_status = (
+                PlanReaderJob.objects.filter(
+                    id=job_id,
+                )
+                .values_list(
+                    "status",
+                    flat=True,
+                )
+                .first()
+            )
+
+            if current_status is None:
+                process.terminate()
+
+                try:
+                    process.wait(timeout=5)
+
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+                return "cancelled"
+
+            if current_status == PlanReaderJob.STATUS_CANCELLED:
+                self.stdout.write(
+                    self.style.WARNING(
+                        (f"[{timezone.now()}] " f"Stopping PlanReaderJob #{job_id}.")
+                    )
+                )
+
+                process.terminate()
+
+                try:
+                    process.wait(timeout=5)
+
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+                now = timezone.now()
+
+                PlanReaderJob.objects.filter(
+                    id=job_id,
+                ).update(
+                    status=PlanReaderJob.STATUS_CANCELLED,
+                    error_message="Processing stopped by user.",
+                    completed_at=now,
+                    updated_at=now,
+                )
+
+                self.stdout.write(
+                    self.style.WARNING(
+                        (f"[{timezone.now()}] " f"PlanReaderJob #{job_id} stopped.")
+                    )
+                )
+
+                return "cancelled"
+
+            time.sleep(0.5)
+
+    # ========================================================
     # Plan Reader — procesar cola
     # ========================================================
 
@@ -441,8 +561,8 @@ class Command(BaseCommand):
         """
         Procesa los PlanReaderJob reclamados durante este ciclo.
 
-        No se inicia ninguna lectura de planos cuando la cola
-        de Plan Reader está vacía.
+        Cada job se ejecuta dentro de un subproceso independiente para
+        permitir detenerlo sin cerrar el worker compartido.
         """
 
         jobs = self._claim_pending_plan_reader_jobs(
@@ -462,22 +582,81 @@ class Command(BaseCommand):
             )
 
             try:
-                process_plan_reader_job(
-                    job.pk,
-                    allow_processing=True,
+                result = self._run_plan_reader_subprocess(
+                    job_id=job.pk,
                 )
 
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        (f"[{timezone.now()}] " f"Finished PlanReaderJob #{job.pk}.")
+                close_old_connections()
+
+                if result == "cancelled":
+                    continue
+
+                current_job = PlanReaderJob.objects.filter(
+                    id=job.pk,
+                ).first()
+
+                if result == "finished":
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            (
+                                f"[{timezone.now()}] "
+                                f"Finished PlanReaderJob #{job.pk}."
+                            )
+                        )
+                    )
+                    continue
+
+                if (
+                    current_job
+                    and current_job.status == PlanReaderJob.STATUS_PROCESSING
+                ):
+                    current_job.status = PlanReaderJob.STATUS_FAILED
+                    current_job.error_message = (
+                        "The isolated Plan Reader process ended unexpectedly."
+                    )
+                    current_job.completed_at = timezone.now()
+
+                    current_job.save(
+                        update_fields=[
+                            "status",
+                            "error_message",
+                            "completed_at",
+                            "updated_at",
+                        ]
+                    )
+
+                self.stderr.write(
+                    self.style.ERROR(
+                        (
+                            f"[{timezone.now()}] "
+                            f"PlanReaderJob #{job.pk} ended with an error."
+                        )
                     )
                 )
 
             except Exception as exc:
                 logger.exception(
-                    "PlanReaderJob #%s failed.",
+                    "PlanReaderJob #%s subprocess failed.",
                     job.pk,
                 )
+
+                current_job = PlanReaderJob.objects.filter(
+                    id=job.pk,
+                ).first()
+
+                if current_job and current_job.status != PlanReaderJob.STATUS_CANCELLED:
+                    current_job.status = PlanReaderJob.STATUS_FAILED
+                    current_job.error_message = str(exc)
+                    current_job.completed_at = timezone.now()
+
+                    current_job.save(
+                        update_fields=[
+                            "status",
+                            "error_message",
+                            "completed_at",
+                            "updated_at",
+                        ]
+                    )
 
                 self.stderr.write(
                     self.style.ERROR(

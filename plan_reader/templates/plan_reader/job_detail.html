@@ -5,6 +5,8 @@
 {% block dashboard_content %}
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6"
      data-job-status-url="{% url 'plan_reader:job_status_json' job.id %}"
+     data-queue-url="{% url 'plan_reader:queue_job_processing' job.id %}"
+     data-stop-url="{% url 'plan_reader:stop_job_processing' job.id %}"
      data-initial-status="{{ job.status }}">
 
   <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
@@ -40,26 +42,50 @@
         </a>
       {% endif %}
 
-      {% if job.status != "processing" %}
-        <form method="post"
-              action="{% url 'plan_reader:queue_job_processing' job.id %}"
-              class="inline-flex">
-          {% csrf_token %}
-          <button type="submit"
-                  class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
-            {% if job.status == "pending" %}
-              Process
-            {% else %}
-              Reprocess
-            {% endif %}
-          </button>
-        </form>
-      {% else %}
-        <span class="inline-flex items-center bg-blue-100 text-blue-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
-          Processing...
-        </span>
-      {% endif %}
+<div id="job-processing-actions" class="inline-flex items-center gap-2">
+  {% if job.status == "processing" %}
+    <span class="inline-flex items-center bg-blue-100 text-blue-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+      Processing...
+    </span>
 
+    <button type="button"
+            data-open-stop-modal="1"
+            class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+      Stop Processing
+    </button>
+
+  {% elif job.status == "cancelled" and not job.completed_at %}
+    <span class="inline-flex items-center bg-orange-100 text-orange-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+      Stopping...
+    </span>
+
+    <button type="button"
+            disabled
+            class="inline-flex items-center bg-gray-200 text-gray-500 px-4 py-2 rounded-xl shadow font-semibold text-sm cursor-not-allowed">
+      Please wait
+    </button>
+
+  {% else %}
+    <form method="post"
+          action="{% url 'plan_reader:queue_job_processing' job.id %}"
+          class="inline-flex">
+      {% csrf_token %}
+
+      <input type="hidden"
+             name="next"
+             value="{% url 'plan_reader:job_detail' job.id %}">
+
+      <button type="submit"
+              class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        {% if job.status == "pending" %}
+          Process
+        {% else %}
+          Reprocess
+        {% endif %}
+      </button>
+    </form>
+  {% endif %}
+</div>
       {% if items or duplicate_items %}
         {% if job.status != "processing" %}
           <form method="post"
@@ -437,9 +463,13 @@
         <b>Processing:</b> this job is currently being processed by the Render worker. This page updates automatically.
       </div>
     {% elif job.status == "failed" %}
-      <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
-        <b>Failed:</b> review the job error or page errors above. You can queue it again after fixing the issue.
-      </div>
+  <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+    <b>Failed:</b> review the job error or page errors above. You can queue it again after fixing the issue.
+  </div>
+{% elif job.status == "cancelled" %}
+  <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-800">
+    <b>Cancelled:</b> processing was stopped by a user. You can reprocess the job from the beginning.
+  </div>
     {% else %}
       <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700">
         <b>Status:</b> {{ job.get_status_display }}
@@ -448,17 +478,170 @@
   </div>
 
 </div>
+<div id="stop-job-modal"
+
+     class="hidden fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm px-4 py-6 items-center justify-center">
+
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+
+    <div class="px-5 py-4 border-b">
+
+      <div class="flex items-center gap-3">
+
+        <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xl font-bold">
+
+          !
+
+        </div>
+
+        <div>
+
+          <h2 class="text-lg font-bold text-gray-900">
+
+            Stop Plan Reader Job
+
+          </h2>
+
+          <p class="text-sm text-gray-500">
+
+            Job #{{ job.id }}
+
+          </p>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="px-5 py-5">
+
+      <p class="text-sm text-gray-700">
+
+        Are you sure you want to stop this Plan Reader job?
+
+      </p>
+
+      <p class="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-3">
+
+        The current isolated page-processing process will be terminated.
+
+        Wait until the job finishes stopping before processing it again.
+
+      </p>
+
+    </div>
+
+    <div class="px-5 py-4 border-t flex justify-end gap-2 bg-gray-50">
+
+      <button type="button"
+
+              id="btn-cancel-stop-job"
+
+              class="px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-sm">
+
+        Cancel
+
+      </button>
+
+      <form method="post"
+
+            action="{% url 'plan_reader:stop_job_processing' job.id %}">
+
+        {% csrf_token %}
+
+        <input type="hidden"
+
+               name="next"
+
+               value="{% url 'plan_reader:job_detail' job.id %}">
+
+        <button type="submit"
+
+                id="btn-confirm-stop-job"
+
+                class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-sm">
+
+          Yes, stop processing
+
+        </button>
+
+      </form>
+
+    </div>
+
+  </div>
+
+</div>
+
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const root = document.querySelector("[data-job-status-url]");
   if (!root) return;
 
-  const statusUrl = root.dataset.jobStatusUrl;
-  let currentStatus = root.dataset.initialStatus || "";
+const statusUrl = root.dataset.jobStatusUrl;
+const queueUrl = root.dataset.queueUrl;
+const stopUrl = root.dataset.stopUrl;
+let currentStatus = root.dataset.initialStatus || "";
   let timer = null;
   let isFetching = false;
+const stopModal = document.getElementById("stop-job-modal");
+const cancelStopButton = document.getElementById("btn-cancel-stop-job");
+const confirmStopButton = document.getElementById("btn-confirm-stop-job");
 
+function openStopModal() {
+  if (!stopModal) return;
+
+  stopModal.classList.remove("hidden");
+  stopModal.classList.add("flex");
+  document.body.classList.add("overflow-hidden");
+}
+
+function closeStopModal() {
+  if (!stopModal) return;
+
+  stopModal.classList.add("hidden");
+  stopModal.classList.remove("flex");
+  document.body.classList.remove("overflow-hidden");
+}
+
+document.addEventListener("click", function (event) {
+  const openButton = event.target.closest("[data-open-stop-modal]");
+
+  if (openButton) {
+    event.preventDefault();
+    openStopModal();
+    return;
+  }
+
+  if (event.target === stopModal) {
+    closeStopModal();
+  }
+});
+
+if (cancelStopButton) {
+  cancelStopButton.addEventListener("click", function () {
+    closeStopModal();
+  });
+}
+
+if (confirmStopButton) {
+  confirmStopButton.closest("form")?.addEventListener("submit", function () {
+    confirmStopButton.disabled = true;
+    confirmStopButton.textContent = "Stopping...";
+    confirmStopButton.classList.add(
+      "opacity-60",
+      "cursor-not-allowed"
+    );
+  });
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.key === "Escape") {
+    closeStopModal();
+  }
+});
   function escapeHtml(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -479,9 +662,13 @@ document.addEventListener("DOMContentLoaded", function () {
     element.textContent = value ?? "";
   }
 
-  function shouldPoll(status) {
-    return ["pending", "processing"].includes(status);
-  }
+function shouldPoll(status, isStopping = false) {
+  return (
+    status === "pending" ||
+    status === "processing" ||
+    isStopping === true
+  );
+}
 
   function statusMessageHtml(status, statusDisplay) {
     if (status === "pending") {
@@ -515,6 +702,13 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
       `;
     }
+    if (status === "cancelled") {
+  return `
+    <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-800">
+      <b>Cancelled:</b> processing was stopped by a user. You can reprocess the job from the beginning.
+    </div>
+  `;
+}
 
     return `
       <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700">
@@ -715,129 +909,305 @@ document.addEventListener("DOMContentLoaded", function () {
     `;
   }
 
-  function updateFromPayload(payload) {
-    if (!payload || !payload.ok) return;
+  function renderProcessingActions(job) {
+  const wrapper = document.getElementById("job-processing-actions");
 
-    const job = payload.job;
-    currentStatus = job.status;
+  if (!wrapper || !job) return;
 
-    safeSetText("job-status-display", job.status_display);
-    safeSetText("job-processed-pages", job.processed_pages);
-    safeSetText("job-total-pages", job.total_pages);
-    safeSetText("job-progress-percent", job.progress_percent);
-    safeSetText("job-items-count", job.items_count);
-    safeSetText("job-needs-review-count", job.needs_review_count || 0);
-    safeSetText("job-duplicate-items-count", job.duplicate_items_count || 0);
-    safeSetText("duplicate-detail-count", job.duplicate_items_count || 0);
+  const csrfToken = getCsrfToken();
+  const detailUrl = window.location.pathname;
+  const status = job.status;
+  const isStopping = job.is_stopping === true;
 
-    safeSetText("job-started-at", job.started_at || "-");
-    safeSetText("job-completed-at", job.completed_at || "-");
+  if (status === "processing") {
+    wrapper.innerHTML = `
+      <span class="inline-flex items-center bg-blue-100 text-blue-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        Processing...
+      </span>
 
-    const progressBar = document.getElementById("job-progress-bar");
-    if (progressBar) {
-      progressBar.style.width = `${job.progress_percent || 0}%`;
-    }
+      <button type="button"
+              data-open-stop-modal="1"
+              class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        Stop Processing
+      </button>
+    `;
 
-    const errorBox = document.getElementById("job-error-box");
-    const errorText = document.getElementById("job-error-message");
+    return;
+  }
 
-    if (errorBox && errorText) {
-      if (job.error_message) {
-        errorBox.classList.remove("hidden");
-        errorText.textContent = job.error_message;
-      } else {
-        errorBox.classList.add("hidden");
-        errorText.textContent = "";
-      }
-    }
+  if (isStopping) {
+    wrapper.innerHTML = `
+      <span class="inline-flex items-center bg-orange-100 text-orange-700 px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        Stopping...
+      </span>
 
-    renderPages(payload.pages);
-    renderItems(payload.items);
-    renderDuplicateDetail(payload.duplicate_items);
-    renderDownloadButton(job);
+      <button type="button"
+              disabled
+              class="inline-flex items-center bg-gray-200 text-gray-500 px-4 py-2 rounded-xl shadow font-semibold text-sm cursor-not-allowed">
+        Please wait
+      </button>
+    `;
 
-    const messageWrapper = document.getElementById("job-status-message-wrapper");
-    if (messageWrapper) {
-      messageWrapper.innerHTML = statusMessageHtml(job.status, job.status_display);
-    }
+    return;
+  }
 
-    const pollingText = document.getElementById("polling-status-text");
-    if (pollingText) {
-      const now = new Date();
-      if (shouldPoll(job.status)) {
-        pollingText.textContent = `Auto-refresh active. Last update: ${now.toLocaleTimeString()}`;
-      } else {
-        pollingText.textContent = `Finished or stopped. Last update: ${now.toLocaleTimeString()}`;
-      }
-    }
+  const buttonLabel = status === "pending"
+    ? "Process"
+    : "Reprocess";
 
-    if (!shouldPoll(job.status)) {
-      stopPolling();
+  wrapper.innerHTML = `
+    <form method="post"
+          action="${escapeHtml(queueUrl)}"
+          class="inline-flex">
+
+      <input type="hidden"
+             name="csrfmiddlewaretoken"
+             value="${escapeHtml(csrfToken)}">
+
+      <input type="hidden"
+             name="next"
+             value="${escapeHtml(detailUrl)}">
+
+      <button type="submit"
+              class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl shadow font-semibold text-sm">
+        ${escapeHtml(buttonLabel)}
+      </button>
+    </form>
+  `;
+}
+
+
+function updateFromPayload(payload) {
+  if (!payload || !payload.ok) return;
+
+  const job = payload.job;
+
+  currentStatus = job.status;
+
+  safeSetText(
+    "job-status-display",
+    job.status_display
+  );
+
+  safeSetText(
+    "job-processed-pages",
+    job.processed_pages
+  );
+
+  safeSetText(
+    "job-total-pages",
+    job.total_pages
+  );
+
+  safeSetText(
+    "job-progress-percent",
+    job.progress_percent
+  );
+
+  safeSetText(
+    "job-items-count",
+    job.items_count
+  );
+
+  safeSetText(
+    "job-needs-review-count",
+    job.needs_review_count || 0
+  );
+
+  safeSetText(
+    "job-duplicate-items-count",
+    job.duplicate_items_count || 0
+  );
+
+  safeSetText(
+    "duplicate-detail-count",
+    job.duplicate_items_count || 0
+  );
+
+  safeSetText(
+    "job-started-at",
+    job.started_at || "-"
+  );
+
+  safeSetText(
+    "job-completed-at",
+    job.completed_at || "-"
+  );
+
+  const progressBar = document.getElementById(
+    "job-progress-bar"
+  );
+
+  if (progressBar) {
+    progressBar.style.width =
+      `${job.progress_percent || 0}%`;
+  }
+
+  const errorBox = document.getElementById(
+    "job-error-box"
+  );
+
+  const errorText = document.getElementById(
+    "job-error-message"
+  );
+
+  if (errorBox && errorText) {
+    if (job.error_message) {
+      errorBox.classList.remove("hidden");
+      errorText.textContent = job.error_message;
+    } else {
+      errorBox.classList.add("hidden");
+      errorText.textContent = "";
     }
   }
 
-  async function fetchStatus() {
-    if (isFetching) return;
-    isFetching = true;
+  renderProcessingActions(job);
+  renderPages(payload.pages || []);
+  renderItems(payload.items || []);
+  renderDuplicateDetail(
+    payload.duplicate_items || []
+  );
+  renderDownloadButton(job);
 
-    try {
-      const response = await fetch(statusUrl, {
+  const messageWrapper = document.getElementById(
+    "job-status-message-wrapper"
+  );
+
+  if (messageWrapper) {
+    messageWrapper.innerHTML = statusMessageHtml(
+      job.status,
+      job.status_display
+    );
+  }
+
+  const pollingText = document.getElementById(
+    "polling-status-text"
+  );
+
+  if (pollingText) {
+    const now = new Date();
+
+    if (
+      shouldPoll(
+        job.status,
+        job.is_stopping
+      )
+    ) {
+      pollingText.textContent =
+        `Auto-refresh active. Last update: ${now.toLocaleTimeString()}`;
+    } else {
+      pollingText.textContent =
+        `Finished or stopped. Last update: ${now.toLocaleTimeString()}`;
+    }
+  }
+
+  if (
+    !shouldPoll(
+      job.status,
+      job.is_stopping
+    )
+  ) {
+    stopPolling();
+  }
+}
+
+
+async function fetchStatus() {
+  if (isFetching) return;
+
+  isFetching = true;
+
+  try {
+    const response = await fetch(
+      statusUrl,
+      {
         headers: {
           "X-Requested-With": "XMLHttpRequest",
         },
         cache: "no-store",
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
       }
+    );
 
-      const payload = await response.json();
-      updateFromPayload(payload);
-    } catch (error) {
-      const pollingText = document.getElementById("polling-status-text");
-      if (pollingText) {
-        pollingText.textContent = `Auto-refresh error. Retrying...`;
-      }
-      console.error("Plan Reader polling error:", error);
-    } finally {
-      isFetching = false;
-    }
-  }
-
-  function startPolling() {
-    fetchStatus();
-
-    if (timer) {
-      clearInterval(timer);
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status}`
+      );
     }
 
-    timer = setInterval(fetchStatus, 2500);
-  }
+    const payload = await response.json();
 
-  function stopPolling() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
+    updateFromPayload(payload);
+
+  } catch (error) {
+    const pollingText = document.getElementById(
+      "polling-status-text"
+    );
+
+    if (pollingText) {
+      pollingText.textContent =
+        "Auto-refresh error. Retrying...";
     }
+
+    console.error(
+      "Plan Reader polling error:",
+      error
+    );
+
+  } finally {
+    isFetching = false;
+  }
+}
+
+
+function startPolling() {
+  fetchStatus();
+
+  if (timer) {
+    clearInterval(timer);
   }
 
-  const duplicateDetailButton = document.getElementById("btn-toggle-duplicate-detail");
-  const duplicateDetailPanel = document.getElementById("duplicate-detail-panel");
+  timer = setInterval(
+    fetchStatus,
+    2500
+  );
+}
 
-  if (duplicateDetailButton && duplicateDetailPanel) {
-    duplicateDetailButton.addEventListener("click", function () {
-      duplicateDetailPanel.classList.toggle("hidden");
-    });
-  }
 
-  bindDuplicateButtons();
+function stopPolling() {
+  if (!timer) return;
 
-  if (shouldPoll(currentStatus)) {
-    startPolling();
-  } else {
-    fetchStatus();
-  }
+  clearInterval(timer);
+  timer = null;
+}
+
+
+const duplicateDetailButton = document.getElementById(
+  "btn-toggle-duplicate-detail"
+);
+
+const duplicateDetailPanel = document.getElementById(
+  "duplicate-detail-panel"
+);
+
+if (
+  duplicateDetailButton &&
+  duplicateDetailPanel
+) {
+  duplicateDetailButton.addEventListener(
+    "click",
+    function () {
+      duplicateDetailPanel.classList.toggle(
+        "hidden"
+      );
+    }
+  );
+}
+
+bindDuplicateButtons();
+startPolling();
+
 });
+
 </script>
+
 {% endblock %}

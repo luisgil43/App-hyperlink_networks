@@ -260,7 +260,20 @@ GENERAL RULES:
 
 PROJECT NAME / PROJECT ID:
 
-- Project IDs commonly look like:
+A valid Project ID must begin with this exact numeric structure:
+
+  ####-###
+
+This means:
+
+- exactly four numeric digits;
+- followed by a hyphen;
+- followed by exactly three numeric digits.
+
+After the required ####-### base, the Project ID may contain one or more
+additional numeric suffixes joined by hyphens.
+
+Valid examples:
 
   7021-005
 
@@ -272,25 +285,36 @@ PROJECT NAME / PROJECT ID:
 
   5005-009-7
 
-  7020-001-1
+  5000-039-1
 
-- Read the COMPLETE visible Project ID.
+  5000-039-1-1
+
+  5000-039-1-3
+
+  7020-001-1
 
 CRITICAL PROJECT ID RULE:
 
-- A numeric suffix after the normal ####-### identifier is part of the Project ID.
+- Read the COMPLETE visible Project ID.
 
-Examples:
+- Preserve every numeric suffix visibly connected to the Project ID
+  by a hyphen.
 
-  5005-009
+- Never shorten:
 
-  5005-009-7
+  5000-039-1-3
 
-  7020-001
+  into:
 
-  7020-001-1
+  5000-039-1
 
-- Never remove a visible final suffix.
+- Never shorten:
+
+  5000-039-1-1
+
+  into:
+
+  5000-039-1
 
 - Never shorten:
 
@@ -300,43 +324,94 @@ Examples:
 
   5005-009
 
-- Never shorten:
+- Before returning project_name, inspect the complete identifier a second time.
 
-  7020-001-1
+- A valid project_name must contain the numeric ####-### structure.
 
-  into:
+- If no valid numeric ####-### identifier is visible for an item,
+  return an empty string for project_name.
 
-  7020-001
+INVALID PROJECT ID EXAMPLES:
 
-- Before returning project_name, inspect the complete visible identifier a second time.
+The following are NOT Project IDs:
 
-- Pay special attention to small final suffixes such as:
+  0913RA_P0043:1-4;
 
-  -1
+  0913RA,P0045;1-3;
 
-  -2
+  0913RA,P0045;3;
 
-  -3
+  0913RA,P0045,S3:2;
 
-  -4
+  P0045
 
-  -5
+  P0043:1-4
 
-  -6
+  S3:T1
 
-  -7
+  1-12XD
 
-  -8
+  14-24XD
 
-- A small final suffix may be visually close to the main box number,
+  16-24XD
 
-  but it still belongs to the Project ID.
+These are cable, fiber, route, feed or splitter annotations.
 
-- project_name and raw_text should both preserve the complete identifier
+Never return them as project_name.
 
-  when it is clearly visible.
+CRITICAL SPATIAL RULE:
 
-- Do not invent a suffix that is not visible.
+- A splice quantity shown above a box is not part of the Project ID.
+
+- A cable annotation shown in red or orange near an arrow is not a Project ID.
+
+- A number belongs to the Project ID only when it is visibly connected
+  to the valid ####-### identifier by a hyphen.
+
+Example:
+
+Visible text:
+
+  1 Splice
+  5000-039-1-3; A4 Type 2
+  T-1:4(P0045,S3:T2)
+
+Return:
+
+  project_name = "5000-039-1-3"
+  splice_count = 1
+
+Example:
+
+Visible text:
+
+  3 Splices
+  5000-039-1-1; A4 Type 1
+  S-1:2(P0045:S3)
+  T-1:4(P0045,S3:T1)
+
+Return:
+
+  project_name = "5000-039-1-1"
+  splice_count = 3
+
+Example:
+
+Visible text:
+
+  0913RA_P0043:1-4;
+  16-24XD
+
+Return no item from this annotation alone.
+
+Do not return:
+
+  project_name = "0913RA_P0043:1-4;"
+
+The fields project_name and raw_text must preserve the complete valid
+numeric Project ID when it is clearly visible.
+
+Do not invent a suffix that is not visible.
 
 PRIMARY FEED:
 
@@ -584,6 +659,7 @@ SPLICE COUNT:
   with the box.
 - Do not infer splice_count from P/S/T splitter lines.
 - Do not add or subtract splice_count based on splitters.
+- Do not append splice_count to project_name.
 - If no splice quantity is visible, return 0.
 
 RAW TEXT:

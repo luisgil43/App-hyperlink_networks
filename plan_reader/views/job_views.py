@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -49,12 +50,19 @@ def _safe_next_url(request, default_url_name="plan_reader:job_list"):
 def _status_badge_class(status):
     if status == "completed":
         return "bg-green-100 text-green-700"
+
     if status == "failed":
         return "bg-red-100 text-red-700"
+
     if status == "processing":
         return "bg-blue-100 text-blue-700"
+
     if status == "needs_review":
         return "bg-yellow-100 text-yellow-700"
+
+    if status == "cancelled":
+        return "bg-orange-100 text-orange-700"
+
     return "bg-gray-100 text-gray-700"
 
 
@@ -561,36 +569,66 @@ def job_detail(request, job_id):
 @require_POST
 def queue_job_processing(request, job_id):
     """
-    No procesa OpenAI en la vista.
+    Coloca un PlanReaderJob en la cola para que el worker lo procese.
 
-    Solo deja el Job en pending para que el worker de Render lo tome.
+    Protecciones:
+
+    - No permite volver a encolar un job que ya está procesando.
+    - No permite volver a encolar un job mientras el worker todavía
+      está terminando el subproceso de una solicitud de Stop.
+    - Limpia los datos temporales de ejecución antes de volver a encolarlo.
     """
     if not can_access_plan_reader(request.user):
         return deny_plan_reader_access(request)
 
-    job = get_object_or_404(PlanReaderJob, id=job_id)
-
-    if job.status == PlanReaderJob.STATUS_PROCESSING:
-        messages.info(
-            request,
-            "This job is already being processed by the worker.",
+    with transaction.atomic():
+        job = get_object_or_404(
+            PlanReaderJob.objects.select_for_update(),
+            id=job_id,
         )
-        return redirect(_safe_next_url(request))
 
-    job.status = PlanReaderJob.STATUS_PENDING
-    job.error_message = ""
-    job.save(
-        update_fields=[
-            "status",
-            "error_message",
-            "updated_at",
-        ]
-    )
+        if job.status == PlanReaderJob.STATUS_PROCESSING:
+            messages.info(
+                request,
+                "This job is already being processed by the worker.",
+            )
+            return redirect(_safe_next_url(request))
+
+        is_stopping = (
+            job.status == PlanReaderJob.STATUS_CANCELLED and job.completed_at is None
+        )
+
+        if is_stopping:
+            messages.warning(
+                request,
+                (
+                    "This job is still stopping. "
+                    "Please wait until the worker finishes terminating "
+                    "the current process before reprocessing it."
+                ),
+            )
+            return redirect(_safe_next_url(request))
+
+        job.status = PlanReaderJob.STATUS_PENDING
+        job.error_message = ""
+        job.started_at = None
+        job.completed_at = None
+
+        job.save(
+            update_fields=[
+                "status",
+                "error_message",
+                "started_at",
+                "completed_at",
+                "updated_at",
+            ]
+        )
 
     messages.success(
         request,
         "Job queued. The Render worker will process it automatically.",
     )
+
     return redirect(_safe_next_url(request))
 
 
@@ -635,7 +673,20 @@ def recalculate_job_duplicates(request, job_id):
 def job_status_json(request, job_id):
     """
     Endpoint liviano para polling automático desde job_detail.html.
-    No procesa nada. Solo devuelve el estado actual en DB.
+
+    No procesa nada. Solo devuelve el estado actual en la base de datos.
+
+    Estados especiales:
+
+    - processing:
+        El subproceso está trabajando.
+
+    - cancelled + completed_at=None:
+        El usuario solicitó detenerlo, pero el worker todavía está
+        terminando el subproceso aislado.
+
+    - cancelled + completed_at definido:
+        El proceso ya fue detenido completamente.
     """
     if not can_access_plan_reader(request.user):
         return JsonResponse(
@@ -674,6 +725,7 @@ def job_status_json(request, job_id):
     duplicate_project_names = _duplicate_project_names_for_items(items)
 
     pages_payload = []
+
     for page in pages:
         pages_payload.append(
             {
@@ -693,18 +745,38 @@ def job_status_json(request, job_id):
         )
 
     items_payload = []
+
     for index, item in enumerate(items, start=1):
-        items_payload.append(_item_payload(item, index, duplicate_project_names))
+        items_payload.append(
+            _item_payload(
+                item,
+                index,
+                duplicate_project_names,
+            )
+        )
 
     duplicate_items_payload = []
+
     for index, item in enumerate(duplicate_items, start=1):
-        duplicate_items_payload.append(_item_payload(item, index, set()))
+        duplicate_items_payload.append(
+            _item_payload(
+                item,
+                index,
+                set(),
+            )
+        )
 
     included_items_count = len(items)
     duplicate_items_count = len(duplicate_items)
     needs_review_count = sum(1 for item in items if item.needs_review)
 
     can_download_excel = included_items_count > 0
+
+    is_stopping = (
+        job.status == PlanReaderJob.STATUS_CANCELLED and job.completed_at is None
+    )
+
+    can_reprocess = job.status != PlanReaderJob.STATUS_PROCESSING and not is_stopping
 
     return JsonResponse(
         {
@@ -713,6 +785,8 @@ def job_status_json(request, job_id):
                 "id": job.id,
                 "status": job.status,
                 "status_display": job.get_status_display(),
+                "is_stopping": is_stopping,
+                "can_reprocess": can_reprocess,
                 "processed_pages": job.processed_pages,
                 "total_pages": job.total_pages,
                 "failed_pages": job.failed_pages,
@@ -732,7 +806,10 @@ def job_status_json(request, job_id):
                 ),
                 "can_download_excel": can_download_excel,
                 "download_excel_url": (
-                    reverse("plan_reader:download_excel", args=[job.id])
+                    reverse(
+                        "plan_reader:download_excel",
+                        args=[job.id],
+                    )
                     if can_download_excel
                     else ""
                 ),
@@ -742,3 +819,61 @@ def job_status_json(request, job_id):
             "duplicate_items": duplicate_items_payload,
         }
     )
+
+
+@login_required
+@require_POST
+def stop_job_processing(request, job_id):
+    """
+    Solicita detener un PlanReaderJob que está siendo procesado.
+
+    El estado CANCELLED con completed_at=None significa que el worker
+    todavía está terminando el subproceso.
+
+    Cuando el worker termina de detenerlo, completa completed_at.
+    """
+    if not can_access_plan_reader(request.user):
+        return deny_plan_reader_access(request)
+
+    with transaction.atomic():
+        job = get_object_or_404(
+            PlanReaderJob.objects.select_for_update(),
+            id=job_id,
+        )
+
+        if job.status == PlanReaderJob.STATUS_CANCELLED:
+            messages.info(
+                request,
+                "The stop request is already being processed.",
+            )
+            return redirect(_safe_next_url(request))
+
+        if job.status != PlanReaderJob.STATUS_PROCESSING:
+            messages.info(
+                request,
+                "This job is not currently processing.",
+            )
+            return redirect(_safe_next_url(request))
+
+        job.status = PlanReaderJob.STATUS_CANCELLED
+        job.error_message = "Stop requested by user."
+        job.completed_at = None
+
+        job.save(
+            update_fields=[
+                "status",
+                "error_message",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    messages.warning(
+        request,
+        (
+            f"Stop requested for Plan Reader Job #{job.id}. "
+            "The worker is terminating its isolated process."
+        ),
+    )
+
+    return redirect(_safe_next_url(request))
