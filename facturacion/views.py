@@ -20,7 +20,8 @@ from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import (Case, DecimalField, ExpressionWrapper, F,
-                              Prefetch, Q, Subquery, Sum, Value, When)
+                              IntegerField, Prefetch, Q, Subquery, Sum, Value,
+                              When)
 from django.db.models.functions import Coalesce
 from django.http import (HttpResponse, HttpResponseBadRequest,
                          HttpResponseForbidden, HttpResponseNotAllowed,
@@ -1796,7 +1797,9 @@ def invoices_list(request):
     scope = (request.GET.get("scope") or "open").strip()
 
     can_view_legacy_history = user.is_superuser or getattr(
-        user, "es_usuario_historial", False
+        user,
+        "es_usuario_historial",
+        False,
     )
 
     try:
@@ -1810,12 +1813,15 @@ def invoices_list(request):
 
     if proyectos_user.exists():
         allowed_keys = set()
+
         for p in proyectos_user:
             nombre = (getattr(p, "nombre", "") or "").strip()
+
             if nombre:
                 allowed_keys.add(nombre)
 
             codigo = getattr(p, "codigo", None)
+
             if codigo:
                 allowed_keys.add(str(codigo).strip())
 
@@ -1828,14 +1834,36 @@ def invoices_list(request):
     # NO hacemos prefetch_related aquí para no cargar todo antes
     # de paginar.
     # ============================================================
-    qs = SesionBilling.objects.all().order_by("-creado_en")
+    qs = SesionBilling.objects.annotate(
+        finance_status_order=Case(
+            When(finance_status="sent", then=0),
+            When(finance_status="sent_to_client", then=1),
+            When(finance_status="pending_invoice", then=2),
+            When(finance_status="invoiced", then=3),
+            When(finance_status="pending", then=3),
+            When(finance_status="discount_applied", then=4),
+            When(finance_status="review_discount", then=4),
+            When(finance_status="in_review", then=4),
+            When(finance_status="rejected", then=4),
+            When(finance_status="paid", then=5),
+            default=4,
+            output_field=IntegerField(),
+        )
+    ).order_by(
+        "finance_status_order",
+        "-creado_en",
+    )
 
     finance_open_base = [
         "discount_applied",
         "sent",
+        "sent_to_client",
+        "pending_invoice",
+        "invoiced",
         "in_review",
         "pending",
         "rejected",
+        "paid",
     ]
 
     if scope == "paid":
@@ -1852,7 +1880,12 @@ def invoices_list(request):
         qs = qs.filter(
             Q(finance_status__in=finance_open_base)
             | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
-        ).exclude(finance_status="paid")
+        )
+
+    qs = qs.filter(
+        Q(estado__in=["aprobado_supervisor", "aprobado_pm"])
+        | Q(is_direct_discount=True)
+    )
 
     if not can_view_legacy_history:
         if allowed_keys:
@@ -1868,7 +1901,7 @@ def invoices_list(request):
     except Exception:
         ProyectoAsignacion = None
 
-    if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
+    if ProyectoAsignacion is not None and not can_view_legacy_history:
         try:
             asignaciones = list(
                 ProyectoAsignacion.objects.filter(
@@ -1884,15 +1917,24 @@ def invoices_list(request):
 
             for a in asignaciones:
                 p = getattr(a, "proyecto", None)
+
                 if not p:
                     continue
 
                 if getattr(a, "include_history", False) or not getattr(
-                    a, "start_at", None
+                    a,
+                    "start_at",
+                    None,
                 ):
-                    access = {"include_history": True, "start_at": None}
+                    access = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
                 else:
-                    access = {"include_history": False, "start_at": a.start_at}
+                    access = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
 
                 for k in (
                     getattr(p, "nombre", None),
@@ -1901,7 +1943,9 @@ def invoices_list(request):
                 ):
                     if k is None:
                         continue
+
                     ks = str(k).strip()
+
                     if ks:
                         access_by_key[ks.lower()] = access
 
@@ -1913,10 +1957,12 @@ def invoices_list(request):
                 "creado_en",
             ):
                 key = str(proj_txt).strip().lower() if proj_txt else ""
+
                 if not key:
                     continue
 
                 access = access_by_key.get(key)
+
                 if not access:
                     continue
 
@@ -1928,6 +1974,7 @@ def invoices_list(request):
                     continue
 
                 start_at = access["start_at"]
+
                 start_date = (
                     start_at.date() if isinstance(start_at, datetime) else start_at
                 )
@@ -2005,37 +2052,61 @@ def invoices_list(request):
     def session_status_label_light(s):
         if getattr(s, "is_direct_discount", False):
             return "Direct discount"
+
         if s.estado == "aprobado_pm":
             return "Approved by PM"
+
         if s.estado == "rechazado_pm":
             return "Rejected by PM"
+
         if s.estado == "aprobado_supervisor":
             return "Approved by supervisor"
+
         if s.estado == "rechazado_supervisor":
             return "Rejected by supervisor"
+
         if s.estado == "en_revision_supervisor":
             return "In supervisor review"
+
         if s.estado == "finalizado":
             return "Finished (pending review)"
+
         if s.estado == "en_proceso":
             return "In progress"
+
         return "Assigned"
 
     def finance_status_label_light(s):
         if s.finance_status == "review_discount":
             return "Review discount"
+
         if s.finance_status == "discount_applied":
             return "Discount applied"
+
         if s.finance_status == "sent":
+            return "Pending to send to client"
+
+        if s.finance_status == "sent_to_client":
             return "Sent to client"
+
+        if s.finance_status == "pending_invoice":
+            return "Pending invoicing"
+
+        if s.finance_status == "invoiced":
+            return "Invoiced"
+
         if s.finance_status == "in_review":
             return "In review"
+
         if s.finance_status == "rejected":
             return "Rejected"
+
         if s.finance_status == "pending":
             return "Pending payment"
+
         if s.finance_status == "paid":
             return "Collected"
+
         return "—"
 
     def resolve_project_labels_for_sessions(sessions):
@@ -2044,20 +2115,30 @@ def invoices_list(request):
 
         for s in sessions:
             raw_proyecto = getattr(s, "proyecto", None)
+
             if raw_proyecto not in (None, "", "-"):
                 txt = str(raw_proyecto).strip()
+
                 if txt:
                     proj_texts.add(txt)
+
                     try:
                         proj_ids.add(int(txt))
                     except Exception:
                         pass
 
-            raw_proyecto_id = getattr(s, "proyecto_id", None)
+            raw_proyecto_id = getattr(
+                s,
+                "proyecto_id",
+                None,
+            )
+
             if raw_proyecto_id not in (None, "", "-"):
                 txt2 = str(raw_proyecto_id).strip()
+
                 if txt2:
                     proj_texts.add(txt2)
+
                     try:
                         proj_ids.add(int(txt2))
                     except Exception:
@@ -2072,16 +2153,22 @@ def invoices_list(request):
             proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
 
         if proj_q:
-            proyectos = Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+            proyectos = Proyecto.objects.filter(proj_q).only(
+                "id",
+                "nombre",
+                "codigo",
+            )
         else:
             proyectos = Proyecto.objects.none()
 
         by_id = {str(p.id): p.nombre for p in proyectos}
+
         by_code = {
             (p.codigo or "").strip().lower(): p.nombre
             for p in proyectos
             if getattr(p, "codigo", None)
         }
+
         by_name = {
             (p.nombre or "").strip().lower(): p.nombre
             for p in proyectos
@@ -2090,6 +2177,7 @@ def invoices_list(request):
 
         for s in sessions:
             raw = str(getattr(s, "proyecto", "") or "").strip()
+
             raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
 
             label = ""
@@ -2141,29 +2229,110 @@ def invoices_list(request):
     )
 
     light_rows = list(light_qs)
+
     resolve_project_labels_for_sessions(light_rows)
+
+    light_ids = [s.id for s in light_rows]
+
+    technicians_by_session = {}
+    comments_by_session = {}
+
+    assignments_light = (
+        SesionBillingTecnico.objects.filter(
+            sesion_id__in=light_ids,
+        )
+        .select_related("tecnico")
+        .only(
+            "sesion_id",
+            "porcentaje",
+            "tecnico_comentario",
+            "tecnico__first_name",
+            "tecnico__last_name",
+            "tecnico__username",
+        )
+    )
+
+    for assignment in assignments_light:
+        technician = assignment.tecnico
+
+        technician_name = technician.get_full_name().strip() or technician.username
+
+        technician_label = f"{technician_name} " f"({assignment.porcentaje:.2f}%)"
+
+        technicians_by_session.setdefault(
+            assignment.sesion_id,
+            [],
+        ).append(technician_label)
+
+        comment = (assignment.tecnico_comentario or "").strip()
+
+        if comment:
+            comments_by_session.setdefault(
+                assignment.sesion_id,
+                [],
+            ).append(f"{technician_name}: {comment}")
+
+    for s in light_rows:
+        s.excel_technicians = technicians_by_session.get(
+            s.id,
+            [],
+        )
+
+        s.excel_comments = comments_by_session.get(
+            s.id,
+            [],
+        )
+
+        finance_note = (getattr(s, "finance_note", "") or "").strip()
+
+        if finance_note:
+            s.excel_comments = list(s.excel_comments)
+
+            s.excel_comments.append(f"Finance note: {finance_note}")
 
     def excel_value_for_invoice_light(s, col):
         if col == "0":
             d = getattr(s, "creado_en", None)
+
             return d.strftime("%Y-%m-%d %H:%M") if d else ""
 
         if col == "1":
             return str(getattr(s, "proyecto_id", "") or "")
 
         if col == "2":
-            return str(getattr(s, "direccion_proyecto", "") or "")
+            return str(
+                getattr(
+                    s,
+                    "direccion_proyecto",
+                    "",
+                )
+                or ""
+            )
 
         if col == "3":
-            return str(getattr(s, "semana_pago_proyectada", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or "—"
+            )
 
         if col == "4":
             return session_status_label_light(s)
 
         if col == "5":
-            # Por performance no cargamos técnicos globales aquí.
-            # La tabla visible sí los muestra bien.
-            return "—"
+            values = (
+                getattr(
+                    s,
+                    "excel_technicians",
+                    [],
+                )
+                or []
+            )
+
+            return " | ".join(values) if values else "—"
 
         if col == "6":
             return str(getattr(s, "cliente", "") or "")
@@ -2172,31 +2341,76 @@ def invoices_list(request):
             return str(getattr(s, "ciudad", "") or "")
 
         if col == "8":
-            return str(getattr(s, "project_label", "") or "")
+            return str(
+                getattr(
+                    s,
+                    "project_label",
+                    "",
+                )
+                or ""
+            )
 
         if col == "9":
             return str(getattr(s, "oficina", "") or "")
 
         if col == "10":
-            return money_label(getattr(s, "subtotal_tecnico", 0))
+            return money_label(
+                getattr(
+                    s,
+                    "subtotal_tecnico",
+                    0,
+                )
+            )
 
         if col == "11":
-            return money_label(getattr(s, "subtotal_empresa", 0))
+            return money_label(
+                getattr(
+                    s,
+                    "subtotal_empresa",
+                    0,
+                )
+            )
 
         if col == "12":
-            return str(getattr(s, "finance_daily_number", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "finance_daily_number",
+                    "",
+                )
+                or "—"
+            )
 
         if col == "13":
-            d = getattr(s, "finance_finish_date", None)
+            d = getattr(
+                s,
+                "finance_finish_date",
+                None,
+            )
+
             return d.strftime("%Y-%m-%d") if d else "—"
 
         if col == "14":
-            real = getattr(s, "real_company_billing", None)
+            real = getattr(
+                s,
+                "real_company_billing",
+                None,
+            )
+
             return "—" if real is None else money_label(real)
 
         if col == "15":
-            real = getattr(s, "real_company_billing", None)
-            subtotal = getattr(s, "subtotal_empresa", None)
+            real = getattr(
+                s,
+                "real_company_billing",
+                None,
+            )
+
+            subtotal = getattr(
+                s,
+                "subtotal_empresa",
+                None,
+            )
 
             if real is None or subtotal is None:
                 return "—"
@@ -2208,8 +2422,10 @@ def invoices_list(request):
 
             if diff > 0:
                 return f"+ ${abs(diff):.2f}"
+
             if diff < 0:
                 return f"- ${abs(diff):.2f}"
+
             return "$0.00"
 
         if col == "16":
@@ -2217,19 +2433,70 @@ def invoices_list(request):
 
         if col == "17":
             week = (
-                (getattr(s, "semana_pago_real", "") or "").strip()
-                or (getattr(s, "discount_week", "") or "").strip()
-                or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+                (
+                    getattr(
+                        s,
+                        "semana_pago_real",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                or (
+                    getattr(
+                        s,
+                        "discount_week",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                or (
+                    getattr(
+                        s,
+                        "semana_pago_proyectada",
+                        "",
+                    )
+                    or ""
+                ).strip()
                 or "—"
             )
+
             return week
 
         if col == "18":
-            # Por performance no cargamos comentarios globales aquí.
-            # La tabla visible sí los muestra bien.
-            return "—"
+            values = (
+                getattr(
+                    s,
+                    "excel_comments",
+                    [],
+                )
+                or []
+            )
+
+            return " | ".join(values) if values else "—"
 
         return ""
+
+    def excel_values_for_invoice_light(s, col):
+        if col == "5":
+            return getattr(
+                s,
+                "excel_technicians",
+                [],
+            ) or ["—"]
+
+        if col == "18":
+            return getattr(
+                s,
+                "excel_comments",
+                [],
+            ) or ["—"]
+
+        return [
+            excel_value_for_invoice_light(
+                s,
+                col,
+            )
+        ]
 
     # ============================================================
     # Filtros Excel
@@ -2249,12 +2516,18 @@ def invoices_list(request):
 
             for col, values in excel_filters.items():
                 values_set = set(values or [])
+
                 if not values_set:
                     continue
 
-                label = excel_value_for_invoice_light(s, col)
+                invoice_values = set(
+                    excel_values_for_invoice_light(
+                        s,
+                        col,
+                    )
+                )
 
-                if label not in values_set:
+                if values_set.isdisjoint(invoice_values):
                     ok = False
                     break
 
@@ -2272,7 +2545,13 @@ def invoices_list(request):
         vals = set()
 
         for s in light_rows:
-            vals.add(excel_value_for_invoice_light(s, str(col)) or "(Vacías)")
+            invoice_values = excel_values_for_invoice_light(
+                s,
+                str(col),
+            )
+
+            for value in invoice_values:
+                vals.add(value or "(Vacías)")
 
         excel_global[col] = sorted(vals)
 
@@ -2281,7 +2560,10 @@ def invoices_list(request):
     # ============================================================
     # Paginación sobre IDs
     # ============================================================
-    raw_cantidad = request.GET.get("cantidad", "10")
+    raw_cantidad = request.GET.get(
+        "cantidad",
+        "10",
+    )
 
     try:
         per_page = int(raw_cantidad)
@@ -2298,10 +2580,15 @@ def invoices_list(request):
 
     filtered_ids = [s.id for s in light_rows]
 
-    paginator = Paginator(filtered_ids, per_page)
+    paginator = Paginator(
+        filtered_ids,
+        per_page,
+    )
+
     pagina_ids = paginator.get_page(request.GET.get("page"))
 
     page_ids = list(pagina_ids.object_list)
+
     order_map = {pk: idx for idx, pk in enumerate(page_ids)}
 
     # ============================================================
@@ -2353,7 +2640,13 @@ def invoices_list(request):
         )
     )
 
-    page_rows.sort(key=lambda s: order_map.get(s.id, 999999))
+    page_rows.sort(
+        key=lambda s: order_map.get(
+            s.id,
+            999999,
+        )
+    )
+
     resolve_project_labels_for_sessions(page_rows)
 
     # ============================================================
@@ -2364,21 +2657,53 @@ def invoices_list(request):
 
         try:
             tech_ids = list(
-                s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
+                s.tecnicos_sesion.all().values_list(
+                    "tecnico_id",
+                    flat=True,
+                )
             )
         except Exception:
             tech_ids = []
 
         possible_weeks = [
-            (getattr(s, "semana_pago_real", "") or "").strip().upper(),
-            (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
-            (getattr(s, "discount_week", "") or "").strip().upper(),
+            (
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
+            (
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
+            (
+                getattr(
+                    s,
+                    "discount_week",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
         ]
+
         possible_weeks = [w for w in possible_weeks if w]
 
         for tech_id in tech_ids:
             for wk in possible_weeks:
-                marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+                marker = f"[TECH_WEEKLY_PAYMENT_PAID:" f"{tech_id}:{wk}]"
+
                 if marker in note:
                     return True
 
@@ -2388,8 +2713,17 @@ def invoices_list(request):
         groups_map = {}
 
         snaps = (
-            list(getattr(s, "pay_week_snapshots", []).all())
-            if hasattr(s, "pay_week_snapshots")
+            list(
+                getattr(
+                    s,
+                    "pay_week_snapshots",
+                    [],
+                ).all()
+            )
+            if hasattr(
+                s,
+                "pay_week_snapshots",
+            )
             else []
         )
 
@@ -2397,8 +2731,19 @@ def invoices_list(request):
             for snap in snaps:
                 tech_name = (
                     snap.tecnico.get_full_name().strip()
-                    if getattr(snap, "tecnico", None) and snap.tecnico.get_full_name()
-                    else getattr(snap.tecnico, "username", "")
+                    if (
+                        getattr(
+                            snap,
+                            "tecnico",
+                            None,
+                        )
+                        and snap.tecnico.get_full_name()
+                    )
+                    else getattr(
+                        snap.tecnico,
+                        "username",
+                        "",
+                    )
                     or f"User {snap.tecnico_id}"
                 )
 
@@ -2413,21 +2758,58 @@ def invoices_list(request):
 
                 work_type = (
                     (snap.tipo_trabajo or "").strip()
-                    or (getattr(snap.item, "tipo_trabajo", "") or "").strip()
+                    or (
+                        getattr(
+                            snap.item,
+                            "tipo_trabajo",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "Legacy"
                 )
 
                 week = (
                     (snap.semana_resultado or "").strip()
                     or (snap.semana_base or "").strip()
-                    or (getattr(s, "semana_pago_real", "") or "").strip()
-                    or (getattr(s, "discount_week", "") or "").strip()
-                    or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_real",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "discount_week",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_proyectada",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "—"
                 )
 
                 is_paid_line = bool(
-                    getattr(snap, "paid_at", None) or getattr(snap, "is_paid", False)
+                    getattr(
+                        snap,
+                        "paid_at",
+                        None,
+                    )
+                    or getattr(
+                        snap,
+                        "is_paid",
+                        False,
+                    )
                 )
 
                 grp["lines"].append(
@@ -2448,6 +2830,7 @@ def invoices_list(request):
 
                 for line in grp["lines"]:
                     wk = (line.get("week") or "").strip()
+
                     if wk and wk not in weeks:
                         weeks.append(wk)
 
@@ -2456,13 +2839,39 @@ def invoices_list(request):
             return groups
 
         asignaciones = (
-            list(s.tecnicos_sesion.all()) if hasattr(s, "tecnicos_sesion") else []
+            list(s.tecnicos_sesion.all())
+            if hasattr(
+                s,
+                "tecnicos_sesion",
+            )
+            else []
         )
 
         base_week = (
-            (getattr(s, "semana_pago_real", "") or "").strip()
-            or (getattr(s, "discount_week", "") or "").strip()
-            or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+            (
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "discount_week",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or ""
+            ).strip()
             or "—"
         )
 
@@ -2473,8 +2882,20 @@ def invoices_list(request):
         for asig in asignaciones:
             tech_name = (
                 asig.tecnico.get_full_name().strip()
-                if getattr(asig, "tecnico", None) and asig.tecnico.get_full_name()
-                else getattr(asig.tecnico, "username", "") or f"User {asig.tecnico_id}"
+                if (
+                    getattr(
+                        asig,
+                        "tecnico",
+                        None,
+                    )
+                    and asig.tecnico.get_full_name()
+                )
+                else getattr(
+                    asig.tecnico,
+                    "username",
+                    "",
+                )
+                or f"User {asig.tecnico_id}"
             )
 
             if tech_name and tech_name not in tech_names:
@@ -2504,21 +2925,43 @@ def invoices_list(request):
         groups = build_payweek_groups(s)
 
         if not groups:
-            return str(getattr(s, "semana_pago_real", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or "—"
+            )
 
         rows = []
 
         for grp in groups:
             tech_name = grp.get("tech_name") or "—"
 
-            for line in grp.get("lines", []):
+            for line in grp.get(
+                "lines",
+                [],
+            ):
                 work_type = (line.get("work_type") or "").strip() or "Work type"
+
                 week = (line.get("week") or "").strip() or "—"
+
                 suffix = " [Paid]" if line.get("is_paid") else ""
-                rows.append(f"{tech_name} — {work_type} → {week}{suffix}")
+
+                rows.append(f"{tech_name} — " f"{work_type} → " f"{week}{suffix}")
 
         return (
-            " | ".join(rows) if rows else str(getattr(s, "semana_pago_real", "") or "—")
+            " | ".join(rows)
+            if rows
+            else str(
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or "—"
+            )
         )
 
     # ============================================================
@@ -2529,7 +2972,15 @@ def invoices_list(request):
 
         try:
             for st in s.tecnicos_sesion.all():
-                txt = (getattr(st, "tecnico_comentario", "") or "").strip()
+                txt = (
+                    getattr(
+                        st,
+                        "tecnico_comentario",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
                 if txt:
                     comentarios.append(st)
         except Exception:
@@ -2579,121 +3030,288 @@ def invoices_list(request):
     )
 
 
+@login_required
+@rol_requerido("facturacion", "admin")
 @require_POST
 def invoice_update_real(request, pk):
-    # Solo AJAX
-    if request.headers.get('x-requested-with') != 'XMLHttpRequest':
-        return HttpResponseForbidden('AJAX only')
+    """
+    Actualiza campos financieros del invoice.
 
-    s = get_object_or_404(SesionBilling, pk=pk)
+    Flujo de Real Company Billing:
 
-    real_raw  = request.POST.get('real', None)
-    week_raw  = request.POST.get('week', None)
-    daily_raw = request.POST.get('daily_number', None)
+        pending_invoice
+            ↓ al ingresar monto
+        invoiced
+
+    Restricciones:
+
+    - Mientras esté en "sent", primero debe marcarse como enviado al cliente.
+    - Mientras esté en "sent_to_client", primero debe pasar a Pending invoicing.
+    - Los registros históricos en "pending" pueden seguir editándose.
+    - Los registros cobrados no pueden modificar Real Company Billing.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    from django.db import transaction
+    from django.http import HttpResponseForbidden, JsonResponse
+    from django.shortcuts import get_object_or_404
+
+    from operaciones.models import SesionBilling
+
+    if request.headers.get("x-requested-with") != "XMLHttpRequest":
+        return HttpResponseForbidden("AJAX only")
+
+    real_raw = request.POST.get("real", None)
+    week_raw = request.POST.get("week", None)
+    daily_raw = request.POST.get("daily_number", None)
 
     with transaction.atomic():
+        s = get_object_or_404(
+            SesionBilling.objects.select_for_update(),
+            pk=pk,
+        )
+
         updated_fields = []
 
-        # ----- Real Company Billing -----
+        # ========================================================
+        # Real Company Billing
+        # ========================================================
         if real_raw is not None:
-            raw = (real_raw or '').strip()
+            current_status = (getattr(s, "finance_status", "") or "").strip()
 
-            # Vacío o guiones => NULL en DB
-            if raw in ('', '-', '—', 'null', 'None'):
+            if current_status == "paid":
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "This invoice is already collected. "
+                            "Real Company Billing cannot be modified."
+                        ),
+                    },
+                    status=409,
+                )
+
+            if current_status == "sent":
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Mark the invoice as sent to the client "
+                            "before entering Real Company Billing."
+                        ),
+                    },
+                    status=409,
+                )
+
+            if current_status == "sent_to_client":
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Mark the invoice as Pending invoicing "
+                            "before entering Real Company Billing."
+                        ),
+                    },
+                    status=409,
+                )
+
+            allowed_real_statuses = {
+                "pending_invoice",
+                "invoiced",
+                "pending",
+                "in_review",
+                "rejected",
+            }
+
+            if current_status not in allowed_real_statuses:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Real Company Billing cannot be entered "
+                            "from the current finance status."
+                        ),
+                        "current_status": current_status,
+                    },
+                    status=409,
+                )
+
+            raw = (real_raw or "").strip()
+
+            if raw in ("", "-", "—", "null", "None"):
                 s.real_company_billing = None
-                updated_fields.append('real_company_billing')
+                updated_fields.append("real_company_billing")
+
+                if current_status == "invoiced":
+                    s.finance_status = "pending_invoice"
+                    updated_fields.append("finance_status")
+
             else:
-                # normaliza $ , espacios y miles
-                txt = raw.replace('$', '').replace(',', '').replace(' ', '')
+                txt = raw.replace("$", "").replace(",", "").replace(" ", "")
+
                 try:
-                    s.real_company_billing = Decimal(txt)
-                    updated_fields.append('real_company_billing')
-                    # si estaba “sent/in_review” y ahora hay número => pending
-                    if s.finance_status in ('sent', 'in_review'):
-                        s.finance_status = 'pending'
-                        updated_fields.append('finance_status')
+                    amount = Decimal(txt)
                 except (InvalidOperation, ValueError):
-                    return JsonResponse({'error': 'Invalid amount.'}, status=400)
+                    return JsonResponse(
+                        {
+                            "ok": False,
+                            "error": "Invalid amount.",
+                        },
+                        status=400,
+                    )
 
-        # ----- Real pay week (permite vacío) -----
+                if amount < Decimal("0"):
+                    return JsonResponse(
+                        {
+                            "ok": False,
+                            "error": ("Real Company Billing cannot be negative."),
+                        },
+                        status=400,
+                    )
+
+                s.real_company_billing = amount
+                updated_fields.append("real_company_billing")
+
+                if current_status == "pending_invoice":
+                    s.finance_status = "invoiced"
+                    updated_fields.append("finance_status")
+
+        # ========================================================
+        # Real pay week
+        # ========================================================
         if week_raw is not None:
-            s.semana_pago_real = (week_raw or '').strip()
-            updated_fields.append('semana_pago_real')
+            s.semana_pago_real = (week_raw or "").strip()
+            updated_fields.append("semana_pago_real")
 
-        # ----- Daily Number (permite vacío) -----
+        # ========================================================
+        # Daily Number
+        # ========================================================
         if daily_raw is not None:
-            value = (daily_raw or '').strip()
+            value = (daily_raw or "").strip()
             s.finance_daily_number = value or None
-            updated_fields.append('finance_daily_number')
+            updated_fields.append("finance_daily_number")
 
-        # Guardar solo si algo cambió
         if updated_fields:
-            updated_fields.append('finance_updated_at')  # tu campo auto_now
+            updated_fields = list(dict.fromkeys(updated_fields))
+
+            if hasattr(s, "finance_updated_at"):
+                updated_fields.append("finance_updated_at")
+
             s.save(update_fields=updated_fields)
 
-    # difference solo si hay real
-    diff = None
-    if s.real_company_billing is not None:
-        diff = (s.subtotal_empresa or Decimal('0')) - s.real_company_billing
+    difference = None
 
-    return JsonResponse({
-        'ok': True,
-        'real': (
-            None
-            if s.real_company_billing is None
-            else f'{s.real_company_billing:.2f}'
-        ),
-        'week': s.semana_pago_real or '',
-        'daily_number': s.finance_daily_number or '',
-        'difference': '' if diff is None else f'{diff:.2f}',
-        'finance_status': s.finance_status,
-    })
+    if s.real_company_billing is not None:
+        difference = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "real": (
+                None
+                if s.real_company_billing is None
+                else f"{s.real_company_billing:.2f}"
+            ),
+            "week": s.semana_pago_real or "",
+            "daily_number": s.finance_daily_number or "",
+            "difference": ("" if difference is None else f"{difference:.2f}"),
+            "finance_status": s.finance_status,
+        }
+    )
 
 
 @login_required
 @rol_requerido("facturacion", "admin")
+@require_POST
 def invoice_mark_paid(request, pk: int):
     """
-    Mark invoice as Collected.
-    - Requiere real_company_billing
-    - Si hay diferencia positiva, pide confirmación
-    - Este flujo es SOLO de finanzas / cobro cliente
+    Marca un invoice como Collected.
+
+    Requisitos:
+
+    - Debe tener Real Company Billing.
+    - Si se está cobrando menos de lo esperado, pide confirmación.
+    - Permite cobrar directamente cuando el monto ya está registrado.
+    - Mantiene compatibilidad con registros históricos en "pending".
     """
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["POST"])
+    from decimal import Decimal
 
-    s = get_object_or_404(SesionBilling, pk=pk)
-    if s.real_company_billing is None:
-        return HttpResponseBadRequest(
-            "Real Company Billing is required before marking as collected."
-        )
+    from django.db import transaction
+    from django.http import JsonResponse
+    from django.shortcuts import get_object_or_404
+    from django.utils import timezone
 
-    difference = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
-    force = (request.POST.get("force") or "") == "1"
-
-    if difference > 0 and not force:
-        return JsonResponse(
-            {
-                "ok": False,
-                "confirm": True,
-                "message": "You are collecting less than expected. Do you still want to mark it as collected?",
-            },
-            status=409,
-        )
+    from operaciones.models import SesionBilling
 
     with transaction.atomic():
-        s.finance_status = "paid"  # interno
-        if not s.finance_finish_date:
-            s.finance_finish_date = timezone.localdate()
-        s.save(
-            update_fields=[
-                "finance_status",
-                "finance_finish_date",
-                "finance_updated_at",
-            ]
+        s = get_object_or_404(
+            SesionBilling.objects.select_for_update(),
+            pk=pk,
         )
 
-    return JsonResponse({"ok": True})
+        if s.finance_status == "paid":
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": "This invoice is already collected.",
+                    "finance_status": "paid",
+                    "finance_status_label": "Collected",
+                }
+            )
+
+        if s.real_company_billing is None:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Real Company Billing is required before "
+                        "marking the invoice as collected."
+                    ),
+                },
+                status=400,
+            )
+
+        difference = (s.subtotal_empresa or Decimal("0")) - s.real_company_billing
+
+        force = (request.POST.get("force") or "") == "1"
+
+        if difference > 0 and not force:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "confirm": True,
+                    "message": (
+                        "You are collecting less than expected. "
+                        "Do you still want to mark it as collected?"
+                    ),
+                },
+                status=409,
+            )
+
+        s.finance_status = "paid"
+
+        if not s.finance_finish_date:
+            s.finance_finish_date = timezone.localdate()
+
+        update_fields = [
+            "finance_status",
+            "finance_finish_date",
+        ]
+
+        if hasattr(s, "finance_updated_at"):
+            s.finance_updated_at = timezone.now()
+            update_fields.append("finance_updated_at")
+
+        s.save(update_fields=update_fields)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "Invoice marked as collected.",
+            "finance_status": "paid",
+            "finance_status_label": "Collected",
+        }
+    )
 
 
 @login_required
@@ -2820,21 +3438,32 @@ def _to_excel_dt(value):
         return value
 
 
-@rol_requerido('facturacion', 'admin', 'pm')
+@rol_requerido("facturacion", "admin", "pm")
 def invoices_export(request):
     """
-    Exporta a Excel los invoices de Finanzas.
+    
+Exporta a Excel los invoices de Finanzas.
 
-    - Respeta el scope: open | paid | all (igual que invoices_list).
-    - Usa la MISMA lógica de visibilidad por proyecto que invoices_list:
-        * Usuarios normales: solo proyectos a los que están asignados.
-        * Usuarios con historial (is_superuser o es_usuario_historial): ven todo.
-    - En la columna 'Project' se escribe el NOMBRE del Proyecto cuando se puede resolver.
+- Respeta el scope: open | paid | all.
+- Incluye los estados:
+    * sent -> Pending to send to client
+    * sent_to_client -> Sent to client
+    * pending_invoice -> Pending invoicing
+    * invoiced -> Invoiced
+    * pending -> Pending payment (legacy)
+    * paid -> Collected
+- Mantiene el orden:
+    1. Pending to send to client
+    2. Sent to client
+    3. Pending invoicing
+    4. Invoiced / Pending payment legacy
+    5. Otros estados
+
     """
     from datetime import datetime
     from decimal import Decimal
 
-    from django.db.models import Prefetch, Q
+    from django.db.models import Case, IntegerField, Prefetch, Q, When
     from django.http import HttpResponse
     from django.utils import timezone
     from openpyxl import Workbook
@@ -2845,15 +3474,21 @@ def invoices_export(request):
                                     SesionBillingTecnico)
 
     user = request.user
-    scope = request.GET.get("scope", "open")  # open | all | paid
+    scope = (request.GET.get("scope") or "open").strip()
 
-    # --------- Usuarios privilegiados (historial completo) ---------
-    can_view_legacy_history = (
-        user.is_superuser or
-        getattr(user, "es_usuario_historial", False)
+    # ============================================================
+    # Usuarios privilegiados con acceso al historial completo
+    # ============================================================
+    can_view_legacy_history = user.is_superuser or getattr(
+        user,
+        "es_usuario_historial",
+        False,
     )
 
-    # --------- Proyectos visibles para el usuario (igual que invoices_list) ---------
+    # ============================================================
+    # Proyectos visibles para el usuario
+    # Misma lógica utilizada por invoices_list
+    # ============================================================
     try:
         proyectos_user = filter_queryset_by_access(
             Proyecto.objects.all(),
@@ -2867,23 +3502,47 @@ def invoices_export(request):
 
     if proyectos_list:
         allowed_keys = set()
+
         for p in proyectos_list:
-            # nombre legible del proyecto
             nombre = (getattr(p, "nombre", "") or "").strip()
             if nombre:
                 allowed_keys.add(nombre)
 
-            # compatibilidad: código y id
             codigo = getattr(p, "codigo", None)
             if codigo:
                 allowed_keys.add(str(codigo).strip())
+
             allowed_keys.add(str(p.id).strip())
     else:
         allowed_keys = set()
 
-    # --------- Query base + prefetch (igual patrón que invoices_list) ---------
+    # ============================================================
+    # Query base
+    #
+    # Orden:
+    #   sent             -> Pending to send to client
+    #   sent_to_client   -> Sent to client
+    #   pending          -> Pending payment
+    #   otros estados
+    #   paid             -> Collected
+    # ============================================================
     qs = (
-        SesionBilling.objects
+        SesionBilling.objects.annotate(
+            finance_status_order=Case(
+                When(finance_status="sent", then=0),
+                When(finance_status="sent_to_client", then=1),
+                When(finance_status="pending_invoice", then=2),
+                When(finance_status="invoiced", then=3),
+                When(finance_status="pending", then=3),
+                When(finance_status="discount_applied", then=4),
+                When(finance_status="review_discount", then=4),
+                When(finance_status="in_review", then=4),
+                When(finance_status="rejected", then=4),
+                When(finance_status="paid", then=5),
+                default=4,
+                output_field=IntegerField(),
+            )
+        )
         .prefetch_related(
             Prefetch(
                 "items",
@@ -2896,186 +3555,270 @@ def invoices_export(request):
             ),
             Prefetch(
                 "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects
-                .select_related("tecnico")
-                .prefetch_related(
+                queryset=SesionBillingTecnico.objects.select_related(
+                    "tecnico"
+                ).prefetch_related(
                     Prefetch(
                         "evidencias",
                         queryset=EvidenciaFotoBilling.objects.only(
-                            "id", "imagen", "tecnico_sesion_id", "requisito_id"
+                            "id",
+                            "imagen",
+                            "tecnico_sesion_id",
+                            "requisito_id",
                         ).order_by("-id"),
                     )
                 ),
             ),
         )
-        .order_by("-creado_en")
+        .order_by(
+            "finance_status_order",
+            "-creado_en",
+        )
     )
 
-    # --------- Alcance Finanzas (open / all / paid) – igual que invoices_list ---------
-    FINANCE_OPEN_BASE = ["discount_applied", "sent", "in_review", "pending", "rejected"]
+    # ============================================================
+    # Alcance financiero: open | paid | all
+    #
+    # IMPORTANTE:
+    # paid también está dentro de open para que Collected permanezca
+    # en la tabla y también aparezca en el export principal.
+    # ============================================================
+    finance_open_base = [
+        "discount_applied",
+        "sent",
+        "sent_to_client",
+        "pending_invoice",
+        "invoiced",
+        "in_review",
+        "pending",
+        "rejected",
+        "paid",
+    ]
 
     if scope == "paid":
         qs = qs.filter(finance_status="paid")
 
     elif scope == "all":
         qs = qs.exclude(
-            Q(finance_status__in=["none", ""]) |
-            Q(finance_status__isnull=True) |
-            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
+            Q(finance_status__in=["none", ""])
+            | Q(finance_status__isnull=True)
+            | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=True))
         )
 
-    else:  # "open"
+    else:
         qs = qs.filter(
-            Q(finance_status__in=FINANCE_OPEN_BASE) |
-            (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
-        ).exclude(finance_status="paid")
+            Q(finance_status__in=finance_open_base)
+            | (Q(finance_status="review_discount") & Q(finance_sent_at__isnull=False))
+        )
 
-    # --------- 🔒 Limitar por proyectos asignados (solo usuarios NO historial) ---------
+    qs = qs.filter(
+        Q(estado__in=["aprobado_supervisor", "aprobado_pm"])
+        | Q(is_direct_discount=True)
+    )
+
+    # ============================================================
+    # Limitar por proyectos asignados para usuarios sin historial
+    # ============================================================
     if not can_view_legacy_history:
         if allowed_keys:
             qs = qs.filter(proyecto__in=allowed_keys)
         else:
             qs = SesionBilling.objects.none()
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
-    # Si include_history=True => todo; si start_at => desde start_at en adelante
+    # ============================================================
+    # Limitar también por ventana histórica de ProyectoAsignacion
+    #
+    # include_history=True:
+    #   ve todo el historial del proyecto.
+    #
+    # start_at:
+    #   ve registros desde la fecha de asignación.
+    # ============================================================
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
         ProyectoAsignacion = None
 
-    if (ProyectoAsignacion is not None) and (not can_view_legacy_history):
+    if ProyectoAsignacion is not None and not can_view_legacy_history:
         try:
             asignaciones = list(
-                ProyectoAsignacion.objects
-                .filter(usuario=user, proyecto__in=proyectos_user)
-                .select_related("proyecto")
+                ProyectoAsignacion.objects.filter(
+                    usuario=user,
+                    proyecto__in=proyectos_user,
+                ).select_related("proyecto")
             )
         except Exception:
             asignaciones = []
 
         if asignaciones:
             access_by_key = {}
-            for a in asignaciones:
-                p = getattr(a, "proyecto", None)
-                if not p:
+
+            for asignacion in asignaciones:
+                proyecto = getattr(asignacion, "proyecto", None)
+
+                if not proyecto:
                     continue
 
-                if a.include_history or not a.start_at:
-                    access = {"include_history": True, "start_at": None}
+                if getattr(asignacion, "include_history", False) or not getattr(
+                    asignacion,
+                    "start_at",
+                    None,
+                ):
+                    access = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
                 else:
-                    access = {"include_history": False, "start_at": a.start_at}
+                    access = {
+                        "include_history": False,
+                        "start_at": asignacion.start_at,
+                    }
 
-                for k in (getattr(p, "nombre", None), getattr(p, "codigo", None), getattr(p, "id", None)):
-                    if k is None:
+                project_keys = (
+                    getattr(proyecto, "nombre", None),
+                    getattr(proyecto, "codigo", None),
+                    getattr(proyecto, "id", None),
+                )
+
+                for key in project_keys:
+                    if key is None:
                         continue
-                    ks = str(k).strip()
-                    if ks:
-                        access_by_key[ks.lower()] = access
+
+                    normalized_key = str(key).strip()
+
+                    if normalized_key:
+                        access_by_key[normalized_key.lower()] = access
 
             ids_ok = []
-            for sid, proj_txt, creado_en in qs.values_list("id", "proyecto", "creado_en"):
-                key = (str(proj_txt).strip().lower() if proj_txt else "")
-                if not key:
+
+            for session_id, proyecto_texto, creado_en in qs.values_list(
+                "id",
+                "proyecto",
+                "creado_en",
+            ):
+                project_key = (
+                    str(proyecto_texto).strip().lower() if proyecto_texto else ""
+                )
+
+                if not project_key:
                     continue
 
-                access = access_by_key.get(key)
+                access = access_by_key.get(project_key)
+
                 if not access:
                     continue
 
                 if access["include_history"] or access["start_at"] is None:
-                    ids_ok.append(sid)
+                    ids_ok.append(session_id)
                     continue
 
                 if not creado_en:
                     continue
 
                 start_at = access["start_at"]
-                # normaliza a date (evita datetime vs date)
+
                 if isinstance(start_at, datetime):
                     start_date = start_at.date()
                 else:
                     start_date = start_at
 
                 if isinstance(creado_en, datetime):
-                    creado_date = timezone.localtime(creado_en).date() if timezone.is_aware(creado_en) else creado_en.date()
+                    if timezone.is_aware(creado_en):
+                        creado_date = timezone.localtime(creado_en).date()
+                    else:
+                        creado_date = creado_en.date()
                 else:
                     creado_date = creado_en
 
                 if creado_date >= start_date:
-                    ids_ok.append(sid)
+                    ids_ok.append(session_id)
 
             qs = qs.filter(id__in=ids_ok)
 
-    # No usamos filtros adicionales por GET aquí (date, projid, etc.),
-    # pero si quieres se pueden copiar de invoices_list.
-
     qs = qs.distinct()
 
-    # --------- Mapas de Proyecto para obtener el nombre ---------
-    # Para poner en la columna "Project" el nombre del Proyecto
-    # cuando es posible resolverlo.
+    # ============================================================
+    # Mapas para resolver el nombre de Proyecto
+    # ============================================================
     if can_view_legacy_history:
-        # Para usuarios de historial, intentamos tener todos los proyectos
-        proyectos_all = Proyecto.objects.all()
-        proyectos_list = list(proyectos_all)
-    # si no es historial, ya tenemos proyectos_list con los asignados
+        proyectos_list = list(Proyecto.objects.all())
 
     by_id = {p.id: p for p in proyectos_list}
+
     by_code = {
         (p.codigo or "").strip().lower(): p
         for p in proyectos_list
         if getattr(p, "codigo", None)
     }
+
     by_name = {
         (p.nombre or "").strip().lower(): p
         for p in proyectos_list
         if getattr(p, "nombre", None)
     }
 
-    def _resolve_project_label(s):
+    def resolve_project_label(session):
         """
-        Devuelve el nombre legible del proyecto para el Excel:
+        Devuelve el nombre legible del proyecto.
 
-        - Si SesionBilling.proyecto guarda ID numérico → busca en by_id.
-        - Si guarda nombre/código → intenta mapear a Proyecto.
-        - Si no encuentra nada, devuelve el texto original o el project_id.
+        Intenta resolver SesionBilling.proyecto y proyecto_id mediante:
+        - ID de Proyecto.
+        - Código.
+        - Nombre.
+        - Texto original como fallback.
         """
-        proj_text = (getattr(s, "proyecto", "") or "").strip()
-        proj_id = getattr(s, "proyecto_id", None)
+        project_text = str(getattr(session, "proyecto", "") or "").strip()
 
-        proyecto_sel = None
+        project_id_value = getattr(
+            session,
+            "proyecto_id",
+            None,
+        )
 
-        # 1) intentar interpretar proj_text como PK
-        if proj_text:
+        selected_project = None
+
+        if project_text:
             try:
-                pid = int(proj_text)
+                numeric_project_id = int(project_text)
             except (TypeError, ValueError):
-                key = proj_text.lower()
-                proyecto_sel = by_code.get(key) or by_name.get(key)
-            else:
-                proyecto_sel = by_id.get(pid)
+                normalized_project_text = project_text.lower()
 
-        # 2) intentar con proyecto_id (NB6790, etc.)
-        if not proyecto_sel and proj_id not in (None, "", "-"):
+                selected_project = by_code.get(normalized_project_text) or by_name.get(
+                    normalized_project_text
+                )
+            else:
+                selected_project = by_id.get(numeric_project_id)
+
+        if not selected_project and project_id_value not in (None, "", "-"):
             try:
-                pid2 = int(proj_id)
+                numeric_project_id = int(project_id_value)
             except (TypeError, ValueError):
-                key2 = str(proj_id).strip().lower()
-                proyecto_sel = by_code.get(key2) or by_name.get(key2)
+                normalized_project_id = str(project_id_value).strip().lower()
+
+                selected_project = by_code.get(normalized_project_id) or by_name.get(
+                    normalized_project_id
+                )
             else:
-                proyecto_sel = by_id.get(pid2)
+                selected_project = by_id.get(numeric_project_id)
 
-        if proyecto_sel:
-            return getattr(proyecto_sel, "nombre", str(proyecto_sel))
+        if selected_project:
+            return getattr(
+                selected_project,
+                "nombre",
+                str(selected_project),
+            )
 
-        if proj_text:
-            return proj_text
-        if proj_id not in (None, "", "-"):
-            return str(proj_id)
+        if project_text:
+            return project_text
+
+        if project_id_value not in (None, "", "-"):
+            return str(project_id_value)
+
         return ""
 
-    # --------- Mapas de estado (igual que el export anterior) ---------
+    # ============================================================
+    # Labels de estados
+    # ============================================================
     status_map = {
         "aprobado_pm": "Approved by PM",
         "rechazado_pm": "Rejected by PM",
@@ -3086,141 +3829,797 @@ def invoices_export(request):
         "en_proceso": "In progress",
         "asignado": "Assigned",
     }
+
     finance_map = {
         "none": "—",
         "review_discount": "Review discount",
         "discount_applied": "Discount applied",
-        "sent": "Sent to client",
+        "sent": "Pending to send to client",
+        "sent_to_client": "Sent to client",
+        "pending_invoice": "Pending invoicing",
+        "invoiced": "Invoiced",
         "pending": "Pending payment",
         "in_review": "In review",
         "rejected": "Rejected",
-        "paid": "Paid",
+        "paid": "Collected",
     }
 
-    def techs_string(sesion):
+    def techs_string(session):
         parts = []
-        for st in sesion.tecnicos_sesion.all():
-            tech = st.tecnico
-            name = (tech.get_full_name() or tech.username) if tech else "—"
-            parts.append(f"{name} ({st.porcentaje:.2f}%)")
+
+        for session_technician in session.tecnicos_sesion.all():
+            technician = session_technician.tecnico
+
+            if technician:
+                technician_name = technician.get_full_name() or technician.username
+            else:
+                technician_name = "—"
+
+            parts.append(
+                f"{technician_name} " f"({session_technician.porcentaje:.2f}%)"
+            )
+
         return ", ".join(parts)
 
-    # ✅ NUEVO: comentario (como el comentario del técnico)
-    def comments_string(sesion):
+    def comments_string(session):
         parts = []
-        for st in sesion.tecnicos_sesion.all():
-            txt = (getattr(st, "tecnico_comentario", "") or "").strip()
-            if not txt:
+
+        for session_technician in session.tecnicos_sesion.all():
+            comment = (
+                getattr(
+                    session_technician,
+                    "tecnico_comentario",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if not comment:
                 continue
-            tech = getattr(st, "tecnico", None)
-            name = (tech.get_full_name() or tech.username) if tech else "—"
-            parts.append(f"{name}: {txt}")
+
+            technician = getattr(
+                session_technician,
+                "tecnico",
+                None,
+            )
+
+            if technician:
+                technician_name = technician.get_full_name() or technician.username
+            else:
+                technician_name = "—"
+
+            parts.append(f"{technician_name}: {comment}")
+
         return "\n".join(parts)
 
-    # --------- Crear Excel ---------
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Invoices"
+    # ============================================================
+    # Crear Excel
+    # ============================================================
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Invoices"
 
     headers = [
-        "Date", "Project ID", "Project address", "Projected week",
-        "Status", "Technicians", "Client", "City", "Project", "Office",
-        "Technical Billing", "Company Billing",
-        "Daily Number", "Finish date", "Real Company Billing",
-        "Difference", "Finance status", "Finance note",
+        "Date",
+        "Project ID",
+        "Project address",
+        "Projected week",
+        "Status",
+        "Technicians",
+        "Client",
+        "City",
+        "Project",
+        "Office",
+        "Technical Billing",
+        "Company Billing",
+        "Daily Number",
+        "Finish date",
+        "Real Company Billing",
+        "Difference",
+        "Finance status",
+        "Finance note",
         "Pay week / Discount week",
         "Comment",
-        "Job Code", "Work Type", "Description", "UOM", "Quantity",
-        "Technical Rate", "Company Rate", "Subtotal Technical", "Subtotal Company",
+        "Job Code",
+        "Work Type",
+        "Description",
+        "UOM",
+        "Quantity",
+        "Technical Rate",
+        "Company Rate",
+        "Subtotal Technical",
+        "Subtotal Company",
     ]
-    ws.append(headers)
 
-    for s in qs:
-        status_label = "Direct discount" if getattr(s, "is_direct_discount", False) else status_map.get(s.estado, "Assigned")
-        finance_label = finance_map.get(s.finance_status, "—")
+    worksheet.append(headers)
 
-        real_week = s.semana_pago_real or ""
-        disc_week = getattr(s, "discount_week", "") or getattr(s, "semana_descuento", "") or ""
-        pay_or_disc = f"{real_week} / {disc_week}" if (real_week and disc_week) else (real_week or disc_week)
+    for session in qs:
+        if getattr(session, "is_direct_discount", False):
+            status_label = "Direct discount"
+        else:
+            status_label = status_map.get(
+                session.estado,
+                "Assigned",
+            )
 
-        project_label = _resolve_project_label(s)
-        comment_text = comments_string(s)
+        finance_label = finance_map.get(
+            session.finance_status,
+            "—",
+        )
+
+        real_week = getattr(session, "semana_pago_real", "") or ""
+
+        discount_week = (
+            getattr(session, "discount_week", "")
+            or getattr(session, "semana_descuento", "")
+            or ""
+        )
+
+        if real_week and discount_week:
+            pay_or_discount_week = f"{real_week} / {discount_week}"
+        else:
+            pay_or_discount_week = real_week or discount_week
+
+        project_label = resolve_project_label(session)
+        comment_text = comments_string(session)
 
         head_common = [
-            _to_excel_dt(s.creado_en),
-            s.proyecto_id,
-            s.direccion_proyecto,
-            s.semana_pago_proyectada or "",
+            _to_excel_dt(session.creado_en),
+            session.proyecto_id,
+            session.direccion_proyecto,
+            session.semana_pago_proyectada or "",
             status_label,
-            techs_string(s),
-            s.cliente or "",
-            s.ciudad or "",
+            techs_string(session),
+            session.cliente or "",
+            session.ciudad or "",
             project_label or "",
-            s.oficina or "",
-            float(s.subtotal_tecnico or 0),
-            float(s.subtotal_empresa or 0),
-            (s.finance_daily_number or ""),
-            _to_excel_dt(s.finance_finish_date) if getattr(s, "finance_finish_date", None) else "",
-            float(s.real_company_billing or 0),
-            float((s.diferencia or 0)),
+            session.oficina or "",
+            float(session.subtotal_tecnico or 0),
+            float(session.subtotal_empresa or 0),
+            session.finance_daily_number or "",
+            (
+                _to_excel_dt(session.finance_finish_date)
+                if getattr(
+                    session,
+                    "finance_finish_date",
+                    None,
+                )
+                else ""
+            ),
+            (
+                float(session.real_company_billing)
+                if session.real_company_billing is not None
+                else 0.0
+            ),
+            float(session.diferencia or 0),
             finance_label,
-            (s.finance_note or ""),
-            pay_or_disc,
+            session.finance_note or "",
+            pay_or_discount_week,
             comment_text,
         ]
 
-        items = getattr(s, "items", None).all() if hasattr(s, "items") else []
+        items_manager = getattr(
+            session,
+            "items",
+            None,
+        )
+
+        items = items_manager.all() if items_manager is not None else []
+
         if not items:
-            ws.append(head_common + ["", "", "", "", 0.0, 0.0, 0.0, 0.0, 0.0])
+            worksheet.append(
+                head_common
+                + [
+                    "",
+                    "",
+                    "",
+                    "",
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            )
             continue
 
-        for it in items:
-            qty_total = Decimal(str(it.cantidad or 0))
-            comp_rate = Decimal(str(it.precio_empresa or 0))
-            desglose = list(getattr(it, "desglose_tecnico", []).all()) if hasattr(it, "desglose_tecnico") else []
+        for item in items:
+            total_quantity = Decimal(str(item.cantidad or 0))
 
-            if desglose:
-                for bd in desglose:
-                    pct = Decimal(str(bd.porcentaje or 0)) / Decimal("100")
-                    qty_tec = (qty_total * pct)
-                    base_rate = Decimal(str(getattr(bd, "tarifa_base", 0) or 0))
-                    sub_tec = base_rate * qty_tec
-                    sub_comp = comp_rate * qty_tec
+            company_rate = Decimal(str(item.precio_empresa or 0))
 
-                    row = head_common + [
-                        it.codigo_trabajo or "",
-                        it.tipo_trabajo or "",
-                        it.descripcion or "",
-                        it.unidad_medida or "",
-                        float(qty_tec),
-                        float(base_rate),
-                        float(comp_rate),
-                        float(sub_tec),
-                        float(sub_comp),
-                    ]
-                    ws.append(row)
+            technical_breakdown_manager = getattr(
+                item,
+                "desglose_tecnico",
+                None,
+            )
+
+            technical_breakdowns = (
+                list(technical_breakdown_manager.all())
+                if technical_breakdown_manager is not None
+                else []
+            )
+
+            if technical_breakdowns:
+                for breakdown in technical_breakdowns:
+                    percentage = Decimal(str(breakdown.porcentaje or 0)) / Decimal(
+                        "100"
+                    )
+
+                    technician_quantity = total_quantity * percentage
+
+                    technical_rate = Decimal(
+                        str(
+                            getattr(
+                                breakdown,
+                                "tarifa_base",
+                                0,
+                            )
+                            or 0
+                        )
+                    )
+
+                    technical_subtotal = technical_rate * technician_quantity
+
+                    company_subtotal = company_rate * technician_quantity
+
+                    worksheet.append(
+                        head_common
+                        + [
+                            item.codigo_trabajo or "",
+                            item.tipo_trabajo or "",
+                            item.descripcion or "",
+                            item.unidad_medida or "",
+                            float(technician_quantity),
+                            float(technical_rate),
+                            float(company_rate),
+                            float(technical_subtotal),
+                            float(company_subtotal),
+                        ]
+                    )
+
             else:
-                sub_tec_item = Decimal(str(it.subtotal_tecnico or 0))
-                sub_comp_item = Decimal(str(it.subtotal_empresa or (comp_rate * qty_total)))
-                row = head_common + [
-                    it.codigo_trabajo or "",
-                    it.tipo_trabajo or "",
-                    it.descripcion or "",
-                    it.unidad_medida or "",
-                    float(qty_total),
-                    float(Decimal("0.00")),  # sin desglose no hay rate técnico
-                    float(comp_rate),
-                    float(sub_tec_item),
-                    float(sub_comp_item),
-                ]
-                ws.append(row)
+                technical_subtotal = Decimal(str(item.subtotal_tecnico or 0))
 
-    now_str = timezone.now().strftime("%Y%m%d_%H%M%S")
-    resp = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                company_subtotal = Decimal(
+                    str(item.subtotal_empresa or (company_rate * total_quantity))
+                )
+
+                worksheet.append(
+                    head_common
+                    + [
+                        item.codigo_trabajo or "",
+                        item.tipo_trabajo or "",
+                        item.descripcion or "",
+                        item.unidad_medida or "",
+                        float(total_quantity),
+                        0.0,
+                        float(company_rate),
+                        float(technical_subtotal),
+                        float(company_subtotal),
+                    ]
+                )
+
+    now_string = timezone.now().strftime("%Y%m%d_%H%M%S")
+
+    response = HttpResponse(
+        content_type=(
+            "application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"
+        )
     )
-    resp["Content-Disposition"] = f'attachment; filename="invoices_{now_str}.xlsx"'
-    wb.save(resp)
-    return resp
+
+    response["Content-Disposition"] = (
+        f'attachment; filename="invoices_{now_string}.xlsx"'
+    )
+
+    workbook.save(response)
+
+    return response
 
 
+@login_required
+@rol_requerido("facturacion", "admin", "pm")
+@require_POST
+def invoice_mark_sent_to_client(request, pk):
+    """
+    Marca un invoice como enviado al cliente.
+
+        sent
+        Pending to send to client
+
+            ↓
+
+        sent_to_client
+        Sent to client
+    """
+    from django.db import transaction
+    from django.http import JsonResponse
+    from django.shortcuts import get_object_or_404
+    from django.utils import timezone
+
+    from operaciones.models import SesionBilling
+
+    with transaction.atomic():
+        invoice = get_object_or_404(
+            SesionBilling.objects.select_for_update(),
+            pk=pk,
+        )
+
+        current_status = (
+            getattr(invoice, "finance_status", "") or ""
+        ).strip()
+
+        if current_status == "sent_to_client":
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": (
+                        "The invoice was already marked as sent "
+                        "to the client."
+                    ),
+                    "finance_status": "sent_to_client",
+                    "finance_status_label": "Sent to client",
+                }
+            )
+
+        if current_status == "paid":
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "This invoice is already collected and cannot "
+                        "be marked as sent to the client."
+                    ),
+                },
+                status=409,
+            )
+
+        if current_status != "sent":
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Only invoices with status "
+                        "'Pending to send to client' can be marked "
+                        "as sent."
+                    ),
+                    "current_status": current_status,
+                },
+                status=409,
+            )
+
+        invoice.finance_status = "sent_to_client"
+
+        update_fields = ["finance_status"]
+
+        if hasattr(invoice, "finance_updated_at"):
+            invoice.finance_updated_at = timezone.now()
+            update_fields.append("finance_updated_at")
+
+        invoice.save(update_fields=update_fields)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "Invoice marked as sent to client.",
+            "finance_status": "sent_to_client",
+            "finance_status_label": "Sent to client",
+        }
+    )
+
+
+@login_required
+@rol_requerido("facturacion", "admin", "pm")
+@require_POST
+def invoice_mark_pending_invoice(request, pk):
+    """
+    Marca un invoice como pendiente por facturar.
+
+        sent_to_client
+        Sent to client
+
+            ↓
+
+        pending_invoice
+        Pending invoicing
+    """
+    from django.db import transaction
+    from django.http import JsonResponse
+    from django.shortcuts import get_object_or_404
+    from django.utils import timezone
+
+    from operaciones.models import SesionBilling
+
+    with transaction.atomic():
+        invoice = get_object_or_404(
+            SesionBilling.objects.select_for_update(),
+            pk=pk,
+        )
+
+        current_status = (getattr(invoice, "finance_status", "") or "").strip()
+
+        if current_status == "pending_invoice":
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": ("The invoice is already pending invoicing."),
+                    "finance_status": "pending_invoice",
+                    "finance_status_label": "Pending invoicing",
+                }
+            )
+
+        if current_status == "paid":
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "This invoice is already collected and cannot "
+                        "be marked as pending invoicing."
+                    ),
+                },
+                status=409,
+            )
+
+        if current_status != "sent_to_client":
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Only invoices with status 'Sent to client' "
+                        "can be marked as Pending invoicing."
+                    ),
+                    "current_status": current_status,
+                },
+                status=409,
+            )
+
+        invoice.finance_status = "pending_invoice"
+
+        update_fields = ["finance_status"]
+
+        if hasattr(invoice, "finance_updated_at"):
+            invoice.finance_updated_at = timezone.now()
+            update_fields.append("finance_updated_at")
+
+        invoice.save(update_fields=update_fields)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "Invoice marked as pending invoicing.",
+            "finance_status": "pending_invoice",
+            "finance_status_label": "Pending invoicing",
+        }
+    )
+
+
+@login_required
+@rol_requerido("facturacion", "admin")
+@require_POST
+def invoice_bulk_update_status(request):
+    """
+    Cambia de forma masiva el estado financiero de invoices.
+
+    Reglas:
+
+    - Excluye siempre los Direct Discount.
+    - Solo procesa invoices visibles para el usuario.
+    - Solo procesa invoices aprobados por Supervisor o PM.
+    - Permite cambiar directamente a:
+        sent
+        sent_to_client
+        pending_invoice
+        invoiced
+        paid
+    - Para invoiced y paid:
+        * Si Real Company Billing está vacío, copia subtotal_empresa.
+        * No sobrescribe un Real Company Billing existente.
+    - Para paid:
+        * Completa finance_finish_date con la fecha actual si está vacía.
+    """
+    import json
+    from datetime import datetime
+    from decimal import Decimal
+
+    from django.db import transaction
+    from django.http import JsonResponse
+    from django.shortcuts import get_object_or_404
+    from django.utils import timezone
+
+    from facturacion.models import Proyecto
+    from operaciones.models import SesionBilling
+
+    allowed_statuses = {
+        "sent": "Pending to send to client",
+        "sent_to_client": "Sent to client",
+        "pending_invoice": "Pending invoicing",
+        "invoiced": "Invoiced",
+        "paid": "Collected",
+    }
+
+    content_type = (request.content_type or "").lower()
+
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "Invalid JSON payload.",
+                },
+                status=400,
+            )
+    else:
+        payload = request.POST
+
+    raw_ids = payload.get("ids", [])
+    target_status = str(payload.get("target_status", "") or "").strip()
+
+    if isinstance(raw_ids, str):
+        raw_ids = [
+            value.strip()
+            for value in raw_ids.replace(";", ",").split(",")
+            if value.strip()
+        ]
+
+    if not isinstance(raw_ids, (list, tuple)):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Invalid invoice selection.",
+            },
+            status=400,
+        )
+
+    invoice_ids = []
+
+    for value in raw_ids:
+        try:
+            invoice_id = int(value)
+        except (TypeError, ValueError):
+            continue
+
+        if invoice_id > 0 and invoice_id not in invoice_ids:
+            invoice_ids.append(invoice_id)
+
+    if not invoice_ids:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Select at least one invoice.",
+            },
+            status=400,
+        )
+
+    if target_status not in allowed_statuses:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Select a valid finance status.",
+            },
+            status=400,
+        )
+
+    user = request.user
+
+    can_view_legacy_history = user.is_superuser or getattr(
+        user,
+        "es_usuario_historial",
+        False,
+    )
+
+    # ============================================================
+    # Proyectos visibles para el usuario
+    # ============================================================
+    try:
+        proyectos_user = filter_queryset_by_access(
+            Proyecto.objects.all(),
+            user,
+            "id",
+        )
+    except Exception:
+        proyectos_user = Proyecto.objects.none()
+
+    proyectos_list = list(proyectos_user)
+
+    allowed_project_keys = set()
+
+    for project in proyectos_list:
+        project_name = (getattr(project, "nombre", "") or "").strip()
+        project_code = str(getattr(project, "codigo", "") or "").strip()
+        project_id = str(getattr(project, "id", "") or "").strip()
+
+        if project_name:
+            allowed_project_keys.add(project_name.lower())
+
+        if project_code:
+            allowed_project_keys.add(project_code.lower())
+
+        if project_id:
+            allowed_project_keys.add(project_id.lower())
+
+    # ============================================================
+    # Ventana histórica de ProyectoAsignacion
+    # ============================================================
+    try:
+        from usuarios.models import ProyectoAsignacion
+    except Exception:
+        ProyectoAsignacion = None
+
+    access_by_project_key = {}
+
+    if ProyectoAsignacion is not None and not can_view_legacy_history:
+        try:
+            assignments = list(
+                ProyectoAsignacion.objects.filter(
+                    usuario=user,
+                    proyecto__in=proyectos_user,
+                ).select_related("proyecto")
+            )
+        except Exception:
+            assignments = []
+
+        for assignment in assignments:
+            project = getattr(assignment, "proyecto", None)
+
+            if not project:
+                continue
+
+            include_history = bool(getattr(assignment, "include_history", False))
+
+            start_at = getattr(assignment, "start_at", None)
+
+            access_data = {
+                "include_history": include_history or not start_at,
+                "start_at": None if include_history or not start_at else start_at,
+            }
+
+            for key in (
+                getattr(project, "nombre", None),
+                getattr(project, "codigo", None),
+                getattr(project, "id", None),
+            ):
+                if key is None:
+                    continue
+
+                normalized_key = str(key).strip().lower()
+
+                if normalized_key:
+                    access_by_project_key[normalized_key] = access_data
+
+    def user_can_access_invoice(invoice):
+        if can_view_legacy_history:
+            return True
+
+        project_key = str(getattr(invoice, "proyecto", "") or "").strip().lower()
+
+        if not project_key:
+            return False
+
+        if project_key not in allowed_project_keys:
+            return False
+
+        if ProyectoAsignacion is None:
+            return True
+
+        access = access_by_project_key.get(project_key)
+
+        if not access:
+            return False
+
+        if access["include_history"] or access["start_at"] is None:
+            return True
+
+        created_at = getattr(invoice, "creado_en", None)
+
+        if not created_at:
+            return False
+
+        start_at = access["start_at"]
+
+        start_date = start_at.date() if isinstance(start_at, datetime) else start_at
+
+        if isinstance(created_at, datetime):
+            created_date = (
+                timezone.localtime(created_at).date()
+                if timezone.is_aware(created_at)
+                else created_at.date()
+            )
+        else:
+            created_date = created_at
+
+        return created_date >= start_date
+
+    updated_count = 0
+    filled_real_count = 0
+    skipped_direct_discount_count = 0
+    skipped_access_count = 0
+    skipped_not_approved_count = 0
+    not_found_count = 0
+
+    today = timezone.localdate()
+
+    with transaction.atomic():
+        invoices = list(
+            SesionBilling.objects.select_for_update().filter(
+                id__in=invoice_ids,
+            )
+        )
+
+        found_ids = {invoice.id for invoice in invoices}
+        not_found_count = len(set(invoice_ids) - found_ids)
+
+        for invoice in invoices:
+            if getattr(invoice, "is_direct_discount", False):
+                skipped_direct_discount_count += 1
+                continue
+
+            if invoice.estado not in {
+                "aprobado_supervisor",
+                "aprobado_pm",
+            }:
+                skipped_not_approved_count += 1
+                continue
+
+            if not user_can_access_invoice(invoice):
+                skipped_access_count += 1
+                continue
+
+            update_fields = []
+
+            if invoice.finance_status != target_status:
+                invoice.finance_status = target_status
+                update_fields.append("finance_status")
+
+            if target_status in {"invoiced", "paid"}:
+                if invoice.real_company_billing is None:
+                    invoice.real_company_billing = (
+                        invoice.subtotal_empresa
+                        if invoice.subtotal_empresa is not None
+                        else Decimal("0")
+                    )
+                    update_fields.append("real_company_billing")
+                    filled_real_count += 1
+
+            if target_status == "paid":
+                if not invoice.finance_finish_date:
+                    invoice.finance_finish_date = today
+                    update_fields.append("finance_finish_date")
+
+            if hasattr(invoice, "finance_updated_at"):
+                invoice.finance_updated_at = timezone.now()
+                update_fields.append("finance_updated_at")
+
+            update_fields = list(dict.fromkeys(update_fields))
+
+            if update_fields:
+                invoice.save(update_fields=update_fields)
+
+            updated_count += 1
+
+    skipped_count = (
+        skipped_direct_discount_count
+        + skipped_access_count
+        + skipped_not_approved_count
+        + not_found_count
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": (
+                f"{updated_count} invoice(s) updated to "
+                f"{allowed_statuses[target_status]}."
+            ),
+            "target_status": target_status,
+            "target_status_label": allowed_statuses[target_status],
+            "updated_count": updated_count,
+            "filled_real_count": filled_real_count,
+            "skipped_count": skipped_count,
+            "skipped_direct_discount_count": (skipped_direct_discount_count),
+            "skipped_access_count": skipped_access_count,
+            "skipped_not_approved_count": (skipped_not_approved_count),
+            "not_found_count": not_found_count,
+        }
+    )

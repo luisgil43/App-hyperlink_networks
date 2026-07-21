@@ -119,7 +119,31 @@
   >
     Clear selection
   </button>
+<div class="inline-flex items-center gap-2">
+  <select
+    id="bulk-finance-status"
+    class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled
+    aria-label="Bulk finance status"
+  >
+    <option value="">Change finance status...</option>
+    <option value="sent">Pending to send to client</option>
+    <option value="sent_to_client">Sent to client</option>
+    <option value="pending_invoice">Pending invoicing</option>
+    <option value="invoiced">Invoiced</option>
+    <option value="paid">Collected</option>
+  </select>
 
+  <button
+    id="btn-bulk-finance-status"
+    type="button"
+    class="px-3 py-2 rounded-lg bg-cyan-700 text-white hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled
+    title="Change finance status for selected invoices"
+  >
+    Apply status
+  </button>
+</div>
   <a
     href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
     class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
@@ -535,6 +559,7 @@
   </button>
 </td>
 
+<!-- Finish date -->
 <td class="p-2 border text-left">
   {% if s.finance_finish_date %}
     {{ s.finance_finish_date|date:"Y-m-d" }}
@@ -542,36 +567,68 @@
     —
   {% endif %}
 </td>
-          <!-- Real Company Billing (inline edit) -->
-          <td class="p-2 border text-right" data-col="real">
-            <span class="real-view" id="real-view-{{ s.id }}">
-              {% if s.real_company_billing is not None %}${{ s.real_company_billing|floatformat:2 }}{% else %}—{% endif %}
-            </span>
 
-           <input type="text" inputmode="decimal" enterkeyhint="done" pattern="[0-9]*[.,]?[0-9]*"
-       class="real-input hidden border rounded px-2 py-1 text-sm w-28 text-right"
-       id="real-input-{{ s.id }}"
-       value="{% if s.real_company_billing is not None %}{{ s.real_company_billing|floatformat:2 }}{% endif %}">
-            <button type="button" class="real-edit text-xs text-blue-600 underline" data-id="{{ s.id }}">✏️</button>
-          </td>
+<!-- Real Company Billing -->
+<td class="p-2 border text-right" data-col="real">
+  <div class="inline-flex items-center justify-end gap-1">
+    <span
+      class="real-view"
+      id="real-view-{{ s.id }}"
+    >
+      {% if s.real_company_billing is not None %}
+        ${{ s.real_company_billing|floatformat:2 }}
+      {% else %}
+        —
+      {% endif %}
+    </span>
 
-          <!-- Difference -->
-          <td class="p-2 border text-right" id="diff-{{ s.id }}">
-  {# Solo mostrar si hay un número > 0 en real_company_billing #}
-  {% if s.real_company_billing and s.subtotal_empresa %}
+    <input
+      type="text"
+      inputmode="decimal"
+      enterkeyhint="done"
+      pattern="[0-9]*[.,]?[0-9]*"
+      class="real-input hidden border rounded px-2 py-1 text-sm w-28 text-right"
+      id="real-input-{{ s.id }}"
+      value="{% if s.real_company_billing is not None %}{{ s.real_company_billing|floatformat:2 }}{% endif %}"
+      placeholder="—"
+    >
+
+    {% if s.finance_status == "pending_invoice" or s.finance_status == "invoiced" or s.finance_status == "pending" or s.finance_status == "in_review" or s.finance_status == "rejected" %}
+      <button
+        type="button"
+        class="real-edit text-xs text-blue-600 underline"
+        data-id="{{ s.id }}"
+        title="Edit Real Company Billing"
+      >
+        ✏️
+      </button>
+    {% endif %}
+  </div>
+</td>
+
+<!-- Difference -->
+<td class="p-2 border text-right" id="diff-{{ s.id }}">
+  {% if s.real_company_billing is not None %}
     {% if s.real_company_billing < s.subtotal_empresa %}
-      <span class="font-semibold text-red-600">- ${{ s.diferencia|floatformat:2 }}</span>
+      <span class="font-semibold text-red-600">
+        - ${{ s.diferencia|floatformat:2 }}
+      </span>
+
     {% elif s.real_company_billing > s.subtotal_empresa %}
-      <span class="font-semibold text-green-600">+ ${{ s.diferencia|floatformat:2|cut:"-" }}</span>
+      <span class="font-semibold text-green-600">
+        + ${{ s.diferencia|floatformat:2|cut:"-" }}
+      </span>
+
     {% else %}
-      <span class="text-gray-700">$0.00</span>
+      <span class="text-gray-700">
+        $0.00
+      </span>
     {% endif %}
   {% else %}
-    —   {# en blanco, raya o 0 -> no mostrar diferencia #}
+    —
   {% endif %}
 </td>
-          <!-- Finance status -->
-<!-- Finance status -->
+ <!-- Finance status -->
 <td class="p-2 border align-top w-[260px] min-w-[240px]" data-finance-status>
   {% if s.finance_status == "review_discount" %}
     <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800">
@@ -583,14 +640,24 @@
       Discount applied
     </span>
 
-  {% elif s.finance_status == "pending_send" %}
+  {% elif s.finance_status == "sent" %}
     <span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800">
       Pending to send to client
     </span>
 
-  {% elif s.finance_status == "sent" %}
+  {% elif s.finance_status == "sent_to_client" %}
     <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">
       Sent to client
+    </span>
+
+  {% elif s.finance_status == "pending_invoice" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-cyan-100 text-cyan-800">
+      Pending invoicing
+    </span>
+
+  {% elif s.finance_status == "invoiced" %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+      Invoiced
     </span>
 
   {% elif s.finance_status == "in_review" %}
@@ -618,17 +685,7 @@
       —
     </span>
   {% endif %}
-
-  {% if s.finance_note %}
-    <div class="mt-1 text-xs text-gray-500">
-      <div class="whitespace-pre-line break-words">
-        Note: {{ s.finance_note }}
-      </div>
-    </div>
-  {% endif %}
 </td>
-
-
           <!-- Real pay week (inline edit) -->
    <td class="p-2 border align-top min-w-[360px] max-w-[560px] whitespace-normal break-words" data-col="week">
   {% if s.payweek_groups %}
@@ -735,65 +792,132 @@
     <span class="text-gray-400">—</span>
   {% endif %}
 </td>
-<td class="p-2 border align-top min-w-[380px] max-w-[520px] text-left whitespace-normal break-words"
-    style="white-space: normal;">
-  {% if s.comentarios_tecnicos %}
-    <div class="space-y-1">
-      {% for a in s.comentarios_tecnicos %}
-        <div class="text-xs text-gray-700 whitespace-pre-line break-words">
-          <b>{{ a.tecnico.get_full_name|default:a.tecnico.username }}:</b> {{ a.tecnico_comentario }}
+<!-- Comment -->
+<td
+  class="p-2 border align-top min-w-[380px] max-w-[520px] text-left whitespace-normal break-words"
+  style="white-space: normal;"
+>
+  {% if s.comentarios_tecnicos or s.finance_note %}
+    <div class="space-y-2">
+
+      {% if s.comentarios_tecnicos %}
+        <div class="space-y-1">
+          {% for a in s.comentarios_tecnicos %}
+            <div class="text-xs text-gray-700 whitespace-pre-line break-words">
+              <b>{{ a.tecnico.get_full_name|default:a.tecnico.username }}:</b>
+              {{ a.tecnico_comentario }}
+            </div>
+          {% endfor %}
         </div>
-      {% endfor %}
+      {% endif %}
+
+      {% if s.finance_note %}
+        <div class="{% if s.comentarios_tecnicos %}pt-2 border-t border-gray-200{% endif %}">
+          <div class="text-xs text-gray-600 whitespace-pre-line break-words">
+            <b>Finance note:</b> {{ s.finance_note }}
+          </div>
+        </div>
+      {% endif %}
+
     </div>
   {% else %}
     <span class="text-gray-400">—</span>
   {% endif %}
 </td>
+<!-- Actions -->
+<td class="p-2 border text-center">
+  <div class="flex flex-wrap items-center justify-center gap-3">
 
-          <!-- Actions -->
-      <td class="p-2 border text-center">
-  <div class="flex items-center justify-center gap-3">
-    <!-- Remove (siempre) -->
- <button type="button"
-        class="text-red-600 hover:underline btn-remove"
+    <button
+      type="button"
+      class="text-red-600 hover:underline btn-remove"
+      data-id="{{ s.id }}"
+      data-url="{% url 'facturacion:invoice_remove' s.id %}"
+    >
+      Remove
+    </button>
+
+    {% if s.is_split_child %}
+      <button
+        type="button"
+        class="btn-split-delete text-red-700 hover:underline"
         data-id="{{ s.id }}"
-        data-url="{% url 'facturacion:invoice_remove' s.id %}">
-  Remove
-</button>
-{% if s.is_split_child %}
-  <button
-    type="button"
-    class="btn-split-delete text-red-700 hover:underline"
-    data-id="{{ s.id }}"
-    data-paid="{% if s.finance_status and s.finance_status|lower == 'paid' %}1{% else %}0{% endif %}"
-    title="Delete split and restore to parent"
-  >
-    Delete split
-  </button>
-{% endif %}
-
-    <!-- Discount verified (solo Direct Discount en revisión) -->
-  {% if s.is_direct_discount and s.finance_status == 'review_discount' %}
-  <button
-    type="button"
-    class="btn-discount-verified text-emerald-700 hover:underline"
-    data-id="{{ s.id }}"
-    data-url="{% url 'facturacion:invoice_discount_verified' s.id %}">
-    Discount verified
-  </button>
-{% endif %}
-
-    <!-- Edit / Reject / Mark paid (lógica existente) -->
-    {% if s.real_company_billing is None %}
-  <button type="button" class="text-blue-600 hover:underline real-edit" data-id="{{ s.id }}">Edit</button>
-{% else %}
-  {% if s.finance_status != "paid" %}
-    {% if s.diferencia is not None and s.diferencia|floatformat:2 != '0.00' %}
-      <button type="button" class="btn-reject text-red-600 hover:underline" data-id="{{ s.id }}">Reject</button>
+        data-paid="{% if s.finance_status == 'paid' %}1{% else %}0{% endif %}"
+        title="Delete split and restore to parent"
+      >
+        Delete split
+      </button>
     {% endif %}
-    <button type="button" class="btn-paid text-green-700 hover:underline" data-id="{{ s.id }}">Mark as collected</button>
-  {% endif %}
-{% endif %}
+
+    {% if s.is_direct_discount and s.finance_status == "review_discount" %}
+      <button
+        type="button"
+        class="btn-discount-verified text-emerald-700 hover:underline"
+        data-id="{{ s.id }}"
+        data-url="{% url 'facturacion:invoice_discount_verified' s.id %}"
+      >
+        Discount verified
+      </button>
+    {% endif %}
+
+    {% if s.finance_status == "sent" %}
+      <button
+        type="button"
+        class="btn-sent-client text-blue-700 hover:underline"
+        data-id="{{ s.id }}"
+        data-url="{% url 'facturacion:invoice_mark_sent_to_client' s.id %}"
+      >
+        Mark as sent to client
+      </button>
+    {% endif %}
+
+    {% if s.finance_status == "sent_to_client" %}
+      <button
+        type="button"
+        class="btn-pending-invoice text-cyan-700 hover:underline"
+        data-id="{{ s.id }}"
+        data-url="{% url 'facturacion:invoice_mark_pending_invoice' s.id %}"
+      >
+        Mark as pending invoicing
+      </button>
+    {% endif %}
+
+    {% if s.finance_status == "pending_invoice" %}
+      <button
+        type="button"
+        class="text-blue-600 hover:underline real-edit"
+        data-id="{{ s.id }}"
+      >
+        Enter billing amount
+      </button>
+    {% endif %}
+
+    {% if s.finance_status != "paid" and s.real_company_billing is not None %}
+      {% if s.diferencia is not None and s.diferencia|floatformat:2 != "0.00" %}
+        <button
+          type="button"
+          class="btn-reject text-red-600 hover:underline"
+          data-id="{{ s.id }}"
+        >
+          Reject
+        </button>
+      {% endif %}
+
+      <button
+        type="button"
+        class="btn-paid text-green-700 hover:underline"
+        data-id="{{ s.id }}"
+      >
+        Mark as collected
+      </button>
+    {% endif %}
+
+    {% if s.finance_status == "paid" %}
+      <span class="text-xs font-semibold text-green-700">
+        Collected
+      </span>
+    {% endif %}
+
   </div>
 </td>
         </tr>
@@ -1039,6 +1163,64 @@
     <div class="flex justify-end gap-2">
       <button type="button" id="sd-cancel" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
       <button type="button" id="sd-ok" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700" disabled>Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk finance status modal -->
+<div id="modal-bulk-finance-status" class="fixed inset-0 hidden z-50">
+  <div
+    class="absolute inset-0 bg-black/40"
+    data-close-bulk-finance
+  ></div>
+
+  <div class="relative max-w-lg mx-auto bg-white rounded-2xl shadow p-6 mt-32">
+    <h3 class="text-lg font-semibold text-gray-800 mb-2">
+      Change finance status
+    </h3>
+
+    <p
+      id="bulk-finance-status-message"
+      class="text-sm text-gray-700"
+    ></p>
+
+    <div
+      id="bulk-finance-autofill-warning"
+      class="hidden mt-4 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-900"
+    >
+      Invoices without Real Company Billing will automatically use their
+      Company Billing amount.
+    </div>
+
+    <div
+      id="bulk-finance-collected-warning"
+      class="hidden mt-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-900"
+    >
+      The selected invoices will be marked as Collected. Empty finish dates
+      will use today’s date.
+    </div>
+
+    <div
+      id="bulk-finance-error"
+      class="hidden mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
+    ></div>
+
+    <div class="flex justify-end gap-2 mt-6">
+      <button
+        type="button"
+        id="bulk-finance-cancel"
+        class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+      >
+        Cancel
+      </button>
+
+      <button
+        type="button"
+        id="bulk-finance-confirm"
+        class="px-4 py-2 rounded-lg bg-cyan-700 text-white hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Confirm change
+      </button>
     </div>
   </div>
 </div>
@@ -1386,7 +1568,111 @@ document.addEventListener('click', function(e){
       return;
     }
   });
+/* ===================== Mark as sent to client ===================== */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".btn-sent-client");
 
+  if (!btn) {
+    return;
+  }
+
+  const url = btn.dataset.url;
+
+  if (!url) {
+    toast("Configuration error: missing update URL.", "error");
+    return;
+  }
+
+  if (btn.dataset.saving === "1") {
+    return;
+  }
+
+  btn.dataset.saving = "1";
+  btn.disabled = true;
+
+  const originalText = btn.textContent;
+  btn.textContent = "Saving...";
+
+  try {
+    const form = new FormData();
+
+    await window.__postAjax__(
+      url,
+      form,
+      false
+    );
+
+    toast(
+      "Invoice marked as sent to client.",
+      "success"
+    );
+
+    window.location.reload();
+
+  } catch (err) {
+    btn.dataset.saving = "";
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    toast(
+      err.message || "Could not update the invoice.",
+      "error"
+    );
+  }
+});
+
+/* ===================== Mark as pending invoicing ===================== */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".btn-pending-invoice");
+
+  if (!btn) {
+    return;
+  }
+
+  const url = btn.dataset.url;
+
+  if (!url) {
+    toast("Configuration error: missing update URL.", "error");
+    return;
+  }
+
+  if (btn.dataset.saving === "1") {
+    return;
+  }
+
+  btn.dataset.saving = "1";
+  btn.disabled = true;
+
+  const originalText = btn.textContent;
+  btn.textContent = "Saving...";
+
+  try {
+    const form = new FormData();
+
+    await window.__postAjax__(
+      url,
+      form,
+      false
+    );
+
+    toast(
+      "Invoice marked as pending invoicing.",
+      "success"
+    );
+
+    window.location.reload();
+
+  } catch (err) {
+    btn.dataset.saving = "";
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    toast(
+      err.message || "Could not update the invoice.",
+      "error"
+    );
+  }
+});
   /* ===================== Guardar con Enter / cancelar con Escape ===================== */
 
   // REAL
@@ -2742,6 +3028,334 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     if(e.target.closest('.excel-header-btn')) return;
     panel.classList.add('hidden');
   });
+})();
+</script>
+<script>
+(function () {
+  const STORAGE_KEY = 'invoiceDeliverySelection:' + location.pathname;
+
+  const statusSelect = document.getElementById('bulk-finance-status');
+  const applyButton = document.getElementById('btn-bulk-finance-status');
+
+  const modal = document.getElementById('modal-bulk-finance-status');
+  const modalMessage = document.getElementById(
+    'bulk-finance-status-message'
+  );
+  const autofillWarning = document.getElementById(
+    'bulk-finance-autofill-warning'
+  );
+  const collectedWarning = document.getElementById(
+    'bulk-finance-collected-warning'
+  );
+  const errorBox = document.getElementById('bulk-finance-error');
+  const cancelButton = document.getElementById('bulk-finance-cancel');
+  const confirmButton = document.getElementById('bulk-finance-confirm');
+
+  const bulkUpdateUrl = (
+    '{% url "facturacion:invoice_bulk_update_status" %}'
+  );
+
+  const statusLabels = {
+    sent: 'Pending to send to client',
+    sent_to_client: 'Sent to client',
+    pending_invoice: 'Pending invoicing',
+    invoiced: 'Invoiced',
+    paid: 'Collected'
+  };
+
+  let pendingIds = [];
+  let pendingStatus = '';
+
+  function toast(message, type = 'info') {
+    const backgroundClass =
+      type === 'success'
+        ? 'bg-green-600'
+        : type === 'error'
+          ? 'bg-red-600'
+          : 'bg-blue-600';
+
+    const element = document.createElement('div');
+
+    element.className = (
+      `fixed top-5 left-1/2 -translate-x-1/2 ` +
+      `${backgroundClass} text-white px-4 py-2 rounded-lg ` +
+      `shadow z-[70]`
+    );
+
+    element.textContent = message;
+
+    document.body.appendChild(element);
+
+    setTimeout(function () {
+      element.remove();
+    }, 2600);
+  }
+
+  function readSelection() {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+
+      return Array.isArray(parsed)
+        ? parsed.map(String)
+        : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function syncBulkControls() {
+    const ids = readSelection();
+    const hasSelection = ids.length > 0;
+
+    if (statusSelect) {
+      statusSelect.disabled = !hasSelection;
+    }
+
+    if (applyButton) {
+      applyButton.disabled = (
+        !hasSelection ||
+        !statusSelect ||
+        !statusSelect.value
+      );
+
+      applyButton.title = hasSelection
+        ? `Change status for ${ids.length} selected invoice(s)`
+        : 'Select at least one invoice';
+    }
+  }
+
+  function openModal(ids, targetStatus) {
+    if (!modal) {
+      return;
+    }
+
+    pendingIds = ids;
+    pendingStatus = targetStatus;
+
+    const statusLabel = (
+      statusLabels[targetStatus] ||
+      targetStatus
+    );
+
+    if (modalMessage) {
+      modalMessage.textContent = (
+        `Change ${ids.length} selected invoice(s) to ` +
+        `${statusLabel}?`
+      );
+    }
+
+    if (autofillWarning) {
+      autofillWarning.classList.toggle(
+        'hidden',
+        !['invoiced', 'paid'].includes(targetStatus)
+      );
+    }
+
+    if (collectedWarning) {
+      collectedWarning.classList.toggle(
+        'hidden',
+        targetStatus !== 'paid'
+      );
+    }
+
+    if (errorBox) {
+      errorBox.textContent = '';
+      errorBox.classList.add('hidden');
+    }
+
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Confirm change';
+    }
+
+    modal.classList.remove('hidden');
+  }
+
+  function closeModal() {
+    if (!modal) {
+      return;
+    }
+
+    modal.classList.add('hidden');
+
+    pendingIds = [];
+    pendingStatus = '';
+
+    if (errorBox) {
+      errorBox.textContent = '';
+      errorBox.classList.add('hidden');
+    }
+  }
+
+  async function submitBulkChange() {
+    if (!pendingIds.length || !pendingStatus) {
+      return;
+    }
+
+    confirmButton.disabled = true;
+    confirmButton.textContent = 'Updating...';
+
+    try {
+      const response = await fetch(bulkUpdateUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRFToken': window.__csrf__ || '',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({
+          ids: pendingIds,
+          target_status: pendingStatus
+        })
+      });
+
+      if (
+        response.redirected ||
+        (
+          response.url &&
+          /\/usuarios\/login\/?/i.test(response.url)
+        )
+      ) {
+        throw new Error(
+          'Your session expired. Please sign in again.'
+        );
+      }
+
+      const contentType = (
+        response.headers.get('content-type') || ''
+      ).toLowerCase();
+
+      let payload = {};
+
+      if (contentType.includes('application/json')) {
+        payload = await response.json().catch(function () {
+          return {};
+        });
+      } else {
+        const responseText = await response.text();
+
+        throw new Error(
+          responseText ||
+          `Invalid server response (HTTP ${response.status}).`
+        );
+      }
+
+      if (!response.ok || payload.ok !== true) {
+        throw new Error(
+          payload.error ||
+          payload.message ||
+          `HTTP ${response.status}`
+        );
+      }
+
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch (_) {}
+
+      closeModal();
+
+      let successMessage = (
+        payload.message ||
+        'Finance statuses updated.'
+      );
+
+      if (payload.filled_real_count > 0) {
+        successMessage += (
+          ` ${payload.filled_real_count} Real Company Billing ` +
+          `amount(s) were completed automatically.`
+        );
+      }
+
+      if (payload.skipped_count > 0) {
+        successMessage += (
+          ` ${payload.skipped_count} invoice(s) were skipped.`
+        );
+      }
+
+      toast(successMessage, 'success');
+
+      setTimeout(function () {
+        window.location.reload();
+      }, 700);
+
+    } catch (error) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Confirm change';
+
+      if (errorBox) {
+        errorBox.textContent = (
+          error.message ||
+          'Could not update the selected invoices.'
+        );
+        errorBox.classList.remove('hidden');
+      }
+    }
+  }
+
+  applyButton?.addEventListener('click', function () {
+    const ids = readSelection();
+    const targetStatus = statusSelect?.value || '';
+
+    if (!ids.length) {
+      toast('Select at least one invoice.', 'error');
+      syncBulkControls();
+      return;
+    }
+
+    if (!targetStatus) {
+      toast('Select a finance status.', 'error');
+      return;
+    }
+
+    openModal(ids, targetStatus);
+  });
+
+  statusSelect?.addEventListener('change', syncBulkControls);
+
+  cancelButton?.addEventListener('click', closeModal);
+
+  confirmButton?.addEventListener('click', submitBulkChange);
+
+  modal?.addEventListener('click', function (event) {
+    if (event.target.hasAttribute('data-close-bulk-finance')) {
+      closeModal();
+    }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (
+      event.key === 'Escape' &&
+      modal &&
+      !modal.classList.contains('hidden')
+    ) {
+      closeModal();
+    }
+  });
+
+  document.addEventListener('change', function (event) {
+    if (
+      event.target.closest('.invoice-select') ||
+      event.target.closest('#invoice-select-visible')
+    ) {
+      setTimeout(syncBulkControls, 0);
+    }
+  });
+
+  document.getElementById(
+    'btn-clear-invoice-selection'
+  )?.addEventListener('click', function () {
+    setTimeout(syncBulkControls, 0);
+  });
+
+  document.addEventListener(
+    'DOMContentLoaded',
+    syncBulkControls
+  );
+
+  window.syncInvoiceBulkStatusControls = syncBulkControls;
 })();
 </script>
 {% endblock %}

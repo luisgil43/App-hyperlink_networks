@@ -50,11 +50,7 @@ urlpatterns = [
     ),
     path("invoices/<int:pk>/reject/", views.invoice_reject, name="invoice_reject"),
     path("invoices/<int:pk>/remove/", views.invoice_remove, name="invoice_remove"),
-    path(
-        "invoices/<int:pk>/update-real/",
-        views.invoice_update_real,
-        name="invoice_update_real",
-    ),
+  
     path("invoices/export/", views.invoices_export, name="invoices_export"),
     path(
         "invoices/<int:pk>/discount-verified/",
@@ -81,5 +77,19 @@ urlpatterns = [
         views_split.delete_split_child,
         name="invoices_split_delete",
     ),
-    
+    path(
+        "invoices/<int:pk>/mark-sent-to-client/",
+        views.invoice_mark_sent_to_client,
+        name="invoice_mark_sent_to_client",
+    ),
+    path(
+        "invoices/<int:pk>/mark-pending-invoice/",
+        views.invoice_mark_pending_invoice,
+        name="invoice_mark_pending_invoice",
+    ),
+    path(
+        "invoices/bulk-update-status/",
+        views.invoice_bulk_update_status,
+        name="invoice_bulk_update_status",
+    ),
 ]
