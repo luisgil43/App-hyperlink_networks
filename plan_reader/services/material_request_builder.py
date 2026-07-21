@@ -6,15 +6,14 @@ from decimal import ROUND_CEILING, Decimal
 from typing import Iterable
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AbstractBaseUser
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from plan_reader.models import (MaterialCatalogItem, PlanReaderItem,
                                 PlanReaderJob, PlanReaderMaterialRequest,
                                 PlanReaderMaterialRequestItem)
-
-User = get_user_model()
-
 
 # =============================================================================
 # CONFIGURACIÓN GENERAL
@@ -22,6 +21,8 @@ User = get_user_model()
 
 
 TEN_PERCENT_MULTIPLIER = Decimal("1.10")
+GENERIC_TDS_LABEL_NAME = "TDS LABEL"
+GENERIC_TDS_LABEL_CALCULATION_KEY = "__tds_label_total__"
 
 
 VALID_REQUEST_TYPES = {
@@ -307,10 +308,15 @@ def calculate_material_rule_quantities(
     Reglas:
 
     - Splice cases:
-        cantidad exacta de cajas detectadas.
+        cantidad exacta de cajas detectadas por tipo.
 
-    - TDS Labels:
-        cantidad de cajas por tipo + 10 %, redondeada hacia arriba.
+    - TDS LABEL genérico:
+        cantidad total de cajas detectadas + 10 %,
+        redondeada hacia arriba.
+
+    - Reglas antiguas de TDS por tipo:
+        se mantienen calculadas por compatibilidad con solicitudes
+        históricas, aunque las filas correspondientes estén inactivas.
 
     - Splitters:
         cantidad detectada por tipo + 10 %, redondeada hacia arriba.
@@ -333,16 +339,22 @@ def calculate_material_rule_quantities(
         if item.is_duplicate:
             continue
 
-        box_type = classify_box_type(item)
+        box_type = classify_box_type(
+            item,
+        )
 
         if box_type:
             box_counts[box_type] += 1
 
-        for ratio in get_item_splitter_ratios(item):
+        for ratio in get_item_splitter_ratios(
+            item,
+        ):
             splitter_counts[ratio] += 1
 
         try:
-            item_splice_count = int(item.splice_count or 0)
+            item_splice_count = int(
+                item.splice_count or 0,
+            )
         except (
             TypeError,
             ValueError,
@@ -358,7 +370,7 @@ def calculate_material_rule_quantities(
     notes: dict[str, str] = {}
 
     # -------------------------------------------------------------------------
-    # Splice cases: cantidad exacta
+    # Splice cases: cantidad exacta por tipo
     # -------------------------------------------------------------------------
 
     for box_type, rule in BOX_RULES.items():
@@ -369,7 +381,9 @@ def calculate_material_rule_quantities(
             )
         )
 
-        requested_quantity = Decimal(detected_quantity)
+        requested_quantity = Decimal(
+            detected_quantity,
+        )
 
         quantities[rule] = requested_quantity
 
@@ -379,7 +393,25 @@ def calculate_material_rule_quantities(
         )
 
     # -------------------------------------------------------------------------
-    # TDS Labels: cajas correspondientes + 10 %
+    # TDS LABEL genérico: total de cajas + 10 %
+    # -------------------------------------------------------------------------
+
+    total_detected_boxes = sum(int(quantity) for quantity in box_counts.values())
+
+    total_tds_labels = quantity_with_ten_percent(
+        total_detected_boxes,
+    )
+
+    quantities[GENERIC_TDS_LABEL_CALCULATION_KEY] = total_tds_labels
+
+    notes[GENERIC_TDS_LABEL_CALCULATION_KEY] = (
+        f"{total_detected_boxes} total splice case(s) detected. "
+        f"10% additional applied. Requested: "
+        f"{total_tds_labels} TDS label(s)."
+    )
+
+    # -------------------------------------------------------------------------
+    # Reglas antiguas de TDS Labels por tipo
     # -------------------------------------------------------------------------
 
     for box_type, rule in TDS_LABEL_RULES.items():
@@ -390,7 +422,9 @@ def calculate_material_rule_quantities(
             )
         )
 
-        requested_quantity = quantity_with_ten_percent(detected_quantity)
+        requested_quantity = quantity_with_ten_percent(
+            detected_quantity,
+        )
 
         quantities[rule] = requested_quantity
 
@@ -412,7 +446,9 @@ def calculate_material_rule_quantities(
             )
         )
 
-        requested_quantity = quantity_with_ten_percent(detected_quantity)
+        requested_quantity = quantity_with_ten_percent(
+            detected_quantity,
+        )
 
         quantities[rule] = requested_quantity
 
@@ -426,7 +462,9 @@ def calculate_material_rule_quantities(
     # Splice Sleeve 40MM
     # -------------------------------------------------------------------------
 
-    sleeves_40mm = quantity_with_ten_percent(total_splices)
+    sleeves_40mm = quantity_with_ten_percent(
+        total_splices,
+    )
 
     quantities[MaterialCatalogItem.RULE_SPLICE_SLEEVE_40MM] = sleeves_40mm
 
@@ -463,8 +501,11 @@ def get_initial_item_source(
     Define si una fila nace automática o manual.
 
     Splicing:
-        solo las reglas configuradas para cajas, labels, splitters
-        y sleeves son automáticas.
+        las reglas configuradas para cajas, labels, splitters y sleeves
+        son automáticas.
+
+        La fila genérica llamada TDS LABEL también es automática, aunque
+        actualmente conserve auto_rule='manual' en el catálogo.
 
     Cable:
         todas las filas son manuales.
@@ -472,6 +513,13 @@ def get_initial_item_source(
 
     if material_request.is_cable_request:
         return PlanReaderMaterialRequestItem.SOURCE_MANUAL
+
+    normalized_material_name = normalize_text(
+        catalog_item.material_name,
+    )
+
+    if normalized_material_name == GENERIC_TDS_LABEL_NAME:
+        return PlanReaderMaterialRequestItem.SOURCE_AUTOMATIC
 
     if catalog_item.auto_rule in SPLICING_AUTOMATIC_RULES:
         return PlanReaderMaterialRequestItem.SOURCE_AUTOMATIC
@@ -553,7 +601,7 @@ def synchronize_material_request_catalog(
 def get_or_create_material_request(
     *,
     job: PlanReaderJob,
-    user: User,
+    user: AbstractBaseUser,
     request_type: str,
 ) -> tuple[
     PlanReaderMaterialRequest,
@@ -615,7 +663,7 @@ def get_or_create_material_request(
 def recalculate_material_request(
     *,
     material_request: PlanReaderMaterialRequest,
-    user: User,
+    user: AbstractBaseUser,
     overwrite_user_edits: bool = False,
 ) -> PlanReaderMaterialRequest:
     """
@@ -630,6 +678,12 @@ def recalculate_material_request(
     - quantity_requested solo se reemplaza cuando:
         * overwrite_user_edits=True; o
         * el usuario no había modificado la cantidad automática.
+
+    La fila genérica TDS LABEL se calcula como:
+
+        total de cajas detectadas + 10 %
+
+    redondeando hacia arriba.
     """
 
     material_request = (
@@ -665,10 +719,17 @@ def recalculate_material_request(
         "id",
     )
 
-    quantities, notes = calculate_material_rule_quantities(plan_items)
+    quantities, notes = calculate_material_rule_quantities(
+        plan_items,
+    )
 
     request_items = material_request.items.filter(
-        auto_rule__in=SPLICING_AUTOMATIC_RULES,
+        Q(
+            auto_rule__in=SPLICING_AUTOMATIC_RULES,
+        )
+        | Q(
+            material_name__iexact=GENERIC_TDS_LABEL_NAME,
+        ),
         is_active=True,
     ).order_by(
         "display_order",
@@ -676,8 +737,20 @@ def recalculate_material_request(
     )
 
     for request_item in request_items:
+        is_generic_tds_label = (
+            normalize_text(
+                request_item.material_name,
+            )
+            == GENERIC_TDS_LABEL_NAME
+        )
+
+        if is_generic_tds_label:
+            calculation_key = GENERIC_TDS_LABEL_CALCULATION_KEY
+        else:
+            calculation_key = request_item.auto_rule
+
         calculated_quantity = quantities.get(
-            request_item.auto_rule,
+            calculation_key,
             Decimal("0"),
         )
 
@@ -701,7 +774,7 @@ def recalculate_material_request(
         request_item.automatic_quantity = calculated_quantity
 
         request_item.calculation_note = notes.get(
-            request_item.auto_rule,
+            calculation_key,
             "",
         )
 
