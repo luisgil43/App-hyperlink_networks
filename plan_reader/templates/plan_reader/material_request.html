@@ -1,0 +1,1703 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% load static %}
+
+{% block title %}
+
+  {{ material_request.get_request_type_display }} Material Request
+
+{% endblock %}
+
+{% block dashboard_content %}
+
+<link
+
+  rel="stylesheet"
+
+  href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+
+>
+
+<style>
+  .material-request-shell {
+    --mr-primary: #2563eb;
+    --mr-primary-dark: #1d4ed8;
+    --mr-border: #dbe3ef;
+    --mr-muted: #64748b;
+    --mr-surface: #ffffff;
+    --mr-background: #f4f7fb;
+    --mr-received: #eff6ff;
+  }
+
+  .material-request-shell input,
+  .material-request-shell textarea,
+  .material-request-shell select {
+    width: 100%;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 0.75rem !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 0.875rem !important;
+    line-height: 1.25rem;
+    padding: 0.65rem 0.8rem !important;
+    outline: none !important;
+    box-shadow: none !important;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      background-color 0.15s ease;
+  }
+
+  .material-request-shell input:focus,
+  .material-request-shell textarea:focus,
+  .material-request-shell select:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14) !important;
+  }
+
+  .material-request-shell textarea {
+    min-height: 105px;
+    resize: vertical;
+  }
+
+  .material-request-shell input[type="date"] {
+    min-height: 43px;
+  }
+
+  .material-request-shell .quantity-input input {
+    min-width: 92px;
+    height: 38px;
+    padding: 0.45rem 0.65rem !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 0.55rem !important;
+    text-align: right;
+    font-weight: 700;
+    background: #ffffff !important;
+  }
+
+  .material-request-shell .quantity-input.received input {
+    background: #eff6ff !important;
+    border-color: #93c5fd !important;
+  }
+
+  .material-request-shell .quantity-input input:focus {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14) !important;
+  }
+
+  .material-request-table-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .material-request-table-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .material-request-table-scroll::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
+
+  .material-request-table-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .material-request-material-row {
+    transition:
+      background-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .material-request-material-row:hover {
+    background: #f8fafc;
+  }
+
+  .material-request-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+  }
+
+  .material-request-field-error {
+    display: block;
+    margin-top: 0.3rem;
+    color: #dc2626;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .material-request-button {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    padding: 0.65rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease,
+      transform 0.1s ease,
+      opacity 0.15s ease;
+  }
+
+  .material-request-button:hover {
+    transform: translateY(-1px);
+  }
+
+  .material-request-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+  }
+
+  .material-request-mobile-label {
+    display: none;
+  }
+
+  @media (max-width: 767px) {
+    .material-request-desktop-table {
+      display: none;
+    }
+
+    .material-request-mobile-list {
+      display: block;
+    }
+
+    .material-request-mobile-label {
+      display: block;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .material-request-mobile-list {
+      display: none;
+    }
+  }
+
+  .material-request-shell .flatpickr-input {
+  cursor: pointer;
+}
+
+.flatpickr-calendar {
+  border: 1px solid #dbe3ef !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
+  box-shadow:
+    0 20px 45px rgba(15, 23, 42, 0.16),
+    0 4px 12px rgba(15, 23, 42, 0.08) !important;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.flatpickr-months {
+  padding: 0.55rem 0.4rem;
+  background: linear-gradient(
+    135deg,
+    #0f172a,
+    #1e3a8a
+  );
+}
+
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month,
+.flatpickr-current-month input.cur-year,
+.flatpickr-monthDropdown-months {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+.flatpickr-prev-month,
+.flatpickr-next-month {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+.flatpickr-weekdays {
+  background: #eff6ff;
+}
+
+span.flatpickr-weekday {
+  color: #475569 !important;
+  font-weight: 700 !important;
+}
+
+.flatpickr-day {
+  border-radius: 0.65rem !important;
+  font-weight: 600;
+}
+
+.flatpickr-day:hover {
+  border-color: #dbeafe !important;
+  background: #dbeafe !important;
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange {
+  border-color: #2563eb !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.flatpickr-day.today {
+  border-color: #2563eb !important;
+  color: #1d4ed8 !important;
+}
+
+.flatpickr-day.today.selected {
+  color: #ffffff !important;
+}
+</style>
+
+<div class="material-request-shell -mx-3 sm:mx-0">
+
+  <!-- ================================================================ -->
+  <!-- PAGE HEADER -->
+  <!-- ================================================================ -->
+
+  <div class="relative overflow-hidden bg-gradient-to-r from-slate-950 via-blue-950 to-indigo-900 px-4 py-6 sm:rounded-2xl sm:px-6 lg:px-8">
+
+    <div class="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-blue-500/20 blur-3xl"></div>
+    <div class="absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-indigo-400/10 blur-3xl"></div>
+
+    <div class="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+
+      <div class="min-w-0">
+
+        <div class="flex flex-wrap items-center gap-2">
+
+          <span class="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-100">
+            Plan Reader
+          </span>
+
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold
+            {% if material_request.status == 'generated' %}
+              bg-emerald-400/20 text-emerald-100
+            {% else %}
+              bg-amber-400/20 text-amber-100
+            {% endif %}">
+            {{ material_request.get_status_display }}
+          </span>
+
+        </div>
+
+        <h1 class="mt-3 truncate text-2xl font-bold text-white sm:text-3xl">
+          {{ material_request.get_request_type_display }} Material Request
+        </h1>
+
+        <p class="mt-2 text-sm text-slate-300">
+          Job #{{ job.id }}
+
+          {% if job.original_filename %}
+            <span class="mx-1 text-slate-500">•</span>
+            {{ job.original_filename }}
+          {% endif %}
+        </p>
+
+        <div class="mt-4 flex flex-wrap gap-2 text-xs">
+
+          <span class="rounded-lg bg-white/10 px-3 py-1.5 text-slate-200">
+            Request #{{ material_request.id }}
+          </span>
+
+          <span class="rounded-lg bg-white/10 px-3 py-1.5 text-slate-200">
+            {{ item_formset.total_form_count }} materials
+          </span>
+
+          {% if material_request.is_splicing_request %}
+            <span class="rounded-lg bg-indigo-400/20 px-3 py-1.5 text-indigo-100">
+              Automatic calculation enabled
+            </span>
+          {% else %}
+            <span class="rounded-lg bg-sky-400/20 px-3 py-1.5 text-sky-100">
+              Manual quantities
+            </span>
+          {% endif %}
+
+        </div>
+
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+
+        <a
+          href="{% url 'plan_reader:job_detail' job.id %}"
+          class="material-request-button border border-white/20 bg-white/10 text-white hover:bg-white/20"
+        >
+          <svg
+            class="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"
+            />
+          </svg>
+
+          Back to Job
+        </a>
+{% if material_request.generated_pdf %}
+
+  <a
+    href="{{ material_request.generated_pdf.url }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="material-request-button bg-emerald-500 text-white hover:bg-emerald-600"
+  >
+    <svg
+      class="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M15 10l4.553 2.276A1 1 0 0120 13.17V19a1 1 0 01-1 1H5a1 1 0 01-1-1v-5.83a1 1 0 01.447-.894L9 10m3-6v12m0-12l-4 4m4-4l4 4"
+      />
+    </svg>
+
+    Open PDF
+  </a>
+
+  <a
+    href="{% url 'plan_reader:material_request_download_pdf' job.id material_request.id %}"
+    class="material-request-button bg-blue-500 text-white hover:bg-blue-600"
+  >
+    <svg
+      class="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"
+      />
+    </svg>
+
+    Download PDF
+  </a>
+
+{% endif %}
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- ================================================================ -->
+  <!-- MESSAGES -->
+  <!-- ================================================================ -->
+
+  {% if messages %}
+    <div class="mt-4 space-y-3">
+      {% for message in messages %}
+
+        <div class="rounded-xl border px-4 py-3 text-sm font-medium
+          {% if message.tags == 'success' %}
+            border-emerald-200 bg-emerald-50 text-emerald-800
+          {% elif message.tags == 'error' %}
+            border-red-200 bg-red-50 text-red-800
+          {% elif message.tags == 'warning' %}
+            border-amber-200 bg-amber-50 text-amber-800
+          {% else %}
+            border-blue-200 bg-blue-50 text-blue-800
+          {% endif %}">
+          {{ message }}
+        </div>
+
+      {% endfor %}
+    </div>
+  {% endif %}
+
+
+  <!-- ================================================================ -->
+  <!-- ERRORS -->
+  <!-- ================================================================ -->
+
+  {% if material_request_form.non_field_errors %}
+    <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      {% for error in material_request_form.non_field_errors %}
+        <p>{{ error }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if item_formset.non_form_errors %}
+    <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      {% for error in item_formset.non_form_errors %}
+        <p>{{ error }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+
+  <!-- ================================================================ -->
+  <!-- MAIN FORM -->
+  <!-- ================================================================ -->
+
+  <form
+    method="post"
+    action="{% url 'plan_reader:material_request_save' job.id material_request.id %}"
+    id="material-request-form"
+    class="mt-5"
+  >
+    {% csrf_token %}
+
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+
+      <div class="min-w-0 space-y-5">
+
+        <!-- ============================================================ -->
+        <!-- REQUEST DETAILS -->
+        <!-- ============================================================ -->
+
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <div class="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+
+            <div>
+              <h2 class="text-base font-bold text-slate-900">
+                Request information
+              </h2>
+
+              <p class="mt-1 text-sm text-slate-500">
+                Information that will be included in the client document.
+              </p>
+            </div>
+
+            <span class="inline-flex self-start rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700 sm:self-auto">
+              Client information
+            </span>
+
+          </div>
+
+          <div class="p-4 sm:p-6">
+
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+
+              <div>
+                <label
+                  for="{{ material_request_form.subcontractor.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  Subcontractor
+                </label>
+
+                {{ material_request_form.subcontractor }}
+
+                {% for error in material_request_form.subcontractor.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label
+                  for="{{ material_request_form.request_date.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  Request date
+                </label>
+
+                {{ material_request_form.request_date }}
+
+                {% for error in material_request_form.request_date.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label
+                  for="{{ material_request_form.market.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  Market
+                </label>
+
+                {{ material_request_form.market }}
+
+                {% for error in material_request_form.market.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label
+                  for="{{ material_request_form.dfn.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  DFN
+                </label>
+
+                {{ material_request_form.dfn }}
+
+                {% for error in material_request_form.dfn.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label
+                  for="{{ material_request_form.contractor_employee_name.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  Contractor employee
+                </label>
+
+                {{ material_request_form.contractor_employee_name }}
+
+                {% for error in material_request_form.contractor_employee_name.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              <div>
+                <label
+                  for="{{ material_request_form.contractor_employee_signature.id_for_label }}"
+                  class="mb-2 block text-sm font-bold text-slate-700"
+                >
+                  Contractor employee signature
+                </label>
+
+                {{ material_request_form.contractor_employee_signature }}
+
+                {% for error in material_request_form.contractor_employee_signature.errors %}
+                  <span class="material-request-field-error">
+                    {{ error }}
+                  </span>
+                {% endfor %}
+              </div>
+
+            </div>
+
+            <div class="mt-5">
+              <label
+                for="{{ material_request_form.notes.id_for_label }}"
+                class="mb-2 block text-sm font-bold text-slate-700"
+              >
+                Internal notes
+              </label>
+
+              {{ material_request_form.notes }}
+
+              <p class="mt-2 text-xs text-slate-500">
+                Notes are saved with the request. Their inclusion in the final
+                client PDF is controlled by the PDF template.
+              </p>
+
+              {% for error in material_request_form.notes.errors %}
+                <span class="material-request-field-error">
+                  {{ error }}
+                </span>
+              {% endfor %}
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- ============================================================ -->
+        <!-- MATERIALS -->
+        <!-- ============================================================ -->
+
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <div class="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+
+            <div>
+              <h2 class="text-base font-bold text-slate-900">
+                Materials
+              </h2>
+
+              <p class="mt-1 text-sm text-slate-500">
+                Complete the quantities requested and received.
+              </p>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+
+              <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                {{ item_formset.total_form_count }} rows
+              </span>
+
+              {% if material_request.is_splicing_request %}
+                <span class="inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">
+                  Automatic values
+                </span>
+              {% endif %}
+
+            </div>
+
+          </div>
+
+          {{ item_formset.management_form }}
+
+          <!-- ========================================================== -->
+          <!-- DESKTOP TABLE -->
+          <!-- ========================================================== -->
+
+          <div class="material-request-desktop-table material-request-table-scroll max-h-[70vh] overflow-auto">
+
+            <table class="min-w-[1080px] w-full border-collapse">
+
+              <thead class="material-request-sticky-header bg-slate-100 shadow-sm">
+
+                <tr class="text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+
+                  <th class="w-[140px] border-b border-r border-slate-200 px-4 py-3">
+                    Type
+                  </th>
+
+                  <th class="w-[140px] border-b border-r border-slate-200 px-4 py-3">
+                    Category
+                  </th>
+
+                  <th class="border-b border-r border-slate-200 px-4 py-3">
+                    Material
+                  </th>
+
+                  <th class="w-[80px] border-b border-r border-slate-200 px-4 py-3 text-center">
+                    UOM
+                  </th>
+
+                  <th class="w-[145px] border-b border-r border-slate-200 px-4 py-3 text-right">
+                    Qty requested
+                  </th>
+
+                  <th class="w-[145px] border-b border-slate-200 bg-blue-50 px-4 py-3 text-right text-blue-700">
+                    Qty received
+                  </th>
+
+                </tr>
+
+              </thead>
+
+              <tbody class="divide-y divide-slate-200">
+
+                {% for item_form in item_formset %}
+
+                  {% for hidden_field in item_form.hidden_fields %}
+                    {{ hidden_field }}
+                  {% endfor %}
+
+                  <tr class="material-request-material-row">
+
+                    <td class="border-r border-slate-200 px-4 py-3 align-middle">
+                      <span class="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {{ item_form.instance.material_type|default:"UNDERGROUND" }}
+                      </span>
+                    </td>
+
+                    <td class="border-r border-slate-200 px-4 py-3 align-middle">
+                      <span class="text-sm font-semibold text-slate-700">
+                        {{ item_form.instance.category }}
+                      </span>
+                    </td>
+
+                    <td class="border-r border-slate-200 px-4 py-3 align-middle">
+
+                      <p class="text-sm font-semibold text-slate-900">
+                        {{ item_form.instance.material_name }}
+                      </p>
+
+                      {% if item_form.instance.calculation_note %}
+                        <p class="mt-1 text-xs text-slate-500">
+                          {{ item_form.instance.calculation_note }}
+                        </p>
+                      {% endif %}
+
+                      {% if item_form.instance.source == "automatic" %}
+                        <span class="mt-1 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700">
+                          Automatic
+                        </span>
+                      {% elif item_form.instance.source == "automatic_edited" %}
+                        <span class="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                          Automatic edited
+                        </span>
+                      {% endif %}
+
+                      {% for error in item_form.non_field_errors %}
+                        <span class="material-request-field-error">
+                          {{ error }}
+                        </span>
+                      {% endfor %}
+
+                    </td>
+
+                    <td class="border-r border-slate-200 px-4 py-3 text-center align-middle">
+                      <span class="inline-flex min-w-10 justify-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
+                        {{ item_form.instance.uom }}
+                      </span>
+                    </td>
+
+                    <td class="border-r border-slate-200 px-4 py-3 align-middle">
+
+                      <div class="quantity-input">
+                        {{ item_form.quantity_requested }}
+                      </div>
+
+                      {% for error in item_form.quantity_requested.errors %}
+                        <span class="material-request-field-error">
+                          {{ error }}
+                        </span>
+                      {% endfor %}
+
+                    </td>
+
+                    <td class="bg-blue-50/60 px-4 py-3 align-middle">
+
+                      <div class="quantity-input received">
+                        {{ item_form.quantity_received }}
+                      </div>
+
+                      {% for error in item_form.quantity_received.errors %}
+                        <span class="material-request-field-error">
+                          {{ error }}
+                        </span>
+                      {% endfor %}
+
+                    </td>
+
+                  </tr>
+
+                {% empty %}
+
+                  <tr>
+                    <td
+                      colspan="6"
+                      class="px-6 py-12 text-center text-sm text-slate-500"
+                    >
+                      No materials are available for this request.
+                    </td>
+                  </tr>
+
+                {% endfor %}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+
+          <!-- ========================================================== -->
+          <!-- MOBILE CARDS -->
+          <!-- ========================================================== -->
+
+          <div class="material-request-mobile-list divide-y divide-slate-200">
+
+            {% for item_form in item_formset %}
+
+              {% for hidden_field in item_form.hidden_fields %}
+                {{ hidden_field }}
+              {% endfor %}
+
+              <div class="p-4">
+
+                <div class="flex items-start justify-between gap-3">
+
+                  <div class="min-w-0">
+                    <p class="text-sm font-bold text-slate-900">
+                      {{ item_form.instance.material_name }}
+                    </p>
+
+                    <p class="mt-1 text-xs text-slate-500">
+                      {{ item_form.instance.category }}
+                      <span class="mx-1">•</span>
+                      {{ item_form.instance.uom }}
+                    </p>
+                  </div>
+
+                  <span class="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                    {{ item_form.instance.material_type|default:"UNDERGROUND" }}
+                  </span>
+
+                </div>
+
+                {% if item_form.instance.calculation_note %}
+                  <p class="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                    {{ item_form.instance.calculation_note }}
+                  </p>
+                {% endif %}
+
+                <div class="mt-4 grid grid-cols-2 gap-3">
+
+                  <div>
+                    <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Requested
+                    </label>
+
+                    <div class="quantity-input">
+                      {{ item_form.quantity_requested }}
+                    </div>
+
+                    {% for error in item_form.quantity_requested.errors %}
+                      <span class="material-request-field-error">
+                        {{ error }}
+                      </span>
+                    {% endfor %}
+                  </div>
+
+                  <div>
+                    <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-blue-600">
+                      Received
+                    </label>
+
+                    <div class="quantity-input received">
+                      {{ item_form.quantity_received }}
+                    </div>
+
+                    {% for error in item_form.quantity_received.errors %}
+                      <span class="material-request-field-error">
+                        {{ error }}
+                      </span>
+                    {% endfor %}
+                  </div>
+
+                </div>
+
+              </div>
+
+            {% empty %}
+
+              <div class="px-4 py-10 text-center text-sm text-slate-500">
+                No materials are available for this request.
+              </div>
+
+            {% endfor %}
+
+          </div>
+
+        </section>
+
+      </div>
+
+
+      <!-- ============================================================ -->
+      <!-- SIDEBAR -->
+      <!-- ============================================================ -->
+
+      <aside class="space-y-5">
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-4">
+
+          <h2 class="text-base font-bold text-slate-900">
+            Request summary
+          </h2>
+
+          <div class="mt-4 space-y-3">
+
+            <div class="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+              <span class="text-sm text-slate-500">
+                Type
+              </span>
+
+              <span class="text-sm font-bold text-slate-900">
+                {{ material_request.get_request_type_display }}
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+              <span class="text-sm text-slate-500">
+                Materials
+              </span>
+
+              <span class="text-sm font-bold text-slate-900">
+                {{ item_formset.total_form_count }}
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3">
+              <span class="text-sm text-emerald-700">
+                Requested rows
+              </span>
+
+              <span class="text-sm font-bold text-emerald-800">
+                {{ material_request.requested_items_count }}
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3">
+              <span class="text-sm text-blue-700">
+                Total requested
+              </span>
+
+              <span class="text-sm font-bold text-blue-800">
+                {{ material_request.total_requested_quantity }}
+              </span>
+            </div>
+
+          </div>
+
+          {% if material_request.is_splicing_request %}
+
+            <div class="mt-5 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+
+              <p class="text-sm font-bold text-indigo-900">
+                Automatic Splicing
+              </p>
+
+              <p class="mt-1 text-xs leading-5 text-indigo-700">
+                Recalculate updates automatic quantities while preserving
+                quantities edited manually.
+              </p>
+
+            </div>
+
+          {% else %}
+
+            <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
+
+              <p class="text-sm font-bold text-sky-900">
+                Manual Cable Request
+              </p>
+
+              <p class="mt-1 text-xs leading-5 text-sky-700">
+                Requested and received quantities are entered manually.
+              </p>
+
+            </div>
+
+          {% endif %}
+
+          <div class="mt-5 space-y-2">
+
+            <button
+              type="submit"
+              id="save-material-request-button"
+              class="material-request-button w-full bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+
+              Save Request
+            </button>
+
+            <a
+              href="{% url 'plan_reader:job_detail' job.id %}"
+              class="material-request-button w-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </a>
+
+          </div>
+
+          {% if material_request.updated_at %}
+            <p class="mt-4 text-center text-xs text-slate-400">
+              Last updated:
+              {{ material_request.updated_at|date:"m/d/Y H:i" }}
+            </p>
+          {% endif %}
+
+        </section>
+
+      </aside>
+
+    </div>
+
+  </form>
+
+
+  <!-- ================================================================ -->
+  <!-- SECONDARY ACTIONS -->
+  <!-- Outside main form to avoid nested forms. -->
+  <!-- ================================================================ -->
+
+  <div class="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+
+    <div>
+      <p class="text-sm font-bold text-slate-900">
+        Document actions
+      </p>
+
+      <p class="mt-1 text-xs text-slate-500">
+        The generated PDF will use the official client format, not this
+        internal Planix interface.
+      </p>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+
+      {% if material_request.is_splicing_request %}
+
+        <form
+          method="post"
+          action="{% url 'plan_reader:material_request_recalculate' job.id material_request.id %}"
+          class="inline-flex"
+          data-confirm-form="recalculate"
+        >
+          {% csrf_token %}
+
+          <button
+            type="submit"
+            class="material-request-button border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+          >
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582M20 20v-5h-.581M5.93 19A9 9 0 0019 7.07M18.07 5A9 9 0 005 16.93"
+              />
+            </svg>
+
+            Recalculate
+          </button>
+
+        </form>
+
+      {% endif %}
+
+      <form
+        method="post"
+        action="{% url 'plan_reader:material_request_generate_pdf' job.id material_request.id %}"
+        class="inline-flex"
+        data-confirm-form="generate-pdf"
+      >
+        {% csrf_token %}
+
+        <button
+          type="submit"
+          class="material-request-button bg-emerald-600 text-white hover:bg-emerald-700"
+        >
+          <svg
+            class="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 10v6m0 0l-3-3m3 3l3-3m2 7H7a2 2 0 01-2-2V6a2 2 0 012-2h5l5 5v9a2 2 0 01-2 2z"
+            />
+          </svg>
+
+          Generate Client PDF
+        </button>
+
+      </form>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- =================================================================== -->
+<!-- CONFIRMATION MODAL -->
+<!-- =================================================================== -->
+
+<div
+  id="material-request-confirm-modal"
+  class="fixed inset-0 z-[9999] hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+>
+
+  <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+    <div class="border-b border-slate-200 px-5 py-4">
+
+      <h2
+        id="material-request-confirm-title"
+        class="text-lg font-bold text-slate-900"
+      >
+        Confirm action
+      </h2>
+
+      <p class="mt-1 text-xs text-slate-500">
+        Material Request #{{ material_request.id }}
+      </p>
+
+    </div>
+
+    <div class="px-5 py-5">
+
+      <p
+        id="material-request-confirm-message"
+        class="text-sm leading-6 text-slate-600"
+      >
+        Are you sure you want to continue?
+      </p>
+
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+
+      <button
+        type="button"
+        id="material-request-confirm-cancel"
+        class="material-request-button border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+      >
+        Cancel
+      </button>
+
+      <button
+        type="button"
+        id="material-request-confirm-submit"
+        class="material-request-button bg-blue-600 text-white hover:bg-blue-700"
+      >
+        Continue
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const requestDateInput = document.getElementById(
+    "{{ material_request_form.request_date.id_for_label }}"
+  );
+
+  const mainForm = document.getElementById(
+    "material-request-form"
+  );
+
+  const saveButton = document.getElementById(
+    "save-material-request-button"
+  );
+
+  const desktopContainer = document.querySelector(
+    ".material-request-desktop-table"
+  );
+
+  const mobileContainer = document.querySelector(
+    ".material-request-mobile-list"
+  );
+
+  const modal = document.getElementById(
+    "material-request-confirm-modal"
+  );
+
+  const modalTitle = document.getElementById(
+    "material-request-confirm-title"
+  );
+
+  const modalMessage = document.getElementById(
+    "material-request-confirm-message"
+  );
+
+  const cancelButton = document.getElementById(
+    "material-request-confirm-cancel"
+  );
+
+  const confirmButton = document.getElementById(
+    "material-request-confirm-submit"
+  );
+
+  const mobileMediaQuery = window.matchMedia(
+    "(max-width: 767px)"
+  );
+
+  let pendingForm = null;
+  let currentMobileMode = mobileMediaQuery.matches;
+
+
+  // ===================================================================
+  // DATE PICKER
+  // ===================================================================
+
+  if (
+    requestDateInput &&
+    typeof window.flatpickr === "function"
+  ) {
+    requestDateInput.type = "text";
+
+    window.flatpickr(
+      requestDateInput,
+      {
+        dateFormat: "Y-m-d",
+        altInput: true,
+        altFormat: "F j, Y",
+        allowInput: false,
+        disableMobile: true,
+        monthSelectorType: "static",
+        locale: {
+          firstDayOfWeek: 0,
+          weekdays: {
+            shorthand: [
+              "Sun",
+              "Mon",
+              "Tue",
+              "Wed",
+              "Thu",
+              "Fri",
+              "Sat"
+            ],
+            longhand: [
+              "Sunday",
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday",
+              "Saturday"
+            ]
+          },
+          months: {
+            shorthand: [
+              "Jan",
+              "Feb",
+              "Mar",
+              "Apr",
+              "May",
+              "Jun",
+              "Jul",
+              "Aug",
+              "Sep",
+              "Oct",
+              "Nov",
+              "Dec"
+            ],
+            longhand: [
+              "January",
+              "February",
+              "March",
+              "April",
+              "May",
+              "June",
+              "July",
+              "August",
+              "September",
+              "October",
+              "November",
+              "December"
+            ]
+          }
+        }
+      }
+    );
+  }
+
+
+  // ===================================================================
+  // RESPONSIVE FORMSET INPUTS
+  //
+  // El mismo formset está renderizado en desktop y mobile.
+  // Solamente una de las dos copias puede permanecer habilitada al enviar.
+  // ===================================================================
+
+  function getContainerFields(container) {
+    if (!container) {
+      return [];
+    }
+
+    return Array.from(
+      container.querySelectorAll(
+        "input, select, textarea"
+      )
+    );
+  }
+
+
+  function copyFieldValues(
+    sourceContainer,
+    destinationContainer
+  ) {
+    if (
+      !sourceContainer ||
+      !destinationContainer
+    ) {
+      return;
+    }
+
+    const sourceFields = getContainerFields(
+      sourceContainer
+    );
+
+    const destinationFields = getContainerFields(
+      destinationContainer
+    );
+
+    const sourceValuesByName = new Map();
+
+    sourceFields.forEach(function (field) {
+      if (!field.name) {
+        return;
+      }
+
+      let value;
+
+      if (
+        field.type === "checkbox" ||
+        field.type === "radio"
+      ) {
+        value = field.checked;
+      } else {
+        value = field.value;
+      }
+
+      sourceValuesByName.set(
+        field.name,
+        {
+          type: field.type,
+          value: value
+        }
+      );
+    });
+
+    destinationFields.forEach(function (field) {
+      if (
+        !field.name ||
+        !sourceValuesByName.has(field.name)
+      ) {
+        return;
+      }
+
+      const sourceValue = sourceValuesByName.get(
+        field.name
+      );
+
+      if (
+        sourceValue.type === "checkbox" ||
+        sourceValue.type === "radio"
+      ) {
+        field.checked = Boolean(
+          sourceValue.value
+        );
+      } else {
+        field.value = sourceValue.value;
+      }
+    });
+  }
+
+
+  function setContainerFieldsDisabled(
+    container,
+    disabled
+  ) {
+    getContainerFields(
+      container
+    ).forEach(function (field) {
+      field.disabled = disabled;
+    });
+  }
+
+
+  function configureResponsiveFormset(
+    isMobile,
+    synchronizeValues
+  ) {
+    if (synchronizeValues) {
+      if (isMobile) {
+        copyFieldValues(
+          desktopContainer,
+          mobileContainer
+        );
+      } else {
+        copyFieldValues(
+          mobileContainer,
+          desktopContainer
+        );
+      }
+    }
+
+    if (isMobile) {
+      setContainerFieldsDisabled(
+        desktopContainer,
+        true
+      );
+
+      setContainerFieldsDisabled(
+        mobileContainer,
+        false
+      );
+    } else {
+      setContainerFieldsDisabled(
+        desktopContainer,
+        false
+      );
+
+      setContainerFieldsDisabled(
+        mobileContainer,
+        true
+      );
+    }
+
+    currentMobileMode = isMobile;
+  }
+
+
+  configureResponsiveFormset(
+    currentMobileMode,
+    false
+  );
+
+
+  function handleResponsiveChange(event) {
+    const newMobileMode = event.matches;
+
+    if (
+      newMobileMode === currentMobileMode
+    ) {
+      return;
+    }
+
+    configureResponsiveFormset(
+      newMobileMode,
+      true
+    );
+  }
+
+
+  if (
+    typeof mobileMediaQuery.addEventListener
+    === "function"
+  ) {
+    mobileMediaQuery.addEventListener(
+      "change",
+      handleResponsiveChange
+    );
+  } else if (
+    typeof mobileMediaQuery.addListener
+    === "function"
+  ) {
+    mobileMediaQuery.addListener(
+      handleResponsiveChange
+    );
+  }
+
+
+  // ===================================================================
+  // CONFIRMATION MODAL
+  // ===================================================================
+
+  function openModal(
+    formType,
+    form
+  ) {
+    if (
+      !modal ||
+      !modalTitle ||
+      !modalMessage ||
+      !confirmButton
+    ) {
+      form.submit();
+      return;
+    }
+
+    pendingForm = form;
+
+    if (formType === "recalculate") {
+      modalTitle.textContent =
+        "Recalculate Splicing Materials";
+
+      modalMessage.textContent =
+        "Automatic material quantities will be recalculated from the " +
+        "Plan Reader results. Quantities edited manually will be preserved.";
+
+      confirmButton.textContent =
+        "Recalculate";
+    } else {
+      modalTitle.textContent =
+        "Generate Client PDF";
+
+      modalMessage.textContent =
+        "The official client PDF will be created using the currently saved " +
+        "request information and quantities. Save recent changes first.";
+
+      confirmButton.textContent =
+        "Generate PDF";
+    }
+
+    modal.classList.remove(
+      "hidden"
+    );
+
+    modal.classList.add(
+      "flex"
+    );
+
+    document.body.classList.add(
+      "overflow-hidden"
+    );
+  }
+
+
+  function closeModal() {
+    pendingForm = null;
+
+    if (modal) {
+      modal.classList.add(
+        "hidden"
+      );
+
+      modal.classList.remove(
+        "flex"
+      );
+    }
+
+    document.body.classList.remove(
+      "overflow-hidden"
+    );
+
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = "Continue";
+
+      confirmButton.classList.remove(
+        "cursor-not-allowed",
+        "opacity-60"
+      );
+    }
+  }
+
+
+  document.querySelectorAll(
+    "[data-confirm-form]"
+  ).forEach(function (form) {
+    form.addEventListener(
+      "submit",
+      function (event) {
+        event.preventDefault();
+
+        openModal(
+          form.dataset.confirmForm,
+          form
+        );
+      }
+    );
+  });
+
+
+  if (cancelButton) {
+    cancelButton.addEventListener(
+      "click",
+      function () {
+        closeModal();
+      }
+    );
+  }
+
+
+  if (confirmButton) {
+    confirmButton.addEventListener(
+      "click",
+      function () {
+        if (!pendingForm) {
+          closeModal();
+          return;
+        }
+
+        const formToSubmit = pendingForm;
+
+        confirmButton.disabled = true;
+        confirmButton.textContent =
+          "Processing...";
+
+        confirmButton.classList.add(
+          "cursor-not-allowed",
+          "opacity-60"
+        );
+
+        formToSubmit.submit();
+      }
+    );
+  }
+
+
+  if (modal) {
+    modal.addEventListener(
+      "click",
+      function (event) {
+        if (event.target === modal) {
+          closeModal();
+        }
+      }
+    );
+  }
+
+
+  document.addEventListener(
+    "keydown",
+    function (event) {
+      if (event.key === "Escape") {
+        closeModal();
+      }
+    }
+  );
+
+
+  // ===================================================================
+  // MAIN SAVE
+  // ===================================================================
+
+  if (
+    mainForm &&
+    saveButton
+  ) {
+    mainForm.addEventListener(
+      "submit",
+      function () {
+        /*
+         * Volvemos a asegurar que solamente los inputs visibles estén
+         * habilitados inmediatamente antes de enviar.
+         */
+        configureResponsiveFormset(
+          mobileMediaQuery.matches,
+          false
+        );
+
+        saveButton.disabled = true;
+        saveButton.textContent =
+          "Saving...";
+
+        saveButton.classList.add(
+          "cursor-not-allowed",
+          "opacity-60"
+        );
+      }
+    );
+  }
+});
+</script>
+
+{% endblock %}
