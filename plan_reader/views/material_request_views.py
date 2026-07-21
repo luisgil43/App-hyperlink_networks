@@ -40,8 +40,12 @@ def _get_material_request_or_404(
     Obtiene una solicitud de material asegurando que pertenece al Job
     indicado en la URL.
 
-    Cuando ``for_update=True`` bloquea la fila hasta finalizar la
-    transacción actual.
+    Cuando ``for_update=True``, bloquea únicamente la fila principal de
+    PlanReaderMaterialRequest hasta finalizar la transacción actual.
+
+    Se utiliza ``of=("self",)`` para evitar que PostgreSQL intente aplicar
+    FOR UPDATE sobre relaciones opcionales cargadas mediante LEFT OUTER JOIN,
+    como created_by o updated_by.
     """
 
     queryset = PlanReaderMaterialRequest.objects.select_related(
@@ -51,7 +55,9 @@ def _get_material_request_or_404(
     )
 
     if for_update:
-        queryset = queryset.select_for_update()
+        queryset = queryset.select_for_update(
+            of=("self",),
+        )
 
     return get_object_or_404(
         queryset,

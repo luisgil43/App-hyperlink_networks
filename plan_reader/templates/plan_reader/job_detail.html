@@ -141,7 +141,9 @@
 
     <div class="border rounded-xl p-4 bg-green-50">
       <p class="text-xs text-green-700 font-bold uppercase">Included items</p>
-      <p id="job-items-count" class="text-lg font-bold text-green-800">{{ included_items_count|default:items|length }}</p>
+      <p id="job-items-count" class="text-lg font-bold text-green-800">
+  {{ included_items_count|default:"0" }}
+</p>
     </div>
 
     <div class="border rounded-xl p-4 bg-yellow-50">
@@ -237,9 +239,10 @@
                 Detected items
               </p>
 
-              <p class="text-lg font-bold text-gray-900 mt-1">
-                {{ included_items_count|default:items|length }}
-              </p>
+              <p id="splicing-detected-items-count"
+   class="text-lg font-bold text-gray-900 mt-1">
+  {{ included_items_count|default:"0" }}
+</p>
             </div>
 
             <div class="rounded-xl border border-indigo-100 bg-white px-3 py-3">
@@ -1188,10 +1191,13 @@ function updateFromPayload(payload) {
     job.progress_percent
   );
 
-  safeSetText(
-    "job-items-count",
-    job.items_count
-  );
+ safeSetText(
+
+  "splicing-detected-items-count",
+
+  job.items_count
+
+);
 
   safeSetText(
     "job-needs-review-count",
