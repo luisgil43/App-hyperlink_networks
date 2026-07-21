@@ -1,0 +1,914 @@
+[
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 25,
+  "fields": {
+    "code": "underground-conduit-1-inch",
+    "material_type": "UNDERGROUND",
+    "category": "Conduit",
+    "material_name": "1\" Conduit",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 10,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.391Z",
+    "updated_at": "2026-07-20T23:04:03.391Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 26,
+  "fields": {
+    "code": "underground-conduit-1-inch-coupler",
+    "material_type": "UNDERGROUND",
+    "category": "Conduit",
+    "material_name": "1\" Conduit Coupler",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 20,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.391Z",
+    "updated_at": "2026-07-20T23:04:03.391Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 27,
+  "fields": {
+    "code": "underground-conduit-1-25-inch",
+    "material_type": "UNDERGROUND",
+    "category": "Conduit",
+    "material_name": "1.25\" Conduit",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 30,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.391Z",
+    "updated_at": "2026-07-20T23:04:03.391Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 28,
+  "fields": {
+    "code": "underground-conduit-1-25-inch-coupler",
+    "material_type": "UNDERGROUND",
+    "category": "Conduit",
+    "material_name": "1.25\" Conduit Coupler",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 40,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.392Z",
+    "updated_at": "2026-07-20T23:04:03.392Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 29,
+  "fields": {
+    "code": "underground-device-400-ld-hh",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "400 LD HH",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 50,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.392Z",
+    "updated_at": "2026-07-20T23:04:03.392Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 30,
+  "fields": {
+    "code": "underground-device-400-tier-8-hh",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "400 Tier 8 HH",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 60,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.392Z",
+    "updated_at": "2026-07-20T23:04:03.392Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 31,
+  "fields": {
+    "code": "underground-device-500-hh",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "500 HH",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 70,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.393Z",
+    "updated_at": "2026-07-20T23:04:03.393Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 32,
+  "fields": {
+    "code": "underground-device-900-hh",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "900 HH",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 80,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.393Z",
+    "updated_at": "2026-07-20T23:04:03.393Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 33,
+  "fields": {
+    "code": "underground-device-bd1-ped",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BD1 PED",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 90,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.393Z",
+    "updated_at": "2026-07-20T23:04:03.393Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 34,
+  "fields": {
+    "code": "underground-device-bd3-ped",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BD3 PED",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 100,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.393Z",
+    "updated_at": "2026-07-20T23:04:03.393Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 35,
+  "fields": {
+    "code": "underground-device-bd5-ped",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BD5 PED",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 110,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.394Z",
+    "updated_at": "2026-07-20T23:04:03.394Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 36,
+  "fields": {
+    "code": "underground-device-bdorat-6",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BDORAT - 6\"",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 120,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.394Z",
+    "updated_at": "2026-07-20T23:04:03.394Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 37,
+  "fields": {
+    "code": "underground-device-bdorat-8",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BDORAT - 8\"",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 130,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.394Z",
+    "updated_at": "2026-07-20T23:04:03.394Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 38,
+  "fields": {
+    "code": "underground-device-bh-1",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BH-1",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 140,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.394Z",
+    "updated_at": "2026-07-20T23:04:03.394Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 39,
+  "fields": {
+    "code": "underground-device-bh-2",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BH-2",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 150,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.395Z",
+    "updated_at": "2026-07-20T23:04:03.395Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 40,
+  "fields": {
+    "code": "underground-device-bh-mini",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "BH-Mini",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 160,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.395Z",
+    "updated_at": "2026-07-20T23:04:03.395Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 41,
+  "fields": {
+    "code": "underground-device-tier-22",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "Tier 22",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 170,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.395Z",
+    "updated_at": "2026-07-20T23:04:03.395Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 42,
+  "fields": {
+    "code": "underground-device-flower-pots-drops",
+    "material_type": "UNDERGROUND",
+    "category": "Device",
+    "material_name": "Flower Pots (Drops)",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 180,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.395Z",
+    "updated_at": "2026-07-20T23:04:03.395Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 43,
+  "fields": {
+    "code": "underground-fiber-24ct",
+    "material_type": "UNDERGROUND",
+    "category": "Fiber",
+    "material_name": "24ct Fiber",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 190,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.396Z",
+    "updated_at": "2026-07-20T23:04:03.396Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 44,
+  "fields": {
+    "code": "underground-fiber-48ct",
+    "material_type": "UNDERGROUND",
+    "category": "Fiber",
+    "material_name": "48ct Fiber",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 200,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.396Z",
+    "updated_at": "2026-07-20T23:04:03.396Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 45,
+  "fields": {
+    "code": "underground-fiber-72ct",
+    "material_type": "UNDERGROUND",
+    "category": "Fiber",
+    "material_name": "72ct Fiber",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 210,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.396Z",
+    "updated_at": "2026-07-20T23:04:03.396Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 46,
+  "fields": {
+    "code": "underground-grounding-ground-rod",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "Ground Rod",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 220,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.396Z",
+    "updated_at": "2026-07-20T23:04:03.396Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 47,
+  "fields": {
+    "code": "underground-grounding-ground-rod-clamp-acorn",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "Ground Rod Clamp ( Acorn)",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 230,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.396Z",
+    "updated_at": "2026-07-20T23:04:03.396Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 48,
+  "fields": {
+    "code": "underground-grounding-iso-switch",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "ISO Switch",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 240,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.397Z",
+    "updated_at": "2026-07-20T23:04:03.397Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 49,
+  "fields": {
+    "code": "underground-grounding-neutral-bar",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "NEUTRAL BAR ( Ground Bars)",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 250,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.397Z",
+    "updated_at": "2026-07-20T23:04:03.397Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 50,
+  "fields": {
+    "code": "underground-grounding-toneable-mule-tape",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "Toneable Mule Tape",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 260,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.397Z",
+    "updated_at": "2026-07-20T23:04:03.397Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 51,
+  "fields": {
+    "code": "underground-grounding-tracer-wire",
+    "material_type": "UNDERGROUND",
+    "category": "Grounding",
+    "material_name": "Tracer Wire",
+    "uom": "FT",
+    "auto_rule": "manual",
+    "display_order": 270,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.397Z",
+    "updated_at": "2026-07-20T23:04:03.397Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 52,
+  "fields": {
+    "code": "underground-splicing-blue-zip-ties",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Blue Zip Ties",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 280,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.398Z",
+    "updated_at": "2026-07-20T23:04:03.398Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 53,
+  "fields": {
+    "code": "underground-splicing-orange-zip-ties",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Orange Zip Ties",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 290,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.398Z",
+    "updated_at": "2026-07-20T23:04:03.398Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 54,
+  "fields": {
+    "code": "underground-splicing-green-zip-ties",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Green Zip Ties",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 300,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.398Z",
+    "updated_at": "2026-07-20T23:04:03.398Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 55,
+  "fields": {
+    "code": "underground-splicing-brown-zip-ties",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Brown Zip Ties",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 310,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.398Z",
+    "updated_at": "2026-07-20T23:04:03.398Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 56,
+  "fields": {
+    "code": "underground-splicing-slate-zip-ties",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Slate Zip Ties",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 320,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.398Z",
+    "updated_at": "2026-07-20T23:04:03.398Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 57,
+  "fields": {
+    "code": "underground-splicing-case-fosc450-d3v",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - FOSC450-D6-6-NT-0-D3V",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 330,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.399Z",
+    "updated_at": "2026-07-20T23:04:03.399Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 58,
+  "fields": {
+    "code": "underground-splicing-case-fosc450-d6v",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - FOSC450-D6-6-NT-0-D6V",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 340,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.399Z",
+    "updated_at": "2026-07-20T23:04:03.399Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 59,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-a4",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-A4-S2/44-14-N-12",
+    "uom": "EA",
+    "auto_rule": "splice_case_a4",
+    "display_order": 350,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.399Z",
+    "updated_at": "2026-07-20T23:04:03.399Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 60,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-b8g-empty",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-B8G-NN/00-NN-N-72",
+    "uom": "EA",
+    "auto_rule": "splice_case_b8g_empty",
+    "display_order": 360,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.399Z",
+    "updated_at": "2026-07-20T23:04:03.399Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 61,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-b8g-1x2",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-B8G-S2/82-12-NN-72",
+    "uom": "EA",
+    "auto_rule": "splice_case_b8g_1x2",
+    "display_order": 370,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.400Z",
+    "updated_at": "2026-07-20T23:04:03.400Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 62,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-b8g-1x4",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-B8G-S2/84-14-NN-72",
+    "uom": "EA",
+    "auto_rule": "splice_case_b8g_1x4",
+    "display_order": 380,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.400Z",
+    "updated_at": "2026-07-20T23:04:03.400Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 63,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-b8g-1x8",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-B8G-S2/88-18-N-72",
+    "uom": "EA",
+    "auto_rule": "splice_case_b8g_1x8",
+    "display_order": 390,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.400Z",
+    "updated_at": "2026-07-20T23:04:03.400Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 64,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-c12-1x8",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-C12-S2/88-18-N-96",
+    "uom": "EA",
+    "auto_rule": "splice_case_c12",
+    "display_order": 400,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.400Z",
+    "updated_at": "2026-07-20T23:04:03.400Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 65,
+  "fields": {
+    "code": "underground-splicing-case-ofdc-c12-tt",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE CASE - OFDC-C12-S2/TT-NN-N-96",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 410,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.400Z",
+    "updated_at": "2026-07-20T23:04:03.400Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 66,
+  "fields": {
+    "code": "underground-splicing-sleeve-40mm",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE SLEEVE - 40MM",
+    "uom": "EA",
+    "auto_rule": "splice_sleeve_40mm",
+    "display_order": 420,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.401Z",
+    "updated_at": "2026-07-20T23:04:03.401Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 67,
+  "fields": {
+    "code": "underground-splicing-sleeve-60mm",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLICE SLEEVE - 60MM",
+    "uom": "EA",
+    "auto_rule": "splice_sleeve_60mm",
+    "display_order": 430,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.401Z",
+    "updated_at": "2026-07-20T23:04:03.401Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 68,
+  "fields": {
+    "code": "underground-splicing-fosc-sp-splitter-holder",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "FOSC-SP Splitter Holder 1/8 (Splitter Chip)",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 440,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.401Z",
+    "updated_at": "2026-07-20T23:04:03.401Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 69,
+  "fields": {
+    "code": "underground-splicing-fusion-splice-tray",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "Fusion Splice Tray",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 450,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.401Z",
+    "updated_at": "2026-07-20T23:04:03.401Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 70,
+  "fields": {
+    "code": "underground-splicing-splitter-1x2-250-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x2 250 Micron, Bare Fiber, Non Ribbon, Without Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "splitter_1x2",
+    "display_order": 460,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.402Z",
+    "updated_at": "2026-07-20T23:04:03.402Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 71,
+  "fields": {
+    "code": "underground-splicing-splitter-1x2-900-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x2 900 Micron, Loose Tube, SC/APC Splitter, With Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 470,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.402Z",
+    "updated_at": "2026-07-20T23:04:03.402Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 72,
+  "fields": {
+    "code": "underground-splicing-splitter-1x2-planar",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1X2 Planar",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 480,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.402Z",
+    "updated_at": "2026-07-20T23:04:03.402Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 73,
+  "fields": {
+    "code": "underground-splicing-splitter-1x2-plc-900-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1X2 PLC 900 Micron, Loose Tube, SC/APC Splitter, With Connectors",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 490,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.402Z",
+    "updated_at": "2026-07-20T23:04:03.402Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 74,
+  "fields": {
+    "code": "underground-splicing-splitter-1x4-250-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x4 250 Micron, Bare Fiber, Non Ribbon, Without Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "splitter_1x4",
+    "display_order": 500,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.402Z",
+    "updated_at": "2026-07-20T23:04:03.402Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 75,
+  "fields": {
+    "code": "underground-splicing-splitter-1x4-900-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x4 900 Micron, Loose Tube, SC/APC Splitter, With Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 510,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.403Z",
+    "updated_at": "2026-07-20T23:04:03.403Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 76,
+  "fields": {
+    "code": "underground-splicing-splitter-1x4-planar",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1X4 Planar",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 520,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.403Z",
+    "updated_at": "2026-07-20T23:04:03.403Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 77,
+  "fields": {
+    "code": "underground-splicing-splitter-1x6-planar",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1X6 Planar",
+    "uom": "EA",
+    "auto_rule": "splitter_1x6",
+    "display_order": 530,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.403Z",
+    "updated_at": "2026-07-20T23:04:03.403Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 78,
+  "fields": {
+    "code": "underground-splicing-splitter-1x8-250-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x8 250 Micron, Bare Fiber, Non Ribbon, Without Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "splitter_1x8",
+    "display_order": 540,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.403Z",
+    "updated_at": "2026-07-20T23:04:03.403Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 79,
+  "fields": {
+    "code": "underground-splicing-splitter-1x8-900-micron",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1x8 900 Micron, Loose Tube, SC/APC Splitter, With Connectors, Symmetrical",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 550,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.403Z",
+    "updated_at": "2026-07-20T23:04:03.403Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 80,
+  "fields": {
+    "code": "underground-splicing-splitter-1x8-planar",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "SPLITTER - 1X8 Planar",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 560,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.404Z",
+    "updated_at": "2026-07-20T23:04:03.404Z"
+  }
+},
+{
+  "model": "plan_reader.materialcatalogitem",
+  "pk": 81,
+  "fields": {
+    "code": "underground-splicing-tds-label",
+    "material_type": "UNDERGROUND",
+    "category": "Splicing",
+    "material_name": "TDS LABEL",
+    "uom": "EA",
+    "auto_rule": "manual",
+    "display_order": 570,
+    "is_active": true,
+    "created_at": "2026-07-20T23:04:03.404Z",
+    "updated_at": "2026-07-20T23:04:03.404Z"
+  }
+}
+]
