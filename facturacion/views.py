@@ -4311,6 +4311,10 @@ def invoice_bulk_update_status(request):
         pending_invoice
         invoiced
         paid
+    - Si alguna invoice está en un estado posterior al estado solicitado:
+        * No actualiza nada en el primer intento.
+        * Devuelve HTTP 409 con el detalle de las invoices que retrocederán.
+        * Solo permite el retroceso cuando recibe force_backward=true.
     - Para invoiced y paid:
         * Si Real Company Billing está vacío, copia subtotal_empresa.
         * No sobrescribe un Real Company Billing existente.
@@ -4323,7 +4327,6 @@ def invoice_bulk_update_status(request):
 
     from django.db import transaction
     from django.http import JsonResponse
-    from django.shortcuts import get_object_or_404
     from django.utils import timezone
 
     from facturacion.models import Proyecto
@@ -4335,6 +4338,30 @@ def invoice_bulk_update_status(request):
         "pending_invoice": "Pending invoicing",
         "invoiced": "Invoiced",
         "paid": "Collected",
+    }
+
+    status_order = {
+        "sent": 1,
+        "sent_to_client": 2,
+        "pending_invoice": 3,
+        "invoiced": 4,
+        "pending": 4,
+        "paid": 5,
+    }
+
+    status_labels = {
+        "sent": "Pending to send to client",
+        "sent_to_client": "Sent to client",
+        "pending_invoice": "Pending invoicing",
+        "invoiced": "Invoiced",
+        "pending": "Pending payment",
+        "paid": "Collected",
+        "in_review": "In review",
+        "rejected": "Rejected",
+        "review_discount": "Review discount",
+        "discount_applied": "Discount applied",
+        "none": "No finance status",
+        "": "No finance status",
     }
 
     content_type = (request.content_type or "").lower()
@@ -4355,6 +4382,22 @@ def invoice_bulk_update_status(request):
 
     raw_ids = payload.get("ids", [])
     target_status = str(payload.get("target_status", "") or "").strip()
+
+    raw_force_backward = payload.get(
+        "force_backward",
+        False,
+    )
+
+    if isinstance(raw_force_backward, bool):
+        force_backward = raw_force_backward
+    else:
+        force_backward = str(raw_force_backward or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "y",
+        }
 
     if isinstance(raw_ids, str):
         raw_ids = [
@@ -4427,7 +4470,9 @@ def invoice_bulk_update_status(request):
 
     for project in proyectos_list:
         project_name = (getattr(project, "nombre", "") or "").strip()
+
         project_code = str(getattr(project, "codigo", "") or "").strip()
+
         project_id = str(getattr(project, "id", "") or "").strip()
 
         if project_name:
@@ -4461,18 +4506,32 @@ def invoice_bulk_update_status(request):
             assignments = []
 
         for assignment in assignments:
-            project = getattr(assignment, "proyecto", None)
+            project = getattr(
+                assignment,
+                "proyecto",
+                None,
+            )
 
             if not project:
                 continue
 
-            include_history = bool(getattr(assignment, "include_history", False))
+            include_history = bool(
+                getattr(
+                    assignment,
+                    "include_history",
+                    False,
+                )
+            )
 
-            start_at = getattr(assignment, "start_at", None)
+            start_at = getattr(
+                assignment,
+                "start_at",
+                None,
+            )
 
             access_data = {
-                "include_history": include_history or not start_at,
-                "start_at": None if include_history or not start_at else start_at,
+                "include_history": (include_history or not start_at),
+                "start_at": (None if include_history or not start_at else start_at),
             }
 
             for key in (
@@ -4511,7 +4570,11 @@ def invoice_bulk_update_status(request):
         if access["include_history"] or access["start_at"] is None:
             return True
 
-        created_at = getattr(invoice, "creado_en", None)
+        created_at = getattr(
+            invoice,
+            "creado_en",
+            None,
+        )
 
         if not created_at:
             return False
@@ -4531,6 +4594,19 @@ def invoice_bulk_update_status(request):
 
         return created_date >= start_date
 
+    def invoice_project_identifier(invoice):
+        project_id = str(getattr(invoice, "proyecto_id", "") or "").strip()
+
+        if project_id:
+            return project_id
+
+        project_value = str(getattr(invoice, "proyecto", "") or "").strip()
+
+        if project_value:
+            return project_value
+
+        return f"Invoice #{invoice.id}"
+
     updated_count = 0
     filled_real_count = 0
     skipped_direct_discount_count = 0
@@ -4542,16 +4618,23 @@ def invoice_bulk_update_status(request):
 
     with transaction.atomic():
         invoices = list(
-            SesionBilling.objects.select_for_update().filter(
-                id__in=invoice_ids,
-            )
+            SesionBilling.objects.select_for_update()
+            .filter(id__in=invoice_ids)
+            .order_by("id")
         )
 
         found_ids = {invoice.id for invoice in invoices}
+
         not_found_count = len(set(invoice_ids) - found_ids)
 
+        eligible_invoices = []
+
         for invoice in invoices:
-            if getattr(invoice, "is_direct_discount", False):
+            if getattr(
+                invoice,
+                "is_direct_discount",
+                False,
+            ):
                 skipped_direct_discount_count += 1
                 continue
 
@@ -4566,29 +4649,99 @@ def invoice_bulk_update_status(request):
                 skipped_access_count += 1
                 continue
 
+            eligible_invoices.append(invoice)
+
+        # ========================================================
+        # Detectar retrocesos antes de modificar cualquier invoice
+        # ========================================================
+        target_order = status_order[target_status]
+        backward_invoices = []
+
+        for invoice in eligible_invoices:
+            current_status = str(
+                getattr(
+                    invoice,
+                    "finance_status",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            current_order = status_order.get(current_status)
+
+            if current_order is not None and current_order > target_order:
+                backward_invoices.append(
+                    {
+                        "id": invoice.id,
+                        "project_id": (invoice_project_identifier(invoice)),
+                        "current_status": current_status,
+                        "current_status_label": (
+                            status_labels.get(
+                                current_status,
+                                current_status,
+                            )
+                        ),
+                        "target_status": target_status,
+                        "target_status_label": (allowed_statuses[target_status]),
+                    }
+                )
+
+        if backward_invoices and not force_backward:
+            transaction.set_rollback(True)
+
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "confirm_required": True,
+                    "message": (
+                        "Some selected invoices are already "
+                        "in a later finance status."
+                    ),
+                    "target_status": target_status,
+                    "target_status_label": (allowed_statuses[target_status]),
+                    "backward_invoices": (backward_invoices),
+                },
+                status=409,
+            )
+
+        # ========================================================
+        # Aplicar los cambios
+        # ========================================================
+        for invoice in eligible_invoices:
             update_fields = []
 
             if invoice.finance_status != target_status:
                 invoice.finance_status = target_status
+
                 update_fields.append("finance_status")
 
-            if target_status in {"invoiced", "paid"}:
+            if target_status in {
+                "invoiced",
+                "paid",
+            }:
                 if invoice.real_company_billing is None:
                     invoice.real_company_billing = (
                         invoice.subtotal_empresa
                         if invoice.subtotal_empresa is not None
                         else Decimal("0")
                     )
+
                     update_fields.append("real_company_billing")
+
                     filled_real_count += 1
 
             if target_status == "paid":
                 if not invoice.finance_finish_date:
                     invoice.finance_finish_date = today
+
                     update_fields.append("finance_finish_date")
 
-            if hasattr(invoice, "finance_updated_at"):
+            if hasattr(
+                invoice,
+                "finance_updated_at",
+            ):
                 invoice.finance_updated_at = timezone.now()
+
                 update_fields.append("finance_updated_at")
 
             update_fields = list(dict.fromkeys(update_fields))
@@ -4613,13 +4766,14 @@ def invoice_bulk_update_status(request):
                 f"{allowed_statuses[target_status]}."
             ),
             "target_status": target_status,
-            "target_status_label": allowed_statuses[target_status],
+            "target_status_label": (allowed_statuses[target_status]),
             "updated_count": updated_count,
             "filled_real_count": filled_real_count,
             "skipped_count": skipped_count,
             "skipped_direct_discount_count": (skipped_direct_discount_count),
-            "skipped_access_count": skipped_access_count,
+            "skipped_access_count": (skipped_access_count),
             "skipped_not_approved_count": (skipped_not_approved_count),
             "not_found_count": not_found_count,
+            "forced_backward": (bool(force_backward)),
         }
     )

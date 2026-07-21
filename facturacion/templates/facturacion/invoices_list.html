@@ -1201,8 +1201,11 @@
     data-close-bulk-finance
   ></div>
 
-  <div class="relative max-w-lg mx-auto bg-white rounded-2xl shadow p-6 mt-32">
-    <h3 class="text-lg font-semibold text-gray-800 mb-2">
+  <div class="relative max-w-xl mx-auto bg-white rounded-2xl shadow p-6 mt-20 max-h-[85vh] overflow-y-auto">
+    <h3
+      id="bulk-finance-modal-title"
+      class="text-lg font-semibold text-gray-800 mb-2"
+    >
       Change finance status
     </h3>
 
@@ -1210,6 +1213,38 @@
       id="bulk-finance-status-message"
       class="text-sm text-gray-700"
     ></p>
+
+    <!-- Advertencia de retroceso -->
+    <div
+      id="bulk-finance-backward-warning"
+      class="hidden mt-4 rounded-xl bg-amber-50 border border-amber-300 px-4 py-4"
+    >
+      <div class="flex items-start gap-3">
+        <div class="text-xl">
+          ⚠️
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <h4 class="font-semibold text-amber-900">
+            Some invoices will move backward in the finance workflow
+          </h4>
+
+          <p class="text-sm text-amber-800 mt-1">
+            Review the projects below carefully. They currently have a later
+            finance status than the status you selected.
+          </p>
+        </div>
+      </div>
+
+      <div
+        id="bulk-finance-backward-list"
+        class="mt-3 max-h-64 overflow-y-auto space-y-2"
+      ></div>
+
+      <p class="text-sm font-semibold text-amber-900 mt-4">
+        Do you want to return these invoices to an earlier status?
+      </p>
+    </div>
 
     <div
       id="bulk-finance-autofill-warning"
@@ -1232,7 +1267,7 @@
       class="hidden mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
     ></div>
 
-    <div class="flex justify-end gap-2 mt-6">
+    <div class="flex flex-wrap justify-end gap-2 mt-6">
       <button
         type="button"
         id="bulk-finance-cancel"
@@ -1251,7 +1286,6 @@
     </div>
   </div>
 </div>
-
 <!-- Row expand JS -->
 <script>
 document.addEventListener('click', function(e){
@@ -3059,24 +3093,57 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
 </script>
 <script>
 (function () {
-  const STORAGE_KEY = 'invoiceDeliverySelection:' + location.pathname;
+  const STORAGE_KEY = (
+    'invoiceDeliverySelection:' + location.pathname
+  );
 
-  const statusSelect = document.getElementById('bulk-finance-status');
-  const applyButton = document.getElementById('btn-bulk-finance-status');
+  const statusSelect = document.getElementById(
+    'bulk-finance-status'
+  );
 
-  const modal = document.getElementById('modal-bulk-finance-status');
+  const applyButton = document.getElementById(
+    'btn-bulk-finance-status'
+  );
+
+  const modal = document.getElementById(
+    'modal-bulk-finance-status'
+  );
+
+  const modalTitle = document.getElementById(
+    'bulk-finance-modal-title'
+  );
+
   const modalMessage = document.getElementById(
     'bulk-finance-status-message'
   );
+
+  const backwardWarning = document.getElementById(
+    'bulk-finance-backward-warning'
+  );
+
+  const backwardList = document.getElementById(
+    'bulk-finance-backward-list'
+  );
+
   const autofillWarning = document.getElementById(
     'bulk-finance-autofill-warning'
   );
+
   const collectedWarning = document.getElementById(
     'bulk-finance-collected-warning'
   );
-  const errorBox = document.getElementById('bulk-finance-error');
-  const cancelButton = document.getElementById('bulk-finance-cancel');
-  const confirmButton = document.getElementById('bulk-finance-confirm');
+
+  const errorBox = document.getElementById(
+    'bulk-finance-error'
+  );
+
+  const cancelButton = document.getElementById(
+    'bulk-finance-cancel'
+  );
+
+  const confirmButton = document.getElementById(
+    'bulk-finance-confirm'
+  );
 
   const bulkUpdateUrl = (
     '{% url "facturacion:invoice_bulk_update_status" %}'
@@ -3087,19 +3154,22 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     sent_to_client: 'Sent to client',
     pending_invoice: 'Pending invoicing',
     invoiced: 'Invoiced',
+    pending: 'Pending payment',
     paid: 'Collected'
   };
 
   let pendingIds = [];
   let pendingStatus = '';
+  let backwardConfirmationRequired = false;
 
   function toast(message, type = 'info') {
-    const backgroundClass =
+    const backgroundClass = (
       type === 'success'
         ? 'bg-green-600'
         : type === 'error'
           ? 'bg-red-600'
-          : 'bg-blue-600';
+          : 'bg-blue-600'
+    );
 
     const element = document.createElement('div');
 
@@ -3115,7 +3185,16 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
 
     setTimeout(function () {
       element.remove();
-    }, 2600);
+    }, 3000);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   function readSelection() {
@@ -3152,6 +3231,134 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     }
   }
 
+  function hideBackwardWarning() {
+    backwardConfirmationRequired = false;
+
+    if (backwardWarning) {
+      backwardWarning.classList.add('hidden');
+    }
+
+    if (backwardList) {
+      backwardList.innerHTML = '';
+    }
+
+    if (modalTitle) {
+      modalTitle.textContent = 'Change finance status';
+    }
+
+    if (confirmButton) {
+      confirmButton.textContent = 'Confirm change';
+
+      confirmButton.classList.remove(
+        'bg-amber-600',
+        'hover:bg-amber-700'
+      );
+
+      confirmButton.classList.add(
+        'bg-cyan-700',
+        'hover:bg-cyan-800'
+      );
+    }
+  }
+
+  function renderBackwardWarning(items, targetStatus) {
+    backwardConfirmationRequired = true;
+
+    const targetLabel = (
+      statusLabels[targetStatus] ||
+      targetStatus
+    );
+
+    if (modalTitle) {
+      modalTitle.textContent = 'Confirm backward status change';
+    }
+
+    if (modalMessage) {
+      modalMessage.textContent = (
+        `${items.length} selected invoice(s) currently have a ` +
+        `later finance status than ${targetLabel}.`
+      );
+    }
+
+    if (backwardList) {
+      backwardList.innerHTML = '';
+
+      items.forEach(function (item) {
+        const projectId = (
+          item.project_id ||
+          item.proyecto_id ||
+          `Invoice #${item.id}`
+        );
+
+        const currentStatus = (
+          item.current_status_label ||
+          statusLabels[item.current_status] ||
+          item.current_status ||
+          'Unknown'
+        );
+
+        const targetStatusLabel = (
+          item.target_status_label ||
+          targetLabel
+        );
+
+        const row = document.createElement('div');
+
+        row.className = (
+          'rounded-lg bg-white border border-amber-200 ' +
+          'px-3 py-3 text-sm'
+        );
+
+        row.innerHTML = `
+          <div class="font-semibold text-gray-900 break-words">
+            Project ${escapeHtml(projectId)}
+          </div>
+
+          <div class="mt-1 flex flex-wrap items-center gap-2">
+            <span
+              class="inline-flex items-center px-2 py-0.5 rounded
+                     bg-green-100 text-green-800 text-xs font-medium"
+            >
+              ${escapeHtml(currentStatus)}
+            </span>
+
+            <span class="text-gray-500">
+              →
+            </span>
+
+            <span
+              class="inline-flex items-center px-2 py-0.5 rounded
+                     bg-amber-100 text-amber-900 text-xs font-medium"
+            >
+              ${escapeHtml(targetStatusLabel)}
+            </span>
+          </div>
+        `;
+
+        backwardList.appendChild(row);
+      });
+    }
+
+    if (backwardWarning) {
+      backwardWarning.classList.remove('hidden');
+    }
+
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Yes, move backward';
+
+      confirmButton.classList.remove(
+        'bg-cyan-700',
+        'hover:bg-cyan-800'
+      );
+
+      confirmButton.classList.add(
+        'bg-amber-600',
+        'hover:bg-amber-700'
+      );
+    }
+  }
+
   function openModal(ids, targetStatus) {
     if (!modal) {
       return;
@@ -3159,6 +3366,8 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
 
     pendingIds = ids;
     pendingStatus = targetStatus;
+
+    hideBackwardWarning();
 
     const statusLabel = (
       statusLabels[targetStatus] ||
@@ -3209,19 +3418,30 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     pendingIds = [];
     pendingStatus = '';
 
+    hideBackwardWarning();
+
     if (errorBox) {
       errorBox.textContent = '';
       errorBox.classList.add('hidden');
     }
   }
 
-  async function submitBulkChange() {
+  async function submitBulkChange(forceBackward = false) {
     if (!pendingIds.length || !pendingStatus) {
       return;
     }
 
+    if (!confirmButton) {
+      return;
+    }
+
     confirmButton.disabled = true;
-    confirmButton.textContent = 'Updating...';
+    confirmButton.textContent = 'Checking...';
+
+    if (errorBox) {
+      errorBox.textContent = '';
+      errorBox.classList.add('hidden');
+    }
 
     try {
       const response = await fetch(bulkUpdateUrl, {
@@ -3235,7 +3455,8 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
         },
         body: JSON.stringify({
           ids: pendingIds,
-          target_status: pendingStatus
+          target_status: pendingStatus,
+          force_backward: forceBackward
         })
       });
 
@@ -3268,6 +3489,18 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
           responseText ||
           `Invalid server response (HTTP ${response.status}).`
         );
+      }
+
+      if (
+        response.status === 409 &&
+        payload.confirm_required === true
+      ) {
+        renderBackwardWarning(
+          payload.backward_invoices || [],
+          pendingStatus
+        );
+
+        return;
       }
 
       if (!response.ok || payload.ok !== true) {
@@ -3310,13 +3543,17 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
 
     } catch (error) {
       confirmButton.disabled = false;
-      confirmButton.textContent = 'Confirm change';
+
+      confirmButton.textContent = backwardConfirmationRequired
+        ? 'Yes, move backward'
+        : 'Confirm change';
 
       if (errorBox) {
         errorBox.textContent = (
           error.message ||
           'Could not update the selected invoices.'
         );
+
         errorBox.classList.remove('hidden');
       }
     }
@@ -3340,14 +3577,26 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     openModal(ids, targetStatus);
   });
 
-  statusSelect?.addEventListener('change', syncBulkControls);
+  statusSelect?.addEventListener(
+    'change',
+    syncBulkControls
+  );
 
-  cancelButton?.addEventListener('click', closeModal);
+  cancelButton?.addEventListener(
+    'click',
+    closeModal
+  );
 
-  confirmButton?.addEventListener('click', submitBulkChange);
+  confirmButton?.addEventListener('click', function () {
+    submitBulkChange(backwardConfirmationRequired);
+  });
 
   modal?.addEventListener('click', function (event) {
-    if (event.target.hasAttribute('data-close-bulk-finance')) {
+    if (
+      event.target.hasAttribute(
+        'data-close-bulk-finance'
+      )
+    ) {
       closeModal();
     }
   });
@@ -3382,7 +3631,9 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
     syncBulkControls
   );
 
-  window.syncInvoiceBulkStatusControls = syncBulkControls;
+  window.syncInvoiceBulkStatusControls = (
+    syncBulkControls
+  );
 })();
 </script>
 <script>
