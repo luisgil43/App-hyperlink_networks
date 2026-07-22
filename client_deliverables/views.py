@@ -52,20 +52,52 @@ class _ZipBuildRequestContext:
 
 
 def _safe_project_folder_name(project_id):
+    """
+    Genera una carpeta corta y compatible con Windows para cada Project ID.
+
+    Se limita la longitud para evitar que la ruta final del archivo supere
+    el límite admitido por el extractor integrado de Windows.
+    """
     raw = str(project_id or "").strip()
+
     slug = slugify(raw).replace("-", "_") or "no_project_id"
+    slug = slug[:60].rstrip("._-")
+
+    if not slug:
+        slug = "no_project_id"
+
     return f"Project_{slug}"
 
 
 def _clean_filename_piece(value, fallback="deliverable"):
+    """
+    Limpia y limita un nombre de archivo manteniendo su extensión.
+
+    El nombre base se limita a 80 caracteres para mantener cortas las rutas
+    internas del ZIP y garantizar compatibilidad con Windows.
+    """
     value = str(value or "").strip()
     value = html.unescape(value)
+
     value = value.replace("\\", "_").replace("/", "_")
+    value = value.replace(":", "_").replace("*", "_")
+    value = value.replace("?", "_").replace('"', "_")
+    value = value.replace("<", "_").replace(">", "_")
+    value = value.replace("|", "_")
 
     base, ext = os.path.splitext(value)
 
     base = slugify(base).replace("-", "_") or fallback
+    base = base[:80].rstrip("._-")
+
+    if not base:
+        base = fallback
+
     ext = (ext or "").lower()
+
+    # Evita extensiones anormalmente largas o dañadas.
+    if len(ext) > 12:
+        ext = ""
 
     return base, ext
 
@@ -210,6 +242,46 @@ def _unique_name(existing_names, filename):
 
     existing_names.add(candidate)
     return candidate
+
+
+def _delivery_zip_filename(package, job):
+    """
+    Genera un nombre corto, único y descriptivo para el ZIP completo.
+
+    No utiliza package.name porque puede contener muchos Project IDs y producir
+    nombres incompatibles con la extracción integrada de Windows.
+    """
+    project_ids = []
+
+    for project_id in (
+        package.files.filter(is_active=True)
+        .exclude(project_id="")
+        .values_list("project_id", flat=True)
+        .distinct()
+    ):
+        clean_project_id = str(project_id or "").strip()
+
+        if clean_project_id and clean_project_id not in project_ids:
+            project_ids.append(clean_project_id)
+
+    project_count = len(project_ids)
+    unique_suffix = str(job.id).replace("-", "")[:8]
+
+    if project_count == 1:
+        project_slug = (
+            slugify(project_ids[0]).replace("-", "_")[:50].rstrip("._-") or "project"
+        )
+
+        return f"Hyperlink_Deliverables_{project_slug}_{unique_suffix}.zip"
+
+    if project_count > 1:
+        return (
+            f"Hyperlink_Deliverables_"
+            f"{project_count}_Projects_"
+            f"{unique_suffix}.zip"
+        )
+
+    return f"Hyperlink_Deliverables_{unique_suffix}.zip"
 
 
 def _response_to_bytes(response):
@@ -420,6 +492,15 @@ def _fetch_delivery_file_bytes(request_context, package, file_obj):
 
 
 def _build_delivery_zip_job(job_id, host, port):
+    """
+    Construye el ZIP general de un DeliveryPackage.
+
+    El ZIP usa:
+    - Un nombre exterior corto y compatible con Windows.
+    - Carpetas por Project ID con longitud limitada.
+    - Nombres internos de archivos con longitud limitada.
+    - Nombres únicos dentro de cada carpeta.
+    """
     job = None
     temp_path = None
 
@@ -445,7 +526,11 @@ def _build_delivery_zip_job(job_id, host, port):
         )
 
         files = list(
-            package.files.filter(is_active=True).order_by("project_id", "order", "id")
+            package.files.filter(is_active=True).order_by(
+                "project_id",
+                "order",
+                "id",
+            )
         )
 
         job.total_files = len(files)
@@ -455,32 +540,49 @@ def _build_delivery_zip_job(job_id, host, port):
             job.status = DeliveryZipJob.STATUS_FAILED
             job.error_message = "This package does not have active deliverables."
             job.finished_at = timezone.now()
-            job.save(update_fields=["status", "error_message", "finished_at"])
+            job.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "finished_at",
+                ]
+            )
             return
 
-        request_context = _ZipBuildRequestContext(host=host, port=port)
+        request_context = _ZipBuildRequestContext(
+            host=host,
+            port=port,
+        )
 
         used_names_by_folder = {}
         total_files_added = 0
         errors = []
 
-        safe_package_name = (
-            slugify(package.name).replace("-", "_") or "delivery_package"
-        )
-        final_filename = f"{safe_package_name}.zip"
+        # Nombre corto para evitar errores de ruta demasiado larga en Windows.
+        final_filename = _delivery_zip_filename(package, job)
 
         fd, temp_path = tempfile.mkstemp(suffix=".zip")
         os.close(fd)
 
-        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        with zipfile.ZipFile(
+            temp_path,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            allowZip64=True,
+        ) as zip_file:
             for file_obj in files:
                 project_id = str(file_obj.project_id or "NO_PROJECT_ID").strip()
+
                 folder_name = _safe_project_folder_name(project_id)
 
                 if folder_name not in used_names_by_folder:
                     used_names_by_folder[folder_name] = set()
 
-                result = _fetch_delivery_file_bytes(request_context, package, file_obj)
+                result = _fetch_delivery_file_bytes(
+                    request_context,
+                    package,
+                    file_obj,
+                )
 
                 if not result["ok"]:
                     errors.append(
@@ -498,33 +600,39 @@ def _build_delivery_zip_job(job_id, host, port):
                     result["filename"],
                 )
 
+                archive_path = f"{folder_name}/{filename}"
+
                 zip_file.writestr(
-                    f"{folder_name}/{filename}",
+                    archive_path,
                     result["content"],
                 )
 
                 total_files_added += 1
 
-            manifest_lines = []
-            manifest_lines.append("Hyperlink Networks - Delivery Package")
-            manifest_lines.append("")
-            manifest_lines.append(f"Package: {package.name}")
-            manifest_lines.append(
-                f"Generated at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            manifest_lines.append("")
-            manifest_lines.append(f"Files included: {total_files_added}")
-            manifest_lines.append(f"Files with errors: {len(errors)}")
-            manifest_lines.append("")
+            manifest_lines = [
+                "Hyperlink Networks - Delivery Package",
+                "",
+                f"Package: {package.name}",
+                f"Generated at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "",
+                f"Files included: {total_files_added}",
+                f"Files with errors: {len(errors)}",
+                "",
+            ]
 
             if errors:
                 manifest_lines.append("Errors:")
+
                 for error in errors:
-                    manifest_lines.append("")
-                    manifest_lines.append(f"Project ID: {error['project_id']}")
-                    manifest_lines.append(f"Deliverable: {error['display_name']}")
-                    manifest_lines.append(f"Source: {error['source_url']}")
-                    manifest_lines.append(f"Error: {error['error']}")
+                    manifest_lines.extend(
+                        [
+                            "",
+                            f"Project ID: {error['project_id']}",
+                            f"Deliverable: {error['display_name']}",
+                            f"Source: {error['source_url']}",
+                            f"Error: {error['error']}",
+                        ]
+                    )
 
             zip_file.writestr(
                 "README.txt",
@@ -537,8 +645,8 @@ def _build_delivery_zip_job(job_id, host, port):
             job.files_failed = len(errors)
             job.errors = errors
             job.error_message = (
-                "The ZIP could not be generated because none of the deliverables "
-                "could be downloaded."
+                "The ZIP could not be generated because none of the "
+                "deliverables could be downloaded."
             )
             job.finished_at = timezone.now()
             job.save(
@@ -554,7 +662,11 @@ def _build_delivery_zip_job(job_id, host, port):
             return
 
         with open(temp_path, "rb") as fh:
-            job.zip_file.save(final_filename, File(fh), save=False)
+            job.zip_file.save(
+                final_filename,
+                File(fh),
+                save=False,
+            )
 
         job.status = DeliveryZipJob.STATUS_READY
         job.filename = final_filename
@@ -563,6 +675,7 @@ def _build_delivery_zip_job(job_id, host, port):
         job.errors = errors
         job.finished_at = timezone.now()
         job.error_message = ""
+
         job.save(
             update_fields=[
                 "status",
@@ -581,13 +694,19 @@ def _build_delivery_zip_job(job_id, host, port):
             job.status = DeliveryZipJob.STATUS_FAILED
             job.error_message = str(e)
             job.finished_at = timezone.now()
-            job.save(update_fields=["status", "error_message", "finished_at"])
+            job.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "finished_at",
+                ]
+            )
 
     finally:
         if temp_path:
             try:
                 os.remove(temp_path)
-            except Exception:
+            except OSError:
                 pass
 
 
@@ -1413,422 +1532,6 @@ def public_package_unlock(request, token):
             "package": package,
         },
     )
-
-
-def _safe_project_folder_name(project_id):
-    raw = str(project_id or "").strip()
-    slug = slugify(raw).replace("-", "_") or "no_project_id"
-    return f"Project_{slug}"
-
-
-def _clean_filename_piece(value, fallback="deliverable"):
-    value = str(value or "").strip()
-    value = html.unescape(value)
-    value = value.replace("\\", "_").replace("/", "_")
-
-    base, ext = os.path.splitext(value)
-
-    base = slugify(base).replace("-", "_") or fallback
-    ext = (ext or "").lower()
-
-    return base, ext
-
-
-def _extension_from_content_type(content_type):
-    ct = (content_type or "").lower()
-
-    if "spreadsheetml.sheet" in ct:
-        return ".xlsx"
-
-    if "application/vnd.ms-excel" in ct:
-        return ".xls"
-
-    if "text/csv" in ct:
-        return ".csv"
-
-    if "application/pdf" in ct:
-        return ".pdf"
-
-    if "wordprocessingml.document" in ct:
-        return ".docx"
-
-    if "application/msword" in ct:
-        return ".doc"
-
-    if "application/zip" in ct or "x-zip-compressed" in ct:
-        return ".zip"
-
-    if "image/jpeg" in ct:
-        return ".jpg"
-
-    if "image/png" in ct:
-        return ".png"
-
-    if "image/webp" in ct:
-        return ".webp"
-
-    return ""
-
-
-def _extension_from_file_type(file_obj):
-    file_type = str(getattr(file_obj, "file_type", "") or "").strip()
-
-    if file_type == DeliveryPackageFile.FILE_CLIENT_REPORT:
-        return ".xlsx"
-
-    if file_type == DeliveryPackageFile.FILE_OPERATIONAL_REPORT:
-        return ".xlsx"
-
-    if file_type == DeliveryPackageFile.FILE_LIGHT_LEVELS:
-        return ".xlsx"
-
-    if file_type == DeliveryPackageFile.FILE_PHOTO_REPORT:
-        return ".pdf"
-
-    if file_type == DeliveryPackageFile.FILE_PHOTOS_ZIP:
-        return ".zip"
-
-    return ""
-
-
-def _filename_from_content_disposition(content_disposition):
-    header = str(content_disposition or "")
-
-    if not header:
-        return ""
-
-    match_star = re.search(
-        r"filename\*\s*=\s*UTF-8''([^;]+)",
-        header,
-        flags=re.IGNORECASE,
-    )
-
-    if match_star:
-        try:
-            from urllib.parse import unquote
-
-            return unquote(match_star.group(1).strip().strip('"'))
-        except Exception:
-            return match_star.group(1).strip().strip('"')
-
-    match = re.search(
-        r'filename\s*=\s*"([^"]+)"',
-        header,
-        flags=re.IGNORECASE,
-    )
-
-    if match:
-        return match.group(1).strip()
-
-    match_plain = re.search(
-        r"filename\s*=\s*([^;]+)",
-        header,
-        flags=re.IGNORECASE,
-    )
-
-    if match_plain:
-        return match_plain.group(1).strip().strip('"')
-
-    return ""
-
-
-def _final_download_filename(file_obj, response_filename="", content_type=""):
-    """
-    Define nombre final con extensión correcta.
-
-    Prioridad:
-    1. filename del Content-Disposition de la vista interna.
-    2. nombre del archivo físico.
-    3. safe_filename del modelo.
-    4. display_name + extensión por tipo.
-    """
-    candidates = []
-
-    if response_filename:
-        candidates.append(response_filename)
-
-    if file_obj.file and getattr(file_obj.file, "name", ""):
-        candidates.append(os.path.basename(file_obj.file.name))
-
-    candidates.append(file_obj.safe_filename())
-    candidates.append(file_obj.display_name)
-
-    forced_ext = _extension_from_content_type(
-        content_type
-    ) or _extension_from_file_type(file_obj)
-
-    for candidate in candidates:
-        base, ext = _clean_filename_piece(candidate)
-
-        if ext:
-            return f"{base}{ext}"
-
-        if forced_ext:
-            return f"{base}{forced_ext}"
-
-    base, _ = _clean_filename_piece(file_obj.display_name or "deliverable")
-
-    if forced_ext:
-        return f"{base}{forced_ext}"
-
-    return f"{base}.bin"
-
-
-def _safe_zip_filename(name, fallback="deliverable"):
-    base, ext = _clean_filename_piece(name, fallback=fallback)
-
-    if not ext:
-        ext = ".bin"
-
-    return f"{base}{ext}"
-
-
-def _unique_name(existing_names, filename):
-    filename = _safe_zip_filename(filename)
-    base, ext = os.path.splitext(filename)
-
-    candidate = filename
-    counter = 2
-
-    while candidate in existing_names:
-        candidate = f"{base}_{counter}{ext}"
-        counter += 1
-
-    existing_names.add(candidate)
-    return candidate
-
-
-def _response_to_bytes(response):
-    if hasattr(response, "streaming_content"):
-        return b"".join(response.streaming_content)
-
-    return response.content
-
-
-def _internal_source_path(request, source_url):
-    """
-    Convierte source_url a path interno para DjangoTestClient.
-
-    Soporta:
-      /operaciones/...
-      http://127.0.0.1:8000/operaciones/...
-      https://dominio.com/operaciones/...
-    """
-    source_url = html.unescape(str(source_url or "").strip())
-
-    if not source_url:
-        return ""
-
-    parsed = urlparse(source_url)
-
-    if parsed.scheme and parsed.netloc:
-        current_host = request.get_host()
-
-        if parsed.netloc != current_host:
-            return ""
-
-        path = parsed.path or "/"
-
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
-
-        return path
-
-    if source_url.startswith("/"):
-        return source_url
-
-    return "/" + source_url
-
-
-def _fetch_delivery_file_bytes(request, package, file_obj):
-    """
-    Obtiene el archivo real para un entregable.
-
-    Soporta:
-    - file_obj.file
-    - source_url externa pública
-    - source_url interna protegida usando force_login(package.created_by)
-
-    Retorna dict con:
-      ok, content, content_type, filename, error
-    """
-    fallback_filename = _final_download_filename(file_obj)
-
-    # ============================================================
-    # 1) Archivo físico guardado en storage
-    # ============================================================
-    if file_obj.file:
-        try:
-            with file_obj.file.open("rb") as fh:
-                content = fh.read()
-
-            content_type = (
-                mimetypes.guess_type(file_obj.file.name)[0]
-                or mimetypes.guess_type(fallback_filename)[0]
-                or "application/octet-stream"
-            )
-
-            filename = _final_download_filename(
-                file_obj,
-                response_filename=os.path.basename(file_obj.file.name),
-                content_type=content_type,
-            )
-
-            return {
-                "ok": True,
-                "content": content,
-                "content_type": content_type,
-                "filename": filename,
-                "error": "",
-            }
-
-        except Exception as e:
-            return {
-                "ok": False,
-                "content": b"",
-                "content_type": "application/octet-stream",
-                "filename": fallback_filename,
-                "error": f"Could not read stored file: {e}",
-            }
-
-    source_url = html.unescape(str(file_obj.source_url or "").strip())
-
-    if not source_url:
-        return {
-            "ok": False,
-            "content": b"",
-            "content_type": "application/octet-stream",
-            "filename": fallback_filename,
-            "error": "Missing source URL.",
-        }
-
-    parsed = urlparse(source_url)
-
-    # ============================================================
-    # 2) URL externa pública
-    # ============================================================
-    if parsed.scheme in ("http", "https") and parsed.netloc != request.get_host():
-        try:
-            with urllib.request.urlopen(source_url, timeout=120) as response:
-                content = response.read()
-                content_type = response.headers.get(
-                    "Content-Type",
-                    "application/octet-stream",
-                )
-                cd = response.headers.get("Content-Disposition", "")
-
-            response_filename = _filename_from_content_disposition(cd)
-
-            filename = _final_download_filename(
-                file_obj,
-                response_filename=response_filename,
-                content_type=content_type,
-            )
-
-            return {
-                "ok": True,
-                "content": content,
-                "content_type": content_type or "application/octet-stream",
-                "filename": filename,
-                "error": "",
-            }
-
-        except Exception as e:
-            return {
-                "ok": False,
-                "content": b"",
-                "content_type": "application/octet-stream",
-                "filename": fallback_filename,
-                "error": f"Could not fetch external source: {e}",
-            }
-
-    # ============================================================
-    # 3) URL interna protegida de Hyperlink
-    # ============================================================
-    internal_path = _internal_source_path(request, source_url)
-
-    if not internal_path:
-        return {
-            "ok": False,
-            "content": b"",
-            "content_type": "application/octet-stream",
-            "filename": fallback_filename,
-            "error": "Invalid internal source URL.",
-        }
-
-    if internal_path.startswith("/client-deliverables/"):
-        return {
-            "ok": False,
-            "content": b"",
-            "content_type": "application/octet-stream",
-            "filename": fallback_filename,
-            "error": "Invalid recursive delivery source URL.",
-        }
-
-    try:
-        client = DjangoTestClient(
-            HTTP_HOST=request.get_host(),
-            SERVER_NAME=request.get_host().split(":")[0],
-            SERVER_PORT=request.get_port() or "80",
-        )
-
-        if package.created_by_id and package.created_by:
-            client.force_login(package.created_by)
-
-        response = client.get(
-            internal_path,
-            follow=True,
-            HTTP_HOST=request.get_host(),
-        )
-
-        if response.status_code != 200:
-            return {
-                "ok": False,
-                "content": b"",
-                "content_type": "application/octet-stream",
-                "filename": fallback_filename,
-                "error": f"Internal source returned status {response.status_code}.",
-            }
-
-        content = _response_to_bytes(response)
-
-        content_type = response.get("Content-Type", "") or "application/octet-stream"
-        cd = response.get("Content-Disposition", "")
-
-        # Si terminó en HTML, normalmente cayó en login o en una página de error.
-        if "text/html" in content_type.lower():
-            return {
-                "ok": False,
-                "content": b"",
-                "content_type": content_type,
-                "filename": fallback_filename,
-                "error": "Internal source returned HTML instead of a downloadable file. It may require a permission or a different export endpoint.",
-            }
-
-        response_filename = _filename_from_content_disposition(cd)
-
-        filename = _final_download_filename(
-            file_obj,
-            response_filename=response_filename,
-            content_type=content_type,
-        )
-
-        return {
-            "ok": True,
-            "content": content,
-            "content_type": content_type,
-            "filename": filename,
-            "error": "",
-        }
-
-    except Exception as e:
-        return {
-            "ok": False,
-            "content": b"",
-            "content_type": "application/octet-stream",
-            "filename": fallback_filename,
-            "error": f"Could not generate internal source: {e}",
-        }
 
 
 def public_download_file(request, token, file_id):
