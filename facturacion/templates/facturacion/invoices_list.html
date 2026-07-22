@@ -68,108 +68,138 @@
       💼 Invoices
     </h1>
 
-    <details id="invoice-actions-menu" class="relative">
-      <summary
-        class="list-none cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800 select-none"
+    <div
+  id="invoice-actions-menu"
+  class="relative"
+>
+  <button
+    id="invoice-actions-toggle"
+    type="button"
+    class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800 select-none"
+    aria-expanded="false"
+    aria-controls="invoice-actions-panel"
+  >
+    ⚙️ Actions
+    <span
+      id="invoice-actions-arrow"
+      class="text-xs transition-transform"
+    >
+      ▼
+    </span>
+  </button>
+
+  <div
+    id="invoice-actions-panel"
+    class="hidden absolute left-0 top-full mt-2 w-[290px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-[60]"
+  >
+    <div class="space-y-2">
+      <button
+        id="btn-duplicate-top"
+        type="button"
+        class="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
+        disabled
+        title="Duplicate / Split selected invoice"
       >
-        ⚙️ Actions
-        <span class="text-xs">▼</span>
-      </summary>
+        Duplicate
+      </button>
 
-      <div
-        class="absolute left-0 mt-2 w-[290px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40"
+      <button
+        id="btn-create-delivery-link"
+        type="button"
+        class="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
+        disabled
+        title="Create a client delivery link from selected invoices"
       >
-        <div class="space-y-2">
-          <button
-            id="btn-duplicate-top"
-            type="button"
-            class="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-            disabled
-            title="Duplicate / Split selected invoice"
-          >
-            Duplicate
-          </button>
+        Create Delivery Link
+      </button>
 
-          <button
-            id="btn-create-delivery-link"
-            type="button"
-            class="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-            disabled
-            title="Create a client delivery link from selected invoices"
-          >
-            Create Delivery Link
-          </button>
+      <button
+        id="btn-submit-client-portal"
+        type="button"
+        class="w-full px-3 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
+        disabled
+        title="Submit selected projects to the client portal"
+      >
+        Submit to Client Portal
+      </button>
 
-          <button
-            id="btn-submit-client-portal"
-            type="button"
-            class="w-full px-3 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-            disabled
-            title="Submit selected projects to the client portal"
-          >
-            Submit to Client Portal
-          </button>
+      <a
+        href="{% url 'client_submissions:batch_list' %}"
+        class="flex w-full items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800"
+        title="Open client submission batch list"
+      >
+        📋 Batch List
+      </a>
 
-          <a
-            href="{% url 'client_submissions:batch_list' %}"
-            class="flex w-full items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800"
-            title="Open client submission batch list"
-          >
-            📋 Batch List
-          </a>
+      <div class="border-t border-gray-200 pt-2">
+        <label
+          for="bulk-finance-status"
+          class="block text-xs font-semibold text-gray-600 mb-1"
+        >
+          Finance status
+        </label>
 
-          <div class="border-t border-gray-200 pt-2">
-            <label
-              for="bulk-finance-status"
-              class="block text-xs font-semibold text-gray-600 mb-1"
-            >
-              Finance status
-            </label>
+        <select
+          id="bulk-finance-status"
+          class="block w-full min-h-[42px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+          aria-label="Bulk finance status"
+        >
+          <option value="">
+            Change finance status...
+          </option>
 
-            <select
-              id="bulk-finance-status"
-              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled
-              aria-label="Bulk finance status"
-            >
-              <option value="">Change finance status...</option>
-              <option value="sent">Pending to send to client</option>
-              <option value="sent_to_client">Sent to client</option>
-              <option value="pending_invoice">Pending invoicing</option>
-              <option value="invoiced">Invoiced</option>
-              <option value="paid">Collected</option>
-            </select>
+          <option value="sent">
+            Pending to send to client
+          </option>
 
-            <button
-              id="btn-bulk-finance-status"
-              type="button"
-              class="w-full mt-2 px-3 py-2 rounded-lg bg-cyan-700 text-white hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-              disabled
-              title="Change finance status for selected invoices"
-            >
-              Apply status
-            </button>
-          </div>
+          <option value="sent_to_client">
+            Sent to client
+          </option>
 
-          <a
-            href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
-            class="flex w-full items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-            title="Export all fields to Excel"
-          >
-            ⬇️ Export
-          </a>
+          <option value="pending_invoice">
+            Pending invoicing
+          </option>
 
-          <button
-            id="btn-clear-invoice-selection"
-            type="button"
-            class="hidden w-full px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50 text-left"
-            title="Clear selected invoices"
-          >
-            Clear selection
-          </button>
-        </div>
+          <option value="invoiced">
+            Invoiced
+          </option>
+
+          <option value="paid">
+            Collected
+          </option>
+        </select>
+
+        <button
+          id="btn-bulk-finance-status"
+          type="button"
+          class="w-full mt-2 px-3 py-2 rounded-lg bg-cyan-700 text-white hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed text-left"
+          disabled
+          title="Change finance status for selected invoices"
+        >
+          Apply status
+        </button>
       </div>
-    </details>
+
+      <a
+        href="{% url 'facturacion:invoices_export' %}?cantidad={{ cantidad }}"
+        class="flex w-full items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+        title="Export all fields to Excel"
+      >
+        ⬇️ Export
+      </a>
+
+      <button
+        id="btn-clear-invoice-selection"
+        type="button"
+        class="hidden w-full px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50 text-left"
+        title="Clear selected invoices"
+      >
+        Clear selection
+      </button>
+    </div>
+  </div>
+</div>
   </div>
 
   <span
@@ -3638,29 +3668,174 @@ if (typeof window.applyInvoiceColumnVisibility === 'function') {
 </script>
 <script>
 (function () {
-  const menu = document.getElementById('invoice-actions-menu');
+  const menu = document.getElementById(
+    'invoice-actions-menu'
+  );
 
-  if (!menu) {
+  const toggleButton = document.getElementById(
+    'invoice-actions-toggle'
+  );
+
+  const panel = document.getElementById(
+    'invoice-actions-panel'
+  );
+
+  const arrow = document.getElementById(
+    'invoice-actions-arrow'
+  );
+
+  const financeStatusSelect = document.getElementById(
+    'bulk-finance-status'
+  );
+
+  if (
+    !menu ||
+    !toggleButton ||
+    !panel
+  ) {
     return;
   }
 
-  document.addEventListener('click', function (event) {
-    if (!menu.open) {
-      return;
-    }
+  function isMenuOpen() {
+    return !panel.classList.contains(
+      'hidden'
+    );
+  }
 
-    if (menu.contains(event.target)) {
-      return;
-    }
+  function openMenu() {
+    panel.classList.remove(
+      'hidden'
+    );
 
-    menu.open = false;
-  });
+    toggleButton.setAttribute(
+      'aria-expanded',
+      'true'
+    );
 
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') {
-      menu.open = false;
+    if (arrow) {
+      arrow.style.transform = (
+        'rotate(180deg)'
+      );
     }
-  });
+  }
+
+  function closeMenu() {
+    panel.classList.add(
+      'hidden'
+    );
+
+    toggleButton.setAttribute(
+      'aria-expanded',
+      'false'
+    );
+
+    if (arrow) {
+      arrow.style.transform = (
+        'rotate(0deg)'
+      );
+    }
+  }
+
+  function toggleMenu() {
+    if (isMenuOpen()) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  }
+
+  toggleButton.addEventListener(
+    'click',
+    function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      toggleMenu();
+    }
+  );
+
+  /*
+   * Evita que WebKit interprete la interacción con el
+   * selector como un clic fuera del menú.
+   */
+  if (financeStatusSelect) {
+    financeStatusSelect.addEventListener(
+      'pointerdown',
+      function (event) {
+        event.stopPropagation();
+      }
+    );
+
+    financeStatusSelect.addEventListener(
+      'mousedown',
+      function (event) {
+        event.stopPropagation();
+      }
+    );
+
+    financeStatusSelect.addEventListener(
+      'click',
+      function (event) {
+        event.stopPropagation();
+      }
+    );
+
+    financeStatusSelect.addEventListener(
+      'change',
+      function () {
+        /*
+         * Mantiene abierto el menú después de escoger el
+         * estado y actualiza el botón Apply status.
+         */
+        if (
+          typeof window.syncInvoiceBulkStatusControls ===
+          'function'
+        ) {
+          window.syncInvoiceBulkStatusControls();
+        }
+
+        openMenu();
+      }
+    );
+  }
+
+  panel.addEventListener(
+    'click',
+    function (event) {
+      event.stopPropagation();
+    }
+  );
+
+  document.addEventListener(
+    'click',
+    function (event) {
+      if (!isMenuOpen()) {
+        return;
+      }
+
+      if (menu.contains(event.target)) {
+        return;
+      }
+
+      closeMenu();
+    }
+  );
+
+  document.addEventListener(
+    'keydown',
+    function (event) {
+      if (
+        event.key === 'Escape' &&
+        isMenuOpen()
+      ) {
+        closeMenu();
+        toggleButton.focus();
+      }
+    }
+  );
+
+  window.openInvoiceActionsMenu = openMenu;
+  window.closeInvoiceActionsMenu = closeMenu;
 })();
 </script>
 {% endblock %}
