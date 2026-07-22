@@ -26,6 +26,7 @@ from operaciones.views_fotos_zip import (SMARTSHEET_MAX_ZIP_PART_BYTES,
 
 logger = logging.getLogger(__name__)
 
+
 @transaction.atomic
 def mark_billing_sent_to_client(
     submission: ClientSubmission,
@@ -35,8 +36,12 @@ def mark_billing_sent_to_client(
     después de recibir confirmación real del navegador de
     Smartsheet.
 
-    Los descuentos directos no se modifican porque no forman
-    parte del envío al portal del cliente.
+    Reglas:
+
+    - Solo cambia el Billing cuando finance_status == "sent".
+    - No modifica estados financieros posteriores.
+    - No modifica descuentos directos.
+    - No modifica submissions sin Billing asociado.
     """
 
     submission = (
@@ -63,20 +68,27 @@ def mark_billing_sent_to_client(
     ):
         return
 
+    current_status = str(
+        getattr(
+            billing,
+            "finance_status",
+            "",
+        )
+        or ""
+    ).strip()
+
+    # Solo los Billing pendientes de envío al cliente
+    # pueden avanzar a sent_to_client.
+    if current_status != "sent":
+        return
+
     now = timezone.now()
 
-    update_fields = []
+    billing.finance_status = "sent_to_client"
 
-    if getattr(
-        billing,
+    update_fields = [
         "finance_status",
-        "",
-    ) != "sent_to_client":
-        billing.finance_status = "sent_to_client"
-
-        update_fields.append(
-            "finance_status",
-        )
+    ]
 
     if hasattr(
         billing,
@@ -88,22 +100,22 @@ def mark_billing_sent_to_client(
             "finance_updated_at",
         )
 
-    if update_fields:
-        if hasattr(
-            billing,
+    if hasattr(
+        billing,
+        "updated_at",
+    ):
+        update_fields.append(
             "updated_at",
-        ):
-            update_fields.append(
-                "updated_at",
-            )
+        )
 
-        billing.save(
-            update_fields=list(
-                dict.fromkeys(
-                    update_fields,
-                )
+    billing.save(
+        update_fields=list(
+            dict.fromkeys(
+                update_fields,
             )
         )
+    )
+
 
 @transaction.atomic
 def requeue_single_submission_after_captcha_restart(
