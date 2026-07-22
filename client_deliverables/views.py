@@ -1,3 +1,4 @@
+import hashlib
 import html
 import io
 import mimetypes
@@ -9,10 +10,12 @@ import urllib.request
 import zipfile
 from urllib.parse import quote, urlparse
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.files import File
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import FileResponse, HttpResponse, JsonResponse
@@ -67,6 +70,141 @@ def _safe_project_folder_name(project_id):
         slug = "no_project_id"
 
     return f"Project_{slug}"
+
+
+def _temporary_storage_download_url(
+    field_file,
+    filename,
+    expiration_seconds=900,
+):
+    """
+    Genera una URL temporal para descargar directamente desde Wasabi/S3.
+
+    El archivo no pasa por Django ni por Render.
+
+    La URL:
+    - Expira después de 15 minutos por defecto.
+    - Fuerza la descarga con el nombre indicado.
+    - Mantiene el bucket privado.
+    """
+    if not field_file:
+        return ""
+
+    file_name = str(getattr(field_file, "name", "") or "").strip()
+
+    if not file_name:
+        return ""
+
+    storage = field_file.storage
+    safe_filename = _safe_zip_filename(
+        filename,
+        fallback="Hyperlink_Deliverables",
+    )
+
+    content_disposition = (
+        "attachment; "
+        f'filename="{safe_filename}"; '
+        f"filename*=UTF-8''{quote(safe_filename)}"
+    )
+
+    # django-storages con S3Storage / S3Boto3Storage.
+    try:
+        connection = getattr(storage, "connection", None)
+
+        if connection is not None:
+            client = connection.meta.client
+
+            bucket_name = getattr(storage, "bucket_name", "") or getattr(
+                settings, "AWS_STORAGE_BUCKET_NAME", ""
+            )
+
+            if bucket_name:
+                return client.generate_presigned_url(
+                    ClientMethod="get_object",
+                    Params={
+                        "Bucket": bucket_name,
+                        "Key": file_name,
+                        "ResponseContentDisposition": content_disposition,
+                        "ResponseContentType": "application/zip",
+                    },
+                    ExpiresIn=int(expiration_seconds),
+                )
+    except Exception:
+        pass
+
+    # Compatibilidad con backends que permiten parámetros en storage.url().
+    try:
+        return storage.url(
+            file_name,
+            parameters={
+                "ResponseContentDisposition": content_disposition,
+                "ResponseContentType": "application/zip",
+            },
+            expire=int(expiration_seconds),
+        )
+    except TypeError:
+        pass
+    except Exception:
+        return ""
+
+    return ""
+
+
+def _delivery_package_content_signature(package):
+    """
+    Genera una firma estable del contenido activo de un DeliveryPackage.
+
+    Permite reutilizar un ZIP existente solamente cuando los entregables
+    activos continúan siendo exactamente los mismos.
+
+    La firma cambia cuando:
+    - Se agrega o elimina un DeliveryPackageFile.
+    - Cambia el Project ID.
+    - Cambia el tipo de archivo.
+    - Cambia el nombre visible.
+    - Cambia la URL de origen.
+    - Cambia el source_key.
+    - Cambia el archivo físico asociado.
+    - Cambia el orden.
+    - Cambia el estado activo.
+    """
+    digest = hashlib.sha256()
+
+    files = package.files.filter(is_active=True).order_by(
+        "project_id",
+        "order",
+        "id",
+    )
+
+    for file_obj in files:
+        stored_file_name = ""
+
+        if file_obj.file and getattr(file_obj.file, "name", ""):
+            stored_file_name = str(file_obj.file.name)
+
+        parts = [
+            str(file_obj.id),
+            str(file_obj.project_id or ""),
+            str(file_obj.file_type or ""),
+            str(file_obj.display_name or ""),
+            str(file_obj.source_url or ""),
+            str(file_obj.source_key or ""),
+            stored_file_name,
+            str(file_obj.size_bytes or ""),
+            str(file_obj.order or 0),
+            str(bool(file_obj.is_active)),
+            str(file_obj.created_at.isoformat() if file_obj.created_at else ""),
+        ]
+
+        digest.update(
+            "\x1f".join(parts).encode(
+                "utf-8",
+                errors="replace",
+            )
+        )
+        digest.update(b"\x1e")
+
+    return digest.hexdigest()
 
 
 def _clean_filename_piece(value, fallback="deliverable"):
@@ -495,11 +633,13 @@ def _build_delivery_zip_job(job_id, host, port):
     """
     Construye el ZIP general de un DeliveryPackage.
 
-    El ZIP usa:
-    - Un nombre exterior corto y compatible con Windows.
-    - Carpetas por Project ID con longitud limitada.
-    - Nombres internos de archivos con longitud limitada.
-    - Nombres únicos dentro de cada carpeta.
+    Características:
+    - Nombre exterior corto y compatible con Windows.
+    - Carpetas por Project ID.
+    - Nombres internos limitados y únicos.
+    - Progreso real guardado después de cada archivo procesado.
+    - Firma del contenido para reutilización.
+    - Expiración temporal del ZIP.
     """
     job = None
     temp_path = None
@@ -512,19 +652,6 @@ def _build_delivery_zip_job(job_id, host, port):
 
         package = job.package
 
-        job.status = DeliveryZipJob.STATUS_PROCESSING
-        job.started_at = timezone.now()
-        job.error_message = ""
-        job.errors = []
-        job.save(
-            update_fields=[
-                "status",
-                "started_at",
-                "error_message",
-                "errors",
-            ]
-        )
-
         files = list(
             package.files.filter(is_active=True).order_by(
                 "project_id",
@@ -533,13 +660,39 @@ def _build_delivery_zip_job(job_id, host, port):
             )
         )
 
+        current_signature = _delivery_package_content_signature(package)
+
+        job.status = DeliveryZipJob.STATUS_PROCESSING
+        job.started_at = timezone.now()
+        job.finished_at = None
+        job.error_message = ""
+        job.errors = []
         job.total_files = len(files)
-        job.save(update_fields=["total_files"])
+        job.files_added = 0
+        job.files_failed = 0
+        job.content_signature = current_signature
+        job.expires_at = None
+
+        job.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "finished_at",
+                "error_message",
+                "errors",
+                "total_files",
+                "files_added",
+                "files_failed",
+                "content_signature",
+                "expires_at",
+            ]
+        )
 
         if not files:
             job.status = DeliveryZipJob.STATUS_FAILED
             job.error_message = "This package does not have active deliverables."
             job.finished_at = timezone.now()
+
             job.save(
                 update_fields=[
                     "status",
@@ -556,9 +709,9 @@ def _build_delivery_zip_job(job_id, host, port):
 
         used_names_by_folder = {}
         total_files_added = 0
+        total_files_failed = 0
         errors = []
 
-        # Nombre corto para evitar errores de ruta demasiado larga en Windows.
         final_filename = _delivery_zip_filename(package, job)
 
         fd, temp_path = tempfile.mkstemp(suffix=".zip")
@@ -585,6 +738,8 @@ def _build_delivery_zip_job(job_id, host, port):
                 )
 
                 if not result["ok"]:
+                    total_files_failed += 1
+
                     errors.append(
                         {
                             "project_id": project_id,
@@ -592,6 +747,18 @@ def _build_delivery_zip_job(job_id, host, port):
                             "source_url": file_obj.source_url,
                             "error": result["error"],
                         }
+                    )
+
+                    job.files_added = total_files_added
+                    job.files_failed = total_files_failed
+                    job.errors = errors
+
+                    job.save(
+                        update_fields=[
+                            "files_added",
+                            "files_failed",
+                            "errors",
+                        ]
                     )
                     continue
 
@@ -609,6 +776,16 @@ def _build_delivery_zip_job(job_id, host, port):
 
                 total_files_added += 1
 
+                job.files_added = total_files_added
+                job.files_failed = total_files_failed
+
+                job.save(
+                    update_fields=[
+                        "files_added",
+                        "files_failed",
+                    ]
+                )
+
             manifest_lines = [
                 "Hyperlink Networks - Delivery Package",
                 "",
@@ -616,7 +793,7 @@ def _build_delivery_zip_job(job_id, host, port):
                 f"Generated at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 "",
                 f"Files included: {total_files_added}",
-                f"Files with errors: {len(errors)}",
+                f"Files with errors: {total_files_failed}",
                 "",
             ]
 
@@ -642,19 +819,40 @@ def _build_delivery_zip_job(job_id, host, port):
         if total_files_added == 0:
             job.status = DeliveryZipJob.STATUS_FAILED
             job.files_added = 0
-            job.files_failed = len(errors)
+            job.files_failed = total_files_failed
             job.errors = errors
             job.error_message = (
                 "The ZIP could not be generated because none of the "
                 "deliverables could be downloaded."
             )
             job.finished_at = timezone.now()
+
             job.save(
                 update_fields=[
                     "status",
                     "files_added",
                     "files_failed",
                     "errors",
+                    "error_message",
+                    "finished_at",
+                ]
+            )
+            return
+
+        # Verificamos que el package no haya cambiado mientras se construía.
+        final_signature = _delivery_package_content_signature(package)
+
+        if final_signature != current_signature:
+            job.status = DeliveryZipJob.STATUS_FAILED
+            job.error_message = (
+                "The package contents changed while the ZIP was being built. "
+                "Please start the download again."
+            )
+            job.finished_at = timezone.now()
+
+            job.save(
+                update_fields=[
+                    "status",
                     "error_message",
                     "finished_at",
                 ]
@@ -671,10 +869,12 @@ def _build_delivery_zip_job(job_id, host, port):
         job.status = DeliveryZipJob.STATUS_READY
         job.filename = final_filename
         job.files_added = total_files_added
-        job.files_failed = len(errors)
+        job.files_failed = total_files_failed
         job.errors = errors
+        job.content_signature = final_signature
         job.finished_at = timezone.now()
         job.error_message = ""
+        job.set_default_expiration()
 
         job.save(
             update_fields=[
@@ -684,8 +884,10 @@ def _build_delivery_zip_job(job_id, host, port):
                 "files_added",
                 "files_failed",
                 "errors",
+                "content_signature",
                 "finished_at",
                 "error_message",
+                "expires_at",
             ]
         )
 
@@ -694,6 +896,7 @@ def _build_delivery_zip_job(job_id, host, port):
             job.status = DeliveryZipJob.STATUS_FAILED
             job.error_message = str(e)
             job.finished_at = timezone.now()
+
             job.save(
                 update_fields=[
                     "status",
@@ -1588,24 +1791,32 @@ def public_download_file(request, token, file_id):
 
     return response
 
+
 def public_download_all(request, token):
     package = get_object_or_404(
         DeliveryPackage.objects.prefetch_related("files"),
         token=token,
     )
 
-    unavailable_response = _public_package_unavailable_response(request, package)
+    unavailable_response = _public_package_unavailable_response(
+        request,
+        package,
+    )
 
     if unavailable_response:
         return unavailable_response
 
-    if package.requires_access_key and not _is_package_unlocked(request, package):
+    if package.requires_access_key and not _is_package_unlocked(
+        request,
+        package,
+    ):
         return redirect(
             "client_deliverables:public_package_unlock",
             token=package.token,
         )
 
-    files_count = package.files.filter(is_active=True).count()
+    active_files = package.files.filter(is_active=True)
+    files_count = active_files.count()
 
     if not files_count:
         return _render_public_package_unavailable(
@@ -1614,18 +1825,113 @@ def public_download_all(request, token):
             reason="no_files",
         )
 
+    content_signature = _delivery_package_content_signature(package)
+
+    # ============================================================
+    # 1) Limpiar ZIP vencidos de este package
+    # ============================================================
+    expired_jobs = DeliveryZipJob.objects.filter(
+        package=package,
+        status=DeliveryZipJob.STATUS_READY,
+        expires_at__isnull=False,
+        expires_at__lte=timezone.now(),
+    )
+
+    for expired_job in expired_jobs:
+        expired_job.delete_zip_file(save=False)
+        expired_job.status = DeliveryZipJob.STATUS_EXPIRED
+        expired_job.zip_file = None
+        expired_job.filename = ""
+
+        expired_job.save(
+            update_fields=[
+                "status",
+                "zip_file",
+                "filename",
+            ]
+        )
+
+    # ============================================================
+    # 2) Reutilizar un ZIP vigente con el mismo contenido
+    # ============================================================
+    reusable_jobs = DeliveryZipJob.objects.filter(
+        package=package,
+        status=DeliveryZipJob.STATUS_READY,
+        content_signature=content_signature,
+    ).order_by("-finished_at", "-created_at")
+
+    for reusable_job in reusable_jobs:
+        if reusable_job.can_be_reused(content_signature):
+            log_delivery_access(
+                request,
+                package,
+                DeliveryAccessLog.ACTION_DOWNLOAD_ALL,
+                extra={
+                    "zip_job_id": str(reusable_job.id),
+                    "reused": True,
+                },
+            )
+
+            return redirect(
+                "client_deliverables:public_download_all_status",
+                token=package.token,
+                job_id=reusable_job.id,
+            )
+
+    # ============================================================
+    # 3) Reutilizar un job que ya se está construyendo
+    # ============================================================
+    existing_processing_job = (
+        DeliveryZipJob.objects.filter(
+            package=package,
+            content_signature=content_signature,
+            status__in=[
+                DeliveryZipJob.STATUS_PENDING,
+                DeliveryZipJob.STATUS_PROCESSING,
+            ],
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    if existing_processing_job:
+        log_delivery_access(
+            request,
+            package,
+            DeliveryAccessLog.ACTION_DOWNLOAD_ALL,
+            extra={
+                "zip_job_id": str(existing_processing_job.id),
+                "reused_processing_job": True,
+            },
+        )
+
+        return redirect(
+            "client_deliverables:public_download_all_status",
+            token=package.token,
+            job_id=existing_processing_job.id,
+        )
+
+    # ============================================================
+    # 4) Crear un ZIP nuevo
+    # ============================================================
     job = DeliveryZipJob.objects.create(
         package=package,
         status=DeliveryZipJob.STATUS_PENDING,
         total_files=files_count,
-        requested_by=request.user if request.user.is_authenticated else None,
+        files_added=0,
+        files_failed=0,
+        content_signature=content_signature,
+        requested_by=(request.user if request.user.is_authenticated else None),
     )
 
     log_delivery_access(
         request,
         package,
         DeliveryAccessLog.ACTION_DOWNLOAD_ALL,
-        extra={"zip_job_id": str(job.id)},
+        extra={
+            "zip_job_id": str(job.id),
+            "reused": False,
+        },
     )
 
     _start_zip_job_background(job, request)
@@ -1635,6 +1941,7 @@ def public_download_all(request, token):
         token=package.token,
         job_id=job.id,
     )
+
 
 def public_download_all_status(request, token, job_id):
     package = get_object_or_404(
@@ -1668,10 +1975,17 @@ def public_download_all_status(request, token, job_id):
         },
     )
 
-def public_download_all_status_json(request, token, job_id):
-    package = get_object_or_404(DeliveryPackage, token=token)
 
-    unavailable_response = _public_package_unavailable_response(request, package)
+def public_download_all_status_json(request, token, job_id):
+    package = get_object_or_404(
+        DeliveryPackage,
+        token=token,
+    )
+
+    unavailable_response = _public_package_unavailable_response(
+        request,
+        package,
+    )
 
     if unavailable_response:
         return JsonResponse(
@@ -1683,7 +1997,10 @@ def public_download_all_status_json(request, token, job_id):
             status=410,
         )
 
-    if package.requires_access_key and not _is_package_unlocked(request, package):
+    if package.requires_access_key and not _is_package_unlocked(
+        request,
+        package,
+    ):
         return JsonResponse(
             {
                 "ok": False,
@@ -1699,12 +2016,29 @@ def public_download_all_status_json(request, token, job_id):
         package=package,
     )
 
+    if job.status == DeliveryZipJob.STATUS_READY and job.is_expired():
+        job.delete_zip_file(save=False)
+        job.status = DeliveryZipJob.STATUS_EXPIRED
+        job.zip_file = None
+        job.filename = ""
+
+        job.save(
+            update_fields=[
+                "status",
+                "zip_file",
+                "filename",
+            ]
+        )
+
     download_url = ""
 
     if job.is_ready():
         download_url = reverse(
             "client_deliverables:public_download_all_file",
-            args=[package.token, job.id],
+            args=[
+                package.token,
+                job.id,
+            ],
         )
 
     return JsonResponse(
@@ -1713,22 +2047,34 @@ def public_download_all_status_json(request, token, job_id):
             "status": job.status,
             "files_added": job.files_added,
             "files_failed": job.files_failed,
+            "processed_files": job.processed_files,
             "total_files": job.total_files,
+            "progress_percentage": job.progress_percentage,
             "error_message": job.error_message,
             "download_url": download_url,
+            "expires_at": (job.expires_at.isoformat() if job.expires_at else None),
         }
     )
 
 
 def public_download_all_file(request, token, job_id):
-    package = get_object_or_404(DeliveryPackage, token=token)
+    package = get_object_or_404(
+        DeliveryPackage,
+        token=token,
+    )
 
-    unavailable_response = _public_package_unavailable_response(request, package)
+    unavailable_response = _public_package_unavailable_response(
+        request,
+        package,
+    )
 
     if unavailable_response:
         return unavailable_response
 
-    if package.requires_access_key and not _is_package_unlocked(request, package):
+    if package.requires_access_key and not _is_package_unlocked(
+        request,
+        package,
+    ):
         return redirect(
             "client_deliverables:public_package_unlock",
             token=package.token,
@@ -1740,8 +2086,36 @@ def public_download_all_file(request, token, job_id):
         package=package,
     )
 
+    if job.status == DeliveryZipJob.STATUS_READY and job.is_expired():
+        job.delete_zip_file(save=False)
+        job.status = DeliveryZipJob.STATUS_EXPIRED
+        job.zip_file = None
+        job.filename = ""
+
+        job.save(
+            update_fields=[
+                "status",
+                "zip_file",
+                "filename",
+            ]
+        )
+
+        messages.error(
+            request,
+            "This temporary ZIP file has expired. Please generate it again.",
+        )
+
+        return redirect(
+            "client_deliverables:public_package_detail",
+            token=package.token,
+        )
+
     if not job.is_ready():
-        messages.error(request, "The ZIP file is not ready yet.")
+        messages.error(
+            request,
+            "The ZIP file is not ready or is no longer available.",
+        )
+
         return redirect(
             "client_deliverables:public_download_all_status",
             token=package.token,
@@ -1750,15 +2124,29 @@ def public_download_all_file(request, token, job_id):
 
     filename = job.filename or f"{slugify(package.name).replace('-', '_')}.zip"
 
-    response = FileResponse(
-        job.zip_file.open("rb"),
-        as_attachment=True,
+    download_url = _temporary_storage_download_url(
+        field_file=job.zip_file,
         filename=filename,
-        content_type="application/zip",
+        expiration_seconds=900,
     )
-    response["X-Content-Type-Options"] = "nosniff"
 
-    return response
+    if not download_url:
+        messages.error(
+            request,
+            "The temporary download link could not be generated. " "Please try again.",
+        )
+
+        return redirect(
+            "client_deliverables:public_download_all_status",
+            token=package.token,
+            job_id=job.id,
+        )
+
+    job.mark_downloaded()
+
+    return redirect(download_url)
+
+
 # ============================================================
 # Client portal
 # ============================================================

@@ -6,6 +6,8 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -566,15 +568,23 @@ class DeliveryZipJob(models.Model):
     STATUS_PROCESSING = "processing"
     STATUS_READY = "ready"
     STATUS_FAILED = "failed"
+    STATUS_EXPIRED = "expired"
 
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
         (STATUS_PROCESSING, "Processing"),
         (STATUS_READY, "Ready"),
         (STATUS_FAILED, "Failed"),
+        (STATUS_EXPIRED, "Expired"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    DEFAULT_EXPIRATION_HOURS = 24
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
 
     package = models.ForeignKey(
         DeliveryPackage,
@@ -595,14 +605,41 @@ class DeliveryZipJob(models.Model):
         blank=True,
     )
 
-    filename = models.CharField(max_length=255, blank=True)
+    filename = models.CharField(
+        max_length=255,
+        blank=True,
+    )
 
-    total_files = models.PositiveIntegerField(default=0)
-    files_added = models.PositiveIntegerField(default=0)
-    files_failed = models.PositiveIntegerField(default=0)
+    total_files = models.PositiveIntegerField(
+        default=0,
+    )
 
-    error_message = models.TextField(blank=True)
-    errors = models.JSONField(default=list, blank=True)
+    files_added = models.PositiveIntegerField(
+        default=0,
+    )
+
+    files_failed = models.PositiveIntegerField(
+        default=0,
+    )
+
+    error_message = models.TextField(
+        blank=True,
+    )
+
+    errors = models.JSONField(
+        default=list,
+        blank=True,
+    )
+
+    content_signature = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Firma de los deliverables incluidos. Permite reutilizar un ZIP "
+            "solo cuando el contenido del package no ha cambiado."
+        ),
+    )
 
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -612,9 +649,32 @@ class DeliveryZipJob(models.Model):
         related_name="delivery_zip_jobs_requested",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Fecha en que el ZIP temporal debe dejar de reutilizarse.",
+    )
+
+    last_downloaded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Última fecha en que el ZIP generado fue descargado.",
+    )
 
     class Meta:
         verbose_name = "Delivery ZIP Job"
@@ -623,13 +683,162 @@ class DeliveryZipJob(models.Model):
         indexes = [
             models.Index(fields=["package", "status"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["status", "expires_at"]),
+            models.Index(fields=["package", "content_signature", "status"]),
         ]
 
     def __str__(self):
         return f"{self.package} - {self.status}"
 
+    @property
+    def processed_files(self):
+        """
+        Total de archivos que ya fueron procesados,
+        incluyendo archivos agregados y archivos con error.
+        """
+        return (self.files_added or 0) + (self.files_failed or 0)
+
+    @property
+    def progress_percentage(self):
+        """
+        Porcentaje real de avance del ZIP.
+
+        Ejemplo:
+        9 archivos procesados de 20 = 45%.
+        """
+        if not self.total_files:
+            return 0
+
+        processed = min(
+            self.processed_files,
+            self.total_files,
+        )
+
+        return int((processed / self.total_files) * 100)
+
+    def set_default_expiration(self, hours=None):
+        """
+        Define cuánto tiempo permanecerá disponible el ZIP temporal.
+        """
+        hours = hours or self.DEFAULT_EXPIRATION_HOURS
+        self.expires_at = timezone.now() + timedelta(hours=hours)
+
+    def is_expired(self):
+        """
+        Indica si el ZIP temporal ya venció.
+        """
+        return bool(self.expires_at and timezone.now() >= self.expires_at)
+
     def is_ready(self):
-        return self.status == self.STATUS_READY and bool(self.zip_file)
+        """
+        El ZIP solamente está disponible cuando:
+        - El trabajo terminó correctamente.
+        - Existe un archivo en storage.
+        - No ha vencido.
+        """
+        return (
+            self.status == self.STATUS_READY
+            and bool(self.zip_file)
+            and not self.is_expired()
+        )
 
     def is_failed(self):
         return self.status == self.STATUS_FAILED
+
+    def can_be_reused(self, content_signature=""):
+        """
+        Permite reutilizar un ZIP ya generado cuando:
+        - Sigue listo.
+        - No ha vencido.
+        - Existe en storage.
+        - La firma del contenido coincide.
+        """
+        if not self.is_ready():
+            return False
+
+        expected_signature = str(content_signature or "").strip()
+        current_signature = str(self.content_signature or "").strip()
+
+        if expected_signature and current_signature != expected_signature:
+            return False
+
+        try:
+            return self.zip_file.storage.exists(self.zip_file.name)
+        except Exception:
+            return False
+
+    def mark_downloaded(self):
+        """
+        Registra cuándo fue descargado el ZIP.
+        """
+        self.last_downloaded_at = timezone.now()
+        self.save(update_fields=["last_downloaded_at"])
+
+    def mark_expired(self, save=True):
+        """
+        Marca el trabajo como vencido.
+        """
+        self.status = self.STATUS_EXPIRED
+
+        if save:
+            self.save(update_fields=["status"])
+
+    def delete_zip_file(self, save=True):
+        """
+        Elimina físicamente el ZIP desde Wasabi/S3.
+
+        No elimina los archivos originales del package.
+        """
+        if not self.zip_file:
+            return False
+
+        storage = self.zip_file.storage
+        file_name = self.zip_file.name
+
+        try:
+            if file_name and storage.exists(file_name):
+                storage.delete(file_name)
+        except Exception:
+            return False
+
+        self.zip_file = None
+        self.filename = ""
+
+        if save and self.pk:
+            self.save(
+                update_fields=[
+                    "zip_file",
+                    "filename",
+                ]
+            )
+
+        return True
+
+
+@receiver(post_delete, sender=DeliveryZipJob)
+def delete_delivery_zip_job_file(sender, instance, **kwargs):
+    """
+    Elimina físicamente de Wasabi/S3 el ZIP asociado cuando:
+    - Se elimina un DeliveryZipJob.
+    - Se elimina un DeliveryPackage y Django elimina sus jobs en cascada.
+    - Se eliminan jobs mediante un queryset.
+    """
+    zip_file = getattr(instance, "zip_file", None)
+
+    if not zip_file:
+        return
+
+    file_name = str(getattr(zip_file, "name", "") or "").strip()
+
+    if not file_name:
+        return
+
+    try:
+        storage = zip_file.storage
+
+        if storage.exists(file_name):
+            storage.delete(file_name)
+    except Exception:
+        # No bloqueamos la eliminación del registro si Wasabi
+        # presenta temporalmente un error.
+        pass
