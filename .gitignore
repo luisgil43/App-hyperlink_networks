@@ -75,3 +75,11 @@ build/
 .pnp.*
 # Temporary Client Submission screenshots
 tmp/client_submissions/screenshots/
+
+# Temporary Client Submission files
+
+tmp/client_submissions/screenshots/
+
+tmp/client_submissions/uploads/
+
+tmp/client_submissions/**/*.zip

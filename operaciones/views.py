@@ -6975,16 +6975,24 @@ def listar_billing(request):
     # ============================================================
     # Visibilidad Operaciones
     # ============================================================
+    operations_status_filter = (
+        Q(finance_status__isnull=True)
+        | Q(finance_status="")
+        | Q(finance_status="none")
+        | Q(finance_status="review_discount")
+        | Q(finance_status="rejected")
+    )
+    
     visible_filter = (
-        Q(is_direct_discount=True)
-        & Q(finance_sent_at__isnull=True)
-        & ~Q(finance_status="paid")
-    ) | (
-        Q(is_direct_discount=False)
-        & ~Q(finance_status__in=["sent", "pending", "paid", "in_review"])
+        Q(finance_sent_at__isnull=True)
+        & operations_status_filter
     )
 
-    qs = SesionBilling.objects.filter(visible_filter).order_by("-creado_en")
+    qs = (
+        SesionBilling.objects 
+        .filter(visible_filter)
+        .order_by("-creado_en")
+    )
 
     # ============================================================
     # Restricción por proyectos
