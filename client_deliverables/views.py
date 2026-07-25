@@ -157,18 +157,20 @@ def _delivery_package_content_signature(package):
     Permite reutilizar un ZIP existente solamente cuando los entregables
     activos continúan siendo exactamente los mismos.
 
-    La firma cambia cuando:
-    - Se agrega o elimina un DeliveryPackageFile.
-    - Cambia el Project ID.
-    - Cambia el tipo de archivo.
-    - Cambia el nombre visible.
-    - Cambia la URL de origen.
-    - Cambia el source_key.
-    - Cambia el archivo físico asociado.
-    - Cambia el orden.
-    - Cambia el estado activo.
+    La versión del formato también forma parte de la firma. De esta manera,
+    cuando cambia la estructura interna del ZIP, los archivos generados con
+    el formato anterior no vuelven a reutilizarse.
+
+    Formato actual:
+    - Los Photos ZIP se extraen dentro de la carpeta de su Project ID.
+    - No se incluyen ZIP de fotografías dentro del ZIP general.
     """
     digest = hashlib.sha256()
+
+    # Cambiar esta versión cuando cambie nuevamente la estructura
+    # interna del ZIP general.
+    digest.update(b"client_deliverables_zip_format_v2_flatten_photos_zip")
+    digest.update(b"\x1e")
 
     files = package.files.filter(is_active=True).order_by(
         "project_id",
@@ -628,18 +630,331 @@ def _fetch_delivery_file_bytes(request_context, package, file_obj):
             "error": f"Could not generate internal source: {e}",
         }
 
+def _safe_internal_zip_folder_piece(value, fallback="folder"):
+    """
+    Limpia un componente de carpeta proveniente de un ZIP interno.
+
+    Evita:
+    - rutas absolutas;
+    - ../
+    - caracteres incompatibles;
+    - nombres excesivamente largos.
+    """
+    value = html.unescape(
+        str(value or "").strip()
+    )
+
+    value = value.replace("\\", "/")
+    value = value.strip("/")
+
+    if value in {
+        "",
+        ".",
+        "..",
+    }:
+        value = fallback
+
+    value = slugify(value).replace("-", "_") or fallback
+    value = value[:60].rstrip("._-")
+
+    return value or fallback
+
+
+def _safe_internal_zip_file_name(value, fallback="photo"):
+    """
+    Limpia el nombre de un archivo extraído de un Photos ZIP,
+    conservando su extensión.
+    """
+    original_name = os.path.basename(
+        str(value or "").replace("\\", "/")
+    )
+
+    base, ext = _clean_filename_piece(
+        original_name,
+        fallback=fallback,
+    )
+
+    if not ext:
+        ext = ".bin"
+
+    return f"{base}{ext}"
+
+
+def _unique_archive_path(
+    used_archive_paths,
+    folder_path,
+    filename,
+):
+    """
+    Genera una ruta única dentro del ZIP general.
+
+    Ejemplo:
+
+        Project_123/photo.jpg
+        Project_123/photo_2.jpg
+    """
+    folder_path = str(folder_path or "").strip("/")
+
+    filename = _safe_zip_filename(
+        filename,
+        fallback="deliverable",
+    )
+
+    base, ext = os.path.splitext(
+        filename,
+    )
+
+    if folder_path:
+        candidate = f"{folder_path}/{filename}"
+    else:
+        candidate = filename
+
+    counter = 2
+
+    while candidate in used_archive_paths:
+        numbered_filename = f"{base}_{counter}{ext}"
+
+        if folder_path:
+            candidate = f"{folder_path}/{numbered_filename}"
+        else:
+            candidate = numbered_filename
+
+        counter += 1
+
+    used_archive_paths.add(
+        candidate,
+    )
+
+    return candidate
+
+
+def _flatten_photos_zip_into_delivery_zip(
+    *,
+    destination_zip,
+    photos_zip_content,
+    project_folder,
+    used_archive_paths,
+):
+    """
+    Abre un Photos ZIP y copia directamente sus archivos dentro de
+    la carpeta correspondiente del ZIP general.
+
+    Estructura original habitual:
+
+        PROJECT_ID.zip
+        └── PROJECT_ID/
+            ├── Photo 1.jpg
+            └── Photo 2.jpg
+
+    Estructura final:
+
+        Hyperlink_Deliverables.zip
+        └── Project_PROJECT_ID/
+            ├── photo_1.jpg
+            └── photo_2.jpg
+
+    La carpeta raíz repetida del ZIP de fotografías se elimina.
+
+    Devuelve:
+        {
+            "files_added": int,
+            "files_skipped": int,
+        }
+    """
+    if not photos_zip_content:
+        raise RuntimeError(
+            "The Photos ZIP is empty."
+        )
+
+    try:
+        source_buffer = io.BytesIO(
+            photos_zip_content,
+        )
+
+        with zipfile.ZipFile(
+            source_buffer,
+            mode="r",
+        ) as source_zip:
+            file_members = [
+                member
+                for member in source_zip.infolist()
+                if not member.is_dir()
+            ]
+
+            if not file_members:
+                raise RuntimeError(
+                    "The Photos ZIP does not contain any files."
+                )
+
+            # ====================================================
+            # Detectar una carpeta raíz común.
+            #
+            # Ejemplo:
+            #   0087aa_02_cp_564_ped_462/photo.jpg
+            #
+            # La carpeta inicial se elimina porque ya tenemos:
+            #   Project_0087aa_02_cp_564_ped_462/
+            # ====================================================
+
+            normalized_member_parts = []
+
+            for member in file_members:
+                normalized_name = str(
+                    member.filename or ""
+                ).replace(
+                    "\\",
+                    "/",
+                )
+
+                parts = [
+                    part
+                    for part in normalized_name.split("/")
+                    if part not in {
+                        "",
+                        ".",
+                        "..",
+                    }
+                ]
+
+                normalized_member_parts.append(
+                    (
+                        member,
+                        parts,
+                    )
+                )
+
+            common_root = ""
+
+            first_components = {
+                parts[0]
+                for _member, parts in normalized_member_parts
+                if len(parts) >= 2
+            }
+
+            all_have_parent_folder = all(
+                len(parts) >= 2
+                for _member, parts in normalized_member_parts
+            )
+
+            if (
+                all_have_parent_folder
+                and len(first_components) == 1
+            ):
+                common_root = next(
+                    iter(
+                        first_components,
+                    )
+                )
+
+            files_added = 0
+            files_skipped = 0
+
+            for member, parts in normalized_member_parts:
+                if not parts:
+                    files_skipped += 1
+                    continue
+
+                if (
+                    common_root
+                    and parts[0] == common_root
+                ):
+                    parts = parts[1:]
+
+                if not parts:
+                    files_skipped += 1
+                    continue
+
+                raw_filename = parts[-1]
+
+                safe_filename = _safe_internal_zip_file_name(
+                    raw_filename,
+                    fallback="photo",
+                )
+
+                nested_folders = []
+
+                for folder_piece in parts[:-1]:
+                    safe_folder_piece = (
+                        _safe_internal_zip_folder_piece(
+                            folder_piece,
+                            fallback="folder",
+                        )
+                    )
+
+                    if safe_folder_piece:
+                        nested_folders.append(
+                            safe_folder_piece,
+                        )
+
+                target_folder_parts = [
+                    project_folder,
+                    *nested_folders,
+                ]
+
+                target_folder = "/".join(
+                    part.strip("/")
+                    for part in target_folder_parts
+                    if str(part or "").strip("/")
+                )
+
+                archive_path = _unique_archive_path(
+                    used_archive_paths,
+                    target_folder,
+                    safe_filename,
+                )
+
+                try:
+                    member_content = source_zip.read(
+                        member,
+                    )
+
+                except Exception as exc:
+                    raise RuntimeError(
+                        (
+                            "A file inside the Photos ZIP "
+                            f"could not be read: {member.filename}. "
+                            f"Error: {exc}"
+                        )
+                    ) from exc
+
+                destination_zip.writestr(
+                    archive_path,
+                    member_content,
+                )
+
+                files_added += 1
+
+            if files_added == 0:
+                raise RuntimeError(
+                    "No valid files could be extracted from the Photos ZIP."
+                )
+
+            return {
+                "files_added": files_added,
+                "files_skipped": files_skipped,
+            }
+
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError(
+            "The Photos ZIP is invalid or corrupted."
+        ) from exc
+
 
 def _build_delivery_zip_job(job_id, host, port):
     """
     Construye el ZIP general de un DeliveryPackage.
 
     Características:
+
     - Nombre exterior corto y compatible con Windows.
     - Carpetas por Project ID.
     - Nombres internos limitados y únicos.
-    - Progreso real guardado después de cada archivo procesado.
+    - Progreso real guardado después de cada entregable procesado.
     - Firma del contenido para reutilización.
     - Expiración temporal del ZIP.
+    - Los entregables Photos ZIP se extraen directamente dentro
+      de la carpeta de su Project ID.
+    - Nunca se agrega un Photos ZIP dentro del ZIP general.
     """
     job = None
     temp_path = None
@@ -648,19 +963,25 @@ def _build_delivery_zip_job(job_id, host, port):
         job = DeliveryZipJob.objects.select_related(
             "package",
             "package__created_by",
-        ).get(pk=job_id)
+        ).get(
+            pk=job_id,
+        )
 
         package = job.package
 
         files = list(
-            package.files.filter(is_active=True).order_by(
+            package.files.filter(
+                is_active=True,
+            ).order_by(
                 "project_id",
                 "order",
                 "id",
             )
         )
 
-        current_signature = _delivery_package_content_signature(package)
+        current_signature = _delivery_package_content_signature(
+            package,
+        )
 
         job.status = DeliveryZipJob.STATUS_PROCESSING
         job.started_at = timezone.now()
@@ -700,6 +1021,7 @@ def _build_delivery_zip_job(job_id, host, port):
                     "finished_at",
                 ]
             )
+
             return
 
         request_context = _ZipBuildRequestContext(
@@ -708,25 +1030,39 @@ def _build_delivery_zip_job(job_id, host, port):
         )
 
         used_names_by_folder = {}
+        used_archive_paths = set()
+
         total_files_added = 0
         total_files_failed = 0
+        total_extracted_photo_files = 0
+
         errors = []
 
-        final_filename = _delivery_zip_filename(package, job)
+        final_filename = _delivery_zip_filename(
+            package,
+            job,
+        )
 
-        fd, temp_path = tempfile.mkstemp(suffix=".zip")
-        os.close(fd)
+        fd, temp_path = tempfile.mkstemp(
+            suffix=".zip",
+        )
+
+        os.close(
+            fd,
+        )
 
         with zipfile.ZipFile(
             temp_path,
-            "w",
+            mode="w",
             compression=zipfile.ZIP_DEFLATED,
             allowZip64=True,
         ) as zip_file:
             for file_obj in files:
                 project_id = str(file_obj.project_id or "NO_PROJECT_ID").strip()
 
-                folder_name = _safe_project_folder_name(project_id)
+                folder_name = _safe_project_folder_name(
+                    project_id,
+                )
 
                 if folder_name not in used_names_by_folder:
                     used_names_by_folder[folder_name] = set()
@@ -760,40 +1096,108 @@ def _build_delivery_zip_job(job_id, host, port):
                             "errors",
                         ]
                     )
+
                     continue
 
-                filename = _unique_name(
-                    used_names_by_folder[folder_name],
-                    result["filename"],
-                )
+                try:
+                    # ============================================
+                    # Photos ZIP:
+                    #
+                    # No agregar el ZIP como archivo.
+                    # Extraer sus fotografías dentro de la carpeta
+                    # correspondiente al Project ID.
+                    # ============================================
 
-                archive_path = f"{folder_name}/{filename}"
+                    if file_obj.file_type == DeliveryPackageFile.FILE_PHOTOS_ZIP:
+                        flatten_result = _flatten_photos_zip_into_delivery_zip(
+                            destination_zip=zip_file,
+                            photos_zip_content=result["content"],
+                            project_folder=folder_name,
+                            used_archive_paths=used_archive_paths,
+                        )
 
-                zip_file.writestr(
-                    archive_path,
-                    result["content"],
-                )
+                        total_extracted_photo_files += int(
+                            flatten_result.get(
+                                "files_added",
+                                0,
+                            )
+                            or 0
+                        )
 
-                total_files_added += 1
+                    # ============================================
+                    # Otros entregables:
+                    #
+                    # Excel, PDF, documentos y archivos normales
+                    # se agregan sin modificar su contenido.
+                    # ============================================
 
-                job.files_added = total_files_added
-                job.files_failed = total_files_failed
+                    else:
+                        filename = _unique_name(
+                            used_names_by_folder[folder_name],
+                            result["filename"],
+                        )
 
-                job.save(
-                    update_fields=[
-                        "files_added",
-                        "files_failed",
-                    ]
-                )
+                        archive_path = _unique_archive_path(
+                            used_archive_paths,
+                            folder_name,
+                            filename,
+                        )
+
+                        zip_file.writestr(
+                            archive_path,
+                            result["content"],
+                        )
+
+                    total_files_added += 1
+
+                    job.files_added = total_files_added
+                    job.files_failed = total_files_failed
+
+                    job.save(
+                        update_fields=[
+                            "files_added",
+                            "files_failed",
+                        ]
+                    )
+
+                except Exception as exc:
+                    total_files_failed += 1
+
+                    errors.append(
+                        {
+                            "project_id": project_id,
+                            "display_name": file_obj.display_name,
+                            "source_url": file_obj.source_url,
+                            "error": str(exc),
+                        }
+                    )
+
+                    job.files_added = total_files_added
+                    job.files_failed = total_files_failed
+                    job.errors = errors
+
+                    job.save(
+                        update_fields=[
+                            "files_added",
+                            "files_failed",
+                            "errors",
+                        ]
+                    )
+
+                    continue
 
             manifest_lines = [
                 "Hyperlink Networks - Delivery Package",
                 "",
                 f"Package: {package.name}",
-                f"Generated at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                ("Generated at: " f"{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"),
                 "",
-                f"Files included: {total_files_added}",
-                f"Files with errors: {total_files_failed}",
+                f"Deliverables included: {total_files_added}",
+                (
+                    "Photo files extracted from Photos ZIP files: "
+                    f"{total_extracted_photo_files}"
+                ),
+                f"Deliverables with errors: {total_files_failed}",
                 "",
             ]
 
@@ -805,15 +1209,23 @@ def _build_delivery_zip_job(job_id, host, port):
                         [
                             "",
                             f"Project ID: {error['project_id']}",
-                            f"Deliverable: {error['display_name']}",
+                            ("Deliverable: " f"{error['display_name']}"),
                             f"Source: {error['source_url']}",
                             f"Error: {error['error']}",
                         ]
                     )
 
-            zip_file.writestr(
+            readme_path = _unique_archive_path(
+                used_archive_paths,
+                "",
                 "README.txt",
-                "\n".join(manifest_lines),
+            )
+
+            zip_file.writestr(
+                readme_path,
+                "\n".join(
+                    manifest_lines,
+                ),
             )
 
         if total_files_added == 0:
@@ -823,7 +1235,7 @@ def _build_delivery_zip_job(job_id, host, port):
             job.errors = errors
             job.error_message = (
                 "The ZIP could not be generated because none of the "
-                "deliverables could be downloaded."
+                "deliverables could be downloaded or extracted."
             )
             job.finished_at = timezone.now()
 
@@ -837,10 +1249,14 @@ def _build_delivery_zip_job(job_id, host, port):
                     "finished_at",
                 ]
             )
+
             return
 
-        # Verificamos que el package no haya cambiado mientras se construía.
-        final_signature = _delivery_package_content_signature(package)
+        # Verificar que el package no haya cambiado mientras
+        # se construía el ZIP.
+        final_signature = _delivery_package_content_signature(
+            package,
+        )
 
         if final_signature != current_signature:
             job.status = DeliveryZipJob.STATUS_FAILED
@@ -857,9 +1273,13 @@ def _build_delivery_zip_job(job_id, host, port):
                     "finished_at",
                 ]
             )
+
             return
 
-        with open(temp_path, "rb") as fh:
+        with open(
+            temp_path,
+            "rb",
+        ) as fh:
             job.zip_file.save(
                 final_filename,
                 File(fh),
@@ -891,10 +1311,12 @@ def _build_delivery_zip_job(job_id, host, port):
             ]
         )
 
-    except Exception as e:
+    except Exception as exc:
         if job:
             job.status = DeliveryZipJob.STATUS_FAILED
-            job.error_message = str(e)
+            job.error_message = str(
+                exc,
+            )
             job.finished_at = timezone.now()
 
             job.save(
@@ -908,7 +1330,10 @@ def _build_delivery_zip_job(job_id, host, port):
     finally:
         if temp_path:
             try:
-                os.remove(temp_path)
+                os.remove(
+                    temp_path,
+                )
+
             except OSError:
                 pass
 
