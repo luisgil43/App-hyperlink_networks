@@ -51,6 +51,234 @@ ITEMS_HEADERS = [
 # =============================================================================
 
 
+def _normalize_splitter_ratio(value):
+    """
+    Normaliza una relación de splitter y devuelve únicamente
+    uno de los valores admitidos para Bulk Billing.
+
+    Ejemplos aceptados:
+
+    - 1:2
+    - 1x2
+    - 1 X 2
+    - SPLITTER 1:4
+    - S-1:8(P0049:S3)
+    - T-1X16
+
+    Retorna:
+
+    - "2"
+    - "4"
+    - "8"
+    - "16"
+
+    Si no logra reconocer la relación, retorna una cadena vacía.
+    """
+    text = _clean_cell(value).upper()
+
+    if not text:
+        return ""
+
+    text = text.replace("×", "X")
+
+    match = re.search(
+        r"1\s*[:X]\s*(2|4|8|16)(?!\d)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return ""
+
+    return match.group(1)
+
+
+def _extract_splitter_ratio_from_line(splitter_line):
+    """
+    Extrae la relación de una línea almacenada en splitter_lines.
+
+    Estructura habitual:
+
+        {
+            "level": "P",
+            "ratio": "1:8",
+            "raw_text": "P-1:8(P0049)",
+        }
+
+    También soporta valores antiguos guardados como texto.
+    """
+    if isinstance(splitter_line, dict):
+        ratio = _normalize_splitter_ratio(splitter_line.get("ratio"))
+
+        if ratio:
+            return ratio
+
+        ratio = _normalize_splitter_ratio(splitter_line.get("raw_text"))
+
+        if ratio:
+            return ratio
+
+        return _normalize_splitter_ratio(splitter_line.get("value"))
+
+    return _normalize_splitter_ratio(splitter_line)
+
+
+def _c110_quantities_by_ratio(item):
+    """
+    Devuelve las cantidades facturables de C-110 agrupadas
+    según la relación de cada splitter.
+
+    Esta lógica se aplica solamente al exportar el Excel.
+    No modifica Plan Reader, rules_engine ni los valores guardados.
+
+    Regla:
+
+    - Se conservan las líneas válidas en su orden original.
+    - Se excluye únicamente la última línea cuando representa
+      un splitter PC integrado en la caja.
+
+    Splitters integrados:
+
+    - S-1:8
+    - T-1:4
+    - T-1:2
+
+    Ejemplo:
+
+        P-1:8
+        S-1:2
+        T-1:4
+
+    El T-1:4 es la última línea y viene integrado en la caja.
+
+    Resultado:
+
+        C-110.8 = 1
+        C-110.2 = 1
+
+    No se exporta C-110.4.
+    """
+    quantities = {
+        "2": 0,
+        "4": 0,
+        "8": 0,
+        "16": 0,
+    }
+
+    integrated_pc_splitters = {
+        ("S", "8"),
+        ("T", "4"),
+        ("T", "2"),
+    }
+
+    splitter_lines = item.splitter_lines or []
+
+    if not isinstance(splitter_lines, list):
+        splitter_lines = []
+
+    normalized_lines = []
+
+    for splitter_line in splitter_lines:
+        if not isinstance(splitter_line, dict):
+            continue
+
+        level = _clean_cell(splitter_line.get("level")).upper()
+
+        ratio = _extract_splitter_ratio_from_line(splitter_line)
+
+        if level not in {
+            "P",
+            "S",
+            "T",
+        }:
+            continue
+
+        if ratio not in quantities:
+            continue
+
+        normalized_lines.append(
+            {
+                "level": level,
+                "ratio": ratio,
+            }
+        )
+
+    if normalized_lines:
+        last_line = normalized_lines[-1]
+
+        last_key = (
+            last_line["level"],
+            last_line["ratio"],
+        )
+
+        if last_key in integrated_pc_splitters:
+            normalized_lines = normalized_lines[:-1]
+
+        for splitter_line in normalized_lines:
+            ratio = splitter_line["ratio"]
+            quantities[ratio] += 1
+
+        return quantities
+
+    # ==========================================================
+    # Compatibilidad con registros antiguos sin splitter_lines.
+    # Solo se utiliza cuando no existen líneas JSON válidas.
+    # ==========================================================
+
+    legacy_lines = []
+
+    if bool(item.has_p):
+        legacy_lines.append(
+            {
+                "level": "P",
+                "ratio": "8",
+            }
+        )
+
+    s_ratio = _normalize_splitter_ratio(item.s_splitter)
+
+    if s_ratio:
+        legacy_lines.append(
+            {
+                "level": "S",
+                "ratio": s_ratio,
+            }
+        )
+
+    t_ratio = _normalize_splitter_ratio(item.t_splitter)
+
+    if t_ratio:
+        legacy_lines.append(
+            {
+                "level": "T",
+                "ratio": t_ratio,
+            }
+        )
+
+    if legacy_lines:
+        last_line = legacy_lines[-1]
+
+        last_key = (
+            last_line["level"],
+            last_line["ratio"],
+        )
+
+        if last_key in integrated_pc_splitters:
+            legacy_lines = legacy_lines[:-1]
+
+        for splitter_line in legacy_lines:
+            ratio = splitter_line["ratio"]
+
+            if ratio in quantities:
+                quantities[ratio] += 1
+
+        return quantities
+
+    # No se genera C-110 genérico cuando no se puede determinar
+    # con seguridad la relación del splitter.
+    return quantities
+
+
 def _clean_cell(value) -> str:
     if value is None:
         return ""
@@ -337,7 +565,7 @@ def _write_instructions_sheet(ws_help):
     line(
         "Step 3",
         "Review the Items sheet.",
-        "Rows are generated from C-108, C-109 and C-110 quantities.",
+        "Rows are generated from C-108, C-109 and specific C-110 splitter quantities.",
     )
     line(
         "Step 4",
@@ -384,9 +612,30 @@ def _write_instructions_sheet(ws_help):
     blank()
 
     section("5. Items sheet", blue_fill)
-    line("bulk_key", "Required", "Matches Billings sheet.")
-    line("job_code", "Required", "Generated from Plan Reader item quantities.")
-    line("quantity", "Required", "Always positive for normal billing.")
+    line(
+        "bulk_key",
+        "Required",
+        "Matches Billings sheet.",
+    )
+
+    line(
+        "job_code",
+        "Required",
+        "Generated from Plan Reader item quantities.",
+    )
+
+    line(
+        "quantity",
+        "Required",
+        "Always positive for normal billing.",
+    )
+
+    line(
+        "C-110 codes",
+        "C-110.2 / C-110.4 / C-110.8 / C-110.16",
+        "Generated according to each detected splitter ratio.",
+    )
+
     blank()
 
     section("6. Important", red_fill)
@@ -439,12 +688,21 @@ def build_plan_reader_excel_response(job_id):
     - Items
     - Instructions
 
-    Importante:
+    Reglas importantes:
+
     - Solo exporta items incluidos: is_duplicate=False.
     - Los técnicos quedan en blanco.
     - client/city/project/office salen del Job creado al subir el PDF.
-    - project_id sale solo como número de caja.
+    - project_id se genera con CO, DFN y número de caja.
     - requirement_list se llena según Final Box Type.
+    - C-108 se exporta como C-108-UG.
+    - C-109 se exporta como C-109.
+    - Los splitters nunca se exportan como C-110 genérico.
+    - Cada splitter se exporta según su relación:
+        1:2  -> C-110.2
+        1:4  -> C-110.4
+        1:8  -> C-110.8
+        1:16 -> C-110.16
     """
 
     job = (
@@ -463,16 +721,23 @@ def build_plan_reader_excel_response(job_id):
     )
 
     default_week = (
-        _setting("PLAN_READER_BULK_DEFAULT_WEEK", "") or _default_projected_week()
+        _setting(
+            "PLAN_READER_BULK_DEFAULT_WEEK",
+            "",
+        )
+        or _default_projected_week()
     )
+
     default_payment_mode = _setting(
         "PLAN_READER_BULK_DEFAULT_TECH_PAYMENT_MODE",
         "full",
     )
+
     default_direct_discount = _setting(
         "PLAN_READER_BULK_DEFAULT_DIRECT_DISCOUNT",
         "NO",
     )
+
     default_cable_installation = _setting(
         "PLAN_READER_BULK_DEFAULT_CABLE_INSTALLATION",
         "NO",
@@ -480,9 +745,34 @@ def build_plan_reader_excel_response(job_id):
 
     default_requirement_type = "fiber"
 
-    job_code_c108 = _setting("PLAN_READER_BULK_JOB_CODE_C108", "C-108-UG")
-    job_code_c109 = _setting("PLAN_READER_BULK_JOB_CODE_C109", "C-109")
-    job_code_c110 = _setting("PLAN_READER_BULK_JOB_CODE_C110", "C-110")
+    job_code_c108 = _setting(
+        "PLAN_READER_BULK_JOB_CODE_C108",
+        "C-108-UG",
+    )
+
+    job_code_c109 = _setting(
+        "PLAN_READER_BULK_JOB_CODE_C109",
+        "C-109",
+    )
+
+    c110_job_codes = {
+        "2": _setting(
+            "PLAN_READER_BULK_JOB_CODE_C110_2",
+            "C-110.2",
+        ),
+        "4": _setting(
+            "PLAN_READER_BULK_JOB_CODE_C110_4",
+            "C-110.4",
+        ),
+        "8": _setting(
+            "PLAN_READER_BULK_JOB_CODE_C110_8",
+            "C-110.8",
+        ),
+        "16": _setting(
+            "PLAN_READER_BULK_JOB_CODE_C110_16",
+            "C-110.16",
+        ),
+    }
 
     wb = Workbook()
 
@@ -493,15 +783,32 @@ def build_plan_reader_excel_response(job_id):
     ws_i = wb.create_sheet(SHEET_ITEMS)
     ws_help = wb.create_sheet("Instructions")
 
-    _write_sheet_header(ws_b, BILLINGS_HEADERS)
-    _write_sheet_header(ws_t, TECHNICIANS_HEADERS)
-    _write_sheet_header(ws_i, ITEMS_HEADERS)
+    _write_sheet_header(
+        ws_b,
+        BILLINGS_HEADERS,
+    )
+    _write_sheet_header(
+        ws_t,
+        TECHNICIANS_HEADERS,
+    )
+    _write_sheet_header(
+        ws_i,
+        ITEMS_HEADERS,
+    )
 
     used_bulk_keys = set()
 
     for item in included_items:
-        project_id = _build_project_id(job, item)
-        bulk_key = _unique_bulk_key(project_id, used_bulk_keys, item.id)
+        project_id = _build_project_id(
+            job,
+            item,
+        )
+
+        bulk_key = _unique_bulk_key(
+            project_id,
+            used_bulk_keys,
+            item.id,
+        )
 
         requirement_list = _requirement_list_from_final_box_type(
             item.calculated_box_type
@@ -534,8 +841,8 @@ def build_plan_reader_excel_response(job_id):
         )
 
         c108_qty = _positive_int(item.c108_ug)
+
         c109_qty = _positive_int(item.c109_splices)
-        c110_qty = _positive_int(item.c110_splitters)
 
         if c108_qty:
             ws_i.append(
@@ -555,21 +862,42 @@ def build_plan_reader_excel_response(job_id):
                 ]
             )
 
-        if c110_qty:
+        c110_quantities = _c110_quantities_by_ratio(item)
+
+        for ratio in [
+            "2",
+            "4",
+            "8",
+            "16",
+        ]:
+            quantity = _positive_int(c110_quantities.get(ratio))
+
+            if not quantity:
+                continue
+
             ws_i.append(
                 [
                     bulk_key,
-                    job_code_c110,
-                    c110_qty,
+                    c110_job_codes[ratio],
+                    quantity,
                 ]
             )
 
     _write_instructions_sheet(ws_help)
 
-    for ws in [ws_b, ws_t, ws_i, ws_help]:
+    for ws in [
+        ws_b,
+        ws_t,
+        ws_i,
+        ws_help,
+    ]:
         _autosize_sheet(ws)
 
-    for ws in [ws_b, ws_t, ws_i]:
+    for ws in [
+        ws_b,
+        ws_t,
+        ws_i,
+    ]:
         _style_data_rows(ws)
 
     output = BytesIO()
@@ -577,7 +905,14 @@ def build_plan_reader_excel_response(job_id):
     output.seek(0)
 
     safe_name = job.original_filename or f"plan_reader_job_{job.id}.pdf"
-    safe_name = safe_name.replace(".pdf", "")
+
+    safe_name = re.sub(
+        r"\.pdf$",
+        "",
+        safe_name,
+        flags=re.IGNORECASE,
+    )
+
     safe_name = _safe_filename(safe_name)
 
     filename = f"BulkBilling_{safe_name}_Job_{job.id}.xlsx"

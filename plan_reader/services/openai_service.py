@@ -33,8 +33,10 @@ PLAN_READER_JSON_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "Complete visible box/project identifier exactly as shown in the plan. "
-                                "Examples: 5005-009, 5005-009-7, 7020-001, 7020-001-1. "
-                                "Preserve every visible numeric suffix after the base identifier. "
+                                "Examples: 5005-009, 5005-009-7, 7020-001, 7020-001-1, "
+                                "5001-001-1/2. "
+                                "Preserve every visible numeric suffix after the base identifier, "
+                                "including numeric subdivisions joined by a forward slash. "
                                 "Never shorten 5005-009-7 to 5005-009. "
                                 "Before returning this field, inspect the complete identifier again "
                                 "and verify whether a final -number suffix is visible."
@@ -270,8 +272,12 @@ This means:
 - followed by a hyphen;
 - followed by exactly three numeric digits.
 
-After the required ####-### base, the Project ID may contain one or more
-additional numeric suffixes joined by hyphens.
+After the required ####-### base, the Project ID may contain:
+
+- one or more additional numeric suffixes joined by hyphens;
+- an optional numeric subdivision joined by a forward slash.
+
+The forward slash subdivision is part of the Project ID and must be preserved.
 
 Valid examples:
 
@@ -292,6 +298,12 @@ Valid examples:
   5000-039-1-3
 
   7020-001-1
+
+  5001-001-1/2
+
+  5001-001-1/3
+
+  5001-001/2
 
 CRITICAL PROJECT ID RULE:
 
@@ -323,6 +335,20 @@ CRITICAL PROJECT ID RULE:
   into:
 
   5005-009
+
+- Never shorten:
+
+  5001-001-1/2
+
+  into:
+
+  5001-001-1
+
+- Never remove the slash subdivision from a valid Project ID.
+
+- The slash subdivision is part of project_name when it is visibly
+
+  connected to the valid numeric identifier.
 
 - Before returning project_name, inspect the complete identifier a second time.
 
@@ -366,7 +392,7 @@ CRITICAL SPATIAL RULE:
 - A cable annotation shown in red or orange near an arrow is not a Project ID.
 
 - A number belongs to the Project ID only when it is visibly connected
-  to the valid ####-### identifier by a hyphen.
+  to the valid ####-### identifier by a hyphen or forward slash.
 
 Example:
 

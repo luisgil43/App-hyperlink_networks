@@ -64,20 +64,27 @@ def _extract_box_from_text(value):
     Extrae un Project ID válido y completo desde texto crudo.
 
     Estructura obligatoria:
+
     - cuatro dígitos;
     - guion;
     - tres dígitos;
-    - cero o más sufijos numéricos unidos por guiones.
+    - cero o más sufijos numéricos unidos por guiones;
+    - opcionalmente, una subdivisión numérica indicada con "/".
 
     Casos válidos:
+
     - 7020-001
     - 7020-001-1
     - 5005-009-7
     - 5000-039-1-1
     - 5000-039-1-3
     - 7022-007-1-2
+    - 5001-001-1/2
+    - 5001-001-1/3
+    - 5001-001/2
 
     Casos inválidos:
+
     - 0913RA_P0043:1-4;
     - 0913RA,P0045;1-3;
     - P0045
@@ -92,10 +99,10 @@ def _extract_box_from_text(value):
     if not text:
         return ""
 
-    text = text.replace("–", "-").replace("—", "-").replace("−", "-")
+    text = text.replace("–", "-").replace("—", "-").replace("−", "-").replace("／", "/")
 
     match = re.search(
-        r"(?<![A-Z0-9])\d{4}-\d{3}(?:-\d+)*(?![A-Z0-9])",
+        (r"(?<![A-Z0-9])" r"\d{4}-\d{3}" r"(?:-\d+)*" r"(?:/\d+)?" r"(?![A-Z0-9])"),
         text,
         re.IGNORECASE,
     )
@@ -268,14 +275,25 @@ def _normalize_project_name_from_raw(raw_item):
     que cumplan el formato numérico válido.
 
     Compara:
+
     - project_name entregado por OpenAI;
     - Project ID encontrado dentro de raw_text.
 
-    Formato válido:
+    Formatos válidos:
+
     - ####-###
     - ####-###-N
     - ####-###-N-N
-    - y otros sufijos numéricos visiblemente conectados por guiones.
+    - ####-###-N/N
+    - ####-###/N
+
+    Ejemplos:
+
+    - 5000-039
+    - 5000-039-1
+    - 5000-039-1-3
+    - 5001-001-1/2
+    - 5001-001/2
 
     Cuando ambos candidatos pertenecen a la misma caja base,
     conserva siempre la versión más completa.
@@ -286,9 +304,13 @@ def _normalize_project_name_from_raw(raw_item):
     raw_text     = 5000-039-1-3
     resultado    = 5000-039-1-3
 
-    project_name = 5000-039-1-1
-    raw_text     = 5000-039-1
-    resultado    = 5000-039-1-1
+    project_name = 5001-001-1
+    raw_text     = 5001-001-1/2
+    resultado    = 5001-001-1/2
+
+    project_name = 5001-001
+    raw_text     = 5001-001-1/2
+    resultado    = 5001-001-1/2
 
     project_name = 0913RA_P0043:1-4;
     raw_text     = 0913RA_P0043:1-4;
@@ -315,9 +337,6 @@ def _normalize_project_name_from_raw(raw_item):
     if box_from_raw:
         candidates.append(box_from_raw)
 
-    # No se conserva el texto original si no cumple el patrón válido.
-    # Esto elimina falsos Project IDs como:
-    # 0913RA_P0043:1-4;
     if not candidates:
         return ""
 
@@ -332,16 +351,19 @@ def _normalize_project_name_from_raw(raw_item):
 
     def base_without_suffix(value):
         """
-        Obtiene la base ####-### sin importar cuántos sufijos tenga.
+        Obtiene la base ####-### sin importar cuántos sufijos
+        por guion o subdivisiones por "/" tenga.
 
         Ejemplos:
+
         5000-039         -> 5000-039
         5000-039-1       -> 5000-039
         5000-039-1-1     -> 5000-039
-        5000-039-1-3     -> 5000-039
+        5000-039-1/2     -> 5000-039
+        5000-039/2       -> 5000-039
         """
         match = re.fullmatch(
-            r"(?P<base>\d{4}-\d{3})(?:-\d+)*",
+            (r"(?P<base>\d{4}-\d{3})" r"(?:-\d+)*" r"(?:/\d+)?"),
             value,
         )
 
@@ -354,19 +376,16 @@ def _normalize_project_name_from_raw(raw_item):
         base_without_suffix(candidate) for candidate in unique_candidates
     }
 
-    # Cuando pertenecen a la misma base, conserva el valor
-    # con mayor cantidad de sufijos numéricos.
     if len(candidate_bases) == 1:
         return max(
             unique_candidates,
             key=lambda value: (
                 value.count("-"),
+                value.count("/"),
                 len(value),
             ),
         )
 
-    # Si OpenAI y raw_text contienen dos Project IDs realmente
-    # diferentes, se prioriza el campo específico project_name.
     if box_from_project:
         return box_from_project
 
