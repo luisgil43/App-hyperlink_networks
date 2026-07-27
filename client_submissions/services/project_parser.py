@@ -92,6 +92,7 @@ def normalize_project_id(value) -> str:
     - elimina espacios al inicio/final;
     - elimina espacios alrededor de "_";
     - elimina espacios alrededor de "-";
+    - elimina espacios alrededor de "/";
     - convierte múltiples underscores consecutivos en uno solo.
 
     Ejemplos:
@@ -100,6 +101,9 @@ def normalize_project_id(value) -> str:
 
         "0913RA _ 04 _ 5005 - 008"
             -> "0913RA_04_5005-008"
+
+        "0913RA _ 06 _ 5011 - 001 - 1 / 2"
+            -> "0913RA_06_5011-001-1/2"
     """
 
     value = _clean_text(value)
@@ -109,6 +113,7 @@ def normalize_project_id(value) -> str:
 
     value = re.sub(r"\s*_\s*", "_", value)
     value = re.sub(r"\s*-\s*", "-", value)
+    value = re.sub(r"\s*/\s*", "/", value)
     value = re.sub(r"_+", "_", value)
 
     return value.strip()
@@ -149,16 +154,20 @@ def _validate_access_point_id(access_point_id: str) -> None:
     """
     Valida el Access Point ID.
 
-    Formatos permitidos actualmente:
+    Formatos permitidos:
 
         5005-008
         5005-008-7
         5005-008-12
+        5011-001-1/2
 
-    La cantidad de segmentos posteriores puede crecer,
-    por eso permitimos uno o más grupos separados por guiones.
+    Reglas:
 
-    No se elimina ningún guion.
+    - Debe contener al menos dos segmentos separados por guiones.
+    - Puede contener segmentos adicionales separados por guiones.
+    - Puede terminar con una fracción como 1/2.
+    - La barra "/" solamente se permite en el último segmento.
+    - No se eliminan guiones ni barras.
     """
 
     if not access_point_id:
@@ -169,14 +178,14 @@ def _validate_access_point_id(access_point_id: str) -> None:
     if "_" in access_point_id:
         raise ProjectIdParseError("Access Point ID cannot contain underscores.")
 
-    pattern = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$")
+    pattern = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?:/[A-Za-z0-9]+)?$")
 
     if not pattern.fullmatch(access_point_id):
         raise ProjectIdParseError(
             (
                 "Access Point ID has an invalid format. "
-                "Expected a value such as '5005-008' "
-                "or '5005-008-7'."
+                "Expected a value such as '5005-008', "
+                "'5005-008-7', or '5011-001-1/2'."
             )
         )
 
