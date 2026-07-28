@@ -26,6 +26,9 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
+from operaciones.services.client_delivery_status import \
+    mark_delivery_package_billings_sent_to_client
+
 from .forms import DeliveryPackageForm
 from .models import (ClientProjectAssignment, DeliveryAccessLog,
                      DeliveryPackage, DeliveryPackageFile, DeliveryZipJob)
@@ -1918,19 +1921,50 @@ def admin_package_add_selected(request, pk):
 
 @login_required
 @require_POST
-def admin_package_publish(request, pk):
-    _require_publisher(request.user)
+@transaction.atomic
+def admin_package_publish(
+    request,
+    pk,
+):
+    """
+    Publica un DeliveryPackage y marca como enviados al cliente
+    los Billing asociados al contenido activo del package.
+
+    Reglas:
+
+    - El package debe contener archivos activos.
+    - El cambio financiero ocurre únicamente después de publicar.
+    - Solo cambia Billing con finance_status == "sent".
+    - No modifica descuentos directos.
+    - No modifica estados financieros posteriores.
+    - No afecta el flujo de Client Submissions.
+    """
+
+    _require_publisher(
+        request.user,
+    )
 
     package = get_object_or_404(
-        DeliveryPackage.objects.prefetch_related("files"),
+        DeliveryPackage.objects.select_for_update().prefetch_related(
+            "files",
+        ),
         pk=pk,
     )
 
-    if not user_can_access_delivery_package(request.user, package):
+    if not user_can_access_delivery_package(
+        request.user,
+        package,
+    ):
         raise PermissionDenied("You do not have access to publish this package.")
 
-    if not package.files.filter(is_active=True).exists():
-        messages.error(request, "You cannot publish a package without files.")
+    if not package.files.filter(
+        is_active=True,
+    ).exists():
+        messages.error(
+            request,
+            "You cannot publish a package without files.",
+        )
+
         return redirect(
             _detail_url_with_project(
                 package,
@@ -1939,12 +1973,20 @@ def admin_package_publish(request, pk):
             )
         )
 
-    # Publicar nuevamente debe limpiar cualquier marca anterior de revocación.
-    package.publish(user=request.user)
+    # ========================================================
+    # Publicar package
+    # ========================================================
+
+    package.publish(
+        user=request.user,
+    )
+
+    # Publicar nuevamente debe limpiar cualquier marca anterior
+    # de revocación.
     package.revoked_at = None
     package.revoked_by = None
 
-    # También limpiamos bloqueos anteriores por seguridad.
+    # Limpiar bloqueos anteriores por seguridad.
     package.failed_attempts = 0
     package.locked_until = None
 
@@ -1961,8 +2003,43 @@ def admin_package_publish(request, pk):
         ]
     )
 
-    messages.success(request, "Delivery package published successfully.")
-    return redirect("client_deliverables:admin_package_list")
+    # ========================================================
+    # Actualizar Billing asociados
+    #
+    # Esta llamada solo cambia:
+    #
+    #     sent -> sent_to_client
+    #
+    # La función ignora descuentos directos y cualquier estado
+    # financiero diferente de "sent".
+    # ========================================================
+
+    billing_result = mark_delivery_package_billings_sent_to_client(
+        package,
+    )
+
+    updated_billings = int(
+        billing_result.get(
+            "updated",
+            0,
+        )
+        or 0
+    )
+
+    messages.success(
+        request,
+        "Delivery package published successfully.",
+    )
+
+    if updated_billings:
+        messages.success(
+            request,
+            (f"{updated_billings} Invoice(s) were marked " "as sent to the client."),
+        )
+
+    return redirect(
+        "client_deliverables:admin_package_list",
+    )
 
 
 @login_required
@@ -3261,6 +3338,11 @@ def admin_package_from_invoices(request):
                         "locked_until",
                         "updated_at",
                     ]
+                )
+
+                mark_delivery_package_billings_sent_to_client(
+                    package,
+                    billing_sessions=allowed_invoices,
                 )
 
                 messages.success(
