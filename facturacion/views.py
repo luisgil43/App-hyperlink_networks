@@ -213,8 +213,41 @@ def listar_cartola(request):
     if estado:
         movimientos = movimientos.filter(status=estado)
 
-    # ✅ SOLO MOSTRAR: pendientes por finanzas + aprobados por finanzas
-    movimientos = movimientos.filter(status__in=['aprobado_pm', 'aprobado_finanzas'])
+    # ============================================================
+    # MOVIMIENTOS VISIBLES EN LA CARTOLA
+    # ============================================================
+    # Gastos:
+    # - aprobados por PM y pendientes de Finanzas
+    # - aprobados por Finanzas
+    #
+    # Abonos:
+    # - pendientes de aprobación del usuario
+    # - aprobados por el usuario
+    # - rechazados por el usuario
+    # ============================================================
+
+    movimientos = movimientos.filter(
+        Q(
+            tipo__categoria='abono',
+            status__in=[
+                'pendiente_abono_usuario',
+                'aprobado_abono_usuario',
+                'rechazado_abono_usuario',
+            ],
+        )
+        |
+        Q(
+            tipo__categoria__in=[
+                'costo',
+                'inversion',
+                'gasto',
+            ],
+            status__in=[
+                'aprobado_pm',
+                'aprobado_finanzas',
+            ],
+        )
+    )
 
     # --- ORDEN personalizado (se mantiene igual)
     movimientos = movimientos.annotate(
