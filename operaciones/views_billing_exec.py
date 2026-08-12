@@ -2007,65 +2007,160 @@ def _project_report_key(sesion: SesionBilling) -> str:
 def revisar_sesion(request, sesion_id):
     """
     Revisión por PROYECTO.
-    - APPROVE: encola job para generar el XLSX final.
-    - REJECT: marca rechazado (sin tocar Wasabi).
+
+    - APPROVE:
+      encola job para generar el XLSX final.
+
+    - REJECT:
+      marca rechazado y habilita reintento.
+
+    - REQUISITOS:
+      usa RequisitoFotoBillingPlantilla como fuente canónica del proyecto
+      y calcula cuáles requisitos ya tienen evidencia y cuáles faltan,
+      considerando las fotos de TODOS los técnicos asignados.
     """
-    s = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    s = get_object_or_404(
+        SesionBilling,
+        pk=sesion_id,
+    )
+
+    # ============================================================
+    # ASIGNACIONES
+    # ============================================================
 
     asignaciones = (
         s.tecnicos_sesion.select_related("tecnico")
-        .prefetch_related("evidencias__requisito")
+        .prefetch_related(
+            "evidencias__requisito",
+            "requisitos",
+        )
         .all()
     )
 
-    # Mantén sincronizado el estado a partir de las asignaciones
+    # Mantener sincronizado el estado del proyecto
+    # según las asignaciones.
     s.recomputar_estado_desde_asignaciones()
 
-    can_review = s.estado in {"en_revision_supervisor"}
+    can_review = s.estado in {
+        "en_revision_supervisor",
+    }
+
+    # ============================================================
+    # POST
+    # ============================================================
 
     if request.method == "POST":
+
         accion = (request.POST.get("accion") or "").strip().lower()
+
         comentario = (request.POST.get("comentario") or "").strip()
 
-        if not can_review and accion in {"aprobar", "approve", "rechazar", "reject"}:
-            messages.error(request, "This project is not ready for supervisor review.")
-            return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+        # --------------------------------------------------------
+        # VALIDAR ESTADO
+        # --------------------------------------------------------
 
-        if accion in {"aprobar", "approve"}:
+        if not can_review and accion in {
+            "aprobar",
+            "approve",
+            "rechazar",
+            "reject",
+        }:
+            messages.error(
+                request,
+                "This project is not ready for supervisor review.",
+            )
+
+            return redirect(
+                "operaciones:revisar_sesion",
+                sesion_id=s.id,
+            )
+
+        # --------------------------------------------------------
+        # APROBAR
+        # --------------------------------------------------------
+
+        if accion in {
+            "aprobar",
+            "approve",
+        }:
+
             from usuarios.schedulers import enqueue_reporte_fotografico
 
             last_job = (
                 ReporteFotograficoJob.objects.filter(sesion=s)
-                .exclude(log__icontains="[partial]")  # solo FINAL
+                .exclude(log__icontains="[partial]")
                 .order_by("-creado_en")
                 .first()
             )
-            if last_job and last_job.estado in ("pendiente", "procesando"):
+
+            if last_job and last_job.estado in {
+                "pendiente",
+                "procesando",
+            }:
                 messages.info(
                     request,
-                    "Photographic report is already being generated in background. It will be attached automatically when it’s ready.",
+                    (
+                        "Photographic report is already being generated "
+                        "in background. It will be attached automatically "
+                        "when it’s ready."
+                    ),
                 )
-                return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-            job = ReporteFotograficoJob.objects.create(sesion=s)
+                return redirect(
+                    "operaciones:revisar_sesion",
+                    sesion_id=s.id,
+                )
+
+            job = ReporteFotograficoJob.objects.create(
+                sesion=s,
+            )
+
             enqueue_reporte_fotografico(job.id)
 
             messages.info(
                 request,
-                "Generating photographic report in background. It will be attached automatically when it’s ready.",
+                (
+                    "Generating photographic report in background. "
+                    "It will be attached automatically when it’s ready."
+                ),
             )
-            return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-        elif accion in {"rechazar", "reject"}:
+            return redirect(
+                "operaciones:revisar_sesion",
+                sesion_id=s.id,
+            )
+
+        # --------------------------------------------------------
+        # RECHAZAR
+        # --------------------------------------------------------
+
+        elif accion in {
+            "rechazar",
+            "reject",
+        }:
+
             now = timezone.now()
+
             with transaction.atomic():
+
                 s.estado = "rechazado_supervisor"
-                s.save(update_fields=["estado"])
+
+                s.save(
+                    update_fields=[
+                        "estado",
+                    ]
+                )
+
                 for a in asignaciones:
+
                     a.estado = "rechazado_supervisor"
+
                     a.supervisor_comentario = comentario or "Rejected."
+
                     a.supervisor_revisado_en = now
                     a.reintento_habilitado = True
+
                     a.save(
                         update_fields=[
                             "estado",
@@ -2076,92 +2171,337 @@ def revisar_sesion(request, sesion_id):
                     )
 
             messages.warning(
-                request, "Project rejected. Reupload enabled for technicians."
+                request,
+                ("Project rejected. " "Reupload enabled for technicians."),
             )
-            return redirect("operaciones:revisar_sesion", sesion_id=s.id)
 
-        messages.error(request, "Unknown action.")
-        return redirect("operaciones:revisar_sesion", sesion_id=s.id)
+            return redirect(
+                "operaciones:revisar_sesion",
+                sesion_id=s.id,
+            )
 
-    # GET: datos para template
+        messages.error(
+            request,
+            "Unknown action.",
+        )
+
+        return redirect(
+            "operaciones:revisar_sesion",
+            sesion_id=s.id,
+        )
+
+    # ============================================================
+    # EVIDENCIAS POR TÉCNICO
+    # ============================================================
+
     evidencias_por_asig = []
+
+    # También construiremos un mapa global de evidencias
+    # por SLUG de requisito.
+    #
+    # La plantilla del proyecto tiene un requisito canónico.
+    # Cada técnico tiene su copia sincronizada.
+    #
+    # Por eso NO debemos comparar IDs entre plantilla y requisito
+    # del técnico: comparamos por slug/título normalizado.
+    evidencias_por_requisito_slug = {}
+
     for a in asignaciones:
+
         evs_qs = a.evidencias.select_related("requisito").order_by(
-            "requisito__orden", "tomada_en", "id"
+            "requisito__orden",
+            "tomada_en",
+            "id",
         )
 
         evs = list(evs_qs)
 
         for ev in evs:
-            is_power_candidate = False
+
+            # ====================================================
+            # REGISTRAR EVIDENCIA PARA ESTADO DE REQUISITOS
+            # ====================================================
+
+            if ev.requisito_id and ev.requisito:
+
+                req_slug = slugify(
+                    (
+                        getattr(
+                            ev.requisito,
+                            "titulo",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                )
+
+                if req_slug:
+
+                    evidencias_por_requisito_slug.setdefault(
+                        req_slug,
+                        [],
+                    )
+
+                    evidencias_por_requisito_slug[req_slug].append(ev)
+
+            # ====================================================
+            # POWER / LIGHT SOURCE
+            # ====================================================
 
             if ev.requisito_id:
+
                 titulo_req = (ev.requisito.titulo or "").strip()
+
                 needs_power, _port_no = _power_meta_from_title(titulo_req)
 
-                is_power_candidate = (
-                    bool(getattr(ev.requisito, "needs_power_reading", False))
+                # Ya no asignamos ev.is_power_candidate
+                # porque ahora existe como @property del modelo.
+                #
+                # Dejamos este cálculo únicamente para mantener
+                # compatibilidad lógica/documentación.
+                _is_power_candidate = (
+                    bool(
+                        getattr(
+                            ev.requisito,
+                            "needs_power_reading",
+                            False,
+                        )
+                    )
                     or needs_power
                     or ev.power_dbm is not None
                     or "port=" in ((ev.power_extract_note or "").lower())
                 )
+
             else:
-                # Extras antiguas:
-                # Permitimos botón para que IA detecte potencia + puerto.
-                # Si ya tiene potencia o título POWER PORT, seguro es candidata.
+
                 titulo_manual = (ev.titulo_manual or "").strip()
+
                 needs_power, _port_no = _power_meta_from_title(titulo_manual)
 
-                is_power_candidate = (
+                _is_power_candidate = (
                     needs_power
                     or ev.power_dbm is not None
                     or "port=" in ((ev.power_extract_note or "").lower())
-                    or titulo_manual.lower() in {"extra", ""}
+                    or titulo_manual.lower()
+                    in {
+                        "extra",
+                        "",
+                    }
                 )
 
-            # IMPORTANTE:
-            # Antes aquí se hacía:
-            # ev.is_power_candidate = is_power_candidate
-            # ev.power_port_no_display = _power_port_no_from_evidence(ev)
-            #
-            # Eso ahora da error porque is_power_candidate ya existe como @property
-            # en el modelo EvidenciaFotoBilling y no se puede sobrescribir.
-            #
-            # El template debe leer:
-            # ev.is_power_candidate
-            # ev.is_light_source_candidate
-            # ev.power_port_no_display
-            #
-            # directamente desde el modelo.
-            pass
+        evidencias_por_asig.append(
+            (
+                a,
+                evs,
+            )
+        )
 
-        evidencias_por_asig.append((a, evs))
+    # ============================================================
+    # ESTADO GLOBAL DE PHOTO REQUIREMENTS
+    # ============================================================
+    #
+    # IMPORTANTE:
+    #
+    # La fuente oficial es:
+    #
+    #     RequisitoFotoBillingPlantilla
+    #
+    # porque configurar_requisitos() trabaja a nivel proyecto.
+    #
+    # Esto significa:
+    # - un requisito aparece UNA sola vez;
+    # - las fotos pueden venir de cualquier técnico;
+    # - si algún técnico cargó evidencia para ese requisito,
+    #   el requisito queda completado a nivel proyecto;
+    # - las fotos Extra NO cuentan como cumplimiento;
+    # - no dependemos de los IDs de requisitos individuales
+    #   de cada técnico.
+    # ============================================================
 
-    # Archivo final existente (en storage)
+    # Para sesiones antiguas garantiza que exista plantilla.
+    ensure_requisitos_plantilla_desde_existentes(s)
+
+    requisitos_plantilla = list(
+        s.requisitos_plantilla.all().order_by(
+            "orden",
+            "id",
+        )
+    )
+
+    requisitos_estado = []
+
+    total_requisitos = 0
+    total_completados = 0
+    total_pendientes = 0
+
+    total_obligatorios = 0
+    obligatorios_completados = 0
+    obligatorios_pendientes = 0
+
+    for requisito in requisitos_plantilla:
+
+        titulo = (requisito.titulo or "").strip()
+
+        req_slug = slugify(titulo)
+
+        evidencias_req = evidencias_por_requisito_slug.get(
+            req_slug,
+            [],
+        )
+
+        cantidad_fotos = len(evidencias_req)
+
+        completado = cantidad_fotos > 0
+
+        obligatorio = bool(requisito.obligatorio)
+
+        # --------------------------------------------------------
+        # TOTALES GENERALES
+        # --------------------------------------------------------
+
+        total_requisitos += 1
+
+        if completado:
+
+            total_completados += 1
+
+        else:
+
+            total_pendientes += 1
+
+        # --------------------------------------------------------
+        # TOTALES OBLIGATORIOS
+        # --------------------------------------------------------
+
+        if obligatorio:
+
+            total_obligatorios += 1
+
+            if completado:
+
+                obligatorios_completados += 1
+
+            else:
+
+                obligatorios_pendientes += 1
+
+        # --------------------------------------------------------
+        # DATOS DEL REQUISITO
+        # --------------------------------------------------------
+
+        requisitos_estado.append(
+            {
+                "id": requisito.id,
+                "orden": requisito.orden,
+                "titulo": titulo,
+                "descripcion": (requisito.descripcion or ""),
+                "obligatorio": obligatorio,
+                "cantidad_fotos": cantidad_fotos,
+                "completado": completado,
+                "faltante": not completado,
+                "needs_power_reading": bool(
+                    getattr(
+                        requisito,
+                        "needs_power_reading",
+                        False,
+                    )
+                ),
+                "needs_light_source_reading": bool(
+                    getattr(
+                        requisito,
+                        "needs_light_source_reading",
+                        False,
+                    )
+                ),
+                "power_port_no": getattr(
+                    requisito,
+                    "power_port_no",
+                    None,
+                ),
+                "evidencias": evidencias_req,
+            }
+        )
+
+    # ============================================================
+    # LISTA DIRECTA DE FALTANTES
+    # ============================================================
+
+    requisitos_faltantes = [
+        item for item in requisitos_estado if not item["completado"]
+    ]
+
+    requisitos_obligatorios_faltantes = [
+        item
+        for item in requisitos_estado
+        if (item["obligatorio"] and not item["completado"])
+    ]
+
+    requisitos_completos = obligatorios_pendientes == 0
+
+    # ============================================================
+    # PORCENTAJE DE AVANCE
+    # ============================================================
+
+    if total_requisitos > 0:
+
+        porcentaje_requisitos = round((total_completados / total_requisitos) * 100)
+
+    else:
+
+        porcentaje_requisitos = 100
+
+    # ============================================================
+    # ARCHIVO FINAL EXISTENTE
+    # ============================================================
+
     project_report_exists = bool(
         s.reporte_fotografico and storage_file_exists(s.reporte_fotografico)
     )
 
-    # Job FINAL en curso
+    # ============================================================
+    # JOB FINAL EN CURSO
+    # ============================================================
+
     last_job = (
         ReporteFotograficoJob.objects.filter(sesion=s)
-        .exclude(log__icontains="[partial]")  # solo FINAL
+        .exclude(log__icontains="[partial]")
         .order_by("-creado_en")
         .first()
     )
-    job_running = bool(last_job and last_job.estado in ("pendiente", "procesando"))
 
-    # Solo consideramos "ready" si HOY el servidor dice que está aprobado
-    server_approved = s.estado in {"aprobado_supervisor", "aprobado_pm"}
+    job_running = bool(
+        last_job
+        and last_job.estado
+        in {
+            "pendiente",
+            "procesando",
+        }
+    )
+
+    # ============================================================
+    # ESTADO REAL DEL SERVIDOR
+    # ============================================================
+
+    server_approved = s.estado in {
+        "aprobado_supervisor",
+        "aprobado_pm",
+    }
+
     project_report_effective_ready = (
         server_approved and project_report_exists and not job_running
     )
 
     status_url = reverse(
-        "operaciones:project_report_status", kwargs={"sesion_id": s.id}
+        "operaciones:project_report_status",
+        kwargs={
+            "sesion_id": s.id,
+        },
     )
 
-    # ========= Resolver etiqueta legible del proyecto (para el header) =========
+    # ============================================================
+    # RESOLVER NOMBRE LEGIBLE DEL PROYECTO
+    # ============================================================
+
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
         request.user,
@@ -2169,52 +2509,92 @@ def revisar_sesion(request, sesion_id):
     )
 
     proyecto_sel = None
+
     raw = (s.proyecto or "").strip()
 
     if raw:
+
         try:
-            # si s.proyecto es el PK (nuevo flujo)
+
+            # Nuevo flujo:
+            # s.proyecto guarda PK.
             pid = int(raw)
-        except (TypeError, ValueError):
-            # datos viejos: nombre/código en texto
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            # Datos antiguos:
+            # nombre/código guardado como texto.
             proyecto_sel = proyectos_qs.filter(
                 Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
             ).first()
+
         else:
+
             proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-    # si no encontramos nada con s.proyecto, probamos con s.proyecto_id (NB3231, etc.)
+    # Si no encontramos por s.proyecto,
+    # probamos s.proyecto_id.
     if not proyecto_sel and s.proyecto_id:
+
         code = str(s.proyecto_id).strip()
+
         proyecto_sel = proyectos_qs.filter(
             Q(codigo__iexact=code) | Q(nombre__icontains=code)
         ).first()
 
     if proyecto_sel:
-        proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
+
+        proyecto_label = getattr(
+            proyecto_sel,
+            "nombre",
+            str(proyecto_sel),
+        )
+
     else:
-        # fallback para sesiones antiguas / casos raros
+
         proyecto_label = (s.proyecto or s.proyecto_id or "").strip()
 
-    # =============================== RENDER =============================== #
+    # ============================================================
+    # RENDER
+    # ============================================================
+
     return render(
         request,
         "operaciones/billing_revisar_sesion.html",
         {
+            # Proyecto
             "s": s,
+            "proyecto_label": proyecto_label,
+            # Fotos por técnico
             "evidencias_por_asig": evidencias_por_asig,
+            # Revisión
             "can_review": can_review,
-            "project_report_exists": project_report_effective_ready,
+            # Reporte
+            "project_report_exists": (project_report_effective_ready),
             "job_running": job_running,
             "project_report_url": (
                 s.reporte_fotografico.url if project_report_effective_ready else ""
             ),
             "status_url": status_url,
             "poll_ms": 1000,
-            # 👈 para que el JS no pinte aprobado si no lo está
             "server_approved": server_approved,
-            # 👈 NUEVO: nombre legible del proyecto
-            "proyecto_label": proyecto_label,
+            # ====================================================
+            # PHOTO REQUIREMENTS — A NIVEL DE PROYECTO
+            # ====================================================
+            "requisitos_estado": requisitos_estado,
+            "requisitos_faltantes": requisitos_faltantes,
+            "requisitos_obligatorios_faltantes": (requisitos_obligatorios_faltantes),
+            "total_requisitos": total_requisitos,
+            "total_completados": total_completados,
+            "total_pendientes": total_pendientes,
+            "total_obligatorios": total_obligatorios,
+            "obligatorios_completados": (obligatorios_completados),
+            "obligatorios_pendientes": (obligatorios_pendientes),
+            "requisitos_completos": (requisitos_completos),
+            "porcentaje_requisitos": (porcentaje_requisitos),
         },
     )
 

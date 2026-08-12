@@ -190,6 +190,51 @@
     </div>
   </div>
 
+ <!-- ====================================================== -->
+<!-- MISSING PHOTO REQUIREMENTS — PROJECT LEVEL             -->
+<!-- ====================================================== -->
+
+{% if requisitos_obligatorios_faltantes %}
+
+<div
+  id="faltantes-banner-supervisor"
+  class="
+    mb-6
+    rounded-xl
+    border border-amber-200
+    bg-amber-50
+    px-4 py-3
+    text-sm
+    text-amber-900
+  "
+>
+
+  <div class="flex items-start gap-2">
+
+    <span class="shrink-0 font-black">
+      ⚠️
+    </span>
+
+    <div class="min-w-0 leading-5">
+
+      <span class="font-black">
+        Missing required photos:
+      </span>
+
+      <span class="font-semibold">
+        {% for item in requisitos_obligatorios_faltantes %}
+          {{ item.titulo }}{% if not forloop.last %}, {% endif %}
+        {% endfor %}.
+      </span>
+
+    </div>
+
+  </div>
+
+</div>
+
+{% endif %}
+
   {% if s.estado != "aprobado_supervisor" and s.estado != "aprobado_pm" %}
 
   {# ✅ URL del endpoint masivo (para el JS) #}
