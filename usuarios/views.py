@@ -67,34 +67,55 @@ def _user_requires_2fa(user: CustomUser) -> bool:
 
 
 def _has_valid_trusted_device(request, user: CustomUser) -> bool:
+    """
+    Comprueba si este navegador tiene un dispositivo confiable
+    todavía válido para este usuario.
+
+    El TrustedDevice es independiente de la sesión de Django.
+    """
     token = request.COOKIES.get(TRUSTED_DEVICE_COOKIE_NAME)
+
     if not token:
         return False
+
     try:
-        device = TrustedDevice.objects.get(user=user, token=token)
+        device = TrustedDevice.objects.get(
+            user=user,
+            token=token,
+        )
     except TrustedDevice.DoesNotExist:
         return False
+
     if not device.is_valid():
+        device.delete()
         return False
-    # actualizar last_used_at de manera perezosa
+
     device.last_used_at = timezone.now()
-    device.save(update_fields=["last_used_at"])
+    device.save(
+        update_fields=[
+            "last_used_at",
+        ]
+    )
+
     return True
 
 
 def _create_trusted_device(request, user: CustomUser) -> TrustedDevice:
-    """
-    Crea un TrustedDevice y retorna la instancia. La cookie se setea en la vista.
-    """
     token = secrets.token_urlsafe(32)
+
     expires_at = timezone.now() + timezone.timedelta(days=TRUSTED_DEVICE_DAYS)
+
     device = TrustedDevice.objects.create(
         user=user,
         token=token,
         expires_at=expires_at,
-        user_agent=request.META.get("HTTP_USER_AGENT", "")[:255],
+        user_agent=request.META.get(
+            "HTTP_USER_AGENT",
+            "",
+        )[:255],
         ip_address=(request.META.get("REMOTE_ADDR") or None),
     )
+
     return device
 
 
@@ -506,68 +527,114 @@ def two_factor_verify(request):
     """
     Paso intermedio del login cuando el usuario tiene 2FA activo
     y el dispositivo no está marcado como confiable.
+
+    Si el usuario marca "Remember this device for 30 days":
+      - crea un TrustedDevice en base de datos;
+      - guarda una cookie persistente durante 30 días;
+      - la cookie es independiente de la sesión normal de Django.
     """
     pending_user_id = request.session.get("pending_2fa_user_id")
+
     if not pending_user_id:
         messages.error(
-            request,
-            "Your verification session has expired. Please sign in again."
+            request, "Your verification session has expired. Please sign in again."
         )
         return redirect("usuarios:login_unificado")
 
-    user = get_object_or_404(CustomUser, pk=pending_user_id)
+    user = get_object_or_404(
+        CustomUser,
+        pk=pending_user_id,
+    )
 
     if request.method == "POST":
         code = request.POST.get("code", "")
         remember_device = request.POST.get("remember_device") == "on"
 
+        # ============================================================
+        # 1. VALIDAR CÓDIGO TOTP
+        # ============================================================
         if not _verify_totp_code(user, code):
             messages.error(
-                request,
-                "The verification code is not valid. Please try again."
+                request, "The verification code is not valid. Please try again."
             )
             return render(
                 request,
                 "usuarios/two_factor_verify.html",
-                {"user": user},
+                {
+                    "user": user,
+                },
             )
 
-        # Código correcto → recuperamos backend y limpiamos sesión temporal
-        backend_path = request.session.pop("pending_2fa_backend", None)
-        request.session.pop("pending_2fa_user_id", None)
-        next_url = request.session.pop("pending_2fa_next", None)
+        # ============================================================
+        # 2. RECUPERAR DATOS TEMPORALES
+        # ============================================================
+        backend_path = request.session.pop(
+            "pending_2fa_backend",
+            None,
+        )
+
+        request.session.pop(
+            "pending_2fa_user_id",
+            None,
+        )
+
+        next_url = request.session.pop(
+            "pending_2fa_next",
+            None,
+        )
 
         if not backend_path:
             backend_path = settings.AUTHENTICATION_BACKENDS[0]
 
-        login(request, user, backend=backend_path)
+        # ============================================================
+        # 3. LOGIN
+        # ============================================================
+        login(
+            request,
+            user,
+            backend=backend_path,
+        )
 
-        # Creamos dispositivo confiable si el usuario lo pidió
+        # ============================================================
+        # 4. CREAR EL RESPONSE DEFINITIVO
+        # ============================================================
+        if next_url:
+            response = redirect(next_url)
+        else:
+            response = _redirect_after_login(
+                request,
+                user,
+            )
+
+        # ============================================================
+        # 5. CREAR TRUSTED DEVICE + COOKIE
+        # ============================================================
         if remember_device:
-            device = _create_trusted_device(request, user)
-            response = _redirect_after_login(request, user)
+            device = _create_trusted_device(
+                request,
+                user,
+            )
+
             max_age = TRUSTED_DEVICE_DAYS * 24 * 60 * 60
+
             response.set_cookie(
                 TRUSTED_DEVICE_COOKIE_NAME,
                 device.token,
-                max_age=max_age,          # 👈 solo max_age
+                max_age=max_age,
                 secure=not settings.DEBUG,
                 httponly=True,
                 samesite="Lax",
+                path="/",
             )
-        else:
-            response = _redirect_after_login(request, user)
-
-        if next_url:
-            from django.shortcuts import redirect as _redirect
-            response = _redirect(next_url)
 
         return response
 
     return render(
         request,
         "usuarios/two_factor_verify.html",
-        {"user": user},
+        {
+            "user": user,
+        },
     )
 
 
