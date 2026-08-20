@@ -90,26 +90,22 @@ def normalize_project_id(value) -> str:
 
     Operaciones realizadas:
     - elimina espacios al inicio/final;
+    - normaliza variantes Unicode de guion ("–", "—", "−") a "-";
     - elimina espacios alrededor de "_";
     - elimina espacios alrededor de "-";
     - elimina espacios alrededor de "/";
     - convierte múltiples underscores consecutivos en uno solo.
-
-    Ejemplos:
-        " 0913RA_04_5005-008 "
-            -> "0913RA_04_5005-008"
-
-        "0913RA _ 04 _ 5005 - 008"
-            -> "0913RA_04_5005-008"
-
-        "0913RA _ 06 _ 5011 - 001 - 1 / 2"
-            -> "0913RA_06_5011-001-1/2"
     """
 
     value = _clean_text(value)
 
     if not value:
         return ""
+
+    # Normalizar variantes Unicode de guion a guion ASCII.
+    # Esto evita errores con Project IDs copiados desde Excel,
+    # correo, PDF u otras fuentes que sustituyen "-" visualmente.
+    value = value.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
 
     value = re.sub(r"\s*_\s*", "_", value)
     value = re.sub(r"\s*-\s*", "-", value)
