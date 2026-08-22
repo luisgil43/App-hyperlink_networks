@@ -421,6 +421,11 @@ urlpatterns = [
         name="bulk_export_light_levels_xlsx",
     ),
     path(
+        "billing/light-levels/bulk-export-calculated/",
+        b.bulk_export_calculated_light_levels_xlsx,
+        name="bulk_export_calculated_light_levels_xlsx",
+    ),
+    path(
         "precios/template/",
         views.descargar_template_precios,
         name="descargar_template_precios",

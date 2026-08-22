@@ -3786,6 +3786,359 @@ def bulk_export_light_levels_xlsx(request):
     return response
 
 
+def _build_calculated_light_level_workbook(row_count=1):
+    """
+    Crea el Excel calculado de Light Levels conservando el mismo formato visual
+    del export original, pero con estas diferencias:
+
+    - No existe la columna LIGHT SOURCE.
+    - B3:I3 = PORT 1..PORT 8.
+    - Solo se incluyen proyectos que tengan al menos un Power Port.
+    - Los valores mostrados son:
+        power_dbm + abs(light_source_dbm) + 5
+    - Si el resultado es mayor a -22 dBm, la celda se resalta en rojo.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DFN"
+    ws.sheet_view.showGridLines = False
+
+    total_rows = max(7, 3 + int(row_count or 1))
+
+    thick = Side(style="medium", color="000000")
+    border = Border(left=thick, right=thick, top=thick, bottom=thick)
+
+    fill_blue = PatternFill("solid", fgColor="C0E6F5")
+    font_normal = Font(name="Calibri", size=11, color="000000")
+
+    headers_row_1 = [
+        "DFN",
+        "Column3",
+        "Column4",
+        "Column5",
+        "Column6",
+        "Column7",
+        "Column8",
+        "Column9",
+        "Column10",
+        "Column11",
+        "Column12",
+        "Column13",
+        "Column14",
+    ]
+
+    for col_idx, value in enumerate(headers_row_1, start=1):
+        ws.cell(row=1, column=col_idx).value = value
+
+    ws["A2"] = "Structure ID"
+
+    ws["B3"] = "PORT 1"
+    ws["C3"] = "PORT 2"
+    ws["D3"] = "PORT 3"
+    ws["E3"] = "PORT 4"
+    ws["F3"] = "PORT 5"
+    ws["G3"] = "PORT 6"
+    ws["H3"] = "PORT 7"
+    ws["I3"] = "PORT 8"
+
+    for row in range(1, total_rows + 1):
+        for col in range(1, 14):
+            cell = ws.cell(row=row, column=col)
+            cell.border = border
+            cell.font = font_normal
+
+            if row >= 2:
+                cell.fill = fill_blue
+
+    ws.column_dimensions["A"].width = 32
+
+    for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"]:
+        ws.column_dimensions[col].width = 13
+
+    for row in range(1, total_rows + 1):
+        ws.row_dimensions[row].height = 22
+
+    ws.row_dimensions[3].height = 26
+
+    return wb
+
+
+def _write_calculated_light_level_row(
+    ws,
+    row,
+    structure_id,
+    port_values,
+    light_source_value,
+):
+    """
+    Escribe una fila del Excel calculado.
+
+    A = Structure ID
+    B:I = PORT 1..PORT 8 calculados
+
+    Fórmula:
+        adjusted = power_dbm + abs(light_source_dbm) + 5
+
+    Si adjusted > -22, se resalta la celda en rojo.
+    """
+    ws.cell(row=row, column=1).value = structure_id or ""
+
+    red_fill = PatternFill("solid", fgColor="D99694")
+
+    try:
+        light_source = (
+            abs(float(light_source_value)) if light_source_value is not None else 0.0
+        )
+    except (TypeError, ValueError):
+        light_source = 0.0
+
+    for port_no in range(1, 9):
+        value = port_values.get(port_no)
+
+        if value is None:
+            continue
+
+        try:
+            power_value = float(value)
+        except (TypeError, ValueError):
+            continue
+
+        adjusted_value = round(
+            power_value + light_source + 5.0,
+            2,
+        )
+
+        cell = ws.cell(
+            row=row,
+            column=port_no + 1,
+        )
+
+        cell.value = adjusted_value
+
+        if adjusted_value > -22:
+            cell.fill = red_fill
+
+
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+def bulk_export_calculated_light_levels_xlsx(request):
+    """
+    Exporta un Excel consolidado de Light Levels calculados
+    para todos los billings seleccionados.
+
+    Reglas:
+
+    - Mantiene el formato visual del Light Levels original.
+    - Elimina la columna LIGHT SOURCE.
+    - PORT 1..8 pasan a B:I.
+    - Solo incluye billings que tengan al menos un Power Port.
+    - Además, para realizar el cálculo, el billing debe tener LIGHT SOURCE.
+    - Fórmula:
+        power_dbm + abs(light_source_dbm) + 5
+    - Valores resultantes mayores a -22 dBm se resaltan en rojo.
+    """
+
+    ids_raw = (
+        request.GET.get("ids")
+        or request.POST.get("ids")
+        or ""
+    ).strip()
+
+    ids = []
+
+    for x in ids_raw.split(","):
+        x = (x or "").strip()
+
+        if not x:
+            continue
+
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+
+    ids = list(dict.fromkeys(ids))
+
+    if not ids:
+        messages.error(
+            request,
+            "Please select at least one billing.",
+        )
+        return redirect("operaciones:listar_billing")
+
+    sesiones = list(
+        SesionBilling.objects.filter(
+            id__in=ids
+        ).order_by(
+            "proyecto_id",
+            "id",
+        )
+    )
+
+    if not sesiones:
+        messages.error(
+            request,
+            "No selected billings were found.",
+        )
+        return redirect("operaciones:listar_billing")
+
+    session_ids = [
+        s.id
+        for s in sesiones
+    ]
+
+    evidencias = (
+        EvidenciaFotoBilling.objects.filter(
+            tecnico_sesion__sesion_id__in=session_ids,
+        )
+        .filter(
+            Q(power_dbm__isnull=False)
+            | Q(light_source_dbm__isnull=False)
+        )
+        .select_related(
+            "requisito",
+            "tecnico_sesion",
+            "tecnico_sesion__sesion",
+        )
+        .order_by(
+            "tecnico_sesion__sesion_id",
+            "client_taken_at",
+            "tomada_en",
+            "id",
+        )
+    )
+
+    values_by_session = {
+        sid: {}
+        for sid in session_ids
+    }
+
+    light_source_by_session = {
+        sid: None
+        for sid in session_ids
+    }
+
+    for ev in evidencias:
+
+        sid = ev.tecnico_sesion.sesion_id
+
+        # LIGHT SOURCE
+        if ev.light_source_dbm is not None:
+            light_source_by_session[sid] = ev.light_source_dbm
+            continue
+
+        # POWER PORT
+        if ev.power_dbm is None:
+            continue
+
+        port_no = _power_port_no_from_evidence(ev)
+
+        if not port_no:
+            continue
+
+        try:
+            port_no = int(port_no)
+        except Exception:
+            continue
+
+        if not (1 <= port_no <= 8):
+            continue
+
+        values_by_session.setdefault(
+            sid,
+            {},
+        )[port_no] = ev.power_dbm
+
+    # ============================================================
+    # Solo proyectos que realmente pueden formar parte del reporte
+    # ============================================================
+
+    sesiones_exportables = []
+
+    for s in sesiones:
+
+        port_values = values_by_session.get(
+            s.id,
+            {},
+        )
+
+        light_source_value = light_source_by_session.get(
+            s.id
+        )
+
+        # Sin ningún Power Port:
+        # no aparece en el Excel.
+        if not port_values:
+            continue
+
+        # Sin LIGHT SOURCE:
+        # no podemos aplicar el cálculo solicitado.
+        if light_source_value is None:
+            continue
+
+        sesiones_exportables.append(s)
+
+    if not sesiones_exportables:
+        messages.error(
+            request,
+            "None of the selected billings have both Light Source and Power Port readings.",
+        )
+        return redirect("operaciones:listar_billing")
+
+    wb = _build_calculated_light_level_workbook(
+        row_count=len(sesiones_exportables)
+    )
+
+    ws = wb.active
+
+    row = 4
+
+    for s in sesiones_exportables:
+
+        port_values = values_by_session.get(
+            s.id,
+            {},
+        )
+
+        light_source_value = light_source_by_session.get(
+            s.id
+        )
+
+        _write_calculated_light_level_row(
+            ws=ws,
+            row=row,
+            structure_id=(
+                s.proyecto_id
+                or f"Billing #{s.id}"
+            ),
+            port_values=port_values,
+            light_source_value=light_source_value,
+        )
+
+        row += 1
+
+    filename = "LIGHT LEVELS CALCULATED SELECTED PROJECTS.xlsx"
+
+    bio = BytesIO()
+
+    wb.save(bio)
+
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+    )
+
+    response[
+        "Content-Disposition"
+    ] = f'attachment; filename="{filename}"'
+
+    return response
+
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 @require_POST

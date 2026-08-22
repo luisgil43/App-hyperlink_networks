@@ -253,11 +253,11 @@
 
       </button>
 
-      <button type="button" data-action="bulk_light_levels"
-
+      <button type="button"
+              data-action="bulk_light_levels"
               class="block w-full text-left px-4 py-2 hover:bg-gray-100">
 
-        Download selected light levels
+        Download light levels
 
       </button>
 
@@ -1503,7 +1503,68 @@ document.addEventListener('click', function(e){
   </div>
 </div>
 
+<div id="modal-light-levels-type" class="fixed inset-0 hidden z-50">
 
+  <div class="absolute inset-0 bg-black/40"
+       data-close-light-levels-type></div>
+
+  <div class="relative max-w-md mx-auto bg-white rounded-2xl shadow p-6 mt-40">
+
+    <h3 class="text-lg font-semibold text-gray-900">
+      Download light levels
+    </h3>
+
+    <p class="mt-2 text-sm text-gray-600">
+      Choose which version of the Light Levels report you want to download.
+    </p>
+
+    <div class="mt-5 space-y-3">
+
+      <button type="button"
+              id="btn-light-levels-original"
+              class="w-full text-left border border-gray-200 rounded-xl px-4 py-3 hover:bg-gray-50">
+
+        <div class="font-semibold text-gray-800">
+          Original light levels
+        </div>
+
+        <div class="text-xs text-gray-500 mt-1">
+          Includes Light Source and the original measured power values.
+        </div>
+
+      </button>
+
+      <button type="button"
+              id="btn-light-levels-calculated"
+              class="w-full text-left border border-blue-200 bg-blue-50 rounded-xl px-4 py-3 hover:bg-blue-100">
+
+        <div class="font-semibold text-blue-800">
+          Calculated plant estimate
+        </div>
+
+        <div class="text-xs text-blue-700 mt-1">
+          Applies Light Source compensation plus 5 dB and highlights values above -22 dBm.
+        </div>
+
+      </button>
+
+    </div>
+
+    <div class="mt-5 flex justify-end">
+
+      <button type="button"
+              id="btn-light-levels-cancel"
+              class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
+
+        Cancel
+
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
 <!-- ✅ Busy (spinner) modal for long-running actions like MERGE -->
 <div id="modal-busy" class="fixed inset-0 hidden z-[60]">
   <div class="absolute inset-0 bg-black/40"></div>
@@ -1804,10 +1865,11 @@ document.addEventListener('click', function(e){
 }
 
     if(action === 'bulk_light_levels'){
-      if(window.downloadBulkLightLevels) window.downloadBulkLightLevels(ids);
+      if(window.openBulkLightLevelsModal){
+        window.openBulkLightLevelsModal(ids);
+      }
       return;
     }
-
     if(action === 'export'){
       if(!CAN_EXPORT_BILLING || !exportForm || !exportIdsInp){
         window.openInfo && window.openInfo(
@@ -1886,43 +1948,233 @@ document.addEventListener('click', function(e){
 </script>
 <script>
 (function(){
-  async function downloadBulkLightLevels(ids){
-    if(!ids || !ids.length) return;
 
-    document.getElementById('menu-actions')?.classList.add('hidden');
+  const modal = document.getElementById(
+    'modal-light-levels-type'
+  );
 
-    if (window.showBusy) {
-      window.showBusy('Preparing light levels', 'Generating consolidated Excel');
-    }
+  const btnOriginal = document.getElementById(
+    'btn-light-levels-original'
+  );
 
-    const url = "{% url 'operaciones:bulk_export_light_levels_xlsx' %}" +
-                "?ids=" + encodeURIComponent(ids.join(','));
+  const btnCalculated = document.getElementById(
+    'btn-light-levels-calculated'
+  );
 
-    window.open(url, '_blank');
+  const btnCancel = document.getElementById(
+    'btn-light-levels-cancel'
+  );
 
-    ids.forEach(id => {
-      const chk = document.querySelector(`.row-chk[value="${id}"]`);
-      if (chk){
+  let selectedBillingIds = [];
+
+
+  function clearSelectedBillings(ids){
+
+    (ids || []).forEach(id => {
+
+      const chk = document.querySelector(
+        `.row-chk[value="${id}"]`
+      );
+
+      if(chk){
         chk.checked = false;
-        chk.dispatchEvent(new Event('change', { bubbles: true }));
+
+        chk.dispatchEvent(
+          new Event(
+            'change',
+            { bubbles: true }
+          )
+        );
       }
+
     });
 
-    const header = document.getElementById('chk-all');
-    if (header){
+    const header = document.getElementById(
+      'chk-all'
+    );
+
+    if(header){
       header.checked = false;
       header.indeterminate = false;
     }
 
-    const btnActions = document.getElementById('btn-actions');
-    if (btnActions) btnActions.disabled = true;
+    const btnActions = document.getElementById(
+      'btn-actions'
+    );
 
-    setTimeout(() => {
-      if (window.hideBusy) window.hideBusy();
-    }, 700);
+    if(btnActions){
+      btnActions.disabled = true;
+    }
   }
 
-  window.downloadBulkLightLevels = downloadBulkLightLevels;
+
+  function closeModal(){
+
+    if(!modal) return;
+
+    modal.classList.add('hidden');
+
+    selectedBillingIds = [];
+
+  }
+
+
+  function openBulkLightLevelsModal(ids){
+
+    if(!ids || !ids.length){
+      return;
+    }
+
+    selectedBillingIds = Array.from(ids);
+
+    document.getElementById(
+      'menu-actions'
+    )?.classList.add('hidden');
+
+    modal?.classList.remove('hidden');
+
+  }
+
+
+  function downloadReport(type){
+
+    if(!selectedBillingIds.length){
+      return;
+    }
+
+    const ids = Array.from(
+      selectedBillingIds
+    );
+
+    let url = '';
+
+    if(type === 'calculated'){
+
+      url =
+        "{% url 'operaciones:bulk_export_calculated_light_levels_xlsx' %}" +
+        "?ids=" +
+        encodeURIComponent(
+          ids.join(',')
+        );
+
+    }else{
+
+      url =
+        "{% url 'operaciones:bulk_export_light_levels_xlsx' %}" +
+        "?ids=" +
+        encodeURIComponent(
+          ids.join(',')
+        );
+
+    }
+
+    closeModal();
+
+    if(window.showBusy){
+
+      if(type === 'calculated'){
+
+        window.showBusy(
+          'Preparing calculated light levels',
+          'Applying Light Source compensation'
+        );
+
+      }else{
+
+        window.showBusy(
+          'Preparing light levels',
+          'Generating consolidated Excel'
+        );
+
+      }
+
+    }
+
+    window.open(
+      url,
+      '_blank'
+    );
+
+    clearSelectedBillings(ids);
+
+    setTimeout(() => {
+
+      if(window.hideBusy){
+        window.hideBusy();
+      }
+
+    }, 700);
+
+  }
+
+
+  btnOriginal?.addEventListener(
+    'click',
+    function(){
+
+      downloadReport(
+        'original'
+      );
+
+    }
+  );
+
+
+  btnCalculated?.addEventListener(
+    'click',
+    function(){
+
+      downloadReport(
+        'calculated'
+      );
+
+    }
+  );
+
+
+  btnCancel?.addEventListener(
+    'click',
+    closeModal
+  );
+
+
+  modal?.addEventListener(
+    'click',
+    function(e){
+
+      if(
+        e.target.hasAttribute(
+          'data-close-light-levels-type'
+        )
+      ){
+        closeModal();
+      }
+
+    }
+  );
+
+
+  document.addEventListener(
+    'keydown',
+    function(e){
+
+      if(
+        e.key === 'Escape'
+        &&
+        modal
+        &&
+        !modal.classList.contains('hidden')
+      ){
+        closeModal();
+      }
+
+    }
+  );
+
+
+  window.openBulkLightLevelsModal =
+    openBulkLightLevelsModal;
+
 })();
 </script>
 <script>
