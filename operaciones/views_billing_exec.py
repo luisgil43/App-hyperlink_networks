@@ -46,6 +46,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_GET, require_POST
 from openpyxl import load_workbook  # asegúrate de tener openpyxl instalado
 from openpyxl import Workbook
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Border, Font, PatternFill, Side
 from PIL import ExifTags, Image, ImageFile
 from pillow_heif import register_heif_opener
@@ -3796,7 +3797,8 @@ def _build_calculated_light_level_workbook(row_count=1):
     - Solo se incluyen proyectos que tengan al menos un Power Port.
     - Los valores mostrados son:
         power_dbm + abs(light_source_dbm) + 5
-    - Si el resultado es mayor a -22 dBm, la celda se resalta en rojo.
+    - Si el resultado es menor a -22 dBm, Excel resalta la celda en rojo
+      mediante formato condicional.
     """
     wb = Workbook()
     ws = wb.active
@@ -3806,10 +3808,23 @@ def _build_calculated_light_level_workbook(row_count=1):
     total_rows = max(7, 3 + int(row_count or 1))
 
     thick = Side(style="medium", color="000000")
-    border = Border(left=thick, right=thick, top=thick, bottom=thick)
+    border = Border(
+        left=thick,
+        right=thick,
+        top=thick,
+        bottom=thick,
+    )
 
-    fill_blue = PatternFill("solid", fgColor="C0E6F5")
-    font_normal = Font(name="Calibri", size=11, color="000000")
+    fill_blue = PatternFill(
+        "solid",
+        fgColor="C0E6F5",
+    )
+
+    font_normal = Font(
+        name="Calibri",
+        size=11,
+        color="000000",
+    )
 
     headers_row_1 = [
         "DFN",
@@ -3827,8 +3842,14 @@ def _build_calculated_light_level_workbook(row_count=1):
         "Column14",
     ]
 
-    for col_idx, value in enumerate(headers_row_1, start=1):
-        ws.cell(row=1, column=col_idx).value = value
+    for col_idx, value in enumerate(
+        headers_row_1,
+        start=1,
+    ):
+        ws.cell(
+            row=1,
+            column=col_idx,
+        ).value = value
 
     ws["A2"] = "Structure ID"
 
@@ -3841,9 +3862,19 @@ def _build_calculated_light_level_workbook(row_count=1):
     ws["H3"] = "PORT 7"
     ws["I3"] = "PORT 8"
 
-    for row in range(1, total_rows + 1):
-        for col in range(1, 14):
-            cell = ws.cell(row=row, column=col)
+    for row in range(
+        1,
+        total_rows + 1,
+    ):
+        for col in range(
+            1,
+            14,
+        ):
+            cell = ws.cell(
+                row=row,
+                column=col,
+            )
+
             cell.border = border
             cell.font = font_normal
 
@@ -3852,13 +3883,70 @@ def _build_calculated_light_level_workbook(row_count=1):
 
     ws.column_dimensions["A"].width = 32
 
-    for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"]:
+    for col in [
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
+        "K",
+        "L",
+        "M",
+    ]:
         ws.column_dimensions[col].width = 13
 
-    for row in range(1, total_rows + 1):
+    for row in range(
+        1,
+        total_rows + 1,
+    ):
         ws.row_dimensions[row].height = 22
 
     ws.row_dimensions[3].height = 26
+
+    # ============================================================
+    # FORMATO CONDICIONAL
+    #
+    # B4:I... = PORT 1..PORT 8
+    #
+    # Regla:
+    #     valor < -22 dBm  -> ROJO
+    #
+    # Ejemplos:
+    #     -21.93 -> normal
+    #     -22.00 -> normal
+    #     -22.01 -> rojo
+    #     -23.50 -> rojo
+    # ============================================================
+
+    alert_fill = PatternFill(
+        fill_type="solid",
+        fgColor="FFC7CE",
+    )
+
+    alert_font = Font(
+        name="Calibri",
+        size=11,
+        color="9C0006",
+    )
+
+    last_data_row = max(
+        4,
+        3 + int(row_count or 1),
+    )
+
+    ws.conditional_formatting.add(
+        f"B4:I{last_data_row}",
+        CellIsRule(
+            operator="lessThan",
+            formula=["-22"],
+            fill=alert_fill,
+            font=alert_font,
+        ),
+    )
 
     return wb
 
@@ -3879,11 +3967,10 @@ def _write_calculated_light_level_row(
     Fórmula:
         adjusted = power_dbm + abs(light_source_dbm) + 5
 
-    Si adjusted > -22, se resalta la celda en rojo.
+    El resaltado > -22 se aplica mediante formato condicional
+    en el workbook, no directamente en esta función.
     """
     ws.cell(row=row, column=1).value = structure_id or ""
-
-    red_fill = PatternFill("solid", fgColor="D99694")
 
     try:
         light_source = (
@@ -3914,9 +4001,6 @@ def _write_calculated_light_level_row(
         )
 
         cell.value = adjusted_value
-
-        if adjusted_value > -22:
-            cell.fill = red_fill
 
 
 @login_required
