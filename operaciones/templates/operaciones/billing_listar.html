@@ -1173,15 +1173,37 @@ else %}asignado assigned{% endif %}"
       </span>
     {% elif s.is_cable_installation %}
       <a href="{% url 'cable_installation:configure_requirements' s.id %}"
-         class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+        class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
         Configure Requirements
       </a>
     {% else %}
       <a href="{% url 'operaciones:configurar_requisitos' s.id %}"
-         class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+        class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
         Configure Requirements
       </a>
     {% endif %}
+
+    <button type="button"
+            class="btn-gallery-upload-toggle inline-flex items-center gap-2 text-xs border px-3 py-1 rounded transition
+                  {% if s.allow_gallery_upload %}
+                    bg-green-100 text-green-800 border-green-300 hover:bg-green-200
+                  {% else %}
+                    bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200
+                  {% endif %}"
+            data-url="{% url 'operaciones:billing_toggle_gallery_upload' s.id %}"
+            data-enabled="{% if s.allow_gallery_upload %}1{% else %}0{% endif %}"
+            title="Enable or disable gallery uploads for this billing">
+
+      <span>Gallery Upload</span>
+
+      <span class="gallery-upload-state font-semibold">
+        {% if s.allow_gallery_upload %}
+          ON
+        {% else %}
+          OFF
+        {% endif %}
+      </span>
+    </button>
 
     {% if s.is_cable_installation %}
       <a href="{% url 'cable_installation:export_client_excel' s.id %}"
@@ -4333,6 +4355,223 @@ function updateBillingTotalCount(){
   }
 
   window.mergeClientReports = mergeClientReports;
+})();
+</script>
+<script>
+(function(){
+
+  function getCookie(name){
+    const m = document.cookie.match(
+      new RegExp('(^|; )' + name + '=([^;]*)')
+    );
+
+    return m
+      ? decodeURIComponent(m[2])
+      : null;
+  }
+
+  const csrftoken = getCookie('csrftoken') || '';
+
+
+  function applyGalleryButtonState(btn, enabled){
+
+    btn.dataset.enabled = enabled ? '1' : '0';
+
+    const state = btn.querySelector(
+      '.gallery-upload-state'
+    );
+
+    if(state){
+      state.textContent = enabled
+        ? 'ON'
+        : 'OFF';
+    }
+
+    btn.classList.remove(
+      'bg-green-100',
+      'text-green-800',
+      'border-green-300',
+      'hover:bg-green-200',
+
+      'bg-gray-100',
+      'text-gray-700',
+      'border-gray-300',
+      'hover:bg-gray-200'
+    );
+
+    if(enabled){
+
+      btn.classList.add(
+        'bg-green-100',
+        'text-green-800',
+        'border-green-300',
+        'hover:bg-green-200'
+      );
+
+    }else{
+
+      btn.classList.add(
+        'bg-gray-100',
+        'text-gray-700',
+        'border-gray-300',
+        'hover:bg-gray-200'
+      );
+    }
+  }
+
+
+  function showGalleryToast(message, type='success'){
+
+    const bg =
+      type === 'success'
+        ? 'bg-green-600'
+        : 'bg-red-600';
+
+    const el = document.createElement('div');
+
+    el.className =
+      `fixed top-5 left-1/2 -translate-x-1/2 ${bg} ` +
+      `text-white px-4 py-2 rounded-lg shadow-lg z-[100] text-sm`;
+
+    el.textContent = message;
+
+    document.body.appendChild(el);
+
+    setTimeout(
+      () => el.remove(),
+      2200
+    );
+  }
+
+
+  document.addEventListener(
+    'click',
+    async function(e){
+
+      const btn = e.target.closest(
+        '.btn-gallery-upload-toggle'
+      );
+
+      if(!btn){
+        return;
+      }
+
+      e.preventDefault();
+
+      if(btn.disabled){
+        return;
+      }
+
+      const url = btn.dataset.url;
+
+      if(!url){
+        showGalleryToast(
+          'Gallery Upload URL is missing.',
+          'error'
+        );
+        return;
+      }
+
+      const currentlyEnabled =
+        btn.dataset.enabled === '1';
+
+      const newEnabled =
+        !currentlyEnabled;
+
+      btn.disabled = true;
+      btn.classList.add(
+        'opacity-60',
+        'cursor-wait'
+      );
+
+      const form = new FormData();
+
+      form.append(
+        'enabled',
+        newEnabled ? '1' : '0'
+      );
+
+      try{
+
+        const resp = await fetch(
+          url,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+
+            headers: {
+              'X-CSRFToken': csrftoken,
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json'
+            },
+
+            body: form
+          }
+        );
+
+        let data = null;
+
+        try{
+          data = await resp.json();
+        }catch(_){}
+
+        if(
+          !resp.ok
+          ||
+          !data
+          ||
+          data.ok !== true
+        ){
+          throw new Error(
+            (
+              data
+              &&
+              (
+                data.error
+                ||
+                data.message
+              )
+            )
+            ||
+            `HTTP ${resp.status}`
+          );
+        }
+
+        const savedEnabled =
+          data.allow_gallery_upload === true;
+
+        applyGalleryButtonState(
+          btn,
+          savedEnabled
+        );
+
+        showGalleryToast(
+          savedEnabled
+            ? 'Gallery Upload enabled.'
+            : 'Gallery Upload disabled.',
+          'success'
+        );
+
+      }catch(err){
+
+        showGalleryToast(
+          err.message
+            || 'Could not update Gallery Upload.',
+          'error'
+        );
+
+      }finally{
+
+        btn.disabled = false;
+
+        btn.classList.remove(
+          'opacity-60',
+          'cursor-wait'
+        );
+      }
+    }
+  );
+
 })();
 </script>
 {% endblock %}

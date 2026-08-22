@@ -57,7 +57,7 @@ from core.permissions import (filter_queryset_by_access, projects_ids_for_user,
                               user_has_project_access)
 from facturacion.models import CartolaMovimiento, Proyecto
 from operaciones.excel_images import tmp_jpeg_from_filefield
-from operaciones.models import RequisitoFotoBillingPlantilla
+from operaciones.models import RequisitoFotoBillingPlantilla, SesionBilling
 from usuarios.decoradores import rol_requerido
 
 from .models import (EvidenciaFotoBilling, ItemBillingTecnico,
@@ -1058,10 +1058,50 @@ def _exif_to_latlng_taken_at(image):
         return None, None, None
 
 
-# --- VISTAS: copiar/pegar reemplazando las actuales ---
+@login_required
+@rol_requerido("supervisor", "admin", "pm")
+@require_POST
+def billing_toggle_gallery_upload(request, sesion_id):
+    """
+    Activa o desactiva la carga desde galería para un Billing.
+
+    OFF:
+    - Bloquea carga desde galería para requirements y Extra Photos.
+    - LIGHT SOURCE continúa permitido.
+
+    ON:
+    - Permite carga desde galería para requirements y Extra Photos.
+    """
+    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+
+    raw_value = (request.POST.get("enabled") or "").strip().lower()
+
+    if raw_value not in {"1", "0", "true", "false"}:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Invalid gallery upload value.",
+            },
+            status=400,
+        )
+
+    enabled = raw_value in {"1", "true"}
+
+    if sesion.allow_gallery_upload != enabled:
+        sesion.allow_gallery_upload = enabled
+        sesion.save(update_fields=["allow_gallery_upload"])
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "session_id": sesion.id,
+            "allow_gallery_upload": sesion.allow_gallery_upload,
+        }
+    )
+
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 def upload_evidencias(request, pk):
     """
     Carga de evidencias con 'lock' por TÍTULO compartido a nivel de sesión.
@@ -1081,8 +1121,15 @@ def upload_evidencias(request, pk):
         return bool(key) and ".." not in key and not key.startswith("/")
 
     def _create_evidencia_from_key(
-        req_id, key, nota, lat, lng, acc, taken_dt,
-        titulo_manual: str = "", direccion_manual: str = ""
+        req_id,
+        key,
+        nota,
+        lat,
+        lng,
+        acc,
+        taken_dt,
+        titulo_manual: str = "",
+        direccion_manual: str = "",
     ):
         return EvidenciaFotoBilling.objects.create(
             tecnico_sesion=a,
@@ -1105,8 +1152,28 @@ def upload_evidencias(request, pk):
         if isinstance(v, int):
             return v != 0
         if isinstance(v, str):
-            return v.strip().lower() in {"1", "true", "t", "yes", "y", "on", "si", "sí"}
+            return v.strip().lower() in {
+                "1",
+                "true",
+                "t",
+                "yes",
+                "y",
+                "on",
+                "si",
+                "sí",
+            }
         return bool(v)
+
+    def _is_light_source_requirement(req) -> bool:
+        if not req:
+            return False
+
+        if bool(getattr(req, "needs_light_source_reading", False)):
+            return True
+
+        titulo = (getattr(req, "titulo", "") or "").strip().upper()
+
+        return titulo == "LIGHT SOURCE"
 
     # Flag ROBUSTO de proyecto especial:
     def _es_proyecto_especial(asig: SesionBillingTecnico) -> bool:
@@ -1114,34 +1181,48 @@ def upload_evidencias(request, pk):
         candidatos = [
             getattr(s, "proyecto_especial", None),
             getattr(getattr(s, "servicio", None), "proyecto_especial", None),
-            getattr(getattr(asig, "servicio", None),
-                    "proyecto_especial", None),
+            getattr(
+                getattr(asig, "servicio", None),
+                "proyecto_especial",
+                None,
+            ),
             getattr(getattr(s, "proyecto", None), "proyecto_especial", None),
         ]
+
         for v in candidatos:
             if v is not None:
                 return _boolish(v)
+
         # Heurística: si la sesión no tiene REQUISITOS, tratar como especial
         no_reqs = not RequisitoFotoBilling.objects.filter(
             tecnico_sesion__sesion=s
         ).exists()
+
         return no_reqs
 
     # Si el técnico fue agregado tarde y no tiene requisitos, clonar de la sesión
     def _ensure_requisitos_para_asignacion():
         if a.requisitos.exists():
             return
-        base_qs = (RequisitoFotoBilling.objects
-                   .filter(tecnico_sesion__sesion=a.sesion)
-                   .order_by("orden", "id")
-                   .select_related("tecnico_sesion"))
-        to_create, seen = [], set()
+
+        base_qs = (
+            RequisitoFotoBilling.objects.filter(tecnico_sesion__sesion=a.sesion)
+            .order_by("orden", "id")
+            .select_related("tecnico_sesion")
+        )
+
+        to_create = []
+        seen = set()
         orden_fallback = 0
+
         for br in base_qs:
             key = _norm_title(br.titulo)
+
             if not key or key in seen:
                 continue
+
             orden_fallback += 1
+
             to_create.append(
                 RequisitoFotoBilling(
                     tecnico_sesion=a,
@@ -1149,14 +1230,30 @@ def upload_evidencias(request, pk):
                     descripcion=br.descripcion,
                     obligatorio=br.obligatorio,
                     orden=br.orden or orden_fallback,
-                    needs_power_reading=bool(getattr(br, "needs_power_reading", False)),
-                    needs_light_source_reading=bool(
-                        getattr(br, "needs_light_source_reading", False)
+                    needs_power_reading=bool(
+                        getattr(
+                            br,
+                            "needs_power_reading",
+                            False,
+                        )
                     ),
-                    power_port_no=getattr(br, "power_port_no", None),
+                    needs_light_source_reading=bool(
+                        getattr(
+                            br,
+                            "needs_light_source_reading",
+                            False,
+                        )
+                    ),
+                    power_port_no=getattr(
+                        br,
+                        "power_port_no",
+                        None,
+                    ),
                 )
             )
+
             seen.add(key)
+
         if to_create:
             RequisitoFotoBilling.objects.bulk_create(to_create)
 
@@ -1166,8 +1263,12 @@ def upload_evidencias(request, pk):
     puede_subir = (a.estado == "en_proceso") or (
         a.estado == "rechazado_supervisor" and a.reintento_habilitado
     )
+
     if not puede_subir and request.method != "GET":
-        messages.info(request, "This assignment is not open for uploads.")
+        messages.info(
+            request,
+            "This assignment is not open for uploads.",
+        )
         return redirect("operaciones:mis_assignments")
 
     s = a.sesion
@@ -1179,65 +1280,169 @@ def upload_evidencias(request, pk):
         nota = (request.POST.get("nota") or "").strip()
 
         files = request.FILES.getlist("imagenes[]")
-        wasabi_keys = request.POST.getlist(
-            "wasabi_keys[]") if settings.DIRECT_UPLOADS_ENABLED else []
+
+        wasabi_keys = (
+            request.POST.getlist("wasabi_keys[]")
+            if settings.DIRECT_UPLOADS_ENABLED
+            else []
+        )
 
         lat = request.POST.get("lat") or None
         lng = request.POST.get("lng") or None
         acc = request.POST.get("acc") or None
+
         taken = request.POST.get("client_taken_at")
         taken_dt = parse_datetime(taken) if taken else None
 
         # Campos manuales para Extra en proyecto especial
         titulo_manual = (request.POST.get("titulo_manual") or "").strip()
+
         direccion_manual = (request.POST.get("direccion_manual") or "").strip()
+
+        req = None
+
+        if req_id:
+            req = get_object_or_404(
+                RequisitoFotoBilling,
+                pk=req_id,
+                tecnico_sesion=a,
+            )
+
+        # ============================================================
+        # GALLERY UPLOAD PERMISSION
+        # ============================================================
+        #
+        # OFF:
+        # - LIGHT SOURCE puede cargar desde galería.
+        # - Los demás requirements no pueden.
+        # - Extra Photos no puede.
+        #
+        # ON:
+        # - Todos pueden usar galería.
+        #
+        # Esta validación protege también el POST fallback.
+        # ============================================================
+
+        has_gallery_files = bool(files or wasabi_keys)
+
+        if has_gallery_files:
+            if req:
+                is_light_source = _is_light_source_requirement(req)
+
+                if not is_light_source and not s.allow_gallery_upload:
+                    messages.error(
+                        request,
+                        (
+                            "Gallery upload is disabled for this project. "
+                            "Please use the camera."
+                        ),
+                    )
+
+                    return redirect(
+                        "operaciones:upload_evidencias",
+                        pk=a.pk,
+                    )
+
+            else:
+                if not s.allow_gallery_upload:
+                    messages.error(
+                        request,
+                        (
+                            "Gallery upload for Extra Photos is disabled "
+                            "for this project. Please use the camera."
+                        ),
+                    )
+
+                    return redirect(
+                        "operaciones:upload_evidencias",
+                        pk=a.pk,
+                    )
 
         if is_especial and not req_id:
             if not titulo_manual:
                 messages.error(
-                    request, "Please enter a Title for the photo (special project).")
-                return redirect("operaciones:upload_evidencias", pk=a.pk)
+                    request,
+                    "Please enter a Title for the photo (special project).",
+                )
+
+                return redirect(
+                    "operaciones:upload_evidencias",
+                    pk=a.pk,
+                )
+
             if not direccion_manual:
                 messages.error(
-                    request, "Please enter an Address for the photo (special project).")
-                return redirect("operaciones:upload_evidencias", pk=a.pk)
+                    request,
+                    "Please enter an Address for the photo (special project).",
+                )
+
+                return redirect(
+                    "operaciones:upload_evidencias",
+                    pk=a.pk,
+                )
 
         # Lock por título (si es requisito)
         if req_id:
-            req = get_object_or_404(
-                RequisitoFotoBilling, pk=req_id, tecnico_sesion=a)
             shared_key = _norm_title(req.titulo)
-            taken_titles = (EvidenciaFotoBilling.objects
-                            .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
-                            .values_list("requisito__titulo", flat=True))
+
+            taken_titles = EvidenciaFotoBilling.objects.filter(
+                tecnico_sesion__sesion=s,
+                requisito__isnull=False,
+            ).values_list(
+                "requisito__titulo",
+                flat=True,
+            )
+
             locked_title_set = {_norm_title(t) for t in taken_titles if t}
+
             if shared_key in locked_title_set:
                 messages.warning(
                     request,
-                    "This requirement is already covered by the team. "
-                    "Remove the existing photo to re-activate it."
+                    (
+                        "This requirement is already covered by the team. "
+                        "Remove the existing photo to re-activate it."
+                    ),
                 )
-                return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+                return redirect(
+                    "operaciones:upload_evidencias",
+                    pk=a.pk,
+                )
 
         # Wasabi keys
         n = 0
+
         for key in wasabi_keys:
             if _is_safe_wasabi_key(key):
                 _create_evidencia_from_key(
-                    req_id, key, nota, lat, lng, acc, taken_dt,
-                    titulo_manual=titulo_manual, direccion_manual=direccion_manual
+                    req_id,
+                    key,
+                    nota,
+                    lat,
+                    lng,
+                    acc,
+                    taken_dt,
+                    titulo_manual=titulo_manual,
+                    direccion_manual=direccion_manual,
                 )
+
                 n += 1
 
         # Archivos
         for f in files:
             f_conv = _to_jpeg_if_needed(f)
+
             try:
                 f_conv.seek(0)
                 im = Image.open(f_conv)
+
                 exif_lat, exif_lng, exif_dt = _exif_to_latlng_taken_at(im)
+
             except Exception:
-                exif_lat = exif_lng = exif_dt = None
+                exif_lat = None
+                exif_lng = None
+                exif_dt = None
+
             finally:
                 f_conv.seek(0)
 
@@ -1257,83 +1462,142 @@ def upload_evidencias(request, pk):
                 titulo_manual=titulo_manual,
                 direccion_manual=direccion_manual,
             )
+
             n += 1
 
-        messages.success(request, f"{n} photo(s) uploaded.") if n else messages.info(
-            request, "No files selected."
+        (
+            messages.success(
+                request,
+                f"{n} photo(s) uploaded.",
+            )
+            if n
+            else messages.info(
+                request,
+                "No files selected.",
+            )
         )
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+        return redirect(
+            "operaciones:upload_evidencias",
+            pk=a.pk,
+        )
 
     # -------------------- GET --------------------
-    requisitos = (
-        a.requisitos
-         .annotate(uploaded=Count("evidencias"))
-         .order_by("orden", "id")
+    requisitos = a.requisitos.annotate(uploaded=Count("evidencias")).order_by(
+        "orden",
+        "id",
     )
 
-    taken_titles = (EvidenciaFotoBilling.objects
-                    .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
-                    .values_list("requisito__titulo", flat=True))
-    locked_title_set = {_norm_title(t) for t in taken_titles if t}
-    locked_ids = [r.id for r in requisitos if _norm_title(
-        r.titulo) in locked_title_set]
+    taken_titles = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s,
+        requisito__isnull=False,
+    ).values_list(
+        "requisito__titulo",
+        flat=True,
+    )
 
-    required_titles = (RequisitoFotoBilling.objects
-                       .filter(tecnico_sesion__sesion=s, obligatorio=True)
-                       .values_list("titulo", flat=True))
+    locked_title_set = {_norm_title(t) for t in taken_titles if t}
+
+    locked_ids = [r.id for r in requisitos if _norm_title(r.titulo) in locked_title_set]
+
+    required_titles = RequisitoFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s,
+        obligatorio=True,
+    ).values_list(
+        "titulo",
+        flat=True,
+    )
+
     required_key_set = {_norm_title(t) for t in required_titles if t}
+
     covered_key_set = locked_title_set
+
     missing_keys = required_key_set - covered_key_set
 
     sample_titles = list(
-        RequisitoFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, titulo__isnull=False)
-        .values_list("titulo", flat=True)
+        RequisitoFotoBilling.objects.filter(
+            tecnico_sesion__sesion=s,
+            titulo__isnull=False,
+        ).values_list(
+            "titulo",
+            flat=True,
+        )
     )
+
     sample_map = {_norm_title(t): t for t in sample_titles if t}
+
     faltantes_global = [sample_map.get(k, k) for k in sorted(missing_keys)]
 
     qs_asg = s.tecnicos_sesion.select_related("tecnico").all()
+
     try:
         SesionBillingTecnico._meta.get_field("is_active")
+
         qs_asg = qs_asg.filter(is_active=True)
+
     except Exception:
         pass
 
     asignaciones = list(qs_asg)
+
     pendientes_aceptar = []
+
     for asg in asignaciones:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+
         if not accepted:
-            name = getattr(asg.tecnico, "get_full_name",
-                           lambda: "")() or asg.tecnico.username
+            name = (
+                getattr(
+                    asg.tecnico,
+                    "get_full_name",
+                    lambda: "",
+                )()
+                or asg.tecnico.username
+            )
+
             pendientes_aceptar.append(name)
-    all_accepted = (len(pendientes_aceptar) == 0)
 
-    can_finish = (a.estado == "en_proceso" and len(
-        faltantes_global) == 0 and all_accepted)
+    all_accepted = len(pendientes_aceptar) == 0
 
-    evidencias = (
-        a.evidencias
-         .select_related("requisito")
-         .order_by("requisito__orden", "tomada_en", "id")
+    can_finish = (
+        a.estado == "en_proceso" and len(faltantes_global) == 0 and all_accepted
+    )
+
+    evidencias = a.evidencias.select_related("requisito").order_by(
+        "requisito__orden",
+        "tomada_en",
+        "id",
     )
 
     can_delete = puede_subir
 
     proj_id = (a.sesion.proyecto_id or "project").strip()
+
     proj_slug = slugify(proj_id) or "project"
+
     sess_tag = f"{proj_slug}-{a.sesion_id}"
 
     tech = a.tecnico
+
     tech_name = (
-        getattr(tech, "get_full_name", lambda: "")()
-        or getattr(tech, "username", "")
+        getattr(
+            tech,
+            "get_full_name",
+            lambda: "",
+        )()
+        or getattr(
+            tech,
+            "username",
+            "",
+        )
         or f"user-{tech.id}"
     )
+
     tech_slug = slugify(tech_name) or f"user-{tech.id}"
 
-    direct_uploads_folder = f"operaciones/reporte_fotografico/{sess_tag}/{tech_slug}/evidencia/"
+    direct_uploads_folder = (
+        f"operaciones/reporte_fotografico/" f"{sess_tag}/" f"{tech_slug}/" f"evidencia/"
+    )
 
     return render(
         request,
@@ -1343,20 +1607,23 @@ def upload_evidencias(request, pk):
             "requisitos": requisitos,
             "evidencias": evidencias,
             "can_delete": can_delete,
-
             "locked_ids": locked_ids,
             "faltantes_global": faltantes_global,
             "pendientes_aceptar": pendientes_aceptar,
             "can_finish": can_finish,
-
             "direct_uploads_enabled": settings.DIRECT_UPLOADS_ENABLED,
-            "direct_uploads_max_mb": getattr(settings, "DIRECT_UPLOADS_MAX_MB", 15),
+            "direct_uploads_max_mb": getattr(
+                settings,
+                "DIRECT_UPLOADS_MAX_MB",
+                15,
+            ),
             "direct_uploads_folder": direct_uploads_folder,
             "project_id": a.sesion.proyecto_id,
             "current_user_name": tech_name,
-
             # ✅ viene del helper robusto
             "is_proyecto_especial": is_especial,
+            # ✅ Gallery upload del Billing
+            "allow_gallery_upload": bool(s.allow_gallery_upload),
         },
     )
 
@@ -1432,6 +1699,54 @@ def upload_evidencias_ajax(request, pk):
     taken_dt = parse_datetime(taken) if taken else None
     titulo_manual = (request.POST.get("titulo_manual") or "").strip()
     direccion_manual = (request.POST.get("direccion_manual") or "").strip()
+
+    # ============================================================
+    # GALLERY UPLOAD PERMISSION
+    #
+    # OFF:
+    # - LIGHT SOURCE puede subir archivo desde galería.
+    # - Los demás requirements no pueden.
+    # - Extra Photos no puede.
+    #
+    # ON:
+    # - Todos pueden subir desde galería.
+    # ============================================================
+
+    if req_id:
+        req_gallery = get_object_or_404(
+            RequisitoFotoBilling,
+            pk=req_id,
+            tecnico_sesion=a,
+        )
+
+        is_light_source = bool(
+            getattr(req_gallery, "needs_light_source_reading", False)
+        ) or ((req_gallery.titulo or "").strip().upper() == "LIGHT SOURCE")
+
+        if not is_light_source and not s.allow_gallery_upload:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Gallery upload is disabled for this project. "
+                        "Please use the camera."
+                    ),
+                },
+                status=403,
+            )
+
+    else:
+        if not s.allow_gallery_upload:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Gallery upload for Extra Photos is disabled for this project. "
+                        "Please use the camera."
+                    ),
+                },
+                status=403,
+            )
 
     if is_especial and not req_id:
         if not titulo_manual:

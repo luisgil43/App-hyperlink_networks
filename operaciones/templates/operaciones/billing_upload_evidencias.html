@@ -105,9 +105,11 @@
        data-status-url="{% url 'operaciones:fotos_status_json' a.pk %}">
   </div>
   <script>
-    window.CAN_DELETE = {{ can_delete|yesno:"true,false" }};
-    window.DELETE_URL_TPL = document.getElementById('js-urls')?.dataset?.deleteUrlTemplate || '';
-    window.deleteUrlFor   = (id) => (window.DELETE_URL_TPL || '').replace(/\/0(\/|$)/, `/${id}$1`);
+      window.CAN_DELETE = {{ can_delete|yesno:"true,false" }};
+      window.ALLOW_GALLERY_UPLOAD = {{ allow_gallery_upload|yesno:"true,false" }};
+
+      window.DELETE_URL_TPL = document.getElementById('js-urls')?.dataset?.deleteUrlTemplate || '';
+      window.deleteUrlFor   = (id) => (window.DELETE_URL_TPL || '').replace(/\/0(\/|$)/, `/${id}$1`);
   </script>
 
   <div class="mt-5">
@@ -115,7 +117,11 @@
 
     <ul class="space-y-3">
       {% for r in requisitos %}
-        <li class="border rounded-2xl p-4">
+        <li class="border rounded-2xl p-4"
+            data-requirement-item
+            data-req-id="{{ r.id }}"
+            data-original-order="{{ r.orden|default:0 }}"
+            data-is-light-source="{% if r.needs_light_source_reading or r.titulo|upper == 'LIGHT SOURCE' %}1{% else %}0{% endif %}">
 
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 req-title-wrap">
@@ -153,16 +159,36 @@
             <input type="hidden" name="client_taken_at">
 
             <div class="flex flex-wrap items-center gap-2">
-              <input id="file-gallery-{{ r.id }}" type="file" name="imagenes[]" accept="image/*" multiple
-                     class="sr-only file-input" {% if r.id in locked_ids %}disabled{% endif %}>
+              <input id="file-gallery-{{ r.id }}"
+                    type="file"
+                    name="imagenes[]"
+                    accept="image/*"
+                    multiple
+                    class="sr-only file-input"
+                    data-gallery-input="1"
+                    data-is-light-source="{% if r.needs_light_source_reading or r.titulo|upper == 'LIGHT SOURCE' %}1{% else %}0{% endif %}"
+                    {% if r.id in locked_ids or not allow_gallery_upload and not r.needs_light_source_reading and r.titulo|upper != 'LIGHT SOURCE' %}disabled{% endif %}>
+
               <label for="file-gallery-{{ r.id }}"
-                     class="px-3 py-2 rounded text-sm cursor-pointer
-                            {% if r.id in locked_ids %}bg-gray-100 text-gray-400 cursor-not-allowed{% else %}bg-gray-100 hover:bg-gray-200{% endif %}">
+              data-gallery-label="1"
+              class="px-3 py-2 rounded text-sm
+                      {% if r.id in locked_ids or not allow_gallery_upload and not r.needs_light_source_reading and r.titulo|upper != 'LIGHT SOURCE' %}
+                        bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none opacity-60
+                      {% else %}
+                        bg-gray-100 hover:bg-gray-200 cursor-pointer
+                      {% endif %}">
                 📁 Choose files
               </label>
 
-              <span class="text-xs text-gray-600 filename" data-empty="No files selected">
-                {% if r.id in locked_ids %}Closed{% else %}No files selected{% endif %}
+              <span class="text-xs text-gray-600 filename"
+                    data-empty="No files selected">
+                {% if r.id in locked_ids %}
+                  Closed
+                {% elif not allow_gallery_upload and not r.needs_light_source_reading and r.titulo|upper != 'LIGHT SOURCE' %}
+                Gallery disabled
+                {% else %}
+                  No files selected
+                {% endif %}
               </span>
 
               <a href="{% url 'operaciones:camera_take' a.pk %}?req_id={{ r.id }}"
@@ -264,12 +290,35 @@
           <input type="hidden" name="client_taken_at">
 
           <div class="flex flex-wrap items-center gap-2">
-            <input id="file-gallery-extra" type="file" name="imagenes[]" accept="image/*" multiple class="sr-only file-input">
+            <input id="file-gallery-extra"
+                  type="file"
+                  name="imagenes[]"
+                  accept="image/*"
+                  multiple
+                  class="sr-only file-input"
+                  data-gallery-input="1"
+                  data-extra-gallery="1"
+                  {% if not allow_gallery_upload %}disabled{% endif %}>
+
             <label for="file-gallery-extra"
-                   class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm cursor-pointer">
+                  data-gallery-label="1"
+                  class="px-3 py-2 rounded text-sm
+                          {% if allow_gallery_upload %}
+                            bg-gray-100 hover:bg-gray-200 cursor-pointer
+                          {% else %}
+                            bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none opacity-60
+                          {% endif %}">
               📁 Choose files
             </label>
-            <span class="text-xs text-gray-600 filename" data-empty="No files selected">No files selected</span>
+
+            <span class="text-xs text-gray-600 filename"
+                  data-empty="No files selected">
+              {% if allow_gallery_upload %}
+                No files selected
+              {% else %}
+                Gallery disabled
+              {% endif %}
+            </span>
 
             <a href="{% url 'operaciones:camera_take' a.pk %}"
                class="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 text-sm">
@@ -673,7 +722,63 @@
     const fileInputGallery = form.querySelector('.file-input');
     const filenameEl       = form.querySelector('.filename');
 
-    if (filenameEl) filenameEl.textContent = filenameEl.getAttribute('data-empty') || 'No files selected';
+    if (filenameEl && fileInputGallery) {
+
+      const reqInput = form.querySelector(
+        'input[name="req_id"]'
+      );
+
+      const isExtra =
+        form.dataset.extra === '1';
+
+      const isLightSource =
+        fileInputGallery.dataset.isLightSource === '1';
+
+      const reqItem =
+        form.closest('[data-requirement-item]');
+
+      const badge =
+        reqItem
+          ? reqItem.querySelector('.req-badge')
+          : null;
+
+      const isDone =
+        badge &&
+        badge.dataset.state === 'done';
+
+      if (fileInputGallery.disabled) {
+
+        if (isDone) {
+
+          filenameEl.textContent =
+            'Closed';
+
+        } else if (
+          isExtra &&
+          !window.ALLOW_GALLERY_UPLOAD
+        ) {
+
+          filenameEl.textContent =
+            'Gallery disabled';
+
+        } else if (
+          reqInput &&
+          !window.ALLOW_GALLERY_UPLOAD &&
+          !isLightSource
+        ) {
+
+          filenameEl.textContent =
+            'Gallery disabled';
+
+        }
+
+      } else {
+
+        filenameEl.textContent =
+          filenameEl.getAttribute('data-empty') ||
+          'No files selected';
+      }
+    }
 
     if (fileInputGallery){
       fileInputGallery.addEventListener('change', async ()=>{
@@ -905,53 +1010,266 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
 
 <script>
 /* Helpers globales para el poller */
-(function(){
-  window.__setReqEnabled = function(reqId, enabled){
-    var inp = document.querySelector('input[name="req_id"][value="' + reqId + '"]');
-    if (!inp) return;
-    var form = inp.closest('form');
-    var li   = inp.closest('li');
+      (function(){
+            window.__sortRequirementsPendingFirst = function(){
 
-    var gallery = document.getElementById('file-gallery-' + reqId);
-    var lblGal  = li ? li.querySelector('label[for="file-gallery-' + reqId + '"]') : null;
-    var btnLoc  = li ? li.querySelector('.grant-location') : null;
-    var nota    = li ? li.querySelector('input[name="nota"]') : null;
-    var submit  = form ? (form.querySelector('button[type="submit"], button:not([type])')) : null;
-    var filenameEl = form ? form.querySelector('.filename') : null;
+        const list = document.querySelector(
+          'ul.space-y-3'
+        );
 
-    [gallery, btnLoc, nota, submit].forEach(function(el){
-      if (!el) return;
-      el.disabled = !enabled;
-      el.classList.toggle('cursor-not-allowed', !enabled);
-      el.classList.toggle('opacity-60', !enabled);
-    });
-    if (lblGal){
-      lblGal.classList.toggle('pointer-events-none', !enabled);
-      lblGal.classList.toggle('opacity-60', !enabled);
-    }
-    if (filenameEl){
-      var haveFiles = Array.from(form.querySelectorAll('input[type=file]')).some(function(i){ return i.files && i.files.length; });
-      if (!enabled){
-        filenameEl.textContent = 'Closed';
-      } else if (!haveFiles) {
-        filenameEl.textContent = filenameEl.dataset.empty || 'No files selected';
-      }
-    }
-    var gps   = form ? form.querySelector('.gps-status') : null;
-    var time  = form ? form.querySelector('.time-status') : null;
-    if (!enabled){
-      if (gps)  gps.textContent  = '📍 Closed';
-      if (time) time.textContent = '🕒 —';
-      ['lat','lng','acc','client_taken_at'].forEach(function(nm){
-        var el = form.querySelector('input[name="'+nm+'"]'); if (el) el.value='';
+        if (!list) return;
+
+        const items = Array.from(
+          list.querySelectorAll(
+            ':scope > li[data-requirement-item]'
+          )
+        );
+
+        if (!items.length) return;
+
+        items.sort(function(a, b){
+
+          const badgeA = a.querySelector('.req-badge');
+          const badgeB = b.querySelector('.req-badge');
+
+          const stateA =
+            badgeA?.dataset.state || 'pending';
+
+          const stateB =
+            badgeB?.dataset.state || 'pending';
+
+          const priorityA =
+            stateA === 'pending' ? 0 : 1;
+
+          const priorityB =
+            stateB === 'pending' ? 0 : 1;
+
+          if (priorityA !== priorityB){
+            return priorityA - priorityB;
+          }
+
+          const orderA = parseInt(
+            a.dataset.originalOrder || '0',
+            10
+          );
+
+          const orderB = parseInt(
+            b.dataset.originalOrder || '0',
+            10
+          );
+
+          if (orderA !== orderB){
+            return orderA - orderB;
+          }
+
+          const idA = parseInt(
+            a.dataset.reqId || '0',
+            10
+          );
+
+          const idB = parseInt(
+            b.dataset.reqId || '0',
+            10
+          );
+
+          return idA - idB;
+        });
+
+        items.forEach(function(item){
+          list.appendChild(item);
+        });
+      };
+      window.__setReqEnabled = function(reqId, enabled){
+      var inp = document.querySelector(
+        'input[name="req_id"][value="' + reqId + '"]'
+      );
+
+      if (!inp) return;
+
+      var form = inp.closest('form');
+      var li   = inp.closest('li');
+
+      var gallery = document.getElementById(
+        'file-gallery-' + reqId
+      );
+
+      var lblGal = li
+        ? li.querySelector(
+            'label[for="file-gallery-' + reqId + '"]'
+          )
+        : null;
+
+      var btnLoc = li
+        ? li.querySelector('.grant-location')
+        : null;
+
+      var nota = li
+        ? li.querySelector('input[name="nota"]')
+        : null;
+
+      var submit = form
+        ? form.querySelector(
+            'button[type="submit"], button:not([type])'
+          )
+        : null;
+
+      var filenameEl = form
+        ? form.querySelector('.filename')
+        : null;
+
+      var isLightSource =
+        gallery &&
+        gallery.dataset.isLightSource === '1';
+
+      var galleryAllowed =
+        !!window.ALLOW_GALLERY_UPLOAD ||
+        isLightSource;
+
+      // ============================================================
+      // Estado general del requirement
+      // ============================================================
+
+      [btnLoc, nota, submit].forEach(function(el){
+        if (!el) return;
+
+        el.disabled = !enabled;
+
+        el.classList.toggle(
+          'cursor-not-allowed',
+          !enabled
+        );
+
+        el.classList.toggle(
+          'opacity-60',
+          !enabled
+        );
       });
-      if (nota) nota.value = '';
-    } else {
-      if (gps && (gps.textContent||'').includes('Closed')){
-        gps.textContent = '📍 Awaiting location…';
+
+      // ============================================================
+      // Gallery:
+      // además del estado del requirement, respeta el permiso global.
+      // LIGHT SOURCE es la única excepción.
+      // ============================================================
+
+      if (gallery){
+        var galleryEnabled =
+          enabled &&
+          galleryAllowed;
+
+        gallery.disabled = !galleryEnabled;
+
+        gallery.classList.toggle(
+          'cursor-not-allowed',
+          !galleryEnabled
+        );
+
+        gallery.classList.toggle(
+          'opacity-60',
+          !galleryEnabled
+        );
       }
-    }
-  };
+
+      if (lblGal){
+        var labelEnabled =
+          enabled &&
+          galleryAllowed;
+
+        lblGal.classList.toggle(
+          'pointer-events-none',
+          !labelEnabled
+        );
+
+        lblGal.classList.toggle(
+          'opacity-60',
+          !labelEnabled
+        );
+
+        lblGal.classList.toggle(
+          'cursor-not-allowed',
+          !labelEnabled
+        );
+
+        lblGal.classList.toggle(
+          'cursor-pointer',
+          labelEnabled
+        );
+      }
+
+      if (filenameEl){
+
+        var haveFiles = Array.from(
+          form.querySelectorAll('input[type=file]')
+        ).some(function(i){
+          return i.files && i.files.length;
+        });
+
+        if (!enabled){
+
+          filenameEl.textContent = 'Closed';
+
+        } else if (!galleryAllowed){
+
+          filenameEl.textContent = 'Gallery disabled';
+
+        } else if (!haveFiles){
+
+          filenameEl.textContent =
+            filenameEl.dataset.empty ||
+            'No files selected';
+
+        }
+      }
+
+      var gps = form
+        ? form.querySelector('.gps-status')
+        : null;
+
+      var time = form
+        ? form.querySelector('.time-status')
+        : null;
+
+      if (!enabled){
+
+        if (gps){
+          gps.textContent = '📍 Closed';
+        }
+
+        if (time){
+          time.textContent = '🕒 —';
+        }
+
+        [
+          'lat',
+          'lng',
+          'acc',
+          'client_taken_at'
+        ].forEach(function(nm){
+
+          var el = form.querySelector(
+            'input[name="' + nm + '"]'
+          );
+
+          if (el){
+            el.value = '';
+          }
+
+        });
+
+        if (nota){
+          nota.value = '';
+        }
+
+      } else {
+
+        if (
+          gps &&
+          (gps.textContent || '').includes('Closed')
+        ){
+          gps.textContent =
+            '📍 Awaiting location…';
+        }
+      }
+    };
 
   window.updateReqFromServer = function(list){
     if (!Array.isArray(list)) return;
@@ -975,10 +1293,23 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
           }
         }
       }
-      var cnt = document.querySelector('.req-count[data-req="' + r.id + '"]');
-      if (cnt) cnt.textContent = (r.my_count||0) + ' uploaded (you)';
-    });
-  };
+            var cnt = document.querySelector(
+                  '.req-count[data-req="' + r.id + '"]'
+                );
+
+                if (cnt){
+                  cnt.textContent =
+                    (r.my_count || 0) +
+                    ' uploaded (you)';
+                }
+              });
+
+              if (
+                window.__sortRequirementsPendingFirst
+              ){
+                window.__sortRequirementsPendingFirst();
+              }
+            };
 
   window.updateMissingBanner = function(list){
     var el = document.getElementById('missing-banner');
@@ -1004,6 +1335,18 @@ async function resizeImage(file, maxSide=1600, quality=0.85) {
       btn.title = 'All required photos must be uploaded and all assignees must accept (Start).';
     }
   };
+  document.addEventListener(
+  'DOMContentLoaded',
+  function(){
+
+    if (
+      window.__sortRequirementsPendingFirst
+    ){
+      window.__sortRequirementsPendingFirst();
+    }
+
+  }
+);
 })();
 </script>
 
@@ -1140,12 +1483,73 @@ async function bestEffortGps(form){
               const extraForm = document.querySelector('.geo-upload-form.ajax-uploader[data-extra="1"]');
               if (extraForm) {
                 const enabled = data.extras_left > 0;
-                extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
+                extraForm.querySelectorAll(
+                    'input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button'
+                  ).forEach(el => {
+                    el.disabled = !enabled;
+                  });
+
+                  const extraGallery =
+                    extraForm.querySelector(
+                      '#file-gallery-extra'
+                    );
+
+                  if (extraGallery){
+                    extraGallery.disabled =
+                      !enabled ||
+                      !window.ALLOW_GALLERY_UPLOAD;
+                  }
+
+                  const extraGalleryLabel =
+                    extraForm.querySelector(
+                      'label[for="file-gallery-extra"]'
+                    );
+
+                  if (extraGalleryLabel){
+
+                    const galleryEnabled =
+                      enabled &&
+                      !!window.ALLOW_GALLERY_UPLOAD;
+
+                    extraGalleryLabel.classList.toggle(
+                      'pointer-events-none',
+                      !galleryEnabled
+                    );
+
+                    extraGalleryLabel.classList.toggle(
+                      'opacity-60',
+                      !galleryEnabled
+                    );
+
+                    extraGalleryLabel.classList.toggle(
+                      'cursor-not-allowed',
+                      !galleryEnabled
+                    );
+
+                    extraGalleryLabel.classList.toggle(
+                      'cursor-pointer',
+                      galleryEnabled
+                    );
+                  }
                 const fn = extraForm.querySelector('.filename');
                 const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
                 if (fn) {
-                  if (!enabled) fn.textContent = 'Closed';
-                  else if (!haveFiles) fn.textContent = fn.dataset.empty || 'No files selected';
+
+                  if (!enabled){
+
+                    fn.textContent = 'Closed';
+
+                  } else if (!window.ALLOW_GALLERY_UPLOAD){
+
+                    fn.textContent = 'Gallery disabled';
+
+                  } else if (!haveFiles){
+
+                    fn.textContent =
+                      fn.dataset.empty ||
+                      'No files selected';
+
+                  }
                 }
                 const gps = extraForm.querySelector('.gps-status');
                 if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';
@@ -1236,12 +1640,73 @@ async function bestEffortGps(form){
         const extraForm = document.querySelector('.geo-upload-form.ajax-uploader[data-extra="1"]');
         if (extraForm) {
           const enabled = j.extras_left > 0;
-          extraForm.querySelectorAll('input[type=file],input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button').forEach(el => el.disabled = !enabled);
+          extraForm.querySelectorAll(
+              'input[name=titulo_manual],input[name=direccion_manual],input[name=nota],button'
+            ).forEach(el => {
+              el.disabled = !enabled;
+            });
+
+            const extraGallery =
+              extraForm.querySelector(
+                '#file-gallery-extra'
+              );
+
+            if (extraGallery){
+              extraGallery.disabled =
+                !enabled ||
+                !window.ALLOW_GALLERY_UPLOAD;
+            }
+
+            const extraGalleryLabel =
+              extraForm.querySelector(
+                'label[for="file-gallery-extra"]'
+              );
+
+            if (extraGalleryLabel){
+
+              const galleryEnabled =
+                enabled &&
+                !!window.ALLOW_GALLERY_UPLOAD;
+
+              extraGalleryLabel.classList.toggle(
+                'pointer-events-none',
+                !galleryEnabled
+              );
+
+              extraGalleryLabel.classList.toggle(
+                'opacity-60',
+                !galleryEnabled
+              );
+
+              extraGalleryLabel.classList.toggle(
+                'cursor-not-allowed',
+                !galleryEnabled
+              );
+
+              extraGalleryLabel.classList.toggle(
+                'cursor-pointer',
+                galleryEnabled
+              );
+            }
           const fn = extraForm.querySelector('.filename');
           const haveFiles = Array.from(extraForm.querySelectorAll('input[type=file]')).some(inp => inp.files && inp.files.length);
           if (fn) {
-            if (!enabled) fn.textContent = 'Closed';
-            else if (!haveFiles) fn.textContent = fn.dataset.empty || 'No files selected';
+
+            if (!enabled){
+
+              fn.textContent = 'Closed';
+
+            } else if (!window.ALLOW_GALLERY_UPLOAD){
+
+              fn.textContent = 'Gallery disabled';
+
+            } else if (!haveFiles){
+
+              fn.textContent =
+                fn.dataset.empty ||
+                'No files selected';
+
+            }
           }
           const gps = extraForm.querySelector('.gps-status');
           if (gps) gps.textContent = enabled ? '📍 Awaiting location…' : '📍 Extra photos limit reached';

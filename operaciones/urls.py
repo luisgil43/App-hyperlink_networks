@@ -441,6 +441,11 @@ urlpatterns = [
         name="billing_update_project_week",
     ),
     path(
+        "billing/<int:sesion_id>/gallery-upload/toggle/",
+        b.billing_toggle_gallery_upload,
+        name="billing_toggle_gallery_upload",
+    ),
+    path(
         "billing/snapshot/<int:snapshot_id>/update-week/",
         views.billing_update_snapshot_week,
         name="billing_update_snapshot_week",

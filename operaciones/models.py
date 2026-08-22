@@ -199,7 +199,15 @@ class SesionBilling(models.Model):
             "Address; the report will use those fields."
         ),
     )
-
+    allow_gallery_upload = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "If enabled, technicians may upload existing images from the gallery "
+            "for requirements and extra photos. LIGHT SOURCE remains allowed "
+            "even when this option is disabled."
+        ),
+    )
     # ----- Estado operativo y reporte único del proyecto -----
     estado = models.CharField(
         max_length=32,
