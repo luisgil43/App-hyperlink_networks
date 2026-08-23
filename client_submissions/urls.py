@@ -106,4 +106,9 @@ urlpatterns = [
         views_verification.verification_cancel,
         name="verification_cancel",
     ),
+    path(
+        "submission/<uuid:public_id>/delete/",
+        views.submission_delete,
+        name="submission_delete",
+    ),
 ]

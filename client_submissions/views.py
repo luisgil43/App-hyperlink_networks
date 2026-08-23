@@ -2184,8 +2184,6 @@ def batch_status_json(
     )
 
 
-
-
 # ============================================================
 # Estado JSON del listado de Batches
 # ============================================================
@@ -2280,5 +2278,376 @@ def batch_list_status_json(
         {
             "ok": True,
             "batches": rows,
+        }
+    )
+# ============================================================
+# Eliminar un proyecto de un Batch
+# ============================================================
+
+
+@login_required
+@rol_requerido(
+    "admin",
+    "pm",
+    "supervisor",
+    "facturacion",
+    "emision_facturacion",
+)
+@require_POST
+@transaction.atomic
+def submission_delete(
+    request: HttpRequest,
+    public_id,
+) -> JsonResponse:
+    """
+    Elimina un ClientSubmission individual del Batch sin
+    eliminar el Batch completo.
+
+    Reglas:
+
+    - Permite eliminar proyectos que todavía no han comenzado
+      procesamiento real.
+    - Permite eliminar PENDING_CLIENT_SUBMISSION, FAILED
+      y CANCELLED.
+    - No permite eliminar proyectos que ya estén activos,
+      enviados al cliente o completados en Dry Run.
+    - No permite eliminar el proyecto que actualmente está
+      siendo procesado por el worker.
+    - No permite eliminar mientras el Batch está RUNNING
+      o AWAITING_VERIFICATION.
+    - No permite eliminar el último proyecto del Batch.
+    - Renumera sequence_number después de eliminar.
+    - Registra auditoría mediante ClientSubmissionEvent.
+    """
+
+    _assert_manage_permission(
+        request,
+    )
+
+    # ========================================================
+    # Buscar Submission inicial
+    # ========================================================
+
+    submission = get_object_or_404(
+        ClientSubmission.objects.select_related(
+            "batch",
+            "billing_session",
+        ),
+        public_id=public_id,
+    )
+
+    # ========================================================
+    # Bloquear Batch
+    # ========================================================
+
+    batch = get_object_or_404(
+        ClientSubmissionBatch.objects.select_for_update(),
+        pk=submission.batch_id,
+    )
+
+    # ========================================================
+    # Bloquear nuevamente Submission dentro de la transacción
+    # ========================================================
+
+    submission = get_object_or_404(
+        ClientSubmission.objects.select_for_update().select_related(
+            "billing_session",
+        ),
+        pk=submission.pk,
+        batch=batch,
+    )
+
+    # ========================================================
+    # Protección del Batch
+    #
+    # RUNNING:
+    # El worker ya puede estar trabajando activamente.
+    #
+    # AWAITING_VERIFICATION:
+    # Existe un proyecto detenido esperando intervención
+    # humana / CAPTCHA.
+    # ========================================================
+
+    if batch.status == ClientSubmissionBatch.Status.RUNNING:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project cannot be deleted while the batch "
+                    "is actively being processed. "
+                    "Pause the batch before removing a project."
+                ),
+            },
+            status=409,
+        )
+
+    if batch.status == ClientSubmissionBatch.Status.AWAITING_VERIFICATION:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project cannot be deleted while the batch "
+                    "is awaiting human verification."
+                ),
+            },
+            status=409,
+        )
+
+    # ========================================================
+    # No eliminar el Submission actual del worker
+    # ========================================================
+
+    if batch.current_submission_id == submission.pk:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project is currently being processed by "
+                    "the background worker and cannot be deleted."
+                ),
+            },
+            status=409,
+        )
+
+    # ========================================================
+    # Estados del Submission que NO pueden eliminarse
+    #
+    # Desde PREPARING en adelante ya comenzó procesamiento.
+    # ========================================================
+
+    protected_submission_statuses = {
+        ClientSubmission.Status.PREPARING,
+        ClientSubmission.Status.AWAITING_VERIFICATION,
+        ClientSubmission.Status.SUBMITTING,
+        ClientSubmission.Status.AWAITING_EMAIL_CONFIRMATION,
+        ClientSubmission.Status.SENT_TO_CLIENT,
+        ClientSubmission.Status.DRY_RUN_COMPLETED,
+    }
+
+    if submission.status in protected_submission_statuses:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project can no longer be deleted because "
+                    "client processing has already started."
+                ),
+            },
+            status=409,
+        )
+
+    # ========================================================
+    # Estados que sí permitimos eliminar
+    #
+    # Normalmente:
+    #
+    # PENDING_CLIENT_SUBMISSION
+    # FAILED
+    # CANCELLED
+    #
+    # Esto evita borrar estados futuros accidentalmente.
+    # ========================================================
+
+    deletable_submission_statuses = {
+        ClientSubmission.Status.PENDING_CLIENT_SUBMISSION,
+        ClientSubmission.Status.FAILED,
+        ClientSubmission.Status.CANCELLED,
+    }
+
+    if submission.status not in deletable_submission_statuses:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project cannot be deleted from its current "
+                    f"status: '{submission.get_status_display()}'."
+                ),
+            },
+            status=409,
+        )
+
+    # ========================================================
+    # No permitir dejar el Batch vacío
+    # ========================================================
+
+    total_submissions = batch.submissions.count()
+
+    if total_submissions <= 1:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "The last project cannot be removed from the batch. "
+                    "Delete the entire batch instead."
+                ),
+            },
+            status=409,
+        )
+
+    # ========================================================
+    # Snapshot para auditoría antes de eliminar
+    # ========================================================
+
+    deleted_submission_id = submission.pk
+
+    deleted_public_id = str(
+        submission.public_id,
+    )
+
+    deleted_project_id = submission.project_id
+
+    deleted_sequence_number = submission.sequence_number
+
+    deleted_billing_session_id = submission.billing_session_id
+
+    deleted_status = submission.status
+
+    deleted_status_label = submission.get_status_display()
+
+    deleted_validation_ok = submission.validation_ok
+
+    deleted_validation_errors = submission.validation_errors or []
+
+    deleted_last_error_code = submission.last_error_code
+
+    deleted_last_error_message = submission.last_error_message
+
+    # ========================================================
+    # Protección adicional:
+    # limpiar current_submission si existiera una referencia
+    # residual inesperada.
+    #
+    # Normalmente esta rama no debería ejecutarse porque arriba
+    # ya bloqueamos ese caso, pero la dejamos por consistencia.
+    # ========================================================
+
+    if batch.current_submission_id == submission.pk:
+        batch.current_submission = None
+
+        batch.save(
+            update_fields=[
+                "current_submission",
+                "updated_at",
+            ]
+        )
+
+    # ========================================================
+    # Eliminar Submission
+    #
+    # IMPORTANTE:
+    # Esto NO elimina SesionBilling.
+    # Solo elimina el proyecto dentro de Client Submissions.
+    # ========================================================
+
+    submission.delete()
+
+    # ========================================================
+    # Renumerar proyectos restantes
+    # ========================================================
+
+    remaining_submissions = list(
+        batch.submissions.select_for_update().order_by(
+            "sequence_number",
+            "id",
+        )
+    )
+
+    submissions_to_update = []
+
+    for (
+        new_sequence_number,
+        remaining_submission,
+    ) in enumerate(
+        remaining_submissions,
+        start=1,
+    ):
+        if remaining_submission.sequence_number == new_sequence_number:
+            continue
+
+        remaining_submission.sequence_number = new_sequence_number
+
+        submissions_to_update.append(
+            remaining_submission,
+        )
+
+    if submissions_to_update:
+        ClientSubmission.objects.bulk_update(
+            submissions_to_update,
+            [
+                "sequence_number",
+                "updated_at",
+            ],
+        )
+
+    # ========================================================
+    # Auditoría
+    # ========================================================
+
+    ClientSubmissionEvent.objects.create(
+        batch=batch,
+        level=ClientSubmissionEvent.Level.WARNING,
+        event_type="submission_removed_from_batch",
+        message=(
+            f"Project {deleted_project_id} was removed from "
+            f"Batch #{batch.pk} by "
+            f"{request.user.get_username()}."
+        ),
+        metadata={
+            "user_id": request.user.pk,
+            "username": request.user.get_username(),
+            "submission_id": deleted_submission_id,
+            "submission_public_id": deleted_public_id,
+            "project_id": deleted_project_id,
+            "billing_session_id": (deleted_billing_session_id),
+            "sequence_number": (deleted_sequence_number),
+            "status": deleted_status,
+            "status_label": (deleted_status_label),
+            "validation_ok": (deleted_validation_ok),
+            "validation_errors": (deleted_validation_errors),
+            "last_error_code": (deleted_last_error_code),
+            "last_error_message": (deleted_last_error_message),
+        },
+    )
+
+    # ========================================================
+    # Actualizar actividad del Batch
+    # ========================================================
+
+    batch.last_activity_at = timezone.now()
+
+    batch.save(
+        update_fields=[
+            "last_activity_at",
+            "updated_at",
+        ]
+    )
+
+    # ========================================================
+    # Contadores después de eliminar
+    # ========================================================
+
+    counts = _submission_status_counts(
+        batch,
+    )
+
+    # ========================================================
+    # Respuesta
+    # ========================================================
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": (f"Project {deleted_project_id} was removed " "from the batch."),
+            "deleted_submission_id": (deleted_submission_id),
+            "deleted_project_id": (deleted_project_id),
+            "batch": {
+                "id": batch.pk,
+                "public_id": str(
+                    batch.public_id,
+                ),
+                "status": batch.status,
+                "status_label": (batch.get_status_display()),
+                "counts": counts,
+            },
         }
     )

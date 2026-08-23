@@ -501,7 +501,7 @@
             </div>
           {% endif %}
 
-          <div class="flex items-center gap-3 mt-4">
+          <div class="flex items-center gap-3 mt-4 flex-wrap">
 
             <button
               type="button"
@@ -518,6 +518,37 @@
               >
                 Verification
               </a>
+            {% endif %}
+
+            {% if batch.status == "running" or batch.status == "awaiting_verification" %}
+              <button
+                type="button"
+                disabled
+                title="This project cannot be removed while the batch is actively processing."
+                class="text-gray-300 cursor-not-allowed"
+              >
+                Delete
+              </button>
+
+            {% elif submission.status == "pending_client_submission" or submission.status == "failed" or submission.status == "cancelled" %}
+              <button
+                type="button"
+                class="btn-delete-submission text-red-600 hover:text-red-800 hover:underline"
+                data-url="{% url 'client_submissions:submission_delete' submission.public_id %}"
+                data-project-id="{{ submission.project_id }}"
+              >
+                Delete
+              </button>
+
+            {% else %}
+              <button
+                type="button"
+                disabled
+                title="Client processing has already started for this project."
+                class="text-gray-300 cursor-not-allowed"
+              >
+                Delete
+              </button>
             {% endif %}
 
           </div>
@@ -738,7 +769,7 @@
               </td>
 
               <td class="px-4 py-3 text-center">
-                <div class="flex items-center justify-center gap-2">
+                <div class="flex items-center justify-center gap-3">
 
                   <button
                     type="button"
@@ -757,6 +788,37 @@
                     </a>
                   {% endif %}
 
+                  {% if batch.status == "running" or batch.status == "awaiting_verification" %}
+                    <button
+                      type="button"
+                      disabled
+                      title="This project cannot be removed while the batch is actively processing."
+                      class="text-gray-300 cursor-not-allowed"
+                    >
+                      Delete
+                    </button>
+
+                  {% elif submission.status == "pending_client_submission" or submission.status == "failed" or submission.status == "cancelled" %}
+                    <button
+                      type="button"
+                      class="btn-delete-submission text-red-600 hover:text-red-800 hover:underline"
+                      data-url="{% url 'client_submissions:submission_delete' submission.public_id %}"
+                      data-project-id="{{ submission.project_id }}"
+                    >
+                      Delete
+                    </button>
+
+                  {% else %}
+                    <button
+                      type="button"
+                      disabled
+                      title="Client processing has already started for this project."
+                      class="text-gray-300 cursor-not-allowed"
+                    >
+                      Delete
+                    </button>
+                  {% endif %}
+
                 </div>
               </td>
 
@@ -773,6 +835,11 @@
 
 <script>
 (function () {
+
+  // =========================================================
+  // CSRF
+  // =========================================================
+
   function getCsrfToken() {
     const meta = document.querySelector(
       'meta[name="csrf-token"]'
@@ -804,6 +871,10 @@
       ? decodeURIComponent(match[1])
       : '';
   }
+
+  // =========================================================
+  // Toast
+  // =========================================================
 
   function showToast(
     message,
@@ -837,30 +908,134 @@
     );
   }
 
+  // =========================================================
+  // Acciones individuales
+  // =========================================================
+
   document.addEventListener(
     'click',
     async function (event) {
-      const button = event.target.closest(
+
+      // =====================================================
+      // Revalidate
+      // =====================================================
+
+      const revalidateButton = event.target.closest(
         '.btn-revalidate-submission'
       );
 
-      if (!button) {
+      if (revalidateButton) {
+        const url =
+          revalidateButton.dataset.url;
+
+        if (!url) {
+          return;
+        }
+
+        revalidateButton.disabled = true;
+
+        const originalText =
+          revalidateButton.textContent;
+
+        revalidateButton.textContent =
+          'Checking...';
+
+        try {
+          const response = await fetch(
+            url,
+            {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+              },
+            }
+          );
+
+          let data = {};
+
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = {};
+          }
+
+          if (
+            !response.ok ||
+            !data.ok
+          ) {
+            throw new Error(
+              data.error ||
+              `HTTP ${response.status}`
+            );
+          }
+
+          showToast(
+            'Project revalidated.',
+            'success'
+          );
+
+          window.location.reload();
+
+        } catch (error) {
+          showToast(
+            error.message ||
+            'Revalidation failed.',
+            'error'
+          );
+
+          revalidateButton.disabled = false;
+
+          revalidateButton.textContent =
+            originalText;
+        }
+
         return;
       }
 
-      const url = button.dataset.url;
+      // =====================================================
+      // Delete
+      // =====================================================
+
+      const deleteButton = event.target.closest(
+        '.btn-delete-submission'
+      );
+
+      if (!deleteButton) {
+        return;
+      }
+
+      const url =
+        deleteButton.dataset.url;
+
+      const projectId =
+        deleteButton.dataset.projectId ||
+        'this project';
 
       if (!url) {
         return;
       }
 
-      button.disabled = true;
+      const confirmed = window.confirm(
+        `Remove project "${projectId}" from this batch?\n\n` +
+        `Only this project will be deleted. ` +
+        `The Billing project and the rest of the batch ` +
+        `will remain unchanged.`
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      deleteButton.disabled = true;
 
       const originalText =
-        button.textContent;
+        deleteButton.textContent;
 
-      button.textContent =
-        'Checking...';
+      deleteButton.textContent =
+        'Deleting...';
 
       try {
         const response = await fetch(
@@ -876,8 +1051,13 @@
           }
         );
 
-        const data =
-          await response.json();
+        let data = {};
+
+        try {
+          data = await response.json();
+        } catch (_) {
+          data = {};
+        }
 
         if (
           !response.ok ||
@@ -890,26 +1070,35 @@
         }
 
         showToast(
-          'Project revalidated.',
+          `Project ${projectId} removed from the batch.`,
           'success'
         );
 
-        window.location.reload();
+        window.setTimeout(
+          function () {
+            window.location.reload();
+          },
+          500
+        );
 
       } catch (error) {
         showToast(
           error.message ||
-          'Revalidation failed.',
+          'The project could not be deleted.',
           'error'
         );
 
-        button.disabled = false;
+        deleteButton.disabled = false;
 
-        button.textContent =
+        deleteButton.textContent =
           originalText;
       }
     }
   );
+
+  // =========================================================
+  // Polling del Batch
+  // =========================================================
 
   const wrapper = document.getElementById(
     'client-submission-batch'
@@ -1053,6 +1242,7 @@
     refreshBatchStatus,
     5000
   );
+
 })();
 </script>
 {% endblock %}

@@ -50,8 +50,8 @@ INTERNAL_IPS = ['127.0.0.1']
 # Base de datos
 
 # ==============================
-"""
 
+""" 
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 if DATABASE_URL:
