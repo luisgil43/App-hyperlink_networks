@@ -520,6 +520,17 @@
               </a>
             {% endif %}
 
+            {% if submission.status == "awaiting_verification" or submission.status == "client_submission_failed" or submission.status == "cancelled" %}
+              <button
+                type="button"
+                class="btn-restart-submission-flow text-purple-600 hover:text-purple-800 hover:underline"
+                data-url="{% url 'client_submissions:submission_restart_flow' submission.public_id %}"
+                data-project-id="{{ submission.project_id }}"
+              >
+                Restart flow
+              </button>
+            {% endif %}
+
             {% if batch.status == "running" or batch.status == "awaiting_verification" %}
               <button
                 type="button"
@@ -788,6 +799,17 @@
                     </a>
                   {% endif %}
 
+                  {% if submission.status == "awaiting_verification" or submission.status == "client_submission_failed" or submission.status == "cancelled" %}
+                    <button
+                      type="button"
+                      class="btn-restart-submission-flow text-purple-600 hover:text-purple-800 hover:underline"
+                      data-url="{% url 'client_submissions:submission_restart_flow' submission.public_id %}"
+                      data-project-id="{{ submission.project_id }}"
+                    >
+                      Restart flow
+                    </button>
+                  {% endif %}
+
                   {% if batch.status == "running" or batch.status == "awaiting_verification" %}
                     <button
                       type="button"
@@ -989,6 +1011,102 @@
           revalidateButton.disabled = false;
 
           revalidateButton.textContent =
+            originalText;
+        }
+
+        return;
+      }
+
+      // =====================================================
+      // Restart flow
+      // =====================================================
+
+      const restartFlowButton = event.target.closest(
+        '.btn-restart-submission-flow'
+      );
+
+      if (restartFlowButton) {
+        const url =
+          restartFlowButton.dataset.url;
+
+        const projectId =
+          restartFlowButton.dataset.projectId ||
+          'this project';
+
+        if (!url) {
+          return;
+        }
+
+        const confirmed = window.confirm(
+          `Restart submission flow for ${projectId}?\n\n` +
+          `This will discard the current processing session and ` +
+          `return this project to Pending so the background worker ` +
+          `can process it again.\n\n` +
+          `Projects already sent to the client will not be affected.`
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        restartFlowButton.disabled = true;
+
+        const originalText =
+          restartFlowButton.textContent;
+
+        restartFlowButton.textContent =
+          'Restarting...';
+
+        try {
+          const response = await fetch(
+            url,
+            {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+              },
+            }
+          );
+
+          let data = {};
+
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = {};
+          }
+
+          if (
+            !response.ok ||
+            !data.ok
+          ) {
+            throw new Error(
+              data.error ||
+              `HTTP ${response.status}`
+            );
+          }
+
+          showToast(
+            data.message ||
+            'Project flow restarted.',
+            'success'
+          );
+
+          window.location.reload();
+
+        } catch (error) {
+          showToast(
+            error.message ||
+            'Restart flow failed.',
+            'error'
+          );
+
+          restartFlowButton.disabled = false;
+
+          restartFlowButton.textContent =
             originalText;
         }
 

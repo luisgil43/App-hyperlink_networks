@@ -78,6 +78,11 @@ urlpatterns = [
         views.submission_revalidate,
         name="submission_revalidate",
     ),
+    path(
+        "submission/<uuid:public_id>/restart-flow/",
+        views.submission_restart_flow,
+        name="submission_restart_flow",
+    ),
     # ========================================================
     # Verificación humana / CAPTCHA
     # ========================================================

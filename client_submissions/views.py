@@ -1792,6 +1792,204 @@ def submission_revalidate(
         }
     )
 
+# ============================================================
+# Reiniciar flujo de un proyecto
+# ============================================================
+
+
+@login_required
+@rol_requerido(
+    "admin",
+    "pm",
+    "supervisor",
+    "facturacion",
+    "emision_facturacion",
+)
+@require_POST
+@transaction.atomic
+def submission_restart_flow(
+    request: HttpRequest,
+    public_id,
+) -> JsonResponse:
+    """
+    Reinicia de forma segura una submission que quedó detenida
+    durante el flujo de Client Submission.
+
+    Esta acción:
+
+    - Nunca permite reiniciar SENT_TO_CLIENT.
+    - Nunca toca otras submissions del Batch.
+    - Impide reiniciar si existe otro proyecto actualmente
+      en un estado operativo.
+    - Usa reset_for_retry() para limpiar correctamente
+      timestamps, errores y estado del navegador.
+    - Devuelve el Batch a PENDING para que el worker
+      pueda recoger nuevamente el proyecto.
+    """
+
+    _assert_manage_permission(
+        request,
+    )
+
+    submission = get_object_or_404(
+        ClientSubmission.objects.select_for_update().select_related(
+            "batch",
+            "billing_session",
+        ),
+        public_id=public_id,
+    )
+
+    batch = ClientSubmissionBatch.objects.select_for_update().get(
+        pk=submission.batch_id,
+    )
+
+    # --------------------------------------------------------
+    # Protección absoluta:
+    # un proyecto enviado al cliente nunca puede reiniciarse.
+    # --------------------------------------------------------
+
+    if submission.status == ClientSubmission.Status.SENT_TO_CLIENT:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project has already been sent to the client "
+                    "and cannot be restarted."
+                ),
+            },
+            status=409,
+        )
+
+    # --------------------------------------------------------
+    # Solo permitimos recuperación de estados donde realmente
+    # puede existir un flujo detenido.
+    # --------------------------------------------------------
+
+    restartable_statuses = {
+        ClientSubmission.Status.AWAITING_VERIFICATION,
+        ClientSubmission.Status.FAILED,
+        ClientSubmission.Status.CANCELLED,
+    }
+
+    if submission.status not in restartable_statuses:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This project cannot be restarted from its "
+                    f"current status: {submission.get_status_display()}."
+                ),
+            },
+            status=409,
+        )
+
+    # --------------------------------------------------------
+    # Verificar que no exista OTRO proyecto del mismo Batch
+    # ejecutándose actualmente.
+    #
+    # El proyecto que estamos reiniciando se excluye de esta
+    # comprobación porque precisamente queremos recuperar
+    # ese flujo.
+    # --------------------------------------------------------
+
+    active_submission_statuses = {
+        ClientSubmission.Status.PREPARING_CLIENT_SUBMISSION,
+        ClientSubmission.Status.AWAITING_VERIFICATION,
+        ClientSubmission.Status.SUBMITTING_TO_CLIENT,
+        ClientSubmission.Status.AWAITING_EMAIL_CONFIRMATION,
+    }
+
+    other_active_submission = (
+        ClientSubmission.objects.select_for_update()
+        .filter(
+            batch=batch,
+            status__in=active_submission_statuses,
+        )
+        .exclude(
+            pk=submission.pk,
+        )
+        .order_by(
+            "sequence_number",
+            "id",
+        )
+        .first()
+    )
+
+    if other_active_submission is not None:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Another project in this batch is currently being "
+                    "processed. Restart flow is not available until "
+                    "that project finishes."
+                ),
+            },
+            status=409,
+        )
+
+    previous_submission_status = submission.status
+    previous_batch_status = batch.status
+
+    # --------------------------------------------------------
+    # reset_for_retry() es la lógica oficial del modelo.
+    #
+    # Devuelve la submission a:
+    #
+    #   pending_client_submission
+    #
+    # y limpia:
+    # - timestamps de ejecución
+    # - verificación
+    # - browser session
+    # - errores
+    #
+    # No modifica attempt_count.
+    # --------------------------------------------------------
+
+    submission.reset_for_retry()
+
+    # --------------------------------------------------------
+    # Reiniciar estado operativo del Batch.
+    #
+    # El worker solamente debe encontrar el Batch nuevamente
+    # como PENDING.
+    # --------------------------------------------------------
+
+    now = timezone.now()
+
+    batch.status = ClientSubmissionBatch.Status.PENDING
+    batch.current_submission = None
+    batch.paused_at = None
+    batch.finished_at = None
+    batch.last_activity_at = now
+
+    batch.save(
+        update_fields=[
+            "status",
+            "current_submission",
+            "paused_at",
+            "finished_at",
+            "last_activity_at",
+            "updated_at",
+        ]
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": (f"Project {submission.project_id} was restarted successfully."),
+            "previous_submission_status": previous_submission_status,
+            "submission_status": submission.status,
+            "previous_batch_status": previous_batch_status,
+            "batch_status": batch.status,
+            "submission": _submission_to_dict(
+                submission,
+            ),
+        }
+    )
+
+
 
 # ============================================================
 # Preparar Batch para procesamiento
