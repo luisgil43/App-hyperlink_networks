@@ -1211,7 +1211,7 @@ def preview_aerial_sequentials(
     La planilla esperada contiene:
 
         A1:
-            prefijo del proyecto
+            prefijo informativo del proyecto
             Ej: 0913BA_06
 
         Columnas:
@@ -1219,14 +1219,30 @@ def preview_aerial_sequentials(
             Seq. #1(In)
             Seq. #1(Out)
 
-    Project ID resultante:
+    IMPORTANTE SOBRE EL MATCH:
 
-        <A1>_<HH Number>
+    El prefijo del Project ID del Billing puede ser diferente
+    al prefijo mostrado en A1 del Excel.
 
-    Ej:
-        0913BA_06 + 7000-027
-        =
-        0913BA_06_7000-027
+    Ejemplo:
+
+        Billing:
+            0902BA_06_7000-046-9
+
+        Excel A1:
+            0913BA_06
+
+        Excel HH Number:
+            7000-046-9
+
+    Por lo tanto, el matching se realiza utilizando únicamente
+    el HH Number:
+
+        Billing HH == Excel HH Number
+
+    En el ejemplo anterior:
+
+        7000-046-9 == 7000-046-9 -> MATCH
 
     Si un mismo HH Number aparece varias veces:
     - NO se rechaza el Excel completo.
@@ -1320,9 +1336,26 @@ def preview_aerial_sequentials(
 
     # ========================================================
     # Solo proyectos realmente Aerial según Billing
+    #
+    # IMPORTANTE:
+    # La llave de matching ya NO es el Project ID completo.
+    # Ahora utilizamos únicamente el HH Number.
+    #
+    # Ej:
+    #
+    #   0902BA_06_7000-046-9
+    #
+    # se transforma para matching en:
+    #
+    #   7000-046-9
+    #
+    # Usamos una lista por HH para no perder información si
+    # excepcionalmente dos Billings seleccionados comparten HH.
     # ========================================================
 
-    selected_aerial_by_project: dict[str, dict] = {}
+    selected_aerial_by_hh: dict[str, list[dict]] = {}
+
+    selected_aerial_count = 0
 
     for billing in billings:
         automatic_flags = _build_billing_automatic_flags(
@@ -1341,19 +1374,52 @@ def preview_aerial_sequentials(
             billing.proyecto_id,
         )
 
-        normalized_project_id = _normalize_project_match_value(
-            project_id,
-        )
-
-        if not normalized_project_id:
+        if not project_id:
             continue
 
-        selected_aerial_by_project[normalized_project_id] = {
-            "billing_id": billing.pk,
-            "project_id": project_id,
-        }
+        # ----------------------------------------------------
+        # Extraer HH Number desde Project ID.
+        #
+        # Ej:
+        # 0902BA_06_7000-046-9
+        #
+        # rsplit("_", 1):
+        # ["0902BA_06", "7000-046-9"]
+        # ----------------------------------------------------
 
-    if not selected_aerial_by_project:
+        if "_" not in project_id:
+            continue
+
+        _project_prefix, hh_number = project_id.rsplit(
+            "_",
+            1,
+        )
+
+        hh_number = _clean_text(
+            hh_number,
+        )
+
+        normalized_hh_number = _normalize_project_match_value(
+            hh_number,
+        )
+
+        if not normalized_hh_number:
+            continue
+
+        selected_aerial_by_hh.setdefault(
+            normalized_hh_number,
+            [],
+        ).append(
+            {
+                "billing_id": billing.pk,
+                "project_id": project_id,
+                "hh_number": hh_number,
+            }
+        )
+
+        selected_aerial_count += 1
+
+    if not selected_aerial_by_hh:
         return JsonResponse(
             {
                 "ok": False,
@@ -1422,7 +1488,10 @@ def preview_aerial_sequentials(
             )
 
         # ====================================================
-        # Prefijo del proyecto
+        # Prefijo del Excel
+        #
+        # Se conserva únicamente como información para el
+        # preview. NO participa en el matching.
         # ====================================================
 
         workbook_prefix = _clean_text(
@@ -1562,9 +1631,10 @@ def preview_aerial_sequentials(
         # ====================================================
         # Leer filas del Excel
         #
-        # IMPORTANTE:
-        # Un mismo Project ID puede aparecer varias veces.
-        # Por eso almacenamos una LISTA de registros por Project.
+        # La llave es únicamente HH Number.
+        #
+        # Un mismo HH puede aparecer varias veces, por lo que
+        # almacenamos una LISTA de registros por HH.
         # ====================================================
 
         excel_records: dict[str, list[dict]] = {}
@@ -1614,30 +1684,40 @@ def preview_aerial_sequentials(
             if not hh_number:
                 continue
 
-            valid_excel_rows += 1
-
-            full_project_id = f"{workbook_prefix}_{hh_number}"
-
-            normalized_full_project_id = _normalize_project_match_value(
-                full_project_id,
+            normalized_hh_number = _normalize_project_match_value(
+                hh_number,
             )
+
+            if not normalized_hh_number:
+                continue
+
+            valid_excel_rows += 1
 
             record = {
                 "row_number": row_number,
                 "hh_number": hh_number,
-                "project_id": full_project_id,
+                # Solo informativo.
+                "excel_project_id": (f"{workbook_prefix}_{hh_number}"),
                 "sequential_in": sequential_in,
                 "sequential_out": sequential_out,
                 "notes": notes,
             }
 
             excel_records.setdefault(
-                normalized_full_project_id,
+                normalized_hh_number,
                 [],
             ).append(record)
 
         # ====================================================
-        # Match SOLO contra Aerial seleccionados
+        # Match SOLO contra los Aerial seleccionados
+        #
+        # Matching:
+        #
+        #   Billing HH
+        #       ==
+        #   Excel HH Number
+        #
+        # El prefijo NO participa.
         # ====================================================
 
         matches = []
@@ -1647,143 +1727,150 @@ def preview_aerial_sequentials(
         missing = []
 
         for (
-            normalized_project_id,
-            selected_project,
-        ) in selected_aerial_by_project.items():
+            normalized_hh_number,
+            selected_projects,
+        ) in selected_aerial_by_hh.items():
 
             excel_options = excel_records.get(
-                normalized_project_id,
+                normalized_hh_number,
                 [],
             )
 
             # ------------------------------------------------
-            # No existe en Excel
+            # Procesamos cada Billing seleccionado que tenga
+            # este HH.
             # ------------------------------------------------
 
-            if not excel_options:
-                missing.append(
-                    {
-                        "billing_id": selected_project["billing_id"],
-                        "project_id": selected_project["project_id"],
-                        "reason": "Project not found in Excel.",
-                    }
-                )
+            for selected_project in selected_projects:
 
-                continue
+                # --------------------------------------------
+                # No existe HH en Excel
+                # --------------------------------------------
 
-            # ------------------------------------------------
-            # Solo opciones con IN y OUT completos
-            # ------------------------------------------------
+                if not excel_options:
+                    missing.append(
+                        {
+                            "billing_id": selected_project["billing_id"],
+                            "project_id": selected_project["project_id"],
+                            "hh_number": selected_project["hh_number"],
+                            "reason": ("HH Number not found in Excel."),
+                        }
+                    )
 
-            valid_options = [
-                option
-                for option in excel_options
-                if option["sequential_in"] and option["sequential_out"]
-            ]
-
-            if not valid_options:
-                missing.append(
-                    {
-                        "billing_id": selected_project["billing_id"],
-                        "project_id": selected_project["project_id"],
-                        "reason": ("Sequential IN or OUT is missing in Excel."),
-                    }
-                )
-
-                continue
-
-            # ------------------------------------------------
-            # Eliminar duplicados EXACTOS.
-            #
-            # Si el mismo HH aparece dos veces con exactamente
-            # el mismo IN/OUT, no tiene sentido pedir elección.
-            # ------------------------------------------------
-
-            unique_options = []
-
-            seen_pairs = set()
-
-            for option in valid_options:
-                pair_key = (
-                    option["sequential_in"],
-                    option["sequential_out"],
-                )
-
-                if pair_key in seen_pairs:
                     continue
 
-                seen_pairs.add(
-                    pair_key,
-                )
+                # --------------------------------------------
+                # Solo opciones con IN y OUT completos
+                # --------------------------------------------
 
-                unique_options.append(option)
+                valid_options = [
+                    option
+                    for option in excel_options
+                    if option["sequential_in"] and option["sequential_out"]
+                ]
 
-            # ------------------------------------------------
-            # Una sola combinación válida
-            # ------------------------------------------------
+                if not valid_options:
+                    missing.append(
+                        {
+                            "billing_id": selected_project["billing_id"],
+                            "project_id": selected_project["project_id"],
+                            "hh_number": selected_project["hh_number"],
+                            "reason": ("Sequential IN or OUT is missing in Excel."),
+                        }
+                    )
 
-            if (
-                len(
-                    unique_options,
-                )
-                == 1
-            ):
-                excel_record = unique_options[0]
+                    continue
 
-                matches.append(
+                # --------------------------------------------
+                # Eliminar duplicados EXACTOS.
+                #
+                # Mismo HH + mismo IN + mismo OUT:
+                # se considera una sola opción.
+                # --------------------------------------------
+
+                unique_options = []
+
+                seen_pairs = set()
+
+                for option in valid_options:
+                    pair_key = (
+                        option["sequential_in"],
+                        option["sequential_out"],
+                    )
+
+                    if pair_key in seen_pairs:
+                        continue
+
+                    seen_pairs.add(
+                        pair_key,
+                    )
+
+                    unique_options.append(option)
+
+                # --------------------------------------------
+                # Una sola combinación válida
+                # --------------------------------------------
+
+                if (
+                    len(
+                        unique_options,
+                    )
+                    == 1
+                ):
+                    excel_record = unique_options[0]
+
+                    matches.append(
+                        {
+                            "billing_id": selected_project["billing_id"],
+                            "project_id": selected_project["project_id"],
+                            "hh_number": excel_record["hh_number"],
+                            "sequential_in": excel_record["sequential_in"],
+                            "sequential_out": excel_record["sequential_out"],
+                            "excel_row": excel_record["row_number"],
+                            "notes": excel_record["notes"],
+                        }
+                    )
+
+                    continue
+
+                # --------------------------------------------
+                # Más de una combinación válida:
+                # debe decidir el usuario.
+                # --------------------------------------------
+
+                ambiguous.append(
                     {
                         "billing_id": selected_project["billing_id"],
                         "project_id": selected_project["project_id"],
-                        "hh_number": excel_record["hh_number"],
-                        "sequential_in": excel_record["sequential_in"],
-                        "sequential_out": excel_record["sequential_out"],
-                        "excel_row": excel_record["row_number"],
-                        "notes": excel_record["notes"],
+                        "hh_number": selected_project["hh_number"],
+                        "options": [
+                            {
+                                "sequential_in": option["sequential_in"],
+                                "sequential_out": option["sequential_out"],
+                                "excel_row": option["row_number"],
+                                "notes": option["notes"],
+                            }
+                            for option in unique_options
+                        ],
                     }
                 )
-
-                continue
-
-            # ------------------------------------------------
-            # Más de una combinación válida:
-            # debe decidir el usuario.
-            # ------------------------------------------------
-
-            ambiguous.append(
-                {
-                    "billing_id": selected_project["billing_id"],
-                    "project_id": selected_project["project_id"],
-                    "hh_number": unique_options[0]["hh_number"],
-                    "options": [
-                        {
-                            "sequential_in": option["sequential_in"],
-                            "sequential_out": option["sequential_out"],
-                            "excel_row": option["row_number"],
-                            "notes": option["notes"],
-                        }
-                        for option in unique_options
-                    ],
-                }
-            )
 
         # ====================================================
         # Excel rows ignoradas
         #
-        # Son filas que pertenecen a proyectos que NO están
-        # dentro de los Aerial seleccionados en este Batch.
+        # Son filas cuyo HH Number NO pertenece a ninguno de
+        # los Aerial seleccionados en este Batch.
         #
-        # Si un proyecto seleccionado aparece varias veces,
-        # esas filas NO se consideran "ignored" porque forman
-        # parte del resultado/elección del usuario.
+        # El prefijo del Excel no influye.
         # ====================================================
 
         ignored_excel_rows = sum(
             len(records)
             for (
-                excel_key,
+                excel_hh,
                 records,
             ) in excel_records.items()
-            if excel_key not in selected_aerial_by_project
+            if excel_hh not in selected_aerial_by_hh
         )
 
         # ====================================================
@@ -1795,11 +1882,10 @@ def preview_aerial_sequentials(
                 "ok": True,
                 "filename": filename,
                 "sheet_name": worksheet.title,
+                # Sigue siendo informativo para el preview.
                 "workbook_prefix": workbook_prefix,
                 "counts": {
-                    "selected_aerial": len(
-                        selected_aerial_by_project,
-                    ),
+                    "selected_aerial": selected_aerial_count,
                     "matched": len(
                         matches,
                     ),
