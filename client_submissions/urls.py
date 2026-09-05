@@ -32,6 +32,11 @@ urlpatterns = [
         views.batch_list_status_json,
         name="batch_list_status_json",
     ),
+    path(
+        "from-invoices/aerial-sequentials/preview/",
+        views.preview_aerial_sequentials,
+        name="preview_aerial_sequentials",
+    ),
     # ========================================================
     # Batch
     # ========================================================

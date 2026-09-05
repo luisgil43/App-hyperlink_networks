@@ -573,6 +573,258 @@
       </div>
 
       <!-- ================================================= -->
+      <!-- Aerial Sequential Excel Import -->
+      <!-- ================================================= -->
+
+      {% if aerial_selected_count > 0 %}
+
+        <div class="border-b bg-white px-4 sm:px-5 py-5">
+
+          <div
+            id="aerial-sequential-import-panel"
+            class="rounded-2xl border border-blue-200 bg-blue-50 overflow-hidden"
+            data-preview-url="{% url 'client_submissions:preview_aerial_sequentials' %}"
+          >
+
+            <div class="px-4 sm:px-5 py-4 border-b border-blue-200">
+
+              <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+                <div>
+
+                  <div class="flex items-center gap-2 flex-wrap">
+
+                    <h3 class="font-semibold text-blue-950">
+                      Import Aerial Sequentials
+                    </h3>
+
+                    <span class="inline-flex px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                      {{ aerial_selected_count }}
+                      Aerial project{{ aerial_selected_count|pluralize }}
+                    </span>
+
+                  </div>
+
+                  <p class="text-xs text-blue-700 mt-1 max-w-3xl">
+                    Import Sequential IN and OUT from the Client Reports Excel.
+                    Only Aerial Case projects currently selected in this Batch
+                    will be matched. Extra Excel rows are ignored.
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <div class="p-4 sm:p-5">
+
+              <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-3">
+
+                <div>
+
+                  <label
+                    for="aerial-sequential-excel-file"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Sequential Excel file
+                  </label>
+
+                  <input
+                    type="file"
+                    id="aerial-sequential-excel-file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg bg-white
+                           file:mr-4 file:py-2.5 file:px-4 file:border-0
+                           file:bg-gray-100 file:text-gray-700 file:font-medium
+                           hover:file:bg-gray-200"
+                  >
+
+                  <p class="text-xs text-gray-500 mt-1">
+                    Expected columns:
+                    HH Number, Seq. #1(In), Seq. #1(Out).
+                  </p>
+
+                </div>
+
+                <div class="xl:pt-[25px]">
+
+                  <button
+                    type="button"
+                    id="preview-aerial-sequentials-button"
+                    class="w-full xl:w-auto px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    Preview Import
+                  </button>
+
+                </div>
+
+              </div>
+
+              <div
+                id="aerial-sequential-import-error"
+                class="hidden mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              ></div>
+
+              <div
+                id="aerial-sequential-preview"
+                class="hidden mt-5"
+              >
+
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+
+                  <div class="rounded-xl border bg-white px-4 py-3">
+
+                    <span class="block text-xs text-gray-500">
+                      Selected Aerial
+                    </span>
+
+                    <span
+                      id="aerial-preview-selected-count"
+                      class="block text-xl font-bold text-gray-900 mt-1"
+                    >
+                      0
+                    </span>
+
+                  </div>
+
+                  <div class="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+
+                    <span class="block text-xs text-green-700">
+                      Matched
+                    </span>
+
+                    <span
+                      id="aerial-preview-matched-count"
+                      class="block text-xl font-bold text-green-800 mt-1"
+                    >
+                      0
+                    </span>
+
+                  </div>
+
+                  <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+
+                    <span class="block text-xs text-amber-700">
+                      Missing
+                    </span>
+
+                    <span
+                      id="aerial-preview-missing-count"
+                      class="block text-xl font-bold text-amber-800 mt-1"
+                    >
+                      0
+                    </span>
+
+                  </div>
+
+                  <div class="rounded-xl border bg-white px-4 py-3">
+
+                    <span class="block text-xs text-gray-500">
+                      Excel rows ignored
+                    </span>
+
+                    <span
+                      id="aerial-preview-ignored-count"
+                      class="block text-xl font-bold text-gray-900 mt-1"
+                    >
+                      0
+                    </span>
+
+                  </div>
+
+                </div>
+
+                <div class="mt-3 text-xs text-gray-500">
+
+                  <span id="aerial-preview-file-name"></span>
+
+                  <span class="mx-1">
+                    •
+                  </span>
+
+                  <span id="aerial-preview-sheet-name"></span>
+
+                  <span class="mx-1">
+                    •
+                  </span>
+
+                  <span>
+                    Prefix:
+                    <strong
+                      id="aerial-preview-prefix"
+                      class="text-gray-700"
+                    ></strong>
+                  </span>
+
+                </div>
+
+                <div class="mt-4 rounded-xl border bg-white overflow-hidden">
+
+                  <div class="overflow-x-auto">
+
+                    <table class="min-w-full text-sm">
+
+                      <thead class="bg-gray-50 text-gray-600">
+
+                        <tr>
+
+                          <th class="px-4 py-3 text-left">
+                            Project
+                          </th>
+
+                          <th class="px-4 py-3 text-left">
+                            Sequential option
+                          </th>
+
+                          <th class="px-4 py-3 text-left">
+                            Result
+                          </th>
+
+                        </tr>
+
+                      </thead>
+
+                      <tbody
+                        id="aerial-sequential-preview-body"
+                        class="divide-y"
+                      ></tbody>
+
+                    </table>
+
+                  </div>
+
+                </div>
+
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+
+                  <p class="text-xs text-gray-500">
+                    Applying the preview fills the Sequential IN / OUT fields.
+                    You can still edit them manually before creating the Batch.
+                  </p>
+
+                  <button
+                    type="button"
+                    id="apply-aerial-sequentials-button"
+                    class="shrink-0 px-4 py-2.5 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled
+                  >
+                    Apply Matches
+                  </button>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      {% endif %}
+
+      <!-- ================================================= -->
       <!-- Mobile cards -->
       <!-- ================================================= -->
 
@@ -586,8 +838,6 @@
             data-aerial-case="{% if row.aerial_case %}yes{% else %}no{% endif %}"
             data-re-entry="{% if row.re_entry %}yes{% else %}no{% endif %}"
           >
-
-            <!-- Header -->
 
             <div class="flex items-start justify-between gap-3">
 
@@ -618,8 +868,6 @@
               {% endif %}
 
             </div>
-
-            <!-- General project information -->
 
             <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
 
@@ -687,10 +935,6 @@
 
             </div>
 
-            <!-- ============================================= -->
-            <!-- Client Items -->
-            <!-- ============================================= -->
-
             <div class="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3">
 
               <div class="flex items-center justify-between gap-3">
@@ -744,10 +988,6 @@
               {% endif %}
 
             </div>
-
-            <!-- ============================================= -->
-            <!-- Automatic flags -->
-            <!-- ============================================= -->
 
             <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
 
@@ -813,10 +1053,6 @@
 
             </div>
 
-            <!-- ============================================= -->
-            <!-- Individual Work Types -->
-            <!-- ============================================= -->
-
             <div class="individual-project-controls hidden mt-5 pt-5 border-t">
 
               <p class="text-sm font-semibold text-gray-800 mb-3">
@@ -873,10 +1109,6 @@
               </div>
 
             </div>
-
-            <!-- ============================================= -->
-            <!-- Aerial details -->
-            <!-- ============================================= -->
 
             {% if row.aerial_case %}
 
@@ -1029,19 +1261,13 @@
                 data-desktop-project-id="{{ row.id }}"
               >
 
-                <!-- Invoice -->
-
                 <td class="px-4 py-3">
                   #{{ row.id }}
                 </td>
 
-                <!-- Project ID -->
-
                 <td class="px-4 py-3 font-medium text-gray-900 max-w-[220px] break-words">
                   {{ row.project_id|default:"—" }}
                 </td>
-
-                <!-- Production date -->
 
                 <td class="px-4 py-3">
 
@@ -1061,25 +1287,17 @@
 
                 </td>
 
-                <!-- Client -->
-
                 <td class="px-4 py-3">
                   {{ row.client|default:"—" }}
                 </td>
-
-                <!-- City -->
 
                 <td class="px-4 py-3">
                   {{ row.city|default:"—" }}
                 </td>
 
-                <!-- Office -->
-
                 <td class="px-4 py-3">
                   {{ row.office|default:"—" }}
                 </td>
-
-                <!-- Client Items -->
 
                 <td class="px-4 py-3">
 
@@ -1123,8 +1341,6 @@
 
                 </td>
 
-                <!-- Photos -->
-
                 <td class="px-4 py-3 text-center">
 
                   {% if row.evidence_count > 0 %}
@@ -1143,13 +1359,9 @@
 
                 </td>
 
-                <!-- Status -->
-
                 <td class="px-4 py-3">
                   {{ row.finance_status_label|default:"—" }}
                 </td>
-
-                <!-- Aerial Case -->
 
                 <td class="px-4 py-3 text-center">
 
@@ -1173,8 +1385,6 @@
 
                 </td>
 
-                <!-- Re-Entry -->
-
                 <td class="px-4 py-3 text-center">
 
                   {% if row.re_entry %}
@@ -1197,8 +1407,6 @@
 
                 </td>
 
-                <!-- Fiber -->
-
                 <td class="individual-project-column hidden px-4 py-3 text-center">
 
                   <input
@@ -1209,8 +1417,6 @@
                   >
 
                 </td>
-
-                <!-- Splicing -->
 
                 <td class="individual-project-column hidden px-4 py-3 text-center">
 
@@ -1223,8 +1429,6 @@
 
                 </td>
 
-                <!-- Testing -->
-
                 <td class="individual-project-column hidden px-4 py-3 text-center">
 
                   <input
@@ -1235,8 +1439,6 @@
                   >
 
                 </td>
-
-                <!-- Aerial details -->
 
                 <td class="px-4 py-3">
 
@@ -1549,6 +1751,730 @@
   );
 
   // =========================================================
+  // Aerial Sequential Excel import
+  // =========================================================
+
+  const aerialImportPanel =
+    document.getElementById(
+      'aerial-sequential-import-panel'
+    );
+
+  const aerialExcelInput =
+    document.getElementById(
+      'aerial-sequential-excel-file'
+    );
+
+  const aerialPreviewButton =
+    document.getElementById(
+      'preview-aerial-sequentials-button'
+    );
+
+  const aerialApplyButton =
+    document.getElementById(
+      'apply-aerial-sequentials-button'
+    );
+
+  const aerialPreviewContainer =
+    document.getElementById(
+      'aerial-sequential-preview'
+    );
+
+  const aerialPreviewBody =
+    document.getElementById(
+      'aerial-sequential-preview-body'
+    );
+
+  const aerialImportError =
+    document.getElementById(
+      'aerial-sequential-import-error'
+    );
+
+  let currentAerialImportMatches = [];
+  let currentAerialAmbiguousMatches = [];
+
+  function escapeHtml(value) {
+    return String(
+      value ?? ''
+    )
+      .replaceAll(
+        '&',
+        '&amp;'
+      )
+      .replaceAll(
+        '<',
+        '&lt;'
+      )
+      .replaceAll(
+        '>',
+        '&gt;'
+      )
+      .replaceAll(
+        '"',
+        '&quot;'
+      )
+      .replaceAll(
+        "'",
+        '&#039;'
+      );
+  }
+
+  function showAerialImportError(
+    message
+  ) {
+    if (!aerialImportError) {
+      return;
+    }
+
+    aerialImportError.textContent =
+      message || 'Unable to preview the Excel file.';
+
+    aerialImportError.classList.remove(
+      'hidden'
+    );
+  }
+
+  function clearAerialImportError() {
+    if (!aerialImportError) {
+      return;
+    }
+
+    aerialImportError.textContent = '';
+
+    aerialImportError.classList.add(
+      'hidden'
+    );
+  }
+
+  function resetAerialPreview() {
+    currentAerialImportMatches = [];
+    currentAerialAmbiguousMatches = [];
+
+    if (aerialPreviewContainer) {
+      aerialPreviewContainer.classList.add(
+        'hidden'
+      );
+    }
+
+    if (aerialPreviewBody) {
+      aerialPreviewBody.innerHTML = '';
+    }
+
+    if (aerialApplyButton) {
+      aerialApplyButton.disabled = true;
+
+      aerialApplyButton.textContent =
+        'Apply Matches';
+    }
+  }
+
+  function setTextById(
+    elementId,
+    value
+  ) {
+    const element =
+      document.getElementById(
+        elementId
+      );
+
+    if (element) {
+      element.textContent =
+        value ?? '';
+    }
+  }
+
+  function refreshAerialApplyButton() {
+    if (!aerialApplyButton) {
+      return;
+    }
+
+    const unresolvedAmbiguous =
+      currentAerialAmbiguousMatches.filter(
+        (ambiguousItem) => {
+          return !currentAerialImportMatches.some(
+            (match) =>
+              Number(match.billing_id) ===
+              Number(ambiguousItem.billing_id)
+          );
+        }
+      );
+
+    if (unresolvedAmbiguous.length > 0) {
+      aerialApplyButton.disabled = true;
+
+      aerialApplyButton.textContent =
+        unresolvedAmbiguous.length === 1
+          ? 'Choose Sequential first'
+          : `Choose ${unresolvedAmbiguous.length} Sequentials first`;
+
+      return;
+    }
+
+    aerialApplyButton.disabled =
+      currentAerialImportMatches.length === 0;
+
+    aerialApplyButton.textContent =
+      currentAerialImportMatches.length
+        ? `Apply ${currentAerialImportMatches.length} Match${currentAerialImportMatches.length === 1 ? '' : 'es'}`
+        : 'Apply Matches';
+  }
+
+  function renderAerialPreview(
+    data
+  ) {
+    currentAerialImportMatches =
+      Array.isArray(
+        data.matches
+      )
+        ? data.matches
+        : [];
+
+    currentAerialAmbiguousMatches =
+      Array.isArray(
+        data.ambiguous
+      )
+        ? data.ambiguous
+        : [];
+
+    const missing =
+      Array.isArray(
+        data.missing
+      )
+        ? data.missing
+        : [];
+
+    const counts =
+      data.counts || {};
+
+    setTextById(
+      'aerial-preview-selected-count',
+      counts.selected_aerial ?? 0
+    );
+
+    setTextById(
+      'aerial-preview-matched-count',
+      counts.matched ?? 0
+    );
+
+    setTextById(
+      'aerial-preview-missing-count',
+      counts.missing ?? 0
+    );
+
+    setTextById(
+      'aerial-preview-ignored-count',
+      counts.ignored_excel_rows ?? 0
+    );
+
+    setTextById(
+      'aerial-preview-file-name',
+      data.filename || ''
+    );
+
+    setTextById(
+      'aerial-preview-sheet-name',
+      data.sheet_name || ''
+    );
+
+    setTextById(
+      'aerial-preview-prefix',
+      data.workbook_prefix || ''
+    );
+
+    if (aerialPreviewBody) {
+      const matchedRows =
+        currentAerialImportMatches.map(
+          (match) => `
+            <tr>
+              <td class="px-4 py-3 font-medium text-gray-900">
+                ${escapeHtml(match.project_id)}
+              </td>
+
+              <td class="px-4 py-3">
+                <span class="font-medium text-gray-900">
+                  IN ${escapeHtml(match.sequential_in)}
+                  / OUT ${escapeHtml(match.sequential_out)}
+                </span>
+
+                ${
+                  match.excel_row
+                    ? `
+                      <span class="block text-xs text-gray-500 mt-0.5">
+                        Excel row ${escapeHtml(match.excel_row)}
+                        ${
+                          match.notes
+                            ? ` • ${escapeHtml(match.notes)}`
+                            : ''
+                        }
+                      </span>
+                    `
+                    : ''
+                }
+              </td>
+
+              <td class="px-4 py-3">
+                <span class="inline-flex px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                  Matched
+                </span>
+              </td>
+            </tr>
+          `
+        );
+
+      const ambiguousRows =
+        currentAerialAmbiguousMatches.map(
+          (item) => {
+            const optionsHtml =
+              item.options.map(
+                (option, index) => `
+                  <label class="flex items-start gap-2 mb-2 last:mb-0 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="aerial_duplicate_${escapeHtml(item.billing_id)}"
+                      value="${index}"
+                      class="mt-1 aerial-duplicate-option"
+                      data-billing-id="${escapeHtml(item.billing_id)}"
+                    >
+
+                    <span>
+                      <span class="font-medium text-gray-900">
+                        IN ${escapeHtml(option.sequential_in)}
+                        / OUT ${escapeHtml(option.sequential_out)}
+                      </span>
+
+                      <span class="block text-xs text-gray-500">
+                        Excel row ${escapeHtml(option.excel_row)}
+                        ${
+                          option.notes
+                            ? ` • ${escapeHtml(option.notes)}`
+                            : ''
+                        }
+                      </span>
+                    </span>
+                  </label>
+                `
+              ).join('');
+
+            return `
+              <tr class="bg-amber-50">
+                <td class="px-4 py-3 font-medium text-gray-900">
+                  ${escapeHtml(item.project_id)}
+                </td>
+
+                <td class="px-4 py-3">
+                  <div class="text-xs font-semibold text-amber-800 mb-2">
+                    More than one Sequential was found. Choose one:
+                  </div>
+
+                  ${optionsHtml}
+                </td>
+
+                <td class="px-4 py-3">
+                  <span class="inline-flex px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                    Choose
+                  </span>
+                </td>
+              </tr>
+            `;
+          }
+        );
+
+      const missingRows =
+        missing.map(
+          (item) => `
+            <tr class="bg-amber-50">
+              <td class="px-4 py-3 font-medium text-gray-900">
+                ${escapeHtml(item.project_id)}
+              </td>
+
+              <td class="px-4 py-3 text-gray-400">
+                —
+              </td>
+
+              <td class="px-4 py-3">
+                <span class="inline-flex px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                  ${escapeHtml(item.reason || 'Missing')}
+                </span>
+              </td>
+            </tr>
+          `
+        );
+
+      aerialPreviewBody.innerHTML =
+        matchedRows
+          .concat(
+            ambiguousRows,
+            missingRows
+          )
+          .join('');
+    }
+
+    if (aerialPreviewContainer) {
+      aerialPreviewContainer.classList.remove(
+        'hidden'
+      );
+    }
+
+    refreshAerialApplyButton();
+  }
+
+  if (
+    aerialExcelInput
+    && aerialImportPanel
+  ) {
+    aerialExcelInput.addEventListener(
+      'change',
+      function () {
+        clearAerialImportError();
+
+        resetAerialPreview();
+      }
+    );
+  }
+
+  if (
+    aerialPreviewButton
+    && aerialExcelInput
+    && aerialImportPanel
+  ) {
+    aerialPreviewButton.addEventListener(
+      'click',
+      async function () {
+        clearAerialImportError();
+
+        resetAerialPreview();
+
+        const file =
+          aerialExcelInput.files?.[0];
+
+        if (!file) {
+          showAerialImportError(
+            'Select an Excel file first.'
+          );
+
+          return;
+        }
+
+        const previewUrl =
+          aerialImportPanel.dataset.previewUrl;
+
+        if (!previewUrl) {
+          showAerialImportError(
+            'Preview URL is not configured.'
+          );
+
+          return;
+        }
+
+        const idsInput =
+          form.querySelector(
+            'input[name="ids"]'
+          );
+
+        if (
+          !idsInput
+          || !idsInput.value
+        ) {
+          showAerialImportError(
+            'No selected invoice IDs were found.'
+          );
+
+          return;
+        }
+
+        const csrfInput =
+          form.querySelector(
+            'input[name="csrfmiddlewaretoken"]'
+          );
+
+        const formData =
+          new FormData();
+
+        formData.append(
+          'ids',
+          idsInput.value
+        );
+
+        formData.append(
+          'file',
+          file
+        );
+
+        aerialPreviewButton.disabled = true;
+
+        aerialPreviewButton.textContent =
+          'Reading Excel...';
+
+        try {
+          const response =
+            await fetch(
+              previewUrl,
+              {
+                method: 'POST',
+
+                headers: csrfInput
+                  ? {
+                      'X-CSRFToken':
+                        csrfInput.value,
+                    }
+                  : {},
+
+                body: formData,
+
+                credentials: 'same-origin',
+              }
+            );
+
+          let data;
+
+          try {
+            data =
+              await response.json();
+
+          } catch (_error) {
+            throw new Error(
+              'The server returned an invalid response.'
+            );
+          }
+
+          if (
+            !response.ok
+            || !data.ok
+          ) {
+            throw new Error(
+              data.error
+              || 'Unable to preview the Excel file.'
+            );
+          }
+
+          renderAerialPreview(
+            data
+          );
+
+        } catch (error) {
+          showAerialImportError(
+            error?.message
+            || 'Unable to preview the Excel file.'
+          );
+
+        } finally {
+          aerialPreviewButton.disabled = false;
+
+          aerialPreviewButton.textContent =
+            'Preview Import';
+        }
+      }
+    );
+  }
+
+  // =========================================================
+  // Select one option when Excel has duplicate HH Numbers
+  // =========================================================
+
+  document.addEventListener(
+    'change',
+    function (event) {
+      const radio = event.target;
+
+      if (
+        !radio.classList ||
+        !radio.classList.contains(
+          'aerial-duplicate-option'
+        )
+      ) {
+        return;
+      }
+
+      const billingId =
+        Number(
+          radio.dataset.billingId
+        );
+
+      const ambiguousItem =
+        currentAerialAmbiguousMatches.find(
+          (item) =>
+            Number(item.billing_id) ===
+            billingId
+        );
+
+      if (!ambiguousItem) {
+        return;
+      }
+
+      const optionIndex =
+        Number(
+          radio.value
+        );
+
+      const option =
+        ambiguousItem.options[
+          optionIndex
+        ];
+
+      if (!option) {
+        return;
+      }
+
+      currentAerialImportMatches =
+        currentAerialImportMatches.filter(
+          (item) =>
+            Number(item.billing_id) !==
+            billingId
+        );
+
+      currentAerialImportMatches.push(
+        {
+          billing_id:
+            ambiguousItem.billing_id,
+          project_id:
+            ambiguousItem.project_id,
+          sequential_in:
+            option.sequential_in,
+          sequential_out:
+            option.sequential_out,
+          excel_row:
+            option.excel_row,
+          notes:
+            option.notes || '',
+        }
+      );
+
+      refreshAerialApplyButton();
+    }
+  );
+
+  // =========================================================
+  // Apply imported Sequential values
+  // =========================================================
+
+  if (aerialApplyButton) {
+    aerialApplyButton.addEventListener(
+      'click',
+      function () {
+        if (
+          !currentAerialImportMatches.length
+        ) {
+          return;
+        }
+
+        const unresolvedAmbiguous =
+          currentAerialAmbiguousMatches.filter(
+            (ambiguousItem) => {
+              return !currentAerialImportMatches.some(
+                (match) =>
+                  Number(match.billing_id) ===
+                  Number(ambiguousItem.billing_id)
+              );
+            }
+          );
+
+        if (unresolvedAmbiguous.length > 0) {
+          showAerialImportError(
+            'Choose one Sequential option for every duplicated project before applying.'
+          );
+
+          return;
+        }
+
+        clearAerialImportError();
+
+        let appliedCount = 0;
+
+        currentAerialImportMatches.forEach(
+          (match) => {
+            const billingId =
+              match.billing_id;
+
+            if (!billingId) {
+              return;
+            }
+
+            const sequentialInInputs =
+              document.querySelectorAll(
+                `input[name="project_${billingId}_aerial_case_value_1"]`
+              );
+
+            const sequentialOutInputs =
+              document.querySelectorAll(
+                `input[name="project_${billingId}_aerial_case_value_2"]`
+              );
+
+            if (
+              !sequentialInInputs.length
+              || !sequentialOutInputs.length
+            ) {
+              return;
+            }
+
+            sequentialInInputs.forEach(
+              (input) => {
+                input.value =
+                  match.sequential_in || '';
+
+                input.dispatchEvent(
+                  new Event(
+                    'input',
+                    {
+                      bubbles: true,
+                    }
+                  )
+                );
+              }
+            );
+
+            sequentialOutInputs.forEach(
+              (input) => {
+                input.value =
+                  match.sequential_out || '';
+
+                input.dispatchEvent(
+                  new Event(
+                    'input',
+                    {
+                      bubbles: true,
+                    }
+                  )
+                );
+              }
+            );
+
+            appliedCount += 1;
+          }
+        );
+
+        aerialApplyButton.textContent =
+          `${appliedCount} Applied`;
+
+        aerialApplyButton.disabled = true;
+
+        currentAerialImportMatches.forEach(
+          (match) => {
+            document.querySelectorAll(
+              `input[name^="project_${match.billing_id}_aerial_case_value_"]`
+            ).forEach(
+              (input) => {
+                input.classList.add(
+                  'border-green-400',
+                  'bg-green-50'
+                );
+
+                window.setTimeout(
+                  () => {
+                    input.classList.remove(
+                      'border-green-400',
+                      'bg-green-50'
+                    );
+                  },
+                  2500
+                );
+              }
+            );
+          }
+        );
+      }
+    );
+  }
+
+  // =========================================================
   // Validate before submit
   // =========================================================
 
@@ -1559,11 +2485,6 @@
         document.querySelectorAll(
           '.individual-project-container'
         );
-
-      // =====================================================
-      // Validate Aerial Sequential values only for projects
-      // automatically detected as Aerial Case YES.
-      // =====================================================
 
       for (
         const container
@@ -1631,10 +2552,6 @@
           return;
         }
       }
-
-      // =====================================================
-      // Disable submit button
-      // =====================================================
 
       const button = document.getElementById(
         'create-batch-button'

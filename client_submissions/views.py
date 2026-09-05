@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from zipfile import BadZipFile
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -13,6 +14,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from client_submissions.models import (ClientSubmission, ClientSubmissionBatch,
                                        ClientSubmissionEvent)
@@ -1093,6 +1096,14 @@ def create_batch_from_invoices(
         "testing": False,
     }
 
+    aerial_selected_count = sum(
+        1
+        for row in selected_rows
+        if row.get(
+            "aerial_case",
+            False,
+        )
+    )
     context = {
         "selected_ids": ids,
         "selected_ids_csv": ",".join(
@@ -1105,6 +1116,7 @@ def create_batch_from_invoices(
         "selected_count": len(
             selected_rows,
         ),
+        "aerial_selected_count": aerial_selected_count,
         "missing_ids": missing_ids,
         "initial_data": initial_data,
         "execution_modes": (ClientSubmissionBatch.ExecutionMode.choices),
@@ -1120,6 +1132,694 @@ def create_batch_from_invoices(
         "client_submissions/create_batch.html",
         context,
     )
+
+# ============================================================
+# Preview de Aerial Sequentials desde Excel
+# ============================================================
+
+
+def _normalize_excel_header(value) -> str:
+    """
+    Normaliza encabezados de la planilla para poder reconocerlos
+    aunque tengan diferencias menores de espacios/mayúsculas.
+    """
+
+    return _clean_text(value).lower().replace("\n", " ").replace("\r", " ")
+
+
+def _excel_value_to_text(value) -> str:
+    """
+    Convierte valores Excel a texto sin introducir '.0'
+    en valores numéricos enteros.
+
+    Ej:
+        63002.0 -> "63002"
+        63002   -> "63002"
+    """
+
+    if value is None:
+        return ""
+
+    if isinstance(value, bool):
+        return "1" if value else "0"
+
+    if isinstance(value, int):
+        return str(value)
+
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+
+        return str(value).strip()
+
+    return str(value).strip()
+
+
+def _normalize_project_match_value(value) -> str:
+    """
+    Normalización SOLO para matching.
+
+    No altera el valor original que después se muestra al usuario.
+    """
+
+    return _clean_text(value).upper().replace(" ", "")
+
+
+@login_required
+@rol_requerido(
+    "admin",
+    "pm",
+    "supervisor",
+    "facturacion",
+    "emision_facturacion",
+)
+@require_POST
+def preview_aerial_sequentials(
+    request: HttpRequest,
+) -> JsonResponse:
+    """
+    Lee una planilla Excel de Aerial Sequentials y devuelve
+    únicamente coincidencias contra los invoices seleccionados.
+
+    Importante:
+    - NO crea el Batch.
+    - NO modifica SesionBilling.
+    - NO guarda el Excel.
+    - NO modifica ClientSubmission.
+    - Solo devuelve un preview JSON.
+
+    La planilla esperada contiene:
+
+        A1:
+            prefijo del proyecto
+            Ej: 0913BA_06
+
+        Columnas:
+            HH Number
+            Seq. #1(In)
+            Seq. #1(Out)
+
+    Project ID resultante:
+
+        <A1>_<HH Number>
+
+    Ej:
+        0913BA_06 + 7000-027
+        =
+        0913BA_06_7000-027
+
+    Si un mismo HH Number aparece varias veces:
+    - NO se rechaza el Excel completo.
+    - Si solamente existe una combinación IN/OUT válida, se usa.
+    - Si existen varias combinaciones válidas, se devuelve como
+      "ambiguous" para que el usuario seleccione cuál aplicar.
+    """
+
+    _assert_manage_permission(
+        request,
+    )
+
+    # ========================================================
+    # Invoices seleccionados
+    # ========================================================
+
+    ids = _parse_ids(
+        request.POST.get(
+            "ids",
+        )
+    )
+
+    if not ids:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "No invoices were selected.",
+            },
+            status=400,
+        )
+
+    billings = _get_selected_billings(
+        ids,
+    )
+
+    if not billings:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "No valid invoices were found.",
+            },
+            status=400,
+        )
+
+    # ========================================================
+    # Archivo
+    # ========================================================
+
+    uploaded_file = request.FILES.get(
+        "file",
+    )
+
+    if uploaded_file is None:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Select an Excel file first.",
+            },
+            status=400,
+        )
+
+    filename = _clean_text(
+        getattr(
+            uploaded_file,
+            "name",
+            "",
+        )
+    )
+
+    if not filename.lower().endswith(
+        ".xlsx",
+    ):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "The sequential file must be an .xlsx Excel file.",
+            },
+            status=400,
+        )
+
+    max_file_size = 10 * 1024 * 1024
+
+    if uploaded_file.size > max_file_size:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "The Excel file is too large. Maximum size is 10 MB.",
+            },
+            status=400,
+        )
+
+    # ========================================================
+    # Solo proyectos realmente Aerial según Billing
+    # ========================================================
+
+    selected_aerial_by_project: dict[str, dict] = {}
+
+    for billing in billings:
+        automatic_flags = _build_billing_automatic_flags(
+            billing,
+        )
+
+        if not bool(
+            automatic_flags.get(
+                "aerial_case",
+                False,
+            )
+        ):
+            continue
+
+        project_id = _clean_text(
+            billing.proyecto_id,
+        )
+
+        normalized_project_id = _normalize_project_match_value(
+            project_id,
+        )
+
+        if not normalized_project_id:
+            continue
+
+        selected_aerial_by_project[normalized_project_id] = {
+            "billing_id": billing.pk,
+            "project_id": project_id,
+        }
+
+    if not selected_aerial_by_project:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": ("None of the selected invoices are Aerial Case projects."),
+            },
+            status=400,
+        )
+
+    # ========================================================
+    # Leer workbook
+    # ========================================================
+
+    try:
+        uploaded_file.seek(
+            0,
+        )
+
+        workbook = load_workbook(
+            uploaded_file,
+            read_only=True,
+            data_only=True,
+        )
+
+    except (
+        InvalidFileException,
+        BadZipFile,
+        OSError,
+        ValueError,
+    ):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "The Excel file could not be read. "
+                    "Please verify that it is a valid .xlsx file."
+                ),
+            },
+            status=400,
+        )
+
+    try:
+        # ====================================================
+        # Preferimos Client Reports.
+        #
+        # Si no existe, permitimos una única hoja.
+        # ====================================================
+
+        if "Client Reports" in workbook.sheetnames:
+            worksheet = workbook["Client Reports"]
+
+        elif (
+            len(
+                workbook.sheetnames,
+            )
+            == 1
+        ):
+            worksheet = workbook[workbook.sheetnames[0]]
+
+        else:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": ('The workbook must contain a "Client Reports" sheet.'),
+                },
+                status=400,
+            )
+
+        # ====================================================
+        # Prefijo del proyecto
+        # ====================================================
+
+        workbook_prefix = _clean_text(
+            worksheet.cell(
+                row=1,
+                column=1,
+            ).value
+        )
+
+        normalized_prefix = _normalize_project_match_value(
+            workbook_prefix,
+        )
+
+        if not normalized_prefix:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": ("The project prefix was not found in cell A1."),
+                },
+                status=400,
+            )
+
+        # ====================================================
+        # Buscar encabezados
+        # ====================================================
+
+        header_row = None
+
+        hh_column = None
+        sequential_in_column = None
+        sequential_out_column = None
+        notes_column = None
+
+        for row_number in range(
+            1,
+            min(
+                worksheet.max_row,
+                20,
+            )
+            + 1,
+        ):
+            headers = {}
+
+            for column_number in range(
+                1,
+                worksheet.max_column + 1,
+            ):
+                header = _normalize_excel_header(
+                    worksheet.cell(
+                        row=row_number,
+                        column=column_number,
+                    ).value
+                )
+
+                if header:
+                    headers[header] = column_number
+
+            # -----------------------------------------------
+            # HH Number
+            # -----------------------------------------------
+
+            for candidate in (
+                "hh number",
+                "hh #",
+                "hh",
+            ):
+                if candidate in headers:
+                    hh_column = headers[candidate]
+                    break
+
+            # -----------------------------------------------
+            # Sequential IN
+            # -----------------------------------------------
+
+            for candidate in (
+                "seq. #1(in)",
+                "seq #1(in)",
+                "seq. #1 (in)",
+                "sequential in",
+                "seq in",
+            ):
+                if candidate in headers:
+                    sequential_in_column = headers[candidate]
+                    break
+
+            # -----------------------------------------------
+            # Sequential OUT
+            # -----------------------------------------------
+
+            for candidate in (
+                "seq. #1(out)",
+                "seq #1(out)",
+                "seq. #1 (out)",
+                "sequential out",
+                "seq out",
+            ):
+                if candidate in headers:
+                    sequential_out_column = headers[candidate]
+                    break
+
+            # -----------------------------------------------
+            # Notes opcional
+            # -----------------------------------------------
+
+            for candidate in (
+                "notes",
+                "note",
+                "comments",
+                "comment",
+            ):
+                if candidate in headers:
+                    notes_column = headers[candidate]
+                    break
+
+            if hh_column and sequential_in_column and sequential_out_column:
+                header_row = row_number
+                break
+
+            hh_column = None
+            sequential_in_column = None
+            sequential_out_column = None
+            notes_column = None
+
+        if header_row is None:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Required columns were not found. "
+                        'Expected "HH Number", "Seq. #1(In)" '
+                        'and "Seq. #1(Out)".'
+                    ),
+                },
+                status=400,
+            )
+
+        # ====================================================
+        # Leer filas del Excel
+        #
+        # IMPORTANTE:
+        # Un mismo Project ID puede aparecer varias veces.
+        # Por eso almacenamos una LISTA de registros por Project.
+        # ====================================================
+
+        excel_records: dict[str, list[dict]] = {}
+
+        valid_excel_rows = 0
+
+        for row_number in range(
+            header_row + 1,
+            worksheet.max_row + 1,
+        ):
+            hh_number = _excel_value_to_text(
+                worksheet.cell(
+                    row=row_number,
+                    column=hh_column,
+                ).value
+            )
+
+            sequential_in = _excel_value_to_text(
+                worksheet.cell(
+                    row=row_number,
+                    column=sequential_in_column,
+                ).value
+            )
+
+            sequential_out = _excel_value_to_text(
+                worksheet.cell(
+                    row=row_number,
+                    column=sequential_out_column,
+                ).value
+            )
+
+            notes = ""
+
+            if notes_column:
+                notes = _excel_value_to_text(
+                    worksheet.cell(
+                        row=row_number,
+                        column=notes_column,
+                    ).value
+                )
+
+            # Fila completamente vacía.
+            if not (hh_number or sequential_in or sequential_out or notes):
+                continue
+
+            # Sin HH Number no podemos hacer matching.
+            if not hh_number:
+                continue
+
+            valid_excel_rows += 1
+
+            full_project_id = f"{workbook_prefix}_{hh_number}"
+
+            normalized_full_project_id = _normalize_project_match_value(
+                full_project_id,
+            )
+
+            record = {
+                "row_number": row_number,
+                "hh_number": hh_number,
+                "project_id": full_project_id,
+                "sequential_in": sequential_in,
+                "sequential_out": sequential_out,
+                "notes": notes,
+            }
+
+            excel_records.setdefault(
+                normalized_full_project_id,
+                [],
+            ).append(record)
+
+        # ====================================================
+        # Match SOLO contra Aerial seleccionados
+        # ====================================================
+
+        matches = []
+
+        ambiguous = []
+
+        missing = []
+
+        for (
+            normalized_project_id,
+            selected_project,
+        ) in selected_aerial_by_project.items():
+
+            excel_options = excel_records.get(
+                normalized_project_id,
+                [],
+            )
+
+            # ------------------------------------------------
+            # No existe en Excel
+            # ------------------------------------------------
+
+            if not excel_options:
+                missing.append(
+                    {
+                        "billing_id": selected_project["billing_id"],
+                        "project_id": selected_project["project_id"],
+                        "reason": "Project not found in Excel.",
+                    }
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # Solo opciones con IN y OUT completos
+            # ------------------------------------------------
+
+            valid_options = [
+                option
+                for option in excel_options
+                if option["sequential_in"] and option["sequential_out"]
+            ]
+
+            if not valid_options:
+                missing.append(
+                    {
+                        "billing_id": selected_project["billing_id"],
+                        "project_id": selected_project["project_id"],
+                        "reason": ("Sequential IN or OUT is missing in Excel."),
+                    }
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # Eliminar duplicados EXACTOS.
+            #
+            # Si el mismo HH aparece dos veces con exactamente
+            # el mismo IN/OUT, no tiene sentido pedir elección.
+            # ------------------------------------------------
+
+            unique_options = []
+
+            seen_pairs = set()
+
+            for option in valid_options:
+                pair_key = (
+                    option["sequential_in"],
+                    option["sequential_out"],
+                )
+
+                if pair_key in seen_pairs:
+                    continue
+
+                seen_pairs.add(
+                    pair_key,
+                )
+
+                unique_options.append(option)
+
+            # ------------------------------------------------
+            # Una sola combinación válida
+            # ------------------------------------------------
+
+            if (
+                len(
+                    unique_options,
+                )
+                == 1
+            ):
+                excel_record = unique_options[0]
+
+                matches.append(
+                    {
+                        "billing_id": selected_project["billing_id"],
+                        "project_id": selected_project["project_id"],
+                        "hh_number": excel_record["hh_number"],
+                        "sequential_in": excel_record["sequential_in"],
+                        "sequential_out": excel_record["sequential_out"],
+                        "excel_row": excel_record["row_number"],
+                        "notes": excel_record["notes"],
+                    }
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # Más de una combinación válida:
+            # debe decidir el usuario.
+            # ------------------------------------------------
+
+            ambiguous.append(
+                {
+                    "billing_id": selected_project["billing_id"],
+                    "project_id": selected_project["project_id"],
+                    "hh_number": unique_options[0]["hh_number"],
+                    "options": [
+                        {
+                            "sequential_in": option["sequential_in"],
+                            "sequential_out": option["sequential_out"],
+                            "excel_row": option["row_number"],
+                            "notes": option["notes"],
+                        }
+                        for option in unique_options
+                    ],
+                }
+            )
+
+        # ====================================================
+        # Excel rows ignoradas
+        #
+        # Son filas que pertenecen a proyectos que NO están
+        # dentro de los Aerial seleccionados en este Batch.
+        #
+        # Si un proyecto seleccionado aparece varias veces,
+        # esas filas NO se consideran "ignored" porque forman
+        # parte del resultado/elección del usuario.
+        # ====================================================
+
+        ignored_excel_rows = sum(
+            len(records)
+            for (
+                excel_key,
+                records,
+            ) in excel_records.items()
+            if excel_key not in selected_aerial_by_project
+        )
+
+        # ====================================================
+        # Respuesta
+        # ====================================================
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "filename": filename,
+                "sheet_name": worksheet.title,
+                "workbook_prefix": workbook_prefix,
+                "counts": {
+                    "selected_aerial": len(
+                        selected_aerial_by_project,
+                    ),
+                    "matched": len(
+                        matches,
+                    ),
+                    "ambiguous": len(
+                        ambiguous,
+                    ),
+                    "missing": len(
+                        missing,
+                    ),
+                    "valid_excel_rows": valid_excel_rows,
+                    "ignored_excel_rows": ignored_excel_rows,
+                },
+                "matches": matches,
+                "ambiguous": ambiguous,
+                "missing": missing,
+            }
+        )
+
+    finally:
+        workbook.close()
 
 
 # ============================================================
@@ -1988,7 +2688,6 @@ def submission_restart_flow(
             ),
         }
     )
-
 
 
 # ============================================================
