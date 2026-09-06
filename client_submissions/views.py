@@ -2673,16 +2673,30 @@ def submission_restart_flow(
     # Verificar que no exista OTRO proyecto del mismo Batch
     # ejecutándose actualmente.
     #
+    # IMPORTANTE:
+    # Aquí usamos directamente los valores almacenados en DB.
+    #
+    # En ClientSubmission.Status no existe el miembro Python:
+    #
+    #   PREPARING_CLIENT_SUBMISSION
+    #
+    # aunque el valor real en base de datos sí es:
+    #
+    #   preparing_client_submission
+    #
+    # Usar los valores reales evita depender de los nombres
+    # internos del TextChoices.
+    #
     # El proyecto que estamos reiniciando se excluye de esta
     # comprobación porque precisamente queremos recuperar
     # ese flujo.
     # --------------------------------------------------------
 
     active_submission_statuses = {
-        ClientSubmission.Status.PREPARING_CLIENT_SUBMISSION,
-        ClientSubmission.Status.AWAITING_VERIFICATION,
-        ClientSubmission.Status.SUBMITTING_TO_CLIENT,
-        ClientSubmission.Status.AWAITING_EMAIL_CONFIRMATION,
+        "preparing_client_submission",
+        "awaiting_verification",
+        "submitting_to_client",
+        "awaiting_email_confirmation",
     }
 
     other_active_submission = (
