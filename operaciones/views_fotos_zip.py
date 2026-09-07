@@ -4,6 +4,7 @@ import os
 import re
 import zipfile
 from tempfile import SpooledTemporaryFile
+from time import perf_counter
 from urllib.parse import urlparse
 
 from django.contrib.auth.decorators import login_required
@@ -156,8 +157,20 @@ def _collect_photo_entries_for_zip(
     total_agregadas = 0
     total_fallidas = 0
     total_vistas = 0
+    total_bytes = 0
 
     used_paths = set()
+
+    collect_started = perf_counter()
+
+    print(
+        "[ZIP COLLECT START]",
+        {
+            "billing_id": sesion.id,
+            "project_id": sesion.proyecto_id,
+        },
+        flush=True,
+    )
 
     for asignacion in asignaciones:
         evs_rel = getattr(
@@ -180,6 +193,20 @@ def _collect_photo_entries_for_zip(
 
             if not imagen_field:
                 total_fallidas += 1
+
+                print(
+                    "[ZIP PHOTO]",
+                    {
+                        "billing_id": sesion.id,
+                        "photo": total_vistas,
+                        "status": "missing_image_field",
+                        "elapsed_total_s": round(
+                            perf_counter() - collect_started,
+                            2,
+                        ),
+                    },
+                    flush=True,
+                )
 
                 continue
 
@@ -248,16 +275,70 @@ def _collect_photo_entries_for_zip(
             # Leer archivo desde Wasabi/storage o URL
             # =================================================
 
+            photo_started = perf_counter()
+
             data = _read_from_storage_or_url(
                 field_storage,
                 storage_name,
                 public_url,
             )
 
+            photo_elapsed = perf_counter() - photo_started
+
             if data is None:
                 total_fallidas += 1
 
+                print(
+                    "[ZIP PHOTO]",
+                    {
+                        "billing_id": sesion.id,
+                        "photo": total_vistas,
+                        "status": "failed",
+                        "storage_name": storage_name,
+                        "download_s": round(
+                            photo_elapsed,
+                            2,
+                        ),
+                        "elapsed_total_s": round(
+                            perf_counter() - collect_started,
+                            2,
+                        ),
+                    },
+                    flush=True,
+                )
+
                 continue
+
+            data_size = len(data)
+
+            total_bytes += data_size
+
+            print(
+                "[ZIP PHOTO]",
+                {
+                    "billing_id": sesion.id,
+                    "photo": total_vistas,
+                    "status": "ok",
+                    "storage_name": storage_name,
+                    "mb": round(
+                        data_size / 1024 / 1024,
+                        2,
+                    ),
+                    "download_s": round(
+                        photo_elapsed,
+                        2,
+                    ),
+                    "downloaded_total_mb": round(
+                        total_bytes / 1024 / 1024,
+                        2,
+                    ),
+                    "elapsed_total_s": round(
+                        perf_counter() - collect_started,
+                        2,
+                    ),
+                },
+                flush=True,
+            )
 
             extension = _guess_ext(
                 storage_name or public_url,
@@ -318,7 +399,28 @@ def _collect_photo_entries_for_zip(
         "total_vistas": total_vistas,
         "total_agregadas": total_agregadas,
         "total_fallidas": total_fallidas,
+        "total_bytes": total_bytes,
     }
+
+    print(
+        "[ZIP COLLECT DONE]",
+        {
+            "billing_id": sesion.id,
+            "project_id": sesion.proyecto_id,
+            "seen": total_vistas,
+            "added": total_agregadas,
+            "failed": total_fallidas,
+            "total_mb": round(
+                total_bytes / 1024 / 1024,
+                2,
+            ),
+            "elapsed_s": round(
+                perf_counter() - collect_started,
+                2,
+            ),
+        },
+        flush=True,
+    )
 
     return (
         entries,
@@ -596,27 +698,6 @@ def generar_fotos_zip_partes_smartsheet(
             stats,
         )
 
-    Ejemplo de parts:
-
-        [
-            {
-                "file": SpooledTemporaryFile,
-                "filename": "0913RA_04_5005-009-7_part-01.zip",
-                "size_bytes": 28500000,
-                "photo_count": 14,
-                "part_number": 1,
-                "total_parts": 2,
-            },
-            {
-                "file": SpooledTemporaryFile,
-                "filename": "0913RA_04_5005-009-7_part-02.zip",
-                "size_bytes": 9000000,
-                "photo_count": 5,
-                "part_number": 2,
-                "total_parts": 2,
-            },
-        ]
-
     El caller es responsable de cerrar los archivos.
     """
 
@@ -625,6 +706,22 @@ def generar_fotos_zip_partes_smartsheet(
 
     if max_parts <= 0:
         raise ValueError("max_parts must be greater than zero.")
+
+    zip_total_started = perf_counter()
+
+    print(
+        "[ZIP START]",
+        {
+            "billing_id": sesion.id,
+            "project_id": sesion.proyecto_id,
+            "max_part_mb": round(
+                max_part_bytes / 1024 / 1024,
+                2,
+            ),
+            "max_parts": max_parts,
+        },
+        flush=True,
+    )
 
     entries, stats = _collect_photo_entries_for_zip(
         sesion,
@@ -644,8 +741,29 @@ def generar_fotos_zip_partes_smartsheet(
 
     current_zip = None
 
+    zip_build_started = perf_counter()
+
+    print(
+        "[ZIP BUILD START]",
+        {
+            "billing_id": sesion.id,
+            "project_id": sesion.proyecto_id,
+            "entries": len(entries),
+            "source_total_mb": round(
+                sum(len(data) for _, data in entries) / 1024 / 1024,
+                2,
+            ),
+        },
+        flush=True,
+    )
+
     try:
-        for arcname, data in entries:
+        for entry_index, (arcname, data) in enumerate(
+            entries,
+            start=1,
+        ):
+            entry_started = perf_counter()
+
             candidate_entries = [
                 *current_entries,
                 (
@@ -662,6 +780,32 @@ def generar_fotos_zip_partes_smartsheet(
                 candidate_zip,
             )
 
+            print(
+                "[ZIP BUILD PROGRESS]",
+                {
+                    "billing_id": sesion.id,
+                    "entry": entry_index,
+                    "total": len(entries),
+                    "current_part": len(completed_parts) + 1,
+                    "current_part_entries": len(
+                        candidate_entries,
+                    ),
+                    "candidate_mb": round(
+                        candidate_size / 1024 / 1024,
+                        2,
+                    ),
+                    "entry_build_s": round(
+                        perf_counter() - entry_started,
+                        2,
+                    ),
+                    "build_elapsed_s": round(
+                        perf_counter() - zip_build_started,
+                        2,
+                    ),
+                },
+                flush=True,
+            )
+
             # ================================================
             # Todavía cabe dentro de la parte actual
             # ================================================
@@ -670,6 +814,7 @@ def generar_fotos_zip_partes_smartsheet(
                 if current_zip is not None:
                     try:
                         current_zip.close()
+
                     except Exception:
                         pass
 
@@ -686,6 +831,7 @@ def generar_fotos_zip_partes_smartsheet(
             if not current_entries:
                 try:
                     candidate_zip.close()
+
                 except Exception:
                     pass
 
@@ -705,19 +851,40 @@ def generar_fotos_zip_partes_smartsheet(
 
             try:
                 candidate_zip.close()
+
             except Exception:
                 pass
+
+            completed_part_size = _zip_size_bytes(
+                current_zip,
+            )
 
             completed_parts.append(
                 {
                     "file": current_zip,
-                    "size_bytes": _zip_size_bytes(
-                        current_zip,
-                    ),
+                    "size_bytes": completed_part_size,
                     "photo_count": len(
                         current_entries,
                     ),
                 }
+            )
+
+            print(
+                "[ZIP PART COMPLETE]",
+                {
+                    "billing_id": sesion.id,
+                    "part": len(completed_parts),
+                    "photos": len(current_entries),
+                    "size_mb": round(
+                        completed_part_size / 1024 / 1024,
+                        2,
+                    ),
+                    "build_elapsed_s": round(
+                        perf_counter() - zip_build_started,
+                        2,
+                    ),
+                },
+                flush=True,
             )
 
             current_zip = None
@@ -744,12 +911,32 @@ def generar_fotos_zip_partes_smartsheet(
                 ),
             ]
 
+            new_part_started = perf_counter()
+
             current_zip = _build_spooled_zip_from_entries(
                 current_entries,
             )
 
             current_size = _zip_size_bytes(
                 current_zip,
+            )
+
+            print(
+                "[ZIP NEW PART]",
+                {
+                    "billing_id": sesion.id,
+                    "part": len(completed_parts) + 1,
+                    "first_entry": entry_index,
+                    "size_mb": round(
+                        current_size / 1024 / 1024,
+                        2,
+                    ),
+                    "build_s": round(
+                        perf_counter() - new_part_started,
+                        2,
+                    ),
+                },
+                flush=True,
             )
 
             if current_size > max_part_bytes:
@@ -768,16 +955,36 @@ def generar_fotos_zip_partes_smartsheet(
         # ================================================
 
         if current_zip is not None and current_entries:
+            final_part_size = _zip_size_bytes(
+                current_zip,
+            )
+
             completed_parts.append(
                 {
                     "file": current_zip,
-                    "size_bytes": _zip_size_bytes(
-                        current_zip,
-                    ),
+                    "size_bytes": final_part_size,
                     "photo_count": len(
                         current_entries,
                     ),
                 }
+            )
+
+            print(
+                "[ZIP PART COMPLETE]",
+                {
+                    "billing_id": sesion.id,
+                    "part": len(completed_parts),
+                    "photos": len(current_entries),
+                    "size_mb": round(
+                        final_part_size / 1024 / 1024,
+                        2,
+                    ),
+                    "build_elapsed_s": round(
+                        perf_counter() - zip_build_started,
+                        2,
+                    ),
+                },
+                flush=True,
             )
 
             current_zip = None
@@ -836,6 +1043,35 @@ def generar_fotos_zip_partes_smartsheet(
             ],
         }
 
+        build_elapsed = perf_counter() - zip_build_started
+
+        total_elapsed = perf_counter() - zip_total_started
+
+        collect_elapsed = total_elapsed - build_elapsed
+
+        print(
+            "[ZIP DONE]",
+            {
+                "billing_id": sesion.id,
+                "project_id": sesion.proyecto_id,
+                "photos": len(entries),
+                "parts": total_parts,
+                "collect_s": round(
+                    collect_elapsed,
+                    2,
+                ),
+                "build_s": round(
+                    build_elapsed,
+                    2,
+                ),
+                "total_s": round(
+                    total_elapsed,
+                    2,
+                ),
+            },
+            flush=True,
+        )
+
         logger.info(
             (
                 "Smartsheet ZIP parts sesion=%s -> "
@@ -866,6 +1102,7 @@ def generar_fotos_zip_partes_smartsheet(
         if current_zip is not None:
             try:
                 current_zip.close()
+
             except Exception:
                 pass
 
@@ -877,11 +1114,11 @@ def generar_fotos_zip_partes_smartsheet(
             if part_file is not None:
                 try:
                     part_file.close()
+
                 except Exception:
                     pass
 
         raise
-
 
 
 def _safe_component_preserve(s: str, fallback="(sin-titulo)", max_len=120) -> str:
