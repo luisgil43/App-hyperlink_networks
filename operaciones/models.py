@@ -13,6 +13,12 @@ from facturacion.models import Proyecto
 from usuarios.models import CustomUser  # si no lo usas, puedes quitarlo
 from utils.paths import upload_to  # si no lo usas, puedes quitarlo
 
+# ---------------------------------------------------------------------
+# Billing Queue / Work Sessions
+# Funcionalidad adicional al flujo Billing existente.
+# ---------------------------------------------------------------------
+from .models_billing_queue import BillingAssignmentQueue, BillingWorkSession
+
 
 class PrecioActividadTecnico(models.Model):
     tecnico = models.ForeignKey(

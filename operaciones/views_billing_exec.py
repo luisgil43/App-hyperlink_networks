@@ -943,35 +943,117 @@ def detalle_assignment(request, pk):
 
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 @require_POST
 def start_assignment(request, pk):
     """
-    El técnico acepta la tarea y la pone en 'en_proceso'.
-    El proyecto pasa a 'en_proceso' si estaba 'rechazado_supervisor' o 'asignado'.
+    Start / Resume de una asignación.
+
+    Mantiene el comportamiento histórico:
+    - asignado -> en_proceso
+    - rechazado_supervisor/reintento -> en_proceso
+    - actualiza SesionBilling a en_proceso cuando corresponda
+
+    Adicional:
+    - si ya está en_proceso, actúa como Resume
+    - pausa automáticamente cualquier otro Billing activo del técnico
+    - abre un BillingWorkSession para medir tiempo efectivo
     """
-    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+    from django.db import transaction
 
-    # ✅ NUEVO: bloquear si la asignación está inactiva
-    if not _is_asig_active(a):
-        messages.error(request, "This assignment is no longer available.")
-        return redirect("operaciones:mis_assignments")
+    from operaciones.services.billing_work_timer import start_or_resume
 
-    if a.estado not in {"asignado", "rechazado_supervisor"} and not a.reintento_habilitado:
-        messages.error(request, "This assignment cannot be started.")
-        return redirect("operaciones:mis_assignments")
+    with transaction.atomic():
+        a = get_object_or_404(
+            SesionBillingTecnico.objects.select_for_update(),
+            pk=pk,
+            tecnico=request.user,
+        )
 
-    a.estado = "en_proceso"
-    a.aceptado_en = timezone.now()
-    a.reintento_habilitado = False
-    a.save(update_fields=["estado", "aceptado_en", "reintento_habilitado"])
+        # Mantener bloqueo existente de asignaciones inactivas
+        if not _is_asig_active(a):
+            messages.error(
+                request,
+                "This assignment is no longer available.",
+            )
+            return redirect("operaciones:mis_assignments")
 
-    s = a.sesion
-    if s.estado in {"rechazado_supervisor", "asignado"}:
-        s.estado = "en_proceso"
-        s.save(update_fields=["estado"])
+        is_resume = a.estado == "en_proceso"
 
-    messages.success(request, "Assignment started.")
+        # Flujo existente + posibilidad adicional de Resume
+        can_start = (
+            a.estado
+            in {
+                "asignado",
+                "rechazado_supervisor",
+                "en_proceso",
+            }
+            or a.reintento_habilitado
+        )
+
+        if not can_start:
+            messages.error(
+                request,
+                "This assignment cannot be started.",
+            )
+            return redirect("operaciones:mis_assignments")
+
+        #
+        # Solo hacemos la transición histórica si realmente
+        # NO estaba ya en proceso.
+        #
+        if not is_resume:
+            a.estado = "en_proceso"
+
+            # No queremos destruir el primer Start histórico.
+            if not a.aceptado_en:
+                a.aceptado_en = timezone.now()
+
+            a.reintento_habilitado = False
+
+            a.save(
+                update_fields=[
+                    "estado",
+                    "aceptado_en",
+                    "reintento_habilitado",
+                ]
+            )
+
+        #
+        # Si ya estaba en_proceso, NO sobrescribimos aceptado_en.
+        # Simplemente reanudamos su cronómetro.
+        #
+        work_session, created = start_or_resume(a)
+
+        #
+        # Mantener comportamiento actual de SesionBilling.
+        #
+        s = a.sesion
+
+        if s.estado in {
+            "rechazado_supervisor",
+            "asignado",
+        }:
+            s.estado = "en_proceso"
+            s.save(update_fields=["estado"])
+
+    if is_resume:
+        if created:
+            messages.success(
+                request,
+                "Assignment resumed.",
+            )
+        else:
+            messages.info(
+                request,
+                "This assignment is already running.",
+            )
+    else:
+        messages.success(
+            request,
+            "Assignment started.",
+        )
+
     return redirect("operaciones:mis_assignments")
 
 
@@ -2028,7 +2110,7 @@ def fotos_status_json(request, asig_id: int):
 
 
 @login_required
-@rol_requerido('usuario')
+@rol_requerido("usuario")
 def finish_assignment(request, pk):
     """
     Finalización en equipo:
@@ -2040,25 +2122,42 @@ def finish_assignment(request, pk):
     - Si todo OK: pasa TODAS las asignaciones y la sesión a 'en_revision_supervisor'.
     - NUEVO: exige comentario y lo guarda en la asignación del técnico que presiona Finish.
     """
-    a = get_object_or_404(SesionBillingTecnico, pk=pk, tecnico=request.user)
+    a = get_object_or_404(
+        SesionBillingTecnico,
+        pk=pk,
+        tecnico=request.user,
+    )
 
     # ✅ NUEVO: bloquear si la asignación está inactiva
     if not _is_asig_active(a):
-        messages.error(request, "This assignment is no longer available.")
+        messages.error(
+            request,
+            "This assignment is no longer available.",
+        )
         return redirect("operaciones:mis_assignments")
 
     if a.estado != "en_proceso":
-        messages.error(request, "This assignment is not in progress.")
+        messages.error(
+            request,
+            "This assignment is not in progress.",
+        )
         return redirect("operaciones:mis_assignments")
 
     # ✅ NUEVO (comentario obligatorio desde el modal)
     if request.method != "POST":
-        messages.error(request, "Comment is required to finish.")
+        messages.error(
+            request,
+            "Comment is required to finish.",
+        )
         return redirect("operaciones:mis_assignments")
 
     comentario = (request.POST.get("comentario") or "").strip()
+
     if not comentario:
-        messages.error(request, "Please enter a comment to finish.")
+        messages.error(
+            request,
+            "Please enter a comment to finish.",
+        )
         return redirect("operaciones:mis_assignments")
 
     def _norm_title(s: str) -> str:
@@ -2068,11 +2167,9 @@ def finish_assignment(request, pk):
 
     # --- Recolectar títulos obligatorios por asignación (normalizados) ✅ solo activas
     qs_asg = (
-        s.tecnicos_sesion
-        .select_related("tecnico")
-        .prefetch_related("requisitos")
-        .all()
+        s.tecnicos_sesion.select_related("tecnico").prefetch_related("requisitos").all()
     )
+
     try:
         SesionBillingTecnico._meta.get_field("is_active")
         qs_asg = qs_asg.filter(is_active=True)
@@ -2083,86 +2180,172 @@ def finish_assignment(request, pk):
 
     per_asg_required_sets = []
     sample_titles = set()  # para nombres bonitos
+
     for asg in asignaciones:
         # Solo títulos OBLIGATORIOS de esta asignación
         titles = [
-            r.titulo for r in asg.requisitos.all()
-            if getattr(r, "obligatorio", True)
+            r.titulo for r in asg.requisitos.all() if getattr(r, "obligatorio", True)
         ]
+
         sample_titles.update([t for t in titles if t])
+
         keyset = {_norm_title(t) for t in titles if t}
+
         per_asg_required_sets.append(keyset)
 
     # Si no hay requisitos cargados en ninguna asignación, no se bloquea por fotos
-    if not per_asg_required_sets or all(len(sset) == 0 for sset in per_asg_required_sets):
+    if not per_asg_required_sets or all(
+        len(sset) == 0 for sset in per_asg_required_sets
+    ):
         required_key_set = set()
     else:
-        # INTERSECCIÓN entre todas las asignaciones: lo común es lo realmente "vigente"
-        required_key_set = set.intersection(*per_asg_required_sets) if len(per_asg_required_sets) > 1 else per_asg_required_sets[0]
+        # INTERSECCIÓN entre todas las asignaciones:
+        # lo común es lo realmente "vigente"
+        required_key_set = (
+            set.intersection(*per_asg_required_sets)
+            if len(per_asg_required_sets) > 1
+            else per_asg_required_sets[0]
+        )
 
     # Map para mostrar nombres con mayúsculas originales
     sample_map = {_norm_title(t): t for t in sample_titles if t}
 
     # --- Títulos ya cubiertos (algún miembro subió foto para ese requisito)
-    taken_titles = (
-        EvidenciaFotoBilling.objects
-        .filter(tecnico_sesion__sesion=s, requisito__isnull=False)
-        .values_list("requisito__titulo", flat=True)
+    taken_titles = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=s,
+        requisito__isnull=False,
+    ).values_list(
+        "requisito__titulo",
+        flat=True,
     )
+
     covered_key_set = {_norm_title(t) for t in taken_titles if t}
 
     # Lo faltante es la intersección menos lo cubierto
     missing_keys = required_key_set - covered_key_set
+
     if missing_keys:
         pretty_missing = [sample_map.get(k, k) for k in sorted(missing_keys)]
-        messages.error(request, "Missing required photos: " + ", ".join(pretty_missing))
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
+
+        messages.error(
+            request,
+            "Missing required photos: " + ", ".join(pretty_missing),
+        )
+
+        return redirect(
+            "operaciones:upload_evidencias",
+            pk=a.pk,
+        )
 
     # --- Validar que todos hayan dado Start
     pendientes_aceptar = []
+
     for asg in asignaciones:
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+
         if not accepted:
-            name = getattr(asg.tecnico, "get_full_name", lambda: "")() or asg.tecnico.username
+            name = (
+                getattr(
+                    asg.tecnico,
+                    "get_full_name",
+                    lambda: "",
+                )()
+                or asg.tecnico.username
+            )
+
             pendientes_aceptar.append(name)
 
     if pendientes_aceptar:
-        messages.error(request, "Pending acceptance (Start): " + ", ".join(pendientes_aceptar))
-        return redirect("operaciones:upload_evidencias", pk=a.pk)
+        messages.error(
+            request,
+            "Pending acceptance (Start): " + ", ".join(pendientes_aceptar),
+        )
+
+        return redirect(
+            "operaciones:upload_evidencias",
+            pk=a.pk,
+        )
+
+    # ==========================================================
+    # NUEVO — servicios adicionales de cola y tiempo de trabajo
+    # ==========================================================
+    from operaciones.services.billing_queue import finish_team_queue
+    from operaciones.services.billing_work_timer import close_team_sessions
 
     # --- Transición a revisión de supervisor + guardar comentario
     now = timezone.now()
-    with transaction.atomic():
-        # ✅ NUEVO: guardar comentario en la asignación que está finalizando
-        a.tecnico_comentario = comentario
-        a.save(update_fields=["tecnico_comentario"])
 
+    with transaction.atomic():
+
+        # ✅ EXISTENTE: guardar comentario en la asignación que está finalizando
+        a.tecnico_comentario = comentario
+        a.save(
+            update_fields=[
+                "tecnico_comentario",
+            ]
+        )
+
+        # ======================================================
+        # NUEVO:
+        # cerrar cualquier WorkSession abierta correspondiente
+        # a las asignaciones de este Billing.
+        #
+        # Esto NO modifica los estados existentes.
+        # ======================================================
+        close_team_sessions(asignaciones)
+
+        # ======================================================
+        # EXISTENTE:
+        # Finish continúa siendo por EQUIPO.
+        # ======================================================
         s.tecnicos_sesion.update(
             estado="en_revision_supervisor",
             finalizado_en=now,
         )
-        s.estado = "en_revision_supervisor"
-        s.save(update_fields=["estado"])
 
-        # ✅ NUEVO: lanzar backfill de light levels en segundo plano después del commit.
-        # No bloquea al técnico. Si el scheduler aún no existe o falla, no rompe producción.
+        s.estado = "en_revision_supervisor"
+        s.save(
+            update_fields=[
+                "estado",
+            ]
+        )
+
+        # ======================================================
+        # NUEVO:
+        # sacar este Billing de la cola activa de cada técnico,
+        # compactar cada cola y liberar el siguiente proyecto.
+        #
+        # Cada técnico mantiene su propia cola independiente.
+        # ======================================================
+        finish_team_queue(asignaciones)
+
+        # ✅ EXISTENTE:
+        # lanzar backfill de light levels en segundo plano después del commit.
+        # No bloquea al técnico. Si el scheduler aún no existe o falla,
+        # no rompe producción.
         def _enqueue_light_levels_backfill():
             try:
                 from usuarios.schedulers import enqueue_light_levels_backfill
+
                 enqueue_light_levels_backfill(
                     sesion_id=s.id,
                     user_id=request.user.id,
                     force=False,
                 )
+
             except Exception:
                 log.exception(
-                    "Could not enqueue light levels backfill for SesionBilling %s",
+                    "Could not enqueue light levels backfill " "for SesionBilling %s",
                     s.id,
                 )
 
         transaction.on_commit(_enqueue_light_levels_backfill)
 
-    messages.success(request, "Submitted for supervisor review for all assignees.")
+    messages.success(
+        request,
+        "Submitted for supervisor review for all assignees.",
+    )
+
     return redirect("operaciones:mis_assignments")
 
 
