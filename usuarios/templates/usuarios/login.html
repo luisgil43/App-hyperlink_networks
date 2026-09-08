@@ -317,11 +317,18 @@
     }
 
     .footer img {
-      height: 34px;
-      vertical-align: middle;
-      margin-left: 5px;
-      filter: drop-shadow(0 2px 8px rgba(0,0,0,.4));
-    }
+  height: 34px;
+  vertical-align: middle;
+  margin-left: 7px;
+
+  border-radius: 10px;
+
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.28),
+    0 0 0 1px rgba(255,255,255,.18);
+
+  filter: none;
+}
 
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(18px) scale(.985); }

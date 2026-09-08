@@ -1,34 +1,637 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Select Role</title>
+  <title>Select Role - Hyperlink Networks Platform</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", sans-serif;
+    }
+
+    body {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: hidden;
+
+      background:
+        linear-gradient(
+          90deg,
+          rgba(3, 10, 24, .28),
+          rgba(5, 18, 38, .12),
+          rgba(2, 8, 18, .22)
+        ),
+        url("{% static 'images/imagen_amanecer.png' %}?v=7");
+
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+    }
+
+    /* Oscurecimiento suave de los bordes */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+
+      background:
+        radial-gradient(
+          circle at center,
+          transparent 54%,
+          rgba(0, 0, 0, .36) 100%
+        );
+
+      z-index: 1;
+    }
+
+    /* =========================================================
+       LÍNEAS DE DATOS ANIMADAS
+       ========================================================= */
+
+    .data-stream {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .data-stream span {
+      position: absolute;
+      width: 34vw;
+      height: 2px;
+
+      background:
+        linear-gradient(
+          90deg,
+          transparent,
+          rgba(0, 174, 255, .85),
+          transparent
+        );
+
+      filter:
+        drop-shadow(
+          0 0 10px rgba(0, 174, 255, .8)
+        );
+
+      animation: streamMove 6s linear infinite;
+      opacity: .45;
+    }
+
+    .data-stream span:nth-child(1) {
+      top: 22%;
+      left: -35%;
+      animation-delay: 0s;
+    }
+
+    .data-stream span:nth-child(2) {
+      top: 44%;
+      left: -40%;
+      animation-delay: 1.4s;
+    }
+
+    .data-stream span:nth-child(3) {
+      top: 68%;
+      left: -35%;
+      animation-delay: 2.8s;
+    }
+
+    .data-stream span:nth-child(4) {
+      top: 82%;
+      left: -45%;
+      animation-delay: 4s;
+    }
+
+    @keyframes streamMove {
+      from {
+        transform: translateX(0) rotate(-4deg);
+      }
+
+      to {
+        transform: translateX(150vw) rotate(-4deg);
+      }
+    }
+
+    /* =========================================================
+       CONTENEDOR
+       ========================================================= */
+
+    .role-shell {
+      width: 100%;
+      max-width: 440px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .role-container {
+      position: relative;
+      width: 100%;
+
+      text-align: center;
+
+      overflow: visible;
+
+      background:
+        rgba(9, 18, 34, .34);
+
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+
+      border-radius: 32px;
+
+      border:
+        1.5px solid rgba(103, 213, 255, .45);
+
+      box-shadow:
+        0 30px 90px rgba(0, 0, 0, .50),
+        inset 0 1px 0 rgba(255, 255, 255, .20),
+        inset 0 -1px 0 rgba(255, 255, 255, .08),
+        0 0 35px rgba(0, 174, 255, .22);
+
+      padding: 92px 34px 42px;
+
+      animation:
+        fadeUp .38s ease;
+    }
+
+    .role-container::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+
+      border-radius: 32px;
+
+      pointer-events: none;
+
+      background:
+        linear-gradient(
+          145deg,
+          rgba(255, 255, 255, .18),
+          transparent 32%
+        ),
+        radial-gradient(
+          circle at 50% 0%,
+          rgba(0, 174, 255, .22),
+          transparent 42%
+        );
+
+      z-index: 0;
+    }
+
+    .role-container > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* =========================================================
+       LOGO
+       ========================================================= */
+
+    .logo-box {
+      position: absolute;
+
+      top: -70px;
+      left: 50%;
+
+      transform:
+        translateX(-50%);
+
+      width: 146px;
+      height: 146px;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      padding: 0;
+
+      overflow: hidden;
+
+      background:
+        rgba(255, 255, 255, .88);
+
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+
+      border-radius: 999px;
+
+      border:
+        5px solid rgba(103, 213, 255, .58);
+
+      box-shadow:
+        0 18px 38px rgba(0, 0, 0, .36),
+        0 0 30px rgba(0, 174, 255, .34);
+    }
+
+    .logo-box img {
+      width: 158px;
+      height: 158px;
+
+      max-width: none;
+
+      object-fit: cover;
+
+      display: block;
+    }
+
+    /* =========================================================
+       BRAND
+       ========================================================= */
+
+    .brand h2 {
+      margin: 0 0 6px;
+
+      font-size: 1.58rem;
+      font-weight: 950;
+      line-height: 1.1;
+
+      text-transform: uppercase;
+
+      color: #ffffff;
+
+      text-shadow:
+        0 2px 14px rgba(0, 0, 0, .55);
+    }
+
+    .brand p {
+      margin: 0 0 30px;
+
+      font-size: .96rem;
+
+      color:
+        rgba(255, 255, 255, .84);
+
+      font-weight: 600;
+    }
+
+    .brand strong {
+      color: #7bd8ff;
+      font-weight: 900;
+    }
+
+    /* =========================================================
+       PREGUNTA
+       ========================================================= */
+
+    .role-question {
+      margin:
+        0 0 24px;
+
+      color:
+        rgba(255, 255, 255, .96);
+
+      font-size: 1.08rem;
+      font-weight: 800;
+
+      text-shadow:
+        0 2px 10px rgba(0, 0, 0, .35);
+    }
+
+    /* =========================================================
+       BOTONES
+       ========================================================= */
+
+    .role-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .role-button {
+      width: 100%;
+      min-height: 54px;
+
+      padding:
+        15px 18px;
+
+      border:
+        1px solid rgba(103, 213, 255, .32);
+
+      border-radius: 999px;
+
+      color: #ffffff;
+
+      font-family: inherit;
+      font-weight: 900;
+      font-size: 1rem;
+
+      cursor: pointer;
+
+      position: relative;
+      overflow: hidden;
+
+      transition:
+        transform .16s ease,
+        filter .16s ease,
+        box-shadow .16s ease;
+    }
+
+    /* Usuario */
+
+    .role-button.user {
+      background:
+        linear-gradient(
+          90deg,
+          rgba(5, 117, 230, .92),
+          rgba(0, 180, 255, .92)
+        );
+
+      box-shadow:
+        0 16px 30px rgba(0, 174, 255, .30),
+        0 0 20px rgba(0, 174, 255, .18);
+    }
+
+    /* Administrador */
+
+    .role-button.admin {
+      background:
+        linear-gradient(
+          90deg,
+          rgba(15, 28, 48, .94),
+          rgba(30, 56, 82, .94)
+        );
+
+      box-shadow:
+        0 14px 28px rgba(0, 0, 0, .28),
+        0 0 18px rgba(0, 174, 255, .10);
+    }
+
+    /* Efecto de brillo */
+
+    .role-button::before {
+      content: "";
+
+      position: absolute;
+
+      top: 0;
+      left: -120%;
+
+      width: 55%;
+      height: 100%;
+
+      background:
+        linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, .34),
+          transparent
+        );
+
+      transform:
+        skewX(-20deg);
+
+      animation:
+        buttonShine 3.4s ease-in-out infinite;
+
+      pointer-events: none;
+    }
+
+    .role-button.admin::before {
+      animation-delay: .7s;
+    }
+
+    .role-button:hover {
+      transform:
+        translateY(-2px);
+
+      filter:
+        brightness(1.08);
+    }
+
+    .role-button.user:hover {
+      box-shadow:
+        0 18px 34px rgba(0, 174, 255, .38),
+        0 0 26px rgba(0, 174, 255, .24);
+    }
+
+    .role-button.admin:hover {
+      box-shadow:
+        0 18px 34px rgba(0, 0, 0, .34),
+        0 0 24px rgba(0, 174, 255, .16);
+    }
+
+    .role-button:active {
+      transform:
+        translateY(0) scale(.99);
+    }
+
+    /* =========================================================
+       FOOTER PLANIX
+       ========================================================= */
+
+    .footer {
+      text-align: center;
+
+      font-size: .84rem;
+
+      color:
+        rgba(255, 255, 255, .92);
+
+      margin-top: 16px;
+
+      font-weight: 600;
+
+      position: relative;
+
+      z-index: 5;
+    }
+
+    .footer img {
+  height: 34px;
+  vertical-align: middle;
+  margin-left: 7px;
+
+  border-radius: 10px;
+
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.28),
+    0 0 0 1px rgba(255,255,255,.18);
+
+  filter: none;
+}
+    /* =========================================================
+       ANIMACIONES
+       ========================================================= */
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+
+        transform:
+          translateY(18px) scale(.985);
+      }
+
+      to {
+        opacity: 1;
+
+        transform:
+          translateY(0) scale(1);
+      }
+    }
+
+    @keyframes buttonShine {
+      0% {
+        left: -120%;
+      }
+
+      45% {
+        left: 140%;
+      }
+
+      100% {
+        left: 140%;
+      }
+    }
+
+    /* =========================================================
+       RESPONSIVE
+       ========================================================= */
+
+    @media (max-width: 980px) {
+      body {
+        background-position: center left;
+      }
+    }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 18px;
+
+        background-position:
+          center left;
+
+        overflow: auto;
+      }
+
+      .role-shell {
+        max-width: 100%;
+      }
+
+      .role-container {
+        padding:
+          82px 22px 34px;
+
+        border-radius: 28px;
+      }
+
+      .role-container::before {
+        border-radius: 28px;
+      }
+
+      .logo-box {
+        width: 128px;
+        height: 128px;
+
+        top: -62px;
+      }
+
+      .logo-box img {
+        width: 140px;
+        height: 140px;
+      }
+
+      .brand h2 {
+        font-size: 1.32rem;
+      }
+
+      .role-question {
+        font-size: 1rem;
+      }
+
+      .role-button {
+        min-height: 52px;
+        font-size: .96rem;
+      }
+    }
+  </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center">
 
-  <!-- Contenedor principal -->
-  <div class="bg-white p-6 rounded-xl shadow w-full max-w-sm">
-    <!-- Título de la vista -->
-    <h2 class="text-xl font-bold text-center mb-4 text-gray-900">How would you like to log in?</h2>
+<body>
 
-    <!-- Formulario para seleccionar el rol -->
-    <form method="post">
-      {% csrf_token %}
-      <div class="space-y-3">
-        <!-- Botón para entrar como usuario -->
-        <button type="submit" name="opcion" value="usuario"
-          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-xl">
-          Log in as User
-        </button>
-        <!-- Botón para entrar como administrador -->
-        <button type="submit" name="opcion" value="admin"
-          class="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-xl">
-          Log in as Administrator
-        </button>
+  <!-- Líneas azules animadas -->
+  <div class="data-stream">
+    <span></span>
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+
+  <div class="role-shell">
+
+    <div class="role-container">
+
+      <!-- Logo Hyperlink -->
+      <div class="logo-box">
+        <img
+          src="{% static 'images/hyperlink_redondo.png' %}"
+          alt="Hyperlink Networks"
+        >
       </div>
-    </form>
+
+      <!-- Marca -->
+      <div class="brand">
+        <h2>Hyperlink Networks Platform</h2>
+        <p>Powered by <strong>Planix</strong></p>
+      </div>
+
+      <!-- Pregunta -->
+      <h3 class="role-question">
+        How would you like to log in?
+      </h3>
+
+      <!-- Selector -->
+      <form method="post">
+        {% csrf_token %}
+
+        <div class="role-buttons">
+
+          <button
+            type="submit"
+            name="opcion"
+            value="usuario"
+            class="role-button user"
+          >
+            Log in as User
+          </button>
+
+          <button
+            type="submit"
+            name="opcion"
+            value="admin"
+            class="role-button admin"
+          >
+            Log in as Administrator
+          </button>
+
+        </div>
+      </form>
+
+    </div>
+
+    <!-- Planix -->
+    <div class="footer">
+      Developed by
+      <img
+        src="{% static 'images/planixb.png' %}"
+        alt="Planix"
+      >
+    </div>
+
   </div>
 
 </body>
