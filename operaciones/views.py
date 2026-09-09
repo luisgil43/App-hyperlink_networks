@@ -82,6 +82,8 @@ from fleet.models import VehicleOdometerEvent, VehicleService
 from operaciones.forms import PaymentApproveForm, PaymentRejectForm
 from operaciones.models import AdjustmentEntry  # <-- IMPORTA EL MODELO
 from operaciones.models import ItemBillingTecnico, SesionBilling, WeeklyPayment
+from operaciones.services.billing_technician_queue import (
+    apply_assignment_priority, show_now_project)
 from operaciones.views_billing_exec import (
     ensure_requisitos_plantilla_desde_existentes,
     sync_requisitos_plantilla_a_asignaciones)
@@ -6298,6 +6300,7 @@ def billing_reopen_asignado(request, pk):
         request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
     )
 
+
 @login_required
 def billing_excel_options(request):
     """
@@ -6328,6 +6331,8 @@ def billing_excel_options(request):
     from facturacion.models import Proyecto
     from operaciones.models import (BillingPayWeekSnapshot, SesionBilling,
                                     SesionBillingTecnico)
+    from operaciones.services.billing_technician_queue import \
+        attach_priority_rows
 
     try:
         from usuarios.models import ProyectoAsignacion
@@ -6337,12 +6342,14 @@ def billing_excel_options(request):
     user = request.user
 
     can_view_legacy_history = user.is_superuser or getattr(
-        user, "es_usuario_historial", False
+        user,
+        "es_usuario_historial",
+        False,
     )
 
-    visible_filter = (Q(finance_sent_at__isnull=True)& ~Q(finance_status="paid"))
+    visible_filter = Q(finance_sent_at__isnull=True) & ~Q(finance_status="paid")
 
-    qs = (SesionBilling.objects.filter(visible_filter).order_by("-creado_en"))
+    qs = SesionBilling.objects.filter(visible_filter).order_by("-creado_en")
 
     # ============================================================
     # Restricción por proyectos
@@ -6364,10 +6371,12 @@ def billing_excel_options(request):
 
             for p in proyectos_user_list:
                 nombre = (getattr(p, "nombre", "") or "").strip()
+
                 if nombre:
                     allowed_keys.add(nombre)
 
                 codigo = getattr(p, "codigo", None)
+
                 if codigo:
                     allowed_keys.add(str(codigo).strip())
 
@@ -6393,17 +6402,28 @@ def billing_excel_options(request):
                 has_window_q = False
 
                 for a in asignaciones:
-                    p = getattr(a, "proyecto", None)
+                    p = getattr(
+                        a,
+                        "proyecto",
+                        None,
+                    )
+
                     if not p:
                         continue
 
                     keys = set()
 
                     nombre = (getattr(p, "nombre", "") or "").strip()
+
                     if nombre:
                         keys.add(nombre)
 
-                    codigo = getattr(p, "codigo", None)
+                    codigo = getattr(
+                        p,
+                        "codigo",
+                        None,
+                    )
+
                     if codigo:
                         keys.add(str(codigo).strip())
 
@@ -6412,12 +6432,21 @@ def billing_excel_options(request):
                     if not keys:
                         continue
 
-                    if getattr(a, "include_history", False) or not getattr(
-                        a, "start_at", None
+                    if getattr(
+                        a,
+                        "include_history",
+                        False,
+                    ) or not getattr(
+                        a,
+                        "start_at",
+                        None,
                     ):
                         window_q |= Q(proyecto__in=keys)
                     else:
-                        window_q |= Q(proyecto__in=keys, creado_en__gte=a.start_at)
+                        window_q |= Q(
+                            proyecto__in=keys,
+                            creado_en__gte=a.start_at,
+                        )
 
                     has_window_q = True
 
@@ -6442,6 +6471,7 @@ def billing_excel_options(request):
     if f["date"]:
         try:
             d = _date.fromisoformat(f["date"])
+
             qs_filtered = qs_filtered.filter(creado_en__date=d)
         except ValueError:
             pass
@@ -6474,27 +6504,74 @@ def billing_excel_options(request):
     if f["status"]:
         status_txt = f["status"].lower().strip()
 
-        if any(k in status_txt for k in ("direct", "descuento", "discount")):
+        if any(
+            k in status_txt
+            for k in (
+                "direct",
+                "descuento",
+                "discount",
+            )
+        ):
             qs_filtered = qs_filtered.filter(is_direct_discount=True)
         else:
             mapping = [
                 (
-                    ("aprobado supervisor", "approved by supervisor"),
+                    (
+                        "aprobado supervisor",
+                        "approved by supervisor",
+                    ),
                     Q(estado="aprobado_supervisor"),
                 ),
                 (
-                    ("rechazado supervisor", "rejected by supervisor"),
+                    (
+                        "rechazado supervisor",
+                        "rejected by supervisor",
+                    ),
                     Q(estado="rechazado_supervisor"),
                 ),
                 (
-                    ("en revision", "supervisor review", "in supervisor review"),
+                    (
+                        "en revision",
+                        "supervisor review",
+                        "in supervisor review",
+                    ),
                     Q(estado="en_revision_supervisor"),
                 ),
-                (("finalizado", "finished"), Q(estado="finalizado")),
-                (("en proceso", "in progress"), Q(estado="en_proceso")),
-                (("asignado", "assigned"), Q(estado="asignado")),
-                (("aprobado pm", "approved by pm"), Q(estado="aprobado_pm")),
-                (("rechazado pm", "rejected by pm"), Q(estado="rechazado_pm")),
+                (
+                    (
+                        "finalizado",
+                        "finished",
+                    ),
+                    Q(estado="finalizado"),
+                ),
+                (
+                    (
+                        "en proceso",
+                        "in progress",
+                    ),
+                    Q(estado="en_proceso"),
+                ),
+                (
+                    (
+                        "asignado",
+                        "assigned",
+                    ),
+                    Q(estado="asignado"),
+                ),
+                (
+                    (
+                        "aprobado pm",
+                        "approved by pm",
+                    ),
+                    Q(estado="aprobado_pm"),
+                ),
+                (
+                    (
+                        "rechazado pm",
+                        "rejected by pm",
+                    ),
+                    Q(estado="rechazado_pm"),
+                ),
             ]
 
             applied = False
@@ -6502,17 +6579,25 @@ def billing_excel_options(request):
             for keys, cond in mapping:
                 if any(k in status_txt for k in keys):
                     qs_filtered = qs_filtered.filter(cond)
+
                     applied = True
                     break
 
             if not applied:
                 if "aprobado" in status_txt or "approved" in status_txt:
                     qs_filtered = qs_filtered.filter(
-                        estado__in=["aprobado_supervisor", "aprobado_pm"]
+                        estado__in=[
+                            "aprobado_supervisor",
+                            "aprobado_pm",
+                        ]
                     )
+
                 elif "rechazado" in status_txt or "rejected" in status_txt:
                     qs_filtered = qs_filtered.filter(
-                        estado__in=["rechazado_supervisor", "rechazado_pm"]
+                        estado__in=[
+                            "rechazado_supervisor",
+                            "rechazado_pm",
+                        ]
                     )
 
     qs_filtered = qs_filtered.distinct()
@@ -6521,7 +6606,10 @@ def billing_excel_options(request):
     # Helpers para valores Excel
     # ============================================================
     def money_value(value):
-        if value in (None, ""):
+        if value in (
+            None,
+            "",
+        ):
             return "—"
 
         try:
@@ -6530,10 +6618,21 @@ def billing_excel_options(request):
             return str(value)
 
     def status_label(s):
-        if getattr(s, "is_direct_discount", False):
+        if getattr(
+            s,
+            "is_direct_discount",
+            False,
+        ):
             return "Direct discount"
 
-        estado = getattr(s, "estado", "") or ""
+        estado = (
+            getattr(
+                s,
+                "estado",
+                "",
+            )
+            or ""
+        )
 
         labels = {
             "aprobado_pm": "Approved by PM",
@@ -6546,10 +6645,20 @@ def billing_excel_options(request):
             "asignado": "Assigned",
         }
 
-        return labels.get(estado, "Assigned")
+        return labels.get(
+            estado,
+            "Assigned",
+        )
 
     def finance_status_label(s):
-        finance_status = getattr(s, "finance_status", "") or ""
+        finance_status = (
+            getattr(
+                s,
+                "finance_status",
+                "",
+            )
+            or ""
+        )
 
         labels = {
             "sent": "Sent to Finance",
@@ -6564,13 +6673,31 @@ def billing_excel_options(request):
             None: "—",
         }
 
-        return labels.get(finance_status, "—")
+        return labels.get(
+            finance_status,
+            "—",
+        )
 
     def diff_label(s):
-        real = getattr(s, "real_company_billing", None)
-        subtotal = getattr(s, "subtotal_empresa", None)
+        real = getattr(
+            s,
+            "real_company_billing",
+            None,
+        )
 
-        if real in (None, "") or subtotal in (None, ""):
+        subtotal = getattr(
+            s,
+            "subtotal_empresa",
+            None,
+        )
+
+        if real in (
+            None,
+            "",
+        ) or subtotal in (
+            None,
+            "",
+        ):
             return "—"
 
         try:
@@ -6593,7 +6720,11 @@ def billing_excel_options(request):
 
         try:
             for st in sesion.tecnicos_sesion.all():
-                if not getattr(st, "tecnico", None):
+                if not getattr(
+                    st,
+                    "tecnico",
+                    None,
+                ):
                     continue
 
                 vals.append(st.tecnico.get_full_name() or st.tecnico.username)
@@ -6607,16 +6738,37 @@ def billing_excel_options(request):
 
         try:
             for a in s.tecnicos_sesion.all():
-                txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+                txt = (
+                    getattr(
+                        a,
+                        "tecnico_comentario",
+                        "",
+                    )
+                    or ""
+                ).strip()
 
                 if not txt:
                     continue
 
                 tech_name = (
-                    a.tecnico.get_full_name() if getattr(a, "tecnico", None) else ""
+                    a.tecnico.get_full_name()
+                    if getattr(
+                        a,
+                        "tecnico",
+                        None,
+                    )
+                    else ""
                 ) or (
-                    getattr(a.tecnico, "username", "")
-                    if getattr(a, "tecnico", None)
+                    getattr(
+                        a.tecnico,
+                        "username",
+                        "",
+                    )
+                    if getattr(
+                        a,
+                        "tecnico",
+                        None,
+                    )
                     else ""
                 )
 
@@ -6641,35 +6793,109 @@ def billing_excel_options(request):
             for snap in snaps:
                 tech_name = (
                     snap.tecnico.get_full_name().strip()
-                    if getattr(snap, "tecnico", None) and snap.tecnico.get_full_name()
-                    else getattr(snap.tecnico, "username", "")
+                    if (
+                        getattr(
+                            snap,
+                            "tecnico",
+                            None,
+                        )
+                        and snap.tecnico.get_full_name()
+                    )
+                    else getattr(
+                        snap.tecnico,
+                        "username",
+                        "",
+                    )
                     or f"User {snap.tecnico_id}"
                 )
 
                 work_type = (
                     (snap.tipo_trabajo or "").strip()
-                    or (getattr(snap.item, "tipo_trabajo", "") or "").strip()
+                    or (
+                        getattr(
+                            snap.item,
+                            "tipo_trabajo",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "Legacy"
                 )
 
                 week = (
-                    (getattr(snap, "semana_resultado", "") or "").strip()
-                    or (getattr(snap, "semana_base", "") or "").strip()
-                    or (getattr(s, "semana_pago_real", "") or "").strip()
-                    or (getattr(s, "discount_week", "") or "").strip()
-                    or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+                    (
+                        getattr(
+                            snap,
+                            "semana_resultado",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            snap,
+                            "semana_base",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_real",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "discount_week",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_proyectada",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "—"
                 )
 
-                vals.append(f"{tech_name} — {work_type} → {week}")
+                vals.append(f"{tech_name} — " f"{work_type} → {week}")
 
         if vals:
             return " | ".join(vals)
 
         return (
-            (getattr(s, "semana_pago_real", "") or "").strip()
-            or (getattr(s, "discount_week", "") or "").strip()
-            or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+            (
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "discount_week",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or ""
+            ).strip()
             or "—"
         )
 
@@ -6678,21 +6904,43 @@ def billing_excel_options(request):
         proj_texts = set()
 
         for s in sessions:
-            raw_proyecto = getattr(s, "proyecto", None)
-            if raw_proyecto not in (None, "", "-"):
+            raw_proyecto = getattr(
+                s,
+                "proyecto",
+                None,
+            )
+
+            if raw_proyecto not in (
+                None,
+                "",
+                "-",
+            ):
                 txt = str(raw_proyecto).strip()
+
                 if txt:
                     proj_texts.add(txt)
+
                     try:
                         proj_ids.add(int(txt))
                     except Exception:
                         pass
 
-            raw_proyecto_id = getattr(s, "proyecto_id", None)
-            if raw_proyecto_id not in (None, "", "-"):
+            raw_proyecto_id = getattr(
+                s,
+                "proyecto_id",
+                None,
+            )
+
+            if raw_proyecto_id not in (
+                None,
+                "",
+                "-",
+            ):
                 txt2 = str(raw_proyecto_id).strip()
+
                 if txt2:
                     proj_texts.add(txt2)
+
                     try:
                         proj_ids.add(int(txt2))
                     except Exception:
@@ -6707,26 +6955,55 @@ def billing_excel_options(request):
             proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
 
         proyectos = (
-            Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+            Proyecto.objects.filter(proj_q).only(
+                "id",
+                "nombre",
+                "codigo",
+            )
             if proj_q
             else Proyecto.objects.none()
         )
 
         by_id = {str(p.id): p.nombre for p in proyectos}
+
         by_code = {
             (p.codigo or "").strip().lower(): p.nombre
             for p in proyectos
-            if getattr(p, "codigo", None)
+            if getattr(
+                p,
+                "codigo",
+                None,
+            )
         }
+
         by_name = {
             (p.nombre or "").strip().lower(): p.nombre
             for p in proyectos
-            if getattr(p, "nombre", None)
+            if getattr(
+                p,
+                "nombre",
+                None,
+            )
         }
 
         for s in sessions:
-            raw = str(getattr(s, "proyecto", "") or "").strip()
-            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+            raw = str(
+                getattr(
+                    s,
+                    "proyecto",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            raw_id = str(
+                getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or ""
+            ).strip()
 
             label = ""
 
@@ -6751,24 +7028,52 @@ def billing_excel_options(request):
 
         return sessions
 
-    def excel_value_for_session(s, key):
+    def excel_value_for_session(
+        s,
+        key,
+    ):
         key = str(key)
 
         if key == "0":
             return (
                 s.creado_en.strftime("%Y-%m-%d")
-                if getattr(s, "creado_en", None)
+                if getattr(
+                    s,
+                    "creado_en",
+                    None,
+                )
                 else "—"
             )
 
         if key == "1":
-            return str(getattr(s, "proyecto_id", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "2":
-            return str(getattr(s, "direccion_proyecto", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "direccion_proyecto",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "3":
-            return str(getattr(s, "semana_pago_proyectada", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "4":
             return status_label(s)
@@ -6776,42 +7081,149 @@ def billing_excel_options(request):
         if key == "5":
             return techs_label(s)
 
+        # ========================================================
+        # Priority / Time
+        # ========================================================
         if key == "6":
-            return str(getattr(s, "cliente", "") or "—")
+            priority_rows = (
+                getattr(
+                    s,
+                    "priority_rows",
+                    None,
+                )
+                or []
+            )
 
+            if getattr(
+                s,
+                "is_direct_discount",
+                False,
+            ):
+                return "Direct discount · No priority"
+
+            if not priority_rows:
+                return "—"
+
+            parts = []
+
+            for row in priority_rows:
+                name = row.get("name") or row.get("full_name") or "Technician"
+
+                priority = row.get("priority")
+
+                if priority:
+                    text = f"{name} #{priority}"
+                else:
+                    text = f"{name} —"
+
+                if row.get("timer_is_running"):
+                    text += " · Running"
+
+                elif row.get("timer_total_seconds"):
+                    text += " · Paused"
+
+                parts.append(text)
+
+            return " | ".join(parts) or "—"
+
+        # Client
         if key == "7":
-            return str(getattr(s, "ciudad", "") or "—")
-
-        if key == "8":
             return str(
-                getattr(s, "proyecto_nombre", "")
-                or getattr(s, "project_label", "")
-                or getattr(s, "proyecto", "")
+                getattr(
+                    s,
+                    "cliente",
+                    "",
+                )
                 or "—"
             )
 
+        # City
+        if key == "8":
+            return str(
+                getattr(
+                    s,
+                    "ciudad",
+                    "",
+                )
+                or "—"
+            )
+
+        # Project
         if key == "9":
-            return str(getattr(s, "oficina", "") or "—")
+            return str(
+                getattr(
+                    s,
+                    "proyecto_nombre",
+                    "",
+                )
+                or getattr(
+                    s,
+                    "project_label",
+                    "",
+                )
+                or getattr(
+                    s,
+                    "proyecto",
+                    "",
+                )
+                or "—"
+            )
 
+        # Office
         if key == "10":
-            return money_value(getattr(s, "subtotal_tecnico", None))
+            return str(
+                getattr(
+                    s,
+                    "oficina",
+                    "",
+                )
+                or "—"
+            )
 
+        # Technical Billing
         if key == "11":
-            return money_value(getattr(s, "subtotal_empresa", None))
+            return money_value(
+                getattr(
+                    s,
+                    "subtotal_tecnico",
+                    None,
+                )
+            )
 
+        # Company Billing
         if key == "12":
-            return money_value(getattr(s, "real_company_billing", None))
+            return money_value(
+                getattr(
+                    s,
+                    "subtotal_empresa",
+                    None,
+                )
+            )
 
+        # Real Company Billing
         if key == "13":
+            return money_value(
+                getattr(
+                    s,
+                    "real_company_billing",
+                    None,
+                )
+            )
+
+        # Different
+        if key == "14":
             return diff_label(s)
 
-        if key == "14":
+        # Finance Status
+        if key == "15":
             return finance_status_label(s)
 
-        if key == "15":
+        # Real pay week / Direct discount week
+        if key == "16":
             return build_payweek_label(s)
 
-        if key == "16":
+        # Comment
+        if key == "17":
             return comments_label(s)
 
         return "—"
@@ -6863,17 +7275,48 @@ def billing_excel_options(request):
     )
 
     sessions = list(excel_qs)
+
     resolve_project_labels_for_sessions(sessions)
 
-    excel_global = {str(i): set() for i in range(17)}
+    # Priority / Time necesita los mismos datos
+    # que se utilizan en Billing List.
+    attach_priority_rows(sessions)
+
+    # 0..17:
+    # Date
+    # Project ID
+    # Project address
+    # Week
+    # Status
+    # Technicians
+    # Priority / Time
+    # Client
+    # City
+    # Project
+    # Office
+    # Technical Billing
+    # Company Billing
+    # Real Company Billing
+    # Different
+    # Finance Status
+    # Real pay week / Direct discount week
+    # Comment
+    excel_global = {str(i): set() for i in range(18)}
 
     for s in sessions:
         for key in excel_global.keys():
-            val = excel_value_for_session(s, key)
+            val = excel_value_for_session(
+                s,
+                key,
+            )
+
             excel_global[key].add(str(val or "—"))
 
     data = {
-        k: sorted(list(v), key=lambda x: x.lower())
+        k: sorted(
+            list(v),
+            key=lambda x: x.lower(),
+        )
         for k, v in excel_global.items()
     }
 
@@ -6914,6 +7357,8 @@ def listar_billing(request):
     from operaciones.models import (BillingPayWeekSnapshot, ItemBilling,
                                     ItemBillingTecnico, SesionBilling,
                                     SesionBillingTecnico)
+    from operaciones.services.billing_technician_queue import \
+        attach_priority_rows
 
     try:
         from usuarios.models import ProyectoAsignacion
@@ -6922,59 +7367,74 @@ def listar_billing(request):
 
     user = request.user
 
-        # ============================================================
-
+    # ============================================================
     # Persistencia server-side de filtros Excel
-
     # Evita parpadeo al volver desde Review/Edit/Actions.
-
     # ============================================================
 
     BILLING_EXCEL_SESSION_KEY = "billing_list_excel_filters"
 
-    clear_excel_filters = request.GET.get("clear_excel_filters") == "1"
+    clear_excel_filters = (
+        request.GET.get("clear_excel_filters") == "1"
+    )
 
-    excel_filters_raw_request = (request.GET.get("excel_filters") or "").strip()
+    excel_filters_raw_request = (
+        request.GET.get("excel_filters") or ""
+    ).strip()
 
     if clear_excel_filters:
 
-        request.session.pop(BILLING_EXCEL_SESSION_KEY, None)
+        request.session.pop(
+            BILLING_EXCEL_SESSION_KEY,
+            None,
+        )
 
     elif excel_filters_raw_request:
 
-        request.session[BILLING_EXCEL_SESSION_KEY] = excel_filters_raw_request
+        request.session[
+            BILLING_EXCEL_SESSION_KEY
+        ] = excel_filters_raw_request
 
     else:
 
         stored_excel_filters = (
-
-            request.session.get(BILLING_EXCEL_SESSION_KEY) or ""
-
+            request.session.get(
+                BILLING_EXCEL_SESSION_KEY
+            )
+            or ""
         ).strip()
 
         if stored_excel_filters:
 
             params = request.GET.copy()
 
-            params["excel_filters"] = stored_excel_filters
+            params[
+                "excel_filters"
+            ] = stored_excel_filters
 
             params["page"] = "1"
 
             return HttpResponseRedirect(
-
                 f"{request.path}?{params.urlencode()}"
-
             )
+
     # ============================================================
     # Usuarios privilegiados
     # ============================================================
-    can_view_legacy_history = user.is_superuser or getattr(
-        user, "es_usuario_historial", False
+
+    can_view_legacy_history = (
+        user.is_superuser
+        or getattr(
+            user,
+            "es_usuario_historial",
+            False,
+        )
     )
 
     # ============================================================
     # Visibilidad Operaciones
     # ============================================================
+
     operations_status_filter = (
         Q(finance_status__isnull=True)
         | Q(finance_status="")
@@ -6982,187 +7442,485 @@ def listar_billing(request):
         | Q(finance_status="review_discount")
         | Q(finance_status="rejected")
     )
-    
+
     visible_filter = (
         Q(finance_sent_at__isnull=True)
         & operations_status_filter
     )
 
     qs = (
-        SesionBilling.objects 
-        .filter(visible_filter)
-        .order_by("-creado_en")
+        SesionBilling.objects
+        .filter(
+            visible_filter
+        )
+        .order_by(
+            "-creado_en"
+        )
     )
 
     # ============================================================
     # Restricción por proyectos
     # ============================================================
+
     if not can_view_legacy_history:
+
         try:
+
             proyectos_user = filter_queryset_by_access(
                 Proyecto.objects.all(),
                 user,
                 "id",
             )
+
         except Exception:
+
             proyectos_user = Proyecto.objects.none()
 
-        proyectos_user_list = list(proyectos_user)
+        proyectos_user_list = list(
+            proyectos_user
+        )
 
         if proyectos_user_list:
+
             allowed_keys = set()
 
             for p in proyectos_user_list:
-                nombre = (getattr(p, "nombre", "") or "").strip()
+
+                nombre = (
+                    getattr(
+                        p,
+                        "nombre",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
                 if nombre:
-                    allowed_keys.add(nombre)
+                    allowed_keys.add(
+                        nombre
+                    )
 
-                codigo = getattr(p, "codigo", None)
+                codigo = getattr(
+                    p,
+                    "codigo",
+                    None,
+                )
+
                 if codigo:
-                    allowed_keys.add(str(codigo).strip())
+                    allowed_keys.add(
+                        str(
+                            codigo
+                        ).strip()
+                    )
 
-                allowed_keys.add(str(p.id).strip())
+                allowed_keys.add(
+                    str(
+                        p.id
+                    ).strip()
+                )
 
-            qs = qs.filter(proyecto__in=allowed_keys)
+            qs = qs.filter(
+                proyecto__in=allowed_keys
+            )
 
             asignaciones = []
 
             if ProyectoAsignacion is not None:
+
                 try:
+
                     asignaciones = list(
                         ProyectoAsignacion.objects.filter(
                             usuario=user,
                             proyecto__in=proyectos_user_list,
-                        ).select_related("proyecto")
+                        ).select_related(
+                            "proyecto"
+                        )
                     )
+
                 except Exception:
+
                     asignaciones = []
 
             if asignaciones:
+
                 window_q = Q()
+
                 has_window_q = False
 
                 for a in asignaciones:
-                    p = getattr(a, "proyecto", None)
+
+                    p = getattr(
+                        a,
+                        "proyecto",
+                        None,
+                    )
+
                     if not p:
                         continue
 
                     keys = set()
 
-                    nombre = (getattr(p, "nombre", "") or "").strip()
+                    nombre = (
+                        getattr(
+                            p,
+                            "nombre",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
                     if nombre:
-                        keys.add(nombre)
+                        keys.add(
+                            nombre
+                        )
 
-                    codigo = getattr(p, "codigo", None)
+                    codigo = getattr(
+                        p,
+                        "codigo",
+                        None,
+                    )
+
                     if codigo:
-                        keys.add(str(codigo).strip())
+                        keys.add(
+                            str(
+                                codigo
+                            ).strip()
+                        )
 
-                    keys.add(str(p.id).strip())
+                    keys.add(
+                        str(
+                            p.id
+                        ).strip()
+                    )
 
                     if not keys:
                         continue
 
-                    if getattr(a, "include_history", False) or not getattr(
-                        a, "start_at", None
+                    if (
+                        getattr(
+                            a,
+                            "include_history",
+                            False,
+                        )
+                        or not getattr(
+                            a,
+                            "start_at",
+                            None,
+                        )
                     ):
-                        window_q |= Q(proyecto__in=keys)
+
+                        window_q |= Q(
+                            proyecto__in=keys
+                        )
+
                     else:
-                        window_q |= Q(proyecto__in=keys, creado_en__gte=a.start_at)
+
+                        window_q |= Q(
+                            proyecto__in=keys,
+                            creado_en__gte=a.start_at,
+                        )
 
                     has_window_q = True
 
-                qs = qs.filter(window_q) if has_window_q else qs.none()
+                qs = (
+                    qs.filter(
+                        window_q
+                    )
+                    if has_window_q
+                    else qs.none()
+                )
+
         else:
+
             qs = qs.none()
 
     # ============================================================
     # Filtros rápidos normales
     # ============================================================
+
     f = {
-        "date": (request.GET.get("date") or "").strip(),
-        "projid": (request.GET.get("projid") or "").strip(),
-        "week": (request.GET.get("week") or "").strip(),
-        "tech": (request.GET.get("tech") or "").strip(),
-        "client": (request.GET.get("client") or "").strip(),
-        "status": (request.GET.get("status") or "").strip(),
+        "date": (
+            request.GET.get(
+                "date"
+            )
+            or ""
+        ).strip(),
+        "projid": (
+            request.GET.get(
+                "projid"
+            )
+            or ""
+        ).strip(),
+        "week": (
+            request.GET.get(
+                "week"
+            )
+            or ""
+        ).strip(),
+        "tech": (
+            request.GET.get(
+                "tech"
+            )
+            or ""
+        ).strip(),
+        "client": (
+            request.GET.get(
+                "client"
+            )
+            or ""
+        ).strip(),
+        "status": (
+            request.GET.get(
+                "status"
+            )
+            or ""
+        ).strip(),
     }
 
     qs_filtered = qs
 
     if f["date"]:
+
         try:
-            d = _date.fromisoformat(f["date"])
-            qs_filtered = qs_filtered.filter(creado_en__date=d)
+
+            d = _date.fromisoformat(
+                f["date"]
+            )
+
+            qs_filtered = qs_filtered.filter(
+                creado_en__date=d
+            )
+
         except ValueError:
+
             pass
 
     if f["projid"]:
-        qs_filtered = qs_filtered.filter(proyecto_id__icontains=f["projid"])
+
+        qs_filtered = qs_filtered.filter(
+            proyecto_id__icontains=f["projid"]
+        )
 
     if f["week"]:
+
         qs_filtered = qs_filtered.filter(
-            Q(semana_pago_proyectada__icontains=f["week"])
-            | Q(semana_pago_real__icontains=f["week"])
-            | Q(discount_week__icontains=f["week"])
-            | Q(pay_week_snapshots__semana_resultado__icontains=f["week"])
-            | Q(pay_week_snapshots__semana_base__icontains=f["week"])
+            Q(
+                semana_pago_proyectada__icontains=f[
+                    "week"
+                ]
+            )
+            | Q(
+                semana_pago_real__icontains=f[
+                    "week"
+                ]
+            )
+            | Q(
+                discount_week__icontains=f[
+                    "week"
+                ]
+            )
+            | Q(
+                pay_week_snapshots__semana_resultado__icontains=f[
+                    "week"
+                ]
+            )
+            | Q(
+                pay_week_snapshots__semana_base__icontains=f[
+                    "week"
+                ]
+            )
         )
 
     if f["tech"]:
+
         qs_filtered = qs_filtered.filter(
-            Q(tecnicos_sesion__tecnico__first_name__icontains=f["tech"])
-            | Q(tecnicos_sesion__tecnico__last_name__icontains=f["tech"])
-            | Q(tecnicos_sesion__tecnico__username__icontains=f["tech"])
-            | Q(pay_week_snapshots__tecnico__first_name__icontains=f["tech"])
-            | Q(pay_week_snapshots__tecnico__last_name__icontains=f["tech"])
-            | Q(pay_week_snapshots__tecnico__username__icontains=f["tech"])
+            Q(
+                tecnicos_sesion__tecnico__first_name__icontains=f[
+                    "tech"
+                ]
+            )
+            | Q(
+                tecnicos_sesion__tecnico__last_name__icontains=f[
+                    "tech"
+                ]
+            )
+            | Q(
+                tecnicos_sesion__tecnico__username__icontains=f[
+                    "tech"
+                ]
+            )
+            | Q(
+                pay_week_snapshots__tecnico__first_name__icontains=f[
+                    "tech"
+                ]
+            )
+            | Q(
+                pay_week_snapshots__tecnico__last_name__icontains=f[
+                    "tech"
+                ]
+            )
+            | Q(
+                pay_week_snapshots__tecnico__username__icontains=f[
+                    "tech"
+                ]
+            )
         )
 
     if f["client"]:
-        qs_filtered = qs_filtered.filter(cliente__icontains=f["client"])
+
+        qs_filtered = qs_filtered.filter(
+            cliente__icontains=f[
+                "client"
+            ]
+        )
 
     if f["status"]:
-        status_txt = f["status"].lower().strip()
 
-        if any(k in status_txt for k in ("direct", "descuento", "discount")):
-            qs_filtered = qs_filtered.filter(is_direct_discount=True)
+        status_txt = (
+            f["status"]
+            .lower()
+            .strip()
+        )
+
+        if any(
+            k in status_txt
+            for k in (
+                "direct",
+                "descuento",
+                "discount",
+            )
+        ):
+
+            qs_filtered = qs_filtered.filter(
+                is_direct_discount=True
+            )
+
         else:
+
             mapping = [
                 (
-                    ("aprobado supervisor", "approved by supervisor"),
-                    Q(estado="aprobado_supervisor"),
+                    (
+                        "aprobado supervisor",
+                        "approved by supervisor",
+                    ),
+                    Q(
+                        estado="aprobado_supervisor"
+                    ),
                 ),
                 (
-                    ("rechazado supervisor", "rejected by supervisor"),
-                    Q(estado="rechazado_supervisor"),
+                    (
+                        "rechazado supervisor",
+                        "rejected by supervisor",
+                    ),
+                    Q(
+                        estado="rechazado_supervisor"
+                    ),
                 ),
                 (
-                    ("en revision", "supervisor review", "in supervisor review"),
-                    Q(estado="en_revision_supervisor"),
+                    (
+                        "en revision",
+                        "supervisor review",
+                        "in supervisor review",
+                    ),
+                    Q(
+                        estado="en_revision_supervisor"
+                    ),
                 ),
-                (("finalizado", "finished"), Q(estado="finalizado")),
-                (("en proceso", "in progress"), Q(estado="en_proceso")),
-                (("asignado", "assigned"), Q(estado="asignado")),
-                (("aprobado pm", "approved by pm"), Q(estado="aprobado_pm")),
-                (("rechazado pm", "rejected by pm"), Q(estado="rechazado_pm")),
+                (
+                    (
+                        "finalizado",
+                        "finished",
+                    ),
+                    Q(
+                        estado="finalizado"
+                    ),
+                ),
+                (
+                    (
+                        "en proceso",
+                        "in progress",
+                    ),
+                    Q(
+                        estado="en_proceso"
+                    ),
+                ),
+                (
+                    (
+                        "asignado",
+                        "assigned",
+                    ),
+                    Q(
+                        estado="asignado"
+                    ),
+                ),
+                (
+                    (
+                        "aprobado pm",
+                        "approved by pm",
+                    ),
+                    Q(
+                        estado="aprobado_pm"
+                    ),
+                ),
+                (
+                    (
+                        "rechazado pm",
+                        "rejected by pm",
+                    ),
+                    Q(
+                        estado="rechazado_pm"
+                    ),
+                ),
             ]
 
             applied = False
 
             for keys, cond in mapping:
-                if any(k in status_txt for k in keys):
-                    qs_filtered = qs_filtered.filter(cond)
+
+                if any(
+                    k in status_txt
+                    for k in keys
+                ):
+
+                    qs_filtered = (
+                        qs_filtered.filter(
+                            cond
+                        )
+                    )
+
                     applied = True
+
                     break
 
             if not applied:
-                if "aprobado" in status_txt or "approved" in status_txt:
+
+                if (
+                    "aprobado"
+                    in status_txt
+                    or "approved"
+                    in status_txt
+                ):
+
                     qs_filtered = qs_filtered.filter(
-                        estado__in=["aprobado_supervisor", "aprobado_pm"]
+                        estado__in=[
+                            "aprobado_supervisor",
+                            "aprobado_pm",
+                        ]
                     )
-                elif "rechazado" in status_txt or "rejected" in status_txt:
+
+                elif (
+                    "rechazado"
+                    in status_txt
+                    or "rejected"
+                    in status_txt
+                ):
+
                     qs_filtered = qs_filtered.filter(
-                        estado__in=["rechazado_supervisor", "rechazado_pm"]
+                        estado__in=[
+                            "rechazado_supervisor",
+                            "rechazado_pm",
+                        ]
                     )
 
     qs_filtered = qs_filtered.distinct()
@@ -7170,20 +7928,44 @@ def listar_billing(request):
     # ============================================================
     # Helpers generales
     # ============================================================
+
     def money_value(value):
-        if value in (None, ""):
+
+        if value in (
+            None,
+            "",
+        ):
             return "—"
 
         try:
-            return f"${Decimal(value):.2f}"
+
+            return (
+                f"${Decimal(value):.2f}"
+            )
+
         except Exception:
-            return str(value)
+
+            return str(
+                value
+            )
 
     def status_label(s):
-        if getattr(s, "is_direct_discount", False):
+
+        if getattr(
+            s,
+            "is_direct_discount",
+            False,
+        ):
             return "Direct discount"
 
-        estado = getattr(s, "estado", "") or ""
+        estado = (
+            getattr(
+                s,
+                "estado",
+                "",
+            )
+            or ""
+        )
 
         labels = {
             "aprobado_pm": "Approved by PM",
@@ -7196,10 +7978,21 @@ def listar_billing(request):
             "asignado": "Assigned",
         }
 
-        return labels.get(estado, "Assigned")
+        return labels.get(
+            estado,
+            "Assigned",
+        )
 
     def finance_status_label(s):
-        finance_status = getattr(s, "finance_status", "") or ""
+
+        finance_status = (
+            getattr(
+                s,
+                "finance_status",
+                "",
+            )
+            or ""
+        )
 
         labels = {
             "sent": "Sent to Finance",
@@ -7214,84 +8007,217 @@ def listar_billing(request):
             None: "—",
         }
 
-        return labels.get(finance_status, "—")
+        return labels.get(
+            finance_status,
+            "—",
+        )
 
     def diff_label(s):
-        real = getattr(s, "real_company_billing", None)
-        subtotal = getattr(s, "subtotal_empresa", None)
 
-        if real in (None, "") or subtotal in (None, ""):
+        real = getattr(
+            s,
+            "real_company_billing",
+            None,
+        )
+
+        subtotal = getattr(
+            s,
+            "subtotal_empresa",
+            None,
+        )
+
+        if (
+            real in (
+                None,
+                "",
+            )
+            or subtotal
+            in (
+                None,
+                "",
+            )
+        ):
             return "—"
 
         try:
-            real_d = Decimal(real)
-            sub_d = Decimal(subtotal)
-            diff = real_d - sub_d
+
+            real_d = Decimal(
+                real
+            )
+
+            sub_d = Decimal(
+                subtotal
+            )
+
+            diff = (
+                real_d
+                - sub_d
+            )
+
         except Exception:
+
             return "—"
 
         if diff == 0:
             return "$0.00"
 
         if diff < 0:
-            return f"- ${abs(diff):.2f}"
+            return (
+                f"- ${abs(diff):.2f}"
+            )
 
-        return f"+ ${diff:.2f}"
+        return (
+            f"+ ${diff:.2f}"
+        )
 
     def techs_label(sesion):
+
         vals = []
 
         try:
+
             for st in sesion.tecnicos_sesion.all():
-                if not getattr(st, "tecnico", None):
+
+                if not getattr(
+                    st,
+                    "tecnico",
+                    None,
+                ):
                     continue
 
-                vals.append(st.tecnico.get_full_name() or st.tecnico.username)
+                vals.append(
+                    st.tecnico.get_full_name()
+                    or st.tecnico.username
+                )
+
         except Exception:
+
             pass
 
-        return ", ".join(v for v in vals if v) or "—"
+        return (
+            ", ".join(
+                v
+                for v in vals
+                if v
+            )
+            or "—"
+        )
 
     def legacy_paid_flag(s):
-        note = getattr(s, "finance_note", "") or ""
+
+        note = (
+            getattr(
+                s,
+                "finance_note",
+                "",
+            )
+            or ""
+        )
 
         try:
+
             tech_ids = list(
-                s.tecnicos_sesion.all().values_list("tecnico_id", flat=True)
+                s.tecnicos_sesion.all().values_list(
+                    "tecnico_id",
+                    flat=True,
+                )
             )
+
         except Exception:
+
             tech_ids = []
 
         possible_weeks = [
-            (getattr(s, "semana_pago_real", "") or "").strip().upper(),
-            (getattr(s, "semana_pago_proyectada", "") or "").strip().upper(),
-            (getattr(s, "discount_week", "") or "").strip().upper(),
+            (
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
+            (
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
+            (
+                getattr(
+                    s,
+                    "discount_week",
+                    "",
+                )
+                or ""
+            )
+            .strip()
+            .upper(),
         ]
-        possible_weeks = [w for w in possible_weeks if w]
+
+        possible_weeks = [
+            w
+            for w in possible_weeks
+            if w
+        ]
 
         for tech_id in tech_ids:
+
             for wk in possible_weeks:
-                marker = f"[TECH_WEEKLY_PAYMENT_PAID:{tech_id}:{wk}]"
+
+                marker = (
+                    f"[TECH_WEEKLY_PAYMENT_PAID:"
+                    f"{tech_id}:{wk}]"
+                )
+
                 if marker in note:
                     return True
 
         return False
 
     def build_payweek_groups(s):
+
         groups_map = {}
 
         snaps = (
-            list(getattr(s, "pay_week_snapshots", []).all())
-            if hasattr(s, "pay_week_snapshots")
+            list(
+                getattr(
+                    s,
+                    "pay_week_snapshots",
+                    [],
+                ).all()
+            )
+            if hasattr(
+                s,
+                "pay_week_snapshots",
+            )
             else []
         )
 
         if snaps:
+
             for snap in snaps:
+
                 tech_name = (
                     snap.tecnico.get_full_name().strip()
-                    if getattr(snap, "tecnico", None) and snap.tecnico.get_full_name()
-                    else getattr(snap.tecnico, "username", "")
+                    if (
+                        getattr(
+                            snap,
+                            "tecnico",
+                            None,
+                        )
+                        and snap.tecnico.get_full_name()
+                    )
+                    else getattr(
+                        snap.tecnico,
+                        "username",
+                        "",
+                    )
                     or f"User {snap.tecnico_id}"
                 )
 
@@ -7305,34 +8231,107 @@ def listar_billing(request):
                 )
 
                 work_type = (
-                    (snap.tipo_trabajo or "").strip()
-                    or (getattr(snap.item, "tipo_trabajo", "") or "").strip()
+                    (
+                        snap.tipo_trabajo
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            snap.item,
+                            "tipo_trabajo",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "Legacy"
                 )
 
                 week = (
-                    (getattr(snap, "semana_resultado", "") or "").strip()
-                    or (getattr(snap, "semana_base", "") or "").strip()
-                    or (getattr(s, "semana_pago_real", "") or "").strip()
-                    or (getattr(s, "discount_week", "") or "").strip()
-                    or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+                    (
+                        getattr(
+                            snap,
+                            "semana_resultado",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            snap,
+                            "semana_base",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_real",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "discount_week",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    or (
+                        getattr(
+                            s,
+                            "semana_pago_proyectada",
+                            "",
+                        )
+                        or ""
+                    ).strip()
                     or "—"
                 )
 
                 is_paid_line = (
-                    getattr(snap, "payment_status", "") == "paid"
-                    or bool(getattr(snap, "paid_at", None))
-                    or (
-                        getattr(snap, "weekly_payment", None)
-                        and getattr(snap.weekly_payment, "status", "") == "paid"
+                    getattr(
+                        snap,
+                        "payment_status",
+                        "",
                     )
-                    or getattr(s, "finance_status", "") == "paid"
+                    == "paid"
+                    or bool(
+                        getattr(
+                            snap,
+                            "paid_at",
+                            None,
+                        )
+                    )
+                    or (
+                        getattr(
+                            snap,
+                            "weekly_payment",
+                            None,
+                        )
+                        and getattr(
+                            snap.weekly_payment,
+                            "status",
+                            "",
+                        )
+                        == "paid"
+                    )
+                    or getattr(
+                        s,
+                        "finance_status",
+                        "",
+                    )
+                    == "paid"
                 )
 
                 grp["lines"].append(
                     {
                         "work_type": work_type,
-                        "codigo_trabajo": (snap.codigo_trabajo or "").strip(),
+                        "codigo_trabajo": (
+                            snap.codigo_trabajo
+                            or ""
+                        ).strip(),
                         "week": week,
                         "is_legacy": False,
                         "snapshot_id": snap.id,
@@ -7340,49 +8339,137 @@ def listar_billing(request):
                     }
                 )
 
-            groups = list(groups_map.values())
+            groups = list(
+                groups_map.values()
+            )
 
             for grp in groups:
+
                 weeks = []
 
-                for line in grp["lines"]:
-                    wk = (line.get("week") or "").strip()
+                for line in grp[
+                    "lines"
+                ]:
 
-                    if wk and wk not in weeks:
-                        weeks.append(wk)
+                    wk = (
+                        line.get(
+                            "week"
+                        )
+                        or ""
+                    ).strip()
 
-                grp["weeks_summary"] = ", ".join(weeks) if weeks else "—"
+                    if (
+                        wk
+                        and wk
+                        not in weeks
+                    ):
+                        weeks.append(
+                            wk
+                        )
+
+                grp[
+                    "weeks_summary"
+                ] = (
+                    ", ".join(
+                        weeks
+                    )
+                    if weeks
+                    else "—"
+                )
 
             return groups
 
         asignaciones = (
-            list(s.tecnicos_sesion.all()) if hasattr(s, "tecnicos_sesion") else []
+            list(
+                s.tecnicos_sesion.all()
+            )
+            if hasattr(
+                s,
+                "tecnicos_sesion",
+            )
+            else []
         )
 
         base_week = (
-            (getattr(s, "semana_pago_real", "") or "").strip()
-            or (getattr(s, "discount_week", "") or "").strip()
-            or (getattr(s, "semana_pago_proyectada", "") or "").strip()
+            (
+                getattr(
+                    s,
+                    "semana_pago_real",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "discount_week",
+                    "",
+                )
+                or ""
+            ).strip()
+            or (
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or ""
+            ).strip()
             or "—"
         )
 
-        legacy_is_paid = legacy_paid_flag(s) or (
-            getattr(s, "finance_status", "") == "paid"
+        legacy_is_paid = (
+            legacy_paid_flag(
+                s
+            )
+            or (
+                getattr(
+                    s,
+                    "finance_status",
+                    "",
+                )
+                == "paid"
+            )
         )
 
         tech_names = []
 
         for asig in asignaciones:
+
             tech_name = (
                 asig.tecnico.get_full_name().strip()
-                if getattr(asig, "tecnico", None) and asig.tecnico.get_full_name()
-                else getattr(asig.tecnico, "username", "") or f"User {asig.tecnico_id}"
+                if (
+                    getattr(
+                        asig,
+                        "tecnico",
+                        None,
+                    )
+                    and asig.tecnico.get_full_name()
+                )
+                else getattr(
+                    asig.tecnico,
+                    "username",
+                    "",
+                )
+                or f"User {asig.tecnico_id}"
             )
 
-            if tech_name and tech_name not in tech_names:
-                tech_names.append(tech_name)
+            if (
+                tech_name
+                and tech_name
+                not in tech_names
+            ):
+                tech_names.append(
+                    tech_name
+                )
 
-        tech_label = ", ".join(tech_names) if tech_names else "—"
+        tech_label = (
+            ", ".join(
+                tech_names
+            )
+            if tech_names
+            else "—"
+        )
 
         return [
             {
@@ -7402,229 +8489,698 @@ def listar_billing(request):
             }
         ]
 
-    def payweek_snapshot_label(sesion, groups=None):
-        groups = groups if groups is not None else build_payweek_groups(sesion)
+    def payweek_snapshot_label(
+        sesion,
+        groups=None,
+    ):
+
+        groups = (
+            groups
+            if groups is not None
+            else build_payweek_groups(
+                sesion
+            )
+        )
 
         if not groups:
-            return str(getattr(sesion, "semana_pago_real", "") or "—")
+
+            return str(
+                getattr(
+                    sesion,
+                    "semana_pago_real",
+                    "",
+                )
+                or "—"
+            )
 
         rows = []
 
         for grp in groups:
-            tech_name = grp.get("tech_name") or "—"
 
-            for line in grp.get("lines", []):
-                work_type = (line.get("work_type") or "").strip() or "Work type"
-                week = (line.get("week") or "").strip() or "—"
-                suffix = " [Paid]" if line.get("is_paid") else ""
-                rows.append(f"{tech_name} — {work_type} → {week}{suffix}")
+            tech_name = (
+                grp.get(
+                    "tech_name"
+                )
+                or "—"
+            )
+
+            for line in grp.get(
+                "lines",
+                [],
+            ):
+
+                work_type = (
+                    line.get(
+                        "work_type"
+                    )
+                    or ""
+                ).strip() or "Work type"
+
+                week = (
+                    line.get(
+                        "week"
+                    )
+                    or ""
+                ).strip() or "—"
+
+                suffix = (
+                    " [Paid]"
+                    if line.get(
+                        "is_paid"
+                    )
+                    else ""
+                )
+
+                rows.append(
+                    f"{tech_name} — "
+                    f"{work_type} → "
+                    f"{week}{suffix}"
+                )
 
         return (
-            " | ".join(rows)
+            " | ".join(
+                rows
+            )
             if rows
-            else str(getattr(sesion, "semana_pago_real", "") or "—")
+            else str(
+                getattr(
+                    sesion,
+                    "semana_pago_real",
+                    "",
+                )
+                or "—"
+            )
         )
 
     def comments_label(s):
+
         vals = []
 
         try:
+
             for a in s.tecnicos_sesion.all():
-                txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+
+                txt = (
+                    getattr(
+                        a,
+                        "tecnico_comentario",
+                        "",
+                    )
+                    or ""
+                ).strip()
 
                 if not txt:
                     continue
 
                 tech_name = (
-                    a.tecnico.get_full_name() if getattr(a, "tecnico", None) else ""
+                    a.tecnico.get_full_name()
+                    if getattr(
+                        a,
+                        "tecnico",
+                        None,
+                    )
+                    else ""
                 ) or (
-                    getattr(a.tecnico, "username", "")
-                    if getattr(a, "tecnico", None)
+                    getattr(
+                        a.tecnico,
+                        "username",
+                        "",
+                    )
+                    if getattr(
+                        a,
+                        "tecnico",
+                        None,
+                    )
                     else ""
                 )
 
                 if tech_name:
-                    vals.append(f"{tech_name}: {txt}")
+
+                    vals.append(
+                        f"{tech_name}: {txt}"
+                    )
+
                 else:
-                    vals.append(txt)
+
+                    vals.append(
+                        txt
+                    )
+
         except Exception:
+
             pass
 
-        return " | ".join(vals) if vals else "—"
+        return (
+            " | ".join(
+                vals
+            )
+            if vals
+            else "—"
+        )
 
-    def resolve_project_labels_for_sessions(sessions):
+    def resolve_project_labels_for_sessions(
+        sessions
+    ):
+
         proj_ids = set()
+
         proj_texts = set()
 
         for s in sessions:
-            raw_proyecto = getattr(s, "proyecto", None)
-            if raw_proyecto not in (None, "", "-"):
-                txt = str(raw_proyecto).strip()
+
+            raw_proyecto = getattr(
+                s,
+                "proyecto",
+                None,
+            )
+
+            if raw_proyecto not in (
+                None,
+                "",
+                "-",
+            ):
+
+                txt = str(
+                    raw_proyecto
+                ).strip()
+
                 if txt:
-                    proj_texts.add(txt)
+
+                    proj_texts.add(
+                        txt
+                    )
+
                     try:
-                        proj_ids.add(int(txt))
+                        proj_ids.add(
+                            int(
+                                txt
+                            )
+                        )
                     except Exception:
                         pass
 
-            raw_proyecto_id = getattr(s, "proyecto_id", None)
-            if raw_proyecto_id not in (None, "", "-"):
-                txt2 = str(raw_proyecto_id).strip()
+            raw_proyecto_id = getattr(
+                s,
+                "proyecto_id",
+                None,
+            )
+
+            if raw_proyecto_id not in (
+                None,
+                "",
+                "-",
+            ):
+
+                txt2 = str(
+                    raw_proyecto_id
+                ).strip()
+
                 if txt2:
-                    proj_texts.add(txt2)
+
+                    proj_texts.add(
+                        txt2
+                    )
+
                     try:
-                        proj_ids.add(int(txt2))
+                        proj_ids.add(
+                            int(
+                                txt2
+                            )
+                        )
                     except Exception:
                         pass
 
         proj_q = Q()
 
         if proj_ids:
-            proj_q |= Q(id__in=proj_ids)
+
+            proj_q |= Q(
+                id__in=proj_ids
+            )
 
         if proj_texts:
-            proj_q |= Q(nombre__in=proj_texts) | Q(codigo__in=proj_texts)
+
+            proj_q |= (
+                Q(
+                    nombre__in=proj_texts
+                )
+                | Q(
+                    codigo__in=proj_texts
+                )
+            )
 
         proyectos = (
-            Proyecto.objects.filter(proj_q).only("id", "nombre", "codigo")
+            Proyecto.objects.filter(
+                proj_q
+            ).only(
+                "id",
+                "nombre",
+                "codigo",
+            )
             if proj_q
             else Proyecto.objects.none()
         )
 
-        by_id = {str(p.id): p.nombre for p in proyectos}
-        by_code = {
-            (p.codigo or "").strip().lower(): p.nombre
+        by_id = {
+            str(
+                p.id
+            ): p.nombre
             for p in proyectos
-            if getattr(p, "codigo", None)
         }
-        by_name = {
-            (p.nombre or "").strip().lower(): p.nombre
+
+        by_code = {
+            (
+                p.codigo
+                or ""
+            )
+            .strip()
+            .lower(): p.nombre
             for p in proyectos
-            if getattr(p, "nombre", None)
+            if getattr(
+                p,
+                "codigo",
+                None,
+            )
+        }
+
+        by_name = {
+            (
+                p.nombre
+                or ""
+            )
+            .strip()
+            .lower(): p.nombre
+            for p in proyectos
+            if getattr(
+                p,
+                "nombre",
+                None,
+            )
         }
 
         for s in sessions:
-            raw = str(getattr(s, "proyecto", "") or "").strip()
-            raw_id = str(getattr(s, "proyecto_id", "") or "").strip()
+
+            raw = str(
+                getattr(
+                    s,
+                    "proyecto",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            raw_id = str(
+                getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or ""
+            ).strip()
 
             label = ""
 
             if raw:
+
                 label = (
-                    by_id.get(raw)
-                    or by_code.get(raw.lower())
-                    or by_name.get(raw.lower())
+                    by_id.get(
+                        raw
+                    )
+                    or by_code.get(
+                        raw.lower()
+                    )
+                    or by_name.get(
+                        raw.lower()
+                    )
                     or raw
                 )
 
-            if not label and raw_id:
+            if (
+                not label
+                and raw_id
+            ):
+
                 label = (
-                    by_id.get(raw_id)
-                    or by_code.get(raw_id.lower())
-                    or by_name.get(raw_id.lower())
+                    by_id.get(
+                        raw_id
+                    )
+                    or by_code.get(
+                        raw_id.lower()
+                    )
+                    or by_name.get(
+                        raw_id.lower()
+                    )
                     or raw_id
                 )
 
             s.proyecto_nombre = label
+
             s.project_label = label
 
         return sessions
 
-    def excel_value_for_session(s, key):
-        key = str(key)
+    def excel_value_for_session(
+        s,
+        key,
+    ):
+
+        key = str(
+            key
+        )
 
         if key == "0":
+
             return (
-                s.creado_en.strftime("%Y-%m-%d")
-                if getattr(s, "creado_en", None)
+                s.creado_en.strftime(
+                    "%Y-%m-%d"
+                )
+                if getattr(
+                    s,
+                    "creado_en",
+                    None,
+                )
                 else "—"
             )
 
         if key == "1":
-            return str(getattr(s, "proyecto_id", "") or "—")
+
+            return str(
+                getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "2":
-            return str(getattr(s, "direccion_proyecto", "") or "—")
+
+            return str(
+                getattr(
+                    s,
+                    "direccion_proyecto",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "3":
-            return str(getattr(s, "semana_pago_proyectada", "") or "—")
+
+            return str(
+                getattr(
+                    s,
+                    "semana_pago_proyectada",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "4":
-            return status_label(s)
+
+            return status_label(
+                s
+            )
 
         if key == "5":
-            return techs_label(s)
+
+            return techs_label(
+                s
+            )
+
+        # ========================================================
+        # Priority / Time
+        # ========================================================
 
         if key == "6":
-            return str(getattr(s, "cliente", "") or "—")
+
+            priority_rows = (
+                getattr(
+                    s,
+                    "priority_rows",
+                    None,
+                )
+                or []
+            )
+
+            if getattr(
+                s,
+                "is_direct_discount",
+                False,
+            ):
+
+                return (
+                    "Direct discount · No priority"
+                )
+
+            if not priority_rows:
+
+                return "—"
+
+            parts = []
+
+            for row in priority_rows:
+
+                name = (
+                    row.get(
+                        "name"
+                    )
+                    or row.get(
+                        "full_name"
+                    )
+                    or "Technician"
+                )
+
+                priority = row.get(
+                    "priority"
+                )
+
+                if priority:
+
+                    text = (
+                        f"{name} #{priority}"
+                    )
+
+                else:
+
+                    text = (
+                        f"{name} —"
+                    )
+
+                if row.get(
+                    "timer_is_running"
+                ):
+
+                    text += (
+                        " · Running"
+                    )
+
+                elif row.get(
+                    "timer_total_seconds"
+                ):
+
+                    text += (
+                        " · Paused"
+                    )
+
+                parts.append(
+                    text
+                )
+
+            return (
+                " | ".join(
+                    parts
+                )
+                or "—"
+            )
 
         if key == "7":
-            return str(getattr(s, "ciudad", "") or "—")
+
+            return str(
+                getattr(
+                    s,
+                    "cliente",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "8":
+
             return str(
-                getattr(s, "proyecto_nombre", "")
-                or getattr(s, "project_label", "")
-                or getattr(s, "proyecto", "")
+                getattr(
+                    s,
+                    "ciudad",
+                    "",
+                )
                 or "—"
             )
 
         if key == "9":
-            return str(getattr(s, "oficina", "") or "—")
+
+            return str(
+                getattr(
+                    s,
+                    "proyecto_nombre",
+                    "",
+                )
+                or getattr(
+                    s,
+                    "project_label",
+                    "",
+                )
+                or getattr(
+                    s,
+                    "proyecto",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "10":
-            return money_value(getattr(s, "subtotal_tecnico", None))
+
+            return str(
+                getattr(
+                    s,
+                    "oficina",
+                    "",
+                )
+                or "—"
+            )
 
         if key == "11":
-            return money_value(getattr(s, "subtotal_empresa", None))
+
+            return money_value(
+                getattr(
+                    s,
+                    "subtotal_tecnico",
+                    None,
+                )
+            )
 
         if key == "12":
-            return money_value(getattr(s, "real_company_billing", None))
+
+            return money_value(
+                getattr(
+                    s,
+                    "subtotal_empresa",
+                    None,
+                )
+            )
 
         if key == "13":
-            return diff_label(s)
+
+            return money_value(
+                getattr(
+                    s,
+                    "real_company_billing",
+                    None,
+                )
+            )
 
         if key == "14":
-            return finance_status_label(s)
+
+            return diff_label(
+                s
+            )
 
         if key == "15":
-            groups = getattr(s, "payweek_groups", None)
-            return payweek_snapshot_label(s, groups)
+
+            return finance_status_label(
+                s
+            )
 
         if key == "16":
-            return comments_label(s)
+
+            groups = getattr(
+                s,
+                "payweek_groups",
+                None,
+            )
+
+            return payweek_snapshot_label(
+                s,
+                groups,
+            )
+
+        if key == "17":
+
+            return comments_label(
+                s
+            )
 
         return "—"
 
     # ============================================================
     # Filtros Excel
     # ============================================================
-    excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+
+    excel_filters_raw = (
+        request.GET.get(
+            "excel_filters"
+        )
+        or ""
+    ).strip()
 
     try:
+
         parsed_excel_filters = (
-            json.loads(excel_filters_raw) if excel_filters_raw else {}
+            json.loads(
+                excel_filters_raw
+            )
+            if excel_filters_raw
+            else {}
         )
+
     except Exception:
+
         parsed_excel_filters = {}
 
     excel_filters = {}
 
-    if isinstance(parsed_excel_filters, dict):
-        for k, vals in parsed_excel_filters.items():
-            if isinstance(vals, list):
-                clean_vals = set(str(v) for v in vals if str(v).strip() != "")
+    if isinstance(
+        parsed_excel_filters,
+        dict,
+    ):
+
+        for k, vals in (
+            parsed_excel_filters.items()
+        ):
+
+            if isinstance(
+                vals,
+                list,
+            ):
+
+                clean_vals = set(
+                    str(
+                        v
+                    )
+                    for v in vals
+                    if str(
+                        v
+                    ).strip()
+                    != ""
+                )
+
                 if clean_vals:
-                    excel_filters[str(k)] = clean_vals
+
+                    excel_filters[
+                        str(
+                            k
+                        )
+                    ] = clean_vals
 
     # Carga inicial liviana:
     # los valores globales de filtros Excel se cargan después por AJAX.
+
     excel_global_json = "{}"
 
     # Solo hacemos el cálculo pesado si YA hay filtros Excel aplicados.
     # Esto permite que el filtro siga funcionando al paginar o recargar,
     # pero evita cargar todo en la primera apertura de la vista.
+
     if excel_filters:
+
         excel_qs = qs_filtered.only(
             "id",
             "creado_en",
@@ -7647,7 +9203,9 @@ def listar_billing(request):
         ).prefetch_related(
             Prefetch(
                 "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+                queryset=SesionBillingTecnico.objects.select_related(
+                    "tecnico"
+                ),
             ),
             Prefetch(
                 "pay_week_snapshots",
@@ -7656,7 +9214,9 @@ def listar_billing(request):
                     "item",
                     "weekly_payment",
                 )
-                .filter(is_adjustment=False)
+                .filter(
+                    is_adjustment=False
+                )
                 .order_by(
                     "tecnico__first_name",
                     "tecnico__last_name",
@@ -7668,36 +9228,91 @@ def listar_billing(request):
             ),
         )
 
-        excel_sessions = list(excel_qs)
-        resolve_project_labels_for_sessions(excel_sessions)
+        excel_sessions = list(
+            excel_qs
+        )
+
+        resolve_project_labels_for_sessions(
+            excel_sessions
+        )
+
+        # ========================================================
+        # Priority / Time también debe existir al filtrar.
+        # ========================================================
+
+        attach_priority_rows(
+            excel_sessions
+        )
 
         for s in excel_sessions:
-            s.payweek_groups = build_payweek_groups(s)
-            s.payweek_snapshot_label = payweek_snapshot_label(s, s.payweek_groups)
-            s.techs_label = techs_label(s)
+
+            s.payweek_groups = (
+                build_payweek_groups(
+                    s
+                )
+            )
+
+            s.payweek_snapshot_label = (
+                payweek_snapshot_label(
+                    s,
+                    s.payweek_groups,
+                )
+            )
+
+            s.techs_label = (
+                techs_label(
+                    s
+                )
+            )
 
         allowed_ids = []
 
         for s in excel_sessions:
+
             keep = True
 
-            for key, allowed_values in excel_filters.items():
-                current_value = str(excel_value_for_session(s, key) or "—")
+            for (
+                key,
+                allowed_values,
+            ) in excel_filters.items():
 
-                if current_value not in allowed_values:
+                current_value = str(
+                    excel_value_for_session(
+                        s,
+                        key,
+                    )
+                    or "—"
+                )
+
+                if (
+                    current_value
+                    not in allowed_values
+                ):
+
                     keep = False
+
                     break
 
             if keep:
-                allowed_ids.append(s.id)
 
-        qs_filtered = qs_filtered.filter(id__in=allowed_ids)
+                allowed_ids.append(
+                    s.id
+                )
 
-    qs_filtered = qs_filtered.distinct()
+        qs_filtered = (
+            qs_filtered.filter(
+                id__in=allowed_ids
+            )
+        )
+
+    qs_filtered = (
+        qs_filtered.distinct()
+    )
 
     # ============================================================
     # Query liviana para paginar
     # ============================================================
+
     light_qs = qs_filtered.only(
         "id",
         "creado_en",
@@ -7717,16 +9332,30 @@ def listar_billing(request):
         "real_company_billing",
         "finance_status",
         "finance_note",
-    ).order_by("-creado_en")
+    ).order_by(
+        "-creado_en"
+    )
 
     # ============================================================
     # Paginación
     # ============================================================
-    cantidad = request.GET.get("cantidad", "10")
+
+    cantidad = request.GET.get(
+        "cantidad",
+        "10",
+    )
 
     try:
-        per_page = int(cantidad)
-    except (TypeError, ValueError):
+
+        per_page = int(
+            cantidad
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
         per_page = 10
 
     if per_page < 5:
@@ -7735,32 +9364,58 @@ def listar_billing(request):
     if per_page > 50:
         per_page = 50
 
-    cantidad = str(per_page)
+    cantidad = str(
+        per_page
+    )
 
-    paginator = Paginator(light_qs, per_page)
-    pagina_light = paginator.get_page(request.GET.get("page"))
+    paginator = Paginator(
+        light_qs,
+        per_page,
+    )
 
-    page_ids = [s.id for s in pagina_light.object_list]
-    order_map = {pk: idx for idx, pk in enumerate(page_ids)}
+    pagina_light = paginator.get_page(
+        request.GET.get(
+            "page"
+        )
+    )
+
+    page_ids = [
+        s.id
+        for s in pagina_light.object_list
+    ]
+
+    order_map = {
+        pk: idx
+        for idx, pk in enumerate(
+            page_ids
+        )
+    }
 
     # ============================================================
     # Cargar relaciones pesadas solo para página visible.
     # IMPORTANTE: no se cargan evidencias/fotos aquí.
     # ============================================================
+
     page_rows = list(
-        SesionBilling.objects.filter(id__in=page_ids).prefetch_related(
+        SesionBilling.objects.filter(
+            id__in=page_ids
+        ).prefetch_related(
             Prefetch(
                 "items",
                 queryset=ItemBilling.objects.prefetch_related(
                     Prefetch(
                         "desglose_tecnico",
-                        queryset=ItemBillingTecnico.objects.select_related("tecnico"),
+                        queryset=ItemBillingTecnico.objects.select_related(
+                            "tecnico"
+                        ),
                     )
                 ),
             ),
             Prefetch(
                 "tecnicos_sesion",
-                queryset=SesionBillingTecnico.objects.select_related("tecnico"),
+                queryset=SesionBillingTecnico.objects.select_related(
+                    "tecnico"
+                ),
             ),
             Prefetch(
                 "pay_week_snapshots",
@@ -7769,7 +9424,9 @@ def listar_billing(request):
                     "item",
                     "weekly_payment",
                 )
-                .filter(is_adjustment=False)
+                .filter(
+                    is_adjustment=False
+                )
                 .order_by(
                     "tecnico__first_name",
                     "tecnico__last_name",
@@ -7782,73 +9439,168 @@ def listar_billing(request):
         )
     )
 
-    page_rows.sort(key=lambda s: order_map.get(s.id, 999999))
-    resolve_project_labels_for_sessions(page_rows)
+    page_rows.sort(
+        key=lambda s: order_map.get(
+            s.id,
+            999999,
+        )
+    )
+
+    resolve_project_labels_for_sessions(
+        page_rows
+    )
+
+    # ============================================================
+    # Planning / Priority por técnico
+    # ============================================================
+
+    attach_priority_rows(
+        page_rows
+    )
 
     # ============================================================
     # Extras para template SOLO página visible
     # ============================================================
-    _attach_accounting_lock_flags_to_sessions(page_rows)
+
+    _attach_accounting_lock_flags_to_sessions(
+        page_rows
+    )
 
     for s in page_rows:
+
         comentarios = []
 
         try:
+
             for a in s.tecnicos_sesion.all():
-                txt = (getattr(a, "tecnico_comentario", "") or "").strip()
+
+                txt = (
+                    getattr(
+                        a,
+                        "tecnico_comentario",
+                        "",
+                    )
+                    or ""
+                ).strip()
 
                 if txt:
-                    comentarios.append(a)
+
+                    comentarios.append(
+                        a
+                    )
+
         except Exception:
+
             comentarios = []
 
-        s.comentarios_tecnicos = comentarios
-        s.payweek_groups = build_payweek_groups(s)
-        s.payweek_snapshot_label = payweek_snapshot_label(s, s.payweek_groups)
-        s.techs_label = techs_label(s)
+        s.comentarios_tecnicos = (
+            comentarios
+        )
 
-    pagina_light.object_list = page_rows
+        s.payweek_groups = (
+            build_payweek_groups(
+                s
+            )
+        )
+
+        s.payweek_snapshot_label = (
+            payweek_snapshot_label(
+                s,
+                s.payweek_groups,
+            )
+        )
+
+        s.techs_label = (
+            techs_label(
+                s
+            )
+        )
+
+    pagina_light.object_list = (
+        page_rows
+    )
+
     pagina = pagina_light
 
     # ============================================================
     # Permisos
     # ============================================================
-    access_ctx = _billing_access_context(request.user)
 
-    can_edit_real_week = access_ctx["can_edit_real_week"]
+    access_ctx = (
+        _billing_access_context(
+            request.user
+        )
+    )
 
-    can_edit_items = access_ctx["can_edit_items"]
+    can_edit_real_week = (
+        access_ctx[
+            "can_edit_real_week"
+        ]
+    )
+
+    can_edit_items = (
+        access_ctx[
+            "can_edit_items"
+        ]
+    )
 
     # ============================================================
     # Mantener filtros al paginar / cambiar cantidad
     # ============================================================
+
     keep_params = {}
 
     if f["date"]:
-        keep_params["date"] = f["date"]
+
+        keep_params[
+            "date"
+        ] = f["date"]
 
     if f["projid"]:
-        keep_params["projid"] = f["projid"]
+
+        keep_params[
+            "projid"
+        ] = f["projid"]
 
     if f["week"]:
-        keep_params["week"] = f["week"]
+
+        keep_params[
+            "week"
+        ] = f["week"]
 
     if f["tech"]:
-        keep_params["tech"] = f["tech"]
+
+        keep_params[
+            "tech"
+        ] = f["tech"]
 
     if f["client"]:
-        keep_params["client"] = f["client"]
+
+        keep_params[
+            "client"
+        ] = f["client"]
 
     if f["status"]:
-        keep_params["status"] = f["status"]
+
+        keep_params[
+            "status"
+        ] = f["status"]
 
     if excel_filters_raw:
-        keep_params["excel_filters"] = excel_filters_raw
+
+        keep_params[
+            "excel_filters"
+        ] = excel_filters_raw
 
     if cantidad:
-        keep_params["cantidad"] = cantidad
 
-    qs_keep = urlencode(keep_params)
+        keep_params[
+            "cantidad"
+        ] = cantidad
+
+    qs_keep = urlencode(
+        keep_params
+    )
 
     context = {
         "pagina": pagina,
@@ -7860,14 +9612,15 @@ def listar_billing(request):
         "excel_global_json": excel_global_json,
     }
 
-    context.update(access_ctx)
+    context.update(
+        access_ctx
+    )
 
     return render(
         request,
         "operaciones/billing_listar.html",
         context,
     )
-
 
 @login_required
 @rol_requerido("admin", "pm", "facturacion")
@@ -8304,15 +10057,24 @@ def billing_item_update_qty(request, item_id: int):
 
 @login_required
 def crear_billing(request):
-    if not access_user_can(request.user, "billing.create_billing"):
-        messages.error(request, "You do not have permission to create billings.")
+    if not access_user_can(
+        request.user,
+        "billing.create_billing",
+    ):
+        messages.error(
+            request,
+            "You do not have permission to create billings.",
+        )
         return redirect("operaciones:listar_billing")
 
     if request.method == "POST":
         return _guardar_billing(request)
 
     clientes = (
-        PrecioActividadTecnico.objects.values_list("cliente", flat=True)
+        PrecioActividadTecnico.objects.values_list(
+            "cliente",
+            flat=True,
+        )
         .distinct()
         .order_by("cliente")
     )
@@ -8328,15 +10090,41 @@ def crear_billing(request):
             Usuario.objects.filter(
                 is_active=True,
                 precioactividadtecnico__isnull=False,
-                precioactividadtecnico__proyecto_id__in=proyectos_visibles.values_list(
-                    "id", flat=True
+                precioactividadtecnico__proyecto_id__in=(
+                    proyectos_visibles.values_list(
+                        "id",
+                        flat=True,
+                    )
                 ),
             )
             .distinct()
-            .order_by("first_name", "last_name", "username")
+            .order_by(
+                "first_name",
+                "last_name",
+                "username",
+            )
         )
     else:
         tecnicos = Usuario.objects.none()
+
+    # ---------------------------------------------------------
+    # Billing execution sequence
+    #
+    # Usamos un ID ficticio únicamente para construir la URL.
+    # En JavaScript reemplazaremos /0/ por el ID real del técnico.
+    #
+    # Ejemplo:
+    #
+    # /operaciones/billing/technician/0/queue-preview/
+    #
+    # -> technician 3:
+    #
+    # /operaciones/billing/technician/3/queue-preview/
+    # ---------------------------------------------------------
+    billing_queue_preview_url = reverse(
+        "operaciones:billing_technician_queue_preview",
+        args=[0],
+    )
 
     context = {
         "is_edit": False,
@@ -8347,6 +10135,9 @@ def crear_billing(request):
         "ids_tecnicos": [],
         "proyecto_value": "",
         "proyecto_label": "",
+        # Execution sequence
+        "billing_queue_preview_url": billing_queue_preview_url,
+        "billing_queue_current_session_id": None,
     }
 
     context.update(_billing_access_context(request.user))
@@ -8359,43 +10150,70 @@ def crear_billing(request):
 
 
 @login_required
-def editar_billing(request, sesion_id: int):
-    if not access_user_can(request.user, "billing.edit_billing"):
-        messages.error(request, "You do not have permission to edit billings.")
+def editar_billing(
+    request,
+    sesion_id: int,
+):
+    if not access_user_can(
+        request.user,
+        "billing.edit_billing",
+    ):
+        messages.error(
+            request,
+            "You do not have permission to edit billings.",
+        )
         return redirect("operaciones:listar_billing")
 
-    sesion = get_object_or_404(SesionBilling, pk=sesion_id)
+    sesion = get_object_or_404(
+        SesionBilling,
+        pk=sesion_id,
+    )
 
     if _session_is_paid_locked(sesion):
         messages.error(
             request,
             (
-                "This billing cannot be edited because at least one worker/work type "
-                "line has already been marked as paid."
+                "This billing cannot be edited because "
+                "at least one worker/work type line has "
+                "already been marked as paid."
             ),
         )
         return redirect("operaciones:listar_billing")
 
     if request.method == "POST":
-        return _guardar_billing(request, sesion=sesion)
+        return _guardar_billing(
+            request,
+            sesion=sesion,
+        )
 
     clientes = (
-        PrecioActividadTecnico.objects.values_list("cliente", flat=True)
+        PrecioActividadTecnico.objects.values_list(
+            "cliente",
+            flat=True,
+        )
         .distinct()
         .order_by("cliente")
     )
 
     tecnicos = (
-        Usuario.objects.filter(precioactividadtecnico__isnull=False, is_active=True)
+        Usuario.objects.filter(
+            precioactividadtecnico__isnull=False,
+            is_active=True,
+        )
         .distinct()
-        .order_by("first_name", "last_name", "username")
+        .order_by(
+            "first_name",
+            "last_name",
+            "username",
+        )
     )
 
     items = sesion.items.prefetch_related("desglose_tecnico__tecnico").order_by("id")
 
     ids_tecnicos = list(
         sesion.tecnicos_sesion.filter(is_active=True).values_list(
-            "tecnico_id", flat=True
+            "tecnico_id",
+            flat=True,
         )
     )
 
@@ -8408,26 +10226,53 @@ def editar_billing(request, sesion_id: int):
     proyecto_sel = None
 
     raw_label = (
-        getattr(sesion, "proyecto", None) or getattr(sesion, "proyecto_id", None) or ""
+        getattr(
+            sesion,
+            "proyecto",
+            None,
+        )
+        or getattr(
+            sesion,
+            "proyecto_id",
+            None,
+        )
+        or ""
     )
+
     raw_label = str(raw_label).strip()
 
     proyecto_value = raw_label
     proyecto_label = raw_label
 
-    raw = (getattr(sesion, "proyecto", "") or "").strip()
+    raw = (
+        getattr(
+            sesion,
+            "proyecto",
+            "",
+        )
+        or ""
+    ).strip()
 
     if raw:
         try:
             pid = int(raw)
-        except (TypeError, ValueError):
+
+        except (
+            TypeError,
+            ValueError,
+        ):
             proyecto_sel = proyectos_qs.filter(
                 Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
             ).first()
+
         else:
             proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-    if not proyecto_sel and getattr(sesion, "proyecto_id", None):
+    if not proyecto_sel and getattr(
+        sesion,
+        "proyecto_id",
+        None,
+    ):
         code = str(sesion.proyecto_id).strip()
 
         if code:
@@ -8440,7 +10285,11 @@ def editar_billing(request, sesion_id: int):
             if not proyecto_sel:
                 try:
                     pid2 = int(code)
-                except (TypeError, ValueError):
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
                     pid2 = None
 
                 if pid2 is not None:
@@ -8448,9 +10297,29 @@ def editar_billing(request, sesion_id: int):
 
     if proyecto_sel:
         proyecto_value = str(proyecto_sel.id)
+
         proyecto_label = (
-            getattr(proyecto_sel, "nombre", "") or str(proyecto_sel)
+            getattr(
+                proyecto_sel,
+                "nombre",
+                "",
+            )
+            or str(proyecto_sel)
         ).strip()
+
+    # ---------------------------------------------------------
+    # Billing execution sequence
+    #
+    # Igual que en Create:
+    # entregamos al template la URL dinámica de consulta.
+    #
+    # Además enviamos el Billing actual para que Edit pueda
+    # reconocer que esa sesión ya existe.
+    # ---------------------------------------------------------
+    billing_queue_preview_url = reverse(
+        "operaciones:billing_technician_queue_preview",
+        args=[0],
+    )
 
     context = {
         "is_edit": True,
@@ -8463,6 +10332,9 @@ def editar_billing(request, sesion_id: int):
         "proyecto_sel": proyecto_sel,
         "proyecto_value": proyecto_value,
         "proyecto_label": proyecto_label,
+        # Execution sequence
+        "billing_queue_preview_url": billing_queue_preview_url,
+        "billing_queue_current_session_id": sesion.pk,
     }
 
     context.update(_billing_access_context(request.user))
@@ -8887,7 +10759,12 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
         * full  -> cada técnico activo queda con 100%
     - Retorna final_ids_activos en orden.
     """
+    from operaciones.services.billing_assignment_queue import (
+        get_active_technician_ids, sync_session_assignment_queue)
 
+    previously_active_technician_ids = get_active_technician_ids(
+        sesion
+    )
     nuevos_ids = [int(x) for x in (nuevos_ids or []) if str(x).isdigit()]
     nuevos_ids = list(dict.fromkeys(nuevos_ids))
     nuevos_set = set(nuevos_ids)
@@ -8975,7 +10852,10 @@ def _actualizar_tecnicos_preservando_fotos(sesion, nuevos_ids, request=None):
                 )
         else:
             ts.delete()
-
+    sync_session_assignment_queue(
+        sesion,
+        previously_active_technician_ids=previously_active_technician_ids,
+    )
     return nuevos_ids
 
 
@@ -8987,7 +10867,10 @@ def _guardar_billing(request, sesion=None):
 
         if not access_user_can(request.user, "billing.create_billing"):
 
-            messages.error(request, "You do not have permission to create billings.")
+            messages.error(
+                request,
+                "You do not have permission to create billings."
+            )
 
             return redirect("operaciones:listar_billing")
 
@@ -8995,7 +10878,10 @@ def _guardar_billing(request, sesion=None):
 
         if not access_user_can(request.user, "billing.create_billing"):
 
-            messages.error(request, "You do not have permission to edit billings.")
+            messages.error(
+                request,
+                "You do not have permission to edit billings."
+            )
 
             return redirect("operaciones:listar_billing")
 
@@ -9028,11 +10914,21 @@ def _guardar_billing(request, sesion=None):
                 oficina=oficina,
                 codigo_trabajo=codigo,
             )
-            .values("tipo_trabajo", "descripcion", "unidad_medida")
+            .values(
+                "tipo_trabajo",
+                "descripcion",
+                "unidad_medida",
+            )
             .first()
         )
 
-    def precio_empresa(cliente, ciudad, proyecto_pk, oficina, codigo) -> Decimal:
+    def precio_empresa(
+        cliente,
+        ciudad,
+        proyecto_pk,
+        oficina,
+        codigo,
+    ) -> Decimal:
         val = (
             PrecioActividadTecnico.objects.filter(
                 cliente=cliente,
@@ -9044,9 +10940,17 @@ def _guardar_billing(request, sesion=None):
             .values_list("precio_empresa", flat=True)
             .first()
         )
+
         return money(val or 0)
 
-    def tarifa_tecnico(tid, cliente, ciudad, proyecto_pk, oficina, codigo) -> Decimal:
+    def tarifa_tecnico(
+        tid,
+        cliente,
+        ciudad,
+        proyecto_pk,
+        oficina,
+        codigo,
+    ) -> Decimal:
         val = (
             PrecioActividadTecnico.objects.filter(
                 tecnico_id=tid,
@@ -9059,6 +10963,7 @@ def _guardar_billing(request, sesion=None):
             .values_list("precio_tecnico", flat=True)
             .first()
         )
+
         if val is None:
             val = (
                 PrecioActividadTecnico.objects.filter(
@@ -9071,26 +10976,78 @@ def _guardar_billing(request, sesion=None):
                 .values_list("precio_tecnico", flat=True)
                 .first()
             )
+
         return money(val or 0)
 
-    project_code = (request.POST.get("project_id") or "").strip()
-    cliente = (request.POST.get("client") or "").strip()
-    ciudad = (request.POST.get("city") or "").strip()
-    project_pk_raw = (request.POST.get("project") or "").strip()
-    oficina = (request.POST.get("office") or "").strip()
-    ids = [int(x) for x in request.POST.getlist("tech_ids[]") if str(x).isdigit()]
+    project_code = (
+        request.POST.get("project_id") or ""
+    ).strip()
 
-    direccion_proyecto = (request.POST.get("direccion_proyecto") or "").strip()
-    semana_pago_proyectada = (request.POST.get("semana_pago_proyectada") or "").strip()
-    if semana_pago_proyectada and not WEEK_RE.match(semana_pago_proyectada):
+    cliente = (
+        request.POST.get("client") or ""
+    ).strip()
+
+    ciudad = (
+        request.POST.get("city") or ""
+    ).strip()
+
+    project_pk_raw = (
+        request.POST.get("project") or ""
+    ).strip()
+
+    oficina = (
+        request.POST.get("office") or ""
+    ).strip()
+
+    ids = [
+        int(x)
+        for x in request.POST.getlist("tech_ids[]")
+        if str(x).isdigit()
+    ]
+
+    direccion_proyecto = (
+        request.POST.get("direccion_proyecto") or ""
+    ).strip()
+
+    semana_pago_proyectada = (
+        request.POST.get("semana_pago_proyectada") or ""
+    ).strip()
+
+    if (
+        semana_pago_proyectada
+        and not WEEK_RE.match(semana_pago_proyectada)
+    ):
         semana_pago_proyectada = ""
 
-    is_direct_discount = request.POST.get("direct_discount") == "1"
-    is_cable_installation = request.POST.get("is_cable_installation") == "1"
+    is_direct_discount = (
+        request.POST.get("direct_discount") == "1"
+    )
+
+    is_cable_installation = (
+        request.POST.get("is_cable_installation") == "1"
+    )
+
+    # ============================================================
+    # EXECUTION SEQUENCE
+    # ============================================================
+
+    show_immediately = (
+        request.POST.get("billing_show_immediately") == "1"
+    )
+
+    # Direct Discount no usa Show Immediately.
+    if is_direct_discount:
+        show_immediately = False
 
     tech_payment_mode = (
-        (request.POST.get("tech_payment_mode") or "split").strip().lower()
+        (
+            request.POST.get("tech_payment_mode")
+            or "split"
+        )
+        .strip()
+        .lower()
     )
+
     if tech_payment_mode not in ("split", "full"):
         tech_payment_mode = "split"
 
@@ -9108,28 +11065,61 @@ def _guardar_billing(request, sesion=None):
             subtotal_company_val = ""
             subtotal_tecnico_val = ""
 
-            if project_pk_raw.isdigit() and cliente and ciudad and oficina and code:
+            if (
+                project_pk_raw.isdigit()
+                and cliente
+                and ciudad
+                and oficina
+                and code
+            ):
                 try:
                     proyecto_pk_tmp = int(project_pk_raw)
+
                     row_meta = meta_codigo(
-                        cliente, ciudad, proyecto_pk_tmp, oficina, code
+                        cliente,
+                        ciudad,
+                        proyecto_pk_tmp,
+                        oficina,
+                        code,
                     )
+
                     if row_meta:
                         cp = precio_empresa(
-                            cliente, ciudad, proyecto_pk_tmp, oficina, code
+                            cliente,
+                            ciudad,
+                            proyecto_pk_tmp,
+                            oficina,
+                            code,
                         )
+
                         qty = money(amount)
+
                         company_price_val = f"{cp:.2f}"
-                        subtotal_company_val = f"{money(cp * qty):.2f}"
+                        subtotal_company_val = (
+                            f"{money(cp * qty):.2f}"
+                        )
+
                 except Exception:
                     row_meta = None
 
             items_ctx.append(
                 {
                     "codigo_trabajo": code,
-                    "tipo_trabajo": row_meta["tipo_trabajo"] if row_meta else "",
-                    "descripcion": row_meta["descripcion"] if row_meta else "",
-                    "unidad_medida": row_meta["unidad_medida"] if row_meta else "",
+                    "tipo_trabajo": (
+                        row_meta["tipo_trabajo"]
+                        if row_meta
+                        else ""
+                    ),
+                    "descripcion": (
+                        row_meta["descripcion"]
+                        if row_meta
+                        else ""
+                    ),
+                    "unidad_medida": (
+                        row_meta["unidad_medida"]
+                        if row_meta
+                        else ""
+                    ),
                     "cantidad": amount,
                     "precio_empresa": company_price_val,
                     "subtotal_empresa": subtotal_company_val,
@@ -9137,6 +11127,7 @@ def _guardar_billing(request, sesion=None):
                     "desglose_tecnico": [],
                 }
             )
+
         return items_ctx
 
     def render_with_data(error_msg=None):
@@ -9144,7 +11135,8 @@ def _guardar_billing(request, sesion=None):
             messages.error(request, error_msg)
 
         clientes = (
-            PrecioActividadTecnico.objects.values_list("cliente", flat=True)
+            PrecioActividadTecnico.objects
+            .values_list("cliente", flat=True)
             .distinct()
             .order_by("cliente")
         )
@@ -9160,12 +11152,18 @@ def _guardar_billing(request, sesion=None):
                 Usuario.objects.filter(
                     is_active=True,
                     precioactividadtecnico__isnull=False,
-                    precioactividadtecnico__proyecto_id__in=proyectos_visibles.values_list(
-                        "id", flat=True
+                    precioactividadtecnico__proyecto_id__in=
+                    proyectos_visibles.values_list(
+                        "id",
+                        flat=True,
                     ),
                 )
                 .distinct()
-                .order_by("first_name", "last_name", "username")
+                .order_by(
+                    "first_name",
+                    "last_name",
+                    "username",
+                )
             )
         else:
             tecnicos = Usuario.objects.none()
@@ -9174,9 +11172,15 @@ def _guardar_billing(request, sesion=None):
         proyecto_label = ""
 
         if project_pk_raw.isdigit():
-            p = proyectos_visibles.filter(pk=int(project_pk_raw)).first()
+            p = proyectos_visibles.filter(
+                pk=int(project_pk_raw)
+            ).first()
+
             if p:
-                proyecto_label = (getattr(p, "nombre", "") or str(p)).strip()
+                proyecto_label = (
+                    getattr(p, "nombre", "")
+                    or str(p)
+                ).strip()
 
         sesion_ctx = {
             "id": getattr(sesion, "id", None),
@@ -9186,10 +11190,14 @@ def _guardar_billing(request, sesion=None):
             "proyecto": project_pk_raw,
             "oficina": oficina,
             "direccion_proyecto": direccion_proyecto,
-            "semana_pago_proyectada": semana_pago_proyectada,
-            "is_direct_discount": is_direct_discount,
-            "is_cable_installation": is_cable_installation,
-            "tech_payment_mode": tech_payment_mode,
+            "semana_pago_proyectada":
+                semana_pago_proyectada,
+            "is_direct_discount":
+                is_direct_discount,
+            "is_cable_installation":
+                is_cable_installation,
+            "tech_payment_mode":
+                tech_payment_mode,
         }
 
         context = {
@@ -9203,7 +11211,9 @@ def _guardar_billing(request, sesion=None):
             "proyecto_label": proyecto_label,
         }
 
-        context.update(_billing_access_context(request.user))
+        context.update(
+            _billing_access_context(request.user)
+        )
 
         return render(
             request,
@@ -9211,51 +11221,139 @@ def _guardar_billing(request, sesion=None):
             context,
         )
 
-    if not (project_code and cliente and ciudad and project_pk_raw and oficina):
-        return render_with_data("Complete all header fields.")
+    # ============================================================
+    # LEER PRIORIDADES INDIVIDUALES
+    #
+    # Lo hacemos aquí porque render_with_data ya existe.
+    # ============================================================
+
+    requested_priorities = {}
+
+    if not is_direct_discount and not show_immediately:
+
+        for tid in ids:
+
+            raw_priority = (
+                request.POST.get(
+                    f"tech_priority_{tid}"
+                )
+                or ""
+            ).strip()
+
+            if not raw_priority:
+                continue
+
+            try:
+                priority = int(raw_priority)
+
+            except (TypeError, ValueError):
+                return render_with_data(
+                    f"Invalid execution priority for technician #{tid}."
+                )
+
+            if priority < 1:
+                return render_with_data(
+                    (
+                        f"Execution priority for technician #{tid} "
+                        "must be 1 or greater."
+                    )
+                )
+
+            requested_priorities[tid] = priority
+
+    # ============================================================
+    # VALIDACIONES EXISTENTES
+    # ============================================================
+
+    if not (
+        project_code
+        and cliente
+        and ciudad
+        and project_pk_raw
+        and oficina
+    ):
+        return render_with_data(
+            "Complete all header fields."
+        )
 
     if not ids:
-        return render_with_data("Select at least one technician.")
+        return render_with_data(
+            "Select at least one technician."
+        )
 
     try:
         proyecto_pk = int(project_pk_raw)
+
     except (TypeError, ValueError):
-        return render_with_data("Invalid project.")
+        return render_with_data(
+            "Invalid project."
+        )
 
-    proyecto_obj = Proyecto.objects.filter(pk=proyecto_pk).first()
+    proyecto_obj = Proyecto.objects.filter(
+        pk=proyecto_pk
+    ).first()
+
     if not proyecto_obj:
-        return render_with_data("Selected project does not exist.")
+        return render_with_data(
+            "Selected project does not exist."
+        )
 
-    proyecto_nombre = (getattr(proyecto_obj, "nombre", "") or "").strip()
+    proyecto_nombre = (
+        getattr(proyecto_obj, "nombre", "")
+        or ""
+    ).strip()
 
     row_codes = request.POST.getlist("row_code[]")
     row_amounts = request.POST.getlist("row_amount[]")
 
     if not row_codes:
-        return render_with_data("Please add at least one item.")
+        return render_with_data(
+            "Please add at least one item."
+        )
 
     if len(row_codes) != len(row_amounts):
-        return render_with_data("Invalid items data.")
+        return render_with_data(
+            "Invalid items data."
+        )
 
     filas = []
-    for cod, amt in zip(row_codes, row_amounts):
+
+    for cod, amt in zip(
+        row_codes,
+        row_amounts,
+    ):
         cod = (cod or "").strip()
 
         if not cod or amt in ("", None):
-            return render_with_data("Each row requires Job Code and Quantity.")
+            return render_with_data(
+                "Each row requires Job Code and Quantity."
+            )
 
         try:
             qty = Decimal(str(amt))
+
         except Exception:
-            return render_with_data(f"Invalid quantity for code '{cod}'.")
+            return render_with_data(
+                f"Invalid quantity for code '{cod}'."
+            )
 
         if is_direct_discount and qty > 0:
             qty = -qty
 
-        meta = meta_codigo(cliente, ciudad, proyecto_pk, oficina, cod)
+        meta = meta_codigo(
+            cliente,
+            ciudad,
+            proyecto_pk,
+            oficina,
+            cod,
+        )
+
         if not meta:
             return render_with_data(
-                f"Code '{cod}' does not exist with the selected filters."
+                (
+                    f"Code '{cod}' does not exist "
+                    "with the selected filters."
+                )
             )
 
         filas.append(
@@ -9266,7 +11364,12 @@ def _guardar_billing(request, sesion=None):
             }
         )
 
+    # ============================================================
+    # CREATE / UPDATE EXISTENTE
+    # ============================================================
+
     if sesion is None:
+
         sesion = SesionBilling.objects.create(
             proyecto_id=project_code,
             cliente=cliente,
@@ -9274,46 +11377,167 @@ def _guardar_billing(request, sesion=None):
             proyecto=proyecto_nombre,
             oficina=oficina,
             direccion_proyecto=direccion_proyecto,
-            semana_pago_proyectada=semana_pago_proyectada,
-            semana_pago_real=semana_pago_proyectada if is_direct_discount else "",
+            semana_pago_proyectada=
+                semana_pago_proyectada,
+            semana_pago_real=(
+                semana_pago_proyectada
+                if is_direct_discount
+                else ""
+            ),
             is_direct_discount=is_direct_discount,
-            is_cable_installation=is_cable_installation,
-            tech_payment_mode=tech_payment_mode,
+            is_cable_installation=
+                is_cable_installation,
+            tech_payment_mode=
+                tech_payment_mode,
         )
+
     else:
+
         sesion.proyecto_id = project_code
         sesion.cliente = cliente
         sesion.ciudad = ciudad
         sesion.proyecto = proyecto_nombre
         sesion.oficina = oficina
-        sesion.direccion_proyecto = direccion_proyecto
-        sesion.semana_pago_proyectada = semana_pago_proyectada
+        sesion.direccion_proyecto = (
+            direccion_proyecto
+        )
+        sesion.semana_pago_proyectada = (
+            semana_pago_proyectada
+        )
+
         if is_direct_discount:
-            sesion.semana_pago_real = semana_pago_proyectada
+            sesion.semana_pago_real = (
+                semana_pago_proyectada
+            )
         else:
             sesion.semana_pago_real = ""
-        sesion.is_direct_discount = is_direct_discount
-        sesion.is_cable_installation = is_cable_installation
-        sesion.tech_payment_mode = tech_payment_mode
+
+        sesion.is_direct_discount = (
+            is_direct_discount
+        )
+
+        sesion.is_cable_installation = (
+            is_cable_installation
+        )
+
+        sesion.tech_payment_mode = (
+            tech_payment_mode
+        )
+
         sesion.save()
 
-    final_ids = _actualizar_tecnicos_preservando_fotos(sesion, ids, request=request)
+    # ============================================================
+    # TECHNICIANS EXISTENTE
+    # ============================================================
+
+    final_ids = (
+        _actualizar_tecnicos_preservando_fotos(
+            sesion,
+            ids,
+            request=request,
+        )
+    )
+
+    # ============================================================
+    # NUEVO: DECISIÓN FINAL DE LA COLA
+    #
+    # _actualizar_tecnicos_preservando_fotos() puede crear una
+    # posición automáticamente mediante sync_session_assignment_queue.
+    #
+    # Aquí dejamos el resultado FINAL correcto.
+    # ============================================================
+
+    if not is_direct_discount:
+
+        if show_immediately:
+
+            # EXACTAMENTE la misma lógica del botón
+            # ⚡ Show Now del Billing List.
+            #
+            # Este Billing sale de la fila para TODOS
+            # sus técnicos.
+            #
+            # Resultado:
+            #
+            # David   —
+            # Edgardo —
+            #
+            show_now_project(
+                sesion,
+                request.user,
+            )
+
+        elif requested_priorities:
+
+            active_assignments = {
+                assignment.tecnico_id: assignment
+                for assignment in (
+                    sesion.tecnicos_sesion
+                    .filter(
+                        is_active=True,
+                        tecnico_id__in=final_ids,
+                    )
+                )
+            }
+
+            # Cada técnico se mueve solamente
+            # dentro de SU propia cola.
+            for tid, priority in (
+                requested_priorities.items()
+            ):
+
+                assignment = (
+                    active_assignments.get(tid)
+                )
+
+                if assignment is None:
+                    continue
+
+                apply_assignment_priority(
+                    assignment.id,
+                    priority,
+                )
+
+    # ============================================================
+    # TODO LO SIGUIENTE QUEDA IGUAL
+    # ============================================================
 
     # ✅ NUEVO:
     # Si en edición se agregó/cambió técnico, sincronizar los requirements
     # de la plantilla del billing hacia las asignaciones.
-    ensure_requisitos_plantilla_desde_existentes(sesion)
-    sync_requisitos_plantilla_a_asignaciones(sesion)
+    ensure_requisitos_plantilla_desde_existentes(
+        sesion
+    )
+
+    sync_requisitos_plantilla_a_asignaciones(
+        sesion
+    )
 
     ts_rows = list(
-        sesion.tecnicos_sesion.filter(tecnico_id__in=final_ids).values_list(
-            "tecnico_id", "porcentaje"
+        sesion.tecnicos_sesion
+        .filter(
+            tecnico_id__in=final_ids
+        )
+        .values_list(
+            "tecnico_id",
+            "porcentaje",
         )
     )
-    pct_by_tid = {tid: money(pct) for tid, pct in ts_rows}
+
+    pct_by_tid = {
+        tid: money(pct)
+        for tid, pct in ts_rows
+    }
 
     ids_def = final_ids
-    partes_def = [pct_by_tid.get(tid, Decimal("0.00")) for tid in ids_def]
+
+    partes_def = [
+        pct_by_tid.get(
+            tid,
+            Decimal("0.00"),
+        )
+        for tid in ids_def
+    ]
 
     sesion.items.all().delete()
 
@@ -9321,38 +11545,76 @@ def _guardar_billing(request, sesion=None):
     total_tec = Decimal("0.00")
 
     for fila in filas:
+
         cod = fila["codigo"]
         qty = money(fila["cantidad"])
         meta = fila["meta"]
 
-        p_emp = precio_empresa(cliente, ciudad, proyecto_pk, oficina, cod)
-        sub_emp = money(p_emp * qty)
+        p_emp = precio_empresa(
+            cliente,
+            ciudad,
+            proyecto_pk,
+            oficina,
+            cod,
+        )
+
+        sub_emp = money(
+            p_emp * qty
+        )
 
         item = ItemBilling.objects.create(
             sesion=sesion,
             codigo_trabajo=cod,
-            tipo_trabajo=meta["tipo_trabajo"],
-            descripcion=meta["descripcion"],
-            unidad_medida=meta["unidad_medida"],
+            tipo_trabajo=
+                meta["tipo_trabajo"],
+            descripcion=
+                meta["descripcion"],
+            unidad_medida=
+                meta["unidad_medida"],
             cantidad=qty,
             precio_empresa=p_emp,
             subtotal_empresa=sub_emp,
-            subtotal_tecnico=Decimal("0.00"),
+            subtotal_tecnico=
+                Decimal("0.00"),
         )
 
         sub_tecs = Decimal("0.00")
 
-        for tid, pct in zip(ids_def, partes_def):
-            base = tarifa_tecnico(tid, cliente, ciudad, proyecto_pk, oficina, cod)
+        for tid, pct in zip(
+            ids_def,
+            partes_def,
+        ):
+
+            base = tarifa_tecnico(
+                tid,
+                cliente,
+                ciudad,
+                proyecto_pk,
+                oficina,
+                cod,
+            )
 
             if tech_payment_mode == "full":
+
                 efectiva = money(base)
                 pct_guardado = Decimal("100.00")
+
             else:
-                efectiva = money(base * (pct / Decimal("100")))
+
+                efectiva = money(
+                    base
+                    * (
+                        pct
+                        / Decimal("100")
+                    )
+                )
+
                 pct_guardado = pct
 
-            subtotal = money(efectiva * item.cantidad)
+            subtotal = money(
+                efectiva
+                * item.cantidad
+            )
 
             ItemBillingTecnico.objects.create(
                 item=item,
@@ -9362,16 +11624,30 @@ def _guardar_billing(request, sesion=None):
                 tarifa_efectiva=efectiva,
                 subtotal=subtotal,
             )
+
             sub_tecs += subtotal
 
-        item.subtotal_tecnico = sub_tecs
-        item.save(update_fields=["subtotal_tecnico"])
+        item.subtotal_tecnico = (
+            sub_tecs
+        )
+
+        item.save(
+            update_fields=[
+                "subtotal_tecnico"
+            ]
+        )
 
         total_emp += sub_emp
         total_tec += sub_tecs
 
-    sesion.subtotal_empresa = money(total_emp)
-    sesion.subtotal_tecnico = money(total_tec)
+    sesion.subtotal_empresa = money(
+        total_emp
+    )
+
+    sesion.subtotal_tecnico = money(
+        total_tec
+    )
+
     sesion.save(
         update_fields=[
             "subtotal_empresa",
@@ -9383,7 +11659,9 @@ def _guardar_billing(request, sesion=None):
         ]
     )
 
-    rebuild_billing_payweek_snapshot(sesion)
+    rebuild_billing_payweek_snapshot(
+        sesion
+    )
 
     messages.success(
         request,
@@ -9393,8 +11671,10 @@ def _guardar_billing(request, sesion=None):
             else "Billing saved successfully."
         ),
     )
-    return redirect("operaciones:listar_billing")
 
+    return redirect(
+        "operaciones:listar_billing"
+    )
 
 # ===== Búsquedas / AJAX =====
 def _precio_empresa(cliente, ciudad, proyecto, oficina, codigo):

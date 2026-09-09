@@ -121,6 +121,7 @@
         <tbody class="text-left">
         {% for a in asignaciones %}
           <tr class="border-t align-top">
+
             <td class="p-2 border" data-excel-value="{{ a.sesion.creado_en|date:'Y-m-d' }}">
               {{ a.sesion.creado_en|date:"Y-m-d" }}
             </td>
@@ -129,60 +130,135 @@
               {{ a.sesion.proyecto_id }}
             </td>
 
-            <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;"
+            <td class="p-2 border align-top break-words max-w-[360px]"
+                style="white-space: normal;"
                 data-excel-value="{% if a.sesion.direccion_proyecto %}{% if a.sesion.maps_href == a.sesion.direccion_proyecto %}Address{% else %}{{ a.sesion.direccion_proyecto }}{% endif %}{% else %}{% if a.sesion.maps_href %}Address{% else %}(Vacías){% endif %}{% endif %}">
               {% if a.sesion.direccion_proyecto %}
                 {% if a.sesion.maps_href == a.sesion.direccion_proyecto %}
-                  <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+                  <a href="{{ a.sesion.maps_href }}"
+                     class="text-blue-600 hover:underline"
+                     target="_blank"
+                     rel="noopener">
+                    📍 Address
+                  </a>
                 {% else %}
-                  <div class="whitespace-normal break-words">{{ a.sesion.direccion_proyecto }}</div>
-                  <a href="{{ a.sesion.maps_href }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">[open map]</a>
+                  <div class="whitespace-normal break-words">
+                    {{ a.sesion.direccion_proyecto }}
+                  </div>
+
+                  <a href="{{ a.sesion.maps_href }}"
+                     target="_blank"
+                     rel="noopener"
+                     class="text-xs text-blue-600 hover:underline">
+                    [open map]
+                  </a>
                 {% endif %}
               {% else %}
                 {% if a.sesion.maps_href %}
-                  <a href="{{ a.sesion.maps_href }}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">📍 Address</a>
+                  <a href="{{ a.sesion.maps_href }}"
+                     class="text-blue-600 hover:underline"
+                     target="_blank"
+                     rel="noopener">
+                    📍 Address
+                  </a>
                 {% else %}
                   —
                 {% endif %}
               {% endif %}
             </td>
 
-            <td class="p-2 border" data-excel-value="{{ a.sesion.cliente|default:'(Vacías)' }}">
+            <td class="p-2 border"
+                data-excel-value="{{ a.sesion.cliente|default:'(Vacías)' }}">
               {{ a.sesion.cliente|default:"—" }}
             </td>
 
-            <td class="p-2 border" data-excel-value="{{ a.sesion.ciudad|default:'(Vacías)' }}">
+            <td class="p-2 border"
+                data-excel-value="{{ a.sesion.ciudad|default:'(Vacías)' }}">
               {{ a.sesion.ciudad|default:"—" }}
             </td>
 
-            <td class="p-2 border" data-excel-value="{{ a.proyecto_label|default:'(Vacías)' }}">
+            <td class="p-2 border"
+                data-excel-value="{{ a.proyecto_label|default:'(Vacías)' }}">
               {{ a.proyecto_label|default:"—" }}
             </td>
 
-            <td class="p-2 border" data-excel-value="{{ a.sesion.oficina|default:'(Vacías)' }}">
+            <td class="p-2 border"
+                data-excel-value="{{ a.sesion.oficina|default:'(Vacías)' }}">
               {{ a.sesion.oficina|default:"—" }}
             </td>
 
-            <td class="p-2 border text-right" data-excel-value="${{ a.my_total|floatformat:2 }}">
+            <td class="p-2 border text-right"
+                data-excel-value="${{ a.my_total|floatformat:2 }}">
               ${{ a.my_total|floatformat:2 }}
             </td>
 
             <td class="p-2 border text-sm text-center"
                 data-excel-value="{% if a.estado == 'asignado' %}Pending acceptance{% elif a.estado == 'en_proceso' %}In progress{% elif a.estado == 'en_revision_supervisor' %}Submitted — supervisor review{% elif a.estado == 'rechazado_supervisor' %}Rejected by supervisor{% elif a.estado == 'rechazado_pm' %}Rejected by PM{% elif a.estado == 'rechazado_finanzas' %}Rejected by Finance{% else %}{{ a.get_estado_display }}{% endif %}">
+
               <div class="flex flex-col gap-1 items-center leading-tight">
+
                 {% if a.estado == 'asignado' %}
+
+                  {% if a.queue_position %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-semibold">
+                      Priority #{{ a.queue_position }}
+                    </span>
+
+                  {% elif a.queue_is_released %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-orange-100 text-orange-800 text-xs font-semibold">
+                      ⚡ Available now
+                    </span>
+
+                  {% elif a.queue_is_legacy %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">
+                      Available
+                    </span>
+                  {% endif %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
                     ⏳ Pending acceptance
                   </span>
 
                 {% elif a.estado == 'en_proceso' %}
+
+                  {% if a.queue_position %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-semibold">
+                      Priority #{{ a.queue_position }}
+                    </span>
+
+                  {% elif a.queue_is_released %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-orange-100 text-orange-800 text-xs font-semibold">
+                      ⚡ Available now
+                    </span>
+                  {% endif %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">
                     🚀 In progress
                   </span>
 
                   <span class="text-xs text-gray-600 text-center">
                     Accepted by: {{ a.tecnico.get_full_name|default:a.tecnico.username }}
-                    {% if a.aceptado_en %} · {{ a.aceptado_en|date:"Y-m-d H:i" }}{% endif %}
+                    {% if a.aceptado_en %}
+                      · {{ a.aceptado_en|date:"Y-m-d H:i" }}
+                    {% endif %}
+                  </span>
+
+                  <span class="inline-flex items-center gap-1 text-xs {% if a.timer_is_running %}text-green-700{% else %}text-gray-600{% endif %}">
+                    ⏱
+                    <span
+                      class="js-work-timer font-semibold tabular-nums"
+                      data-base-seconds="{{ a.timer_total_seconds|default:0 }}"
+                      data-running="{% if a.timer_is_running %}1{% else %}0{% endif %}"
+                      data-started-at="{{ a.timer_started_at_iso|default:'' }}"
+                    >
+                      00:00:00
+                    </span>
+
+                    {% if a.timer_is_running %}
+                      · Running
+                    {% else %}
+                      · Paused
+                    {% endif %}
                   </span>
 
                   {% if a.pendientes_aceptar_names %}
@@ -192,15 +268,42 @@
                   {% endif %}
 
                   {% if a.faltantes_global_labels %}
-                    <span class="text-xs text-gray-600 text-center">
-                      Missing required data: {{ a.faltantes_global_labels|join:", " }}.
-                    </span>
+                    <details class="text-xs text-center">
+                      <summary class="cursor-pointer select-none inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 hover:bg-amber-100">
+                        ⚠️ Missing required data
+                        <span class="font-semibold">({{ a.faltantes_global_labels|length }})</span>
+                      </summary>
+
+                      <div class="mt-1 mx-auto max-w-[520px] text-left bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900"
+                          style="white-space: normal;">
+                        <ul class="list-disc pl-4 space-y-0.5">
+                          {% for item in a.faltantes_global_labels %}
+                            <li>{{ item }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    </details>
                   {% endif %}
 
                 {% elif a.estado == 'en_revision_supervisor' %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
                     📤 Submitted — supervisor review
                   </span>
+
+                  {% if a.timer_total_seconds %}
+                    <span class="inline-flex items-center gap-1 text-xs text-gray-600">
+                      ⏱
+                      <span
+                        class="js-work-timer font-semibold tabular-nums"
+                        data-base-seconds="{{ a.timer_total_seconds|default:0 }}"
+                        data-running="0"
+                        data-started-at=""
+                      >
+                        00:00:00
+                      </span>
+                    </span>
+                  {% endif %}
 
                   {% if a.sesion.is_cable_installation and a.has_cable_rejected_photo %}
                     <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-red-100 text-red-800">
@@ -209,24 +312,43 @@
                   {% endif %}
 
                 {% elif a.estado == 'rechazado_supervisor' %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
                     ❌ Rejected by supervisor
                   </span>
 
+                  {% if a.timer_total_seconds %}
+                    <span class="inline-flex items-center gap-1 text-xs text-gray-600">
+                      ⏱
+                      <span
+                        class="js-work-timer font-semibold tabular-nums"
+                        data-base-seconds="{{ a.timer_total_seconds|default:0 }}"
+                        data-running="0"
+                        data-started-at=""
+                      >
+                        00:00:00
+                      </span>
+                    </span>
+                  {% endif %}
+
                 {% elif a.estado == 'rechazado_pm' %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
                     ❌ Rejected by PM
                   </span>
 
                 {% elif a.estado == 'rechazado_finanzas' %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-100 text-red-800">
                     ❌ Rejected by Finance
                   </span>
 
                 {% else %}
+
                   <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">
                     —
                   </span>
+
                 {% endif %}
 
                 {% if a.reintento_habilitado %}
@@ -234,14 +356,18 @@
                     ♻️ Reupload enabled
                   </span>
                 {% endif %}
+
               </div>
             </td>
 
             <td class="p-2 border text-sm min-w-[380px] max-w-[520px]"
                 style="white-space: normal;"
                 data-excel-value="{% if a.tecnico_comentario and a.cable_rejection_comment %}{{ a.tecnico_comentario }} | Review: {{ a.cable_rejection_comment }}{% elif a.cable_rejection_comment %}{{ a.cable_rejection_comment }}{% elif a.tecnico_comentario %}{{ a.tecnico_comentario }}{% else %}(Vacías){% endif %}">
+
               {% if a.tecnico_comentario %}
-                <div class="text-gray-700 whitespace-pre-wrap break-words">{{ a.tecnico_comentario }}</div>
+                <div class="text-gray-700 whitespace-pre-wrap break-words">
+                  {{ a.tecnico_comentario }}
+                </div>
               {% endif %}
 
               {% if a.sesion.is_cable_installation and a.cable_rejection_comment %}
@@ -257,9 +383,12 @@
 
             <td class="p-2 border text-center"
                 data-excel-value="{% if a.sesion.reporte_fotografico %}Download{% else %}(Vacías){% endif %}">
+
               {% if a.sesion.reporte_fotografico %}
                 <a class="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full"
-                   href="{{ a.sesion.reporte_fotografico.url }}" target="_blank" rel="noopener">
+                   href="{{ a.sesion.reporte_fotografico.url }}"
+                   target="_blank"
+                   rel="noopener">
                   ⬇️ Download
                 </a>
               {% else %}
@@ -268,93 +397,141 @@
             </td>
 
             <td class="p-2 border text-center space-x-2">
-  <a href="{% url 'operaciones:detalle_assignment' a.pk %}"
-     class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">
-    View
-  </a>
 
-  {% if a.sesion.is_cable_installation %}
+              <a href="{% url 'operaciones:detalle_assignment' a.pk %}"
+                 class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">
+                View
+              </a>
 
-  {% if a.estado == "asignado" %}
-    <button type="button"
-            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-            data-action="{% url 'operaciones:start_assignment' a.pk %}">
-      ✅ Accept & Start
-    </button>
+              {% if a.sesion.is_cable_installation %}
 
-  {% elif a.estado == "en_proceso" %}
-    {% if a.can_open_cable_report %}
-      <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
-         class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-        Cable report
-      </a>
-    {% endif %}
+                {% if a.estado == "asignado" %}
 
-    <button type="button"
-            class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-            data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-            {% if not a.can_finish %}disabled title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."{% endif %}>
-      Finish
-    </button>
+                  {% if a.can_start_now %}
+                    <button type="button"
+                            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                            data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-start-mode="accept">
+                      ✅ Accept & Start
+                    </button>
+                  {% endif %}
 
-  {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-    <button type="button"
-            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-            data-action="{% url 'operaciones:start_assignment' a.pk %}">
-      Start
-    </button>
+                {% elif a.estado == "en_proceso" %}
 
-  {% endif %}
+                  {% if not a.timer_is_running %}
+                    <button type="button"
+                            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                            data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-start-mode="continue">
+                      ▶ Continue work
+                    </button>
+                  {% endif %}
 
-{% else %}
+                  {% if a.can_open_cable_report %}
+                    <a href="{% url 'cable_installation:technician_requirements' a.pk %}"
+                       class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                      Cable report
+                    </a>
+                  {% endif %}
 
-    {% if a.estado == "asignado" %}
-      <button type="button"
-              class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-              data-action="{% url 'operaciones:start_assignment' a.pk %}">
-        ✅ Accept & Start
-      </button>
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}
+                            disabled
+                            title="Cable installation can only finish when the 3 measurements are complete, the 3 required photos are valid, and no cable photo is rejected."
+                          {% endif %}>
+                    Finish
+                  </button>
 
-    {% elif a.estado == "en_proceso" %}
-      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-         class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-        Upload photos
-      </a>
+                {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
 
-      <button type="button"
-              class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-              {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
-        Finish
-      </button>
+                  <button type="button"
+                          class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                          data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                          data-start-mode="continue">
+                    Start
+                  </button>
 
-    {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
-      <button type="button"
-              class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
-              data-action="{% url 'operaciones:start_assignment' a.pk %}">
-        Start
-      </button>
+                {% endif %}
 
-      <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
-         class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-        Reupload photos
-      </a>
+              {% else %}
 
-      <button type="button"
-              class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
-              data-action="{% url 'operaciones:finish_assignment' a.pk %}"
-              {% if not a.can_finish %}disabled title="All required photos must be uploaded and all assignees must accept (Start)."{% endif %}>
-        Finish
-      </button>
-    {% endif %}
+                {% if a.estado == "asignado" %}
 
-  {% endif %}
-</td>
+                  {% if a.can_start_now %}
+                    <button type="button"
+                            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                            data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-start-mode="accept">
+                      ✅ Accept & Start
+                    </button>
+                  {% endif %}
+
+                {% elif a.estado == "en_proceso" %}
+
+                  {% if not a.timer_is_running %}
+                    <button type="button"
+                            class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                            data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-start-mode="continue">
+                      ▶ Continue work
+                    </button>
+                  {% endif %}
+
+                  <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Upload photos
+                  </a>
+
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}
+                            disabled
+                            title="All required photos must be uploaded and all assignees must accept (Start)."
+                          {% endif %}>
+                    Finish
+                  </button>
+
+                {% elif a.estado == "rechazado_supervisor" and a.reintento_habilitado %}
+
+                  <button type="button"
+                          class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
+                          data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                          data-start-mode="continue">
+                    Start
+                  </button>
+
+                  <a href="{% url 'operaciones:upload_evidencias' a.pk %}"
+                     class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    Reupload photos
+                  </a>
+
+                  <button type="button"
+                          class="px-3 py-1 rounded {% if a.can_finish %}bg-indigo-600 text-white hover:bg-indigo-700{% else %}bg-indigo-300 text-white cursor-not-allowed{% endif %} btn-finish"
+                          data-action="{% url 'operaciones:finish_assignment' a.pk %}"
+                          {% if not a.can_finish %}
+                            disabled
+                            title="All required photos must be uploaded and all assignees must accept (Start)."
+                          {% endif %}>
+                    Finish
+                  </button>
+
+                {% endif %}
+
+              {% endif %}
+            </td>
           </tr>
+
         {% empty %}
+
           <tr>
-            <td class="p-4 border text-center text-gray-500" colspan="12">No assignments yet.</td>
+            <td class="p-4 border text-center text-gray-500" colspan="12">
+              No assignments yet.
+            </td>
           </tr>
+
         {% endfor %}
         </tbody>
       </table>
@@ -363,15 +540,22 @@
 
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
     <form id="formCantidad" class="flex items-center gap-2" method="get">
+
       {% for k,v in request.GET.items %}
         {% if k != 'cantidad' and k != 'page' %}
           <input type="hidden" name="{{ k }}" value="{{ v }}">
         {% endif %}
       {% endfor %}
 
-      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1" onchange="this.form.submit()">
-        <option value="5"  {% if cantidad == '5' %}selected{% endif %}>5</option>
+      <label for="cantidad" class="text-sm font-medium text-gray-700">
+        Show:
+      </label>
+
+      <select name="cantidad"
+              id="cantidad"
+              class="border rounded-lg px-3 py-1"
+              onchange="this.form.submit()">
+        <option value="5" {% if cantidad == '5' %}selected{% endif %}>5</option>
         <option value="10" {% if cantidad == '10' %}selected{% endif %}>10</option>
         <option value="20" {% if cantidad == '20' %}selected{% endif %}>20</option>
         <option value="50" {% if cantidad == '50' %}selected{% endif %}>50</option>
@@ -386,42 +570,104 @@
 
   <div class="mt-2 flex justify-center gap-2 text-sm">
     {% if pagina.has_previous %}
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page=1">« First</a>
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.previous_page_number }}">‹ Previous</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{{ base_qs }}&page=1">
+        « First
+      </a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{{ base_qs }}&page={{ pagina.previous_page_number }}">
+        ‹ Previous
+      </a>
     {% endif %}
+
     {% if pagina.has_next %}
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.next_page_number }}">Next ›</a>
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{{ base_qs }}&page={{ pagina.paginator.num_pages }}">Last »</a>
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{{ base_qs }}&page={{ pagina.next_page_number }}">
+        Next ›
+      </a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{{ base_qs }}&page={{ pagina.paginator.num_pages }}">
+        Last »
+      </a>
     {% endif %}
   </div>
 </div>
 
+
+<!-- =========================================================
+     START / CONTINUE MODAL
+     ========================================================= -->
+
 <div id="modal-accept" class="fixed inset-0 hidden z-50">
+
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
+
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
-    <h3 class="text-lg font-semibold">Accept assignment?</h3>
-    <p class="mt-1 text-sm text-gray-600">
-      This will mark the task as <b>In progress</b> and store your acceptance timestamp.
+
+    <h3 id="start-modal-title" class="text-lg font-semibold">
+      Accept assignment?
+    </h3>
+
+    <p id="start-modal-text" class="mt-1 text-sm text-gray-600">
+      This will mark the task as <b>In progress</b>.
+      Work time will be tracked automatically.
     </p>
-    <form id="form-accept" method="post" action="#" class="mt-4 flex justify-end gap-2">
+
+    <form id="form-accept"
+          method="post"
+          action="#"
+          class="mt-4 flex justify-end gap-2">
+
       {% csrf_token %}
-      <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-modal>Cancel</button>
-      <button type="submit" class="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700">Accept & Start</button>
+
+      <button type="button"
+              class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200"
+              data-close-modal>
+        Cancel
+      </button>
+
+      <button id="start-modal-submit"
+              type="submit"
+              class="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700">
+        Accept & Start
+      </button>
+
     </form>
   </div>
 </div>
 
+
+<!-- =========================================================
+     FINISH MODAL
+     ========================================================= -->
+
 <div id="modal-finish" class="fixed inset-0 hidden z-50">
+
   <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+
   <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
-    <h3 class="text-lg font-semibold">Finish assignment</h3>
+
+    <h3 class="text-lg font-semibold">
+      Finish assignment
+    </h3>
+
     <p class="mt-1 text-sm text-gray-600">
       Please enter a comment. This will submit the whole team for supervisor review if validations pass.
     </p>
 
-    <form id="form-finish" method="post" action="#" class="mt-4">
+    <form id="form-finish"
+          method="post"
+          action="#"
+          class="mt-4">
+
       {% csrf_token %}
-      <label class="block text-sm font-medium mb-1">Comment</label>
+
+      <label class="block text-sm font-medium mb-1">
+        Comment
+      </label>
+
       <textarea
         name="comentario"
         id="finish-comentario"
@@ -432,16 +678,37 @@
       ></textarea>
 
       <div class="mt-4 flex justify-end gap-2">
-        <button type="button" class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200" data-close-finish>Cancel</button>
-        <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Finish</button>
+
+        <button type="button"
+                class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200"
+                data-close-finish>
+          Cancel
+        </button>
+
+        <button type="submit"
+                class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">
+          Finish
+        </button>
+
       </div>
     </form>
   </div>
 </div>
 
+
+<!-- =========================================================
+     EXCEL FILTER
+     ========================================================= -->
+
 <div id="excelFilterPanel" class="excel-panel hidden">
-  <h3 id="excelPanelTitle">Column</h3>
-  <small>Filter values</small>
+
+  <h3 id="excelPanelTitle">
+    Column
+  </h3>
+
+  <small>
+    Filter values
+  </small>
 
   <div class="mt-2">
     <input id="excelFilterSearch"
@@ -450,479 +717,1416 @@
            class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">
   </div>
 
-  <div class="mt-2 excel-options" id="excelFilterOptions"></div>
+  <div class="mt-2 excel-options"
+       id="excelFilterOptions">
+  </div>
 
   <div class="mt-3 flex justify-end gap-2">
+
     <button type="button"
             id="excelFilterClearAll"
             class="px-2 py-1 border rounded-md text-xs">
       Clear
     </button>
+
     <button type="button"
             id="excelFilterApply"
             class="px-2 py-1 bg-blue-600 text-white rounded-md text-xs">
       Apply
     </button>
+
   </div>
 </div>
 
+
+<!-- =========================================================
+     AUTOMATIC WORK TIMER
+     ========================================================= -->
+
+<script>
+(function () {
+
+  function formatDuration(totalSeconds) {
+    totalSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return (
+      String(hours).padStart(2, '0') + ':' +
+      String(minutes).padStart(2, '0') + ':' +
+      String(seconds).padStart(2, '0')
+    );
+  }
+
+  function renderTimer(el) {
+
+    const baseSeconds = Number(
+      el.dataset.baseSeconds || 0
+    );
+
+    const running = (
+      el.dataset.running === '1'
+    );
+
+    let total = baseSeconds;
+
+    if (running) {
+
+      const startedRaw = (
+        el.dataset.startedAt || ''
+      );
+
+      if (startedRaw) {
+
+        const startedAt = new Date(startedRaw);
+
+        if (!Number.isNaN(startedAt.getTime())) {
+
+          const elapsed = Math.max(
+            0,
+            Math.floor(
+              (Date.now() - startedAt.getTime()) / 1000
+            )
+          );
+
+          total += elapsed;
+        }
+      }
+    }
+
+    el.textContent = formatDuration(total);
+  }
+
+  function renderAllTimers() {
+
+    document
+      .querySelectorAll('.js-work-timer')
+      .forEach(renderTimer);
+  }
+
+  renderAllTimers();
+
+  window.setInterval(
+    renderAllTimers,
+    1000
+  );
+
+})();
+</script>
+
+
+<!-- =========================================================
+     START / CONTINUE
+     ========================================================= -->
+
 <script>
 (function(){
+
   const modalAccept = document.getElementById('modal-accept');
-  const formAccept  = document.getElementById('form-accept');
+  const formAccept = document.getElementById('form-accept');
+
+  const title = document.getElementById('start-modal-title');
+  const text = document.getElementById('start-modal-text');
+  const submit = document.getElementById('start-modal-submit');
 
   document.addEventListener('click', (e)=>{
+
     const btn = e.target.closest('.btn-accept-start');
+
     if(!btn) return;
+
     formAccept.action = btn.getAttribute('data-action');
+
+    const mode = btn.getAttribute('data-start-mode') || 'accept';
+
+    if (mode === 'continue') {
+
+      title.textContent = 'Continue assignment?';
+
+      text.innerHTML =
+        'This project will become your active work. ' +
+        'Work time will continue automatically.';
+
+      submit.textContent = 'Continue work';
+
+    } else {
+
+      title.textContent = 'Accept assignment?';
+
+      text.innerHTML =
+        'This will mark the task as <b>In progress</b>. ' +
+        'Work time will be tracked automatically.';
+
+      submit.textContent = 'Accept & Start';
+    }
+
     modalAccept.classList.remove('hidden');
   });
 
   document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-modal')) modalAccept.classList.add('hidden');
+    if (e.target.hasAttribute('data-close-modal')) {
+      modalAccept.classList.add('hidden');
+    }
   });
 
   document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape') modalAccept.classList.add('hidden');
+    if (e.key === 'Escape') {
+      modalAccept.classList.add('hidden');
+    }
   });
+
 })();
 </script>
+
+
+<!-- =========================================================
+     FINISH
+     ========================================================= -->
 
 <script>
 (function(){
+
   const modal = document.getElementById('modal-finish');
-  const form  = document.getElementById('form-finish');
-  const txt   = document.getElementById('finish-comentario');
+  const form = document.getElementById('form-finish');
+  const txt = document.getElementById('finish-comentario');
 
   document.addEventListener('click', (e)=>{
+
     const btn = e.target.closest('.btn-finish');
+
     if(!btn) return;
 
     form.action = btn.getAttribute('data-action');
-    if (txt) txt.value = "";
+
+    if (txt) {
+      txt.value = "";
+    }
+
     modal.classList.remove('hidden');
-    if (txt) setTimeout(()=>txt.focus(), 50);
+
+    if (txt) {
+      setTimeout(
+        ()=>txt.focus(),
+        50
+      );
+    }
   });
 
   document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-finish')) modal.classList.add('hidden');
+
+    if (
+      e.target.hasAttribute(
+        'data-close-finish'
+      )
+    ) {
+      modal.classList.add('hidden');
+    }
   });
 
   document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape') modal.classList.add('hidden');
+
+    if (e.key === 'Escape') {
+      modal.classList.add('hidden');
+    }
   });
 
   form.addEventListener('submit', (e)=>{
-    const val = (txt?.value || "").trim();
+
+    const val = (
+      txt?.value || ""
+    ).trim();
+
     if (!val) {
+
       e.preventDefault();
-      alert("Please enter a comment to finish.");
-      if (txt) txt.focus();
+
+      alert(
+        "Please enter a comment to finish."
+      );
+
+      if (txt) {
+        txt.focus();
+      }
     }
   });
+
 })();
 </script>
 
+
+<!-- =========================================================
+     RESTORE HORIZONTAL SCROLL
+     ========================================================= -->
+
 <script>
 (function () {
+
   const KEY = 'myassignScrollX:' + location.pathname;
 
   function getScrollBox() {
-    return document.querySelector('.max-w-7xl .overflow-x-auto') || document.querySelector('.overflow-x-auto');
+    return (
+      document.querySelector('.max-w-7xl .overflow-x-auto')
+      ||
+      document.querySelector('.overflow-x-auto')
+    );
   }
 
   function saveX(x) {
-    try { sessionStorage.setItem(KEY, String(x)); } catch (_) {}
+    try {
+      sessionStorage.setItem(
+        KEY,
+        String(x)
+      );
+    } catch (_) {}
   }
+
   function readX() {
-    try { return Number(sessionStorage.getItem(KEY) || 0); } catch (_) { return 0; }
+    try {
+      return Number(
+        sessionStorage.getItem(KEY) || 0
+      );
+    } catch (_) {
+      return 0;
+    }
   }
 
   function restore() {
+
     const box = getScrollBox();
+
     if (!box) return;
+
     const x = readX();
-    requestAnimationFrame(() => { box.scrollLeft = x; });
+
+    requestAnimationFrame(
+      () => {
+        box.scrollLeft = x;
+      }
+    );
 
     let t = null;
-    box.addEventListener('scroll', () => {
-      if (t) return;
-      t = setTimeout(() => { t = null; saveX(box.scrollLeft); }, 120);
-    }, { passive: true });
+
+    box.addEventListener(
+      'scroll',
+      () => {
+
+        if (t) return;
+
+        t = setTimeout(
+          () => {
+
+            t = null;
+
+            saveX(
+              box.scrollLeft
+            );
+
+          },
+          120
+        );
+
+      },
+      {
+        passive: true
+      }
+    );
   }
 
   function saveBeforeLeave() {
+
     const box = getScrollBox();
-    if (box) saveX(box.scrollLeft);
+
+    if (box) {
+      saveX(
+        box.scrollLeft
+      );
+    }
   }
 
-  document.addEventListener('DOMContentLoaded', restore);
-  window.addEventListener('beforeunload', saveBeforeLeave);
+  document.addEventListener(
+    'DOMContentLoaded',
+    restore
+  );
+
+  window.addEventListener(
+    'beforeunload',
+    saveBeforeLeave
+  );
+
 })();
 </script>
 
+
+<!-- =========================================================
+     COLUMN VISIBILITY
+     ========================================================= -->
+
 <script>
 (function () {
+
   const panel = document.getElementById('columnToggles');
+
   if (!panel) return;
 
-  const table = document.getElementById('myassign-table') || document.querySelector('table');
+  const table =
+    document.getElementById('myassign-table')
+    ||
+    document.querySelector('table');
+
   if (!table) return;
 
-  const tableId = table.dataset.columnsTable || location.pathname;
-  const STORAGE_KEY = 'cols:' + tableId;
+  const tableId =
+    table.dataset.columnsTable
+    ||
+    location.pathname;
+
+  const STORAGE_KEY =
+    'cols:' + tableId;
 
   function loadState() {
+
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+
+      const raw =
+        localStorage.getItem(
+          STORAGE_KEY
+        );
+
       if (!raw) return {};
-      const obj = JSON.parse(raw);
-      return obj && typeof obj === 'object' ? obj : {};
-    } catch (e) { return {}; }
+
+      const obj =
+        JSON.parse(raw);
+
+      return (
+        obj
+        &&
+        typeof obj === 'object'
+      )
+        ? obj
+        : {};
+
+    } catch (e) {
+      return {};
+    }
   }
 
   function saveState(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+
+    try {
+
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(state)
+      );
+
+    } catch (e) {}
   }
 
   function applyVisibility() {
+
     const state = loadState();
 
-    const theadCells = table.querySelectorAll('thead tr th');
-    theadCells.forEach((th, idx) => {
-      const visible = state[idx] !== false;
-      th.style.display = visible ? '' : 'none';
-    });
+    const theadCells =
+      table.querySelectorAll(
+        'thead tr th'
+      );
 
-    table.querySelectorAll('tbody tr').forEach((tr) => {
-      const tds = tr.querySelectorAll('td');
-      tds.forEach((td, idx) => {
-        const visible = state[idx] !== false;
-        td.style.display = visible ? '' : 'none';
-      });
-    });
+    theadCells.forEach(
+      (th, idx) => {
 
-    const checks = panel.querySelectorAll('.col-toggle');
-    const master = panel.querySelector('#col-toggle-all');
+        const visible =
+          state[idx] !== false;
+
+        th.style.display =
+          visible ? '' : 'none';
+      }
+    );
+
+    table.querySelectorAll(
+      'tbody tr'
+    ).forEach(
+      (tr) => {
+
+        const tds =
+          tr.querySelectorAll('td');
+
+        tds.forEach(
+          (td, idx) => {
+
+            const visible =
+              state[idx] !== false;
+
+            td.style.display =
+              visible ? '' : 'none';
+          }
+        );
+      }
+    );
+
+    const checks =
+      panel.querySelectorAll(
+        '.col-toggle'
+      );
+
+    const master =
+      panel.querySelector(
+        '#col-toggle-all'
+      );
+
     let allOn = true;
 
-    checks.forEach((cb) => {
-      const idx = parseInt(cb.dataset.col || '0', 10);
-      const visible = state[idx] !== false;
-      cb.checked = visible;
-      if (!visible) allOn = false;
-    });
+    checks.forEach(
+      (cb) => {
 
-    if (master) master.checked = allOn;
+        const idx =
+          parseInt(
+            cb.dataset.col || '0',
+            10
+          );
+
+        const visible =
+          state[idx] !== false;
+
+        cb.checked =
+          visible;
+
+        if (!visible) {
+          allOn = false;
+        }
+      }
+    );
+
+    if (master) {
+      master.checked = allOn;
+    }
   }
 
   function bindToggles() {
-    const checks = panel.querySelectorAll('.col-toggle');
-    const master = panel.querySelector('#col-toggle-all');
 
-    checks.forEach((cb) => {
-      cb.addEventListener('change', () => {
-        const idx = parseInt(cb.dataset.col || '0', 10);
-        const state = loadState();
-        state[idx] = cb.checked;
-        saveState(state);
-        applyVisibility();
-      });
-    });
+    const checks =
+      panel.querySelectorAll(
+        '.col-toggle'
+      );
+
+    const master =
+      panel.querySelector(
+        '#col-toggle-all'
+      );
+
+    checks.forEach(
+      (cb) => {
+
+        cb.addEventListener(
+          'change',
+          () => {
+
+            const idx =
+              parseInt(
+                cb.dataset.col || '0',
+                10
+              );
+
+            const state =
+              loadState();
+
+            state[idx] =
+              cb.checked;
+
+            saveState(state);
+            applyVisibility();
+          }
+        );
+      }
+    );
 
     if (master) {
-      master.addEventListener('change', () => {
-        const val = master.checked;
-        const state = loadState();
 
-        checks.forEach((cb) => {
-          const idx = parseInt(cb.dataset.col || '0', 10);
-          cb.checked = val;
-          state[idx] = val;
-        });
+      master.addEventListener(
+        'change',
+        () => {
 
-        saveState(state);
-        applyVisibility();
-      });
+          const val =
+            master.checked;
+
+          const state =
+            loadState();
+
+          checks.forEach(
+            (cb) => {
+
+              const idx =
+                parseInt(
+                  cb.dataset.col || '0',
+                  10
+                );
+
+              cb.checked = val;
+              state[idx] = val;
+            }
+          );
+
+          saveState(state);
+          applyVisibility();
+        }
+      );
     }
   }
 
   function bindOutsideClickToClose() {
-    const details = panel.closest('details');
+
+    const details =
+      panel.closest(
+        'details'
+      );
+
     if (!details) return;
 
-    document.addEventListener('click', (e) => {
-      if (!details.open) return;
-      if (details.contains(e.target)) return;
-      details.open = false;
-    });
+    document.addEventListener(
+      'click',
+      (e) => {
+
+        if (!details.open) return;
+        if (details.contains(e.target)) return;
+
+        details.open = false;
+      }
+    );
   }
 
   bindToggles();
   applyVisibility();
   bindOutsideClickToClose();
+
 })();
 </script>
 
+
+<!-- =========================================================
+     EXCEL FILTERS
+     ========================================================= -->
+
 <script>
 (function(){
-  const zona = document.getElementById('zonaTabla');
+
+  const zona =
+    document.getElementById(
+      'zonaTabla'
+    );
+
   if(!zona) return;
 
   function loadExcelGlobal(){
-    try { return JSON.parse(zona.dataset.excelGlobal || '{}'); } catch(_) { return {}; }
+
+    try {
+      return JSON.parse(
+        zona.dataset.excelGlobal || '{}'
+      );
+    } catch(_) {
+      return {};
+    }
   }
-  const excelGlobal = loadExcelGlobal();
+
+  const excelGlobal =
+    loadExcelGlobal();
 
   const excel = {
-    panel: document.getElementById('excelFilterPanel'),
-    titleEl: document.getElementById('excelPanelTitle'),
-    searchInput: document.getElementById('excelFilterSearch'),
-    optsBox: document.getElementById('excelFilterOptions'),
-    btnApply: document.getElementById('excelFilterApply'),
-    btnClear: document.getElementById('excelFilterClearAll'),
-    headers: Array.from(document.querySelectorAll('#myassign-table thead th')),
+
+    panel:
+      document.getElementById(
+        'excelFilterPanel'
+      ),
+
+    titleEl:
+      document.getElementById(
+        'excelPanelTitle'
+      ),
+
+    searchInput:
+      document.getElementById(
+        'excelFilterSearch'
+      ),
+
+    optsBox:
+      document.getElementById(
+        'excelFilterOptions'
+      ),
+
+    btnApply:
+      document.getElementById(
+        'excelFilterApply'
+      ),
+
+    btnClear:
+      document.getElementById(
+        'excelFilterClearAll'
+      ),
+
+    headers:
+      Array.from(
+        document.querySelectorAll(
+          '#myassign-table thead th'
+        )
+      ),
+
     active: {},
+
     currentCol: null
   };
 
-  const KEY = 'myassignExcelFilters:' + location.pathname;
+  const KEY =
+    'myassignExcelFilters:'
+    +
+    location.pathname;
 
   function loadFilters(){
+
     try{
-      const raw = sessionStorage.getItem(KEY);
+
+      const raw =
+        sessionStorage.getItem(KEY);
+
       if(!raw) return {};
-      const obj = JSON.parse(raw) || {};
+
+      const obj =
+        JSON.parse(raw) || {};
+
       const out = {};
-      Object.entries(obj).forEach(([k, arr]) => out[k] = new Set(arr || []));
+
+      Object.entries(obj)
+        .forEach(
+          ([k, arr]) => {
+            out[k] =
+              new Set(arr || []);
+          }
+        );
+
       return out;
-    }catch(_){ return {}; }
+
+    }catch(_){
+      return {};
+    }
   }
 
   function saveFilters(active){
+
     try{
+
       const plain = {};
-      Object.entries(active).forEach(([k, set]) => plain[k] = Array.from(set || []));
-      sessionStorage.setItem(KEY, JSON.stringify(plain));
+
+      Object.entries(active)
+        .forEach(
+          ([k, set]) => {
+            plain[k] =
+              Array.from(
+                set || []
+              );
+          }
+        );
+
+      sessionStorage.setItem(
+        KEY,
+        JSON.stringify(plain)
+      );
+
     }catch(_){}
   }
 
   function buildExcelParam(){
+
     const plain = {};
-    Object.entries(excel.active).forEach(([k, set])=>{
-      if(set && set.size) plain[k] = Array.from(set);
-    });
-    return Object.keys(plain).length ? JSON.stringify(plain) : '';
+
+    Object.entries(
+      excel.active
+    ).forEach(
+      ([k, set]) => {
+
+        if(
+          set
+          &&
+          set.size
+        ) {
+          plain[k] =
+            Array.from(set);
+        }
+      }
+    );
+
+    return (
+      Object.keys(plain).length
+      ? JSON.stringify(plain)
+      : ''
+    );
   }
 
   function reloadWith(resetPage){
-    const url = new URL(location.href);
-    if(resetPage) url.searchParams.set('page','1');
 
-    const ef = buildExcelParam();
-    if(ef) url.searchParams.set('excel_filters', ef);
-    else url.searchParams.delete('excel_filters');
+    const url =
+      new URL(
+        location.href
+      );
 
-    const cant = document.getElementById('cantidad')?.value;
-    if(cant) url.searchParams.set('cantidad', cant);
+    if(resetPage) {
+      url.searchParams.set(
+        'page',
+        '1'
+      );
+    }
 
-    location.href = url.toString();
+    const ef =
+      buildExcelParam();
+
+    if(ef) {
+      url.searchParams.set(
+        'excel_filters',
+        ef
+      );
+    } else {
+      url.searchParams.delete(
+        'excel_filters'
+      );
+    }
+
+    const cant =
+      document.getElementById(
+        'cantidad'
+      )?.value;
+
+    if(cant) {
+      url.searchParams.set(
+        'cantidad',
+        cant
+      );
+    }
+
+    location.href =
+      url.toString();
   }
 
   function updateHeaderStates(){
-    excel.headers.forEach((th, idx)=>{
-      if(!th.hasAttribute('data-excel-col')) return;
-      const set = excel.active[idx];
-      th.classList.toggle('excel-col-filtered', !!(set && set.size));
-    });
+
+    excel.headers.forEach(
+      (th, idx)=>{
+
+        if(
+          !th.hasAttribute(
+            'data-excel-col'
+          )
+        ) return;
+
+        const set =
+          excel.active[idx];
+
+        th.classList.toggle(
+          'excel-col-filtered',
+          !!(
+            set
+            &&
+            set.size
+          )
+        );
+      }
+    );
   }
 
   function renderOptions(col){
+
     excel.optsBox.innerHTML = '';
 
-    const values = (excelGlobal[String(col)] || []);
-    const selected = excel.active[col];
+    const values =
+      (
+        excelGlobal[
+          String(col)
+        ]
+        ||
+        []
+      );
 
-    const allLabel = document.createElement('label');
-    allLabel.className = 'flex items-center gap-1 mb-1 text-xs';
-    const allCb = document.createElement('input');
-    allCb.type = 'checkbox';
-    allCb.checked = !selected || selected.size === values.length;
+    const selected =
+      excel.active[col];
 
-    allCb.addEventListener('change', ()=>{
-      const q = (excel.searchInput.value || '').trim().toLowerCase();
-      const onlyVisible = !!q;
-      const optionLabels = excel.optsBox.querySelectorAll('label[data-option-label]');
-      optionLabels.forEach(lbl=>{
-        if(onlyVisible && lbl.style.display === 'none') return;
-        const cb = lbl.querySelector('input[type="checkbox"][data-value]');
-        if(cb) cb.checked = allCb.checked;
-      });
-    });
+    const allLabel =
+      document.createElement(
+        'label'
+      );
 
-    allLabel.appendChild(allCb);
-    allLabel.appendChild(document.createTextNode(' (Select all)'));
-    excel.optsBox.appendChild(allLabel);
+    allLabel.className =
+      'flex items-center gap-1 mb-1 text-xs';
 
-    values.forEach(val=>{
-      const label = document.createElement('label');
-      label.className = 'flex items-center gap-1 text-xs mt-0.5';
-      label.dataset.optionLabel = '1';
+    const allCb =
+      document.createElement(
+        'input'
+      );
 
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.dataset.value = val;
-      cb.checked = !selected || selected.has(val);
+    allCb.type =
+      'checkbox';
 
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(' ' + val));
-      excel.optsBox.appendChild(label);
-    });
+    allCb.checked =
+      !selected
+      ||
+      selected.size === values.length;
+
+    allCb.addEventListener(
+      'change',
+      ()=>{
+
+        const q =
+          (
+            excel.searchInput.value
+            ||
+            ''
+          )
+          .trim()
+          .toLowerCase();
+
+        const onlyVisible =
+          !!q;
+
+        const optionLabels =
+          excel.optsBox.querySelectorAll(
+            'label[data-option-label]'
+          );
+
+        optionLabels.forEach(
+          lbl=>{
+
+            if(
+              onlyVisible
+              &&
+              lbl.style.display === 'none'
+            ) {
+              return;
+            }
+
+            const cb =
+              lbl.querySelector(
+                'input[type="checkbox"][data-value]'
+              );
+
+            if(cb) {
+              cb.checked =
+                allCb.checked;
+            }
+          }
+        );
+      }
+    );
+
+    allLabel.appendChild(
+      allCb
+    );
+
+    allLabel.appendChild(
+      document.createTextNode(
+        ' (Select all)'
+      )
+    );
+
+    excel.optsBox.appendChild(
+      allLabel
+    );
+
+    values.forEach(
+      val=>{
+
+        const label =
+          document.createElement(
+            'label'
+          );
+
+        label.className =
+          'flex items-center gap-1 text-xs mt-0.5';
+
+        label.dataset.optionLabel =
+          '1';
+
+        const cb =
+          document.createElement(
+            'input'
+          );
+
+        cb.type =
+          'checkbox';
+
+        cb.dataset.value =
+          val;
+
+        cb.checked =
+          !selected
+          ||
+          selected.has(val);
+
+        label.appendChild(cb);
+
+        label.appendChild(
+          document.createTextNode(
+            ' ' + val
+          )
+        );
+
+        excel.optsBox.appendChild(
+          label
+        );
+      }
+    );
   }
 
   function filterOptionList(query){
-    const q = (query || '').trim().toLowerCase();
+
+    const q =
+      (
+        query
+        ||
+        ''
+      )
+      .trim()
+      .toLowerCase();
+
     let visible = 0;
 
-    excel.optsBox.querySelectorAll('label[data-option-label]').forEach(lbl=>{
-      const txt = (lbl.textContent || '').toLowerCase();
-      const show = txt.includes(q);
-      lbl.style.display = show ? '' : 'none';
-      if(show) visible++;
-    });
+    excel.optsBox
+      .querySelectorAll(
+        'label[data-option-label]'
+      )
+      .forEach(
+        lbl=>{
 
-    let msg = excel.optsBox.querySelector('[data-no-match="1"]');
+          const txt =
+            (
+              lbl.textContent
+              ||
+              ''
+            ).toLowerCase();
+
+          const show =
+            txt.includes(q);
+
+          lbl.style.display =
+            show ? '' : 'none';
+
+          if(show) {
+            visible++;
+          }
+        }
+      );
+
+    let msg =
+      excel.optsBox.querySelector(
+        '[data-no-match="1"]'
+      );
+
     if(!msg){
-      msg = document.createElement('div');
-      msg.dataset.noMatch = "1";
-      msg.className = "mt-2 text-xs text-gray-500";
-      msg.textContent = "No results found.";
-      excel.optsBox.appendChild(msg);
-    }
-    msg.style.display = (q && visible === 0) ? '' : 'none';
 
-    excel.btnApply.disabled = (q && visible === 0);
-    excel.btnApply.classList.toggle('opacity-50', excel.btnApply.disabled);
-    excel.btnApply.classList.toggle('cursor-not-allowed', excel.btnApply.disabled);
+      msg =
+        document.createElement(
+          'div'
+        );
+
+      msg.dataset.noMatch =
+        "1";
+
+      msg.className =
+        "mt-2 text-xs text-gray-500";
+
+      msg.textContent =
+        "No results found.";
+
+      excel.optsBox.appendChild(
+        msg
+      );
+    }
+
+    msg.style.display =
+      (
+        q
+        &&
+        visible === 0
+      )
+      ? ''
+      : 'none';
+
+    excel.btnApply.disabled =
+      (
+        q
+        &&
+        visible === 0
+      );
+
+    excel.btnApply.classList.toggle(
+      'opacity-50',
+      excel.btnApply.disabled
+    );
+
+    excel.btnApply.classList.toggle(
+      'cursor-not-allowed',
+      excel.btnApply.disabled
+    );
   }
 
   function openPanel(th, col){
-    excel.currentCol = col;
-    excel.titleEl.textContent = (th.textContent || '').trim().replace('▼','').trim() || 'Column';
+
+    excel.currentCol =
+      col;
+
+    excel.titleEl.textContent =
+      (
+        th.textContent
+        ||
+        ''
+      )
+      .trim()
+      .replace('▼','')
+      .trim()
+      ||
+      'Column';
 
     renderOptions(col);
 
-    const rect = th.getBoundingClientRect();
-    const panelWidth  = excel.panel.offsetWidth || 260;
-    const panelHeight = excel.panel.offsetHeight || 220;
+    const rect =
+      th.getBoundingClientRect();
 
-    let left = rect.left + (rect.width - panelWidth) / 2;
-    let top  = rect.bottom + 4;
+    const panelWidth =
+      excel.panel.offsetWidth
+      ||
+      260;
+
+    const panelHeight =
+      excel.panel.offsetHeight
+      ||
+      220;
+
+    let left =
+      rect.left
+      +
+      (
+        rect.width
+        -
+        panelWidth
+      )
+      /
+      2;
+
+    let top =
+      rect.bottom
+      +
+      4;
 
     const minLeft = 8;
-    const maxLeft = window.innerWidth - panelWidth - 8;
-    if(left < minLeft) left = minLeft;
-    if(left > maxLeft) left = maxLeft;
 
-    const maxTop = window.innerHeight - panelHeight - 8;
-    if(top > maxTop) top = maxTop;
+    const maxLeft =
+      window.innerWidth
+      -
+      panelWidth
+      -
+      8;
 
-    excel.panel.style.left = left + 'px';
-    excel.panel.style.top  = top + 'px';
+    if(left < minLeft) {
+      left = minLeft;
+    }
 
-    excel.panel.classList.remove('hidden');
-    excel.searchInput.value = '';
+    if(left > maxLeft) {
+      left = maxLeft;
+    }
+
+    const maxTop =
+      window.innerHeight
+      -
+      panelHeight
+      -
+      8;
+
+    if(top > maxTop) {
+      top = maxTop;
+    }
+
+    excel.panel.style.left =
+      left + 'px';
+
+    excel.panel.style.top =
+      top + 'px';
+
+    excel.panel.classList.remove(
+      'hidden'
+    );
+
+    excel.searchInput.value =
+      '';
+
     filterOptionList('');
+
     excel.searchInput.focus();
   }
 
-  excel.active = loadFilters();
+  excel.active =
+    loadFilters();
+
   updateHeaderStates();
 
-  excel.headers.forEach((th, idx)=>{
-    if(!th.hasAttribute('data-excel-col')) return;
-    const btn = th.querySelector('.excel-header-btn');
-    if(!btn) return;
-    btn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      openPanel(th, idx);
-    });
-  });
+  excel.headers.forEach(
+    (th, idx)=>{
 
-  excel.searchInput.addEventListener('input', ()=> filterOptionList(excel.searchInput.value));
+      if(
+        !th.hasAttribute(
+          'data-excel-col'
+        )
+      ) return;
 
-  excel.searchInput.addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter'){
+      const btn =
+        th.querySelector(
+          '.excel-header-btn'
+        );
+
+      if(!btn) return;
+
+      btn.addEventListener(
+        'click',
+        (e)=>{
+
+          e.stopPropagation();
+
+          openPanel(
+            th,
+            idx
+          );
+        }
+      );
+    }
+  );
+
+  excel.searchInput
+    .addEventListener(
+      'input',
+      ()=> {
+        filterOptionList(
+          excel.searchInput.value
+        );
+      }
+    );
+
+  excel.searchInput
+    .addEventListener(
+      'keydown',
+      (e)=>{
+
+        if(e.key === 'Enter'){
+
+          e.preventDefault();
+
+          if(
+            !excel.btnApply.disabled
+          ) {
+            excel.btnApply.click();
+          }
+        }
+
+        if(e.key === 'Escape'){
+
+          e.preventDefault();
+
+          excel.panel.classList.add(
+            'hidden'
+          );
+        }
+      }
+    );
+
+  excel.btnClear
+    .addEventListener(
+      'click',
+      (e)=>{
+
+        e.preventDefault();
+
+        if(
+          excel.currentCol == null
+        ){
+
+          excel.panel.classList.add(
+            'hidden'
+          );
+
+          return;
+        }
+
+        delete excel.active[
+          excel.currentCol
+        ];
+
+        saveFilters(
+          excel.active
+        );
+
+        excel.panel.classList.add(
+          'hidden'
+        );
+
+        reloadWith(true);
+      }
+    );
+
+  excel.btnApply
+    .addEventListener(
+      'click',
+      (e)=>{
+
+        e.preventDefault();
+
+        if(
+          excel.currentCol == null
+        ){
+
+          excel.panel.classList.add(
+            'hidden'
+          );
+
+          return;
+        }
+
+        const q =
+          (
+            excel.searchInput.value
+            ||
+            ''
+          )
+          .trim()
+          .toLowerCase();
+
+        let checkboxes = [];
+
+        if(q){
+
+          const visibleLabels =
+            Array.from(
+              excel.optsBox.querySelectorAll(
+                'label[data-option-label]'
+              )
+            )
+            .filter(
+              lbl =>
+                lbl.style.display !== 'none'
+            );
+
+          checkboxes =
+            visibleLabels
+            .map(
+              lbl =>
+                lbl.querySelector(
+                  'input[type="checkbox"][data-value]'
+                )
+            )
+            .filter(Boolean);
+
+        } else {
+
+          checkboxes =
+            Array.from(
+              excel.optsBox.querySelectorAll(
+                'input[type="checkbox"][data-value]'
+              )
+            );
+        }
+
+        const selected =
+          new Set();
+
+        checkboxes.forEach(
+          cb=>{
+            if(cb.checked) {
+              selected.add(
+                cb.dataset.value
+              );
+            }
+          }
+        );
+
+        const full =
+          new Set(
+            excelGlobal[
+              String(
+                excel.currentCol
+              )
+            ]
+            ||
+            []
+          );
+
+        if(
+          selected.size === 0
+          ||
+          selected.size === full.size
+        ){
+
+          delete excel.active[
+            excel.currentCol
+          ];
+
+        } else {
+
+          excel.active[
+            excel.currentCol
+          ] =
+            selected;
+        }
+
+        saveFilters(
+          excel.active
+        );
+
+        excel.panel.classList.add(
+          'hidden'
+        );
+
+        reloadWith(true);
+      }
+    );
+
+  document.addEventListener(
+    'click',
+    (e)=>{
+
+      if(
+        excel.panel.classList.contains(
+          'hidden'
+        )
+      ) return;
+
+      if(
+        excel.panel.contains(
+          e.target
+        )
+      ) return;
+
+      if(
+        e.target.closest(
+          '.excel-header-btn'
+        )
+      ) return;
+
+      excel.panel.classList.add(
+        'hidden'
+      );
+    }
+  );
+
+  document.getElementById(
+    'btnExcelClearAll'
+  )?.addEventListener(
+    'click',
+    (e)=>{
+
       e.preventDefault();
-      if(!excel.btnApply.disabled) excel.btnApply.click();
+
+      excel.active = {};
+
+      saveFilters(
+        excel.active
+      );
+
+      reloadWith(true);
     }
-    if(e.key === 'Escape'){
-      e.preventDefault();
-      excel.panel.classList.add('hidden');
-    }
-  });
+  );
 
-  excel.btnClear.addEventListener('click', (e)=>{
-    e.preventDefault();
-    if(excel.currentCol == null){
-      excel.panel.classList.add('hidden');
-      return;
-    }
-    delete excel.active[excel.currentCol];
-    saveFilters(excel.active);
-    excel.panel.classList.add('hidden');
-    reloadWith(true);
-  });
-
-  excel.btnApply.addEventListener('click', (e)=>{
-    e.preventDefault();
-    if(excel.currentCol == null){
-      excel.panel.classList.add('hidden');
-      return;
-    }
-
-    const q = (excel.searchInput.value || '').trim().toLowerCase();
-    let checkboxes = [];
-
-    if(q){
-      const visibleLabels = Array.from(excel.optsBox.querySelectorAll('label[data-option-label]'))
-        .filter(lbl => lbl.style.display !== 'none');
-      checkboxes = visibleLabels
-        .map(lbl => lbl.querySelector('input[type="checkbox"][data-value]'))
-        .filter(Boolean);
-    }else{
-      checkboxes = Array.from(excel.optsBox.querySelectorAll('input[type="checkbox"][data-value]'));
-    }
-
-    const selected = new Set();
-    checkboxes.forEach(cb=>{ if(cb.checked) selected.add(cb.dataset.value); });
-
-    const full = new Set(excelGlobal[String(excel.currentCol)] || []);
-
-    if(selected.size === 0 || selected.size === full.size){
-      delete excel.active[excel.currentCol];
-    }else{
-      excel.active[excel.currentCol] = selected;
-    }
-
-    saveFilters(excel.active);
-    excel.panel.classList.add('hidden');
-    reloadWith(true);
-  });
-
-  document.addEventListener('click', (e)=>{
-    if(excel.panel.classList.contains('hidden')) return;
-    if(excel.panel.contains(e.target)) return;
-    if(e.target.closest('.excel-header-btn')) return;
-    excel.panel.classList.add('hidden');
-  });
-
-  document.getElementById('btnExcelClearAll')?.addEventListener('click', (e)=>{
-    e.preventDefault();
-    excel.active = {};
-    saveFilters(excel.active);
-    reloadWith(true);
-  });
 })();
 </script>
 

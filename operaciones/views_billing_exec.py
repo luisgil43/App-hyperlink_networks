@@ -274,12 +274,16 @@ def _cable_assignment_can_finish(assignment):
 @rol_requerido("usuario", "admin", "pm", "supervisor")
 def mis_assignments(request):
     import json
+    from collections import defaultdict
     from decimal import Decimal
 
     from django.core.paginator import Paginator
     from django.db.models import (Case, DecimalField, IntegerField, OuterRef,
                                   Q, Subquery, Sum, Value, When)
     from django.db.models.functions import Coalesce
+
+    from operaciones.models_billing_queue import (BillingAssignmentQueue,
+                                                  BillingWorkSession)
 
     try:
         from cable_installation.models import (CableAssignmentRequirement,
@@ -298,7 +302,10 @@ def mis_assignments(request):
         "rechazado_finanzas",
     ]
 
-    base_qs = SesionBillingTecnico.objects.select_related("sesion", "tecnico").filter(
+    base_qs = SesionBillingTecnico.objects.select_related(
+        "sesion",
+        "tecnico",
+    ).filter(
         tecnico=request.user,
         estado__in=visibles,
         sesion__is_direct_discount=False,
@@ -310,36 +317,239 @@ def mis_assignments(request):
     except Exception:
         pass
 
+    # ============================================================
+    # EXECUTION QUEUE VISIBILITY
+    #
+    # Trabajo nuevo:
+    #
+    #   #1
+    #       -> visible
+    #
+    #   Show Now / Show Immediately
+    #       -> queue_position = NULL
+    #       -> is_released = True
+    #       -> visible
+    #
+    #   Legacy sin queue_state
+    #       -> visible
+    #
+    #   #2, #3, #4...
+    #       -> oculto mientras siga en estado "asignado"
+    #
+    # Trabajo ya iniciado / revisión / rechazo:
+    #   -> permanece visible para no romper flujo histórico.
+    # ============================================================
+
+    base_qs = base_qs.filter(
+        Q(
+            estado__in=[
+                "en_proceso",
+                "en_revision_supervisor",
+                "rechazado_supervisor",
+                "rechazado_pm",
+                "rechazado_finanzas",
+            ]
+        )
+        | Q(
+            estado="asignado",
+            queue_state__isnull=True,
+        )
+        | Q(
+            estado="asignado",
+            queue_state__queue_position=1,
+        )
+        | Q(
+            estado="asignado",
+            queue_state__queue_position__isnull=True,
+            queue_state__is_released=True,
+        )
+    )
+
     ibt = (
         ItemBillingTecnico.objects.filter(
-            item__sesion=OuterRef("sesion_id"), tecnico=request.user
+            item__sesion=OuterRef("sesion_id"),
+            tecnico=request.user,
         )
         .values("tecnico")
         .annotate(total=Sum("subtotal"))
         .values("total")
     )
 
-    dec_field = DecimalField(max_digits=12, decimal_places=2)
+    dec_field = DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
 
     asignaciones_qs = base_qs.annotate(
         my_total=Coalesce(
-            Subquery(ibt, output_field=dec_field),
-            Value(Decimal("0.00"), output_field=dec_field),
+            Subquery(
+                ibt,
+                output_field=dec_field,
+            ),
+            Value(
+                Decimal("0.00"),
+                output_field=dec_field,
+            ),
             output_field=dec_field,
         ),
         estado_priority=Case(
-            When(estado="asignado", then=Value(1)),
-            When(estado="en_proceso", then=Value(2)),
-            When(estado="en_revision_supervisor", then=Value(3)),
-            When(estado="rechazado_supervisor", then=Value(4)),
-            When(estado="rechazado_pm", then=Value(5)),
-            When(estado="rechazado_finanzas", then=Value(6)),
+            When(
+                estado="asignado",
+                then=Value(1),
+            ),
+            When(
+                estado="en_proceso",
+                then=Value(2),
+            ),
+            When(
+                estado="en_revision_supervisor",
+                then=Value(3),
+            ),
+            When(
+                estado="rechazado_supervisor",
+                then=Value(4),
+            ),
+            When(
+                estado="rechazado_pm",
+                then=Value(5),
+            ),
+            When(
+                estado="rechazado_finanzas",
+                then=Value(6),
+            ),
             default=Value(999),
             output_field=IntegerField(),
         ),
-    ).order_by("estado_priority", "-sesion__creado_en", "-id")
+    ).order_by(
+        "estado_priority",
+        "-sesion__creado_en",
+        "-id",
+    )
 
     asignaciones = list(asignaciones_qs)
+
+    # ============================================================
+    # PRIORITY + WORK TIMER DATA
+    # ============================================================
+
+    assignment_ids = [a.pk for a in asignaciones]
+
+    queue_by_assignment = {}
+
+    if assignment_ids:
+        queue_rows = BillingAssignmentQueue.objects.filter(
+            assignment_id__in=assignment_ids,
+        )
+
+        queue_by_assignment = {row.assignment_id: row for row in queue_rows}
+
+    closed_seconds_by_assignment = defaultdict(float)
+    open_work_by_assignment = {}
+
+    if assignment_ids:
+        work_rows = BillingWorkSession.objects.filter(
+            assignment_id__in=assignment_ids,
+            technician=request.user,
+        ).order_by(
+            "started_at",
+            "id",
+        )
+
+        for ws in work_rows:
+
+            if ws.ended_at:
+
+                seconds = (ws.ended_at - ws.started_at).total_seconds()
+
+                if seconds > 0:
+                    closed_seconds_by_assignment[ws.assignment_id] += seconds
+
+            else:
+                open_work_by_assignment[ws.assignment_id] = ws
+
+    for a in asignaciones:
+
+        queue_entry = queue_by_assignment.get(a.pk)
+
+        # --------------------------------------------------------
+        # PRIORITY STATE
+        # --------------------------------------------------------
+
+        if queue_entry is None:
+
+            # Legacy histórico sin cola administrada.
+            a.queue_position = None
+            a.queue_is_released = False
+            a.queue_is_legacy = True
+
+        else:
+
+            a.queue_position = queue_entry.queue_position
+
+            # Show Now / Show Immediately.
+            a.queue_is_released = bool(
+                queue_entry.queue_position is None
+                and queue_entry.is_released
+                and queue_entry.released_manually
+            )
+
+            # Legacy migrado:
+            # released pero no manual.
+            a.queue_is_legacy = bool(
+                queue_entry.queue_position is None
+                and queue_entry.is_released
+                and not queue_entry.released_manually
+            )
+
+        # --------------------------------------------------------
+        # CAN START NOW
+        # --------------------------------------------------------
+
+        if a.estado == "asignado":
+
+            a.can_start_now = bool(
+                queue_entry is None
+                or (queue_entry.queue_position == 1)
+                or (queue_entry.queue_position is None and queue_entry.is_released)
+            )
+
+        elif a.estado == "en_proceso":
+
+            # Resume siempre permitido.
+            a.can_start_now = True
+
+        elif a.estado == "rechazado_supervisor" and getattr(
+            a,
+            "reintento_habilitado",
+            False,
+        ):
+
+            a.can_start_now = True
+
+        else:
+
+            a.can_start_now = False
+
+        # --------------------------------------------------------
+        # TIMER
+        # --------------------------------------------------------
+
+        open_ws = open_work_by_assignment.get(a.pk)
+
+        a.timer_total_seconds = int(
+            closed_seconds_by_assignment.get(
+                a.pk,
+                0,
+            )
+        )
+
+        a.timer_is_running = bool(open_ws)
+
+        a.timer_started_at_iso = open_ws.started_at.isoformat() if open_ws else ""
+
+    # ============================================================
+    # PROJECT LABELS
+    # ============================================================
 
     proyectos_qs = filter_queryset_by_access(
         Proyecto.objects.all(),
@@ -350,44 +560,78 @@ def mis_assignments(request):
     for a in asignaciones:
         s = a.sesion
         proyecto_sel = None
-        raw = (getattr(s, "proyecto", "") or "").strip()
+        raw = (
+            getattr(
+                s,
+                "proyecto",
+                "",
+            )
+            or ""
+        ).strip()
 
         if raw:
             try:
                 pid = int(raw)
+
             except (TypeError, ValueError):
                 proyecto_sel = proyectos_qs.filter(
                     Q(nombre__iexact=raw) | Q(codigo__iexact=raw)
                 ).first()
+
             else:
                 proyecto_sel = proyectos_qs.filter(pk=pid).first()
 
-        if not proyecto_sel and getattr(s, "proyecto_id", None):
+        if not proyecto_sel and getattr(
+            s,
+            "proyecto_id",
+            None,
+        ):
             code = str(s.proyecto_id).strip()
+
             proyecto_sel = proyectos_qs.filter(
                 Q(codigo__iexact=code) | Q(nombre__icontains=code)
             ).first()
 
         if proyecto_sel:
-            a.proyecto_label = getattr(proyecto_sel, "nombre", str(proyecto_sel))
+            a.proyecto_label = getattr(
+                proyecto_sel,
+                "nombre",
+                str(proyecto_sel),
+            )
+
         else:
             a.proyecto_label = (
-                getattr(s, "proyecto", None) or getattr(s, "proyecto_id", "") or ""
+                getattr(
+                    s,
+                    "proyecto",
+                    None,
+                )
+                or getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or ""
             ).strip()
 
     def _norm_title(x: str) -> str:
         return (x or "").strip().lower()
 
     def _cable_label(req):
-        return f"PK {req.sequence_no} - {req.handhole}"
+        return f"PK {req.sequence_no} - " f"{req.handhole}"
 
     by_session = {}
+
     for a in asignaciones:
-        by_session.setdefault(a.sesion_id, []).append(a)
+        by_session.setdefault(
+            a.sesion_id,
+            [],
+        ).append(a)
 
     sesion_ids = list(by_session.keys())
 
     pending_accept_names = {sid: [] for sid in sesion_ids}
+
     qs_asg = (
         SesionBillingTecnico.objects.filter(sesion_id__in=sesion_ids)
         .select_related("tecnico")
@@ -400,31 +644,55 @@ def mis_assignments(request):
             "tecnico__last_name",
         )
     )
+
     try:
         SesionBillingTecnico._meta.get_field("is_active")
+
         qs_asg = qs_asg.filter(is_active=True)
+
     except Exception:
         pass
 
     for asg in qs_asg:
+
         sid = asg.sesion_id
+
         accepted = bool(asg.aceptado_en) or asg.estado != "asignado"
+
         if not accepted:
+
             name = (
-                getattr(asg.tecnico, "get_full_name", lambda: "")()
+                getattr(
+                    asg.tecnico,
+                    "get_full_name",
+                    lambda: "",
+                )()
                 or asg.tecnico.username
             )
-            pending_accept_names.setdefault(sid, []).append(name)
+
+            pending_accept_names.setdefault(
+                sid,
+                [],
+            ).append(name)
 
     cable_session_ids = [
         a.sesion_id
         for a in asignaciones
-        if getattr(a.sesion, "is_cable_installation", False)
+        if getattr(
+            a.sesion,
+            "is_cable_installation",
+            False,
+        )
     ]
+
     normal_session_ids = [
         a.sesion_id
         for a in asignaciones
-        if not getattr(a.sesion, "is_cable_installation", False)
+        if not getattr(
+            a.sesion,
+            "is_cable_installation",
+            False,
+        )
     ]
 
     sample_map_by_sesion = {}
@@ -432,33 +700,62 @@ def mis_assignments(request):
     covered_by_sesion = {}
 
     if normal_session_ids:
+
         qs_sample = RequisitoFotoBilling.objects.filter(
-            tecnico_sesion__sesion_id__in=normal_session_ids, titulo__isnull=False
-        ).values_list("tecnico_sesion__sesion_id", "titulo")
+            tecnico_sesion__sesion_id__in=normal_session_ids,
+            titulo__isnull=False,
+        ).values_list(
+            "tecnico_sesion__sesion_id",
+            "titulo",
+        )
+
         for sid, t in qs_sample:
+
             if not t:
                 continue
-            sample_map_by_sesion.setdefault(sid, {})
+
+            sample_map_by_sesion.setdefault(
+                sid,
+                {},
+            )
+
             sample_map_by_sesion[sid][_norm_title(t)] = t
 
         qs_req = RequisitoFotoBilling.objects.filter(
-            tecnico_sesion__sesion_id__in=normal_session_ids, obligatorio=True
-        ).values_list("tecnico_sesion__sesion_id", "titulo")
+            tecnico_sesion__sesion_id__in=normal_session_ids,
+            obligatorio=True,
+        ).values_list(
+            "tecnico_sesion__sesion_id",
+            "titulo",
+        )
+
         for sid, t in qs_req:
+
             if t:
-                req_titles_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+                req_titles_by_sesion.setdefault(
+                    sid,
+                    set(),
+                ).add(_norm_title(t))
 
         qs_cov = (
             EvidenciaFotoBilling.objects.filter(
                 tecnico_sesion__sesion_id__in=normal_session_ids,
                 requisito__isnull=False,
             )
-            .values_list("tecnico_sesion__sesion_id", "requisito__titulo")
+            .values_list(
+                "tecnico_sesion__sesion_id",
+                "requisito__titulo",
+            )
             .distinct()
         )
+
         for sid, t in qs_cov:
+
             if t:
-                covered_by_sesion.setdefault(sid, set()).add(_norm_title(t))
+                covered_by_sesion.setdefault(
+                    sid,
+                    set(),
+                ).add(_norm_title(t))
 
     cable_missing_by_sesion = {}
     cable_has_rejected_by_sesion = {}
@@ -470,19 +767,35 @@ def mis_assignments(request):
         and CableAssignmentRequirement
         and CableEvidence
     ):
+
         requirements_by_session = {}
+
         qs_cable_req = CableRequirement.objects.filter(
-            billing_id__in=cable_session_ids, required=True
-        ).order_by("billing_id", "order", "sequence_no", "id")
+            billing_id__in=cable_session_ids,
+            required=True,
+        ).order_by(
+            "billing_id",
+            "order",
+            "sequence_no",
+            "id",
+        )
+
         for req in qs_cable_req:
-            requirements_by_session.setdefault(req.billing_id, []).append(req)
+            requirements_by_session.setdefault(
+                req.billing_id,
+                [],
+            ).append(req)
 
         rows_by_session = {}
+
         qs_rows = (
             CableAssignmentRequirement.objects.filter(
                 assignment__sesion_id__in=cable_session_ids
             )
-            .select_related("requirement", "assignment")
+            .select_related(
+                "requirement",
+                "assignment",
+            )
             .order_by(
                 "assignment__sesion_id",
                 "requirement__order",
@@ -490,24 +803,40 @@ def mis_assignments(request):
                 "id",
             )
         )
+
         for row in qs_rows:
-            rows_by_session.setdefault(row.assignment.sesion_id, {})
+
+            rows_by_session.setdefault(
+                row.assignment.sesion_id,
+                {},
+            )
+
             rows_by_session[row.assignment.sesion_id].setdefault(
-                row.requirement_id, row
+                row.requirement_id,
+                row,
             )
 
         present_shots_by_row = {}
+
         qs_present = (
             CableEvidence.objects.filter(
                 assignment_requirement__assignment__sesion_id__in=cable_session_ids
             )
             .exclude(shot_type="")
             .exclude(review_status=CableEvidence.REVIEW_REJECTED)
-            .values_list("assignment_requirement_id", "shot_type")
+            .values_list(
+                "assignment_requirement_id",
+                "shot_type",
+            )
             .distinct()
         )
+
         for row_id, shot_type in qs_present:
-            present_shots_by_row.setdefault(row_id, set()).add(shot_type)
+
+            present_shots_by_row.setdefault(
+                row_id,
+                set(),
+            ).add(shot_type)
 
         rejected_comments_qs = (
             CableEvidence.objects.filter(
@@ -516,16 +845,22 @@ def mis_assignments(request):
             )
             .exclude(review_comment="")
             .select_related(
-                "assignment_requirement", "assignment_requirement__assignment"
+                "assignment_requirement",
+                "assignment_requirement__assignment",
             )
             .order_by(
-                "assignment_requirement__assignment__sesion_id", "-reviewed_at", "-id"
+                "assignment_requirement__assignment__sesion_id",
+                "-reviewed_at",
+                "-id",
             )
         )
 
         rejected_comments_map = {}
+
         for ev in rejected_comments_qs:
+
             sid = ev.assignment_requirement.assignment.sesion_id
+
             if sid not in rejected_comments_map:
                 rejected_comments_map[sid] = ev.review_comment
 
@@ -534,9 +869,13 @@ def mis_assignments(request):
                 assignment_requirement__assignment__sesion_id__in=cable_session_ids,
                 review_status=CableEvidence.REVIEW_REJECTED,
             )
-            .values_list("assignment_requirement__assignment__sesion_id", flat=True)
+            .values_list(
+                "assignment_requirement__assignment__sesion_id",
+                flat=True,
+            )
             .distinct()
         )
+
         rejected_session_ids = set(rejected_exists_qs)
 
         required_shots = [
@@ -546,10 +885,16 @@ def mis_assignments(request):
         ]
 
         for sid, reqs in requirements_by_session.items():
+
             faltantes = []
-            row_map = rows_by_session.get(sid, {})
+
+            row_map = rows_by_session.get(
+                sid,
+                {},
+            )
 
             for req in reqs:
+
                 missing = []
 
                 if (
@@ -560,11 +905,20 @@ def mis_assignments(request):
                     missing.append("measurement")
 
                 row = row_map.get(req.id)
+
                 if not row:
+
                     missing.append("photos")
+
                 else:
-                    present = present_shots_by_row.get(row.id, set())
+
+                    present = present_shots_by_row.get(
+                        row.id,
+                        set(),
+                    )
+
                     pending = [shot for shot in required_shots if shot not in present]
+
                     if pending:
                         missing.append("photos")
 
@@ -572,173 +926,441 @@ def mis_assignments(request):
                         assignment_requirement=row,
                         review_status=CableEvidence.REVIEW_REJECTED,
                     ).exists()
+
                     if row_has_rejected:
                         missing.append("review")
 
                 if missing:
-                    faltantes.append(f"{_cable_label(req)} ({', '.join(missing)})")
+
+                    faltantes.append(
+                        (f"{_cable_label(req)} " f"({', '.join(missing)})")
+                    )
 
             cable_missing_by_sesion[sid] = faltantes
+
             cable_has_rejected_by_sesion[sid] = sid in rejected_session_ids
-            cable_rejection_comment_by_sesion[sid] = rejected_comments_map.get(sid, "")
+
+            cable_rejection_comment_by_sesion[sid] = rejected_comments_map.get(
+                sid,
+                "",
+            )
 
     for a in asignaciones:
+
         sid = a.sesion_id
 
-        if getattr(a.sesion, "is_cable_installation", False):
-            a.faltantes_global_labels = cable_missing_by_sesion.get(sid, [])
-            a.has_cable_rejected_photo = cable_has_rejected_by_sesion.get(sid, False)
-            a.cable_rejection_comment = cable_rejection_comment_by_sesion.get(sid, "")
+        if getattr(
+            a.sesion,
+            "is_cable_installation",
+            False,
+        ):
+
+            a.faltantes_global_labels = cable_missing_by_sesion.get(
+                sid,
+                [],
+            )
+
+            a.has_cable_rejected_photo = cable_has_rejected_by_sesion.get(
+                sid,
+                False,
+            )
+
+            a.cable_rejection_comment = cable_rejection_comment_by_sesion.get(
+                sid,
+                "",
+            )
+
             a.can_open_cable_report = (
                 a.estado
-                in ["en_proceso", "rechazado_supervisor", "en_revision_supervisor"]
-                or getattr(a, "reintento_habilitado", False)
+                in [
+                    "en_proceso",
+                    "rechazado_supervisor",
+                    "en_revision_supervisor",
+                ]
+                or getattr(
+                    a,
+                    "reintento_habilitado",
+                    False,
+                )
                 or a.has_cable_rejected_photo
             )
+
         else:
-            required = req_titles_by_sesion.get(sid, set())
-            covered = covered_by_sesion.get(sid, set())
+
+            required = req_titles_by_sesion.get(
+                sid,
+                set(),
+            )
+
+            covered = covered_by_sesion.get(
+                sid,
+                set(),
+            )
+
             faltan_keys = required - covered
 
-            smap = sample_map_by_sesion.get(sid, {})
-            a.faltantes_global_labels = [smap.get(k, k) for k in sorted(faltan_keys)]
+            smap = sample_map_by_sesion.get(
+                sid,
+                {},
+            )
+
+            a.faltantes_global_labels = [
+                smap.get(
+                    k,
+                    k,
+                )
+                for k in sorted(faltan_keys)
+            ]
+
             a.has_cable_rejected_photo = False
             a.cable_rejection_comment = ""
             a.can_open_cable_report = False
 
-        a.pendientes_aceptar_names = pending_accept_names.get(sid, [])
+        a.pendientes_aceptar_names = pending_accept_names.get(
+            sid,
+            [],
+        )
 
-        if getattr(a.sesion, "is_cable_installation", False):
+        if getattr(
+            a.sesion,
+            "is_cable_installation",
+            False,
+        ):
+
             a.can_finish = (
-                a.estado in ["en_proceso", "rechazado_supervisor"]
+                a.estado
+                in [
+                    "en_proceso",
+                    "rechazado_supervisor",
+                ]
                 and not a.faltantes_global_labels
                 and not a.pendientes_aceptar_names
             )
+
         else:
+
             a.can_finish = (
                 a.estado == "en_proceso"
                 and not a.faltantes_global_labels
                 and not a.pendientes_aceptar_names
             )
 
-    def _cell_value(a, col_idx: int) -> str:
+    def _cell_value(
+        a,
+        col_idx: int,
+    ) -> str:
+
         s = a.sesion
 
         def vac(x):
             x = (x or "").strip()
+
             return x if x else "(Vacías)"
 
         if col_idx == 0:
             return vac(s.creado_en.strftime("%Y-%m-%d"))
+
         if col_idx == 1:
-            return vac(getattr(s, "proyecto_id", "") or "")
+            return vac(
+                getattr(
+                    s,
+                    "proyecto_id",
+                    "",
+                )
+                or ""
+            )
+
         if col_idx == 2:
-            addr = (getattr(s, "direccion_proyecto", "") or "").strip()
-            href = (getattr(s, "maps_href", "") or "").strip()
+
+            addr = (
+                getattr(
+                    s,
+                    "direccion_proyecto",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            href = (
+                getattr(
+                    s,
+                    "maps_href",
+                    "",
+                )
+                or ""
+            ).strip()
+
             if not addr and not href:
                 return "(Vacías)"
+
             if addr and href and addr == href:
                 return "Address"
+
             return vac(addr)
+
         if col_idx == 3:
-            return vac(getattr(s, "cliente", "") or "")
+            return vac(
+                getattr(
+                    s,
+                    "cliente",
+                    "",
+                )
+                or ""
+            )
+
         if col_idx == 4:
-            return vac(getattr(s, "ciudad", "") or "")
+            return vac(
+                getattr(
+                    s,
+                    "ciudad",
+                    "",
+                )
+                or ""
+            )
+
         if col_idx == 5:
-            return vac(getattr(a, "proyecto_label", "") or "")
+            return vac(
+                getattr(
+                    a,
+                    "proyecto_label",
+                    "",
+                )
+                or ""
+            )
+
         if col_idx == 6:
-            return vac(getattr(s, "oficina", "") or "")
+            return vac(
+                getattr(
+                    s,
+                    "oficina",
+                    "",
+                )
+                or ""
+            )
+
         if col_idx == 7:
+
             try:
-                val = getattr(a, "my_total", Decimal("0.00")) or Decimal("0.00")
+
+                val = getattr(
+                    a,
+                    "my_total",
+                    Decimal("0.00"),
+                ) or Decimal("0.00")
+
                 return f"${val:.2f}"
+
             except Exception:
                 return "$0.00"
+
         if col_idx == 8:
-            estado = getattr(a, "estado", "") or ""
+
+            estado = (
+                getattr(
+                    a,
+                    "estado",
+                    "",
+                )
+                or ""
+            )
+
             if estado == "asignado":
                 return "Pending acceptance"
+
             if estado == "en_proceso":
                 return "In progress"
+
             if estado == "en_revision_supervisor":
                 return "Submitted — supervisor review"
+
             if estado == "rechazado_supervisor":
                 return "Rejected by supervisor"
+
             if estado == "rechazado_pm":
                 return "Rejected by PM"
+
             if estado == "rechazado_finanzas":
                 return "Rejected by Finance"
+
             return vac(estado)
+
         if col_idx == 9:
-            comentario = getattr(a, "tecnico_comentario", "") or ""
-            if getattr(a, "sesion", None) and getattr(
-                a.sesion, "is_cable_installation", False
+
+            comentario = (
+                getattr(
+                    a,
+                    "tecnico_comentario",
+                    "",
+                )
+                or ""
+            )
+
+            if getattr(
+                a,
+                "sesion",
+                None,
+            ) and getattr(
+                a.sesion,
+                "is_cable_installation",
+                False,
             ):
-                rechazo = getattr(a, "cable_rejection_comment", "") or ""
+
+                rechazo = (
+                    getattr(
+                        a,
+                        "cable_rejection_comment",
+                        "",
+                    )
+                    or ""
+                )
+
                 if comentario and rechazo:
-                    return f"{comentario} | Review: {rechazo}"
+                    return f"{comentario} | " f"Review: {rechazo}"
+
                 if rechazo:
                     return rechazo
+
             return vac(comentario)
+
         if col_idx == 10:
-            if getattr(s, "is_cable_installation", False):
+
+            if getattr(
+                s,
+                "is_cable_installation",
+                False,
+            ):
                 return "Cable report"
-            return "Download" if getattr(s, "reporte_fotografico", None) else "(Vacías)"
+
+            return (
+                "Download"
+                if getattr(
+                    s,
+                    "reporte_fotografico",
+                    None,
+                )
+                else "(Vacías)"
+            )
 
         return "(Vacías)"
 
     excel_filters_raw = (request.GET.get("excel_filters") or "").strip()
+
     active_excel_filters = {}
+
     if excel_filters_raw:
+
         try:
             active_excel_filters = json.loads(excel_filters_raw) or {}
+
         except Exception:
             active_excel_filters = {}
 
-    if isinstance(active_excel_filters, dict) and active_excel_filters:
+    if (
+        isinstance(
+            active_excel_filters,
+            dict,
+        )
+        and active_excel_filters
+    ):
+
         filtered = []
+
         for a in asignaciones:
+
             ok = True
-            for col_str, allowed_list in active_excel_filters.items():
+
+            for (
+                col_str,
+                allowed_list,
+            ) in active_excel_filters.items():
+
                 try:
                     col = int(col_str)
+
                 except Exception:
                     continue
-                allowed_set = set((allowed_list or []))
+
+                allowed_set = set(allowed_list or [])
+
                 if not allowed_set:
                     continue
-                val = _cell_value(a, col)
+
+                val = _cell_value(
+                    a,
+                    col,
+                )
+
                 if val not in allowed_set:
                     ok = False
                     break
+
             if ok:
                 filtered.append(a)
+
         asignaciones = filtered
 
     excel_global = {}
-    MAX_COLS = 11
-    for i in range(MAX_COLS):
-        vals = set()
-        for a in asignaciones:
-            vals.add(_cell_value(a, i))
-        excel_global[str(i)] = sorted(vals, key=lambda x: (x == "(Vacías)", x.lower()))
 
-    excel_global_json = json.dumps(excel_global, ensure_ascii=False)
+    MAX_COLS = 11
+
+    for i in range(MAX_COLS):
+
+        vals = set()
+
+        for a in asignaciones:
+            vals.add(
+                _cell_value(
+                    a,
+                    i,
+                )
+            )
+
+        excel_global[str(i)] = sorted(
+            vals,
+            key=lambda x: (
+                x == "(Vacías)",
+                x.lower(),
+            ),
+        )
+
+    excel_global_json = json.dumps(
+        excel_global,
+        ensure_ascii=False,
+    )
 
     cantidad = (request.GET.get("cantidad") or "20").strip()
+
     try:
         per_page = int(cantidad)
+
     except Exception:
         per_page = 20
-    if per_page not in (5, 10, 20, 50, 100):
+
+    if per_page not in (
+        5,
+        10,
+        20,
+        50,
+        100,
+    ):
         per_page = 20
 
-    paginator = Paginator(asignaciones, per_page)
+    paginator = Paginator(
+        asignaciones,
+        per_page,
+    )
+
     page_num = request.GET.get("page") or "1"
+
     pagina = paginator.get_page(page_num)
 
     qs_keep = request.GET.copy()
-    qs_keep.pop("page", None)
+
+    qs_keep.pop(
+        "page",
+        None,
+    )
+
     base_qs = qs_keep.urlencode()
 
     return render(
@@ -954,23 +1576,31 @@ def start_assignment(request, pk):
     - rechazado_supervisor/reintento -> en_proceso
     - actualiza SesionBilling a en_proceso cuando corresponda
 
-    Adicional:
+    Cola:
+    - Un trabajo nuevo numerado solo puede iniciar siendo #1.
+    - Show Now / Show Immediately puede iniciar con posición NULL.
+    - Legacy sin queue row continúa permitido.
+    - Un proyecto rechazado/reintento puede reanudarse aunque ya no
+      pertenezca a la cola numerada.
+
+    Cronómetro:
     - si ya está en_proceso, actúa como Resume
     - pausa automáticamente cualquier otro Billing activo del técnico
     - abre un BillingWorkSession para medir tiempo efectivo
     """
     from django.db import transaction
 
+    from operaciones.models_billing_queue import BillingAssignmentQueue
     from operaciones.services.billing_work_timer import start_or_resume
 
     with transaction.atomic():
+
         a = get_object_or_404(
             SesionBillingTecnico.objects.select_for_update(),
             pk=pk,
             tecnico=request.user,
         )
 
-        # Mantener bloqueo existente de asignaciones inactivas
         if not _is_asig_active(a):
             messages.error(
                 request,
@@ -978,9 +1608,55 @@ def start_assignment(request, pk):
             )
             return redirect("operaciones:mis_assignments")
 
+        # ======================================================
+        # PROTECCIÓN DE COLA
+        #
+        # Solo aplica cuando es trabajo NUEVO / asignado.
+        #
+        # #1              -> permitido
+        # Show Now        -> permitido
+        # Legacy          -> permitido
+        # #2, #3, #4...   -> bloqueado
+        # ======================================================
+
+        if a.estado == "asignado":
+
+            queue_entry = (
+                BillingAssignmentQueue.objects.select_for_update()
+                .filter(
+                    assignment_id=a.pk,
+                )
+                .first()
+            )
+
+            can_start_from_queue = False
+
+            # Legacy: nunca fabricamos prioridad histórica.
+            if queue_entry is None:
+                can_start_from_queue = True
+
+            # Primer trabajo de la cola normal.
+            elif queue_entry.queue_position == 1:
+                can_start_from_queue = True
+
+            # Show Now / Show Immediately / released legacy row.
+            elif queue_entry.queue_position is None and queue_entry.is_released:
+                can_start_from_queue = True
+
+            if not can_start_from_queue:
+                messages.error(
+                    request,
+                    (
+                        "This assignment is still waiting in your "
+                        "execution queue. Finish the project ahead "
+                        "of it first."
+                    ),
+                )
+
+                return redirect("operaciones:mis_assignments")
+
         is_resume = a.estado == "en_proceso"
 
-        # Flujo existente + posibilidad adicional de Resume
         can_start = (
             a.estado
             in {
@@ -996,16 +1672,14 @@ def start_assignment(request, pk):
                 request,
                 "This assignment cannot be started.",
             )
+
             return redirect("operaciones:mis_assignments")
 
-        #
-        # Solo hacemos la transición histórica si realmente
-        # NO estaba ya en proceso.
-        #
         if not is_resume:
+
             a.estado = "en_proceso"
 
-            # No queremos destruir el primer Start histórico.
+            # Conservamos el primer Start histórico.
             if not a.aceptado_en:
                 a.aceptado_en = timezone.now()
 
@@ -1019,15 +1693,18 @@ def start_assignment(request, pk):
                 ]
             )
 
+        # ======================================================
+        # CRONÓMETRO EFECTIVO
         #
-        # Si ya estaba en_proceso, NO sobrescribimos aceptado_en.
-        # Simplemente reanudamos su cronómetro.
+        # start_or_resume() se encarga de:
         #
+        # - mantener uno solo abierto por técnico
+        # - cerrar el anterior si estaba trabajando en otro
+        # - abrir/reanudar este assignment
+        # ======================================================
+
         work_session, created = start_or_resume(a)
 
-        #
-        # Mantener comportamiento actual de SesionBilling.
-        #
         s = a.sesion
 
         if s.estado in {
@@ -1035,19 +1712,27 @@ def start_assignment(request, pk):
             "asignado",
         }:
             s.estado = "en_proceso"
-            s.save(update_fields=["estado"])
+
+            s.save(
+                update_fields=[
+                    "estado",
+                ]
+            )
 
     if is_resume:
+
         if created:
             messages.success(
                 request,
                 "Assignment resumed.",
             )
+
         else:
             messages.info(
                 request,
                 "This assignment is already running.",
             )
+
     else:
         messages.success(
             request,
@@ -2269,7 +2954,7 @@ def finish_assignment(request, pk):
     # ==========================================================
     # NUEVO — servicios adicionales de cola y tiempo de trabajo
     # ==========================================================
-    from operaciones.services.billing_queue import finish_team_queue
+    from operaciones.services.billing_technician_queue import finish_team_queue
     from operaciones.services.billing_work_timer import close_team_sessions
 
     # --- Transición a revisión de supervisor + guardar comentario

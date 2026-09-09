@@ -136,61 +136,180 @@ indexes = [
 class SesionBilling(models.Model):
     creado_en = models.DateTimeField(default=timezone.now)
 
-    # ----- Descuentos directos -----
-    is_direct_discount = models.BooleanField(default=False, db_index=True)
+    # =====================================================================
+    # DIRECT DISCOUNTS
+    # =====================================================================
+
+    is_direct_discount = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
     is_cable_installation = models.BooleanField(
         default=False,
         db_index=True,
-        help_text="If enabled, Requirements will use the Cable Installation workflow.",
+        help_text=(
+            "If enabled, Requirements will use the " "Cable Installation workflow."
+        ),
     )
+
     origin_session = models.ForeignKey(
         "self",
         null=True,
         blank=True,
         related_name="discounts",
         on_delete=models.SET_NULL,
-        help_text="If set, this discount corrects the referenced session.",
+        help_text=("If set, this discount corrects the referenced session."),
     )
 
-    # ----- Split / Duplicate (facturación parcial) -----
-    is_split_child = models.BooleanField(default=False, db_index=True)
+    # =====================================================================
+    # SPLIT / DUPLICATE
+    # =====================================================================
+
+    is_split_child = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
     split_from = models.ForeignKey(
         "self",
         null=True,
         blank=True,
         related_name="split_children",
         on_delete=models.SET_NULL,
-        help_text="If set, this billing session was created by splitting from the referenced session.",
+        help_text=(
+            "If set, this billing session was created by splitting "
+            "from the referenced session."
+        ),
     )
-    split_comment = models.CharField(max_length=255, blank=True, default="")
 
-    # ✅ NUEVO: Payment mode técnicos
+    split_comment = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    # =====================================================================
+    # TECHNICIAN PAYMENT MODE
+    # =====================================================================
+
     TECH_PAYMENT_MODE = [
         ("split", "Split (percentage)"),
         ("full", "Full quantity per technician"),
     ]
+
     tech_payment_mode = models.CharField(
         max_length=10,
         choices=TECH_PAYMENT_MODE,
         default="split",
         db_index=True,
-        help_text="How technician amounts are computed. split = uses %; full = each tech uses full qty.",
+        help_text=(
+            "How technician amounts are computed. "
+            "split = uses %; full = each tech uses full qty."
+        ),
     )
 
-    # ----- Identificación del proyecto -----
-    proyecto_id = models.CharField(max_length=64)
-    cliente = models.CharField(max_length=120)
-    ciudad = models.CharField(max_length=120)
-    proyecto = models.CharField(max_length=120)
-    oficina = models.CharField(max_length=120)
+    # =====================================================================
+    # WORK SEQUENCE / PRIORITY
+    #
+    # IMPORTANTE:
+    #
+    # queue_priority
+    #   = secuencia global del PROYECTO.
+    #     NO pertenece al técnico.
+    #
+    # queue_visible
+    #   = controla si el proyecto ya puede ser visto por los técnicos.
+    #     Es independiente de Priority.
+    #
+    # queue_shown_now_at / queue_shown_now_by
+    #   = auditan un Show Now.
+    #
+    # Priority NO inicia trabajo.
+    # Priority NO pausa trabajo.
+    # Priority NO modifica timers.
+    # Show Now NO inicia timer.
+    # =====================================================================
 
-    # ----- Ubicación y semana proyectada de pago -----
+    queue_priority = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        verbose_name="Work sequence priority",
+        help_text=(
+            "Global execution sequence for this Billing/project. "
+            "NULL means the project is outside the managed sequence."
+        ),
+    )
+
+    queue_visible = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Visible to technicians",
+        help_text=(
+            "Controls whether this Billing/project may currently be "
+            "shown to its assigned technicians. Visibility is independent "
+            "from priority and timer state."
+        ),
+    )
+
+    queue_shown_now_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Shown now at",
+        help_text=(
+            "Timestamp of the latest manual Show Now action. "
+            "Show Now removes the project from the managed priority sequence "
+            "and makes it visible immediately."
+        ),
+    )
+
+    queue_shown_now_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="billing_projects_shown_now",
+        verbose_name="Shown now by",
+        help_text=("User who manually used Show Now for this Billing/project."),
+    )
+
+    # =====================================================================
+    # PROJECT IDENTIFICATION
+    # =====================================================================
+
+    proyecto_id = models.CharField(
+        max_length=64,
+    )
+
+    cliente = models.CharField(
+        max_length=120,
+    )
+
+    ciudad = models.CharField(
+        max_length=120,
+    )
+
+    proyecto = models.CharField(
+        max_length=120,
+    )
+
+    oficina = models.CharField(
+        max_length=120,
+    )
+
+    # =====================================================================
+    # LOCATION / PROJECTED PAY WEEK
+    # =====================================================================
+
     direccion_proyecto = models.CharField(
         "Project address / Google Maps link",
         max_length=500,
         blank=True,
         default="",
     )
+
     semana_pago_proyectada = models.CharField(
         "Projected pay week (ISO)",
         max_length=10,
@@ -205,22 +324,28 @@ class SesionBilling(models.Model):
             "Address; the report will use those fields."
         ),
     )
+
     allow_gallery_upload = models.BooleanField(
         default=False,
         db_index=True,
         help_text=(
-            "If enabled, technicians may upload existing images from the gallery "
-            "for requirements and extra photos. LIGHT SOURCE remains allowed "
-            "even when this option is disabled."
+            "If enabled, technicians may upload existing images from the "
+            "gallery for requirements and extra photos. LIGHT SOURCE remains "
+            "allowed even when this option is disabled."
         ),
     )
-    # ----- Estado operativo y reporte único del proyecto -----
+
+    # =====================================================================
+    # OPERATIONAL STATE / PROJECT REPORT
+    # =====================================================================
+
     estado = models.CharField(
         max_length=32,
         choices=ESTADOS_PROY,
         default="asignado",
         db_index=True,
     )
+
     reporte_fotografico = models.FileField(
         upload_to=upload_to_project_report,
         storage=wasabi_storage,
@@ -230,17 +355,22 @@ class SesionBilling(models.Model):
         max_length=1024,
     )
 
-    # ----- Totales -----
+    # =====================================================================
+    # TOTALS
+    # =====================================================================
+
     subtotal_tecnico = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal("0.00"),
     )
+
     subtotal_empresa = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal("0.00"),
     )
+
     real_company_billing = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -262,38 +392,76 @@ class SesionBilling(models.Model):
         default="",
     )
 
-    # =============================== FINANZAS ============================== #
+    # =====================================================================
+    # FINANCE
+    # =====================================================================
+
     finance_status = models.CharField(
         max_length=32,
         choices=FINANCE_STATUS,
         default="none",
         db_index=True,
     )
-    finance_note = models.TextField(blank=True, default="")
-    finance_sent_at = models.DateTimeField(null=True, blank=True)
-    finance_updated_at = models.DateTimeField(auto_now=True)
-    finance_daily_number = models.CharField(
-        "Daily Number", max_length=50, blank=True, default=""
+
+    finance_note = models.TextField(
+        blank=True,
+        default="",
     )
+
+    finance_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    finance_updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    finance_daily_number = models.CharField(
+        "Daily Number",
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
     finance_finish_date = models.DateField(
         "Finance finish date",
         null=True,
         blank=True,
         help_text="End date.",
     )
-    # ====================================================================== #
+
+    # =====================================================================
+    # META
+    # =====================================================================
 
     class Meta:
         ordering = ("-creado_en",)
+
         indexes = [
             models.Index(fields=["proyecto_id"]),
-            models.Index(fields=["cliente", "ciudad", "proyecto", "oficina"]),
+            models.Index(
+                fields=[
+                    "cliente",
+                    "ciudad",
+                    "proyecto",
+                    "oficina",
+                ]
+            ),
             models.Index(fields=["estado"]),
             models.Index(fields=["is_direct_discount"]),
             models.Index(fields=["is_cable_installation"]),
             models.Index(fields=["is_split_child"]),
-            models.Index(fields=["tech_payment_mode"]),  # ✅ nuevo
+            models.Index(fields=["tech_payment_mode"]),
+            # No necesitamos otro índice explícito para queue_priority:
+            # unique=True ya crea índice/constraint.
+            models.Index(fields=["queue_visible"]),
+            models.Index(fields=["queue_shown_now_at"]),
         ]
+
+    # =====================================================================
+    # PROJECT SYNC
+    # =====================================================================
 
     def sync_from_proyecto_codigo(self):
         from facturacion.models import Proyecto
@@ -311,6 +479,7 @@ class SesionBilling(models.Model):
             return
 
         p = None
+
         try:
             p = Proyecto.objects.get(codigo__iexact=codigo)
         except Proyecto.DoesNotExist:
@@ -331,28 +500,46 @@ class SesionBilling(models.Model):
         self.proyecto = p.nombre
         self.oficina = p.oficina
 
+    # =====================================================================
+    # BILLING DIFFERENCE
+    # =====================================================================
+
     @property
     def diferencia(self):
         if self.real_company_billing is None:
             return None
+
         return (self.subtotal_empresa or Decimal("0.00")) - self.real_company_billing
 
     @property
     def difference_is_zero(self):
         d = self.diferencia
+
         return d is not None and d == 0
+
+    # =====================================================================
+    # MAPS
+    # =====================================================================
 
     @property
     def maps_href(self) -> str:
         val = (self.direccion_proyecto or "").strip()
+
         if not val:
             return ""
+
         low = val.lower()
+
         if low.startswith("http://") or low.startswith("https://"):
             return val
+
         from urllib.parse import quote_plus
 
-        return f"https://www.google.com/maps/search/?api=1&query={quote_plus(val)}"
+        return "https://www.google.com/maps/search/" f"?api=1&query={quote_plus(val)}"
+
+    # =====================================================================
+    # ACCOUNTING LOCK
+    # =====================================================================
 
     def has_any_paid_work_type(self) -> bool:
         """
@@ -364,6 +551,7 @@ class SesionBilling(models.Model):
         - paid_at con fecha
         - weekly_payment relacionado en status paid
         """
+
         qs = self.pay_week_snapshots.all()
 
         try:
@@ -389,7 +577,12 @@ class SesionBilling(models.Model):
     @property
     def can_reopen_billing(self) -> bool:
         return (
-            self.estado in ("aprobado_supervisor", "aprobado_pm", "aprobado_finanzas")
+            self.estado
+            in (
+                "aprobado_supervisor",
+                "aprobado_pm",
+                "aprobado_finanzas",
+            )
             and not self.is_accounting_locked
         )
 
@@ -401,61 +594,156 @@ class SesionBilling(models.Model):
     def can_edit_billing(self) -> bool:
         return not self.is_accounting_locked
 
-    def __str__(self):
-        return f"Billing #{self.id} - {self.cliente} / {self.proyecto_id}"
+    # =====================================================================
+    # WORK SEQUENCE HELPERS
+    #
+    # Son únicamente propiedades informativas.
+    # NO modifican secuencia, visibilidad o timer.
+    # =====================================================================
 
-    def recomputar_estado_desde_asignaciones(self, save: bool = True) -> str:
-        # NUEVO: si es descuento directo, no tocar el estado
+    @property
+    def has_queue_priority(self) -> bool:
+        """
+        True cuando este proyecto forma parte de la secuencia administrada.
+        """
+        return self.queue_priority is not None
+
+    @property
+    def was_shown_now(self) -> bool:
+        """
+        True cuando salió de la secuencia mediante Show Now.
+        """
+        return self.queue_priority is None and self.queue_shown_now_at is not None
+
+    @property
+    def is_managed_sequence_project(self) -> bool:
+        """
+        Alias semántico para las vistas/templates.
+        """
+        return not self.is_direct_discount and self.queue_priority is not None
+
+    @property
+    def can_show_now(self) -> bool:
+        """
+        Show Now solamente tiene sentido para un proyecto normal
+        que todavía forme parte de la secuencia.
+        """
+        return not self.is_direct_discount and self.queue_priority is not None
+
+    # =====================================================================
+    # DISPLAY
+    # =====================================================================
+
+    def __str__(self):
+        return f"Billing #{self.id} - " f"{self.cliente} / {self.proyecto_id}"
+
+    # =====================================================================
+    # DERIVE SESSION STATE FROM ASSIGNMENTS
+    # =====================================================================
+
+    def recomputar_estado_desde_asignaciones(
+        self,
+        save: bool = True,
+    ) -> str:
+
+        # Direct Discount mantiene su flujo propio.
         if self.is_direct_discount:
             return self.estado
 
-        estados = list(self.tecnicos_sesion.values_list("estado", flat=True))
+        estados = list(
+            self.tecnicos_sesion.values_list(
+                "estado",
+                flat=True,
+            )
+        )
+
         nuevo = "asignado"
+
         if estados:
             if any(e == "en_revision_supervisor" for e in estados):
                 nuevo = "en_revision_supervisor"
+
             elif any(e == "en_proceso" for e in estados):
                 nuevo = "en_proceso"
+
             elif all(e == "aprobado_pm" for e in estados):
                 nuevo = "aprobado_pm"
+
             elif any(e == "rechazado_pm" for e in estados):
                 nuevo = "rechazado_pm"
+
             elif all(e == "aprobado_supervisor" for e in estados):
                 nuevo = "aprobado_supervisor"
+
             elif any(e == "rechazado_supervisor" for e in estados):
                 nuevo = "rechazado_supervisor"
 
         if self.estado != nuevo:
             self.estado = nuevo
+
             if save:
                 self.save(update_fields=["estado"])
+
         return self.estado
+
+    # =====================================================================
+    # DIRECT DISCOUNT
+    # =====================================================================
 
     @property
     def can_mark_discount_applied(self) -> bool:
         return self.is_direct_discount and self.finance_status == "review_discount"
 
-    def mark_discount_applied(self, note: str = ""):
+    def mark_discount_applied(
+        self,
+        note: str = "",
+    ):
         self.finance_status = "discount_applied"
+
         if note:
             self.finance_note = note
+
             self.save(
-                update_fields=["finance_status", "finance_note", "finance_updated_at"]
+                update_fields=[
+                    "finance_status",
+                    "finance_note",
+                    "finance_updated_at",
+                ]
             )
+
         else:
-            self.save(update_fields=["finance_status", "finance_updated_at"])
+            self.save(
+                update_fields=[
+                    "finance_status",
+                    "finance_updated_at",
+                ]
+            )
+
+    # =====================================================================
+    # SAVE
+    # =====================================================================
 
     def save(self, *args, **kwargs):
         self.sync_from_proyecto_codigo()
 
-        if self.is_direct_discount and self.finance_status in ("none", "", "sent"):
+        if self.is_direct_discount and self.finance_status in (
+            "none",
+            "",
+            "sent",
+        ):
             self.finance_status = "review_discount"
 
-        # ✅ normalizar payment mode
-        if self.tech_payment_mode not in ("split", "full"):
+        # Normalizar payment mode.
+        if self.tech_payment_mode not in (
+            "split",
+            "full",
+        ):
             self.tech_payment_mode = "split"
 
-        super().save(*args, **kwargs)
+        super().save(
+            *args,
+            **kwargs,
+        )
 
 
 class ReporteFotograficoJob(models.Model):

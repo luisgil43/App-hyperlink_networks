@@ -8,542 +8,2497 @@
   <div class="bg-white rounded-2xl shadow p-4 sm:p-6">
 
     <div class="flex flex-wrap items-center justify-between gap-3">
+
       <div>
-        <h1 class="text-2xl font-bold text-gray-800">Bulk Billing Preview</h1>
+
+        <h1 class="text-2xl font-bold text-gray-800">
+          Bulk Billing Preview
+        </h1>
+
         <p class="text-sm text-gray-500 mt-1">
-          Review all validations before creating records.
+          Review billing data, validations and technician execution queues before creating records.
         </p>
+
       </div>
 
+
       <div class="flex items-center gap-2">
-        <a href="{{ template_url }}"
-           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+
+        <a
+          href="{{ template_url }}"
+          class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm"
+        >
           Download template
         </a>
 
-        <a href="{% url 'operaciones:billing_masivo_upload' %}"
-           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm">
+        <a
+          href="{% url 'operaciones:billing_masivo_upload' %}"
+          class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm"
+        >
           Upload another file
         </a>
+
       </div>
+
     </div>
 
-    <div class="mt-5 grid sm:grid-cols-4 gap-3">
-      <div class="rounded-xl border bg-gray-50 p-3">
-        <div class="text-xs text-gray-500">Billings</div>
-        <div class="text-xl font-bold">{{ payload.summary.billing_count }}</div>
-      </div>
+
+    <!-- ========================================================= -->
+    <!-- SUMMARY -->
+    <!-- ========================================================= -->
+
+    <div class="mt-5 grid sm:grid-cols-5 gap-3">
 
       <div class="rounded-xl border bg-gray-50 p-3">
-        <div class="text-xs text-gray-500">Technician rows</div>
-        <div class="text-xl font-bold">{{ payload.summary.technician_count }}</div>
+
+        <div class="text-xs text-gray-500">
+          Billings
+        </div>
+
+        <div class="text-xl font-bold">
+          {{ payload.summary.billing_count }}
+        </div>
+
       </div>
+
 
       <div class="rounded-xl border bg-gray-50 p-3">
-        <div class="text-xs text-gray-500">Items</div>
-        <div class="text-xl font-bold">{{ payload.summary.item_count }}</div>
+
+        <div class="text-xs text-gray-500">
+          Technician rows
+        </div>
+
+        <div class="text-xl font-bold">
+          {{ payload.summary.technician_count }}
+        </div>
+
       </div>
 
-      <div class="rounded-xl border {% if has_errors %}bg-red-50 border-red-200{% else %}bg-emerald-50 border-emerald-200{% endif %} p-3">
-        <div class="text-xs {% if has_errors %}text-red-600{% else %}text-emerald-700{% endif %}">
+
+      <div class="rounded-xl border bg-gray-50 p-3">
+
+        <div class="text-xs text-gray-500">
+          Items
+        </div>
+
+        <div class="text-xl font-bold">
+          {{ payload.summary.item_count }}
+        </div>
+
+      </div>
+
+
+      <div
+        class="
+          rounded-xl border p-3
+          {% if payload.has_planning_conflicts %}
+            bg-amber-50 border-amber-200
+          {% else %}
+            bg-emerald-50 border-emerald-200
+          {% endif %}
+        "
+      >
+
+        <div
+          class="
+            text-xs
+            {% if payload.has_planning_conflicts %}
+              text-amber-700
+            {% else %}
+              text-emerald-700
+            {% endif %}
+          "
+        >
+          Queue planning
+        </div>
+
+        <div
+          class="
+            text-xl font-bold
+            {% if payload.has_planning_conflicts %}
+              text-amber-800
+            {% else %}
+              text-emerald-700
+            {% endif %}
+          "
+        >
+
+          {% if payload.has_planning_conflicts %}
+            Needs review
+          {% else %}
+            Ready
+          {% endif %}
+
+        </div>
+
+      </div>
+
+
+      <div
+        class="
+          rounded-xl border p-3
+          {% if has_errors %}
+            bg-red-50 border-red-200
+          {% elif payload.has_planning_conflicts %}
+            bg-amber-50 border-amber-200
+          {% else %}
+            bg-emerald-50 border-emerald-200
+          {% endif %}
+        "
+      >
+
+        <div
+          class="
+            text-xs
+            {% if has_errors %}
+              text-red-600
+            {% elif payload.has_planning_conflicts %}
+              text-amber-700
+            {% else %}
+              text-emerald-700
+            {% endif %}
+          "
+        >
           Status
         </div>
-        <div class="text-xl font-bold {% if has_errors %}text-red-700{% else %}text-emerald-700{% endif %}">
-          {% if has_errors %}Has errors{% else %}Ready{% endif %}
+
+        <div
+          class="
+            text-xl font-bold
+            {% if has_errors %}
+              text-red-700
+            {% elif payload.has_planning_conflicts %}
+              text-amber-800
+            {% else %}
+              text-emerald-700
+            {% endif %}
+          "
+        >
+
+          {% if has_errors %}
+            Has errors
+          {% elif payload.has_planning_conflicts %}
+            Plan required
+          {% else %}
+            Ready
+          {% endif %}
+
         </div>
+
       </div>
+
     </div>
+
+
+    <!-- ========================================================= -->
+    <!-- WORKBOOK ERRORS -->
+    <!-- ========================================================= -->
 
     {% if payload.global_errors %}
+
       <div class="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
-        <h2 class="font-semibold text-red-800">Workbook errors</h2>
+
+        <h2 class="font-semibold text-red-800">
+          Workbook errors
+        </h2>
 
         <div class="mt-2 space-y-2">
+
           {% for e in payload.global_errors %}
+
             <div class="text-sm text-red-700">
-              <b>{{ e.sheet }}</b> row {{ e.row }} — <b>{{ e.field }}</b>: {{ e.message }}
+
+              <b>{{ e.sheet }}</b>
+              row {{ e.row }}
+              —
+              <b>{{ e.field }}</b>:
+              {{ e.message }}
+
             </div>
+
           {% endfor %}
+
         </div>
+
       </div>
+
     {% endif %}
 
-    <div class="mt-6 space-y-5">
-      {% for b in payload.billings %}
 
-        <div class="rounded-2xl border {% if b.errors %}border-red-300 bg-red-50{% else %}border-gray-200 bg-white{% endif %} overflow-hidden">
+    <!-- ========================================================= -->
+    <!-- EXECUTION PLANNING CONTROLS -->
+    <!-- ========================================================= -->
 
-          <div class="px-4 py-3 border-b {% if b.errors %}bg-red-100{% else %}bg-gray-50{% endif %}">
-            <div class="flex flex-wrap justify-between gap-3">
-              <div>
-                <h2 class="font-bold text-gray-900">
-                  {{ b.bulk_key }} — {{ b.project_id }}
-                </h2>
-                <p class="text-xs text-gray-600">
-                  Billing sheet row {{ b.source_row }}
-                </p>
+    {% if payload.billings %}
+
+      <div class="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50 overflow-hidden">
+
+        <div class="px-4 py-4 border-b border-indigo-200 bg-indigo-100">
+
+          <div class="flex flex-wrap items-start justify-between gap-4">
+
+            <div>
+
+              <h2 class="font-bold text-indigo-950 text-lg">
+                Execution Planning
+              </h2>
+
+              <p class="text-sm text-indigo-800 mt-1 max-w-3xl">
+                Resolve imported execution order before creating the Billings.
+                Existing technician queues and active timers are not modified in Preview.
+              </p>
+
+            </div>
+
+
+            <div class="flex flex-wrap gap-2">
+
+              <form
+                method="post"
+                action="{% url 'operaciones:billing_masivo_preview' %}"
+                class="js-preview-action-form"
+              >
+
+                {% csrf_token %}
+
+                <input
+                  type="hidden"
+                  name="action"
+                  value="organize_all"
+                >
+
+                <button
+                  type="submit"
+                  class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold"
+                >
+                  Organize Queue Automatically
+                </button>
+
+              </form>
+
+
+              <form
+                method="post"
+                action="{% url 'operaciones:billing_masivo_preview' %}"
+                class="js-preview-action-form"
+              >
+
+                {% csrf_token %}
+
+                <input
+                  type="hidden"
+                  name="action"
+                  value="show_all_now"
+                >
+
+                <button
+                  type="submit"
+                  class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold"
+                >
+                  ⚡ Show All Now
+                </button>
+
+              </form>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-4">
+
+          <div class="grid md:grid-cols-3 gap-3">
+
+            <div class="rounded-xl border border-indigo-200 bg-white p-3">
+
+              <div class="text-xs font-semibold text-indigo-900">
+                Queue
               </div>
 
-              <div class="text-sm text-right">
-  {% if payload.permissions.can_view_tech_prices %}
-    <div>
-      <b>Tech total:</b> ${{ b.subtotal_tecnico }}
-    </div>
-  {% endif %}
+              <div class="text-xs text-gray-600 mt-1">
+                Existing technician projects stay first.
+                Imported Billings are ordered after the current queue.
+              </div>
 
-  {% if payload.permissions.can_view_company_prices %}
-    <div>
-      <b>Company total:</b> ${{ b.subtotal_empresa }}
-    </div>
-  {% endif %}
-</div>
             </div>
+
+
+            <div class="rounded-xl border border-indigo-200 bg-white p-3">
+
+              <div class="text-xs font-semibold text-indigo-900">
+                Show Now
+              </div>
+
+              <div class="text-xs text-gray-600 mt-1">
+                The entire Billing stays outside the numbered queue and becomes immediately visible to its assigned technicians.
+              </div>
+
+            </div>
+
+
+            <div class="rounded-xl border border-indigo-200 bg-white p-3">
+
+              <div class="text-xs font-semibold text-indigo-900">
+                Timers
+              </div>
+
+              <div class="text-xs text-gray-600 mt-1">
+                Preview, queue ordering and Show Now do not start, pause or stop technician timers.
+              </div>
+
+            </div>
+
           </div>
+
+        </div>
+
+      </div>
+
+    {% endif %}
+
+
+    <!-- ========================================================= -->
+    <!-- PLANNING CONFLICTS -->
+    <!-- ========================================================= -->
+
+    {% if payload.planning_conflicts %}
+
+      <div class="mt-5 rounded-2xl border border-amber-300 bg-amber-50 overflow-hidden">
+
+        <div class="px-4 py-3 border-b border-amber-200 bg-amber-100">
+
+          <div class="flex flex-wrap items-center justify-between gap-3">
+
+            <div>
+
+              <h2 class="font-bold text-amber-900">
+                Execution planning conflicts
+              </h2>
+
+              <p class="text-xs text-amber-800 mt-1">
+                These are not Excel data errors. Resolve the imported order here before creation.
+              </p>
+
+            </div>
+
+            <span class="inline-flex px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-xs font-bold">
+              {{ payload.planning_conflicts|length }} conflict{{ payload.planning_conflicts|length|pluralize }}
+            </span>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-4 space-y-3">
+
+          {% for conflict in payload.planning_conflicts %}
+
+            <div class="rounded-xl border border-amber-200 bg-white p-3">
+
+              <div class="flex flex-wrap items-start justify-between gap-3">
+
+                <div>
+
+                  <div class="font-semibold text-amber-900">
+                    {{ conflict.technician_name }}
+                  </div>
+
+                  <div class="text-xs text-gray-500">
+                    {{ conflict.username }}
+                  </div>
+
+                </div>
+
+
+                {% if conflict.requested_priority %}
+
+                  <span class="inline-flex px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold">
+                    Duplicate order {{ conflict.requested_priority }}
+                  </span>
+
+                {% endif %}
+
+              </div>
+
+
+              <div class="mt-2 text-sm text-amber-800">
+                {{ conflict.message }}
+              </div>
+
+
+              {% if conflict.projects %}
+
+                <div class="mt-2 flex flex-wrap gap-2">
+
+                  {% for project in conflict.projects %}
+
+                    <span class="inline-flex px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold">
+                      {{ project }}
+                    </span>
+
+                  {% endfor %}
+
+                </div>
+
+              {% endif %}
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </div>
+
+    {% endif %}
+
+
+    <!-- ========================================================= -->
+    <!-- EXECUTION QUEUE PREVIEW -->
+    <!-- ========================================================= -->
+
+    {% if payload.queue_plans %}
+
+      <div class="mt-6 rounded-2xl border border-blue-200 bg-blue-50 overflow-hidden">
+
+        <div class="px-4 py-4 border-b border-blue-200 bg-blue-100">
+
+          <div class="flex flex-wrap items-start justify-between gap-3">
+
+            <div>
+
+              <h2 class="font-bold text-blue-950 text-lg">
+                Execution Queue Preview
+              </h2>
+
+              <p class="text-sm text-blue-800 mt-1">
+                Excel priority defines relative order inside this import batch.
+                AUTO is calculated automatically.
+                Existing technician queues remain first.
+              </p>
+
+            </div>
+
+
+            <div class="text-xs text-blue-800 bg-white border border-blue-200 rounded-lg px-3 py-2">
+              Preview only — no queue changes have been made.
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-4 space-y-4">
+
+          {% for plan in payload.queue_plans %}
+
+            <div
+              class="
+                rounded-xl border bg-white overflow-hidden
+                {% if plan.has_planning_conflicts %}
+                  border-amber-300
+                {% else %}
+                  border-gray-200
+                {% endif %}
+              "
+            >
+
+              <div
+                class="
+                  px-4 py-3 border-b
+                  {% if plan.has_planning_conflicts %}
+                    bg-amber-50
+                  {% else %}
+                    bg-gray-50
+                  {% endif %}
+                "
+              >
+
+                <div class="flex flex-wrap items-center justify-between gap-3">
+
+                  <div>
+
+                    <div class="font-bold text-gray-900">
+                      {{ plan.technician_name }}
+                    </div>
+
+                    <div class="text-xs text-gray-500">
+                      {{ plan.username }}
+                    </div>
+
+                  </div>
+
+
+                  <div class="flex flex-wrap gap-2">
+
+                    {% if plan.has_planning_conflicts %}
+
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-bold">
+                        ⚠ Order conflict
+                      </span>
+
+                    {% endif %}
+
+
+                    {% if plan.has_running_work %}
+
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+
+                        Running:
+                        {{ plan.running_project }}
+
+                        {% if plan.running_priority %}
+                          · #{{ plan.running_priority }}
+                        {% else %}
+                          · outside numbered queue
+                        {% endif %}
+
+                      </span>
+
+                    {% else %}
+
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs">
+                        No active timer
+                      </span>
+
+                    {% endif %}
+
+
+                    {% if plan.has_existing_queue %}
+
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
+                        {{ plan.existing_queue_count }}
+                        existing queued
+                      </span>
+
+                    {% else %}
+
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
+                        Queue empty
+                      </span>
+
+                    {% endif %}
+
+                  </div>
+
+                </div>
+
+
+                <div class="mt-2 text-xs text-gray-600">
+                  {{ plan.queue_notice }}
+                </div>
+
+
+                {% if plan.planning_conflicts %}
+
+                  <div class="mt-3 space-y-2">
+
+                    {% for conflict in plan.planning_conflicts %}
+
+                      <div class="rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs text-amber-900">
+                        {{ conflict.message }}
+                      </div>
+
+                    {% endfor %}
+
+                  </div>
+
+                {% endif %}
+
+              </div>
+
+
+              <div class="p-4 grid xl:grid-cols-2 gap-4">
+
+                <!-- CURRENT QUEUE -->
+
+                <div>
+
+                  <div class="flex items-center justify-between mb-2">
+
+                    <h3 class="font-semibold text-gray-800">
+                      Current queue
+                    </h3>
+
+                    <span class="text-xs text-gray-500">
+                      Database
+                    </span>
+
+                  </div>
+
+
+                  <div class="rounded-xl border overflow-hidden">
+
+                    <table class="w-full text-xs">
+
+                      <thead class="bg-gray-100">
+
+                        <tr>
+
+                          <th class="p-2 text-left w-20">
+                            Position
+                          </th>
+
+                          <th class="p-2 text-left">
+                            Project
+                          </th>
+
+                          <th class="p-2 text-left">
+                            Status
+                          </th>
+
+                        </tr>
+
+                      </thead>
+
+
+                      <tbody>
+
+                        {% for current in plan.current_queue %}
+
+                          <tr
+                            class="
+                              border-t
+                              {% if current.is_running %}
+                                bg-amber-50
+                              {% endif %}
+                            "
+                          >
+
+                            <td class="p-2">
+
+                              <span class="inline-flex items-center justify-center min-w-8 px-2 py-1 rounded-lg bg-gray-900 text-white font-bold">
+                                #{{ current.priority }}
+                              </span>
+
+                            </td>
+
+
+                            <td class="p-2">
+
+                              <div class="font-semibold text-gray-900">
+                                {{ current.project_id }}
+                              </div>
+
+                              {% if current.is_running %}
+
+                                <div class="mt-1">
+
+                                  <span class="inline-flex px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                                    Running now
+                                  </span>
+
+                                </div>
+
+                              {% endif %}
+
+                            </td>
+
+
+                            <td class="p-2">
+                              {{ current.state|default:"—" }}
+                            </td>
+
+                          </tr>
+
+                        {% empty %}
+
+                          <tr>
+
+                            <td
+                              colspan="3"
+                              class="p-4 text-center text-gray-500"
+                            >
+                              No numbered projects currently in this technician's queue.
+                            </td>
+
+                          </tr>
+
+                        {% endfor %}
+
+                      </tbody>
+
+                    </table>
+
+                  </div>
+
+                </div>
+
+
+                <!-- IMPORTED BATCH -->
+
+                <div>
+
+                  <div class="flex items-center justify-between mb-2">
+
+                    <h3 class="font-semibold text-gray-800">
+                      Imported batch
+                    </h3>
+
+                    <span class="text-xs text-gray-500">
+                      Result after current queue
+                    </span>
+
+                  </div>
+
+
+                  <div class="rounded-xl border overflow-hidden">
+
+                    <table class="w-full text-xs">
+
+                      <thead class="bg-gray-100">
+
+                        <tr>
+
+                          <th class="p-2 text-left">
+                            Billing
+                          </th>
+
+                          <th class="p-2 text-center">
+                            Imported order
+                          </th>
+
+                          <th class="p-2 text-center">
+                            Result
+                          </th>
+
+                          <th class="p-2 text-left">
+                            Planning
+                          </th>
+
+                        </tr>
+
+                      </thead>
+
+
+                      <tbody>
+
+                        {% for incoming in plan.incoming %}
+
+                          <tr
+                            class="
+                              border-t
+                              {% if incoming.has_planning_conflict %}
+                                bg-amber-50
+                              {% endif %}
+                            "
+                          >
+
+                            <td class="p-2">
+
+                              <div class="font-semibold text-gray-900">
+                                {{ incoming.project_id }}
+                              </div>
+
+                              <div class="text-[11px] text-gray-500">
+                                {{ incoming.bulk_key }}
+                              </div>
+
+                            </td>
+
+
+                            <td class="p-2 text-center">
+
+                              {% if incoming.priority_mode == "explicit" %}
+
+                                <span class="inline-flex px-2 py-1 rounded-lg bg-indigo-100 text-indigo-800 font-bold">
+                                  {{ incoming.requested_priority }}
+                                </span>
+
+                              {% else %}
+
+                                <span class="inline-flex px-2 py-1 rounded-lg bg-gray-100 text-gray-700 font-semibold">
+                                  AUTO
+                                </span>
+
+                              {% endif %}
+
+                            </td>
+
+
+                            <td class="p-2 text-center">
+
+                              <span class="inline-flex items-center justify-center min-w-8 px-2 py-1 rounded-lg bg-blue-600 text-white font-bold">
+                                #{{ incoming.resulting_priority }}
+                              </span>
+
+                            </td>
+
+
+                            <td class="p-2">
+
+                              {% if incoming.has_planning_conflict %}
+
+                                <span class="inline-flex px-2 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold">
+                                  ⚠ Conflict
+                                </span>
+
+                              {% else %}
+
+                                <span class="inline-flex px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-semibold">
+                                  OK
+                                </span>
+
+                              {% endif %}
+
+                            </td>
+
+                          </tr>
+
+                        {% empty %}
+
+                          <tr>
+
+                            <td
+                              colspan="4"
+                              class="p-4 text-center text-gray-500"
+                            >
+                              No queued billing from this import.
+                            </td>
+
+                          </tr>
+
+                        {% endfor %}
+
+                      </tbody>
+
+                    </table>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      </div>
+
+    {% endif %}
+
+
+    <!-- ========================================================= -->
+    <!-- BILLINGS -->
+    <!-- ========================================================= -->
+
+    <div class="mt-6 space-y-5">
+
+      {% for b in payload.billings %}
+
+        <div
+          class="
+            rounded-2xl border overflow-hidden
+            {% if b.errors %}
+              border-red-300 bg-red-50
+            {% elif b.execution_mode == 'show_now' %}
+              border-amber-300 bg-amber-50
+            {% else %}
+              border-gray-200 bg-white
+            {% endif %}
+          "
+        >
+
+          <div
+            class="
+              px-4 py-3 border-b
+              {% if b.errors %}
+                bg-red-100
+              {% elif b.execution_mode == 'show_now' %}
+                bg-amber-100
+              {% else %}
+                bg-gray-50
+              {% endif %}
+            "
+          >
+
+            <div class="flex flex-wrap justify-between gap-3">
+
+              <div>
+
+                <div class="flex flex-wrap items-center gap-2">
+
+                  <h2 class="font-bold text-gray-900">
+                    {{ b.bulk_key }} — {{ b.project_id }}
+                  </h2>
+
+
+                  {% if b.execution_mode == "direct_discount" %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-bold">
+                      Direct Discount
+                    </span>
+
+                  {% elif b.execution_mode == "show_now" %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-bold">
+                      ⚡ Show Now
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex px-2 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-bold">
+                      Queue
+                    </span>
+
+                  {% endif %}
+
+                </div>
+
+
+                <p class="text-xs text-gray-600 mt-1">
+                  Billing sheet row {{ b.source_row }}
+                </p>
+
+              </div>
+
+
+              <div class="flex flex-wrap items-start gap-3">
+
+                <div class="text-sm text-right">
+
+                  {% if payload.permissions.can_view_tech_prices %}
+
+                    <div>
+                      <b>Tech total:</b>
+                      ${{ b.subtotal_tecnico }}
+                    </div>
+
+                  {% endif %}
+
+
+                  {% if payload.permissions.can_view_company_prices %}
+
+                    <div>
+                      <b>Company total:</b>
+                      ${{ b.subtotal_empresa }}
+                    </div>
+
+                  {% endif %}
+
+                </div>
+
+
+                {% if not b.direct_discount %}
+
+                  <form
+                    method="post"
+                    action="{% url 'operaciones:billing_masivo_preview' %}"
+                    class="js-preview-action-form"
+                  >
+
+                    {% csrf_token %}
+
+                    <input
+                      type="hidden"
+                      name="action"
+                      value="set_billing_execution"
+                    >
+
+                    <input
+                      type="hidden"
+                      name="bulk_key"
+                      value="{{ b.bulk_key }}"
+                    >
+
+
+                    {% if b.execution_mode == "show_now" %}
+
+                      <input
+                        type="hidden"
+                        name="execution_mode"
+                        value="queue"
+                      >
+
+                      <button
+                        type="submit"
+                        class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+                      >
+                        Return to Queue
+                      </button>
+
+                    {% else %}
+
+                      <input
+                        type="hidden"
+                        name="execution_mode"
+                        value="show_now"
+                      >
+
+                      <button
+                        type="submit"
+                        class="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold"
+                      >
+                        ⚡ Show Now
+                      </button>
+
+                    {% endif %}
+
+                  </form>
+
+                {% endif %}
+
+              </div>
+
+            </div>
+
+          </div>
+
 
           <div class="p-4">
 
+            <!-- ================================================= -->
+            <!-- EXECUTION MODE -->
+            <!-- ================================================= -->
+
+            <div
+              class="
+                mb-4 rounded-xl border p-3
+                {% if b.execution_mode == 'direct_discount' %}
+                  border-gray-200 bg-gray-50
+                {% elif b.execution_mode == 'show_now' %}
+                  border-amber-200 bg-amber-50
+                {% else %}
+                  border-blue-200 bg-blue-50
+                {% endif %}
+              "
+            >
+
+              <div class="flex flex-wrap items-center justify-between gap-3">
+
+                <div>
+
+                  <div class="text-xs text-gray-500">
+                    Execution
+                  </div>
+
+                  <div class="font-bold text-gray-900 mt-0.5">
+
+                    {% if b.execution_mode == "direct_discount" %}
+                      Direct Discount — queue bypass
+
+                    {% elif b.execution_mode == "show_now" %}
+                      ⚡ Show Now — immediately visible
+
+                    {% else %}
+                      Numbered execution queue
+                    {% endif %}
+
+                  </div>
+
+                </div>
+
+
+                <div class="text-xs text-gray-600 max-w-xl">
+
+                  {% if b.execution_mode == "direct_discount" %}
+
+                    Direct Discount does not participate in technician execution priority.
+
+                  {% elif b.execution_mode == "show_now" %}
+
+                    This Billing is outside the numbered queues for all assigned technicians.
+                    Show Now does not start or pause any timer.
+
+                  {% else %}
+
+                    Each technician receives an independent resulting queue position.
+                    Existing projects remain ahead of this imported batch.
+
+                  {% endif %}
+
+                </div>
+
+              </div>
+
+            </div>
+
+
+            <!-- ================================================= -->
+            <!-- BILLING FIELDS -->
+            <!-- ================================================= -->
+
             <div class="overflow-x-auto rounded-xl border">
+
               <table class="min-w-[1200px] w-full text-xs">
+
                 <thead class="bg-gray-100 text-gray-700">
+
                   <tr>
-                    <th class="p-2 text-left">Field</th>
-                    <th class="p-2 text-left">Value</th>
-                    <th class="p-2 text-left">Validation</th>
+
+                    <th class="p-2 text-left">
+                      Field
+                    </th>
+
+                    <th class="p-2 text-left">
+                      Value
+                    </th>
+
+                    <th class="p-2 text-left">
+                      Validation
+                    </th>
+
                   </tr>
+
                 </thead>
 
+
                 <tbody>
-                  <tr class="border-t">
-                    <td class="p-2 font-semibold">project_id</td>
-                    <td class="p-2">{{ b.project_id|default:"—" }}</td>
-                    <td class="p-2">
-                      {% with has_field_error=False %}
-                        {% for e in b.errors %}
-                          {% if e.field == "project_id" %}
-                            <div class="text-xs text-red-700">{{ e.message }}</div>
-                          {% endif %}
-                        {% endfor %}
-                      {% endwith %}
-                    </td>
-                  </tr>
+
+                  <!-- PROJECT ID -->
 
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">client</td>
-                    <td class="p-2">{{ b.client|default:"—" }}</td>
+
+                    <td class="p-2 font-semibold">
+                      project_id
+                    </td>
+
                     <td class="p-2">
+                      {{ b.project_id|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
+                        {% if e.field == "project_id" %}
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
+                        {% endif %}
+
+                      {% endfor %}
+
+                    </td>
+
+                  </tr>
+
+
+                  <!-- CLIENT -->
+
+                  <tr class="border-t">
+
+                    <td class="p-2 font-semibold">
+                      client
+                    </td>
+
+                    <td class="p-2">
+                      {{ b.client|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
+                      {% for e in b.errors %}
+
                         {% if e.field == "client" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
+
+                  <!-- CITY -->
+
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">city</td>
-                    <td class="p-2">{{ b.city|default:"—" }}</td>
+
+                    <td class="p-2 font-semibold">
+                      city
+                    </td>
+
                     <td class="p-2">
+                      {{ b.city|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "city" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
-                  <tr class="border-t">
 
-  <td class="p-2 font-semibold">project</td>
-
-  <td class="p-2">{{ b.project|default:"—" }}</td>
-
-  <td class="p-2">
-
-    {% for e in b.errors %}
-
-      {% if e.field == "project" %}
-
-        <div class="text-xs text-red-700">{{ e.message }}</div>
-
-      {% endif %}
-
-    {% endfor %}
-
-  </td>
-
-</tr>
+                  <!-- PROJECT -->
 
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">office</td>
-                    <td class="p-2">{{ b.office|default:"—" }}</td>
+
+                    <td class="p-2 font-semibold">
+                      project
+                    </td>
+
                     <td class="p-2">
+                      {{ b.project|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
+                        {% if e.field == "project" %}
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
+                        {% endif %}
+
+                      {% endfor %}
+
+                    </td>
+
+                  </tr>
+
+
+                  <!-- OFFICE -->
+
+                  <tr class="border-t">
+
+                    <td class="p-2 font-semibold">
+                      office
+                    </td>
+
+                    <td class="p-2">
+                      {{ b.office|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
+                      {% for e in b.errors %}
+
                         {% if e.field == "office" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
+
+                  <!-- PROJECTED WEEK -->
+
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">projected_week</td>
-                    <td class="p-2">{{ b.projected_week|default:"—" }}</td>
+
+                    <td class="p-2 font-semibold">
+                      projected_week
+                    </td>
+
                     <td class="p-2">
+                      {{ b.projected_week|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "projected_week" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
+
+                  <!-- PAYMENT MODE -->
+
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">tech_payment_mode</td>
-                    <td class="p-2">{{ b.tech_payment_mode|default:"—" }}</td>
+
+                    <td class="p-2 font-semibold">
+                      tech_payment_mode
+                    </td>
+
                     <td class="p-2">
+                      {{ b.tech_payment_mode|default:"—" }}
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "tech_payment_mode" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
+
+                  <!-- DIRECT DISCOUNT -->
+
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">direct_discount</td>
-                    <td class="p-2">{% if b.direct_discount %}YES{% else %}NO{% endif %}</td>
+
+                    <td class="p-2 font-semibold">
+                      direct_discount
+                    </td>
+
                     <td class="p-2">
+
+                      {% if b.direct_discount %}
+                        YES
+                      {% else %}
+                        NO
+                      {% endif %}
+
+                    </td>
+
+                    <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "direct_discount" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
-                              <tr class="border-t">
-                    <td class="p-2 font-semibold">cable_installation</td>
-                    <td class="p-2">{% if b.cable_installation %}YES{% else %}NO{% endif %}</td>
-                    <td class="p-2">
-                      {% for e in b.errors %}
-                        {% if e.field == "cable_installation" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
-                        {% endif %}
-                      {% endfor %}
-                    </td>
-                  </tr>
+
+                  <!-- SHOW IMMEDIATELY -->
 
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">requirement_type</td>
+
+                    <td class="p-2 font-semibold">
+                      show_immediately
+                    </td>
+
                     <td class="p-2">
+
+                      {% if b.show_immediately %}
+
+                        <span class="inline-flex px-2 py-1 rounded bg-amber-100 text-amber-900 font-bold">
+                          YES
+                        </span>
+
+                      {% else %}
+
+                        <span class="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-700">
+                          NO
+                        </span>
+
+                      {% endif %}
+
+                    </td>
+
+                    <td class="p-2">
+
+                      {% for e in b.errors %}
+
+                        {% if e.field == "show_immediately" %}
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
+                        {% endif %}
+
+                      {% endfor %}
+
+                    </td>
+
+                  </tr>
+
+
+                  <!-- CABLE INSTALLATION -->
+
+                  <tr class="border-t">
+
+                    <td class="p-2 font-semibold">
+                      cable_installation
+                    </td>
+
+                    <td class="p-2">
+
+                      {% if b.cable_installation %}
+                        YES
+                      {% else %}
+                        NO
+                      {% endif %}
+
+                    </td>
+
+                    <td class="p-2">
+
+                      {% for e in b.errors %}
+
+                        {% if e.field == "cable_installation" %}
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
+                        {% endif %}
+
+                      {% endfor %}
+
+                    </td>
+
+                  </tr>
+
+
+                  <!-- REQUIREMENT TYPE -->
+
+                  <tr class="border-t">
+
+                    <td class="p-2 font-semibold">
+                      requirement_type
+                    </td>
+
+                    <td class="p-2">
+
                       {% if b.requirement_type %}
                         {{ b.requirement_type }}
                       {% else %}
                         —
                       {% endif %}
+
                     </td>
+
                     <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "requirement_type" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
+
                     </td>
+
                   </tr>
 
+
+                  <!-- REQUIREMENT LIST -->
+
                   <tr class="border-t">
-                    <td class="p-2 font-semibold">requirement_list</td>
+
+                    <td class="p-2 font-semibold">
+                      requirement_list
+                    </td>
+
                     <td class="p-2">
+
                       {% if b.requirement_list_label %}
+
                         <span class="inline-flex px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold">
                           {{ b.requirement_list_label }}
                         </span>
+
                       {% elif b.requirement_list %}
+
                         {{ b.requirement_list }}
+
                       {% else %}
+
                         —
+
                       {% endif %}
+
                     </td>
+
+
                     <td class="p-2">
+
                       {% for e in b.errors %}
+
                         {% if e.field == "requirement_list" %}
-                          <div class="text-xs text-red-700">{{ e.message }}</div>
+
+                          <div class="text-xs text-red-700">
+                            {{ e.message }}
+                          </div>
+
                         {% endif %}
+
                       {% endfor %}
 
-                      {% if b.requirement_list_id and not b.errors %}
+
+                      {% if b.requirement_list_id %}
+
                         <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                           OK
                         </span>
+
                       {% endif %}
+
                     </td>
+
                   </tr>
+
                 </tbody>
+
               </table>
+
             </div>
 
+
+            <!-- ================================================= -->
+            <!-- BILLING ERRORS -->
+            <!-- ================================================= -->
+
             {% if b.errors %}
+
               <div class="mt-3 rounded-xl border border-red-200 bg-red-50 p-3">
-                <h3 class="font-semibold text-red-800 text-sm">Billing errors</h3>
+
+                <h3 class="font-semibold text-red-800 text-sm">
+                  Billing errors
+                </h3>
+
                 <div class="mt-2 space-y-1">
+
                   {% for e in b.errors %}
+
                     <div class="text-xs text-red-700">
-                      <b>{{ e.sheet }}</b> row {{ e.row }} — <b>{{ e.field }}</b>: {{ e.message }}
+
+                      <b>{{ e.sheet }}</b>
+                      row {{ e.row }}
+                      —
+                      <b>{{ e.field }}</b>:
+                      {{ e.message }}
+
                     </div>
+
                   {% endfor %}
+
                 </div>
+
               </div>
+
             {% endif %}
+
+
+            <!-- ================================================= -->
+            <!-- TECHNICIANS / ITEMS -->
+            <!-- ================================================= -->
 
             <div class="mt-5 grid lg:grid-cols-2 gap-4">
 
+              <!-- TECHNICIANS -->
+
               <div>
-                <h3 class="font-semibold text-gray-800 mb-2">Technicians</h3>
+
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+
+                  <h3 class="font-semibold text-gray-800">
+                    Technicians
+                  </h3>
+
+
+                  {% if b.execution_mode == "queue" %}
+
+                    <span class="text-xs text-gray-500">
+                      Edit imported order before creation
+                    </span>
+
+                  {% endif %}
+
+                </div>
+
 
                 <div class="overflow-x-auto rounded-xl border">
-                  <table class="min-w-[500px] w-full text-xs">
+
+                  <table class="min-w-[850px] w-full text-xs">
+
                     <thead class="bg-gray-100">
+
                       <tr>
-                        <th class="p-2 text-left">Row</th>
-                        <th class="p-2 text-left">Username</th>
-                        <th class="p-2 text-left">Name</th>
-                        <th class="p-2 text-left">Validation</th>
+
+                        <th class="p-2 text-left">
+                          Row
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Username
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Name
+                        </th>
+
+                        <th class="p-2 text-center">
+                          Imported order
+                        </th>
+
+                        <th class="p-2 text-center">
+                          Resulting queue
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Validation / Planning
+                        </th>
+
                       </tr>
+
                     </thead>
 
+
                     <tbody>
+
                       {% for t in b.technicians %}
-                        <tr class="border-t">
-                          <td class="p-2">{{ t.source_row }}</td>
+
+                        <tr
+                          class="
+                            border-t
+                            {% if t.has_planning_conflict %}
+                              bg-amber-50
+                            {% endif %}
+                          "
+                        >
+
+                          <td class="p-2">
+                            {{ t.source_row }}
+                          </td>
+
+
                           <td class="p-2 font-semibold">
                             {{ t.username|default:"—" }}
                           </td>
-                          <td class="p-2">{{ t.display_name|default:"—" }}</td>
-<td class="p-2">
-  {% for e in b.errors %}
-    {% if e.sheet == "Technicians" and e.row == t.source_row %}
-      {% if not e.username or e.username == t.username %}
-        <div class="text-xs text-red-700">
-          <b>{{ e.field }}:</b> {{ e.message }}
-        </div>
-      {% endif %}
-    {% endif %}
-  {% endfor %}
 
-  {% if t.user_id %}
-    <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-      OK
-    </span>
-  {% else %}
-    <span class="inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800">
-      Invalid technician
-    </span>
-  {% endif %}
-</td>
-                        </tr>
-                      {% empty %}
-                        <tr>
-                          <td colspan="4" class="p-3 text-center text-gray-500">No technicians.</td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
 
-              <div>
-                <h3 class="font-semibold text-gray-800 mb-2">Items</h3>
-
-                <div class="overflow-x-auto rounded-xl border">
-                  <table class="min-w-[900px] w-full text-xs">
-                    <thead class="bg-gray-100">
-                      <tr>
-                        <th class="p-2 text-left">Row</th>
-                        <th class="p-2 text-left">Job Code</th>
-                        <th class="p-2 text-right">Qty</th>
-                        <th class="p-2 text-left">Work Type</th>
-                        <th class="p-2 text-left">Description</th>
-                        {% if payload.permissions.can_view_tech_prices %}
-  <th class="p-2 text-right">Tech Subtotal</th>
-{% endif %}
-
-{% if payload.permissions.can_view_company_prices %}
-  <th class="p-2 text-right">Company Subtotal</th>
-{% endif %}
-                        <th class="p-2 text-left">Validation</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {% for item in b.items %}
-                        <tr class="border-t {% if item.errors %}bg-red-50{% endif %}">
-                          <td class="p-2">{{ item.source_row }}</td>
-
-                          <td class="p-2 font-semibold align-top">
-                            {{ item.job_code|default:"—" }}
-
-                            {% for e in item.errors %}
-                              {% if e.field == "job_code" %}
-                                <div class="mt-1 text-[11px] text-red-700 leading-4">
-                                  {{ e.message }}
-                                </div>
-                              {% endif %}
-                            {% endfor %}
+                          <td class="p-2">
+                            {{ t.display_name|default:"—" }}
                           </td>
 
-                          <td class="p-2 text-right align-top">
-                            {{ item.quantity_raw|default:"—" }}
 
-                            {% for e in item.errors %}
-                              {% if e.field == "quantity" %}
-                                <div class="mt-1 text-[11px] text-red-700 leading-4 text-left">
-                                  {{ e.message }}
-                                </div>
-                              {% endif %}
-                            {% endfor %}
-                          </td>
+                          <td class="p-2 text-center">
 
-                          <td class="p-2">{{ item.tipo_trabajo|default:"—" }}</td>
-                          <td class="p-2 whitespace-normal max-w-[260px]">{{ item.descripcion|default:"—" }}</td>
-                          {% if payload.permissions.can_view_tech_prices %}
-  <td class="p-2 text-right">${{ item.subtotal_tecnico }}</td>
-{% endif %}
+                            {% if b.direct_discount %}
 
-{% if payload.permissions.can_view_company_prices %}
-  <td class="p-2 text-right">${{ item.subtotal_empresa }}</td>
-{% endif %}
+                              <span class="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-600 font-semibold">
+                                N/A
+                              </span>
 
-                          <td class="p-2 align-top">
-                            {% if item.errors %}
-                              <div class="space-y-1">
-                                {% for e in item.errors %}
-                                  <div class="text-red-700">
-                                    <b>{{ e.field }}:</b> {{ e.message }}
-                                  </div>
-                                {% endfor %}
-                              </div>
+
+                            {% elif b.execution_mode == "show_now" %}
+
+                              <span class="inline-flex px-2 py-1 rounded bg-amber-100 text-amber-900 font-bold">
+                                SHOW NOW
+                              </span>
+
+
+                            {% elif t.user_id %}
+
+                              <form
+                                method="post"
+                                action="{% url 'operaciones:billing_masivo_preview' %}"
+                                class="inline-flex items-center gap-1 js-preview-action-form"
+                              >
+
+                                {% csrf_token %}
+
+                                <input
+                                  type="hidden"
+                                  name="action"
+                                  value="set_technician_priority"
+                                >
+
+                                <input
+                                  type="hidden"
+                                  name="bulk_key"
+                                  value="{{ b.bulk_key }}"
+                                >
+
+                                <input
+                                  type="hidden"
+                                  name="technician_id"
+                                  value="{{ t.user_id }}"
+                                >
+
+                                <input
+                                  type="hidden"
+                                  name="source_row"
+                                  value="{{ t.source_row }}"
+                                >
+
+
+                                <input
+                                  type="text"
+                                  name="priority"
+                                  value="{% if t.priority_mode == 'explicit' %}{{ t.requested_priority }}{% else %}AUTO{% endif %}"
+                                  class="
+                                    w-20 px-2 py-1 rounded-lg border text-center font-semibold
+                                    {% if t.has_planning_conflict %}
+                                      border-amber-400 bg-amber-50
+                                    {% else %}
+                                      border-gray-300 bg-white
+                                    {% endif %}
+                                  "
+                                  autocomplete="off"
+                                >
+
+                                <button
+                                  type="submit"
+                                  class="px-2 py-1 rounded-lg bg-gray-900 hover:bg-black text-white font-semibold"
+                                >
+                                  Apply
+                                </button>
+
+                              </form>
+
+
                             {% else %}
+
+                              <span class="text-gray-400">
+                                —
+                              </span>
+
+                            {% endif %}
+
+                          </td>
+
+
+                          <td class="p-2 text-center">
+
+                            {% if b.direct_discount %}
+
+                              <span class="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-600 font-semibold">
+                                Bypass
+                              </span>
+
+
+                            {% elif b.execution_mode == "show_now" %}
+
+                              <span class="inline-flex px-2 py-1 rounded bg-amber-100 text-amber-900 font-bold">
+                                Visible now
+                              </span>
+
+
+                            {% elif t.resulting_priority %}
+
+                              <span class="inline-flex px-2 py-1 rounded bg-blue-600 text-white font-bold">
+                                #{{ t.resulting_priority }}
+                              </span>
+
+
+                            {% else %}
+
+                              <span class="text-gray-400">
+                                —
+                              </span>
+
+                            {% endif %}
+
+                          </td>
+
+
+                          <td class="p-2">
+
+                            {% for e in b.errors %}
+
+                              {% if e.sheet == "Technicians" and e.row == t.source_row %}
+
+                                {% if not e.username or e.username == t.username %}
+
+                                  <div class="text-xs text-red-700 mb-1">
+                                    <b>{{ e.field }}:</b>
+                                    {{ e.message }}
+                                  </div>
+
+                                {% endif %}
+
+                              {% endif %}
+
+                            {% endfor %}
+
+
+                            {% if t.has_planning_conflict %}
+
+                              <div class="text-[11px] text-amber-800 font-semibold mb-1">
+                                ⚠ Imported order conflict.
+                              </div>
+
+                            {% endif %}
+
+
+                            {% if t.priority_warning %}
+
+                              <div class="text-[11px] text-blue-700 mb-1">
+                                {{ t.priority_warning }}
+                              </div>
+
+                            {% endif %}
+
+
+                            {% if t.current_running_project %}
+
+                              <div class="text-[11px] text-amber-700 mb-1">
+
+                                Running:
+                                <b>{{ t.current_running_project }}</b>
+
+                                {% if t.current_running_priority %}
+                                  (#{{ t.current_running_priority }})
+                                {% else %}
+                                  (outside numbered queue)
+                                {% endif %}
+
+                              </div>
+
+                            {% endif %}
+
+
+                            {% if t.user_id %}
+
                               <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                                 OK
                               </span>
+
+                            {% else %}
+
+                              <span class="inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800">
+                                Invalid technician
+                              </span>
+
                             {% endif %}
+
                           </td>
+
                         </tr>
 
-                      {% if item.desglose_tecnico and payload.permissions.can_view_tech_prices %}
-  <tr class="border-t bg-gray-50">
-    <td></td>
-
-    {% if payload.permissions.can_view_company_prices %}
-      <td colspan="7" class="p-2">
-    {% else %}
-      <td colspan="6" class="p-2">
-    {% endif %}
-        <div class="flex flex-wrap gap-2">
-          {% for d in item.desglose_tecnico %}
-            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border text-xs">
-              <b>{{ d.tecnico_nombre }}</b>
-              {{ d.tarifa_base }} × {{ d.porcentaje }}% = {{ d.tarifa_efectiva }}
-              / subtotal {{ d.subtotal }}
-            </span>
-          {% endfor %}
-        </div>
-      </td>
-  </tr>
-{% endif %}
                       {% empty %}
+
                         <tr>
-                          <td colspan="8" class="p-3 text-center text-gray-500">No items.</td>
+
+                          <td
+                            colspan="6"
+                            class="p-3 text-center text-gray-500"
+                          >
+                            No technicians.
+                          </td>
+
                         </tr>
+
                       {% endfor %}
+
                     </tbody>
+
                   </table>
+
                 </div>
+
+              </div>
+
+
+              <!-- ITEMS -->
+
+              <div>
+
+                <h3 class="font-semibold text-gray-800 mb-2">
+                  Items
+                </h3>
+
+
+                <div class="overflow-x-auto rounded-xl border">
+
+                  <table class="min-w-[900px] w-full text-xs">
+
+                    <thead class="bg-gray-100">
+
+                      <tr>
+
+                        <th class="p-2 text-left">
+                          Row
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Job Code
+                        </th>
+
+                        <th class="p-2 text-right">
+                          Qty
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Work Type
+                        </th>
+
+                        <th class="p-2 text-left">
+                          Description
+                        </th>
+
+
+                        {% if payload.permissions.can_view_tech_prices %}
+
+                          <th class="p-2 text-right">
+                            Tech Subtotal
+                          </th>
+
+                        {% endif %}
+
+
+                        {% if payload.permissions.can_view_company_prices %}
+
+                          <th class="p-2 text-right">
+                            Company Subtotal
+                          </th>
+
+                        {% endif %}
+
+
+                        <th class="p-2 text-left">
+                          Validation
+                        </th>
+
+                      </tr>
+
+                    </thead>
+
+
+                    <tbody>
+
+                      {% for item in b.items %}
+
+                        <tr
+                          class="
+                            border-t
+                            {% if item.errors %}
+                              bg-red-50
+                            {% endif %}
+                          "
+                        >
+
+                          <td class="p-2">
+                            {{ item.source_row }}
+                          </td>
+
+
+                          <td class="p-2 font-semibold align-top">
+
+                            {{ item.job_code|default:"—" }}
+
+                            {% for e in item.errors %}
+
+                              {% if e.field == "job_code" %}
+
+                                <div class="mt-1 text-[11px] text-red-700 leading-4">
+                                  {{ e.message }}
+                                </div>
+
+                              {% endif %}
+
+                            {% endfor %}
+
+                          </td>
+
+
+                          <td class="p-2 text-right align-top">
+
+                            {{ item.quantity_raw|default:"—" }}
+
+                            {% for e in item.errors %}
+
+                              {% if e.field == "quantity" %}
+
+                                <div class="mt-1 text-[11px] text-red-700 leading-4 text-left">
+                                  {{ e.message }}
+                                </div>
+
+                              {% endif %}
+
+                            {% endfor %}
+
+                          </td>
+
+
+                          <td class="p-2">
+                            {{ item.tipo_trabajo|default:"—" }}
+                          </td>
+
+
+                          <td class="p-2 whitespace-normal max-w-[260px]">
+                            {{ item.descripcion|default:"—" }}
+                          </td>
+
+
+                          {% if payload.permissions.can_view_tech_prices %}
+
+                            <td class="p-2 text-right">
+                              ${{ item.subtotal_tecnico }}
+                            </td>
+
+                          {% endif %}
+
+
+                          {% if payload.permissions.can_view_company_prices %}
+
+                            <td class="p-2 text-right">
+                              ${{ item.subtotal_empresa }}
+                            </td>
+
+                          {% endif %}
+
+
+                          <td class="p-2 align-top">
+
+                            {% if item.errors %}
+
+                              <div class="space-y-1">
+
+                                {% for e in item.errors %}
+
+                                  <div class="text-red-700">
+                                    <b>{{ e.field }}:</b>
+                                    {{ e.message }}
+                                  </div>
+
+                                {% endfor %}
+
+                              </div>
+
+                            {% else %}
+
+                              <span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                OK
+                              </span>
+
+                            {% endif %}
+
+                          </td>
+
+                        </tr>
+
+
+                        {% if item.desglose_tecnico and payload.permissions.can_view_tech_prices %}
+
+                          <tr class="border-t bg-gray-50">
+
+                            <td></td>
+
+                            {% if payload.permissions.can_view_company_prices %}
+                              <td colspan="7" class="p-2">
+                            {% else %}
+                              <td colspan="6" class="p-2">
+                            {% endif %}
+
+                              <div class="flex flex-wrap gap-2">
+
+                                {% for d in item.desglose_tecnico %}
+
+                                  <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border text-xs">
+
+                                    <b>
+                                      {{ d.tecnico_nombre }}
+                                    </b>
+
+                                    {{ d.tarifa_base }}
+                                    ×
+                                    {{ d.porcentaje }}%
+                                    =
+                                    {{ d.tarifa_efectiva }}
+                                    /
+                                    subtotal
+                                    {{ d.subtotal }}
+
+                                  </span>
+
+                                {% endfor %}
+
+                              </div>
+
+                            </td>
+
+                          </tr>
+
+                        {% endif %}
+
+
+                      {% empty %}
+
+                        <tr>
+
+                          <td
+                            colspan="8"
+                            class="p-3 text-center text-gray-500"
+                          >
+                            No items.
+                          </td>
+
+                        </tr>
+
+                      {% endfor %}
+
+                    </tbody>
+
+                  </table>
+
+                </div>
+
               </div>
 
             </div>
 
           </div>
+
         </div>
+
       {% empty %}
+
         <div class="rounded-xl border p-6 text-center text-gray-500">
           No billings found in the file.
         </div>
+
       {% endfor %}
+
     </div>
 
+
+    <!-- ========================================================= -->
+    <!-- CONFIRM -->
+    <!-- ========================================================= -->
+
     <div class="mt-6 flex flex-wrap justify-between items-center gap-3 border-t pt-4">
+
       <div>
+
         {% if has_errors %}
+
           <div class="text-sm text-red-700 font-semibold">
-            Fix the errors in the Excel file and upload it again. No billing can be created yet.
+            The import contains data or business validation errors.
+            No billing can be created yet.
           </div>
+
+
+        {% elif payload.has_planning_conflicts %}
+
+          <div class="text-sm text-amber-700 font-semibold">
+            Billing data is valid, but execution planning still has conflicts.
+            Resolve the queue order or use Show Now before creating the Billings.
+          </div>
+
+
         {% else %}
+
           <div class="text-sm text-emerald-700 font-semibold">
-            All validations passed. You can create all billings now.
+            All validations and execution planning checks passed.
+            The Billings are ready to be created.
           </div>
+
         {% endif %}
+
       </div>
 
+
       <div class="flex items-center gap-2">
-        <a href="{% url 'operaciones:billing_masivo_upload' %}"
-           class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
+
+        <a
+          href="{% url 'operaciones:billing_masivo_upload' %}"
+          class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200"
+        >
           Cancel
         </a>
 
-        <form method="post"
 
-      action="{% url 'operaciones:billing_masivo_confirm' %}"
+        <form
+          method="post"
+          action="{% url 'operaciones:billing_masivo_confirm' %}"
+          id="bulk-confirm-form"
+        >
 
-      id="bulk-confirm-form">
+          {% csrf_token %}
 
-  {% csrf_token %}
+          <button
+            type="submit"
+            id="bulk-confirm-btn"
+            {% if has_errors or payload.has_planning_conflicts %}disabled{% endif %}
+            class="
+              px-5 py-2 rounded-lg text-white font-semibold
+              {% if has_errors or payload.has_planning_conflicts %}
+                bg-gray-400 cursor-not-allowed
+              {% else %}
+                bg-blue-600 hover:bg-blue-700
+              {% endif %}
+            "
+          >
+            Create all billings
+          </button>
 
-  <button type="submit"
+        </form>
 
-          id="bulk-confirm-btn"
-
-          {% if has_errors %}disabled{% endif %}
-
-          class="px-5 py-2 rounded-lg text-white font-semibold {% if has_errors %}bg-gray-400 cursor-not-allowed{% else %}bg-blue-600 hover:bg-blue-700{% endif %}">
-
-    Create all billings
-
-  </button>
-
-</form>
       </div>
+
     </div>
 
   </div>
+
 </div>
+
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const form = document.getElementById('bulk-confirm-form');
-  const btn = document.getElementById('bulk-confirm-btn');
 
-  if (!form || !btn) return;
+  /*
+   * =============================================================
+   * RESTORE PREVIEW SCROLL POSITION
+   * =============================================================
+   *
+   * Preview actions POST to the backend and then redirect back
+   * to this same page.
+   *
+   * Before submitting we save the current vertical position.
+   * When the Preview loads again, we restore that exact position.
+   *
+   * This applies only to Preview planning actions.
+   * Final "Create all billings" does not use this behavior because
+   * successful creation redirects to Billing List.
+   * =============================================================
+   */
+
+  const scrollStorageKey = (
+    'bulk_billing_preview_scroll:' +
+    window.location.pathname
+  );
+
+  const savedScroll = sessionStorage.getItem(
+    scrollStorageKey
+  );
+
+  if (savedScroll !== null) {
+
+    sessionStorage.removeItem(
+      scrollStorageKey
+    );
+
+    const targetScroll = parseInt(
+      savedScroll,
+      10
+    );
+
+    if (!Number.isNaN(targetScroll)) {
+
+      /*
+       * Two animation frames make sure the page has already
+       * calculated its final layout before restoring the position.
+       */
+
+      requestAnimationFrame(
+        function () {
+
+          requestAnimationFrame(
+            function () {
+
+              window.scrollTo({
+                top: targetScroll,
+                left: 0,
+                behavior: 'auto'
+              });
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+  }
+
+
+  /*
+   * =============================================================
+   * PREVIEW ACTIONS
+   * =============================================================
+   *
+   * Examples:
+   *
+   * - Organize Queue Automatically
+   * - Show All Now
+   * - Show Now
+   * - Return to Queue
+   * - Apply technician priority
+   *
+   * The backend remains the source of truth.
+   * =============================================================
+   */
+
+  document.querySelectorAll(
+    '.js-preview-action-form'
+  ).forEach(function (form) {
+
+    let submitting = false;
+
+    form.addEventListener(
+      'submit',
+      function (e) {
+
+        if (submitting) {
+          e.preventDefault();
+          return false;
+        }
+
+        submitting = true;
+
+        /*
+         * Save exactly where the administrator is currently
+         * working before the POST + redirect.
+         */
+
+        sessionStorage.setItem(
+          scrollStorageKey,
+          String(window.scrollY)
+        );
+
+
+        const buttons = form.querySelectorAll(
+          'button[type="submit"]'
+        );
+
+        buttons.forEach(
+          function (button) {
+
+            button.disabled = true;
+
+            button.classList.add(
+              'opacity-60',
+              'cursor-not-allowed',
+              'pointer-events-none'
+            );
+
+          }
+        );
+
+      }
+    );
+
+  });
+
+
+  /*
+   * =============================================================
+   * FINAL CREATE
+   * =============================================================
+   *
+   * We deliberately DO NOT save Preview scroll here.
+   *
+   * On success this action leaves the Preview and redirects to
+   * Billing List, so there is no position to restore.
+   * =============================================================
+   */
+
+  const form = document.getElementById(
+    'bulk-confirm-form'
+  );
+
+  const btn = document.getElementById(
+    'bulk-confirm-btn'
+  );
+
+  if (!form || !btn) {
+    return;
+  }
 
   let submitting = false;
 
-  form.addEventListener('submit', function (e) {
-    if (submitting) {
-      e.preventDefault();
-      return false;
+  form.addEventListener(
+    'submit',
+    function (e) {
+
+      if (submitting) {
+        e.preventDefault();
+        return false;
+      }
+
+      submitting = true;
+
+      /*
+       * Remove any previous Preview position so it cannot be
+       * accidentally reused later.
+       */
+
+      sessionStorage.removeItem(
+        scrollStorageKey
+      );
+
+      btn.disabled = true;
+
+      btn.textContent = (
+        'Creating billings...'
+      );
+
+      btn.classList.remove(
+        'hover:bg-blue-700'
+      );
+
+      btn.classList.add(
+        'opacity-70',
+        'cursor-not-allowed',
+        'pointer-events-none'
+      );
+
+      form.querySelectorAll(
+        'button[type="submit"]'
+      ).forEach(
+        function (button) {
+
+          button.disabled = true;
+
+          button.classList.add(
+            'opacity-70',
+            'cursor-not-allowed',
+            'pointer-events-none'
+          );
+
+        }
+      );
+
     }
+  );
 
-    submitting = true;
-
-    btn.disabled = true;
-    btn.textContent = 'Creating billings...';
-    btn.classList.remove('hover:bg-blue-700');
-    btn.classList.add('opacity-70', 'cursor-not-allowed', 'pointer-events-none');
-
-    form.querySelectorAll('button[type="submit"]').forEach(function (button) {
-      button.disabled = true;
-      button.classList.add('opacity-70', 'cursor-not-allowed', 'pointer-events-none');
-    });
-  });
 });
 </script>
 {% endblock %}

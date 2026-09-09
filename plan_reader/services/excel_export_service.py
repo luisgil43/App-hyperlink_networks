@@ -28,6 +28,7 @@ BILLINGS_HEADERS = [
     "projected_week",
     "tech_payment_mode",
     "direct_discount",
+    "show_immediately",
     "cable_installation",
     "requirement_type",
     "requirement_list",
@@ -36,6 +37,7 @@ BILLINGS_HEADERS = [
 TECHNICIANS_HEADERS = [
     "bulk_key",
     "technician_username",
+    "priority",
     "primary_feed",
 ]
 
@@ -506,32 +508,63 @@ def _write_instructions_sheet(ws_help):
     ws_help["A1"] = "Bulk Billing Import Guide"
     ws_help["A1"].fill = dark_fill
     ws_help["A1"].font = title_font
-    ws_help["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws_help["A1"].alignment = Alignment(
+        horizontal="center",
+        vertical="center",
+    )
     ws_help.row_dimensions[1].height = 28
 
     row = 3
 
     def section(title, fill):
         nonlocal row
-        ws_help.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
 
-        cell = ws_help.cell(row=row, column=1)
+        ws_help.merge_cells(
+            start_row=row,
+            start_column=1,
+            end_row=row,
+            end_column=6,
+        )
+
+        cell = ws_help.cell(
+            row=row,
+            column=1,
+        )
+
         cell.value = title
         cell.fill = fill
         cell.font = section_font
-        cell.alignment = Alignment(horizontal="left", vertical="center")
+        cell.alignment = Alignment(
+            horizontal="left",
+            vertical="center",
+        )
 
         ws_help.row_dimensions[row].height = 22
+
         row += 1
 
     def line(label, value="", note=""):
         nonlocal row
 
-        ws_help.cell(row=row, column=1).value = label
-        ws_help.cell(row=row, column=1).font = bold_font
+        ws_help.cell(
+            row=row,
+            column=1,
+        ).value = label
 
-        ws_help.cell(row=row, column=2).value = value
-        ws_help.cell(row=row, column=2).font = normal_font
+        ws_help.cell(
+            row=row,
+            column=1,
+        ).font = bold_font
+
+        ws_help.cell(
+            row=row,
+            column=2,
+        ).value = value
+
+        ws_help.cell(
+            row=row,
+            column=2,
+        ).font = normal_font
 
         if note:
             ws_help.merge_cells(
@@ -540,11 +573,25 @@ def _write_instructions_sheet(ws_help):
                 end_row=row,
                 end_column=6,
             )
-            ws_help.cell(row=row, column=3).value = note
-            ws_help.cell(row=row, column=3).font = normal_font
 
-        for col in range(1, 7):
-            ws_help.cell(row=row, column=col).alignment = Alignment(
+            ws_help.cell(
+                row=row,
+                column=3,
+            ).value = note
+
+            ws_help.cell(
+                row=row,
+                column=3,
+            ).font = normal_font
+
+        for col in range(
+            1,
+            7,
+        ):
+            ws_help.cell(
+                row=row,
+                column=col,
+            ).alignment = Alignment(
                 vertical="top",
                 wrap_text=True,
             )
@@ -555,67 +602,409 @@ def _write_instructions_sheet(ws_help):
         nonlocal row
         row += 1
 
-    section("1. General workflow", blue_fill)
-    line("Step 1", "Review the Billings sheet.", "One row per detected box.")
+    # ==========================================================
+    # 1. GENERAL WORKFLOW
+    # ==========================================================
+
+    section(
+        "1. General workflow",
+        blue_fill,
+    )
+
+    line(
+        "Step 1",
+        "Review the Billings sheet.",
+        ("Plan Reader generates one Billing row " "for each included detected box."),
+    )
+
     line(
         "Step 2",
-        "Fill the Technicians sheet.",
-        "Technicians are intentionally left blank from Plan Reader.",
+        "Review show_immediately.",
+        (
+            "Plan Reader exports NO by default. "
+            "Change it to YES only when the entire Billing "
+            "must be immediately visible outside the numbered queue."
+        ),
     )
+
     line(
         "Step 3",
-        "Review the Items sheet.",
-        "Rows are generated from C-108, C-109 and specific C-110 splitter quantities.",
+        "Fill the Technicians sheet.",
+        (
+            "technician_username is intentionally left blank. "
+            "Fill the technicians before uploading to Bulk Billing."
+        ),
     )
+
     line(
         "Step 4",
+        "Review priority.",
+        (
+            "Plan Reader leaves priority blank. "
+            "Blank priority means AUTO. "
+            "You may also enter 1, 2, 3... to define "
+            "relative imported order for a technician."
+        ),
+    )
+
+    line(
+        "Step 5",
+        "Review primary_feed.",
+        (
+            "Plan Reader places the detected primary feed / fiber "
+            "in column D of the Technicians sheet."
+        ),
+    )
+
+    line(
+        "Step 6",
+        "Review the Items sheet.",
+        (
+            "Rows are generated from C-108, C-109 "
+            "and specific C-110 splitter quantities."
+        ),
+    )
+
+    line(
+        "Step 7",
         "Upload the file.",
-        "The Bulk Billing preview will validate technicians, prices and requirement lists.",
+        (
+            "Bulk Billing Preview validates Billing data, "
+            "technicians, prices, requirements and execution planning "
+            "before creating anything."
+        ),
     )
+
     blank()
 
-    section("2. Requirement Lists", green_fill)
-    line("A4 1x2", "A4 1X2", "Generated from Final Box Type.")
-    line("A4 1x4", "A4 1x4", "Generated from Final Box Type.")
-    line("B8G", "B8G", "Generated from Final Box Type.")
-    line("B8G 1x4", "B8G 1X4", "Generated from Final Box Type.")
-    line("B8G 1x8", "B8G 1X8", "Generated from Final Box Type.")
-    blank()
+    # ==========================================================
+    # 2. REQUIREMENT LISTS
+    # ==========================================================
 
-    section("3. Billings sheet", green_fill)
-    line("bulk_key", "Required", "Generated from the box number.")
-    line("project_id", "Required", "Generated as box number only. Example: 7020-014.")
-    line("client", "Required", "Filled from Upload DFN Plan form.")
-    line("city", "Required", "Filled from Upload DFN Plan form.")
-    line("project", "Required", "Filled from Upload DFN Plan form.")
-    line("office", "Required", "Filled from Upload DFN Plan form.")
-    line("project_address", "Optional", "Left blank.")
-    line("projected_week", "Required", "Uses current ISO week unless configured.")
-    line("tech_payment_mode", "Required", "Default full.")
-    line("direct_discount", "Required", "Default NO.")
-    line("cable_installation", "Required", "Default NO.")
-    line("requirement_type", "Required", "fiber.")
-    line("requirement_list", "Required", "Generated from Final Box Type.")
-    blank()
+    section(
+        "2. Requirement Lists",
+        green_fill,
+    )
 
-    section("4. Technicians sheet", amber_fill)
     line(
-        "technician_username",
-        "Blank",
-        "Fill manually before uploading to Bulk Billing.",
+        "A4 1x2",
+        "A4 1X2",
+        "Generated from Final Box Type.",
     )
+
     line(
-        "Accepted format",
-        "tech1, tech2, tech3",
-        "You can use one row or multiple technicians in one cell.",
+        "A4 1x4",
+        "A4 1x4",
+        "Generated from Final Box Type.",
     )
+
+    line(
+        "B8G",
+        "B8G",
+        "Generated from Final Box Type.",
+    )
+
+    line(
+        "B8G 1x4",
+        "B8G 1X4",
+        "Generated from Final Box Type.",
+    )
+
+    line(
+        "B8G 1x8",
+        "B8G 1X8",
+        "Generated from Final Box Type.",
+    )
+
     blank()
 
-    section("5. Items sheet", blue_fill)
+    # ==========================================================
+    # 3. BILLINGS SHEET
+    # ==========================================================
+
+    section(
+        "3. Billings sheet",
+        green_fill,
+    )
+
     line(
         "bulk_key",
         "Required",
-        "Matches Billings sheet.",
+        (
+            "Generated automatically from the final Project ID "
+            "and used to connect Billings, Technicians and Items."
+        ),
+    )
+
+    line(
+        "project_id",
+        "Required",
+        (
+            "Generated from CO, DFN and detected box number. "
+            "Example: 0913RA_04_5003-002-5."
+        ),
+    )
+
+    line(
+        "client",
+        "Required",
+        "Filled from the Upload DFN Plan form.",
+    )
+
+    line(
+        "city",
+        "Required",
+        "Filled from the Upload DFN Plan form.",
+    )
+
+    line(
+        "project",
+        "Required",
+        "Filled from the Upload DFN Plan form.",
+    )
+
+    line(
+        "office",
+        "Required",
+        "Filled from the Upload DFN Plan form.",
+    )
+
+    line(
+        "project_address",
+        "Optional",
+        "Left blank by Plan Reader.",
+    )
+
+    line(
+        "projected_week",
+        "Required",
+        ("Uses the current ISO week unless " "a default is configured."),
+    )
+
+    line(
+        "tech_payment_mode",
+        "Required",
+        "Plan Reader defaults to full unless configured otherwise.",
+    )
+
+    line(
+        "direct_discount",
+        "Required",
+        "Plan Reader defaults to NO.",
+    )
+
+    line(
+        "show_immediately",
+        "Required",
+        (
+            "Plan Reader defaults to NO. "
+            "Use YES only when the entire Billing must be Show Now."
+        ),
+    )
+
+    line(
+        "show_immediately = NO",
+        "Normal queue",
+        ("The Billing participates in normal technician " "execution planning."),
+    )
+
+    line(
+        "show_immediately = YES",
+        "SHOW NOW",
+        (
+            "The entire Billing becomes immediately visible "
+            "to all assigned technicians and receives no "
+            "numbered queue position."
+        ),
+    )
+
+    line(
+        "Show Immediately scope",
+        "Entire Billing",
+        ("Show Immediately applies to every technician " "assigned to that Billing."),
+    )
+
+    line(
+        "Timer behavior",
+        "No timer change",
+        ("Show Immediately does not start, pause or stop " "technician work timers."),
+    )
+
+    line(
+        "Direct Discount rule",
+        "Do not use Show Immediately",
+        ("Direct Discount bypasses the normal execution " "priority queue."),
+    )
+
+    line(
+        "cable_installation",
+        "Required",
+        "Plan Reader defaults to NO unless configured otherwise.",
+    )
+
+    line(
+        "requirement_type",
+        "Required",
+        "Plan Reader generates fiber.",
+    )
+
+    line(
+        "requirement_list",
+        "Required",
+        "Generated from Final Box Type.",
+    )
+
+    blank()
+
+    # ==========================================================
+    # 4. TECHNICIANS SHEET
+    # ==========================================================
+
+    section(
+        "4. Technicians sheet",
+        amber_fill,
+    )
+
+    line(
+        "Column A",
+        "bulk_key",
+        ("Generated automatically and must match " "the corresponding Billings row."),
+    )
+
+    line(
+        "Column B",
+        "technician_username",
+        (
+            "Left blank by Plan Reader. "
+            "Fill manually before uploading to Bulk Billing."
+        ),
+    )
+
+    line(
+        "Column C",
+        "priority",
+        (
+            "Controls relative execution order for each technician "
+            "inside this imported batch."
+        ),
+    )
+
+    line(
+        "Column D",
+        "primary_feed",
+        (
+            "Primary feed / fiber detected by Plan Reader. "
+            "This information remains in column D."
+        ),
+    )
+
+    line(
+        "priority = 1, 2, 3...",
+        "Imported batch order",
+        (
+            "Defines the relative order of NEW imported Billings "
+            "for that technician. It is not an absolute "
+            "database queue position."
+        ),
+    )
+
+    line(
+        "Current technician queue",
+        "Preserved",
+        ("Existing queued projects remain ahead of normal " "new imported work."),
+    )
+
+    line(
+        "Example",
+        "Current #1 + import 1, 2, 3",
+        ("The new imported projects normally become " "#2, #3 and #4."),
+    )
+
+    line(
+        "priority = AUTO",
+        "Automatic planning",
+        (
+            "The Billing participates in the queue and Bulk Billing "
+            "organizes its imported order automatically."
+        ),
+    )
+
+    line(
+        "priority blank",
+        "AUTO",
+        (
+            "Plan Reader leaves this field blank by default. "
+            "Blank has the same execution meaning as AUTO."
+        ),
+    )
+
+    line(
+        "Show Now",
+        "Use Billings.show_immediately",
+        (
+            "Do not use a blank priority to request Show Now. "
+            "Set show_immediately = YES in the Billings sheet."
+        ),
+    )
+
+    line(
+        "Show Immediately priority",
+        "Ignored",
+        (
+            "When show_immediately = YES, technician priority "
+            "does not create a numbered queue position."
+        ),
+    )
+
+    line(
+        "Multiple technicians",
+        "Supported",
+        (
+            "You may use comma or semicolon separated usernames "
+            "when the same execution setting applies to all of them."
+        ),
+    )
+
+    line(
+        "Different priorities",
+        "Use separate rows",
+        (
+            "When technicians require different imported priorities, "
+            "create one Technicians row per technician using "
+            "the same bulk_key."
+        ),
+    )
+
+    line(
+        "Username rule",
+        "Existing user",
+        ("The username must match an existing " "technician/user in Hyperlink."),
+    )
+
+    line(
+        "primary_feed",
+        "Informational",
+        (
+            "primary_feed does not determine execution priority "
+            "or Show Immediately behavior."
+        ),
+    )
+
+    blank()
+
+    # ==========================================================
+    # 5. ITEMS SHEET
+    # ==========================================================
+
+    section(
+        "5. Items sheet",
+        blue_fill,
+    )
+
+    line(
+        "bulk_key",
+        "Required",
+        "Matches the Billings sheet.",
     )
 
     line(
@@ -627,41 +1016,96 @@ def _write_instructions_sheet(ws_help):
     line(
         "quantity",
         "Required",
-        "Always positive for normal billing.",
+        "Always positive for normal Billing.",
+    )
+
+    line(
+        "C-108",
+        "C-108-UG",
+        "Generated from detected C-108 underground quantity.",
+    )
+
+    line(
+        "C-109",
+        "C-109",
+        "Generated from detected splice quantity.",
     )
 
     line(
         "C-110 codes",
         "C-110.2 / C-110.4 / C-110.8 / C-110.16",
-        "Generated according to each detected splitter ratio.",
+        ("Generated according to each detected " "splitter ratio."),
+    )
+
+    line(
+        "C-110 generic",
+        "Not generated",
+        (
+            "Plan Reader exports the specific C-110 code "
+            "for the detected splitter ratio."
+        ),
     )
 
     blank()
 
-    section("6. Important", red_fill)
-    ws_help.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-    ws_help.cell(row=row, column=1).value = (
-        "IMPORTANT: Do not rename sheets or headers. "
-        "Before uploading, fill technician_username in the Technicians sheet. "
-        "Client, city, project and office come from the Plan Reader upload form. "
-        "Project ID is generated as the box number only. "
-        "Requirement List is generated from Final Box Type."
+    # ==========================================================
+    # 6. IMPORTANT
+    # ==========================================================
+
+    section(
+        "6. Important",
+        red_fill,
     )
-    ws_help.cell(row=row, column=1).fill = red_fill
-    ws_help.cell(row=row, column=1).font = error_font
-    ws_help.cell(row=row, column=1).alignment = Alignment(
+
+    ws_help.merge_cells(
+        start_row=row,
+        start_column=1,
+        end_row=row,
+        end_column=6,
+    )
+
+    ws_help.cell(
+        row=row,
+        column=1,
+    ).value = (
+        "IMPORTANT: Do not rename sheets or headers. "
+        "Before uploading, fill technician_username in the "
+        "Technicians sheet and review priority. "
+        "Blank priority means AUTO. "
+        "Use Billings.show_immediately = YES only when the entire "
+        "Billing must be Show Now. "
+        "primary_feed remains in column D of Technicians. "
+        "Client, city, project and office come from the Plan Reader "
+        "upload form. Requirement List is generated from Final Box Type."
+    )
+
+    ws_help.cell(
+        row=row,
+        column=1,
+    ).fill = red_fill
+
+    ws_help.cell(
+        row=row,
+        column=1,
+    ).font = error_font
+
+    ws_help.cell(
+        row=row,
+        column=1,
+    ).alignment = Alignment(
         horizontal="center",
         vertical="center",
         wrap_text=True,
     )
-    ws_help.row_dimensions[row].height = 50
 
-    ws_help.column_dimensions["A"].width = 24
-    ws_help.column_dimensions["B"].width = 32
-    ws_help.column_dimensions["C"].width = 24
-    ws_help.column_dimensions["D"].width = 24
-    ws_help.column_dimensions["E"].width = 24
-    ws_help.column_dimensions["F"].width = 24
+    ws_help.row_dimensions[row].height = 70
+
+    ws_help.column_dimensions["A"].width = 27
+    ws_help.column_dimensions["B"].width = 36
+    ws_help.column_dimensions["C"].width = 26
+    ws_help.column_dimensions["D"].width = 26
+    ws_help.column_dimensions["E"].width = 26
+    ws_help.column_dimensions["F"].width = 26
 
 
 def _safe_filename(value):
@@ -826,6 +1270,7 @@ def build_plan_reader_excel_response(job_id):
                 default_week,
                 default_payment_mode,
                 default_direct_discount,
+                "NO",
                 default_cable_installation,
                 default_requirement_type,
                 requirement_list,
@@ -835,6 +1280,7 @@ def build_plan_reader_excel_response(job_id):
         ws_t.append(
             [
                 bulk_key,
+                "",
                 "",
                 item.primary_feed or "",
             ]

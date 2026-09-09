@@ -7,8 +7,10 @@ from . import views as v
 from . import views_adjustments
 from . import views_billing_camera as cam  # ✅ NUEVO
 from . import views_billing_exec as b
-from . import (views_billing_masivo, views_fotos_zip, views_plans,
-               views_requirement_lists, views_resumen)
+from . import views_billing_masivo
+from . import views_billing_queue as billing_queue_views
+from . import (views_fotos_zip, views_plans, views_requirement_lists,
+               views_resumen)
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -515,5 +517,20 @@ urlpatterns = [
         "requirement-lists/import/parse/",
         views_requirement_lists.requirement_list_import_parse,
         name="requirement_list_import_parse",
+    ),
+    path(
+        "billing/assignment/<int:assignment_id>/priority/",
+        billing_queue_views.billing_assignment_set_priority,
+        name="billing_assignment_set_priority",
+    ),
+    path(
+        "billing/<int:sesion_id>/show-now/",
+        billing_queue_views.billing_show_now,
+        name="billing_show_now",
+    ),
+    path(
+        "billing/technician/<int:technician_id>/queue-preview/",
+        billing_queue_views.billing_technician_queue_preview,
+        name="billing_technician_queue_preview",
     ),
 ]

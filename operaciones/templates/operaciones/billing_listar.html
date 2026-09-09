@@ -374,51 +374,55 @@
           <input type="checkbox" class="col-toggle" data-col="5" checked> <span>Technicians</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="6" checked> <span>Client</span>
+          <input type="checkbox" class="col-toggle" data-col="6" checked>
+          <span>Priority / Time</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>City</span>
+          <input type="checkbox" class="col-toggle" data-col="7" checked> <span>Client</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>Project</span>
+          <input type="checkbox" class="col-toggle" data-col="8" checked> <span>City</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Office</span>
+          <input type="checkbox" class="col-toggle" data-col="9" checked> <span>Project</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Office</span>
         </label>
         {% if can_view_technical_billing_amounts %}
   <label class="flex items-center gap-2">
-    <input type="checkbox" class="col-toggle" data-col="10" checked> <span>Technical Billing</span>
+    <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Technical Billing</span>
   </label>
 {% endif %}
 
 {% if can_view_company_billing_amounts %}
   <label class="flex items-center gap-2">
-    <input type="checkbox" class="col-toggle" data-col="11" checked> <span>Company Billing</span>
+    <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Company Billing</span>
   </label>
 {% endif %}
 
 {% if can_view_real_company_billing %}
   <label class="flex items-center gap-2">
-    <input type="checkbox" class="col-toggle" data-col="12" checked> <span>Real Company Billing</span>
+    <input type="checkbox" class="col-toggle" data-col="13" checked> <span>Real Company Billing</span>
   </label>
 {% endif %}
 
 {% if can_view_billing_difference %}
   <label class="flex items-center gap-2">
-    <input type="checkbox" class="col-toggle" data-col="13" checked> <span>Different</span>
+    <input type="checkbox" class="col-toggle" data-col="14" checked> <span>Different</span>
   </label>
 {% endif %}
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="14" checked> <span>Finance Status</span>
+          <input type="checkbox" class="col-toggle" data-col="15" checked> <span>Finance Status</span>
         </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="15" checked> <span>Real pay week / Direct discount week</span>
+          <input type="checkbox" class="col-toggle" data-col="16" checked> <span>Real pay week / Direct discount week</span>
         </label>
         <label class="flex items-center gap-2">
-  <input type="checkbox" class="col-toggle" data-col="16" checked> <span>Comment</span>
+  <input type="checkbox" class="col-toggle" data-col="17" checked> <span>Comment</span>
 </label>
         <label class="flex items-center gap-2">
-          <input type="checkbox" class="col-toggle" data-col="17" checked> <span>Actions</span>
+          <input type="checkbox" class="col-toggle" data-col="18" checked> <span>Actions</span>
         </label>
       </div>
     </div>
@@ -507,38 +511,49 @@
       </button>
     </th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="5">
-      <button type="button" class="excel-header-btn flex items-center gap-1">
-        <span>Technicians</span><span class="excel-arrow text-gray-500">▼</span>
-      </button>
-    </th>
+   <th class="p-2 border text-left" data-excel-col data-excel-key="5">
+  <button type="button" class="excel-header-btn flex items-center gap-1">
+    <span>Technicians</span>
+    <span class="excel-arrow text-gray-500">▼</span>
+  </button>
+</th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="6">
-      <button type="button" class="excel-header-btn flex items-center gap-1">
-        <span>Client</span><span class="excel-arrow text-gray-500">▼</span>
-      </button>
-    </th>
+<th class="p-2 border text-left min-w-[190px]"
+    data-excel-col
+    data-excel-key="6">
+  <button type="button" class="excel-header-btn flex items-center gap-1">
+    <span>Priority / Time</span>
+    <span class="excel-arrow text-gray-500">▼</span>
+  </button>
+</th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="7">
+<th class="p-2 border text-left" data-excel-col data-excel-key="7">
+  <button type="button" class="excel-header-btn flex items-center gap-1">
+    <span>Client</span>
+    <span class="excel-arrow text-gray-500">▼</span>
+  </button>
+</th>
+
+    <th class="p-2 border text-left" data-excel-col data-excel-key="8">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>City</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
     </th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="8">
+    <th class="p-2 border text-left" data-excel-col data-excel-key="9">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>Project</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
     </th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="9">
+    <th class="p-2 border text-left" data-excel-col data-excel-key="10">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>Office</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
     </th>
 
     {% if can_view_technical_billing_amounts %}
-  <th class="p-2 border text-right" data-excel-col data-excel-key="10">
+  <th class="p-2 border text-right" data-excel-col data-excel-key="11">
     <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
       <span>Technical Billing</span><span class="excel-arrow text-gray-500">▼</span>
     </button>
@@ -546,7 +561,7 @@
 {% endif %}
 
 {% if can_view_company_billing_amounts %}
-  <th class="p-2 border text-right" data-excel-col data-excel-key="11">
+  <th class="p-2 border text-right" data-excel-col data-excel-key="12">
     <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
       <span>Company Billing</span><span class="excel-arrow text-gray-500">▼</span>
     </button>
@@ -554,7 +569,7 @@
 {% endif %}
 
 {% if can_view_real_company_billing %}
-  <th class="p-2 border text-right" data-excel-col data-excel-key="12">
+  <th class="p-2 border text-right" data-excel-col data-excel-key="13">
     <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
       <span>Real Company Billing</span><span class="excel-arrow text-gray-500">▼</span>
     </button>
@@ -562,26 +577,26 @@
 {% endif %}
 
 {% if can_view_billing_difference %}
-  <th class="p-2 border text-right" data-excel-col data-excel-key="13">
+  <th class="p-2 border text-right" data-excel-col data-excel-key="14">
     <button type="button" class="excel-header-btn flex items-center gap-1 justify-end">
       <span>Different</span><span class="excel-arrow text-gray-500">▼</span>
     </button>
   </th>
 {% endif %}
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="14">
+    <th class="p-2 border text-left" data-excel-col data-excel-key="15">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>Finance Status</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
     </th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="15">
+    <th class="p-2 border text-left" data-excel-col data-excel-key="16">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>Real pay week/Direct discount week</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
     </th>
 
-    <th class="p-2 border text-left" data-excel-col data-excel-key="16">
+    <th class="p-2 border text-left" data-excel-col data-excel-key="17">
       <button type="button" class="excel-header-btn flex items-center gap-1">
         <span>Comment</span><span class="excel-arrow text-gray-500">▼</span>
       </button>
@@ -623,72 +638,72 @@ else %}asignado assigned{% endif %}"
           <td class="p-2 border text-center">
             <input type="checkbox" class="row-chk w-4 h-4" value="{{ s.id }}">
           </td>
-<td class="p-2 border"
-    data-col="creado-en"
-    data-session-id="{{ s.id }}"
-    data-update-url="{% url 'operaciones:billing_update_creado_en' s.id %}">
-
-  <span class="dt-view" id="dt-view-{{ s.id }}">{{ s.creado_en|date:"Y-m-d" }}</span>
-
-  <input type="text"
-         class="dt-input hidden border rounded px-2 py-1 text-sm w-32"
-         id="dt-input-{{ s.id }}"
-         value="{{ s.creado_en|date:'Y-m-d' }}"
-         autocomplete="off">
-
-{% if s.has_paid_work_type_lines %}
-  <button type="button"
-          class="text-xs text-gray-400 cursor-not-allowed"
-          title="This billing has paid work types. Date cannot be edited.">
-    🔒
-  </button>
-{% else %}
-  <button type="button"
-          class="dt-edit text-xs text-blue-600 underline"
-          data-id="{{ s.id }}">
-    ✏️
-  </button>
-{% endif %}
-</td>
           <td class="p-2 border"
-    data-col="project-id"
-    data-session-id="{{ s.id }}"
-    data-update-url="{% url 'operaciones:billing_update_project_id' s.id %}">
+              data-col="creado-en"
+              data-session-id="{{ s.id }}"
+              data-update-url="{% url 'operaciones:billing_update_creado_en' s.id %}">
 
-  <span class="pid-view" id="pid-view-{{ s.id }}">{{ s.proyecto_id|default:"—" }}</span>
+            <span class="dt-view" id="dt-view-{{ s.id }}">{{ s.creado_en|date:"Y-m-d" }}</span>
 
-  <input type="text"
-         class="pid-input hidden border rounded px-2 py-1 text-sm w-36"
-         id="pid-input-{{ s.id }}"
-         value="{{ s.proyecto_id|default:'' }}"
-         autocomplete="off">
+            <input type="text"
+                  class="dt-input hidden border rounded px-2 py-1 text-sm w-32"
+                  id="dt-input-{{ s.id }}"
+                  value="{{ s.creado_en|date:'Y-m-d' }}"
+                  autocomplete="off">
 
-  {% if s.has_paid_work_type_lines %}
+          {% if s.has_paid_work_type_lines %}
+            <button type="button"
+                    class="text-xs text-gray-400 cursor-not-allowed"
+                    title="This billing has paid work types. Date cannot be edited.">
+              🔒
+            </button>
+          {% else %}
+            <button type="button"
+                    class="dt-edit text-xs text-blue-600 underline"
+                    data-id="{{ s.id }}">
+              ✏️
+            </button>
+          {% endif %}
+          </td>
+                    <td class="p-2 border"
+              data-col="project-id"
+              data-session-id="{{ s.id }}"
+              data-update-url="{% url 'operaciones:billing_update_project_id' s.id %}">
 
-  <button type="button"
+            <span class="pid-view" id="pid-view-{{ s.id }}">{{ s.proyecto_id|default:"—" }}</span>
 
-          class="text-xs text-gray-400 cursor-not-allowed"
+            <input type="text"
+                  class="pid-input hidden border rounded px-2 py-1 text-sm w-36"
+                  id="pid-input-{{ s.id }}"
+                  value="{{ s.proyecto_id|default:'' }}"
+                  autocomplete="off">
 
-          title="This billing has paid work types. Project ID cannot be edited.">
+            {% if s.has_paid_work_type_lines %}
 
-    🔒
+            <button type="button"
 
-  </button>
+                    class="text-xs text-gray-400 cursor-not-allowed"
 
-{% else %}
+                    title="This billing has paid work types. Project ID cannot be edited.">
 
-  <button type="button"
+              🔒
 
-          class="pid-edit text-xs text-blue-600 underline"
+            </button>
 
-          data-id="{{ s.id }}">
+          {% else %}
 
-    ✏️
+            <button type="button"
 
-  </button>
+                    class="pid-edit text-xs text-blue-600 underline"
 
-{% endif %}
-</td>
+                    data-id="{{ s.id }}">
+
+              ✏️
+
+            </button>
+
+          {% endif %}
+          </td>
 
           <!-- Project address -->
           <td class="p-2 border align-top break-words max-w-[360px]" style="white-space: normal;">
@@ -756,16 +771,237 @@ else %}asignado assigned{% endif %}"
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
             {% endif %}
           </td>
-
+          
           <!-- Technicians -->
           <td class="p-2 border">
-            {% for st in s.tecnicos_sesion.all %}
-              <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-50 border rounded mr-1">
-                {{ st.tecnico.get_full_name|default:st.tecnico.username }} ({{ st.porcentaje|floatformat:2 }}%)
-              </span>
-            {% empty %}-{% endfor %}
-          </td>
+                      {% for st in s.tecnicos_sesion.all %}
+                        <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-50 border rounded mr-1">
+                          {{ st.tecnico.get_full_name|default:st.tecnico.username }}
+                          ({{ st.porcentaje|floatformat:2 }}%)
+                        </span>
+                      {% empty %}
+                        -
+                      {% endfor %}
+                    </td>
+                    <!-- Priority / Time -->
+                    <td class="p-2 border align-top min-w-[230px]"
+              data-priority-cell="{{ s.id }}">
 
+            {% if s.is_direct_discount %}
+
+              <div class="text-[11px] text-gray-500">
+                Direct discount · No priority
+              </div>
+
+            {% else %}
+
+              <div class="flex flex-col gap-1.5">
+
+                {% for row in s.priority_rows %}
+
+                  <div class="priority-tech-row
+                              rounded-md border border-gray-200
+                              bg-gray-50 px-2 py-1.5"
+                      data-assignment-row="{{ row.assignment_id }}">
+
+                    <!-- NORMAL VIEW -->
+                    <div class="flex items-center justify-between gap-2"
+                        data-assignment-view="{{ row.assignment_id }}">
+
+                      <div class="flex items-center gap-1.5 min-w-0">
+
+                        {% if row.is_running %}
+                          <span class="w-1.5 h-1.5
+                                      rounded-full bg-emerald-500
+                                      flex-shrink-0"
+                                title="Currently working">
+                          </span>
+                        {% endif %}
+                          <!-- TIMER DEL TÉCNICO -->
+                        {% if row.timer_total_seconds or row.timer_is_running %}
+
+                          <div class="mt-1 flex items-center gap-1
+                                      text-[11px]
+                                      {% if row.timer_is_running %}
+                                        text-emerald-700
+                                      {% else %}
+                                        text-gray-500
+                                      {% endif %}">
+
+                            <span>⏱</span>
+
+                            <span class="js-admin-work-timer
+                                        font-semibold
+                                        tabular-nums"
+                                  data-base-seconds="{{ row.timer_total_seconds|default:0 }}"
+                                  data-running="{% if row.timer_is_running %}1{% else %}0{% endif %}"
+                                  data-started-at="{{ row.timer_started_at_iso|default:'' }}">
+                              00:00:00
+                            </span>
+
+                            {% if row.timer_is_running %}
+                              <span>· Running</span>
+                            {% else %}
+                              <span>· Paused</span>
+                            {% endif %}
+
+                          </div>
+
+                        {% endif %}
+                        <span class="text-[11px]
+                                    font-medium text-gray-700
+                                    truncate"
+                              title="{{ row.full_name }}">
+                          {{ row.name }}
+                        </span>
+
+                      </div>
+
+                      <div class="flex items-center gap-1">
+
+                        <span class="inline-flex items-center justify-center
+                                    min-w-[32px] px-1.5 py-0.5
+                                    rounded-full
+                                    text-[11px] font-bold
+                                    {% if row.priority %}
+                                      bg-blue-100 text-blue-800
+                                      border border-blue-200
+                                    {% else %}
+                                      bg-gray-100 text-gray-500
+                                      border border-gray-200
+                                    {% endif %}">
+                          {% if row.priority %}
+                            #{{ row.priority }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </span>
+
+                        {% if s.estado == "asignado" %}
+                        <button type="button"
+                                class="priority-tech-edit
+                                      text-blue-600
+                                      hover:text-blue-800
+                                      text-[11px]"
+                                data-assignment-id="{{ row.assignment_id }}"
+                                data-technician="{{ row.name }}"
+                                data-priority="{{ row.priority|default:'' }}"
+                                data-url="{% url 'operaciones:billing_assignment_set_priority' row.assignment_id %}"
+                                title="Change {{ row.name }} priority">
+                          ✏️
+                        </button>
+                        {% endif %}
+
+                      </div>
+
+                    </div>
+
+
+                    <!-- INLINE EDITOR -->
+                    <div class="hidden"
+                        data-assignment-editor="{{ row.assignment_id }}">
+
+                      <div class="flex items-center gap-1">
+
+                        <span class="text-[11px]
+                                    font-medium text-gray-700
+                                    min-w-[65px]">
+                          {{ row.name }}
+                        </span>
+
+                        <input type="number"
+                              min="1"
+                              step="1"
+                              inputmode="numeric"
+                              class="priority-tech-input
+                                      w-14
+                                      border border-blue-300
+                                      rounded-md
+                                      px-1.5 py-1
+                                      text-xs text-center
+                                      focus:outline-none
+                                      focus:ring-2
+                                      focus:ring-blue-200"
+                              data-assignment-id="{{ row.assignment_id }}"
+                              value="{{ row.priority|default:'' }}">
+
+                        <button type="button"
+                                class="priority-tech-save
+                                      inline-flex items-center justify-center
+                                      w-7 h-7
+                                      rounded-md
+                                      bg-blue-600 hover:bg-blue-700
+                                      text-white text-xs font-bold"
+                                data-assignment-id="{{ row.assignment_id }}">
+                          ✓
+                        </button>
+
+                        <button type="button"
+                                class="priority-tech-cancel
+                                      text-[11px]
+                                      text-gray-500
+                                      hover:text-gray-800"
+                                data-assignment-id="{{ row.assignment_id }}">
+                          Cancel
+                        </button>
+
+                      </div>
+
+                    </div>
+
+
+                    <!-- CONFLICT -->
+                    <div class="hidden mt-1"
+                        data-assignment-conflict="{{ row.assignment_id }}">
+                    </div>
+
+                  </div>
+
+                {% empty %}
+
+                  <span class="text-[11px] text-gray-400">
+                    No technicians
+                  </span>
+
+                {% endfor %}
+
+
+                <!-- SHOW NOW ES DEL PROYECTO COMPLETO -->
+                {% if s.estado == "asignado" %}
+
+                  <div class="pt-1.5 mt-1
+                              border-t border-gray-100">
+
+                    <button type="button"
+                            class="priority-show-now
+                                  inline-flex items-center gap-1
+                                  text-[11px] font-semibold
+                                  text-amber-700
+                                  hover:text-amber-900
+                                  hover:underline"
+                            data-id="{{ s.id }}"
+                            data-url="{% url 'operaciones:billing_show_now' s.id %}">
+                      ⚡ Show Now
+                    </button>
+
+                  </div>
+
+                {% endif %}
+
+
+                <div class="text-[11px] text-gray-500">
+                  {% if s.has_running_technician %}
+                    Work in progress
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+
+              </div>
+
+            {% endif %}
+
+          </td>
           <td class="p-2 border">{{ s.cliente }}</td>
           <td class="p-2 border">{{ s.ciudad }}</td>
           <td class="p-2 border">{{ s.proyecto_nombre }}</td>
@@ -1049,7 +1285,7 @@ else %}asignado assigned{% endif %}"
           <td class="border"></td>  <!-- caret -->
           <td class="border"></td>  <!-- checkbox -->
           <!-- 20 cols total -> detail row uses 2 fixed cells + colspan 18 -->
-          <td class="p-3 border bg-gray-50" colspan="18">
+          <td class="p-3 border bg-gray-50" colspan="19">
 
             <!-- Items -->
             <div class="overflow-x-auto rounded border">
@@ -1252,9 +1488,17 @@ else %}asignado assigned{% endif %}"
                   <tbody>
                     {% for asig in s.tecnicos_sesion.all %}
                     <tr class="border-t">
-                      <td class="p-2">{{ asig.tecnico.get_full_name|default:asig.tecnico.username }}</td>
-                      <td class="p-2 text-right">{{ asig.porcentaje|floatformat:2 }}%</td>
-                      <td class="p-2">{{ asig.aceptado_en|date:"Y-m-d H:i"|default:"—" }}</td>
+                      <td class="p-2">
+                        {{ asig.tecnico.get_full_name|default:asig.tecnico.username }}
+                      </td>
+
+                      <td class="p-2 text-right">
+                        {{ asig.porcentaje|floatformat:2 }}%
+                      </td>
+
+                      <td class="p-2">
+                        {{ asig.aceptado_en|date:"Y-m-d H:i"|default:"—" }}
+                      </td>
                       <td class="p-2">{{ asig.finalizado_en|date:"Y-m-d H:i"|default:"—" }}</td>
                       <td class="p-2">{{ asig.supervisor_revisado_en|date:"Y-m-d H:i"|default:"—" }}</td>
 
@@ -1284,7 +1528,11 @@ else %}asignado assigned{% endif %}"
                       </td>
                     </tr>
                     {% empty %}
-                      <tr><td colspan="8" class="p-2 text-center text-gray-500">No assignments.</td></tr>
+                      <tr>
+                      <td colspan="8" class="p-2 text-center text-gray-500">
+                        No assignments.
+                      </td>
+                    </tr>
                     {% endfor %}
                   </tbody>
                 </table>
@@ -1298,7 +1546,7 @@ else %}asignado assigned{% endif %}"
         </tr>
         {% empty %}
         <tr>
-          <td colspan="20" class="p-4 text-center text-gray-500">No billings yet.</td>
+          <td colspan="21" class="p-4 text-center text-gray-500">No billings yet.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -1652,7 +1900,112 @@ document.addEventListener('click', function(e){
   </div>
 </div>
 
+<!-- =========================================================
+     SHOW NOW MODAL
+     ========================================================= -->
 
+<div id="show-now-modal"
+     class="fixed inset-0 z-[9999] hidden"
+     aria-hidden="true">
+
+  <!-- Backdrop -->
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+       data-show-now-close></div>
+
+  <!-- Center -->
+  <div class="relative z-10 min-h-full flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-200">
+
+      <!-- Header -->
+      <div class="flex items-start gap-3 px-6 pt-6">
+
+        <div class="flex-shrink-0 w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center text-xl">
+          ⚡
+        </div>
+
+        <div class="min-w-0">
+          <h3 class="text-lg font-bold text-gray-900">
+            Show project now?
+          </h3>
+
+          <p class="mt-1 text-sm text-gray-500">
+            This project will become immediately available to its assigned technicians.
+          </p>
+        </div>
+
+      </div>
+
+      <!-- Body -->
+      <div class="px-6 py-5">
+
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+
+          <div class="text-sm font-semibold text-amber-900">
+            What will happen
+          </div>
+
+          <ul class="mt-2 space-y-1.5 text-sm text-amber-900">
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>
+                Its numbered priority will be removed from each assigned technician's queue.
+              </span>
+            </li>
+
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>
+                The remaining technician queues will be compacted automatically.
+              </span>
+            </li>
+
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>
+                The project will be available immediately.
+              </span>
+            </li>
+          </ul>
+
+        </div>
+
+        <div class="mt-4 flex items-start gap-2 rounded-xl bg-gray-50 border border-gray-200 px-4 py-3">
+
+          <span class="text-gray-500">
+            ⏱
+          </span>
+
+          <p class="text-xs leading-relaxed text-gray-600">
+            Current work timers will not be started, stopped, or paused.
+            The technician's active project will not change.
+          </p>
+
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
+
+        <button type="button"
+                data-show-now-close
+                class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 transition">
+          Cancel
+        </button>
+
+        <button type="button"
+                id="show-now-confirm"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-amber-300">
+          ⚡ Show Now
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+</div>
 
 <!-- JS for Info modal -->
 <script>
@@ -4570,6 +4923,1560 @@ function updateBillingTotalCount(){
         );
       }
     }
+  );
+
+})();
+</script>
+<script>
+(function(){
+
+  // ============================================================
+  // GENERAL
+  // ============================================================
+
+  function getCookie(name){
+    const match = document.cookie.match(
+      new RegExp('(^|; )' + name + '=([^;]*)')
+    );
+
+    return match
+      ? decodeURIComponent(match[2])
+      : null;
+  }
+
+
+  const csrftoken =
+    getCookie('csrftoken') || '';
+
+
+  function toast(message, type='info'){
+
+    const bg =
+      type === 'success'
+        ? 'bg-green-600'
+        : type === 'error'
+          ? 'bg-red-600'
+          : type === 'warning'
+            ? 'bg-amber-600'
+            : 'bg-blue-600';
+
+    const el =
+      document.createElement('div');
+
+    el.className =
+      `fixed top-5 left-1/2 -translate-x-1/2
+       ${bg}
+       text-white
+       px-4 py-2
+       rounded-lg
+       shadow-lg
+       z-[250]
+       text-sm`;
+
+    el.textContent =
+      message;
+
+    document.body.appendChild(el);
+
+    setTimeout(
+      () => el.remove(),
+      2600
+    );
+  }
+
+
+  function escapeHtml(value){
+
+    const div =
+      document.createElement('div');
+
+    div.textContent =
+      value == null
+        ? ''
+        : String(value);
+
+    return div.innerHTML;
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — ELEMENTS
+  // ============================================================
+
+  function getAssignmentElements(assignmentId){
+
+    return {
+
+      row:
+        document.querySelector(
+          `[data-assignment-row="${assignmentId}"]`
+        ),
+
+      view:
+        document.querySelector(
+          `[data-assignment-view="${assignmentId}"]`
+        ),
+
+      editor:
+        document.querySelector(
+          `[data-assignment-editor="${assignmentId}"]`
+        ),
+
+      conflict:
+        document.querySelector(
+          `[data-assignment-conflict="${assignmentId}"]`
+        ),
+
+      input:
+        document.querySelector(
+          `.priority-tech-input[data-assignment-id="${assignmentId}"]`
+        ),
+
+      editButton:
+        document.querySelector(
+          `.priority-tech-edit[data-assignment-id="${assignmentId}"]`
+        ),
+
+      saveButton:
+        document.querySelector(
+          `.priority-tech-save[data-assignment-id="${assignmentId}"]`
+        ),
+    };
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — EDITOR
+  // ============================================================
+
+  function openAssignmentEditor(button){
+
+    const assignmentId =
+      button.dataset.assignmentId;
+
+    const els =
+      getAssignmentElements(
+        assignmentId
+      );
+
+    if(
+      !els.editor
+      || !els.input
+    ){
+      return;
+    }
+
+
+    if(els.conflict){
+
+      els.conflict.innerHTML = '';
+
+      els.conflict.classList.add(
+        'hidden'
+      );
+    }
+
+
+    if(els.view){
+
+      els.view.classList.add(
+        'hidden'
+      );
+    }
+
+
+    els.editor.classList.remove(
+      'hidden'
+    );
+
+
+    const currentPriority =
+      button.dataset.priority || '';
+
+
+    els.input.value =
+      currentPriority;
+
+
+    els.input.disabled =
+      false;
+
+
+    els.input.focus();
+
+    els.input.select();
+  }
+
+
+  function closeAssignmentEditor(
+    assignmentId
+  ){
+
+    const els =
+      getAssignmentElements(
+        assignmentId
+      );
+
+
+    if(els.editor){
+
+      els.editor.classList.add(
+        'hidden'
+      );
+    }
+
+
+    if(els.conflict){
+
+      els.conflict.innerHTML = '';
+
+      els.conflict.classList.add(
+        'hidden'
+      );
+    }
+
+
+    if(els.input){
+
+      els.input.disabled = false;
+    }
+
+
+    if(els.saveButton){
+
+      els.saveButton.disabled = false;
+    }
+
+
+    if(els.view){
+
+      els.view.classList.remove(
+        'hidden'
+      );
+    }
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — POST
+  // ============================================================
+
+  async function postAssignmentPriority(
+    button,
+    priority,
+    action
+  ){
+
+    const url =
+      button.dataset.url;
+
+
+    if(!url){
+
+      throw new Error(
+        'Priority URL is missing.'
+      );
+    }
+
+
+    const form =
+      new FormData();
+
+
+    form.append(
+      'priority',
+      String(priority)
+    );
+
+
+    form.append(
+      'action',
+      action
+    );
+
+
+    const response =
+      await fetch(
+        url,
+        {
+          method: 'POST',
+
+          credentials:
+            'same-origin',
+
+          headers: {
+
+            'X-CSRFToken':
+              csrftoken,
+
+            'X-Requested-With':
+              'XMLHttpRequest',
+
+            'Accept':
+              'application/json'
+          },
+
+          body: form
+        }
+      );
+
+
+    let data = null;
+
+
+    try{
+
+      data =
+        await response.json();
+
+    }
+    catch(_){}
+
+
+    if(
+      !response.ok
+      || !data
+      || data.ok !== true
+    ){
+
+      throw new Error(
+        (
+          data
+          && (
+            data.error
+            || data.message
+          )
+        )
+        || `HTTP ${response.status}`
+      );
+    }
+
+
+    return data;
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — CONFLICT
+  // ============================================================
+
+  function renderAssignmentConflict(
+    assignmentId,
+    priority,
+    preview
+  ){
+
+    const els =
+      getAssignmentElements(
+        assignmentId
+      );
+
+
+    if(!els.conflict){
+      return;
+    }
+
+
+    const techName =
+      escapeHtml(
+        preview.technician_name
+        || (
+          els.editButton
+          && els.editButton.dataset.technician
+        )
+        || 'Technician'
+      );
+
+
+    const displaced =
+      preview.displaced || [];
+
+
+    let html = `
+
+      <div class="
+          rounded-lg
+          border border-amber-300
+          bg-amber-50
+          p-2
+          text-[11px]
+          whitespace-normal
+        ">
+
+        <div class="
+            font-semibold
+            text-amber-900
+            mb-2
+          ">
+          ⚠ ${techName}
+        </div>
+
+        <div class="
+            text-gray-700
+            mb-1
+          ">
+          Change priority to
+          <b>#${priority}</b>
+        </div>
+
+    `;
+
+
+    // ========================================================
+    // ACTIVE WORK CONFLICT
+    // ========================================================
+
+    if(
+      preview.active_work_conflict
+      && preview.running_project
+    ){
+
+      const running =
+        preview.running_project;
+
+
+      const runningLabel =
+        escapeHtml(
+          running.project_id
+          || running.project
+          || running.label
+          || 'another project'
+        );
+
+
+      html += `
+
+        <div class="
+            rounded-md
+            border border-red-200
+            bg-red-50
+            p-1.5
+            mt-1.5
+            text-red-700
+          ">
+
+          <div>
+            Currently working on
+            <b>${runningLabel}</b>.
+          </div>
+
+          ${
+            running.priority
+              ? `
+                <div class="mt-0.5">
+                  Current planned priority:
+                  <b>#${running.priority}</b>
+                </div>
+              `
+              : `
+                <div class="mt-0.5">
+                  This active project has no managed priority.
+                </div>
+              `
+          }
+
+          <div class="
+              mt-1
+              font-medium
+            ">
+            Its timer will continue running.
+          </div>
+
+        </div>
+
+      `;
+    }
+
+
+    // ========================================================
+    // OCCUPYING PROJECT
+    // ========================================================
+
+    if(
+      preview.occupying_project
+    ){
+
+      const occupying =
+        preview.occupying_project;
+
+
+      const projectLabel =
+        escapeHtml(
+          occupying.project_id
+          || occupying.project
+          || occupying.label
+          || 'another project'
+        );
+
+
+      const currentPosition =
+        occupying.priority
+        || occupying.queue_position
+        || priority;
+
+
+      html += `
+
+        <div class="
+            rounded-md
+            border border-amber-200
+            bg-white
+            p-1.5
+            mt-1.5
+            text-gray-700
+          ">
+
+          <b>${projectLabel}</b>
+          currently occupies
+          <b>#${currentPosition}</b>.
+
+        </div>
+
+      `;
+    }
+
+
+    // ========================================================
+    // DISPLACED PROJECTS
+    // ========================================================
+
+    if(displaced.length){
+
+      html += `
+
+        <div class="
+            rounded-md
+            border border-gray-200
+            bg-white
+            p-1.5
+            mt-1.5
+          ">
+
+          <div class="
+              font-medium
+              text-gray-700
+              mb-1
+            ">
+            ${techName}'s queue will change:
+          </div>
+
+      `;
+
+
+      displaced.forEach(
+        moved => {
+
+          const project =
+            escapeHtml(
+              moved.project_id
+              || moved.project
+              || moved.label
+              || 'Project'
+            );
+
+
+          const oldPriority =
+            moved.old_priority
+            ?? moved.from_priority
+            ?? '?';
+
+
+          const newPriority =
+            moved.new_priority
+            ?? moved.to_priority
+            ?? '?';
+
+
+          html += `
+
+            <div class="
+                text-gray-600
+                leading-snug
+              ">
+              ${project}
+              &nbsp;
+              <b>#${oldPriority}</b>
+              →
+              <b>#${newPriority}</b>
+            </div>
+
+          `;
+        }
+      );
+
+
+      html += `</div>`;
+    }
+
+
+    // ========================================================
+    // IMPORTANT: OTHER TECHNICIANS
+    // ========================================================
+
+    html += `
+
+      <div class="
+          mt-1.5
+          text-gray-500
+          italic
+        ">
+        Other technicians assigned to this Billing
+        will not be changed.
+      </div>
+
+      <div class="
+          flex items-center
+          gap-2
+          mt-2
+        ">
+
+        <button
+          type="button"
+          class="
+            priority-tech-confirm
+            px-2.5 py-1
+            rounded-md
+            bg-amber-600
+            hover:bg-amber-700
+            text-white
+            font-semibold
+          "
+          data-assignment-id="${assignmentId}"
+          data-priority="${priority}"
+        >
+          Confirm
+        </button>
+
+        <button
+          type="button"
+          class="
+            priority-tech-conflict-cancel
+            text-gray-600
+            hover:text-gray-900
+            hover:underline
+          "
+          data-assignment-id="${assignmentId}"
+        >
+          Cancel
+        </button>
+
+      </div>
+
+    </div>
+    `;
+
+
+    if(els.editor){
+
+      els.editor.classList.add(
+        'hidden'
+      );
+    }
+
+
+    els.conflict.innerHTML =
+      html;
+
+
+    els.conflict.classList.remove(
+      'hidden'
+    );
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — APPLY
+  // ============================================================
+
+  async function applyAssignmentPriority(
+    assignmentId,
+    priority
+  ){
+
+    const els =
+      getAssignmentElements(
+        assignmentId
+      );
+
+
+    if(!els.editButton){
+
+      throw new Error(
+        'Priority control not found.'
+      );
+    }
+
+
+    await postAssignmentPriority(
+      els.editButton,
+      priority,
+      'confirm'
+    );
+
+
+    toast(
+      'Priority updated.',
+      'success'
+    );
+
+
+    /*
+     * Puede cambiar la posición mostrada en otros Billings
+     * donde participe el MISMO técnico.
+     *
+     * Por eso refrescamos la tabla.
+     */
+    window.location.reload();
+  }
+
+
+  // ============================================================
+  // ASSIGNMENT PRIORITY — PREVIEW
+  // ============================================================
+
+  const priorityRequests =
+    new Set();
+
+
+  async function requestAssignmentPriority(
+    assignmentId
+  ){
+
+    if(
+      priorityRequests.has(
+        String(assignmentId)
+      )
+    ){
+      return;
+    }
+
+
+    const els =
+      getAssignmentElements(
+        assignmentId
+      );
+
+
+    if(
+      !els.input
+      || !els.editButton
+    ){
+      return;
+    }
+
+
+    const raw =
+      String(
+        els.input.value || ''
+      ).trim();
+
+
+    const priority =
+      Number.parseInt(
+        raw,
+        10
+      );
+
+
+    if(
+      !Number.isInteger(priority)
+      || priority < 1
+    ){
+
+      toast(
+        'Priority must be 1 or greater.',
+        'error'
+      );
+
+
+      els.input.focus();
+
+      els.input.select();
+
+      return;
+    }
+
+
+    try{
+
+      priorityRequests.add(
+        String(assignmentId)
+      );
+
+
+      els.input.disabled =
+        true;
+
+
+      if(els.saveButton){
+
+        els.saveButton.disabled =
+          true;
+      }
+
+
+      // ======================================================
+      // PREVIEW
+      // ======================================================
+
+      const preview =
+        await postAssignmentPriority(
+          els.editButton,
+          priority,
+          'preview'
+        );
+
+
+      // ======================================================
+      // CONFLICT
+      // ======================================================
+
+      if(
+        preview.requires_confirmation
+      ){
+
+        renderAssignmentConflict(
+          assignmentId,
+          priority,
+          preview
+        );
+
+        return;
+      }
+
+
+      // ======================================================
+      // NO CONFLICT
+      // ======================================================
+
+      await applyAssignmentPriority(
+        assignmentId,
+        priority
+      );
+
+    }
+    catch(error){
+
+      toast(
+        error.message
+        || 'Unable to update priority.',
+        'error'
+      );
+
+    }
+    finally{
+
+      priorityRequests.delete(
+        String(assignmentId)
+      );
+
+
+      if(els.input){
+
+        els.input.disabled =
+          false;
+      }
+
+
+      if(els.saveButton){
+
+        els.saveButton.disabled =
+          false;
+      }
+    }
+  }
+
+
+  // ============================================================
+  // SHOW NOW
+  // ============================================================
+
+  const showNowRequests =
+    new Set();
+
+
+  async function showNow(button){
+
+    const sessionId =
+      button.dataset.id;
+
+
+    const url =
+      button.dataset.url;
+
+
+    if(
+      !sessionId
+      || !url
+    ){
+      return;
+    }
+
+
+    if(
+      showNowRequests.has(
+        String(sessionId)
+      )
+    ){
+      return;
+    }
+
+
+    function openShowNowModal(){
+
+  return new Promise((resolve)=>{
+
+    const modal =
+      document.getElementById(
+        'show-now-modal'
+      );
+
+    const confirmButton =
+      document.getElementById(
+        'show-now-confirm'
+      );
+
+    const closeButtons =
+      modal.querySelectorAll(
+        '[data-show-now-close]'
+      );
+
+
+    let resolved = false;
+
+
+    function cleanup(){
+
+      document.removeEventListener(
+        'keydown',
+        onKeyDown
+      );
+
+      confirmButton.removeEventListener(
+        'click',
+        onConfirm
+      );
+
+      closeButtons.forEach((button)=>{
+        button.removeEventListener(
+          'click',
+          onCancel
+        );
+      });
+
+    }
+
+
+    function finish(value){
+
+      if(resolved){
+        return;
+      }
+
+      resolved = true;
+
+      modal.classList.add(
+        'hidden'
+      );
+
+      modal.setAttribute(
+        'aria-hidden',
+        'true'
+      );
+
+      document.body.classList.remove(
+        'overflow-hidden'
+      );
+
+      cleanup();
+
+      resolve(value);
+    }
+
+
+    function onConfirm(){
+      finish(true);
+    }
+
+
+    function onCancel(){
+      finish(false);
+    }
+
+
+    function onKeyDown(event){
+
+      if(event.key === 'Escape'){
+        finish(false);
+      }
+
+    }
+
+
+    confirmButton.addEventListener(
+      'click',
+      onConfirm
+    );
+
+
+    closeButtons.forEach((button)=>{
+
+      button.addEventListener(
+        'click',
+        onCancel
+      );
+
+    });
+
+
+    document.addEventListener(
+      'keydown',
+      onKeyDown
+    );
+
+
+    modal.classList.remove(
+      'hidden'
+    );
+
+    modal.setAttribute(
+      'aria-hidden',
+      'false'
+    );
+
+    document.body.classList.add(
+      'overflow-hidden'
+    );
+
+
+    requestAnimationFrame(()=>{
+
+      confirmButton.focus();
+
+    });
+
+  });
+
+}
+
+
+  const confirmed =
+  await openShowNowModal();
+
+
+if(!confirmed){
+  return;
+}
+
+
+const oldText =
+  button.textContent;
+
+
+    try{
+
+      showNowRequests.add(
+        String(sessionId)
+      );
+
+
+      button.disabled =
+        true;
+
+
+      button.textContent =
+        'Showing...';
+
+
+      const form =
+        new FormData();
+
+
+      const response =
+        await fetch(
+          url,
+          {
+            method: 'POST',
+
+            credentials:
+              'same-origin',
+
+            headers: {
+
+              'X-CSRFToken':
+                csrftoken,
+
+              'X-Requested-With':
+                'XMLHttpRequest',
+
+              'Accept':
+                'application/json'
+            },
+
+            body: form
+          }
+        );
+
+
+      let data = null;
+
+
+      try{
+
+        data =
+          await response.json();
+
+      }
+      catch(_){}
+
+
+      if(
+        !response.ok
+        || !data
+        || data.ok !== true
+      ){
+
+        throw new Error(
+          (
+            data
+            && (
+              data.error
+              || data.message
+            )
+          )
+          || `HTTP ${response.status}`
+        );
+      }
+
+
+      toast(
+        'Project shown now. Priority removed.',
+        'success'
+      );
+
+
+      /*
+       * Show Now puede compactar varias colas.
+       * Recargamos para mostrar todas las posiciones reales.
+       */
+      window.location.reload();
+
+    }
+    catch(error){
+
+      button.disabled =
+        false;
+
+
+      button.textContent =
+        oldText;
+
+
+      toast(
+        error.message
+        || 'Unable to show project now.',
+        'error'
+      );
+
+    }
+    finally{
+
+      showNowRequests.delete(
+        String(sessionId)
+      );
+    }
+  }
+
+
+  // ============================================================
+  // CLICK EVENTS
+  // ============================================================
+
+  document.addEventListener(
+    'click',
+    async function(event){
+
+
+      // --------------------------------------------------------
+      // EDIT ONE TECHNICIAN
+      // --------------------------------------------------------
+
+      const editButton =
+        event.target.closest(
+          '.priority-tech-edit'
+        );
+
+
+      if(editButton){
+
+        event.preventDefault();
+
+
+        openAssignmentEditor(
+          editButton
+        );
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // SAVE ONE TECHNICIAN
+      // --------------------------------------------------------
+
+      const saveButton =
+        event.target.closest(
+          '.priority-tech-save'
+        );
+
+
+      if(saveButton){
+
+        event.preventDefault();
+
+
+        await requestAssignmentPriority(
+          saveButton.dataset.assignmentId
+        );
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // CANCEL ONE TECHNICIAN EDIT
+      // --------------------------------------------------------
+
+      const cancelButton =
+        event.target.closest(
+          '.priority-tech-cancel'
+        );
+
+
+      if(cancelButton){
+
+        event.preventDefault();
+
+
+        closeAssignmentEditor(
+          cancelButton.dataset.assignmentId
+        );
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // CONFIRM ONE TECHNICIAN CONFLICT
+      // --------------------------------------------------------
+
+      const confirmButton =
+        event.target.closest(
+          '.priority-tech-confirm'
+        );
+
+
+      if(confirmButton){
+
+        event.preventDefault();
+
+
+        const assignmentId =
+          confirmButton.dataset.assignmentId;
+
+
+        const priority =
+          Number.parseInt(
+            confirmButton.dataset.priority,
+            10
+          );
+
+
+        if(
+          !Number.isInteger(priority)
+          || priority < 1
+        ){
+          return;
+        }
+
+
+        if(
+          priorityRequests.has(
+            String(assignmentId)
+          )
+        ){
+          return;
+        }
+
+
+        try{
+
+          priorityRequests.add(
+            String(assignmentId)
+          );
+
+
+          confirmButton.disabled =
+            true;
+
+
+          await applyAssignmentPriority(
+            assignmentId,
+            priority
+          );
+
+        }
+        catch(error){
+
+          confirmButton.disabled =
+            false;
+
+
+          toast(
+            error.message
+            || 'Unable to update priority.',
+            'error'
+          );
+
+        }
+        finally{
+
+          priorityRequests.delete(
+            String(assignmentId)
+          );
+        }
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // CANCEL CONFLICT
+      // --------------------------------------------------------
+
+      const conflictCancel =
+        event.target.closest(
+          '.priority-tech-conflict-cancel'
+        );
+
+
+      if(conflictCancel){
+
+        event.preventDefault();
+
+
+        closeAssignmentEditor(
+          conflictCancel.dataset.assignmentId
+        );
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // SHOW NOW
+      // --------------------------------------------------------
+
+      const showButton =
+        event.target.closest(
+          '.priority-show-now'
+        );
+
+
+      if(showButton){
+
+        event.preventDefault();
+
+
+        await showNow(
+          showButton
+        );
+
+
+        return;
+      }
+
+    }
+  );
+
+
+  // ============================================================
+  // KEYBOARD EVENTS
+  // ============================================================
+
+  document.addEventListener(
+    'keydown',
+    async function(event){
+
+
+      const input =
+        event.target.closest(
+          '.priority-tech-input'
+        );
+
+
+      if(!input){
+        return;
+      }
+
+
+      const assignmentId =
+        input.dataset.assignmentId;
+
+
+      // --------------------------------------------------------
+      // ENTER
+      // --------------------------------------------------------
+
+      if(event.key === 'Enter'){
+
+        event.preventDefault();
+
+
+        await requestAssignmentPriority(
+          assignmentId
+        );
+
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // ESC
+      // --------------------------------------------------------
+
+      if(event.key === 'Escape'){
+
+        event.preventDefault();
+
+
+        closeAssignmentEditor(
+          assignmentId
+        );
+
+      }
+
+    }
+  );
+
+})();
+</script>
+<script>
+(function () {
+
+  function formatDuration(totalSeconds) {
+
+    totalSeconds = Math.max(
+      0,
+      Math.floor(
+        totalSeconds || 0
+      )
+    );
+
+    const hours =
+      Math.floor(
+        totalSeconds / 3600
+      );
+
+    const minutes =
+      Math.floor(
+        (totalSeconds % 3600) / 60
+      );
+
+    const seconds =
+      totalSeconds % 60;
+
+    return (
+      String(hours).padStart(2, '0')
+      + ':'
+      + String(minutes).padStart(2, '0')
+      + ':'
+      + String(seconds).padStart(2, '0')
+    );
+  }
+
+
+  function renderTimer(el) {
+
+    const baseSeconds =
+      Number(
+        el.dataset.baseSeconds || 0
+      );
+
+    const running =
+      el.dataset.running === '1';
+
+    let total =
+      baseSeconds;
+
+
+    if (running) {
+
+      const startedRaw =
+        el.dataset.startedAt || '';
+
+      if (startedRaw) {
+
+        const startedAt =
+          new Date(
+            startedRaw
+          );
+
+        if (
+          !Number.isNaN(
+            startedAt.getTime()
+          )
+        ) {
+
+          const elapsed =
+            Math.max(
+              0,
+              Math.floor(
+                (
+                  Date.now()
+                  - startedAt.getTime()
+                )
+                / 1000
+              )
+            );
+
+          total += elapsed;
+        }
+      }
+    }
+
+
+    el.textContent =
+      formatDuration(
+        total
+      );
+  }
+
+
+  function renderAllAdminTimers() {
+
+    document
+      .querySelectorAll(
+        '.js-admin-work-timer'
+      )
+      .forEach(
+        renderTimer
+      );
+  }
+
+
+  renderAllAdminTimers();
+
+
+  window.setInterval(
+    renderAllAdminTimers,
+    1000
   );
 
 })();

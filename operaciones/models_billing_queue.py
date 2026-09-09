@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class BillingAssignmentQueue(models.Model):
@@ -129,6 +130,15 @@ class BillingWorkSession(models.Model):
 
     class Meta:
         ordering = ("started_at", "id")
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["technician"],
+                condition=Q(ended_at__isnull=True),
+                name="uniq_open_billing_timer_per_technician",
+            ),
+        ]
+
         indexes = [
             models.Index(
                 fields=["technician", "ended_at"],
@@ -152,6 +162,7 @@ class BillingWorkSession(models.Model):
 
     def __str__(self):
         status = "running" if self.ended_at is None else "closed"
+
         return (
             f"Work assignment {self.assignment_id} / "
             f"tech {self.technician_id} / {status}"
