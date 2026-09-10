@@ -3693,6 +3693,21 @@ def _build_preview_from_excel(archivo, user=None):
                 f"The imported order can start at #1."
             )
 
+        # -----------------------------------------------------------------
+        # Snapshot.
+        #
+        # Confirm uses this immutable representation to detect whether
+        # the technician's real numbered queue changed after Preview.
+        # -----------------------------------------------------------------
+
+        queue_snapshot = [
+            {
+                "assignment_id": current.get("assignment_id"),
+                "priority": current.get("priority"),
+            }
+            for current in current_queue
+        ]
+
         queue_plans.append(
             {
                 "technician_id": technician_id,
@@ -3708,6 +3723,7 @@ def _build_preview_from_excel(archivo, user=None):
                 "has_planning_conflicts": bool(technician_conflicts),
                 "planning_conflicts": technician_conflicts,
                 "current_queue": current_queue,
+                "queue_snapshot": queue_snapshot,
                 "incoming": resulting_incoming,
             }
         )
