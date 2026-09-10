@@ -26,25 +26,17 @@ DATABASES = {
 }
 
 # ==============================
-# CACHE COMPARTIDO - REDIS
+# CACHE COMPARTIDO - POSTGRESQL
 # ==============================
-
-REDIS_URL = os.environ.get("REDIS_URL", "").strip()
-
-if not REDIS_URL:
-    raise RuntimeError(
-        "REDIS_URL is required in production because the application "
-        "uses shared cache state across multiple workers."
-    )
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
         "TIMEOUT": 60 * 60,
         "OPTIONS": {
-            "socket_connect_timeout": 5,
-            "socket_timeout": 5,
+            "MAX_ENTRIES": 10000,
+            "CULL_FREQUENCY": 3,
         },
     }
 }
