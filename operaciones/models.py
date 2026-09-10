@@ -20,6 +20,62 @@ from utils.paths import upload_to  # si no lo usas, puedes quitarlo
 from .models_billing_queue import BillingAssignmentQueue, BillingWorkSession
 
 
+class BulkBillingPreview(models.Model):
+    """
+    Estado temporal del flujo Billing Masivo.
+
+    El navegador conserva únicamente el token en sesión.
+    El payload completo se persiste en base de datos para que pueda ser
+    recuperado desde cualquier proceso/worker durante:
+
+        Upload -> Preview -> Confirm
+
+    No representa un Billing real y se elimina después de una confirmación
+    exitosa o cuando expira.
+    """
+
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="bulk_billing_previews",
+        db_index=True,
+    )
+
+    payload = models.JSONField()
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    expires_at = models.DateTimeField(
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(
+                fields=["user", "expires_at"],
+                name="bulkprev_user_exp_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Bulk Billing Preview " f"user={self.user_id} " f"token={self.token[:8]}"
+        )
+
+
 class PrecioActividadTecnico(models.Model):
     tecnico = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -25,22 +25,16 @@ DATABASES = {
     )
 }
 
+
 # ==============================
-# CACHE COMPARTIDO - POSTGRESQL
+# CACHE
 # ==============================
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
-        "LOCATION": "django_cache",
-        "TIMEOUT": 60 * 60,
-        "OPTIONS": {
-            "MAX_ENTRIES": 10000,
-            "CULL_FREQUENCY": 3,
-        },
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 }
-
 # ==============================
 # IA
 # ==============================

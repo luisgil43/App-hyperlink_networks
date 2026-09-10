@@ -1,15 +1,16 @@
 import json
+import logging
 import unicodedata
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from io import BytesIO
 
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
@@ -25,10 +26,13 @@ from facturacion.models import Proyecto
 from usuarios.models import CustomUser
 
 from .forms_billing_masivo import BillingMasivoUploadForm
-from .models import (BillingPayWeekSnapshot, ItemBilling, ItemBillingTecnico,
-                     PrecioActividadTecnico, RequirementList,
-                     RequisitoFotoBilling, RequisitoFotoBillingPlantilla,
-                     SesionBilling, SesionBillingTecnico)
+from .models import (BillingPayWeekSnapshot, BulkBillingPreview, ItemBilling,
+                     ItemBillingTecnico, PrecioActividadTecnico,
+                     RequirementList, RequisitoFotoBilling,
+                     RequisitoFotoBillingPlantilla, SesionBilling,
+                     SesionBillingTecnico)
+
+logger = logging.getLogger(__name__)
 
 try:
     from usuarios.decoradores import rol_requerido
@@ -1547,40 +1551,76 @@ def _autosize_sheet(ws):
 
         ws.column_dimensions[column_letter].width = min(max(max_len + 2, 14), 45)
 
+
+
+
 # =============================================================================
-# CACHE TEMPORAL PARA PREVIEW MASIVO
+# PREVIEW TEMPORAL PERSISTENTE PARA BILLING MASIVO
 # =============================================================================
 
-BULK_BILLING_CACHE_TIMEOUT = 60 * 60  # 1 hora
+BULK_BILLING_PREVIEW_TIMEOUT = 60 * 60  # 1 hora
 
 
-def _bulk_billing_cache_key(user_id, token):
-    return f"billing_masivo_preview:{user_id}:{token}"
 
 
 def _save_bulk_billing_preview(request, payload):
     """
-    Guarda el preview pesado en cache y deja en sesión solo un token liviano.
-    Esto evita que archivos grandes rompan o vacíen la sesión.
+    Guarda el Preview completo en base de datos y deja en la sesión
+    únicamente un token liviano.
+
+    La base de datos es compartida por todos los procesos/worker, por lo
+    que Upload, Preview y Confirm pueden ser atendidos por procesos
+    distintos sin perder el payload.
     """
+
     token = uuid.uuid4().hex
-    key = _bulk_billing_cache_key(request.user.id, token)
+    now = timezone.now()
 
-    cache.set(key, payload, BULK_BILLING_CACHE_TIMEOUT)
+    try:
+        # Limpieza oportunista de previews vencidos.
+        BulkBillingPreview.objects.filter(
+            expires_at__lte=now,
+        ).delete()
 
-    request.session["billing_masivo_preview_token"] = token
+        BulkBillingPreview.objects.create(
+            token=token,
+            user_id=request.user.id,
+            payload=payload,
+            expires_at=(
+                now
+                + timedelta(
+                    seconds=BULK_BILLING_PREVIEW_TIMEOUT
+                )
+            ),
+        )
+
+    except Exception:
+        logger.exception(
+            "[BULK BILLING] Failed to save Preview "
+            "user_id=%s token=%s",
+            request.user.id,
+            token[:8],
+        )
+        raise
+
+    request.session[
+        "billing_masivo_preview_token"
+    ] = token
+
     request.session.modified = True
 
 
 def _update_bulk_billing_preview(request, payload):
     """
-    Actualiza el preview existente usando el mismo token.
+    Actualiza el Preview existente conservando el mismo token.
 
-    A diferencia de _save_bulk_billing_preview(), no crea un token nuevo.
-    Esto permite editar la planificación desde Preview sin volver a subir
-    el Excel.
+    Si la sesión ya no posee token o el Preview dejó de existir,
+    crea un Preview nuevo de forma segura.
     """
-    token = request.session.get("billing_masivo_preview_token")
+
+    token = request.session.get(
+        "billing_masivo_preview_token"
+    )
 
     if not token:
         _save_bulk_billing_preview(
@@ -1589,15 +1629,57 @@ def _update_bulk_billing_preview(request, payload):
         )
         return
 
-    key = _bulk_billing_cache_key(
+    now = timezone.now()
+
+    try:
+        updated = (
+            BulkBillingPreview.objects
+            .filter(
+                token=token,
+                user_id=request.user.id,
+                expires_at__gt=now,
+            )
+            .update(
+                payload=payload,
+                updated_at=now,
+                expires_at=(
+                    now
+                    + timedelta(
+                        seconds=BULK_BILLING_PREVIEW_TIMEOUT
+                    )
+                ),
+            )
+        )
+
+    except Exception:
+        logger.exception(
+            "[BULK BILLING] Failed to update Preview "
+            "user_id=%s token=%s",
+            request.user.id,
+            token[:8],
+        )
+        raise
+
+    if updated:
+        return
+
+    logger.error(
+        "[BULK BILLING] Preview disappeared while updating "
+        "user_id=%s token=%s. Creating a new Preview.",
         request.user.id,
-        token,
+        token[:8],
     )
 
-    cache.set(
-        key,
+    request.session.pop(
+        "billing_masivo_preview_token",
+        None,
+    )
+
+    request.session.modified = True
+
+    _save_bulk_billing_preview(
+        request,
         payload,
-        BULK_BILLING_CACHE_TIMEOUT,
     )
 
 def _rebuild_bulk_billing_execution_plan(payload):
@@ -2320,31 +2402,99 @@ def _rebuild_bulk_billing_execution_plan(payload):
 
     return payload
 
+
 def _get_bulk_billing_preview(request):
     """
-    Recupera el preview usando el token guardado en sesión.
+    Recupera el Preview persistido utilizando el token guardado
+    en la sesión del usuario.
+
+    El Preview pertenece obligatoriamente al mismo usuario y debe
+    permanecer dentro de su período de validez.
     """
+
     token = request.session.get("billing_masivo_preview_token")
 
     if not token:
+        logger.error(
+            "[BULK BILLING] Preview token missing " "user_id=%s",
+            request.user.id,
+        )
         return None
 
-    key = _bulk_billing_cache_key(request.user.id, token)
-    return cache.get(key)
+    try:
+        preview = BulkBillingPreview.objects.filter(
+            token=token,
+            user_id=request.user.id,
+        ).first()
+
+    except Exception:
+        logger.exception(
+            "[BULK BILLING] Database error retrieving Preview " "user_id=%s token=%s",
+            request.user.id,
+            token[:8],
+        )
+        raise
+
+    if preview is None:
+        logger.error(
+            "[BULK BILLING] Preview not found " "user_id=%s token=%s",
+            request.user.id,
+            token[:8],
+        )
+        return None
+
+    if preview.expires_at <= timezone.now():
+        logger.error(
+            "[BULK BILLING] Preview expired " "user_id=%s token=%s expires_at=%s",
+            request.user.id,
+            token[:8],
+            preview.expires_at,
+        )
+
+        preview.delete()
+
+        request.session.pop(
+            "billing_masivo_preview_token",
+            None,
+        )
+
+        request.session.modified = True
+
+        return None
+
+    return preview.payload
 
 
 def _clear_bulk_billing_preview(request):
     """
-    Limpia el preview temporal después de confirmar o cuando ya no se necesita.
+    Elimina el Preview temporal después de una confirmación exitosa
+    y limpia el token de la sesión.
     """
+
     token = request.session.get("billing_masivo_preview_token")
 
     if token:
-        key = _bulk_billing_cache_key(request.user.id, token)
-        cache.delete(key)
+        try:
+            BulkBillingPreview.objects.filter(
+                token=token,
+                user_id=request.user.id,
+            ).delete()
 
-    request.session.pop("billing_masivo_preview_token", None)
+        except Exception:
+            logger.exception(
+                "[BULK BILLING] Failed to clear Preview " "user_id=%s token=%s",
+                request.user.id,
+                token[:8],
+            )
+            raise
+
+    request.session.pop(
+        "billing_masivo_preview_token",
+        None,
+    )
+
     request.session.modified = True
+
 
 # =============================================================================
 # UPLOAD + PREVIEW
