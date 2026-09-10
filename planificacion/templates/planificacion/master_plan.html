@@ -668,12 +668,12 @@
 
               <col
                 data-column-col="quantity"
-                data-expanded-width="58"
+                data-expanded-width="68"
               >
 
               <col
                 data-column-col="unit"
-                data-expanded-width="55"
+                data-expanded-width="68"
               >
 
               <col
@@ -703,7 +703,7 @@
 
               <col
                 data-column-col="variance"
-                data-expanded-width="68"
+                data-expanded-width="92"
               >
 
             </colgroup>
@@ -720,7 +720,7 @@
                 <!-- ACTIVITY -->
                 <th
                   data-column-cell="activity"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -749,7 +749,7 @@
                 <!-- MARKET -->
                 <th
                   data-column-cell="market"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -778,14 +778,14 @@
                 <!-- QUANTITY -->
                 <th
                   data-column-cell="quantity"
-                  class="h-[100px] px-2 py-2 text-right align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-right align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
 
                     <span
                       data-column-label="quantity"
-                      class="truncate"
+                      class="whitespace-nowrap"
                     >
                       Qty
                     </span>
@@ -807,14 +807,14 @@
                 <!-- UNIT -->
                 <th
                   data-column-cell="unit"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
 
                     <span
                       data-column-label="unit"
-                      class="truncate"
+                      class="whitespace-nowrap"
                     >
                       Unit
                     </span>
@@ -836,7 +836,7 @@
                 <!-- DFN -->
                 <th
                   data-column-cell="dfn"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -865,7 +865,7 @@
                 <!-- CLIENT START -->
                 <th
                   data-column-cell="client_start"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -894,7 +894,7 @@
                 <!-- CLIENT FINISH -->
                 <th
                   data-column-cell="client_finish"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -923,7 +923,7 @@
                 <!-- INTERNAL START -->
                 <th
                   data-column-cell="internal_start"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -952,7 +952,7 @@
                 <!-- INTERNAL FINISH -->
                 <th
                   data-column-cell="internal_finish"
-                  class="h-[100px] px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
@@ -981,14 +981,14 @@
                 <!-- VARIANCE -->
                 <th
                   data-column-cell="variance"
-                  class="h-[100px] px-2 py-2 text-center align-middle font-extrabold border-b border-gray-200 overflow-hidden"
+                  class="px-2 py-2 text-center align-middle font-extrabold border-b border-gray-200 overflow-hidden"
                 >
 
                   <div class="flex items-center justify-between gap-1">
 
                     <span
                       data-column-label="variance"
-                      class="truncate"
+                      class="whitespace-nowrap"
                     >
                       Variance
                     </span>
@@ -1011,12 +1011,12 @@
             </thead>
 
 
-            <tbody class="divide-y divide-gray-100">
+            <tbody>
 
               {% for row in master_plan_rows %}
 
                 <tr
-                  class="planning-fixed-row planning-activity-row-fixed bg-white"
+                  class="planning-fixed-row planning-activity-row-fixed bg-white border-b border-gray-200"
                   data-row-index="{{ forloop.counter0 }}"
                   data-assignment-id="{{ row.assignment.id }}"
                   data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
@@ -1026,7 +1026,7 @@
                   <!-- ACTIVITY -->
                   <td
                     data-column-cell="activity"
-                    class="h-[72px] px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="activity">
@@ -1058,7 +1058,7 @@
                   <!-- MARKET -->
                   <td
                     data-column-cell="market"
-                    class="h-[72px] px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="market">
@@ -1093,7 +1093,7 @@
                   <!-- QUANTITY -->
                   <td
                     data-column-cell="quantity"
-                    class="h-[72px] px-2 py-2 text-right font-bold text-gray-700 border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 text-right font-bold text-gray-700 border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="quantity">
@@ -1112,7 +1112,7 @@
                   <!-- UNIT -->
                   <td
                     data-column-cell="unit"
-                    class="h-[72px] px-2 py-2 text-gray-700 font-semibold border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 text-gray-700 font-semibold border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="unit">
@@ -1131,7 +1131,7 @@
                   <!-- DFN -->
                   <td
                     data-column-cell="dfn"
-                    class="h-[72px] px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="dfn">
@@ -1158,7 +1158,7 @@
                   <!-- CLIENT START -->
                   <td
                     data-column-cell="client_start"
-                    class="h-[72px] px-2 py-2 text-gray-700 whitespace-nowrap align-middle overflow-hidden"
+                    class="px-2 py-2 text-gray-700 whitespace-nowrap align-middle overflow-hidden"
                   >
 
                     <div data-column-content="client_start">
@@ -1177,7 +1177,7 @@
                   <!-- CLIENT FINISH -->
                   <td
                     data-column-cell="client_finish"
-                    class="h-[72px] px-2 py-2 text-gray-700 whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 text-gray-700 whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="client_finish">
@@ -1196,7 +1196,7 @@
                   <!-- INTERNAL START -->
                   <td
                     data-column-cell="internal_start"
-                    class="h-[72px] px-2 py-2 text-purple-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 text-purple-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="internal_start">
@@ -1215,7 +1215,7 @@
                   <!-- INTERNAL FINISH -->
                   <td
                     data-column-cell="internal_finish"
-                    class="h-[72px] px-2 py-2 text-blue-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                    class="px-2 py-2 text-blue-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
                   >
 
                     <div data-column-content="internal_finish">
@@ -1234,7 +1234,7 @@
                   <!-- VARIANCE -->
                   <td
                     data-column-cell="variance"
-                    class="h-[72px] px-2 py-2 text-center font-extrabold align-middle overflow-hidden"
+                    class="px-2 py-2 text-center font-extrabold align-middle overflow-hidden"
                   >
 
                     <div data-column-content="variance">
@@ -1324,19 +1324,19 @@
               </thead>
 
 
-              <tbody class="divide-y divide-gray-100">
+              <tbody>
 
                 {% for row in master_plan_rows %}
 
                   <tr
-                    class="planning-timeline-row"
+                    class="planning-timeline-row border-b border-gray-200"
                     data-row-index="{{ forloop.counter0 }}"
                     data-assignment-id="{{ row.assignment.id }}"
                     data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
                   >
 
                     <td
-                      class="h-[72px] p-0 planning-timeline-container align-middle"
+                      class="p-0 planning-timeline-container align-middle"
                       data-client-start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% endif %}"
                       data-client-finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% endif %}"
                       data-plan-start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% endif %}"
@@ -1477,6 +1477,11 @@ document.addEventListener(
     const fixedTable =
       document.getElementById(
         "planning-fixed-table"
+      );
+
+    const fixedHeaderRow =
+      document.getElementById(
+        "planning-fixed-header-row"
       );
 
     const fromWeekInput =
@@ -1745,16 +1750,19 @@ document.addEventListener(
         return null;
       }
 
+
       const parts =
         value.split(
           "-"
         );
+
 
       if (
         parts.length !== 3
       ) {
         return null;
       }
+
 
       return normalizeDate(
         new Date(
@@ -1763,7 +1771,9 @@ document.addEventListener(
           ),
           Number(
             parts[1]
-          ) - 1,
+          )
+          -
+          1,
           Number(
             parts[2]
           )
@@ -1808,6 +1818,7 @@ document.addEventListener(
               item
             );
 
+
           if (
             Number.isInteger(
               day
@@ -1848,10 +1859,12 @@ document.addEventListener(
           )
         );
 
+
       const dayNumber =
         temp.getUTCDay()
         ||
         7;
+
 
       temp.setUTCDate(
         temp.getUTCDate()
@@ -1861,6 +1874,7 @@ document.addEventListener(
         dayNumber
       );
 
+
       const yearStart =
         new Date(
           Date.UTC(
@@ -1869,6 +1883,7 @@ document.addEventListener(
             1
           )
         );
+
 
       const weekNumber =
         Math.ceil(
@@ -1887,6 +1902,7 @@ document.addEventListener(
           7
         );
 
+
       return {
         year: temp.getUTCFullYear(),
         week: weekNumber,
@@ -1902,10 +1918,12 @@ document.addEventListener(
           date
         );
 
+
       const day =
         result.getDay()
         ||
         7;
+
 
       result.setDate(
         result.getDate()
@@ -1914,6 +1932,7 @@ document.addEventListener(
         +
         1
       );
+
 
       return normalizeDate(
         result
@@ -1942,10 +1961,12 @@ document.addEventListener(
         return null;
       }
 
+
       const match =
         value.match(
           /^(\d{4})-W(\d{2})$/
         );
+
 
       if (
         !match
@@ -1953,15 +1974,18 @@ document.addEventListener(
         return null;
       }
 
+
       const year =
         Number(
           match[1]
         );
 
+
       const week =
         Number(
           match[2]
         );
+
 
       const januaryFourth =
         new Date(
@@ -1970,15 +1994,19 @@ document.addEventListener(
           4
         );
 
+
       const firstMonday =
         getMonday(
           januaryFourth
         );
 
+
       return addDays(
         firstMonday,
         (
-          week - 1
+          week
+          -
+          1
         )
         *
         7
@@ -1993,6 +2021,7 @@ document.addEventListener(
         getISOWeek(
           date
         );
+
 
       return (
         iso.year
@@ -2018,6 +2047,7 @@ document.addEventListener(
       normalizeDate(
         new Date()
       );
+
 
     const currentMonday =
       getMonday(
@@ -2066,16 +2096,19 @@ document.addEventListener(
             COLUMN_STORAGE_KEY
           );
 
+
         if (
           !value
         ) {
           return new Set();
         }
 
+
         const parsed =
           JSON.parse(
             value
           );
+
 
         if (
           !Array.isArray(
@@ -2084,6 +2117,7 @@ document.addEventListener(
         ) {
           return new Set();
         }
+
 
         return new Set(
           parsed
@@ -2144,12 +2178,14 @@ document.addEventListener(
           const column =
             col.dataset.columnCol;
 
+
           const expandedWidth =
             Number(
               col.dataset.expandedWidth
             )
             ||
             COLLAPSED_COLUMN_WIDTH;
+
 
           const width =
             collapsedColumns.has(
@@ -2179,25 +2215,30 @@ document.addEventListener(
         +
         "px";
 
+
       fixedTable.style.minWidth =
         totalWidth
         +
         "px";
+
 
       fixedTable.style.maxWidth =
         totalWidth
         +
         "px";
 
+
       fixedPane.style.width =
         totalWidth
         +
         "px";
 
+
       fixedPane.style.minWidth =
         totalWidth
         +
         "px";
+
 
       fixedPane.style.maxWidth =
         totalWidth
@@ -2288,6 +2329,7 @@ document.addEventListener(
               "+"
               :
               "−";
+
 
           button.title =
             collapsed
@@ -2383,6 +2425,235 @@ document.addEventListener(
     }
 
 
+    /* =========================================================
+       SYNCHRONIZE FIXED TABLE + TIMELINE HEIGHTS
+    ========================================================== */
+
+    function synchronizeMatrixHeights() {
+
+      if (
+        !fixedTable
+        ||
+        !timelineTable
+      ) {
+        return;
+      }
+
+
+      const timelineHead =
+        timelineTable.querySelector(
+          "thead"
+        );
+
+
+      if (
+        fixedHeaderRow
+        &&
+        timelineHead
+      ) {
+
+        fixedHeaderRow.style.height =
+          "";
+
+
+        fixedHeaderRow.querySelectorAll(
+          "th"
+        ).forEach(
+          function (cell) {
+
+            cell.style.height =
+              "";
+
+          }
+        );
+
+
+        const timelineHeaderHeight =
+          Math.ceil(
+            timelineHead.getBoundingClientRect().height
+          );
+
+
+        fixedHeaderRow.style.height =
+          timelineHeaderHeight
+          +
+          "px";
+
+
+        fixedHeaderRow.querySelectorAll(
+          "th"
+        ).forEach(
+          function (cell) {
+
+            cell.style.height =
+              timelineHeaderHeight
+              +
+              "px";
+
+          }
+        );
+
+      }
+
+
+      document.querySelectorAll(
+        ".planning-activity-row-fixed"
+      ).forEach(
+        function (fixedRow) {
+
+          const rowIndex =
+            fixedRow.dataset.rowIndex;
+
+
+          const timelineRow =
+            document.querySelector(
+              ".planning-timeline-row[data-row-index='"
+              +
+              rowIndex
+              +
+              "']"
+            );
+
+
+          if (
+            !timelineRow
+          ) {
+            return;
+          }
+
+
+          fixedRow.style.height =
+            "";
+
+
+          timelineRow.style.height =
+            "";
+
+
+          fixedRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                "";
+
+            }
+          );
+
+
+          timelineRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                "";
+
+            }
+          );
+
+
+          if (
+            fixedRow.classList.contains(
+              "hidden"
+            )
+            ||
+            timelineRow.classList.contains(
+              "hidden"
+            )
+          ) {
+            return;
+          }
+
+
+          const fixedHeight =
+            Math.ceil(
+              fixedRow.getBoundingClientRect().height
+            );
+
+
+          const timelineHeight =
+            Math.ceil(
+              timelineRow.getBoundingClientRect().height
+            );
+
+
+          const rowHeight =
+            Math.max(
+              72,
+              fixedHeight,
+              timelineHeight
+            );
+
+
+          fixedRow.style.height =
+            rowHeight
+            +
+            "px";
+
+
+          timelineRow.style.height =
+            rowHeight
+            +
+            "px";
+
+
+          fixedRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                rowHeight
+                +
+                "px";
+
+            }
+          );
+
+
+          timelineRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                rowHeight
+                +
+                "px";
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    function scheduleMatrixHeightSync() {
+
+      window.requestAnimationFrame(
+        function () {
+
+          synchronizeMatrixHeights();
+
+
+          window.requestAnimationFrame(
+            function () {
+
+              synchronizeMatrixHeights();
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+
     document.querySelectorAll(
       ".planning-column-toggle"
     ).forEach(
@@ -2420,11 +2691,16 @@ document.addEventListener(
 
                 saveCollapsedColumns();
 
+
                 renderColumnState(
                   column
                 );
 
+
                 updateFixedPaneWidth();
+
+
+                scheduleMatrixHeightSync();
 
               }
             );
@@ -2596,11 +2872,14 @@ document.addEventListener(
             groupStart
           ];
 
+
         const month =
           firstDate.getMonth();
 
+
         const year =
           firstDate.getFullYear();
+
 
         let groupEnd =
           groupStart
@@ -2647,6 +2926,7 @@ document.addEventListener(
         th.colSpan =
           span;
 
+
         th.style.width =
           (
             span
@@ -2656,11 +2936,14 @@ document.addEventListener(
           +
           "px";
 
+
         th.style.minWidth =
           th.style.width;
 
+
         th.style.maxWidth =
           th.style.width;
+
 
         th.className =
           "h-[22px] px-2 text-center text-[10px] font-extrabold bg-blue-100 text-blue-800 border-r border-b border-blue-200 whitespace-nowrap";
@@ -2712,6 +2995,7 @@ document.addEventListener(
       const dates =
         [];
 
+
       let cursor =
         normalizeDate(
           startDate
@@ -2727,6 +3011,7 @@ document.addEventListener(
             cursor
           )
         );
+
 
         cursor =
           addDays(
@@ -2760,10 +3045,12 @@ document.addEventListener(
               date
             );
 
+
           const isMonday =
             date.getDay()
             ===
             1;
+
 
           const isSunday =
             date.getDay()
@@ -2782,15 +3069,18 @@ document.addEventListener(
             +
             "px";
 
+
           th.style.minWidth =
             CELL_WIDTH
             +
             "px";
 
+
           th.style.maxWidth =
             CELL_WIDTH
             +
             "px";
+
 
           th.className =
             "border-r border-b border-gray-200 text-center px-0 py-0";
@@ -2901,10 +3191,12 @@ document.addEventListener(
           +
           "px";
 
+
         timelineTable.style.minWidth =
           timelineWidth
           +
           "px";
+
 
         timelineTable.style.maxWidth =
           timelineWidth
@@ -2942,15 +3234,18 @@ document.addEventListener(
         +
         "px";
 
+
       cell.style.minWidth =
         CELL_WIDTH
         +
         "px";
 
+
       cell.style.maxWidth =
         CELL_WIDTH
         +
         "px";
+
 
       cell.className =
         "h-5 border-r border-gray-100 relative";
@@ -3118,20 +3413,24 @@ document.addEventListener(
               container.dataset.clientStart
             );
 
+
           const clientFinish =
             parseDate(
               container.dataset.clientFinish
             );
+
 
           const planStart =
             parseDate(
               container.dataset.planStart
             );
 
+
           const planFinish =
             parseDate(
               container.dataset.planFinish
             );
+
 
           const planWorkingDays =
             parseWorkingDays(
@@ -3159,6 +3458,7 @@ document.addEventListener(
           wrapper.innerHTML =
             "";
 
+
           wrapper.style.width =
             (
               dates.length
@@ -3168,8 +3468,10 @@ document.addEventListener(
             +
             "px";
 
+
           wrapper.style.minWidth =
             wrapper.style.width;
+
 
           wrapper.style.maxWidth =
             wrapper.style.width;
@@ -3209,11 +3511,14 @@ document.addEventListener(
               layerRow.className =
                 "flex h-5";
 
+
               layerRow.style.width =
                 wrapper.style.width;
 
+
               layerRow.style.minWidth =
                 wrapper.style.width;
+
 
               layerRow.style.maxWidth =
                 wrapper.style.width;
@@ -3246,6 +3551,9 @@ document.addEventListener(
         }
       );
 
+
+      scheduleMatrixHeightSync();
+
     }
 
 
@@ -3275,6 +3583,7 @@ document.addEventListener(
           timelineStart.getMonth(),
           timelineStart.getDate()
         );
+
 
       const targetUTC =
         Date.UTC(
@@ -3355,6 +3664,9 @@ document.addEventListener(
 
           }
 
+
+          scheduleMatrixHeightSync();
+
         }
       );
 
@@ -3402,13 +3714,6 @@ document.addEventListener(
           }
 
 
-          /*
-           * Open around current week whenever the current week
-           * exists inside the actual planning range.
-           *
-           * If all planning is in the future, open at the start.
-           * If all planning is in the past, open near the end.
-           */
           if (
             currentMonday >= bounds.start
             &&
@@ -3436,6 +3741,9 @@ document.addEventListener(
 
           }
 
+
+          scheduleMatrixHeightSync();
+
         }
       );
 
@@ -3459,6 +3767,7 @@ document.addEventListener(
             "text-blue-700",
             "hover:bg-blue-100"
           );
+
 
           button.classList.add(
             "border-gray-300",
@@ -3484,6 +3793,7 @@ document.addEventListener(
         "text-gray-600",
         "hover:bg-gray-50"
       );
+
 
       activeButton.classList.add(
         "border-blue-600",
@@ -3514,6 +3824,7 @@ document.addEventListener(
                 isoWeekToMonday(
                   fromWeekInput.value
                 );
+
 
               const requestedEndMonday =
                 isoWeekToMonday(
@@ -3746,6 +4057,7 @@ document.addEventListener(
                       "text-white"
                     );
 
+
                     item.classList.add(
                       "bg-gray-100",
                       "text-gray-600"
@@ -3759,6 +4071,7 @@ document.addEventListener(
                   "bg-gray-100",
                   "text-gray-600"
                 );
+
 
                 button.classList.add(
                   "bg-gray-900",
@@ -3804,6 +4117,7 @@ document.addEventListener(
                         "hidden"
                       );
 
+
                       if (
                         timelineRow
                       ) {
@@ -3819,6 +4133,7 @@ document.addEventListener(
                       row.classList.add(
                         "hidden"
                       );
+
 
                       if (
                         timelineRow
@@ -3836,10 +4151,6 @@ document.addEventListener(
                 );
 
 
-                /*
-                 * In automatic mode the timeline boundaries depend
-                 * on the rows that are currently visible.
-                 */
                 if (
                   timelineMode
                   ===
@@ -3847,6 +4158,10 @@ document.addEventListener(
                 ) {
 
                   renderAutomaticTimeline();
+
+                } else {
+
+                  scheduleMatrixHeightSync();
 
                 }
 
@@ -3878,17 +4193,22 @@ document.addEventListener(
       timelineViewport.style.minWidth =
         "0";
 
+
       timelineViewport.style.maxWidth =
         "100%";
+
 
       timelineViewport.style.overflow =
         "hidden";
 
+
       timelineScroll.style.width =
         "100%";
 
+
       timelineScroll.style.minWidth =
         "0";
+
 
       timelineScroll.style.maxWidth =
         "100%";
@@ -3905,23 +4225,21 @@ document.addEventListener(
 
         constrainTimelineViewport();
 
+
+        scheduleMatrixHeightSync();
+
       }
     );
 
 
     /* =========================================================
        INITIAL RENDER
-
-       No Quick Range is active by default.
-
-       Automatic mode:
-       - one empty week before earliest planning;
-       - all actual Client / High-Level planning;
-       - one empty week after latest planning;
-       - opens at current week when current week is inside range.
     ========================================================== */
 
     renderAutomaticTimeline();
+
+
+    scheduleMatrixHeightSync();
 
   }
 );

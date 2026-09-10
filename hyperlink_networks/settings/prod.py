@@ -13,16 +13,40 @@ ALLOWED_HOSTS = [
     "app-hyperlink-networks.onrender.com",
     "localhost",
     "127.0.0.1",
-    "172.20.10.2", "192.168.1.88",
+    "172.20.10.2",
+    "192.168.1.88",
 ]
 
 
 # --- Base de datos (Render PostgreSQL) ---
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.environ.get(
-            'DATABASE_URL', f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+    "default": dj_database_url.config(
+        default=os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
     )
+}
+
+# ==============================
+# CACHE COMPARTIDO - REDIS
+# ==============================
+
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+
+if not REDIS_URL:
+    raise RuntimeError(
+        "REDIS_URL is required in production because the application "
+        "uses shared cache state across multiple workers."
+    )
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "TIMEOUT": 60 * 60,
+        "OPTIONS": {
+            "socket_connect_timeout": 5,
+            "socket_timeout": 5,
+        },
+    }
 }
 
 # ==============================
@@ -33,43 +57,42 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
 
 # Archivos estáticos
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATIC_URL = "/static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
-    'usuarios.middleware.SessionExpiryMiddleware',   # ← vuelve a ponerlo
-    'axes.middleware.AxesMiddleware',                # ← y este si lo usas
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "usuarios.middleware.SessionExpiryMiddleware",  # ← vuelve a ponerlo
+    "axes.middleware.AxesMiddleware",  # ← y este si lo usas
 ]
 
 # Confía en tu origen HTTPS para CSRF (Render)
 CSRF_TRUSTED_ORIGINS = [
-    'https://app-hyperlink-networks.onrender.com',
+    "https://app-hyperlink-networks.onrender.com",
 ]
 
 # Render usa X-Forwarded-Proto para indicar HTTPS
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Cookies seguras + samesite
-SESSION_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # MUY IMPORTANTE si lees la cookie desde JS:
 # (default ya es False; deja esto explícito por si en base.py cambia)
 CSRF_COOKIE_HTTPONLY = False
 
 AUTHENTICATION_BACKENDS = [
-    'axes.backends.AxesStandaloneBackend',  # ← primero
-    'django.contrib.auth.backends.ModelBackend',
+    "axes.backends.AxesStandaloneBackend",  # ← primero
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 
@@ -81,22 +104,21 @@ TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)  # fecha para producción
 # ==============================
 
 AXES_ENABLED = True
-AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', 3))
-AXES_COOLOFF_TIME = timedelta(minutes=int(
-    os.environ.get('AXES_COOLOFF_MINUTES', 20)))
+AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 3))
+AXES_COOLOFF_TIME = timedelta(minutes=int(os.environ.get("AXES_COOLOFF_MINUTES", 20)))
 AXES_LOCK_OUT_AT_FAILURE = True
 AXES_RESET_ON_SUCCESS = True
 
-AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
-AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # simple y robusto
-AXES_LOCKOUT_CALLABLE = None           # (dejamos default)
-AXES_LOCKOUT_TEMPLATE = 'usuarios/login_bloqueado.html'
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_HANDLER = "axes.handlers.database.AxesDatabaseHandler"  # simple y robusto
+AXES_LOCKOUT_CALLABLE = None  # (dejamos default)
+AXES_LOCKOUT_TEMPLATE = "usuarios/login_bloqueado.html"
 
 # Archivos multimedia (ajustado para Wasabi)
 # Aunque Wasabi maneja los archivos, definimos MEDIA_URL apuntando al bucket
 MEDIA_URL = f"{os.environ.get('AWS_S3_ENDPOINT_URL')}/{os.environ.get('AWS_STORAGE_BUCKET_NAME')}/"
 # Django lo ignora por DEFAULT_FILE_STORAGE
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # Seguridad para producción
 CSRF_COOKIE_SECURE = True
@@ -112,27 +134,28 @@ print("🧪 En producción:")
 print("🧪 USE_WASABI:", os.environ.get("AWS_STORAGE_BUCKET_NAME") is not None)
 try:
     from django.conf import settings
+
     print("🧪 DEFAULT_FILE_STORAGE:", settings.DEFAULT_FILE_STORAGE)
 except Exception as e:
     print("⚠️ No se pudo importar DEFAULT_FILE_STORAGE:", e)
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'ERROR',
+    "root": {
+        "handlers": ["console"],
+        "level": "ERROR",
     },
-    'loggers': {
-        'django.request': {
-            'handlers': ['console'],
-            'level': 'ERROR',
-            'propagate': False,
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
         },
     },
 }
