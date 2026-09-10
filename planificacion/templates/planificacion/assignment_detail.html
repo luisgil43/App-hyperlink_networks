@@ -1,0 +1,750 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+
+<div class="max-w-7xl mx-auto space-y-6">
+
+
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+
+      <div>
+
+        <div class="flex flex-wrap items-center gap-4">
+
+          <a
+            href="{% url 'planificacion:master_plan' %}"
+            class="text-sm font-bold text-blue-600 hover:text-blue-700"
+          >
+            ← Master Plan
+          </a>
+
+          <a
+            href="{% url 'planificacion:assignment_list' %}"
+            class="text-sm font-bold text-blue-600 hover:text-blue-700"
+          >
+            Assignments
+          </a>
+
+        </div>
+
+        <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900 mt-3">
+          {{ assignment.name }}
+        </h1>
+
+
+        <div class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-500 mt-3">
+
+          <span>
+            <strong class="text-gray-700">
+              Client:
+            </strong>
+            {{ assignment.client.name }}
+          </span>
+
+          {% if assignment.client_reference %}
+            <span>
+              <strong class="text-gray-700">
+                Reference:
+              </strong>
+              {{ assignment.client_reference }}
+            </span>
+          {% endif %}
+
+          {% if assignment.issue_date %}
+            <span>
+              <strong class="text-gray-700">
+                Issue:
+              </strong>
+              {{ assignment.issue_date|date:"M d, Y" }}
+            </span>
+          {% endif %}
+
+        </div>
+
+      </div>
+
+
+      <div class="flex flex-wrap gap-2">
+
+        <a
+          href="{% url 'planificacion:assignment_edit' assignment.pk %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 font-bold hover:bg-blue-100"
+        >
+          ✎ Edit
+        </a>
+
+        <form
+          method="post"
+          action="{% url 'planificacion:assignment_delete' assignment.pk %}"
+          onsubmit="return confirm('Delete this Assignment and its planning data?');"
+        >
+          {% csrf_token %}
+
+          <button
+            type="submit"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 font-bold hover:bg-red-100"
+          >
+            Delete
+          </button>
+        </form>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+      <p class="text-sm font-semibold text-gray-500">
+        DFNs
+      </p>
+
+      <p class="text-3xl font-extrabold text-gray-900 mt-2">
+        {{ dfns|length }}
+      </p>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+      <p class="text-sm font-semibold text-gray-500">
+        Baseline Activities
+      </p>
+
+      <p class="text-3xl font-extrabold text-gray-900 mt-2">
+        {{ baseline_activities|length }}
+      </p>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+      <p class="text-sm font-semibold text-gray-500">
+        Client Finish
+      </p>
+
+      <p class="text-xl font-extrabold text-gray-900 mt-3">
+        {% if client_finish %}
+          {{ client_finish|date:"M d, Y" }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+      <p class="text-sm font-semibold text-gray-500">
+        High-Level Finish
+      </p>
+
+      <p class="text-xl font-extrabold text-blue-700 mt-3">
+        {% if latest_plan_entry and latest_plan_entry.planned_end_date %}
+          {{ latest_plan_entry.planned_end_date|date:"M d, Y" }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+
+      {% if overall_variance_days != None %}
+
+        {% if overall_variance_days <= 0 %}
+
+          <div class="text-sm font-bold text-green-700 mt-2">
+            {{ overall_variance_days }} days vs Client Baseline
+          </div>
+
+        {% else %}
+
+          <div class="text-sm font-bold text-red-700 mt-2">
+            +{{ overall_variance_days }} days vs Client Baseline
+          </div>
+
+        {% endif %}
+
+      {% endif %}
+
+    </div>
+
+  </div>
+
+
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+
+    <div class="xl:col-span-1 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <h2 class="text-lg font-extrabold text-gray-900">
+        Assignment Information
+      </h2>
+
+      <div class="mt-5 divide-y divide-gray-100">
+
+        <div class="py-3 flex justify-between gap-4 text-sm">
+          <span class="text-gray-500">Client</span>
+          <span class="font-bold text-gray-900 text-right">
+            {{ assignment.client.name }}
+          </span>
+        </div>
+
+        <div class="py-3 flex justify-between gap-4 text-sm">
+          <span class="text-gray-500">Type</span>
+          <span class="font-bold text-gray-900 text-right">
+            {{ assignment.assignment_type|default:"—" }}
+          </span>
+        </div>
+
+        <div class="py-3 flex justify-between gap-4 text-sm">
+          <span class="text-gray-500">Reference</span>
+          <span class="font-bold text-gray-900 text-right">
+            {{ assignment.client_reference|default:"—" }}
+          </span>
+        </div>
+
+        <div class="py-3 flex justify-between gap-4 text-sm">
+          <span class="text-gray-500">PC</span>
+          <span class="font-bold text-gray-900 text-right">
+            {{ assignment.pc|default:"—" }}
+          </span>
+        </div>
+
+        <div class="py-3 flex justify-between gap-4 text-sm">
+          <span class="text-gray-500">Contractor</span>
+          <span class="font-bold text-gray-900 text-right">
+            {{ assignment.contractor|default:"—" }}
+          </span>
+        </div>
+
+        <div class="py-3">
+
+          <div class="text-sm text-gray-500">
+            Location
+          </div>
+
+          <div class="font-bold text-gray-900 mt-1">
+
+            {% if assignment.location %}
+
+              {% if assignment.location.city %}
+                {{ assignment.location.city }}
+              {% endif %}
+
+              {% if assignment.location.state %}
+                {% if assignment.location.city %}, {% endif %}
+                {{ assignment.location.state }}
+              {% endif %}
+
+              {% if assignment.location.country %}
+                <div class="text-sm font-medium text-gray-500 mt-1">
+                  {{ assignment.location.country }}
+                </div>
+              {% endif %}
+
+              {% if assignment.location.market %}
+                <div class="text-sm font-bold text-blue-600 mt-1">
+                  Market: {{ assignment.location.market }}
+                </div>
+              {% endif %}
+
+            {% else %}
+              —
+            {% endif %}
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="xl:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+      <div class="px-6 py-5 border-b border-gray-200">
+
+        <h2 class="text-lg font-extrabold text-gray-900">
+          DFNs
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Optional planning identifiers contained in this Assignment.
+        </p>
+
+      </div>
+
+
+      {% if dfns %}
+
+        <div class="divide-y divide-gray-100">
+
+          {% for dfn in dfns %}
+
+            <div class="px-6 py-4">
+
+              <div class="font-extrabold text-gray-900">
+                {{ dfn.code }}
+              </div>
+
+            </div>
+
+          {% endfor %}
+
+        </div>
+
+      {% else %}
+
+        <div class="px-6 py-12 text-center">
+
+          <div class="text-3xl">
+            🧩
+          </div>
+
+          <h3 class="font-extrabold text-gray-900 mt-3">
+            No DFNs assigned
+          </h3>
+
+        </div>
+
+      {% endif %}
+
+    </div>
+
+  </div>
+
+
+  <div class="bg-white rounded-2xl shadow-sm border border-blue-200 overflow-hidden">
+
+    <div class="px-6 py-5 bg-blue-50 border-b border-blue-100">
+
+      <h2 class="text-lg font-extrabold text-blue-950">
+        Client Baseline vs Hyperlink High-Level Plan
+      </h2>
+
+      <p class="text-sm text-blue-700 mt-1">
+        Client dates remain unchanged. Internal Start and Internal Finish represent Hyperlink's own plan.
+      </p>
+
+    </div>
+
+
+    {% if activity_rows %}
+
+      <div class="overflow-x-auto">
+
+        <table class="min-w-[1250px] w-full text-sm">
+
+          <thead class="bg-gray-50 text-gray-600">
+
+            <tr>
+              <th class="px-5 py-4 text-left font-bold">Activity</th>
+              <th class="px-5 py-4 text-left font-bold">DFN</th>
+              <th class="px-5 py-4 text-right font-bold">Quantity</th>
+              <th class="px-5 py-4 text-left font-bold">Unit</th>
+              <th class="px-5 py-4 text-left font-bold">Client Start</th>
+              <th class="px-5 py-4 text-left font-bold">Client Finish</th>
+              <th class="px-5 py-4 text-left font-bold">Internal Start</th>
+              <th class="px-5 py-4 text-left font-bold">Internal Finish</th>
+              <th class="px-5 py-4 text-left font-bold">Variance</th>
+            </tr>
+
+          </thead>
+
+          <tbody class="divide-y divide-gray-100">
+
+            {% for row in activity_rows %}
+
+              <tr>
+
+                <td class="px-5 py-4">
+
+                  <div class="font-bold text-gray-900">
+                    {{ row.baseline.activity_type.code }}
+                  </div>
+
+                  <div class="text-xs text-gray-500 mt-1">
+                    {{ row.baseline.activity_type.name }}
+                  </div>
+
+                </td>
+
+
+                <td class="px-5 py-4 font-semibold">
+                  {% if row.baseline.dfn %}
+                    {{ row.baseline.dfn.code }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4 text-right font-semibold">
+                  {% if row.baseline.quantity != None %}
+                    {{ row.baseline.quantity|floatformat:"-4" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4">
+                  {{ row.baseline.get_unit_display }}
+                </td>
+
+
+                <td class="px-5 py-4 whitespace-nowrap">
+                  {% if row.baseline.client_start_date %}
+                    {{ row.baseline.client_start_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4 whitespace-nowrap">
+                  {% if row.baseline.client_end_date %}
+                    {{ row.baseline.client_end_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4 whitespace-nowrap font-bold text-purple-700">
+                  {% if row.plan and row.plan.planned_start_date %}
+                    {{ row.plan.planned_start_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4 whitespace-nowrap font-bold text-blue-700">
+                  {% if row.plan and row.plan.planned_end_date %}
+                    {{ row.plan.planned_end_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+
+
+                <td class="px-5 py-4">
+
+                  {% if row.variance_days != None %}
+
+                    {% if row.variance_days <= 0 %}
+
+                      <span class="inline-flex px-3 py-1 rounded-full bg-green-50 text-green-700 font-bold whitespace-nowrap">
+                        {{ row.variance_days }} days
+                      </span>
+
+                    {% else %}
+
+                      <span class="inline-flex px-3 py-1 rounded-full bg-red-50 text-red-700 font-bold whitespace-nowrap">
+                        +{{ row.variance_days }} days
+                      </span>
+
+                    {% endif %}
+
+                  {% else %}
+                    —
+                  {% endif %}
+
+                </td>
+
+              </tr>
+
+            {% endfor %}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+    {% else %}
+
+      <div class="px-6 py-12 text-center text-gray-500">
+        No activities available.
+      </div>
+
+    {% endif %}
+
+  </div>
+
+
+  <div class="bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
+
+    <div class="px-6 py-5 bg-purple-50 border-b border-purple-100">
+
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+        <div>
+
+          <h2 class="text-lg font-extrabold text-gray-900">
+            Internal Planning Setup
+          </h2>
+
+          <p class="text-sm text-gray-600 mt-1">
+            Resources, productivity and calculated duration for each activity.
+          </p>
+
+        </div>
+
+        {% if effective_calendar %}
+          <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-purple-200 text-xs font-bold text-purple-700">
+            {{ effective_calendar.name }}
+          </span>
+        {% endif %}
+
+      </div>
+
+    </div>
+
+
+    {% if plan_activities %}
+
+      <div class="p-6 space-y-4">
+
+        {% for activity in plan_activities %}
+
+          <div class="rounded-2xl border border-gray-200 overflow-hidden">
+
+            <div class="px-5 py-4 bg-gray-50 border-b border-gray-200">
+
+              <div class="font-extrabold text-gray-900">
+                {{ activity.activity_type.code }} - {{ activity.activity_type.name }}
+              </div>
+
+              <div class="text-xs text-gray-500 mt-1">
+                {% if activity.baseline_activity and activity.baseline_activity.dfn %}
+                  DFN {{ activity.baseline_activity.dfn.code }}
+                {% else %}
+                  Assignment-level activity
+                {% endif %}
+              </div>
+
+            </div>
+
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+
+              <div class="p-4 border-b md:border-r border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Internal Start
+                </div>
+
+                <div class="font-extrabold text-purple-700 mt-1">
+                  {% if activity.planned_start_date %}
+                    {{ activity.planned_start_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+
+              </div>
+
+
+              <div class="p-4 border-b md:border-r border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Internal Finish
+                </div>
+
+                <div class="font-extrabold text-blue-700 mt-1">
+                  {% if activity.planned_end_date %}
+                    {{ activity.planned_end_date|date:"M d, Y" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+
+              </div>
+
+
+              <div class="p-4 border-b md:border-r border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Quantity
+                </div>
+
+                <div class="font-extrabold text-gray-900 mt-1">
+                  {{ activity.quantity|floatformat:"-4" }}
+                  {{ activity.get_unit_display }}
+                </div>
+
+              </div>
+
+
+              <div class="p-4 border-b border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Resources
+                </div>
+
+                <div class="font-extrabold text-gray-900 mt-1">
+                  {{ activity.resource_count|floatformat:"-2" }}
+                  {{ activity.get_resource_type_display }}
+                </div>
+
+              </div>
+
+
+              <div class="p-4 md:border-r border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Productivity
+                </div>
+
+                <div class="font-extrabold text-gray-900 mt-1">
+                  {{ activity.production_rate|floatformat:"-4" }}
+                </div>
+
+                <div class="text-xs text-gray-500 mt-1">
+                  {{ activity.get_unit_display }} / resource / day
+                </div>
+
+              </div>
+
+
+              <div class="p-4 md:border-r border-gray-100">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Daily Capacity
+                </div>
+
+                <div class="font-extrabold text-gray-900 mt-1">
+                  {% if activity.daily_capacity != None %}
+                    {{ activity.daily_capacity|floatformat:"-4" }}
+                    {{ activity.get_unit_display }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+
+              </div>
+
+
+              <div class="p-4">
+
+                <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                  Workdays
+                </div>
+
+                <div class="font-extrabold text-gray-900 mt-1">
+                  {% if activity.calculated_workdays != None %}
+                    {{ activity.calculated_workdays|floatformat:2 }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+    {% endif %}
+
+  </div>
+
+
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+    <div class="px-6 py-5 border-b border-gray-200">
+
+      <h2 class="text-lg font-extrabold text-gray-900">
+        Real / Current Forecast
+      </h2>
+
+      <p class="text-sm text-gray-500 mt-1">
+        This layer will be fed by the Real Plan and Billing execution.
+      </p>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+
+      <div class="p-5">
+        <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+          Current Forecast
+        </div>
+        <div class="font-extrabold text-gray-900 mt-2">—</div>
+      </div>
+
+      <div class="p-5">
+        <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+          Actual Finish
+        </div>
+        <div class="font-extrabold text-gray-900 mt-2">—</div>
+      </div>
+
+      <div class="p-5">
+        <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+          Real vs High-Level
+        </div>
+        <div class="font-extrabold text-gray-900 mt-2">—</div>
+      </div>
+
+    </div>
+
+  </div>
+
+
+  {% if assignment.source_reference or assignment.notes %}
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <h2 class="text-lg font-extrabold text-gray-900">
+        Source & Notes
+      </h2>
+
+      {% if assignment.source_reference %}
+        <div class="mt-4">
+          <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+            Source Reference
+          </div>
+          <div class="text-sm text-gray-900 mt-1">
+            {{ assignment.source_reference }}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if assignment.notes %}
+        <div class="mt-4">
+          <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+            Notes
+          </div>
+          <div class="text-sm text-gray-700 mt-1 whitespace-pre-line">
+            {{ assignment.notes }}
+          </div>
+        </div>
+      {% endif %}
+
+    </div>
+
+  {% endif %}
+
+
+  <div class="pb-8"></div>
+
+</div>
+
+{% endblock %}

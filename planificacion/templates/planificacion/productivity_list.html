@@ -1,0 +1,666 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+
+<div class="space-y-6">
+
+
+  <!-- =========================================================
+       HEADER
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+
+      <div class="flex items-center gap-3">
+
+        <div class="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+          <span class="text-2xl">⚙️</span>
+        </div>
+
+        <div>
+
+          <div class="flex flex-wrap items-center gap-3">
+
+            <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900">
+              Productivity
+            </h1>
+
+          </div>
+
+          <p class="text-gray-500 mt-1">
+            Manage reusable productivity assumptions used by the High-Level Plan.
+          </p>
+
+        </div>
+
+      </div>
+
+
+      <div class="flex flex-wrap items-center gap-2">
+
+        <a
+          href="{% url 'planificacion:master_plan' %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 font-semibold hover:bg-gray-50 transition"
+        >
+          <span>📊</span>
+          Master Plan
+        </a>
+
+        <a
+          href="{% url 'planificacion:productivity_create' %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition shadow-sm"
+        >
+          <span>＋</span>
+          New Profile
+        </a>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       EXPLANATION
+  ========================================================== -->
+  <div class="bg-blue-50 rounded-2xl border border-blue-200 p-5">
+
+    <div class="flex items-start gap-3">
+
+      <div class="text-xl">
+        ℹ️
+      </div>
+
+      <div>
+
+        <h2 class="font-extrabold text-blue-950">
+          How Productivity works
+        </h2>
+
+        <p class="text-sm text-blue-800 mt-1">
+          Productivity represents the quantity one resource can complete during one working day.
+          The High-Level Plan calculates daily capacity using Productivity × Resources.
+        </p>
+
+        <div class="mt-3 inline-flex flex-wrap items-center gap-2 text-sm">
+
+          <span class="px-3 py-1.5 rounded-lg bg-white border border-blue-200 font-bold text-gray-800">
+            Daily Capacity
+          </span>
+
+          <span class="text-blue-500 font-bold">
+            =
+          </span>
+
+          <span class="px-3 py-1.5 rounded-lg bg-white border border-blue-200 font-bold text-gray-800">
+            Productivity
+          </span>
+
+          <span class="text-blue-500 font-bold">
+            ×
+          </span>
+
+          <span class="px-3 py-1.5 rounded-lg bg-white border border-blue-200 font-bold text-gray-800">
+            Resources
+          </span>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       SUMMARY
+  ========================================================== -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            Active Profiles
+          </p>
+
+          <p class="text-3xl font-extrabold text-gray-900 mt-2">
+            {{ active_count }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center text-xl">
+          ⚙️
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            Activities Configured
+          </p>
+
+          <p class="text-3xl font-extrabold text-purple-600 mt-2">
+            {{ activity_count }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-purple-50 flex items-center justify-center text-xl">
+          🧩
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            Default Profiles
+          </p>
+
+          <p class="text-3xl font-extrabold text-green-600 mt-2">
+            {{ default_count }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center text-xl">
+          ✓
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       FILTERS
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+    <div class="px-5 py-4 border-b border-gray-200">
+
+      <h2 class="font-extrabold text-gray-900">
+        Filters
+      </h2>
+
+      <p class="text-sm text-gray-500 mt-1">
+        Search profiles or filter them by activity and availability.
+      </p>
+
+    </div>
+
+
+    <form
+      method="get"
+      class="p-5"
+    >
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+
+
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            Activity
+          </label>
+
+          <select
+            name="activity"
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+            <option value="">
+              All Activities
+            </option>
+
+            {% for activity in activities %}
+
+              <option
+                value="{{ activity.id }}"
+                {% if selected_activity == activity.id|stringformat:"s" %}selected{% endif %}
+              >
+                {{ activity.code }} - {{ activity.name }}
+              </option>
+
+            {% endfor %}
+
+          </select>
+
+        </div>
+
+
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            State
+          </label>
+
+          <select
+            name="state"
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+            <option
+              value="active"
+              {% if selected_state == "active" %}selected{% endif %}
+            >
+              Active
+            </option>
+
+            <option
+              value="inactive"
+              {% if selected_state == "inactive" %}selected{% endif %}
+            >
+              Inactive
+            </option>
+
+            <option
+              value="all"
+              {% if selected_state == "all" %}selected{% endif %}
+            >
+              All
+            </option>
+
+          </select>
+
+        </div>
+
+
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            Search
+          </label>
+
+          <input
+            type="text"
+            name="q"
+            value="{{ search }}"
+            placeholder="Activity, profile..."
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+        </div>
+
+
+        <div class="flex items-end gap-2">
+
+          <button
+            type="submit"
+            class="flex-1 inline-flex justify-center items-center px-4 py-2.5 rounded-xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition"
+          >
+            Apply
+          </button>
+
+          <a
+            href="{% url 'planificacion:productivity_list' %}"
+            class="inline-flex justify-center items-center px-4 py-2.5 rounded-xl border border-gray-300 text-gray-600 font-bold hover:bg-gray-50 transition"
+          >
+            Reset
+          </a>
+
+        </div>
+
+      </div>
+
+    </form>
+
+  </div>
+
+
+  <!-- =========================================================
+       PROFILES
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+
+    <div class="px-6 py-5 border-b border-gray-200">
+
+      <div class="flex items-center justify-between gap-4">
+
+        <div>
+
+          <h2 class="text-lg font-extrabold text-gray-900">
+            Productivity Profiles
+          </h2>
+
+          <p class="text-sm text-gray-500 mt-1">
+            Each activity may contain multiple productivity scenarios with one optional default.
+          </p>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    {% if profiles %}
+
+      <div class="overflow-x-auto">
+
+        <table class="min-w-[1150px] w-full text-sm">
+
+          <thead class="bg-gray-50 text-gray-600">
+
+            <tr>
+
+              <th class="px-5 py-4 text-left font-extrabold">
+                Activity
+              </th>
+
+              <th class="px-5 py-4 text-left font-extrabold">
+                Profile
+              </th>
+
+              <th class="px-5 py-4 text-left font-extrabold">
+                Unit
+              </th>
+
+              <th class="px-5 py-4 text-left font-extrabold">
+                Resource
+              </th>
+
+              <th class="px-5 py-4 text-right font-extrabold">
+                Productivity / Day
+              </th>
+
+              <th class="px-5 py-4 text-right font-extrabold">
+                Resources
+              </th>
+
+              <th class="px-5 py-4 text-right font-extrabold">
+                Daily Capacity
+              </th>
+
+              <th class="px-5 py-4 text-center font-extrabold">
+                Default
+              </th>
+
+              <th class="px-5 py-4 text-center font-extrabold">
+                State
+              </th>
+
+              <th class="px-5 py-4 text-right font-extrabold">
+                Actions
+              </th>
+
+            </tr>
+
+          </thead>
+
+
+          <tbody class="divide-y divide-gray-100">
+
+            {% for profile in profiles %}
+
+              <tr class="hover:bg-gray-50">
+
+
+                <!-- ACTIVITY -->
+                <td class="px-5 py-4">
+
+                  <div class="font-extrabold text-gray-900">
+                    {{ profile.activity_type.code }}
+                  </div>
+
+                  <div class="text-xs text-gray-500 mt-1">
+                    {{ profile.activity_type.name }}
+                  </div>
+
+                </td>
+
+
+                <!-- PROFILE -->
+                <td class="px-5 py-4">
+
+                  <div class="font-bold text-gray-900">
+                    {{ profile.name }}
+                  </div>
+
+                  {% if profile.notes %}
+                    <div class="text-xs text-gray-400 mt-1 max-w-[240px] truncate">
+                      {{ profile.notes }}
+                    </div>
+                  {% endif %}
+
+                </td>
+
+
+                <!-- UNIT -->
+                <td class="px-5 py-4 text-gray-700">
+                  {{ profile.get_unit_display }}
+                </td>
+
+
+                <!-- RESOURCE -->
+                <td class="px-5 py-4 text-gray-700">
+                  {{ profile.get_resource_type_display }}
+                </td>
+
+
+                <!-- RATE -->
+                <td class="px-5 py-4 text-right">
+
+                  <div class="font-extrabold text-gray-900">
+                    {{ profile.production_rate|floatformat:"-4" }}
+                  </div>
+
+                  <div class="text-[11px] text-gray-400">
+                    {{ profile.get_unit_display }} / resource / day
+                  </div>
+
+                </td>
+
+
+                <!-- RESOURCE COUNT -->
+                <td class="px-5 py-4 text-right font-bold text-gray-800">
+                  {{ profile.default_resource_count|floatformat:"-2" }}
+                </td>
+
+
+                <!-- DAILY CAPACITY -->
+                <td class="px-5 py-4 text-right">
+
+                  <div
+                    class="font-extrabold text-blue-700 productivity-capacity"
+                    data-rate="{{ profile.production_rate }}"
+                    data-resources="{{ profile.default_resource_count }}"
+                  >
+                    —
+                  </div>
+
+                  <div class="text-[11px] text-gray-400">
+                    {{ profile.get_unit_display }} / day
+                  </div>
+
+                </td>
+
+
+                <!-- DEFAULT -->
+                <td class="px-5 py-4 text-center">
+
+                  {% if profile.is_default and profile.is_active %}
+
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-green-50 text-green-700 text-xs font-extrabold">
+                      ✓ Default
+                    </span>
+
+                  {% else %}
+
+                    <span class="text-gray-300">
+                      —
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+
+                <!-- STATE -->
+                <td class="px-5 py-4 text-center">
+
+                  {% if profile.is_active %}
+
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-extrabold">
+                      Active
+                    </span>
+
+                  {% else %}
+
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-extrabold">
+                      Inactive
+                    </span>
+
+                  {% endif %}
+
+                </td>
+
+
+                <!-- ACTIONS -->
+                <td class="px-5 py-4">
+
+                  <div class="flex items-center justify-end gap-2">
+
+                    <a
+                      href="{% url 'planificacion:productivity_edit' profile.pk %}"
+                      class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100 transition"
+                    >
+                      Edit
+                    </a>
+
+
+                    {% if profile.is_active %}
+
+                      <form
+                        method="post"
+                        action="{% url 'planificacion:productivity_delete' profile.pk %}"
+                        onsubmit="return confirm('Deactivate this productivity profile? Existing High-Level Plan activities will keep their stored productivity values.');"
+                      >
+                        {% csrf_token %}
+
+                        <button
+                          type="submit"
+                          class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 transition"
+                        >
+                          Deactivate
+                        </button>
+
+                      </form>
+
+                    {% endif %}
+
+                  </div>
+
+                </td>
+
+              </tr>
+
+            {% endfor %}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+
+    {% else %}
+
+      <div class="px-6 py-20 text-center">
+
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">
+          ⚙️
+        </div>
+
+        <h3 class="text-lg font-extrabold text-gray-900 mt-4">
+          No productivity profiles found
+        </h3>
+
+        <p class="text-gray-500 mt-2">
+          Create a productivity profile or change the current filters.
+        </p>
+
+        <a
+          href="{% url 'planificacion:productivity_create' %}"
+          class="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition shadow-sm"
+        >
+          ＋ New Profile
+        </a>
+
+      </div>
+
+    {% endif %}
+
+  </div>
+
+</div>
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  document.querySelectorAll(
+    ".productivity-capacity"
+  ).forEach(
+    function (element) {
+
+      const rate = Number(
+        element.dataset.rate
+      );
+
+      const resources = Number(
+        element.dataset.resources
+      );
+
+      if (
+        !Number.isFinite(rate)
+        ||
+        !Number.isFinite(resources)
+      ) {
+        return;
+      }
+
+      const capacity =
+        rate * resources;
+
+      element.textContent =
+        capacity.toLocaleString(
+          "en-US",
+          {
+            maximumFractionDigits: 4,
+          }
+        );
+
+    }
+  );
+
+});
+</script>
+
+{% endblock %}

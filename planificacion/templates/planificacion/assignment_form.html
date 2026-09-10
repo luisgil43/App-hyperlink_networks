@@ -1,0 +1,4090 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+
+{{ activity_defaults|json_script:"planning-activity-defaults" }}
+
+<div class="max-w-7xl mx-auto space-y-6">
+
+  <!-- =========================================================
+       HEADER
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+
+      <div>
+
+        <a
+          href="{% url 'planificacion:master_plan' %}"
+          class="text-sm font-bold text-blue-600 hover:text-blue-700"
+        >
+          ← Master Plan
+        </a>
+
+        <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900 mt-2">
+          New Assignment
+        </h1>
+
+        <p class="text-gray-500 mt-1 max-w-3xl">
+          Register the client assignment, preserve the original Client Baseline
+          and define Hyperlink's High-Level planning assumptions.
+        </p>
+
+      </div>
+
+      <div class="px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
+
+        <div class="text-xs uppercase tracking-wide font-bold text-blue-500">
+          Planning Root
+        </div>
+
+        <div class="font-extrabold text-blue-900 mt-1">
+          Assignment
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       IMPORT
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-blue-200 overflow-hidden">
+
+    <div class="px-6 py-5 bg-blue-50 border-b border-blue-100">
+
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+        <div class="flex items-start gap-3">
+
+          <div class="w-11 h-11 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-xl">
+            📥
+          </div>
+
+          <div>
+
+            <h2 class="text-lg font-extrabold text-gray-900">
+              Import Assignment / NTP
+            </h2>
+
+            <p class="text-sm text-gray-600 mt-1">
+              Upload a PDF or DOCX. Extracted information will populate the form for review before saving.
+            </p>
+
+          </div>
+
+        </div>
+
+        <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-blue-200 text-xs font-bold text-blue-700">
+          Review required before save
+        </span>
+
+      </div>
+
+    </div>
+
+
+    <div class="p-6">
+
+      <div class="rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 p-7">
+
+        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+
+          <div class="flex items-center gap-4">
+
+            <div class="text-4xl">
+              📄
+            </div>
+
+            <div>
+
+              <h3 class="font-extrabold text-gray-900">
+                Assignment / NTP Document
+              </h3>
+
+              <p class="text-sm text-gray-500 mt-1">
+                Supported formats: PDF and DOCX.
+              </p>
+
+              <div
+                id="assignment-file-name"
+                class="text-sm font-bold text-blue-700 mt-2 hidden"
+              >
+              </div>
+
+            </div>
+
+          </div>
+
+
+          <div class="flex flex-col sm:flex-row gap-3">
+
+            <label
+              for="assignment-file-input"
+              class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 font-bold hover:bg-gray-50 transition cursor-pointer"
+            >
+              📎 Choose File
+            </label>
+
+            <button
+              type="submit"
+              form="assignment-form"
+              formnovalidate
+              name="action"
+              value="extract_assignment"
+              id="extract-assignment-button"
+              class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled
+            >
+              ✨ Extract Data
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      {% if import_result %}
+
+        <div class="mt-5 rounded-2xl border border-green-200 bg-green-50 overflow-hidden">
+
+          <div class="px-5 py-4 border-b border-green-100">
+
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+
+              <div>
+
+                <div class="font-extrabold text-green-900">
+                  Extraction completed
+                </div>
+
+                <div class="text-sm text-green-700 mt-1">
+                  {{ import_result.filename }}
+                </div>
+
+              </div>
+
+              <span class="inline-flex items-center px-3 py-1 rounded-full bg-white border border-green-200 text-xs font-bold text-green-700">
+                Review before save
+              </span>
+
+            </div>
+
+          </div>
+
+
+          <div class="grid grid-cols-2 md:grid-cols-4 divide-x divide-green-100 bg-white">
+
+            <div class="p-4">
+
+              <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                Client
+              </div>
+
+              <div class="font-extrabold text-gray-900 mt-1">
+                {{ import_result.assignment.client_name|default:"—" }}
+              </div>
+
+            </div>
+
+
+            <div class="p-4">
+
+              <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                DFNs
+              </div>
+
+              <div class="font-extrabold text-gray-900 mt-1">
+                {{ import_result.dfns|length }}
+              </div>
+
+            </div>
+
+
+            <div class="p-4">
+
+              <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                Activities
+              </div>
+
+              <div class="font-extrabold text-gray-900 mt-1">
+                {{ import_result.activities|length }}
+              </div>
+
+            </div>
+
+
+            <div class="p-4">
+
+              <div class="text-xs uppercase tracking-wide font-bold text-gray-400">
+                Warnings
+              </div>
+
+              <div class="font-extrabold text-gray-900 mt-1">
+                {{ import_result.warnings|length }}
+              </div>
+
+            </div>
+
+          </div>
+
+
+          {% if import_result.warnings %}
+
+            <div class="px-5 py-4 border-t border-yellow-200 bg-yellow-50">
+
+              <div class="font-extrabold text-yellow-900">
+                Review required
+              </div>
+
+              <div class="mt-2 space-y-1">
+
+                {% for warning in import_result.warnings %}
+
+                  <div class="text-sm text-yellow-800">
+                    • {{ warning }}
+                  </div>
+
+                {% endfor %}
+
+              </div>
+
+            </div>
+
+          {% endif %}
+
+        </div>
+
+      {% endif %}
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       FORM
+  ========================================================== -->
+  <form
+    method="post"
+    enctype="multipart/form-data"
+    id="assignment-form"
+    class="space-y-6"
+  >
+
+    {% csrf_token %}
+
+    <input
+      type="file"
+      name="assignment_file"
+      id="assignment-file-input"
+      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      class="hidden"
+    >
+
+    {{ form.status }}
+
+    {{ dfn_formset.management_form }}
+    {{ activity_formset.management_form }}
+
+
+    {% if form.non_field_errors %}
+      <div class="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+        {% for error in form.non_field_errors %}
+          <div class="font-semibold">
+            {{ error }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+
+    {% if dfn_formset.non_form_errors %}
+      <div class="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+        {% for error in dfn_formset.non_form_errors %}
+          <div class="font-semibold">
+            {{ error }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+
+    {% if activity_formset.non_form_errors %}
+      <div class="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+        {% for error in activity_formset.non_form_errors %}
+          <div class="font-semibold">
+            {{ error }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+
+    <!-- =========================================================
+         CLIENT
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <div class="flex items-center gap-3 mb-6">
+
+        <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+          🏢
+        </div>
+
+        <div>
+          <h2 class="text-lg font-extrabold text-gray-900">
+            Client
+          </h2>
+
+          <p class="text-sm text-gray-500">
+            Existing clients are reused automatically by name.
+          </p>
+        </div>
+
+      </div>
+
+      <label class="block text-sm font-bold text-gray-700 mb-2">
+        {{ form.client_name.label }}
+        <span class="text-red-500">*</span>
+      </label>
+
+      {{ form.client_name }}
+
+      {% for error in form.client_name.errors %}
+        <p class="text-sm text-red-600 mt-1">
+          {{ error }}
+        </p>
+      {% endfor %}
+
+    </div>
+
+
+    <!-- =========================================================
+         ASSIGNMENT
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <div class="flex items-center gap-3 mb-6">
+
+        <div class="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+          📁
+        </div>
+
+        <div>
+          <h2 class="text-lg font-extrabold text-gray-900">
+            Assignment Information
+          </h2>
+
+          <p class="text-sm text-gray-500">
+            NTP, Work Order, Project Package or another client assignment.
+          </p>
+        </div>
+
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        {% for field in form %}
+
+          {% if field.name == "name" or field.name == "assignment_type" or field.name == "client_reference" or field.name == "issue_date" or field.name == "pc" or field.name == "contractor" %}
+
+            <div>
+
+              <label class="block text-sm font-bold text-gray-700 mb-2">
+                {{ field.label }}
+
+                {% if field.field.required %}
+                  <span class="text-red-500">*</span>
+                {% endif %}
+              </label>
+
+              {{ field }}
+
+              {% for error in field.errors %}
+                <p class="text-sm text-red-600 mt-1">
+                  {{ error }}
+                </p>
+              {% endfor %}
+
+            </div>
+
+          {% endif %}
+
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         LOCATION
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <div class="flex items-center gap-3 mb-6">
+
+        <div class="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
+          📍
+        </div>
+
+        <div>
+          <h2 class="text-lg font-extrabold text-gray-900">
+            Location
+          </h2>
+
+          <p class="text-sm text-gray-500">
+            City and Market are independent portfolio dimensions.
+          </p>
+        </div>
+
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        {% for field in form %}
+
+          {% if field.name == "country" or field.name == "state" or field.name == "city" or field.name == "market" %}
+
+            <div>
+
+              <label class="block text-sm font-bold text-gray-700 mb-2">
+                {{ field.label }}
+              </label>
+
+              {{ field }}
+
+              {% for error in field.errors %}
+                <p class="text-sm text-red-600 mt-1">
+                  {{ error }}
+                </p>
+              {% endfor %}
+
+            </div>
+
+          {% endif %}
+
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         DFNS
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+      <div class="px-6 py-5 border-b border-gray-200">
+
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+          <div>
+
+            <h2 class="text-lg font-extrabold text-gray-900">
+              DFNs
+            </h2>
+
+            <p class="text-sm text-gray-500 mt-1">
+              Optional identifiers contained in this Assignment.
+            </p>
+
+          </div>
+
+          <button
+            type="button"
+            id="add-dfn-button"
+            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 transition"
+          >
+            ＋ Add DFN
+          </button>
+
+        </div>
+
+      </div>
+
+      <div id="dfn-formset-container" class="divide-y divide-gray-100">
+
+        {% for dfn_form in dfn_formset %}
+
+          <div class="dfn-form-row px-6 py-5">
+
+            {{ dfn_form.DELETE.as_hidden }}
+            {{ dfn_form.status }}
+
+            <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+
+              <div>
+
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                  DFN
+                </label>
+
+                {{ dfn_form.code }}
+
+                {% for error in dfn_form.code.errors %}
+                  <p class="text-sm text-red-600 mt-1">
+                    {{ error }}
+                  </p>
+                {% endfor %}
+
+              </div>
+
+              <button
+                type="button"
+                class="remove-dfn-button px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-red-700 font-bold hover:bg-red-100 transition"
+              >
+                Remove
+              </button>
+
+            </div>
+
+          </div>
+
+        {% empty %}
+
+          <div id="dfn-empty-state" class="px-6 py-10 text-center">
+
+            <div class="text-3xl">
+              🧩
+            </div>
+
+            <h3 class="font-extrabold text-gray-900 mt-3">
+              No DFN added
+            </h3>
+
+            <p class="text-sm text-gray-500 mt-1">
+              DFN is optional. Activities may also create their DFN automatically.
+            </p>
+
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         CLIENT BASELINE ACTIVITIES
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+      <div class="px-6 py-5 border-b border-gray-200">
+
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+          <div>
+
+            <h2 class="text-lg font-extrabold text-gray-900">
+              Client Baseline Activities
+            </h2>
+
+            <p class="text-sm text-gray-500 mt-1">
+              Client dates and quantities remain independent from Hyperlink's
+              resource and productivity assumptions.
+            </p>
+
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+
+            <button
+              type="button"
+              id="add-activity-button"
+              class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition"
+            >
+              ＋ Add Activity
+            </button>
+
+            <button
+              type="button"
+              id="create-activity-button"
+              class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-bold hover:bg-purple-100 transition"
+            >
+              ＋ Create Activity
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div id="activity-formset-container" class="p-6 space-y-5">
+
+        {% for activity_form in activity_formset %}
+
+          <div class="activity-form-row rounded-2xl border border-gray-200 overflow-hidden">
+
+            {{ activity_form.DELETE.as_hidden }}
+
+            <div class="px-5 py-4 bg-gray-50 border-b border-gray-200">
+
+              <div class="flex items-center justify-between gap-4">
+
+                <div>
+
+                  <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+                    Activity
+                  </div>
+
+                  <div class="font-extrabold text-gray-900 mt-1 activity-row-title">
+                    Client Baseline + High-Level Plan
+                  </div>
+
+                </div>
+
+                <button
+                  type="button"
+                  class="remove-activity-button px-3 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-sm font-bold hover:bg-red-50 transition"
+                >
+                  Remove
+                </button>
+
+              </div>
+
+            </div>
+
+
+            <div class="p-5 space-y-6">
+
+              <div>
+
+                <div class="text-xs uppercase tracking-wide font-extrabold text-blue-500 mb-3">
+                  Client Baseline
+                </div>
+
+
+                <div class="existing-activity-section">
+
+                  <div class="flex items-end gap-3">
+
+                    <div class="flex-1">
+
+                      <label class="block text-sm font-bold text-gray-700 mb-2">
+                        Activity
+                      </label>
+
+                      {{ activity_form.activity_type }}
+
+                      {% for error in activity_form.activity_type.errors %}
+                        <p class="text-sm text-red-600 mt-1">
+                          {{ error }}
+                        </p>
+                      {% endfor %}
+
+                    </div>
+
+                    <button
+                      type="button"
+                      class="switch-to-new-activity-button mb-0 px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-bold hover:bg-purple-100 transition whitespace-nowrap"
+                    >
+                      ＋ Create Activity
+                    </button>
+
+                  </div>
+
+                </div>
+
+
+                <div class="new-activity-section hidden rounded-2xl border border-purple-200 bg-purple-50 p-4">
+
+                  <div class="flex items-center justify-between gap-3 mb-4">
+
+                    <div>
+
+                      <div class="text-sm font-extrabold text-purple-900">
+                        New Activity
+                      </div>
+
+                      <div class="text-xs text-purple-600 mt-1">
+                        Create an activity that does not exist in the catalog yet.
+                      </div>
+
+                    </div>
+
+                    <button
+                      type="button"
+                      class="switch-to-existing-activity-button px-3 py-2 rounded-xl bg-white border border-purple-200 text-purple-700 text-sm font-bold hover:bg-purple-100 transition"
+                    >
+                      Use Existing
+                    </button>
+
+                  </div>
+
+
+                  <div class="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
+
+                    <div>
+
+                      <label class="block text-sm font-bold text-gray-700 mb-2">
+                        Activity Code
+                      </label>
+
+                      {{ activity_form.new_activity_code }}
+
+                      {% for error in activity_form.new_activity_code.errors %}
+                        <p class="text-sm text-red-600 mt-1">
+                          {{ error }}
+                        </p>
+                      {% endfor %}
+
+                    </div>
+
+
+                    <div>
+
+                      <label class="block text-sm font-bold text-gray-700 mb-2">
+                        Activity Name
+                      </label>
+
+                      {{ activity_form.new_activity_name }}
+
+                      {% for error in activity_form.new_activity_name.errors %}
+                        <p class="text-sm text-red-600 mt-1">
+                          {{ error }}
+                        </p>
+                      {% endfor %}
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      DFN
+                    </label>
+
+                    {{ activity_form.dfn_code }}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Quantity
+                    </label>
+
+                    {{ activity_form.quantity }}
+
+                    {% for error in activity_form.quantity.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Unit
+                    </label>
+
+                    {{ activity_form.unit }}
+
+                  </div>
+
+
+                  <div></div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Client Start
+                    </label>
+
+                    {{ activity_form.client_start_date }}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Client Finish
+                    </label>
+
+                    {{ activity_form.client_end_date }}
+
+                    {% for error in activity_form.client_end_date.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <!-- =====================================================
+                   INTERNAL PLANNING
+              ====================================================== -->
+              <div class="rounded-2xl border border-purple-100 bg-purple-50 p-5">
+
+                <div class="text-xs uppercase tracking-wide font-extrabold text-purple-600 mb-3">
+                  Hyperlink High-Level Plan
+                </div>
+
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Internal Start
+                    </label>
+
+                    {{ activity_form.planned_start_date }}
+
+                    {% for error in activity_form.planned_start_date.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Internal Finish
+                    </label>
+
+                    {{ activity_form.planned_end_date }}
+
+                    {% for error in activity_form.planned_end_date.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+                </div>
+
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Resource Type
+                    </label>
+
+                    {{ activity_form.resource_type }}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Resources
+                    </label>
+
+                    {{ activity_form.resource_count }}
+
+                    {% for error in activity_form.resource_count.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+
+                  <div>
+
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                      Productivity / Resource / Day
+                    </label>
+
+                    {{ activity_form.production_rate }}
+
+                    {% for error in activity_form.production_rate.errors %}
+                      <p class="text-sm text-red-600 mt-1">
+                        {{ error }}
+                      </p>
+                    {% endfor %}
+
+                  </div>
+
+
+                  <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+                    <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+                      Daily Capacity
+                    </div>
+
+                    <div class="text-lg font-extrabold text-gray-900 mt-1 activity-daily-capacity">
+                      —
+                    </div>
+
+                  </div>
+
+                </div>
+
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+
+                  <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+                    <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+                      Workdays Required
+                    </div>
+
+                    <div class="font-extrabold text-gray-900 mt-1 activity-workdays">
+                      —
+                    </div>
+
+                  </div>
+
+
+                  <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+                    <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+                      Projected Finish
+                    </div>
+
+                    <div class="font-extrabold text-blue-700 mt-1 activity-projected-finish">
+                      —
+                    </div>
+
+                  </div>
+
+
+                  <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+                    <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+                      Variance
+                    </div>
+
+                    <div class="font-extrabold text-gray-900 mt-1 activity-variance">
+                      —
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        {% empty %}
+
+          <div id="activity-empty-state" class="py-12 text-center">
+
+            <div class="text-4xl">
+              📋
+            </div>
+
+            <h3 class="font-extrabold text-gray-900 mt-3">
+              No activities added
+            </h3>
+
+            <p class="text-sm text-gray-500 mt-1">
+              Add an existing activity or create a new one for this Assignment.
+            </p>
+
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         WORK SCHEDULE
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+      <div class="px-6 py-5 border-b border-gray-200">
+
+        <div class="flex items-start gap-3">
+
+          <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+            ⚙️
+          </div>
+
+          <div>
+
+            <h2 class="text-lg font-extrabold text-gray-900">
+              Work Schedule
+            </h2>
+
+            <p class="text-sm text-gray-500 mt-1">
+              Used only by the High-Level Plan calculation. The Real Plan will
+              determine the actual execution week and daily work.
+            </p>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div class="p-6">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          <label class="planning-schedule-option block cursor-pointer">
+
+            <input
+              type="radio"
+              name="{{ form.work_schedule.name }}"
+              value="mon_sat"
+              class="peer sr-only"
+              {% if form.work_schedule.value == "mon_sat" or not form.work_schedule.value %}checked{% endif %}
+            >
+
+            <div class="rounded-2xl border-2 border-gray-200 bg-white p-5 peer-checked:border-blue-500 peer-checked:bg-blue-50 transition">
+
+              <div class="font-extrabold text-gray-900">
+                Monday – Saturday
+              </div>
+
+              <div class="text-sm text-gray-500 mt-1">
+                6 working days per week
+              </div>
+
+              <div class="grid grid-cols-7 gap-1 mt-4">
+
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">M</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">T</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">W</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">T</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">F</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">S</div>
+                <div class="rounded-lg bg-gray-100 text-gray-400 text-xs font-bold text-center py-2">S</div>
+
+              </div>
+
+            </div>
+
+          </label>
+
+
+          <label class="planning-schedule-option block cursor-pointer">
+
+            <input
+              type="radio"
+              name="{{ form.work_schedule.name }}"
+              value="mon_sun"
+              class="peer sr-only"
+              {% if form.work_schedule.value == "mon_sun" %}checked{% endif %}
+            >
+
+            <div class="rounded-2xl border-2 border-gray-200 bg-white p-5 peer-checked:border-blue-500 peer-checked:bg-blue-50 transition">
+
+              <div class="font-extrabold text-gray-900">
+                Monday – Sunday
+              </div>
+
+              <div class="text-sm text-gray-500 mt-1">
+                7 working days per week
+              </div>
+
+              <div class="grid grid-cols-7 gap-1 mt-4">
+
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">M</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">T</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">W</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">T</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">F</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">S</div>
+                <div class="rounded-lg bg-blue-600 text-white text-xs font-bold text-center py-2">S</div>
+
+              </div>
+
+            </div>
+
+          </label>
+
+        </div>
+
+        {% for error in form.work_schedule.errors %}
+          <p class="text-sm text-red-600 mt-2">
+            {{ error }}
+          </p>
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         OVERALL PROJECTION
+    ========================================================== -->
+    <div class="rounded-2xl border border-blue-200 bg-blue-50 overflow-hidden">
+
+      <div class="px-6 py-5 border-b border-blue-100">
+
+        <h2 class="text-lg font-extrabold text-blue-950">
+          High-Level Plan Projection
+        </h2>
+
+        <p class="text-sm text-blue-700 mt-1">
+          Preview based on the current Client Baseline, resources,
+          productivity and working schedule.
+        </p>
+
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-blue-100 bg-white">
+
+        <div class="p-5">
+
+          <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+            Client Finish
+          </div>
+
+          <div id="overall-client-finish" class="font-extrabold text-gray-900 mt-2">
+            —
+          </div>
+
+        </div>
+
+
+        <div class="p-5">
+
+          <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+            Projected Finish
+          </div>
+
+          <div id="overall-projected-finish" class="font-extrabold text-blue-700 mt-2">
+            —
+          </div>
+
+        </div>
+
+
+        <div class="p-5">
+
+          <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+            Variance vs Baseline
+          </div>
+
+          <div id="overall-variance" class="font-extrabold text-gray-900 mt-2">
+            —
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         SOURCE / NOTES
+    ========================================================== -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+      <h2 class="text-lg font-extrabold text-gray-900">
+        Source & Notes
+      </h2>
+
+      <div class="mt-5">
+
+        <label class="block text-sm font-bold text-gray-700 mb-2">
+          {{ form.source_reference.label }}
+        </label>
+
+        {{ form.source_reference }}
+
+        {% for error in form.source_reference.errors %}
+          <p class="text-sm text-red-600 mt-1">
+            {{ error }}
+          </p>
+        {% endfor %}
+
+      </div>
+
+      <div class="mt-5">
+
+        <label class="block text-sm font-bold text-gray-700 mb-2">
+          {{ form.notes.label }}
+        </label>
+
+        {{ form.notes }}
+
+        {% for error in form.notes.errors %}
+          <p class="text-sm text-red-600 mt-1">
+            {{ error }}
+          </p>
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         ACTIONS
+    ========================================================== -->
+    <div class="flex flex-col-reverse sm:flex-row justify-end gap-3 pb-8">
+
+      <a
+        href="{% url 'planificacion:master_plan' %}"
+        class="inline-flex justify-center px-5 py-3 rounded-xl border border-gray-300 bg-white text-gray-700 font-bold hover:bg-gray-50 transition"
+      >
+        Cancel
+      </a>
+
+      <button
+        type="submit"
+        name="action"
+        value="create_assignment"
+        class="inline-flex justify-center items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition shadow-sm"
+      >
+        <span>✓</span>
+        Create Assignment
+      </button>
+
+    </div>
+
+  </form>
+
+</div>
+
+
+<!-- =============================================================
+     EMPTY DFN FORM TEMPLATE
+============================================================= -->
+<template id="dfn-empty-form-template">
+
+  <div class="dfn-form-row px-6 py-5">
+
+    {{ dfn_formset.empty_form.DELETE.as_hidden }}
+    {{ dfn_formset.empty_form.status }}
+
+    <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+
+      <div>
+
+        <label class="block text-sm font-bold text-gray-700 mb-2">
+          DFN
+        </label>
+
+        {{ dfn_formset.empty_form.code }}
+
+      </div>
+
+      <button
+        type="button"
+        class="remove-dfn-button px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-red-700 font-bold hover:bg-red-100 transition"
+      >
+        Remove
+      </button>
+
+    </div>
+
+  </div>
+
+</template>
+
+
+<!-- =============================================================
+     EMPTY ACTIVITY FORM TEMPLATE
+============================================================= -->
+<template id="activity-empty-form-template">
+
+  <div class="activity-form-row rounded-2xl border border-gray-200 overflow-hidden">
+
+    {{ activity_formset.empty_form.DELETE.as_hidden }}
+
+    <div class="px-5 py-4 bg-gray-50 border-b border-gray-200">
+
+      <div class="flex items-center justify-between gap-4">
+
+        <div>
+
+          <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+            Activity
+          </div>
+
+          <div class="font-extrabold text-gray-900 mt-1 activity-row-title">
+            Client Baseline + High-Level Plan
+          </div>
+
+        </div>
+
+        <button
+          type="button"
+          class="remove-activity-button px-3 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-sm font-bold hover:bg-red-50 transition"
+        >
+          Remove
+        </button>
+
+      </div>
+
+    </div>
+
+
+    <div class="p-5 space-y-6">
+
+      <div>
+
+        <div class="text-xs uppercase tracking-wide font-extrabold text-blue-500 mb-3">
+          Client Baseline
+        </div>
+
+
+        <div class="existing-activity-section">
+
+          <div class="flex items-end gap-3">
+
+            <div class="flex-1">
+
+              <label class="block text-sm font-bold text-gray-700 mb-2">
+                Activity
+              </label>
+
+              {{ activity_formset.empty_form.activity_type }}
+
+            </div>
+
+            <button
+              type="button"
+              class="switch-to-new-activity-button px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-bold hover:bg-purple-100 transition whitespace-nowrap"
+            >
+              ＋ Create Activity
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <div class="new-activity-section hidden rounded-2xl border border-purple-200 bg-purple-50 p-4">
+
+          <div class="flex items-center justify-between gap-3 mb-4">
+
+            <div>
+
+              <div class="text-sm font-extrabold text-purple-900">
+                New Activity
+              </div>
+
+              <div class="text-xs text-purple-600 mt-1">
+                Create an activity that does not exist in the catalog yet.
+              </div>
+
+            </div>
+
+            <button
+              type="button"
+              class="switch-to-existing-activity-button px-3 py-2 rounded-xl bg-white border border-purple-200 text-purple-700 text-sm font-bold hover:bg-purple-100 transition"
+            >
+              Use Existing
+            </button>
+
+          </div>
+
+
+          <div class="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
+
+            <div>
+
+              <label class="block text-sm font-bold text-gray-700 mb-2">
+                Activity Code
+              </label>
+
+              {{ activity_formset.empty_form.new_activity_code }}
+
+            </div>
+
+
+            <div>
+
+              <label class="block text-sm font-bold text-gray-700 mb-2">
+                Activity Name
+              </label>
+
+              {{ activity_formset.empty_form.new_activity_name }}
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              DFN
+            </label>
+
+            {{ activity_formset.empty_form.dfn_code }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Quantity
+            </label>
+
+            {{ activity_formset.empty_form.quantity }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Unit
+            </label>
+
+            {{ activity_formset.empty_form.unit }}
+
+          </div>
+
+
+          <div></div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Client Start
+            </label>
+
+            {{ activity_formset.empty_form.client_start_date }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Client Finish
+            </label>
+
+            {{ activity_formset.empty_form.client_end_date }}
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div class="rounded-2xl border border-purple-100 bg-purple-50 p-5">
+
+        <div class="text-xs uppercase tracking-wide font-extrabold text-purple-600 mb-3">
+          Hyperlink High-Level Plan
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Internal Start
+            </label>
+
+            {{ activity_formset.empty_form.planned_start_date }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Internal Finish
+            </label>
+
+            {{ activity_formset.empty_form.planned_end_date }}
+
+          </div>
+
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Resource Type
+            </label>
+
+            {{ activity_formset.empty_form.resource_type }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Resources
+            </label>
+
+            {{ activity_formset.empty_form.resource_count }}
+
+          </div>
+
+
+          <div>
+
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+              Productivity / Resource / Day
+            </label>
+
+            {{ activity_formset.empty_form.production_rate }}
+
+          </div>
+
+
+          <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+            <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+              Daily Capacity
+            </div>
+
+            <div class="text-lg font-extrabold text-gray-900 mt-1 activity-daily-capacity">
+              —
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+
+          <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+            <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+              Workdays Required
+            </div>
+
+            <div class="font-extrabold text-gray-900 mt-1 activity-workdays">
+              —
+            </div>
+
+          </div>
+
+
+          <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+            <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+              Projected Finish
+            </div>
+
+            <div class="font-extrabold text-blue-700 mt-1 activity-projected-finish">
+              —
+            </div>
+
+          </div>
+
+
+          <div class="rounded-xl bg-white border border-purple-100 px-4 py-3">
+
+            <div class="text-xs uppercase tracking-wide font-extrabold text-gray-400">
+              Variance
+            </div>
+
+            <div class="font-extrabold text-gray-900 mt-1 activity-variance">
+              —
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</template>
+
+
+<!-- =============================================================
+     PLANIX DATE PICKER
+============================================================= -->
+<div
+  id="planning-date-picker"
+  class="fixed inset-0 z-[9999] hidden"
+>
+
+  <div
+    id="planning-date-picker-backdrop"
+    class="absolute inset-0 bg-black/20"
+  ></div>
+
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-gray-200 overflow-hidden">
+
+      <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
+
+        <button
+          type="button"
+          id="planning-calendar-prev"
+          class="w-10 h-10 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 font-extrabold text-gray-700"
+        >
+          ‹
+        </button>
+
+        <div class="text-center">
+
+          <div
+            id="planning-calendar-month"
+            class="font-extrabold text-gray-900"
+          >
+          </div>
+
+          <div class="text-xs text-gray-400 mt-0.5">
+            Select date
+          </div>
+
+        </div>
+
+        <button
+          type="button"
+          id="planning-calendar-next"
+          class="w-10 h-10 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 font-extrabold text-gray-700"
+        >
+          ›
+        </button>
+
+      </div>
+
+
+      <div class="p-5">
+
+        <div class="grid grid-cols-7 gap-1 mb-2">
+
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Mon</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Tue</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Wed</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Thu</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Fri</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Sat</div>
+          <div class="text-center text-xs font-extrabold text-gray-400 py-2">Sun</div>
+
+        </div>
+
+        <div
+          id="planning-calendar-days"
+          class="grid grid-cols-7 gap-1"
+        >
+        </div>
+
+      </div>
+
+
+      <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
+
+        <button
+          type="button"
+          id="planning-calendar-clear"
+          class="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100"
+        >
+          Clear
+        </button>
+
+        <button
+          type="button"
+          id="planning-calendar-today"
+          class="px-4 py-2 rounded-xl bg-blue-50 border border-blue-100 text-sm font-bold text-blue-700 hover:bg-blue-100"
+        >
+          Today
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  const activityDefaultsElement = document.getElementById(
+    "planning-activity-defaults"
+  );
+
+  const activityDefaults = activityDefaultsElement
+    ? JSON.parse(activityDefaultsElement.textContent)
+    : {};
+
+
+  const dfnContainer = document.getElementById(
+    "dfn-formset-container"
+  );
+
+  const activityContainer = document.getElementById(
+    "activity-formset-container"
+  );
+
+  const dfnTotalForms = document.getElementById(
+    "id_dfns-TOTAL_FORMS"
+  );
+
+  const activityTotalForms = document.getElementById(
+    "id_activities-TOTAL_FORMS"
+  );
+
+  const dfnTemplate = document.getElementById(
+    "dfn-empty-form-template"
+  );
+
+  const activityTemplate = document.getElementById(
+    "activity-empty-form-template"
+  );
+
+
+  const assignmentFileInput = document.getElementById(
+    "assignment-file-input"
+  );
+
+  const assignmentFileName = document.getElementById(
+    "assignment-file-name"
+  );
+
+  const extractAssignmentButton = document.getElementById(
+    "extract-assignment-button"
+  );
+
+
+  if (
+    assignmentFileInput &&
+    assignmentFileName &&
+    extractAssignmentButton
+  ) {
+
+    assignmentFileInput.addEventListener(
+      "change",
+      function () {
+
+        const file = assignmentFileInput.files
+          ? assignmentFileInput.files[0]
+          : null;
+
+        if (!file) {
+
+          assignmentFileName.textContent = "";
+
+          assignmentFileName.classList.add(
+            "hidden"
+          );
+
+          extractAssignmentButton.disabled = true;
+
+          return;
+        }
+
+        assignmentFileName.textContent =
+          "Selected: " + file.name;
+
+        assignmentFileName.classList.remove(
+          "hidden"
+        );
+
+        extractAssignmentButton.disabled = false;
+      }
+    );
+  }
+
+
+  function formatCompactNumber(value) {
+
+    const number = Number(
+      value
+    );
+
+    if (!Number.isFinite(number)) {
+      return "";
+    }
+
+    return String(
+      Number(
+        number.toFixed(4)
+      )
+    );
+  }
+
+
+  function normalizeNumericInput(field) {
+
+    if (
+      !field ||
+      field.value === ""
+    ) {
+      return;
+    }
+
+    const normalized = formatCompactNumber(
+      field.value
+    );
+
+    if (normalized !== "") {
+      field.value = normalized;
+    }
+  }
+
+
+  function normalizeAllNumericInputs() {
+
+    document.querySelectorAll(
+      'input[name$="-resource_count"], input[name$="-production_rate"]'
+    ).forEach(function (field) {
+
+      normalizeNumericInput(
+        field
+      );
+    });
+  }
+
+
+  function formatDate(date) {
+
+    if (!date) {
+      return "—";
+    }
+
+    return date.toLocaleDateString(
+      "en-US",
+      {
+        month: "short",
+        day: "2-digit",
+        year: "numeric"
+      }
+    );
+  }
+
+
+  function formatInputDate(date) {
+
+    if (!date) {
+      return "";
+    }
+
+    const month = String(
+      date.getMonth() + 1
+    ).padStart(
+      2,
+      "0"
+    );
+
+    const day = String(
+      date.getDate()
+    ).padStart(
+      2,
+      "0"
+    );
+
+    const year = date.getFullYear();
+
+    return (
+      month
+      + "/"
+      + day
+      + "/"
+      + year
+    );
+  }
+
+
+  function parseLocalDate(value) {
+
+    if (!value) {
+      return null;
+    }
+
+    value = value.trim();
+
+    let match = value.match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
+
+    if (match) {
+
+      return new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3])
+      );
+    }
+
+
+    match = value.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+    );
+
+    if (match) {
+
+      return new Date(
+        Number(match[3]),
+        Number(match[1]) - 1,
+        Number(match[2])
+      );
+    }
+
+    return null;
+  }
+
+
+  function calendarDayDiff(a, b) {
+
+    if (!a || !b) {
+      return null;
+    }
+
+    const utcA = Date.UTC(
+      a.getFullYear(),
+      a.getMonth(),
+      a.getDate()
+    );
+
+    const utcB = Date.UTC(
+      b.getFullYear(),
+      b.getMonth(),
+      b.getDate()
+    );
+
+    return Math.round(
+      (utcA - utcB) / 86400000
+    );
+  }
+
+
+  function scheduleMode() {
+
+    const checked = document.querySelector(
+      'input[name="work_schedule"]:checked'
+    );
+
+    return checked
+      ? checked.value
+      : "mon_sat";
+  }
+
+
+  function isWorkingDay(date) {
+
+    const day = date.getDay();
+
+    if (
+      scheduleMode()
+      === "mon_sun"
+    ) {
+      return true;
+    }
+
+    return day !== 0;
+  }
+
+
+  function nextWorkingDate(date) {
+
+    const result = new Date(
+      date
+    );
+
+    let safety = 0;
+
+    while (
+      !isWorkingDay(
+        result
+      )
+    ) {
+
+      result.setDate(
+        result.getDate() + 1
+      );
+
+      safety += 1;
+
+      if (
+        safety > 370
+      ) {
+        return null;
+      }
+    }
+
+    return result;
+  }
+
+
+  function calculateFinishDate(
+    startDate,
+    theoreticalWorkdays
+  ) {
+
+    if (
+      !startDate
+      ||
+      !Number.isFinite(
+        theoreticalWorkdays
+      )
+    ) {
+      return null;
+    }
+
+    const requiredDays = Math.ceil(
+      theoreticalWorkdays
+    );
+
+    let current = nextWorkingDate(
+      startDate
+    );
+
+    if (!current) {
+      return null;
+    }
+
+    if (
+      requiredDays <= 0
+    ) {
+      return current;
+    }
+
+    let consumed = 0;
+    let safety = 0;
+
+    while (true) {
+
+      if (
+        isWorkingDay(
+          current
+        )
+      ) {
+
+        consumed += 1;
+
+        if (
+          consumed >= requiredDays
+        ) {
+          return current;
+        }
+      }
+
+      current = new Date(
+        current
+      );
+
+      current.setDate(
+        current.getDate() + 1
+      );
+
+      safety += 1;
+
+      if (
+        safety > 3650
+      ) {
+        return null;
+      }
+    }
+  }
+
+
+  function deletedRow(row) {
+
+    const deleteInput = row.querySelector(
+      'input[name$="-DELETE"]'
+    );
+
+    return (
+      deleteInput
+      &&
+      (
+        deleteInput.checked
+        ||
+        deleteInput.value === "on"
+        ||
+        deleteInput.value === "true"
+        ||
+        deleteInput.value === "True"
+      )
+    );
+  }
+
+
+  function markDeleted(row) {
+
+    const deleteInput = row.querySelector(
+      'input[name$="-DELETE"]'
+    );
+
+    if (deleteInput) {
+
+      if (
+        deleteInput.type
+        === "checkbox"
+      ) {
+        deleteInput.checked = true;
+      } else {
+        deleteInput.value = "on";
+      }
+    }
+
+    row.style.display = "none";
+  }
+
+
+  function activityField(
+    row,
+    suffix
+  ) {
+
+    return row.querySelector(
+      `[name$="-${suffix}"]`
+    );
+  }
+
+
+  function showExistingActivityMode(
+    row,
+    clearNewFields
+  ) {
+
+    const existingSection = row.querySelector(
+      ".existing-activity-section"
+    );
+
+    const newSection = row.querySelector(
+      ".new-activity-section"
+    );
+
+    if (existingSection) {
+      existingSection.classList.remove(
+        "hidden"
+      );
+    }
+
+    if (newSection) {
+      newSection.classList.add(
+        "hidden"
+      );
+    }
+
+    if (clearNewFields) {
+
+      const codeField = activityField(
+        row,
+        "new_activity_code"
+      );
+
+      const nameField = activityField(
+        row,
+        "new_activity_name"
+      );
+
+      if (codeField) {
+        codeField.value = "";
+      }
+
+      if (nameField) {
+        nameField.value = "";
+      }
+    }
+  }
+
+
+  function showNewActivityMode(
+    row,
+    clearExisting
+  ) {
+
+    const existingSection = row.querySelector(
+      ".existing-activity-section"
+    );
+
+    const newSection = row.querySelector(
+      ".new-activity-section"
+    );
+
+    if (existingSection) {
+      existingSection.classList.add(
+        "hidden"
+      );
+    }
+
+    if (newSection) {
+      newSection.classList.remove(
+        "hidden"
+      );
+    }
+
+    if (clearExisting) {
+
+      const activitySelect = activityField(
+        row,
+        "activity_type"
+      );
+
+      if (activitySelect) {
+        activitySelect.value = "";
+      }
+    }
+
+    const codeField = activityField(
+      row,
+      "new_activity_code"
+    );
+
+    if (codeField) {
+      setTimeout(
+        function () {
+          codeField.focus();
+        },
+        50
+      );
+    }
+  }
+
+
+  function detectActivityMode(
+    row
+  ) {
+
+    const codeField = activityField(
+      row,
+      "new_activity_code"
+    );
+
+    const nameField = activityField(
+      row,
+      "new_activity_name"
+    );
+
+    if (
+      (
+        codeField
+        &&
+        codeField.value
+      )
+      ||
+      (
+        nameField
+        &&
+        nameField.value
+      )
+    ) {
+      showNewActivityMode(
+        row,
+        false
+      );
+
+      return;
+    }
+
+    showExistingActivityMode(
+      row,
+      false
+    );
+  }
+
+
+  function updateActivityTitle(
+    row
+  ) {
+
+    const title = row.querySelector(
+      ".activity-row-title"
+    );
+
+    if (!title) {
+      return;
+    }
+
+    const codeField = activityField(
+      row,
+      "new_activity_code"
+    );
+
+    const nameField = activityField(
+      row,
+      "new_activity_name"
+    );
+
+    if (
+      codeField
+      &&
+      codeField.value
+    ) {
+
+      let value = codeField.value.trim();
+
+      if (
+        nameField
+        &&
+        nameField.value.trim()
+      ) {
+
+        value +=
+          " - "
+          + nameField.value.trim();
+      }
+
+      title.textContent = value;
+
+      return;
+    }
+
+
+    const activitySelect = activityField(
+      row,
+      "activity_type"
+    );
+
+    const defaults = (
+      activitySelect
+      ? activityDefaults[
+          activitySelect.value
+        ]
+      : null
+    );
+
+    if (defaults) {
+
+      title.textContent =
+        defaults.code
+        + " - "
+        + defaults.name;
+
+    } else {
+
+      title.textContent =
+        "Client Baseline + High-Level Plan";
+    }
+  }
+
+
+  function setActivityDefaults(
+    row,
+    force
+  ) {
+
+    const activitySelect = activityField(
+      row,
+      "activity_type"
+    );
+
+    if (!activitySelect) {
+      return;
+    }
+
+    const defaults = activityDefaults[
+      activitySelect.value
+    ];
+
+    updateActivityTitle(
+      row
+    );
+
+    if (!defaults) {
+      return;
+    }
+
+
+    const unit = activityField(
+      row,
+      "unit"
+    );
+
+    const resourceType = activityField(
+      row,
+      "resource_type"
+    );
+
+    const resourceCount = activityField(
+      row,
+      "resource_count"
+    );
+
+    const productionRate = activityField(
+      row,
+      "production_rate"
+    );
+
+
+    if (
+      unit
+      &&
+      (
+        force
+        ||
+        !unit.value
+        ||
+        unit.value === "other"
+      )
+    ) {
+      unit.value =
+        defaults.unit
+        || "";
+    }
+
+
+    if (
+      resourceType
+      &&
+      (
+        force
+        ||
+        !resourceType.value
+      )
+    ) {
+      resourceType.value =
+        defaults.resource_type
+        || "";
+    }
+
+
+    if (
+      resourceCount
+      &&
+      (
+        force
+        ||
+        !resourceCount.value
+      )
+    ) {
+      resourceCount.value =
+        formatCompactNumber(
+          defaults.resource_count
+          || "1"
+        );
+    }
+
+
+    if (
+      productionRate
+      &&
+      (
+        force
+        ||
+        !productionRate.value
+      )
+    ) {
+      productionRate.value =
+        formatCompactNumber(
+          defaults.production_rate
+          || ""
+        );
+    }
+  }
+
+
+  function updateActivityProjection(
+    row
+  ) {
+
+    if (
+      deletedRow(
+        row
+      )
+    ) {
+      return;
+    }
+
+
+    const quantityField = activityField(
+      row,
+      "quantity"
+    );
+
+    const resourcesField = activityField(
+      row,
+      "resource_count"
+    );
+
+    const rateField = activityField(
+      row,
+      "production_rate"
+    );
+
+    const unitField = activityField(
+      row,
+      "unit"
+    );
+
+    const startField = activityField(
+      row,
+      "planned_start_date"
+    );
+
+    const internalFinishField = activityField(
+      row,
+      "planned_end_date"
+    );
+
+    const finishField = activityField(
+      row,
+      "client_end_date"
+    );
+
+
+    const quantity = quantityField
+      ? Number(
+          quantityField.value
+        )
+      : NaN;
+
+    const resources = resourcesField
+      ? Number(
+          resourcesField.value
+        )
+      : NaN;
+
+    const rate = rateField
+      ? Number(
+          rateField.value
+        )
+      : NaN;
+
+
+    const unitLabel = (
+      unitField
+      &&
+      unitField.options[
+        unitField.selectedIndex
+      ]
+    )
+      ? unitField.options[
+          unitField.selectedIndex
+        ].text
+      : "";
+
+
+    const capacityElement = row.querySelector(
+      ".activity-daily-capacity"
+    );
+
+    const workdaysElement = row.querySelector(
+      ".activity-workdays"
+    );
+
+    const projectedFinishElement = row.querySelector(
+      ".activity-projected-finish"
+    );
+
+    const varianceElement = row.querySelector(
+      ".activity-variance"
+    );
+
+
+    if (
+      Number.isFinite(
+        resources
+      )
+      &&
+      resources > 0
+      &&
+      Number.isFinite(
+        rate
+      )
+      &&
+      rate > 0
+    ) {
+
+      const capacity =
+        resources
+        * rate;
+
+      if (capacityElement) {
+
+        capacityElement.textContent =
+          capacity.toLocaleString(
+            "en-US",
+            {
+              maximumFractionDigits: 2
+            }
+          )
+          + " "
+          + unitLabel
+          + " / day";
+      }
+
+
+      if (
+        Number.isFinite(
+          quantity
+        )
+        &&
+        quantity >= 0
+      ) {
+
+        const workdays =
+          quantity
+          / capacity;
+
+
+        if (workdaysElement) {
+
+          workdaysElement.textContent =
+            workdays.toFixed(
+              2
+            )
+            + " working days";
+        }
+
+
+        const startDate = parseLocalDate(
+          startField
+            ? startField.value
+            : ""
+        );
+
+
+        const projectedFinish = calculateFinishDate(
+          startDate,
+          workdays
+        );
+
+
+        if (
+          internalFinishField
+          &&
+          !internalFinishField.dataset.manualFinish
+        ) {
+
+          internalFinishField.value =
+            projectedFinish
+              ? formatInputDate(
+                  projectedFinish
+                )
+              : "";
+        }
+
+
+        if (
+          projectedFinishElement
+        ) {
+
+          projectedFinishElement.textContent =
+            formatDate(
+              projectedFinish
+            );
+        }
+
+
+        const clientFinish = parseLocalDate(
+          finishField
+            ? finishField.value
+            : ""
+        );
+
+
+        if (
+          varianceElement
+          &&
+          projectedFinish
+          &&
+          clientFinish
+        ) {
+
+          const variance = calendarDayDiff(
+            projectedFinish,
+            clientFinish
+          );
+
+
+          if (
+            variance <= 0
+          ) {
+
+            varianceElement.textContent =
+              variance
+              + " days · On / Ahead";
+
+            varianceElement.className =
+              "font-extrabold text-green-700 mt-1 activity-variance";
+
+          } else {
+
+            varianceElement.textContent =
+              "+"
+              + variance
+              + " days · Late";
+
+            varianceElement.className =
+              "font-extrabold text-red-700 mt-1 activity-variance";
+          }
+
+        } else if (
+          varianceElement
+        ) {
+
+          varianceElement.textContent =
+            "—";
+
+          varianceElement.className =
+            "font-extrabold text-gray-900 mt-1 activity-variance";
+        }
+
+        return;
+      }
+    }
+
+
+    if (capacityElement) {
+      capacityElement.textContent =
+        "—";
+    }
+
+    if (workdaysElement) {
+      workdaysElement.textContent =
+        "—";
+    }
+
+    if (projectedFinishElement) {
+      projectedFinishElement.textContent =
+        "—";
+    }
+
+    if (
+      internalFinishField
+      &&
+      !internalFinishField.dataset.manualFinish
+    ) {
+      internalFinishField.value =
+        "";
+    }
+
+    if (varianceElement) {
+      varianceElement.textContent =
+        "—";
+    }
+  }
+
+
+  function updateOverallProjection() {
+
+    const activityRows = Array.from(
+      document.querySelectorAll(
+        ".activity-form-row"
+      )
+    ).filter(
+      function (row) {
+
+        return (
+          !deletedRow(
+            row
+          )
+          &&
+          row.style.display
+          !== "none"
+        );
+      }
+    );
+
+
+    let latestClientFinish = null;
+    let latestProjectedFinish = null;
+
+
+    activityRows.forEach(
+      function (row) {
+
+        const finishField = activityField(
+          row,
+          "client_end_date"
+        );
+
+        const quantityField = activityField(
+          row,
+          "quantity"
+        );
+
+        const resourcesField = activityField(
+          row,
+          "resource_count"
+        );
+
+        const rateField = activityField(
+          row,
+          "production_rate"
+        );
+
+        const startField = activityField(
+          row,
+          "planned_start_date"
+        );
+
+
+        const clientFinish = parseLocalDate(
+          finishField
+            ? finishField.value
+            : ""
+        );
+
+
+        if (
+          clientFinish
+          &&
+          (
+            !latestClientFinish
+            ||
+            clientFinish
+            > latestClientFinish
+          )
+        ) {
+
+          latestClientFinish =
+            clientFinish;
+        }
+
+
+        const quantity = quantityField
+          ? Number(
+              quantityField.value
+            )
+          : NaN;
+
+        const resources = resourcesField
+          ? Number(
+              resourcesField.value
+            )
+          : NaN;
+
+        const rate = rateField
+          ? Number(
+              rateField.value
+            )
+          : NaN;
+
+
+        const startDate = parseLocalDate(
+          startField
+            ? startField.value
+            : ""
+        );
+
+
+        if (
+          Number.isFinite(
+            quantity
+          )
+          &&
+          quantity >= 0
+          &&
+          Number.isFinite(
+            resources
+          )
+          &&
+          resources > 0
+          &&
+          Number.isFinite(
+            rate
+          )
+          &&
+          rate > 0
+          &&
+          startDate
+        ) {
+
+          const projected = calculateFinishDate(
+            startDate,
+            quantity
+            /
+            (
+              resources
+              * rate
+            )
+          );
+
+
+          if (
+            projected
+            &&
+            (
+              !latestProjectedFinish
+              ||
+              projected
+              > latestProjectedFinish
+            )
+          ) {
+
+            latestProjectedFinish =
+              projected;
+          }
+        }
+      }
+    );
+
+
+    const overallClientFinish = document.getElementById(
+      "overall-client-finish"
+    );
+
+    const overallProjectedFinish = document.getElementById(
+      "overall-projected-finish"
+    );
+
+    const overallVariance = document.getElementById(
+      "overall-variance"
+    );
+
+
+    if (overallClientFinish) {
+
+      overallClientFinish.textContent =
+        formatDate(
+          latestClientFinish
+        );
+    }
+
+
+    if (overallProjectedFinish) {
+
+      overallProjectedFinish.textContent =
+        formatDate(
+          latestProjectedFinish
+        );
+    }
+
+
+    if (
+      overallVariance
+      &&
+      latestClientFinish
+      &&
+      latestProjectedFinish
+    ) {
+
+      const variance = calendarDayDiff(
+        latestProjectedFinish,
+        latestClientFinish
+      );
+
+
+      if (
+        variance <= 0
+      ) {
+
+        overallVariance.textContent =
+          variance
+          + " days · On / Ahead";
+
+        overallVariance.className =
+          "font-extrabold text-green-700 mt-2";
+
+      } else {
+
+        overallVariance.textContent =
+          "+"
+          + variance
+          + " days · Late";
+
+        overallVariance.className =
+          "font-extrabold text-red-700 mt-2";
+      }
+
+    } else if (
+      overallVariance
+    ) {
+
+      overallVariance.textContent =
+        "—";
+
+      overallVariance.className =
+        "font-extrabold text-gray-900 mt-2";
+    }
+  }
+
+
+  function refreshAllProjections() {
+
+    document.querySelectorAll(
+      ".activity-form-row"
+    ).forEach(
+      function (row) {
+
+        updateActivityProjection(
+          row
+        );
+      }
+    );
+
+    updateOverallProjection();
+  }
+
+
+  function bindDFNRow(
+    row
+  ) {
+
+    const removeButton = row.querySelector(
+      ".remove-dfn-button"
+    );
+
+
+    if (
+      removeButton
+    ) {
+
+      removeButton.addEventListener(
+        "click",
+        function () {
+
+          markDeleted(
+            row
+          );
+        }
+      );
+    }
+  }
+
+
+  function bindActivityRow(
+    row,
+    applyDefaults
+  ) {
+
+    const activitySelect = activityField(
+      row,
+      "activity_type"
+    );
+
+
+    if (
+      activitySelect
+    ) {
+
+      activitySelect.addEventListener(
+        "change",
+        function () {
+
+          setActivityDefaults(
+            row,
+            true
+          );
+
+          updateActivityProjection(
+            row
+          );
+
+          updateOverallProjection();
+        }
+      );
+    }
+
+
+    const switchToNewButton = row.querySelector(
+      ".switch-to-new-activity-button"
+    );
+
+    const switchToExistingButton = row.querySelector(
+      ".switch-to-existing-activity-button"
+    );
+
+
+    if (
+      switchToNewButton
+    ) {
+
+      switchToNewButton.addEventListener(
+        "click",
+        function () {
+
+          showNewActivityMode(
+            row,
+            true
+          );
+
+          updateActivityTitle(
+            row
+          );
+        }
+      );
+    }
+
+
+    if (
+      switchToExistingButton
+    ) {
+
+      switchToExistingButton.addEventListener(
+        "click",
+        function () {
+
+          showExistingActivityMode(
+            row,
+            true
+          );
+
+          updateActivityTitle(
+            row
+          );
+        }
+      );
+    }
+
+
+    [
+      "new_activity_code",
+      "new_activity_name"
+    ].forEach(
+      function (suffix) {
+
+        const field = activityField(
+          row,
+          suffix
+        );
+
+        if (
+          field
+        ) {
+
+          field.addEventListener(
+            "input",
+            function () {
+
+              updateActivityTitle(
+                row
+              );
+            }
+          );
+        }
+      }
+    );
+
+
+    [
+      "quantity",
+      "unit",
+      "client_start_date",
+      "client_end_date",
+      "planned_start_date",
+      "planned_end_date",
+      "resource_type",
+      "resource_count",
+      "production_rate"
+    ].forEach(
+      function (suffix) {
+
+        const field = activityField(
+          row,
+          suffix
+        );
+
+        if (
+          field
+        ) {
+
+          field.addEventListener(
+            "input",
+            refreshAllProjections
+          );
+
+          field.addEventListener(
+            "change",
+            refreshAllProjections
+          );
+        }
+      }
+    );
+
+
+    const internalFinishField = activityField(
+      row,
+      "planned_end_date"
+    );
+
+    if (
+      internalFinishField
+    ) {
+
+      internalFinishField.addEventListener(
+        "input",
+        function () {
+
+          internalFinishField.dataset.manualFinish =
+            "1";
+        }
+      );
+    }
+
+
+    [
+      "resource_count",
+      "production_rate"
+    ].forEach(
+      function (suffix) {
+
+        const field = activityField(
+          row,
+          suffix
+        );
+
+        if (
+          field
+        ) {
+
+          field.addEventListener(
+            "blur",
+            function () {
+
+              normalizeNumericInput(
+                field
+              );
+
+              refreshAllProjections();
+            }
+          );
+        }
+      }
+    );
+
+
+    const removeButton = row.querySelector(
+      ".remove-activity-button"
+    );
+
+
+    if (
+      removeButton
+    ) {
+
+      removeButton.addEventListener(
+        "click",
+        function () {
+
+          markDeleted(
+            row
+          );
+
+          refreshAllProjections();
+        }
+      );
+    }
+
+
+    detectActivityMode(
+      row
+    );
+
+
+    setActivityDefaults(
+      row,
+      Boolean(
+        applyDefaults
+      )
+    );
+
+
+    normalizeNumericInput(
+      activityField(
+        row,
+        "resource_count"
+      )
+    );
+
+    normalizeNumericInput(
+      activityField(
+        row,
+        "production_rate"
+      )
+    );
+
+
+    updateActivityTitle(
+      row
+    );
+
+    updateActivityProjection(
+      row
+    );
+  }
+
+
+  function removeActivityEmptyState() {
+
+    const emptyState = document.getElementById(
+      "activity-empty-state"
+    );
+
+    if (
+      emptyState
+    ) {
+      emptyState.remove();
+    }
+  }
+
+
+  function addActivityRow(
+    mode
+  ) {
+
+    const index = Number(
+      activityTotalForms.value
+    );
+
+
+    const html = activityTemplate.innerHTML.replaceAll(
+      "__prefix__",
+      String(
+        index
+      )
+    );
+
+
+    const wrapper = document.createElement(
+      "div"
+    );
+
+    wrapper.innerHTML =
+      html.trim();
+
+
+    const newRow =
+      wrapper.firstElementChild;
+
+
+    removeActivityEmptyState();
+
+
+    activityContainer.appendChild(
+      newRow
+    );
+
+
+    activityTotalForms.value =
+      index + 1;
+
+
+    bindActivityRow(
+      newRow,
+      mode === "existing"
+    );
+
+
+    if (
+      mode === "new"
+    ) {
+
+      showNewActivityMode(
+        newRow,
+        true
+      );
+
+    } else {
+
+      showExistingActivityMode(
+        newRow,
+        false
+      );
+    }
+
+
+    refreshAllProjections();
+
+
+    newRow.scrollIntoView(
+      {
+        behavior: "smooth",
+        block: "center"
+      }
+    );
+  }
+
+
+  document.querySelectorAll(
+    ".dfn-form-row"
+  ).forEach(
+    bindDFNRow
+  );
+
+
+  document.querySelectorAll(
+    ".activity-form-row"
+  ).forEach(
+    function (row) {
+
+      bindActivityRow(
+        row,
+        false
+      );
+    }
+  );
+
+
+  const addDFNButton = document.getElementById(
+    "add-dfn-button"
+  );
+
+
+  if (
+    addDFNButton
+  ) {
+
+    addDFNButton.addEventListener(
+      "click",
+      function () {
+
+        const index = Number(
+          dfnTotalForms.value
+        );
+
+
+        const html = dfnTemplate.innerHTML.replaceAll(
+          "__prefix__",
+          String(
+            index
+          )
+        );
+
+
+        const wrapper = document.createElement(
+          "div"
+        );
+
+        wrapper.innerHTML =
+          html.trim();
+
+
+        const newRow =
+          wrapper.firstElementChild;
+
+
+        const emptyState = document.getElementById(
+          "dfn-empty-state"
+        );
+
+
+        if (
+          emptyState
+        ) {
+          emptyState.remove();
+        }
+
+
+        dfnContainer.appendChild(
+          newRow
+        );
+
+
+        dfnTotalForms.value =
+          index + 1;
+
+
+        bindDFNRow(
+          newRow
+        );
+      }
+    );
+  }
+
+
+  const addActivityButton = document.getElementById(
+    "add-activity-button"
+  );
+
+
+  if (
+    addActivityButton
+  ) {
+
+    addActivityButton.addEventListener(
+      "click",
+      function () {
+
+        addActivityRow(
+          "existing"
+        );
+      }
+    );
+  }
+
+
+  const createActivityButton = document.getElementById(
+    "create-activity-button"
+  );
+
+
+  if (
+    createActivityButton
+  ) {
+
+    createActivityButton.addEventListener(
+      "click",
+      function () {
+
+        addActivityRow(
+          "new"
+        );
+      }
+    );
+  }
+
+
+  document.querySelectorAll(
+    'input[name="work_schedule"]'
+  ).forEach(
+    function (radio) {
+
+      radio.addEventListener(
+        "change",
+        refreshAllProjections
+      );
+    }
+  );
+
+
+  /* ============================================================
+     PLANIX DATE PICKER
+  ============================================================ */
+
+  const datePicker = document.getElementById(
+    "planning-date-picker"
+  );
+
+  const datePickerBackdrop = document.getElementById(
+    "planning-date-picker-backdrop"
+  );
+
+  const calendarMonth = document.getElementById(
+    "planning-calendar-month"
+  );
+
+  const calendarDays = document.getElementById(
+    "planning-calendar-days"
+  );
+
+  const calendarPrev = document.getElementById(
+    "planning-calendar-prev"
+  );
+
+  const calendarNext = document.getElementById(
+    "planning-calendar-next"
+  );
+
+  const calendarClear = document.getElementById(
+    "planning-calendar-clear"
+  );
+
+  const calendarToday = document.getElementById(
+    "planning-calendar-today"
+  );
+
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
+
+
+  let activeDateInput = null;
+
+  let calendarCursor =
+    new Date();
+
+
+  function closeDatePicker() {
+
+    if (
+      datePicker
+    ) {
+      datePicker.classList.add(
+        "hidden"
+      );
+    }
+
+    activeDateInput =
+      null;
+  }
+
+
+  function setSelectedDate(
+    date
+  ) {
+
+    if (
+      !activeDateInput
+    ) {
+      return;
+    }
+
+
+    if (
+      activeDateInput.dataset.planningFinish
+      === "1"
+    ) {
+
+      activeDateInput.dataset.manualFinish =
+        "1";
+    }
+
+
+    activeDateInput.value =
+      formatInputDate(
+        date
+      );
+
+
+    activeDateInput.dispatchEvent(
+      new Event(
+        "input",
+        {
+          bubbles: true
+        }
+      )
+    );
+
+
+    activeDateInput.dispatchEvent(
+      new Event(
+        "change",
+        {
+          bubbles: true
+        }
+      )
+    );
+
+
+    closeDatePicker();
+  }
+
+
+  function renderCalendar() {
+
+    if (
+      !calendarMonth
+      ||
+      !calendarDays
+    ) {
+      return;
+    }
+
+
+    calendarMonth.textContent =
+      monthNames[
+        calendarCursor.getMonth()
+      ]
+      + " "
+      + calendarCursor.getFullYear();
+
+
+    calendarDays.innerHTML =
+      "";
+
+
+    const year =
+      calendarCursor.getFullYear();
+
+    const month =
+      calendarCursor.getMonth();
+
+
+    const firstDay =
+      new Date(
+        year,
+        month,
+        1
+      );
+
+
+    let startOffset =
+      firstDay.getDay() - 1;
+
+
+    if (
+      startOffset < 0
+    ) {
+      startOffset = 6;
+    }
+
+
+    const daysInMonth =
+      new Date(
+        year,
+        month + 1,
+        0
+      ).getDate();
+
+
+    for (
+      let index = 0;
+      index < startOffset;
+      index += 1
+    ) {
+
+      const blank =
+        document.createElement(
+          "div"
+        );
+
+      blank.className =
+        "h-10";
+
+      calendarDays.appendChild(
+        blank
+      );
+    }
+
+
+    const selectedDate =
+      activeDateInput
+        ? parseLocalDate(
+            activeDateInput.value
+          )
+        : null;
+
+
+    const today =
+      new Date();
+
+
+    for (
+      let day = 1;
+      day <= daysInMonth;
+      day += 1
+    ) {
+
+      const date =
+        new Date(
+          year,
+          month,
+          day
+        );
+
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+
+      button.type =
+        "button";
+
+
+      button.textContent =
+        String(
+          day
+        );
+
+
+      button.className =
+        "h-10 rounded-xl text-sm font-bold transition hover:bg-blue-50 hover:text-blue-700";
+
+
+      if (
+        selectedDate
+        &&
+        selectedDate.getFullYear()
+          === year
+        &&
+        selectedDate.getMonth()
+          === month
+        &&
+        selectedDate.getDate()
+          === day
+      ) {
+
+        button.className =
+          "h-10 rounded-xl text-sm font-extrabold bg-blue-600 text-white shadow-sm";
+      }
+
+
+      if (
+        today.getFullYear()
+          === year
+        &&
+        today.getMonth()
+          === month
+        &&
+        today.getDate()
+          === day
+        &&
+        !(
+          selectedDate
+          &&
+          selectedDate.getFullYear()
+            === year
+          &&
+          selectedDate.getMonth()
+            === month
+          &&
+          selectedDate.getDate()
+            === day
+        )
+      ) {
+
+        button.className +=
+          " ring-1 ring-blue-300";
+      }
+
+
+      button.addEventListener(
+        "click",
+        function () {
+
+          setSelectedDate(
+            date
+          );
+        }
+      );
+
+
+      calendarDays.appendChild(
+        button
+      );
+    }
+  }
+
+
+  function openDatePicker(
+    input
+  ) {
+
+    activeDateInput =
+      input;
+
+
+    const current =
+      parseLocalDate(
+        input.value
+      );
+
+
+    calendarCursor =
+      current
+        ? new Date(
+            current
+          )
+        : new Date();
+
+
+    renderCalendar();
+
+
+    datePicker.classList.remove(
+      "hidden"
+    );
+  }
+
+
+  document.addEventListener(
+    "click",
+    function (event) {
+
+      const input = event.target.closest(
+        '[data-planning-date="1"]'
+      );
+
+
+      if (
+        input
+      ) {
+
+        event.preventDefault();
+
+        openDatePicker(
+          input
+        );
+      }
+    }
+  );
+
+
+  document.addEventListener(
+    "focusin",
+    function (event) {
+
+      const input = event.target.closest(
+        '[data-planning-date="1"]'
+      );
+
+
+      if (
+        input
+      ) {
+
+        openDatePicker(
+          input
+        );
+      }
+    }
+  );
+
+
+  if (
+    datePickerBackdrop
+  ) {
+
+    datePickerBackdrop.addEventListener(
+      "click",
+      closeDatePicker
+    );
+  }
+
+
+  if (
+    calendarPrev
+  ) {
+
+    calendarPrev.addEventListener(
+      "click",
+      function () {
+
+        calendarCursor =
+          new Date(
+            calendarCursor.getFullYear(),
+            calendarCursor.getMonth() - 1,
+            1
+          );
+
+        renderCalendar();
+      }
+    );
+  }
+
+
+  if (
+    calendarNext
+  ) {
+
+    calendarNext.addEventListener(
+      "click",
+      function () {
+
+        calendarCursor =
+          new Date(
+            calendarCursor.getFullYear(),
+            calendarCursor.getMonth() + 1,
+            1
+          );
+
+        renderCalendar();
+      }
+    );
+  }
+
+
+  if (
+    calendarClear
+  ) {
+
+    calendarClear.addEventListener(
+      "click",
+      function () {
+
+        if (
+          activeDateInput
+        ) {
+
+          if (
+            activeDateInput.dataset.planningFinish
+            === "1"
+          ) {
+
+            activeDateInput.dataset.manualFinish =
+              "1";
+          }
+
+          activeDateInput.value =
+            "";
+
+          activeDateInput.dispatchEvent(
+            new Event(
+              "change",
+              {
+                bubbles: true
+              }
+            )
+          );
+        }
+
+        closeDatePicker();
+      }
+    );
+  }
+
+
+  if (
+    calendarToday
+  ) {
+
+    calendarToday.addEventListener(
+      "click",
+      function () {
+
+        setSelectedDate(
+          new Date()
+        );
+      }
+    );
+  }
+
+
+  document.addEventListener(
+    "keydown",
+    function (event) {
+
+      if (
+        event.key
+        === "Escape"
+      ) {
+
+        closeDatePicker();
+      }
+    }
+  );
+
+
+  normalizeAllNumericInputs();
+
+  refreshAllProjections();
+
+});
+</script>
+
+{% endblock %}

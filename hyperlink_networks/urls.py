@@ -188,6 +188,7 @@ urlpatterns = [
         ),
     ),
     path("plan-reader/", include("plan_reader.urls")),
+    path("planificacion/", include("planificacion.urls")),
 ]
 
 

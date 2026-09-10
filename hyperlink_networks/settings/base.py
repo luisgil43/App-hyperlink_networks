@@ -93,6 +93,8 @@ INSTALLED_APPS = [
     "client_submissions",
     "client_submission_remote.apps.ClientSubmissionRemoteConfig",
     "dashboard_admin.apps.DashboardAdminConfig",
+    # Planning
+    "planificacion.apps.PlanificacionConfig",
 ]
 
 
