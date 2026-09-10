@@ -1552,15 +1552,11 @@ def _autosize_sheet(ws):
         ws.column_dimensions[column_letter].width = min(max(max_len + 2, 14), 45)
 
 
-
-
 # =============================================================================
 # PREVIEW TEMPORAL PERSISTENTE PARA BILLING MASIVO
 # =============================================================================
 
 BULK_BILLING_PREVIEW_TIMEOUT = 60 * 60  # 1 hora
-
-
 
 
 def _save_bulk_billing_preview(request, payload):
@@ -4616,44 +4612,52 @@ def _billing_to_dict(preview: PreviewBilling):
 @transaction.atomic
 def billing_masivo_confirm(request):
     if request.method != "POST":
-        return redirect(
-            "operaciones:billing_masivo_upload"
-        )
+        return redirect("operaciones:billing_masivo_upload")
 
-    payload = _get_bulk_billing_preview(
-        request
-    )
+    payload = _get_bulk_billing_preview(request)
 
     if not payload:
+        token = request.session.get("billing_masivo_preview_token")
+
+        logger.error(
+            "[BULK BILLING] Confirm aborted because Preview payload is missing "
+            "user_id=%s token=%s",
+            request.user.id,
+            token[:8] if token else "missing",
+        )
+
         messages.warning(
             request,
             "Please upload a bulk billing file first.",
         )
-        return redirect(
-            "operaciones:billing_masivo_upload"
-        )
+        return redirect("operaciones:billing_masivo_upload")
 
     # =====================================================================
     # PREVIEW MUST BE FULLY VALID BEFORE CREATION
     # =====================================================================
 
-    if payload.get(
-        "has_errors"
-    ):
-        messages.error(
-            request,
-            (
-                "The import still has validation errors. "
-                "No billing was created."
-            ),
-        )
-        return redirect(
-            "operaciones:billing_masivo_preview"
+    if payload.get("has_errors"):
+        logger.error(
+            "[BULK BILLING] Confirm aborted because Preview has validation errors "
+            "user_id=%s billing_count=%s",
+            request.user.id,
+            len(payload.get("billings") or []),
         )
 
-    if payload.get(
-        "has_planning_conflicts"
-    ):
+        messages.error(
+            request,
+            ("The import still has validation errors. " "No billing was created."),
+        )
+        return redirect("operaciones:billing_masivo_preview")
+
+    if payload.get("has_planning_conflicts"):
+        logger.error(
+            "[BULK BILLING] Confirm aborted because Preview has planning conflicts "
+            "user_id=%s billing_count=%s",
+            request.user.id,
+            len(payload.get("billings") or []),
+        )
+
         messages.error(
             request,
             (
@@ -4661,26 +4665,24 @@ def billing_masivo_confirm(request):
                 "Resolve them in Preview before creating the Billings."
             ),
         )
-        return redirect(
-            "operaciones:billing_masivo_preview"
-        )
+        return redirect("operaciones:billing_masivo_preview")
 
-    billings = payload.get(
-        "billings"
-    ) or []
+    billings = payload.get("billings") or []
 
     if not billings:
+        logger.error(
+            "[BULK BILLING] Confirm aborted because Preview contains no Billings "
+            "user_id=%s",
+            request.user.id,
+        )
+
         messages.error(
             request,
             "There are no billings to create.",
         )
-        return redirect(
-            "operaciones:billing_masivo_upload"
-        )
+        return redirect("operaciones:billing_masivo_upload")
 
-    queue_plans = payload.get(
-        "queue_plans"
-    ) or []
+    queue_plans = payload.get("queue_plans") or []
 
     # =====================================================================
     # LOCAL IMPORTS
@@ -4696,23 +4698,12 @@ def billing_masivo_confirm(request):
     # BASIC PAYLOAD CONSISTENCY VALIDATION
     # =====================================================================
 
-    billing_by_key = {
-        billing.get(
-            "bulk_key"
-        ): billing
-        for billing in billings
-    }
+    billing_by_key = {billing.get("bulk_key"): billing for billing in billings}
 
     for billing in billings:
-        execution_mode = billing.get(
-            "execution_mode"
-        )
+        execution_mode = billing.get("execution_mode")
 
-        direct_discount = bool(
-            billing.get(
-                "direct_discount"
-            )
-        )
+        direct_discount = bool(billing.get("direct_discount"))
 
         if direct_discount:
             if execution_mode not in {
@@ -4720,6 +4711,14 @@ def billing_masivo_confirm(request):
                 None,
                 "",
             }:
+                logger.error(
+                    "[BULK BILLING] Invalid Direct Discount execution plan "
+                    "user_id=%s bulk_key=%s execution_mode=%s",
+                    request.user.id,
+                    billing.get("bulk_key"),
+                    execution_mode,
+                )
+
                 messages.error(
                     request,
                     (
@@ -4727,9 +4726,7 @@ def billing_masivo_confirm(request):
                         "execution plan for Direct Discount."
                     ),
                 )
-                return redirect(
-                    "operaciones:billing_masivo_preview"
-                )
+                return redirect("operaciones:billing_masivo_preview")
 
             continue
 
@@ -4737,6 +4734,14 @@ def billing_masivo_confirm(request):
             "queue",
             "show_now",
         }:
+            logger.error(
+                "[BULK BILLING] Invalid execution plan "
+                "user_id=%s bulk_key=%s execution_mode=%s",
+                request.user.id,
+                billing.get("bulk_key"),
+                execution_mode,
+            )
+
             messages.error(
                 request,
                 (
@@ -4744,9 +4749,7 @@ def billing_masivo_confirm(request):
                     "a valid execution plan."
                 ),
             )
-            return redirect(
-                "operaciones:billing_masivo_preview"
-            )
+            return redirect("operaciones:billing_masivo_preview")
 
     # =====================================================================
     # TECHNICIANS WHOSE REAL QUEUES MUST REMAIN STABLE
@@ -4754,15 +4757,9 @@ def billing_masivo_confirm(request):
 
     managed_technician_ids = sorted(
         {
-            int(
-                plan.get(
-                    "technician_id"
-                )
-            )
+            int(plan.get("technician_id"))
             for plan in queue_plans
-            if plan.get(
-                "technician_id"
-            )
+            if plan.get("technician_id")
         }
     )
 
@@ -4790,9 +4787,7 @@ def billing_masivo_confirm(request):
             # =============================================================
 
             if managed_technician_ids:
-                _lock_technician_assignments(
-                    managed_technician_ids
-                )
+                _lock_technician_assignments(managed_technician_ids)
 
             # =============================================================
             # REVALIDATE CURRENT QUEUE AGAINST PREVIEW SNAPSHOT
@@ -4802,45 +4797,22 @@ def billing_masivo_confirm(request):
 
             for plan in queue_plans:
 
-                technician_id = plan.get(
-                    "technician_id"
-                )
+                technician_id = plan.get("technician_id")
 
                 if not technician_id:
                     continue
 
                 preview_snapshot = [
                     (
-                        int(
-                            item.get(
-                                "assignment_id"
-                            )
-                        ),
-                        int(
-                            item.get(
-                                "priority"
-                            )
-                        ),
+                        int(item.get("assignment_id")),
+                        int(item.get("priority")),
                     )
-                    for item in (
-                        plan.get(
-                            "queue_snapshot"
-                        )
-                        or []
-                    )
-                    if (
-                        item.get(
-                            "assignment_id"
-                        )
-                        and item.get(
-                            "priority"
-                        )
-                    )
+                    for item in (plan.get("queue_snapshot") or [])
+                    if (item.get("assignment_id") and item.get("priority"))
                 ]
 
                 current_entries = list(
-                    BillingAssignmentQueue.objects
-                    .select_for_update()
+                    BillingAssignmentQueue.objects.select_for_update()
                     .filter(
                         technician_id=technician_id,
                         queue_position__isnull=False,
@@ -4857,12 +4829,8 @@ def billing_masivo_confirm(request):
 
                 current_snapshot = [
                     (
-                        int(
-                            assignment_id
-                        ),
-                        int(
-                            position
-                        ),
+                        int(assignment_id),
+                        int(position),
                     )
                     for (
                         assignment_id,
@@ -4871,6 +4839,18 @@ def billing_masivo_confirm(request):
                 ]
 
                 if current_snapshot != preview_snapshot:
+                    logger.error(
+                        "[BULK BILLING] QUEUE DRIFT detected "
+                        "user_id=%s technician_id=%s "
+                        "preview_snapshot=%s current_snapshot=%s "
+                        "incoming=%s",
+                        request.user.id,
+                        technician_id,
+                        preview_snapshot,
+                        current_snapshot,
+                        plan.get("incoming") or [],
+                    )
+
                     queue_drift = True
                     break
 
@@ -4896,148 +4876,51 @@ def billing_masivo_confirm(request):
 
                 for b in billings:
 
-                    direct_discount = bool(
-                        b.get(
-                            "direct_discount"
-                        )
-                    )
+                    direct_discount = bool(b.get("direct_discount"))
 
-                    execution_mode = (
-                        b.get(
-                            "execution_mode"
-                        )
-                        or (
-                            "direct_discount"
-                            if direct_discount
-                            else "queue"
-                        )
+                    execution_mode = b.get("execution_mode") or (
+                        "direct_discount" if direct_discount else "queue"
                     )
 
                     sesion = SesionBilling.objects.create(
                         creado_en=timezone.now(),
                         is_direct_discount=direct_discount,
-                        is_cable_installation=bool(
-                            b.get(
-                                "cable_installation"
-                            )
-                        ),
-                        tech_payment_mode=(
-                            b.get(
-                                "tech_payment_mode"
-                            )
-                            or "full"
-                        ),
-                        proyecto_id=(
-                            b.get(
-                                "project_id"
-                            )
-                            or ""
-                        ),
-                        cliente=(
-                            b.get(
-                                "client"
-                            )
-                            or ""
-                        ),
-                        ciudad=(
-                            b.get(
-                                "city"
-                            )
-                            or ""
-                        ),
-                        proyecto=(
-                            b.get(
-                                "project"
-                            )
-                            or ""
-                        ),
-                        oficina=(
-                            b.get(
-                                "office"
-                            )
-                            or ""
-                        ),
-                        direccion_proyecto=(
-                            b.get(
-                                "project_address"
-                            )
-                            or ""
-                        ),
-                        semana_pago_proyectada=(
-                            b.get(
-                                "projected_week"
-                            )
-                            or ""
-                        ),
+                        is_cable_installation=bool(b.get("cable_installation")),
+                        tech_payment_mode=(b.get("tech_payment_mode") or "full"),
+                        proyecto_id=(b.get("project_id") or ""),
+                        cliente=(b.get("client") or ""),
+                        ciudad=(b.get("city") or ""),
+                        proyecto=(b.get("project") or ""),
+                        oficina=(b.get("office") or ""),
+                        direccion_proyecto=(b.get("project_address") or ""),
+                        semana_pago_proyectada=(b.get("projected_week") or ""),
                         estado="asignado",
                         subtotal_tecnico=Decimal(
-                            str(
-                                b.get(
-                                    "subtotal_tecnico"
-                                )
-                                or "0.00"
-                            )
+                            str(b.get("subtotal_tecnico") or "0.00")
                         ),
                         subtotal_empresa=Decimal(
-                            str(
-                                b.get(
-                                    "subtotal_empresa"
-                                )
-                                or "0.00"
-                            )
+                            str(b.get("subtotal_empresa") or "0.00")
                         ),
                     )
 
-                    sesion.cliente = (
-                        b.get(
-                            "client"
-                        )
-                        or ""
-                    )
+                    sesion.cliente = b.get("client") or ""
 
-                    sesion.ciudad = (
-                        b.get(
-                            "city"
-                        )
-                        or ""
-                    )
+                    sesion.ciudad = b.get("city") or ""
 
-                    sesion.proyecto = (
-                        b.get(
-                            "project"
-                        )
-                        or ""
-                    )
+                    sesion.proyecto = b.get("project") or ""
 
-                    sesion.oficina = (
-                        b.get(
-                            "office"
-                        )
-                        or ""
-                    )
+                    sesion.oficina = b.get("office") or ""
 
                     sesion.subtotal_tecnico = Decimal(
-                        str(
-                            b.get(
-                                "subtotal_tecnico"
-                            )
-                            or "0.00"
-                        )
+                        str(b.get("subtotal_tecnico") or "0.00")
                     )
 
                     sesion.subtotal_empresa = Decimal(
-                        str(
-                            b.get(
-                                "subtotal_empresa"
-                            )
-                            or "0.00"
-                        )
+                        str(b.get("subtotal_empresa") or "0.00")
                     )
 
                     if sesion.is_direct_discount:
-                        sesion.finance_status = (
-                            "review_discount"
-                        )
+                        sesion.finance_status = "review_discount"
 
                     sesion.save(
                         update_fields=[
@@ -5051,29 +4934,18 @@ def billing_masivo_confirm(request):
                         ]
                     )
 
-                    created_ids.append(
-                        sesion.id
-                    )
+                    created_ids.append(sesion.id)
 
-                    technicians = (
-                        b.get(
-                            "technicians"
-                        )
-                        or []
-                    )
+                    technicians = b.get("technicians") or []
 
                     valid_technicians = [
                         technician
                         for technician in technicians
-                        if technician.get(
-                            "user_id"
-                        )
+                        if technician.get("user_id")
                     ]
 
                     tech_count = max(
-                        len(
-                            valid_technicians
-                        ),
+                        len(valid_technicians),
                         1,
                     )
 
@@ -5085,64 +4957,35 @@ def billing_masivo_confirm(request):
 
                     for t in valid_technicians:
 
-                        user_id = int(
-                            t.get(
-                                "user_id"
-                            )
-                        )
+                        user_id = int(t.get("user_id"))
 
-                        porcentaje = Decimal(
-                            "100.00"
-                        )
+                        porcentaje = Decimal("100.00")
 
-                        if (
-                            sesion.tech_payment_mode
-                            == "split"
-                        ):
+                        if sesion.tech_payment_mode == "split":
                             porcentaje = (
-                                Decimal(
-                                    "100.00"
-                                )
-                                / Decimal(
-                                    tech_count
-                                )
+                                Decimal("100.00") / Decimal(tech_count)
                             ).quantize(
-                                Decimal(
-                                    "0.01"
-                                ),
+                                Decimal("0.01"),
                                 rounding=ROUND_HALF_UP,
                             )
 
-                        tecnico_sesion = (
-                            SesionBillingTecnico.objects.create(
-                                sesion=sesion,
-                                tecnico_id=user_id,
-                                porcentaje=porcentaje,
-                                estado="asignado",
-                                is_active=True,
-                            )
+                        tecnico_sesion = SesionBillingTecnico.objects.create(
+                            sesion=sesion,
+                            tecnico_id=user_id,
+                            porcentaje=porcentaje,
+                            estado="asignado",
+                            is_active=True,
                         )
 
-                        created_tech_sessions.append(
-                            tecnico_sesion
-                        )
+                        created_tech_sessions.append(tecnico_sesion)
 
                         assignment_key = (
-                            b.get(
-                                "bulk_key"
-                            ),
+                            b.get("bulk_key"),
                             user_id,
-                            int(
-                                t.get(
-                                    "source_row"
-                                )
-                                or 0
-                            ),
+                            int(t.get("source_row") or 0),
                         )
 
-                        created_assignment_map[
-                            assignment_key
-                        ] = tecnico_sesion
+                        created_assignment_map[assignment_key] = tecnico_sesion
 
                     # =====================================================
                     # REQUIREMENTS
@@ -5150,201 +4993,74 @@ def billing_masivo_confirm(request):
 
                     _apply_requirement_list_to_sesion(
                         sesion=sesion,
-                        requirement_list_id=b.get(
-                            "requirement_list_id"
-                        ),
-                        requirement_type=b.get(
-                            "requirement_type"
-                        ),
-                        tecnico_sesiones=(
-                            created_tech_sessions
-                        ),
+                        requirement_list_id=b.get("requirement_list_id"),
+                        requirement_type=b.get("requirement_type"),
+                        tecnico_sesiones=(created_tech_sessions),
                     )
 
                     # =====================================================
                     # ITEMS
                     # =====================================================
 
-                    for item_data in (
-                        b.get(
-                            "items"
-                        )
-                        or []
-                    ):
+                    for item_data in b.get("items") or []:
 
                         item = ItemBilling.objects.create(
                             sesion=sesion,
-                            codigo_trabajo=(
-                                item_data.get(
-                                    "job_code"
-                                )
-                                or ""
-                            ),
-                            tipo_trabajo=(
-                                item_data.get(
-                                    "tipo_trabajo"
-                                )
-                                or ""
-                            ),
-                            descripcion=(
-                                item_data.get(
-                                    "descripcion"
-                                )
-                                or ""
-                            ),
-                            unidad_medida=(
-                                item_data.get(
-                                    "unidad_medida"
-                                )
-                                or ""
-                            ),
-                            cantidad=Decimal(
-                                str(
-                                    item_data.get(
-                                        "quantity"
-                                    )
-                                    or "0.00"
-                                )
-                            ),
+                            codigo_trabajo=(item_data.get("job_code") or ""),
+                            tipo_trabajo=(item_data.get("tipo_trabajo") or ""),
+                            descripcion=(item_data.get("descripcion") or ""),
+                            unidad_medida=(item_data.get("unidad_medida") or ""),
+                            cantidad=Decimal(str(item_data.get("quantity") or "0.00")),
                             precio_empresa=Decimal(
-                                str(
-                                    item_data.get(
-                                        "precio_empresa"
-                                    )
-                                    or "0.00"
-                                )
+                                str(item_data.get("precio_empresa") or "0.00")
                             ),
                             subtotal_empresa=Decimal(
-                                str(
-                                    item_data.get(
-                                        "subtotal_empresa"
-                                    )
-                                    or "0.00"
-                                )
+                                str(item_data.get("subtotal_empresa") or "0.00")
                             ),
                             subtotal_tecnico=Decimal(
-                                str(
-                                    item_data.get(
-                                        "subtotal_tecnico"
-                                    )
-                                    or "0.00"
-                                )
+                                str(item_data.get("subtotal_tecnico") or "0.00")
                             ),
                         )
 
-                        for d in (
-                            item_data.get(
-                                "desglose_tecnico"
-                            )
-                            or []
-                        ):
+                        for d in item_data.get("desglose_tecnico") or []:
 
                             ItemBillingTecnico.objects.create(
                                 item=item,
-                                tecnico_id=d.get(
-                                    "tecnico_id"
-                                ),
+                                tecnico_id=d.get("tecnico_id"),
                                 tarifa_base=Decimal(
-                                    str(
-                                        d.get(
-                                            "tarifa_base"
-                                        )
-                                        or "0.00"
-                                    )
+                                    str(d.get("tarifa_base") or "0.00")
                                 ),
-                                porcentaje=Decimal(
-                                    str(
-                                        d.get(
-                                            "porcentaje"
-                                        )
-                                        or "0.00"
-                                    )
-                                ),
+                                porcentaje=Decimal(str(d.get("porcentaje") or "0.00")),
                                 tarifa_efectiva=Decimal(
-                                    str(
-                                        d.get(
-                                            "tarifa_efectiva"
-                                        )
-                                        or "0.00"
-                                    )
+                                    str(d.get("tarifa_efectiva") or "0.00")
                                 ),
-                                subtotal=Decimal(
-                                    str(
-                                        d.get(
-                                            "subtotal"
-                                        )
-                                        or "0.00"
-                                    )
-                                ),
+                                subtotal=Decimal(str(d.get("subtotal") or "0.00")),
                             )
 
                             _create_pay_week_snapshot(
                                 sesion=sesion,
                                 item=item,
-                                tecnico_id=d.get(
-                                    "tecnico_id"
-                                ),
-                                codigo_trabajo=(
-                                    item.codigo_trabajo
-                                ),
-                                tipo_trabajo=(
-                                    item.tipo_trabajo
-                                ),
-                                payment_weeks=int(
-                                    d.get(
-                                        "payment_weeks"
-                                    )
-                                    or 0
-                                ),
-                                semana_base=(
-                                    sesion.semana_pago_proyectada
-                                ),
+                                tecnico_id=d.get("tecnico_id"),
+                                codigo_trabajo=(item.codigo_trabajo),
+                                tipo_trabajo=(item.tipo_trabajo),
+                                payment_weeks=int(d.get("payment_weeks") or 0),
+                                semana_base=(sesion.semana_pago_proyectada),
                                 tarifa_base=Decimal(
-                                    str(
-                                        d.get(
-                                            "tarifa_base"
-                                        )
-                                        or "0.00"
-                                    )
+                                    str(d.get("tarifa_base") or "0.00")
                                 ),
-                                porcentaje=Decimal(
-                                    str(
-                                        d.get(
-                                            "porcentaje"
-                                        )
-                                        or "0.00"
-                                    )
-                                ),
+                                porcentaje=Decimal(str(d.get("porcentaje") or "0.00")),
                                 tarifa_efectiva=Decimal(
-                                    str(
-                                        d.get(
-                                            "tarifa_efectiva"
-                                        )
-                                        or "0.00"
-                                    )
+                                    str(d.get("tarifa_efectiva") or "0.00")
                                 ),
-                                subtotal=Decimal(
-                                    str(
-                                        d.get(
-                                            "subtotal"
-                                        )
-                                        or "0.00"
-                                    )
-                                ),
+                                subtotal=Decimal(str(d.get("subtotal") or "0.00")),
                             )
 
                     # =====================================================
                     # SAVE SHOW NOW TARGETS
                     # =====================================================
 
-                    if (
-                        not sesion.is_direct_discount
-                        and execution_mode
-                        == "show_now"
-                    ):
-                        show_now_sessions.append(
-                            sesion
-                        )
+                    if not sesion.is_direct_discount and execution_mode == "show_now":
+                        show_now_sessions.append(sesion)
 
                 # =========================================================
                 # APPLY SHOW NOW
@@ -5396,29 +5112,13 @@ def billing_masivo_confirm(request):
 
                 for plan in queue_plans:
 
-                    technician_id = int(
-                        plan.get(
-                            "technician_id"
-                        )
-                    )
+                    technician_id = int(plan.get("technician_id"))
 
-                    for incoming in (
-                        plan.get(
-                            "incoming"
-                        )
-                        or []
-                    ):
+                    for incoming in plan.get("incoming") or []:
 
-                        bulk_key = incoming.get(
-                            "bulk_key"
-                        )
+                        bulk_key = incoming.get("bulk_key")
 
-                        source_row = int(
-                            incoming.get(
-                                "source_row"
-                            )
-                            or 0
-                        )
+                        source_row = int(incoming.get("source_row") or 0)
 
                         assignment_key = (
                             bulk_key,
@@ -5426,11 +5126,7 @@ def billing_masivo_confirm(request):
                             source_row,
                         )
 
-                        assignment = (
-                            created_assignment_map.get(
-                                assignment_key
-                            )
-                        )
+                        assignment = created_assignment_map.get(assignment_key)
 
                         if assignment is None:
                             raise ValueError(
@@ -5443,17 +5139,11 @@ def billing_masivo_confirm(request):
                                 )
                             )
 
-                        queue_state, _ = (
-                            activate_assignment_in_managed_queue(
-                                assignment
-                            )
+                        queue_state, _ = activate_assignment_in_managed_queue(
+                            assignment
                         )
 
-                        if (
-                            queue_state is None
-                            or queue_state.queue_position
-                            is None
-                        ):
+                        if queue_state is None or queue_state.queue_position is None:
                             raise ValueError(
                                 (
                                     "A queued technician assignment "
@@ -5463,9 +5153,7 @@ def billing_masivo_confirm(request):
                                 )
                             )
 
-                        queued_assignment_ids.add(
-                            assignment.id
-                        )
+                        queued_assignment_ids.add(assignment.id)
 
                 # =========================================================
                 # FINAL SAFETY CHECK
@@ -5478,52 +5166,28 @@ def billing_masivo_confirm(request):
 
                 for b in billings:
 
-                    if b.get(
-                        "direct_discount"
-                    ):
+                    if b.get("direct_discount"):
                         continue
 
-                    if b.get(
-                        "execution_mode"
-                    ) != "queue":
+                    if b.get("execution_mode") != "queue":
                         continue
 
-                    bulk_key = b.get(
-                        "bulk_key"
-                    )
+                    bulk_key = b.get("bulk_key")
 
-                    for t in (
-                        b.get(
-                            "technicians"
-                        )
-                        or []
-                    ):
+                    for t in b.get("technicians") or []:
 
-                        user_id = t.get(
-                            "user_id"
-                        )
+                        user_id = t.get("user_id")
 
                         if not user_id:
                             continue
 
                         assignment_key = (
                             bulk_key,
-                            int(
-                                user_id
-                            ),
-                            int(
-                                t.get(
-                                    "source_row"
-                                )
-                                or 0
-                            ),
+                            int(user_id),
+                            int(t.get("source_row") or 0),
                         )
 
-                        assignment = (
-                            created_assignment_map.get(
-                                assignment_key
-                            )
-                        )
+                        assignment = created_assignment_map.get(assignment_key)
 
                         if assignment is None:
                             raise ValueError(
@@ -5533,10 +5197,7 @@ def billing_masivo_confirm(request):
                                 )
                             )
 
-                        if (
-                            assignment.id
-                            not in queued_assignment_ids
-                        ):
+                        if assignment.id not in queued_assignment_ids:
                             raise ValueError(
                                 (
                                     "A queued Billing technician "
@@ -5547,6 +5208,15 @@ def billing_masivo_confirm(request):
 
     except Exception as exc:
 
+        logger.exception(
+            "[BULK BILLING] Confirm failed and transaction was rolled back "
+            "user_id=%s billing_count=%s managed_technician_ids=%s error=%s",
+            request.user.id,
+            len(billings),
+            managed_technician_ids,
+            exc,
+        )
+
         messages.error(
             request,
             (
@@ -5555,9 +5225,7 @@ def billing_masivo_confirm(request):
             ),
         )
 
-        return redirect(
-            "operaciones:billing_masivo_preview"
-        )
+        return redirect("operaciones:billing_masivo_preview")
 
     # =====================================================================
     # QUEUE CHANGED AFTER PREVIEW
@@ -5570,9 +5238,16 @@ def billing_masivo_confirm(request):
 
     if queue_drift:
 
-        payload = _rebuild_bulk_billing_execution_plan(
-            payload
+        logger.error(
+            "[BULK BILLING] Confirm stopped because technician queue changed. "
+            "Rebuilding Preview. user_id=%s billing_count=%s "
+            "managed_technician_ids=%s",
+            request.user.id,
+            len(billings),
+            managed_technician_ids,
         )
+
+        payload = _rebuild_bulk_billing_execution_plan(payload)
 
         _update_bulk_billing_preview(
             request,
@@ -5588,17 +5263,13 @@ def billing_masivo_confirm(request):
             ),
         )
 
-        return redirect(
-            "operaciones:billing_masivo_preview"
-        )
+        return redirect("operaciones:billing_masivo_preview")
 
     # =====================================================================
     # SUCCESS
     # =====================================================================
 
-    _clear_bulk_billing_preview(
-        request
-    )
+    _clear_bulk_billing_preview(request)
 
     messages.success(
         request,
@@ -5608,9 +5279,8 @@ def billing_masivo_confirm(request):
         ),
     )
 
-    return redirect(
-        "operaciones:listar_billing"
-    )
+    return redirect("operaciones:listar_billing")
+
 
 def _create_pay_week_snapshot(
     sesion,
