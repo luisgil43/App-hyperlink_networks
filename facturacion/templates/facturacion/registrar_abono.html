@@ -60,19 +60,18 @@
       {% endif %}
     </div>
 
-    <!-- Comprobante (custom button "Choise File") -->
+    <!-- Comprobante -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700">Receipt (Photo/PDF)</label>
 
       {% with file_id=form.comprobante.id_for_label|default:"id_comprobante" %}
         <div class="flex items-center gap-3">
-          {# Solo ocultamos el input nativo y usamos el id que ya trae #}
           {{ form.comprobante|add_class:"sr-only" }}
 
-<label for="{{ file_id }}"
-       class="bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-white px-4 py-2 rounded-xl cursor-pointer select-none transition">
-  Choose file
-</label>
+          <label for="{{ file_id }}"
+                 class="bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-white px-4 py-2 rounded-xl cursor-pointer select-none transition">
+            Choose file
+          </label>
 
           <span class="text-sm text-gray-600" id="{{ file_id }}__filename">
             {% if form.instance and form.instance.comprobante %}
@@ -100,10 +99,13 @@
 
     <!-- Botones -->
     <div class="flex justify-end gap-3 pt-4">
-      <a href="{% url 'facturacion:listar_cartola' %}" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-xl">
+      <a href="{% url 'facturacion:listar_cartola' %}"
+         class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-xl">
         Cancel
       </a>
-      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
+
+      <button type="submit"
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">
         Save
       </button>
     </div>
@@ -112,15 +114,74 @@
 
 <script>
 (function(){
-  // Tomamos el id real que trae el field (id_for_label)
   var inputId = "{{ form.comprobante.id_for_label|default:'id_comprobante' }}";
   var input = document.getElementById(inputId);
   var span = document.getElementById(inputId + "__filename");
+
   if (input && span) {
     input.addEventListener('change', function(){
-      span.textContent = (this.files && this.files[0]) ? this.files[0].name : 'No file selected';
+      span.textContent =
+        (this.files && this.files[0])
+          ? this.files[0].name
+          : 'No file selected';
     });
   }
 })();
 </script>
+
+<script>
+(function () {
+  var userSelect = document.getElementById('id_usuario');
+
+  if (!userSelect) {
+    return;
+  }
+
+  /*
+   * Mantener seleccionado el usuario después de recargar
+   * con ?usuario=<pk>
+   */
+  var url = new URL(window.location.href);
+  var selectedUserId = url.searchParams.get('usuario');
+
+  if (selectedUserId) {
+    var optionExists = Array.from(userSelect.options).some(
+      function(option) {
+        return option.value === selectedUserId;
+      }
+    );
+
+    if (optionExists) {
+      userSelect.value = selectedUserId;
+    }
+  }
+
+  /*
+   * Al cambiar usuario recargamos esta misma vista.
+   *
+   * El backend recibe:
+   * ?usuario=<pk>
+   *
+   * y registrar_abono() ejecuta:
+   * projects_ids_for_user(target_user)
+   *
+   * por lo tanto el combo Project queda filtrado
+   * por las asignaciones reales de ese usuario.
+   */
+  userSelect.addEventListener('change', function () {
+    var userId = this.value;
+
+    var newUrl = new URL(window.location.href);
+
+    if (userId) {
+      newUrl.searchParams.set('usuario', userId);
+    } else {
+      newUrl.searchParams.delete('usuario');
+    }
+
+    window.location.href = newUrl.toString();
+  });
+})();
+</script>
+
 {% endblock %}

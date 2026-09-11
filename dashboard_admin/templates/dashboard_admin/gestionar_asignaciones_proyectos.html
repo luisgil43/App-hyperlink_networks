@@ -20,7 +20,7 @@
       </h1>
 
       <p class="text-sm text-gray-500 mt-1">
-        Add or remove multiple active users from an active project.
+        Add, remove or change project visibility for active users.
       </p>
 
     </div>
@@ -157,7 +157,7 @@
 
 
     <!-- ==========================================================
-         OPTIONS
+         OPTIONS FOR NEW ASSIGNMENTS
          ========================================================== -->
 
     <div class="p-6 border-b border-gray-200">
@@ -171,7 +171,8 @@
           </h2>
 
           <p class="text-sm text-gray-500 mt-1">
-            Existing assignments that remain selected will not be changed.
+            This setting applies only to users who are not currently assigned.
+            Existing assignments can be changed individually in the table.
           </p>
 
         </div>
@@ -286,6 +287,10 @@
           - <span id="removeCount" class="ml-1">0</span> remove
         </span>
 
+        <span class="inline-flex items-center rounded-full bg-purple-100 text-purple-700 font-bold px-3 py-1">
+          <span id="visibilityChangeCount">0</span>&nbsp;visibility changes
+        </span>
+
         <span class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 font-bold px-3 py-1">
           <span id="unchangedCount">0</span>&nbsp;unchanged
         </span>
@@ -305,7 +310,7 @@
 
     <div class="overflow-x-auto">
 
-      <table class="w-full min-w-[950px] text-sm">
+      <table class="w-full min-w-[1150px] text-sm">
 
         <thead class="bg-gray-100 text-gray-700">
 
@@ -331,8 +336,8 @@
               Email
             </th>
 
-            <th class="px-4 py-3 text-center">
-              Current assignment
+            <th class="px-4 py-3 text-center min-w-[330px]">
+              Visibility
             </th>
 
           </tr>
@@ -353,6 +358,7 @@
                      name="usuarios"
                      value="{{ row.usuario.id }}"
                      class="user-checkbox rounded border-gray-300 text-blue-600"
+                     data-user-id="{{ row.usuario.id }}"
                      data-original="{% if row.asignado %}1{% else %}0{% endif %}"
                      {% if row.asignado %}checked{% endif %}>
 
@@ -365,10 +371,8 @@
 
 
             <td class="px-4 py-3 text-gray-700">
-
               {{ row.usuario.first_name }}
               {{ row.usuario.last_name }}
-
             </td>
 
 
@@ -382,29 +386,55 @@
             </td>
 
 
-            <td class="px-4 py-3 text-center">
+            <td class="px-4 py-3">
 
               {% if row.asignacion %}
 
-                {% if row.asignacion.include_history %}
+                <div class="existing-visibility-wrapper flex flex-col xl:flex-row xl:items-center justify-center gap-2"
+                     data-user-id="{{ row.usuario.id }}"
+                     data-original-mode="{% if row.asignacion.include_history %}history{% else %}from_now{% endif %}"
+                     data-original-date="{% if row.asignacion.start_at %}{{ row.asignacion.start_at|date:'Y-m-d' }}{% endif %}">
 
-                  <span class="inline-flex rounded-full bg-indigo-100 text-indigo-700 font-semibold px-3 py-1">
-                    Full history
-                  </span>
+                  <select name="existing_visibility_{{ row.usuario.id }}"
+                          class="existing-visibility-select rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white"
+                          data-user-id="{{ row.usuario.id }}">
 
-                {% else %}
+                    <option value="history"
+                            {% if row.asignacion.include_history %}selected{% endif %}>
+                      Full history
+                    </option>
 
-                  <span class="inline-flex rounded-full bg-orange-100 text-orange-700 font-semibold px-3 py-1">
-                    From {{ row.asignacion.start_at|date:"m/d/Y" }}
-                  </span>
+                    <option value="from_now"
+                            {% if not row.asignacion.include_history %}selected{% endif %}>
+                      From date
+                    </option>
 
-                {% endif %}
+                  </select>
+
+
+                  <input type="text"
+                         name="existing_start_date_{{ row.usuario.id }}"
+                         class="existing-date-input rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                         data-user-id="{{ row.usuario.id }}"
+                         lang="en"
+                         placeholder="mm/dd/yyyy"
+                         value="{% if row.asignacion.start_at %}{{ row.asignacion.start_at|date:'Y-m-d' }}{% endif %}">
+
+                </div>
 
               {% else %}
 
-                <span class="inline-flex rounded-full bg-gray-100 text-gray-500 font-semibold px-3 py-1">
-                  Not assigned
-                </span>
+                <div class="text-center">
+
+                  <span class="inline-flex rounded-full bg-gray-100 text-gray-500 font-semibold px-3 py-1">
+                    Not assigned
+                  </span>
+
+                  <div class="text-xs text-gray-400 mt-1">
+                    Uses “Visibility for new assignments” when selected.
+                  </div>
+
+                </div>
 
               {% endif %}
 
@@ -491,23 +521,22 @@
 
         <div>
           Add:
-          <strong id="modalAddCount">
-            0
-          </strong>
+          <strong id="modalAddCount">0</strong>
         </div>
 
         <div>
           Remove:
-          <strong id="modalRemoveCount">
-            0
-          </strong>
+          <strong id="modalRemoveCount">0</strong>
+        </div>
+
+        <div>
+          Visibility changes:
+          <strong id="modalVisibilityChangeCount">0</strong>
         </div>
 
         <div>
           Final active assignments:
-          <strong id="modalFinalCount">
-            0
-          </strong>
+          <strong id="modalFinalCount">0</strong>
         </div>
 
       </div>
@@ -638,7 +667,7 @@
 
 
   // ===============================================================
-  // DATE
+  // NEW ASSIGNMENT DATE
   // ===============================================================
 
   const visibilityRadios =
@@ -691,10 +720,8 @@
 
 
     if(dateInput){
-
       dateInput.disabled =
         !enabled;
-
     }
 
 
@@ -734,6 +761,118 @@
 
 
   syncVisibilityDate();
+
+
+  // ===============================================================
+  // EXISTING ASSIGNMENT VISIBILITY
+  // ===============================================================
+
+  const existingVisibilityWrappers =
+    Array.from(
+      document.querySelectorAll(
+        '.existing-visibility-wrapper'
+      )
+    );
+
+
+  existingVisibilityWrappers.forEach(
+    wrapper => {
+
+      const select =
+        wrapper.querySelector(
+          '.existing-visibility-select'
+        );
+
+      const date =
+        wrapper.querySelector(
+          '.existing-date-input'
+        );
+
+
+      if(
+        !select
+        || !date
+      ){
+        return;
+      }
+
+
+      const existingFp =
+        flatpickr(
+          date,
+          {
+            locale:'en',
+            dateFormat:'Y-m-d',
+            altInput:true,
+            altFormat:'m/d/Y',
+            allowInput:true,
+            clickOpens:true
+          }
+        );
+
+
+      function syncExistingDate(){
+
+        const enabled =
+          select.value === 'from_now';
+
+
+        date.disabled =
+          !enabled;
+
+
+        if(existingFp.altInput){
+
+          existingFp.altInput.disabled =
+            !enabled;
+
+        }
+
+
+        existingFp.set(
+          'clickOpens',
+          enabled
+        );
+
+
+        if(!enabled){
+          existingFp.close();
+        }
+
+      }
+
+
+      select.addEventListener(
+        'change',
+        function(){
+
+          syncExistingDate();
+          updateSummary();
+
+        }
+      );
+
+
+      date.addEventListener(
+        'change',
+        updateSummary
+      );
+
+
+      if(existingFp.altInput){
+
+        existingFp.altInput.addEventListener(
+          'change',
+          updateSummary
+        );
+
+      }
+
+
+      syncExistingDate();
+
+    }
+  );
 
 
   // ===============================================================
@@ -849,6 +988,102 @@
   }
 
 
+  function getVisibilityChangeCount(){
+
+    let count =
+      0;
+
+
+    existingVisibilityWrappers.forEach(
+      wrapper => {
+
+        const userId =
+          wrapper.dataset.userId;
+
+        const checkbox =
+          document.querySelector(
+            '.user-checkbox[data-user-id="' +
+            userId +
+            '"]'
+          );
+
+
+        /*
+         * Si el usuario será removido,
+         * el cambio de visibilidad deja de contar.
+         */
+        if(
+          !checkbox
+          || !checkbox.checked
+        ){
+          return;
+        }
+
+
+        const select =
+          wrapper.querySelector(
+            '.existing-visibility-select'
+          );
+
+        const date =
+          wrapper.querySelector(
+            '.existing-date-input'
+          );
+
+
+        const originalMode =
+          wrapper.dataset.originalMode
+          || 'history';
+
+        const originalDate =
+          wrapper.dataset.originalDate
+          || '';
+
+
+        const currentMode =
+          select
+          ? select.value
+          : originalMode;
+
+
+        const currentDate =
+          (
+            currentMode === 'from_now'
+            && date
+          )
+          ? (
+              date.value
+              || ''
+            )
+          : '';
+
+
+        const normalizedOriginalDate =
+          originalMode === 'from_now'
+          ? originalDate
+          : '';
+
+
+        if(
+          currentMode !== originalMode
+          ||
+          (
+            currentMode === 'from_now'
+            && currentDate !== normalizedOriginalDate
+          )
+        ){
+          count += 1;
+        }
+
+      }
+    );
+
+
+    return count;
+
+  }
+
+
   function getSummary(){
 
     let add =
@@ -900,9 +1135,26 @@
     );
 
 
+    const visibilityChanges =
+      getVisibilityChangeCount();
+
+
+    /*
+     * Usuarios originalmente asignados, aún seleccionados,
+     * pero cuya visibilidad cambió ya no cuentan como
+     * "unchanged".
+     */
+    unchanged =
+      Math.max(
+        0,
+        unchanged - visibilityChanges
+      );
+
+
     return {
       add,
       remove,
+      visibilityChanges,
       unchanged,
       finalCount
     };
@@ -926,6 +1178,12 @@
       'removeCount'
     ).textContent =
       summary.remove;
+
+
+    document.getElementById(
+      'visibilityChangeCount'
+    ).textContent =
+      summary.visibilityChanges;
 
 
     document.getElementById(
@@ -1074,6 +1332,12 @@
 
 
     document.getElementById(
+      'modalVisibilityChangeCount'
+    ).textContent =
+      summary.visibilityChanges;
+
+
+    document.getElementById(
       'modalFinalCount'
     ).textContent =
       summary.finalCount;
@@ -1150,6 +1414,80 @@
     btnConfirmAssignments.addEventListener(
       'click',
       function(){
+
+        /*
+         * Validación mínima de fechas para asignaciones existentes.
+         */
+        let invalidExistingDate =
+          null;
+
+
+        existingVisibilityWrappers.forEach(
+          wrapper => {
+
+            if(invalidExistingDate){
+              return;
+            }
+
+
+            const userId =
+              wrapper.dataset.userId;
+
+            const checkbox =
+              document.querySelector(
+                '.user-checkbox[data-user-id="' +
+                userId +
+                '"]'
+              );
+
+            const select =
+              wrapper.querySelector(
+                '.existing-visibility-select'
+              );
+
+            const date =
+              wrapper.querySelector(
+                '.existing-date-input'
+              );
+
+
+            if(
+              checkbox
+              && checkbox.checked
+              && select
+              && select.value === 'from_now'
+              && date
+              && !date.value
+            ){
+              invalidExistingDate =
+                date;
+            }
+
+          }
+        );
+
+
+        if(invalidExistingDate){
+
+          closeSecurityModal();
+
+          invalidExistingDate.disabled =
+            false;
+
+          invalidExistingDate.setCustomValidity(
+            'Please select a start date.'
+          );
+
+          invalidExistingDate.reportValidity();
+
+          invalidExistingDate.setCustomValidity(
+            ''
+          );
+
+          return;
+
+        }
+
 
         const value =
           (

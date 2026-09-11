@@ -1885,7 +1885,8 @@ def gestionar_asignaciones_proyectos_view(request):
 
     if not actor_is_admin:
         messages.error(
-            request, "You do not have permission to manage project assignments."
+            request,
+            "You do not have permission to manage project assignments.",
         )
         return redirect("dashboard_admin:listar_usuarios")
 
@@ -1921,7 +1922,10 @@ def gestionar_asignaciones_proyectos_view(request):
             ValueError,
             TypeError,
         ):
-            messages.error(request, "The selected project is invalid or inactive.")
+            messages.error(
+                request,
+                "The selected project is invalid or inactive.",
+            )
 
             return redirect("dashboard_admin:gestionar_asignaciones_proyectos")
 
@@ -1931,7 +1935,10 @@ def gestionar_asignaciones_proyectos_view(request):
 
     if request.method == "POST" and "save_project_assignments" in request.POST:
         if not proyecto_seleccionado:
-            messages.error(request, "Please select an active project.")
+            messages.error(
+                request,
+                "Please select an active project.",
+            )
 
             return redirect("dashboard_admin:gestionar_asignaciones_proyectos")
 
@@ -1968,15 +1975,17 @@ def gestionar_asignaciones_proyectos_view(request):
 
         requested_user_ids_raw = request.POST.getlist("usuarios")
 
-        requested_user_ids = set()
-
         try:
             requested_user_ids = {int(user_id) for user_id in requested_user_ids_raw}
+
         except (
             TypeError,
             ValueError,
         ):
-            messages.error(request, "One or more selected users are invalid.")
+            messages.error(
+                request,
+                "One or more selected users are invalid.",
+            )
 
             return redirect(
                 "{}?proyecto={}".format(
@@ -1985,11 +1994,11 @@ def gestionar_asignaciones_proyectos_view(request):
                 )
             )
 
-        # No permitir manipular IDs de usuarios inactivos
-        # ni inexistentes mediante POST falsificado.
+        # No permitir IDs inactivos o inexistentes vía POST.
         if not requested_user_ids.issubset(active_user_ids):
             messages.error(
-                request, "One or more selected users are invalid or inactive."
+                request,
+                "One or more selected users are invalid or inactive.",
             )
 
             return redirect(
@@ -2009,7 +2018,10 @@ def gestionar_asignaciones_proyectos_view(request):
             "history",
             "from_now",
         }:
-            messages.error(request, "Invalid project visibility mode.")
+            messages.error(
+                request,
+                "Invalid project visibility mode.",
+            )
 
             return redirect(
                 "{}?proyecto={}".format(
@@ -2039,7 +2051,10 @@ def gestionar_asignaciones_proyectos_view(request):
                 TypeError,
                 ValueError,
             ):
-                messages.error(request, "The start date is invalid.")
+                messages.error(
+                    request,
+                    "The start date is invalid.",
+                )
 
                 return redirect(
                     "{}?proyecto={}".format(
@@ -2053,11 +2068,8 @@ def gestionar_asignaciones_proyectos_view(request):
         # ==========================================================
         # ESTADO ACTUAL
         #
-        # IMPORTANTE:
-        # solamente consideramos usuarios ACTIVOS para determinar
-        # altas y bajas.
-        #
-        # Las asignaciones de usuarios inactivos quedan intactas.
+        # Solamente usuarios ACTIVOS participan en altas/bajas.
+        # Los usuarios inactivos continúan intactos.
         # ==========================================================
 
         current_active_assignments = list(
@@ -2071,6 +2083,11 @@ def gestionar_asignaciones_proyectos_view(request):
             assignment.usuario_id for assignment in current_active_assignments
         }
 
+        current_assignments_by_user = {
+            assignment.usuario_id: assignment
+            for assignment in current_active_assignments
+        }
+
         ids_to_add = requested_user_ids - current_active_ids
 
         ids_to_remove = current_active_ids - requested_user_ids
@@ -2078,8 +2095,132 @@ def gestionar_asignaciones_proyectos_view(request):
         ids_unchanged = current_active_ids & requested_user_ids
 
         # ==========================================================
+        # CAMBIOS DE VISIBILIDAD EN ASIGNACIONES EXISTENTES
+        #
+        # Cada usuario ya asignado puede cambiar individualmente:
+        #
+        # history  -> include_history=True / start_at=None
+        # from_now -> include_history=False / start_at=<fecha>
+        #
+        # Si permanece seleccionado pero no cambia esta configuración,
+        # la asignación queda intacta.
+        # ==========================================================
+
+        visibility_updates = []
+
+        for user_id in sorted(ids_unchanged):
+            assignment = current_assignments_by_user.get(user_id)
+
+            if not assignment:
+                continue
+
+            field_name = f"existing_visibility_{user_id}"
+
+            requested_existing_mode = (request.POST.get(field_name) or "").strip()
+
+            # Si el formulario no envió configuración para este usuario,
+            # se conserva exactamente como estaba.
+            if not requested_existing_mode:
+                continue
+
+            if requested_existing_mode not in {
+                "history",
+                "from_now",
+            }:
+                messages.error(
+                    request,
+                    "Invalid visibility setting for an existing assignment.",
+                )
+
+                return redirect(
+                    "{}?proyecto={}".format(
+                        reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                        proyecto_seleccionado.id,
+                    )
+                )
+
+            if requested_existing_mode == "history":
+                new_include_history = True
+                new_start_at = None
+
+            else:
+                new_include_history = False
+
+                existing_date_str = (
+                    request.POST.get(f"existing_start_date_{user_id}") or ""
+                ).strip()
+
+                try:
+                    if existing_date_str:
+                        parsed_date = timezone.datetime.fromisoformat(existing_date_str)
+
+                        if timezone.is_naive(parsed_date):
+                            new_start_at = timezone.make_aware(parsed_date)
+                        else:
+                            new_start_at = parsed_date
+
+                    elif not assignment.include_history and assignment.start_at:
+                        # Si ya era "From date" y no se cambió la fecha,
+                        # conserva la fecha existente.
+                        new_start_at = assignment.start_at
+
+                    else:
+                        messages.error(
+                            request,
+                            "Please select a start date for " f"{assignment.usuario}.",
+                        )
+
+                        return redirect(
+                            "{}?proyecto={}".format(
+                                reverse(
+                                    "dashboard_admin:"
+                                    "gestionar_asignaciones_proyectos"
+                                ),
+                                proyecto_seleccionado.id,
+                            )
+                        )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    messages.error(
+                        request,
+                        "One of the assignment start dates is invalid.",
+                    )
+
+                    return redirect(
+                        "{}?proyecto={}".format(
+                            reverse(
+                                "dashboard_admin:" "gestionar_asignaciones_proyectos"
+                            ),
+                            proyecto_seleccionado.id,
+                        )
+                    )
+
+            current_include_history = assignment.include_history
+
+            current_start_date = (
+                assignment.start_at.date() if assignment.start_at else None
+            )
+
+            new_start_date = new_start_at.date() if new_start_at else None
+
+            if (
+                current_include_history != new_include_history
+                or current_start_date != new_start_date
+            ):
+                visibility_updates.append(
+                    (
+                        assignment,
+                        new_include_history,
+                        new_start_at,
+                    )
+                )
+
+        # ==========================================================
         # ESCRITURA ATÓMICA
-        # ==============================================================
+        # ==========================================================
 
         with transaction.atomic():
 
@@ -2099,6 +2240,9 @@ def gestionar_asignaciones_proyectos_view(request):
 
             # ------------------------------------------------------
             # AGREGAR
+            #
+            # Usa la configuración global:
+            # "Visibility for new assignments".
             # ------------------------------------------------------
 
             nuevos = []
@@ -2118,13 +2262,40 @@ def gestionar_asignaciones_proyectos_view(request):
             if nuevos:
                 ProyectoAsignacion.objects.bulk_create(nuevos)
 
+            # ------------------------------------------------------
+            # MODIFICAR VISIBILIDAD DE ASIGNACIONES EXISTENTES
+            #
+            # No elimina ni recrea la asignación.
+            # Solamente modifica include_history/start_at.
+            # ------------------------------------------------------
+
+            for (
+                assignment,
+                new_include_history,
+                new_start_at,
+            ) in visibility_updates:
+
+                assignment.include_history = new_include_history
+
+                assignment.start_at = new_start_at
+
+                assignment.save(
+                    update_fields=[
+                        "include_history",
+                        "start_at",
+                    ]
+                )
+
         messages.success(
             request,
             (
-                f'Project "{proyecto_seleccionado.nombre}" updated successfully. '
+                f'Project "{proyecto_seleccionado.nombre}" '
+                f"updated successfully. "
                 f"Added: {len(ids_to_add)}. "
                 f"Removed: {len(ids_to_remove)}. "
-                f"Unchanged: {len(ids_unchanged)}."
+                f"Visibility changed: {len(visibility_updates)}. "
+                f"Unchanged: "
+                f"{len(ids_unchanged) - len(visibility_updates)}."
             ),
         )
 

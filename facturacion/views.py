@@ -489,79 +489,204 @@ def listar_cartola(request):
 
 
 @login_required
-@rol_requerido('facturacion', 'admin')
+@rol_requerido("facturacion", "admin")
 def registrar_abono(request):
     # Detectar el usuario “destinatario” del abono (viene en el form)
     target_user = None
-    user_field_names = ('usuario', 'user', 'tecnico')
-    if request.method == 'POST':
+    user_field_names = ("usuario", "user", "tecnico")
+
+    if request.method == "POST":
         for fn in user_field_names:
             uid = request.POST.get(fn)
+
             if uid:
                 try:
-                    target_user = User.objects.get(pk=uid)
+                    target_user = User.objects.get(
+                        pk=uid,
+                        is_active=True,
+                    )
                 except User.DoesNotExist:
                     target_user = None
+
                 break
+
     else:
         for fn in user_field_names:
             uid = request.GET.get(fn)
+
             if uid:
                 try:
-                    target_user = User.objects.get(pk=uid)
+                    target_user = User.objects.get(
+                        pk=uid,
+                        is_active=True,
+                    )
                 except User.DoesNotExist:
                     target_user = None
+
                 break
 
-    form = CartolaAbonoForm(request.POST or None, request.FILES or None)
+    form = CartolaAbonoForm(
+        request.POST or None,
+        request.FILES or None,
+    )
 
-    # 🔒 Restringir el combo de proyectos del formulario
-    if hasattr(form, 'fields') and 'proyecto' in form.fields:
-        # Si ya eligieron un usuario destino, mostrar SOLO proyectos donde él participa.
-        # Si no, mostrar (por defecto) los proyectos a los que el actor (tú) tiene acceso.
-        allowed_ids = projects_ids_for_user(target_user) if target_user else projects_ids_for_user(request.user)
-        form.fields['proyecto'].queryset = Proyecto.objects.filter(id__in=allowed_ids).order_by('nombre')
+    # ==============================================================
+    # SOLO USUARIOS ACTIVOS
+    # ==============================================================
 
-    if request.method == 'POST':
+    if hasattr(form, "fields") and "usuario" in form.fields:
+        form.fields["usuario"].queryset = User.objects.filter(is_active=True).order_by(
+            "first_name",
+            "last_name",
+        )
+
+    # ==============================================================
+    # RESTRINGIR PROYECTOS
+    #
+    # - Solo proyectos asignados al usuario seleccionado.
+    # - Solo proyectos activos.
+    # ==============================================================
+
+    if hasattr(form, "fields") and "proyecto" in form.fields:
+        allowed_ids = (
+            projects_ids_for_user(target_user)
+            if target_user
+            else projects_ids_for_user(request.user)
+        )
+
+        form.fields["proyecto"].queryset = Proyecto.objects.filter(
+            id__in=allowed_ids,
+            activo=True,
+        ).order_by("nombre")
+
+    if request.method == "POST":
         if form.is_valid():
             movimiento = form.save(commit=False)
 
             # Si el form NO setea el usuario y lo detectamos arriba, lo fijamos.
-            if target_user and not getattr(movimiento, 'usuario_id', None):
+            if target_user and not getattr(
+                movimiento,
+                "usuario_id",
+                None,
+            ):
                 movimiento.usuario = target_user
 
-            proj_id = getattr(getattr(movimiento, 'proyecto', None), 'id', None)
+            proj_id = getattr(
+                getattr(
+                    movimiento,
+                    "proyecto",
+                    None,
+                ),
+                "id",
+                None,
+            )
+
             if not proj_id:
-                messages.error(request, "You must choose a project.")
-                return render(request, 'facturacion/registrar_abono.html', {'form': form})
+                messages.error(
+                    request,
+                    "You must choose a project.",
+                )
+
+                return render(
+                    request,
+                    "facturacion/registrar_abono.html",
+                    {
+                        "form": form,
+                    },
+                )
 
             # 🔒 1) El actor debe tener acceso al proyecto
-            if not user_has_project_access(request.user, proj_id):
-                messages.error(request, "You don't have access to the selected project.")
-                return render(request, 'facturacion/registrar_abono.html', {'form': form})
+            if not user_has_project_access(
+                request.user,
+                proj_id,
+            ):
+                messages.error(
+                    request,
+                    "You don't have access to the selected project.",
+                )
+
+                return render(
+                    request,
+                    "facturacion/registrar_abono.html",
+                    {
+                        "form": form,
+                    },
+                )
 
             # 🔒 2) El usuario destino debe participar en ese proyecto
-            if getattr(movimiento, 'usuario_id', None):
+            if getattr(
+                movimiento,
+                "usuario_id",
+                None,
+            ):
                 target_allowed = projects_ids_for_user(movimiento.usuario)
-                if proj_id not in target_allowed:
-                    messages.error(request, "The selected user is not assigned to that project.")
-                    return render(request, 'facturacion/registrar_abono.html', {'form': form})
 
-            # Forzar categoría como abono
-            tipo_abono = TipoGasto.objects.filter(categoria='abono').first()
+                if proj_id not in target_allowed:
+                    messages.error(
+                        request,
+                        "The selected user is not assigned to that project.",
+                    )
+
+                    return render(
+                        request,
+                        "facturacion/registrar_abono.html",
+                        {
+                            "form": form,
+                        },
+                    )
+
+            # ======================================================
+            # FORZAR CATEGORÍA DEPOSIT / ABONO
+            # ======================================================
+
+            tipo_abono = TipoGasto.objects.filter(
+                categoria="abono",
+                is_active=True,
+            ).first()
+
+            if not tipo_abono:
+                messages.error(
+                    request,
+                    "The Deposit transaction type is not configured. "
+                    "The transaction was not saved.",
+                )
+
+                return render(
+                    request,
+                    "facturacion/registrar_abono.html",
+                    {
+                        "form": form,
+                    },
+                )
+
             movimiento.tipo = tipo_abono
             movimiento.cargos = 0
 
-            if 'comprobante' in request.FILES:
-                movimiento.comprobante = request.FILES['comprobante']
+            if "comprobante" in request.FILES:
+                movimiento.comprobante = request.FILES["comprobante"]
 
             movimiento.save()
-            messages.success(request, "Transaction registered successfully.")
-            return redirect('facturacion:listar_cartola')
-        else:
-            messages.error(request, "Please correct the errors before proceeding.")
 
-    return render(request, 'facturacion/registrar_abono.html', {'form': form})
+            messages.success(
+                request,
+                "Transaction registered successfully.",
+            )
+
+            return redirect("facturacion:listar_cartola")
+
+        else:
+            messages.error(
+                request,
+                "Please correct the errors before proceeding.",
+            )
+
+    return render(
+        request,
+        "facturacion/registrar_abono.html",
+        {
+            "form": form,
+        },
+    )
 
 
 @login_required

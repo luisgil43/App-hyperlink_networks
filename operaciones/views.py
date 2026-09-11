@@ -3155,102 +3155,238 @@ def _parse_fecha_fragmento(s: str):
 
 
 @login_required
-@rol_requerido('pm', 'admin', 'supervisor')
+@rol_requerido("pm", "admin", "supervisor")
 def vista_rendiciones(request):
     user = request.user
 
-    # --------- Base visible según rol ---------
+    # ==============================================================
+    # BASE VISIBLE SEGÚN ROL Y ETAPA DEL FLUJO
+    # ==============================================================
+    #
+    # SUPERUSER:
+    #   - ve todo.
+    #
+    # SUPERVISOR:
+    #   - pendiente_supervisor
+    #   - todos los rechazados
+    #
+    # PM:
+    #   - aprobado_supervisor
+    #     (ya fue aprobado por Supervisor y está pendiente para PM)
+    #   - todos los rechazados
+    #
+    # IMPORTANTE:
+    #   - Supervisor NO ve movimientos que ya avanzaron a PM.
+    #   - PM NO ve movimientos que ya avanzaron a Finanzas.
+    #   - Los rechazados continúan visibles para todos estos roles.
+    # ==============================================================
+
     if user.is_superuser:
         # Súper admin ve todo
         movimientos = CartolaMovimiento.objects.all()
+
     else:
         base = Q()
-        # Rechazados (de cualquier etapa) visibles para supervisor y PM
-        q_rechazados = Q(status__startswith='rechazado')
 
-        # Supervisor: ve solo lo pendiente para él + todos los rechazados
-        if getattr(user, 'es_supervisor', False):
-            base |= Q(status='pendiente_supervisor') | q_rechazados
+        # Rechazados de cualquier etapa:
+        # visibles tanto para Supervisor como para PM.
+        q_rechazados = Q(status__startswith="rechazado")
 
-        # PM: ve lo pendiente para él (lo aprobado por supervisor) + todos los rechazados
-        if getattr(user, 'es_pm', False):
-            base |= Q(status='aprobado_supervisor') | q_rechazados
+        # ----------------------------------------------------------
+        # SUPERVISOR
+        #
+        # Solo lo que está pendiente de su aprobación
+        # + todos los rechazados.
+        #
+        # No ve:
+        # - aprobado_supervisor
+        # - aprobado_pm
+        # - aprobado_finanzas
+        # ----------------------------------------------------------
 
-        movimientos = CartolaMovimiento.objects.filter(base) if base else CartolaMovimiento.objects.none()
+        if getattr(
+            user,
+            "es_supervisor",
+            False,
+        ):
+            base |= Q(status="pendiente_supervisor") | q_rechazados
 
-    # 🔒 Limitar por proyectos asignados al usuario
-    movimientos = filter_queryset_by_access(movimientos, request.user, 'proyecto_id')
+        # ----------------------------------------------------------
+        # PM
+        #
+        # aprobado_supervisor significa:
+        # Supervisor ya aprobó y ahora corresponde al PM.
+        #
+        # + todos los rechazados.
+        #
+        # No ve:
+        # - pendiente_supervisor
+        # - aprobado_pm
+        # - aprobado_finanzas
+        # ----------------------------------------------------------
 
-    # ✅ Limitar también por fecha (ventana ProyectoAsignacion) - SOLO SE AGREGA ESTO
+        if getattr(
+            user,
+            "es_pm",
+            False,
+        ):
+            base |= Q(status="aprobado_supervisor") | q_rechazados
+
+        movimientos = (
+            CartolaMovimiento.objects.filter(base)
+            if base
+            else CartolaMovimiento.objects.none()
+        )
+
+    # ==============================================================
+    # LIMITAR POR PROYECTOS ASIGNADOS AL USUARIO
+    # ==============================================================
+
+    movimientos = filter_queryset_by_access(
+        movimientos,
+        request.user,
+        "proyecto_id",
+    )
+
+    # ==============================================================
+    # LIMITAR TAMBIÉN POR FECHA
+    # ventana ProyectoAsignacion
+    # ==============================================================
+
     try:
         from usuarios.models import ProyectoAsignacion
     except Exception:
         ProyectoAsignacion = None
 
-    can_view_legacy_history = (
-        request.user.is_superuser or
-        getattr(request.user, "es_usuario_historial", False)
+    can_view_legacy_history = request.user.is_superuser or getattr(
+        request.user,
+        "es_usuario_historial",
+        False,
     )
 
-    if ProyectoAsignacion is not None and (not can_view_legacy_history):
+    if ProyectoAsignacion is not None and not can_view_legacy_history:
         try:
-            # Proyectos que ya pasaron por filter_queryset_by_access (ojo: aquí ya está limitado)
-            # Sacamos IDs desde el queryset actual para cruzar contra asignaciones
+            # Proyectos que ya pasaron por filter_queryset_by_access.
             proyecto_ids_visibles = list(
-                movimientos.values_list("proyecto_id", flat=True).distinct()
+                movimientos.values_list(
+                    "proyecto_id",
+                    flat=True,
+                ).distinct()
             )
+
         except Exception:
             proyecto_ids_visibles = []
 
         try:
             asignaciones = list(
-                ProyectoAsignacion.objects
-                .filter(usuario=request.user, proyecto_id__in=proyecto_ids_visibles)
+                ProyectoAsignacion.objects.filter(
+                    usuario=request.user,
+                    proyecto_id__in=proyecto_ids_visibles,
+                )
             )
+
         except Exception:
             asignaciones = []
 
         if asignaciones:
             access_by_pk = {}
+
             for a in asignaciones:
                 if a.include_history or not a.start_at:
-                    access_by_pk[a.proyecto_id] = {"include_history": True, "start_at": None}
-                else:
-                    access_by_pk[a.proyecto_id] = {"include_history": False, "start_at": a.start_at}
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": True,
+                        "start_at": None,
+                    }
 
-            # Filtramos por fecha usando el campo "fecha" del movimiento (tu campo principal)
+                else:
+                    access_by_pk[a.proyecto_id] = {
+                        "include_history": False,
+                        "start_at": a.start_at,
+                    }
+
+            # Filtramos por fecha usando el campo "fecha"
+            # del movimiento.
             ids_ok = []
-            for m in movimientos.only("id", "proyecto_id", "fecha"):
-                pk = getattr(m, "proyecto_id", None)
+
+            for m in movimientos.only(
+                "id",
+                "proyecto_id",
+                "fecha",
+            ):
+                pk = getattr(
+                    m,
+                    "proyecto_id",
+                    None,
+                )
+
                 if pk is None:
                     continue
+
                 access = access_by_pk.get(pk)
+
                 if not access:
                     continue
+
                 if access["include_history"] or access["start_at"] is None:
                     ids_ok.append(m.id)
                     continue
-                # si el movimiento no tiene fecha, lo excluimos (mismo criterio defensivo)
-                if not getattr(m, "fecha", None):
+
+                # Si el movimiento no tiene fecha,
+                # lo excluimos defensivamente.
+                if not getattr(
+                    m,
+                    "fecha",
+                    None,
+                ):
                     continue
+
                 if m.fecha >= access["start_at"]:
                     ids_ok.append(m.id)
 
             movimientos = movimientos.filter(id__in=ids_ok)
 
-    # ---------- Filtros ----------
-    du = request.GET.get('du', '').strip()
-    fecha_txt = request.GET.get('fecha', '').strip()
-    real_fecha_txt = request.GET.get('real_fecha', '').strip()  # ✅ NUEVO
-    proyecto = request.GET.get('proyecto', '').strip()
-    tipo_txt = request.GET.get('tipo', '').strip()
-    estado = request.GET.get('estado', '').strip()
+    # ==============================================================
+    # FILTROS
+    # ==============================================================
+
+    du = request.GET.get(
+        "du",
+        "",
+    ).strip()
+
+    fecha_txt = request.GET.get(
+        "fecha",
+        "",
+    ).strip()
+
+    real_fecha_txt = request.GET.get(
+        "real_fecha",
+        "",
+    ).strip()
+
+    proyecto = request.GET.get(
+        "proyecto",
+        "",
+    ).strip()
+
+    tipo_txt = request.GET.get(
+        "tipo",
+        "",
+    ).strip()
+
+    estado = request.GET.get(
+        "estado",
+        "",
+    ).strip()
 
     q = Q()
+
     if du:
-        q &= (Q(usuario__first_name__icontains=du) |
-              Q(usuario__last_name__icontains=du) |
-              Q(usuario__username__icontains=du))
+        q &= (
+            Q(usuario__first_name__icontains=du)
+            | Q(usuario__last_name__icontains=du)
+            | Q(usuario__username__icontains=du)
+        )
 
     if proyecto:
         q &= Q(proyecto__nombre__icontains=proyecto)
@@ -3261,98 +3397,192 @@ def vista_rendiciones(request):
     if estado:
         q &= Q(status=estado)
 
-    # Fecha flexible (campo "fecha" = created_at / fecha del movimiento)
+    # ==============================================================
+    # FECHA FLEXIBLE
+    # campo "fecha" = fecha principal del movimiento
+    # ==============================================================
+
     if fecha_txt:
         fd = _parse_fecha_fragmento(fecha_txt)
+
         if fd:
-            day_or_month = fd.pop("_day_or_month", None)
+            day_or_month = fd.pop(
+                "_day_or_month",
+                None,
+            )
+
             if fd:
                 q &= Q(**fd)
-            if day_or_month is not None:
-                q &= (Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month))
 
-    # ✅ NUEVO: Real consumption date flexible (DateField)
+            if day_or_month is not None:
+                q &= Q(fecha__day=day_or_month) | Q(fecha__month=day_or_month)
+
+    # ==============================================================
+    # REAL CONSUMPTION DATE
+    # ==============================================================
+
     if real_fecha_txt:
         fd = _parse_fecha_fragmento(real_fecha_txt)
-        if fd:
-            day_or_month = fd.pop("_day_or_month", None)
 
-            # normaliza posibles claves antiguas y mapea fecha__* -> real_consumption_date__*
+        if fd:
+            day_or_month = fd.pop(
+                "_day_or_month",
+                None,
+            )
+
+            # Normaliza posibles claves antiguas y mapea:
+            # fecha__* -> real_consumption_date__*
             new_fd = {}
+
             for k, v in fd.items():
-                k2 = k.replace('fecha__date__', 'fecha__')
-                if k2.startswith('fecha__'):
-                    k2 = k2.replace('fecha__', 'real_consumption_date__', 1)
+                k2 = k.replace(
+                    "fecha__date__",
+                    "fecha__",
+                )
+
+                if k2.startswith("fecha__"):
+                    k2 = k2.replace(
+                        "fecha__",
+                        "real_consumption_date__",
+                        1,
+                    )
+
                 new_fd[k2] = v
 
             if new_fd:
                 q &= Q(**new_fd)
 
             if day_or_month is not None:
-                q &= (Q(real_consumption_date__day=day_or_month) |
-                      Q(real_consumption_date__month=day_or_month))
+                q &= Q(real_consumption_date__day=day_or_month) | Q(
+                    real_consumption_date__month=day_or_month
+                )
 
     if q:
         movimientos = movimientos.filter(q)
 
-    # Orden personalizado
+    # ==============================================================
+    # ORDEN PERSONALIZADO
+    # ==============================================================
+
     movimientos = movimientos.annotate(
         orden_status=Case(
-            When(status__startswith='pendiente', then=Value(1)),
-            When(status__startswith='rechazado', then=Value(2)),
-            When(status__startswith='aprobado',  then=Value(3)),
+            When(
+                status__startswith="pendiente",
+                then=Value(1),
+            ),
+            When(
+                status__startswith="rechazado",
+                then=Value(2),
+            ),
+            When(
+                status__startswith="aprobado",
+                then=Value(3),
+            ),
             default=Value(4),
             output_field=IntegerField(),
         )
-    ).order_by('orden_status', '-fecha')
+    ).order_by(
+        "orden_status",
+        "-fecha",
+    )
 
-    # Totales (solo sobre lo que ve el usuario)
-    total = movimientos.aggregate(total=Sum('cargos'))['total'] or 0
-    pendientes = movimientos.filter(status__startswith='pendiente').aggregate(total=Sum('cargos'))['total'] or 0
-    rechazados = movimientos.filter(status__startswith='rechazado').aggregate(total=Sum('cargos'))['total'] or 0
+    # ==============================================================
+    # TOTALES
+    # Solo sobre lo que ve el usuario
+    # ==============================================================
 
-    # Paginación (sin "todos", máximo 100)
-    raw_cantidad = request.GET.get("cantidad", "10")
+    total = movimientos.aggregate(total=Sum("cargos"))["total"] or 0
+
+    pendientes = (
+        movimientos.filter(status__startswith="pendiente").aggregate(
+            total=Sum("cargos")
+        )["total"]
+        or 0
+    )
+
+    rechazados = (
+        movimientos.filter(status__startswith="rechazado").aggregate(
+            total=Sum("cargos")
+        )["total"]
+        or 0
+    )
+
+    # ==============================================================
+    # PAGINACIÓN
+    # sin "todos", máximo 100
+    # ==============================================================
+
+    raw_cantidad = request.GET.get(
+        "cantidad",
+        "10",
+    )
+
     try:
         cantidad_pag = int(raw_cantidad)
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError,
+    ):
         cantidad_pag = 10
 
     if cantidad_pag < 5:
         cantidad_pag = 5
+
     if cantidad_pag > 100:
         cantidad_pag = 100
 
     cantidad = str(cantidad_pag)
 
-    paginator = Paginator(movimientos, cantidad_pag)
+    paginator = Paginator(
+        movimientos,
+        cantidad_pag,
+    )
+
     page_number = request.GET.get("page")
+
     pagina = paginator.get_page(page_number)
 
-    # Choices del modelo
-    estado_choices = CartolaMovimiento._meta.get_field('status').choices
+    # ==============================================================
+    # CHOICES DEL MODELO
+    # ==============================================================
+
+    estado_choices = CartolaMovimiento._meta.get_field("status").choices
 
     base_qs = request.GET.copy()
-    base_qs.pop('page', None)
+
+    base_qs.pop(
+        "page",
+        None,
+    )
+
     base_qs = base_qs.urlencode()
 
-    return render(request, 'operaciones/vista_rendiciones.html', {
-        'pagina': pagina,
-        'cantidad': cantidad,
-        'total': total,
-        'pendientes': pendientes,
-        'rechazados': rechazados,
-        'filtros': {
-            'du': du,
-            'fecha': fecha_txt,
-            'real_fecha': real_fecha_txt,  # ✅ NUEVO
-            'proyecto': proyecto,
-            'tipo': tipo_txt,
-            'estado': estado
+    # ==============================================================
+    # RENDER
+    # ==============================================================
+
+    return render(
+        request,
+        "operaciones/vista_rendiciones.html",
+        {
+            "pagina": pagina,
+            "cantidad": cantidad,
+            "total": total,
+            "pendientes": pendientes,
+            "rechazados": rechazados,
+            "filtros": {
+                "du": du,
+                "fecha": fecha_txt,
+                "real_fecha": real_fecha_txt,
+                "proyecto": proyecto,
+                "tipo": tipo_txt,
+                "estado": estado,
+            },
+            "estado_choices": estado_choices,
+            "base_qs": base_qs,
         },
-        'estado_choices': estado_choices,
-        'base_qs': base_qs,
-    })
+    )
 
 
 @login_required
