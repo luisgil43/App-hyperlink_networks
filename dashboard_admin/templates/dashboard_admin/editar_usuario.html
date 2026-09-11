@@ -1,401 +1,1064 @@
 {% extends "dashboard_admin/base.html" %}
 {% load static %}
 
-{% block title %}{% if usuario %}Edit User - Admin{% else %}Create User - Admin{% endif %}{% endblock %}
+{% block title %}Edit User - Admin{% endblock %}
 
 {% block dashboard_content %}
-<div class="p-6 max-w-4xl mx-auto">
-  <h1 class="text-3xl font-bold mb-6">
-    {% if usuario %}✏️ Edit User: {{ usuario.username }}{% else %}👤 Create New User{% endif %}
-  </h1>
 
-  <form method="POST" class="bg-white p-8 rounded-2xl shadow space-y-6">
-    {% csrf_token %}
+<div class="min-h-screen bg-slate-50/70">
 
-    <!-- Basic (required; password optional) -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-        <input type="text" name="username" required placeholder="E.g.: john123"
-               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
-               value="{{ usuario.username|default_if_none:'' }}">
-      </div>
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input type="email" name="email" required placeholder="E.g.: email@domain.com"
-               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
-               value="{{ usuario.email|default_if_none:'' }}">
-      </div>
+    <!-- ============================================================
+         HEADER
+         ============================================================ -->
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
-          Password <small class="text-gray-500">(Optional)</small>
-        </label>
-        <input type="password" name="password1" class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
-      </div>
+    <div class="mb-8">
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-        <input type="password" name="password2" class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2">
-      </div>
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">ID / Identification Number</label>
-        <input type="text" name="identidad" required placeholder="E.g.: 12345678-9"
-               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
-               value="{{ usuario.identidad|default_if_none:'' }}">
-      </div>
+        <div class="flex items-start gap-4">
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-        <input type="text" name="first_name" required placeholder="E.g.: John"
-               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
-               value="{{ usuario.first_name|default_if_none:'' }}">
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-        <input type="text" name="last_name" required placeholder="E.g.: Doe"
-               class="w-full rounded-lg border-gray-300 bg-gray-100 px-4 py-2"
-               value="{{ usuario.last_name|default_if_none:'' }}">
-      </div>
-
-      <!-- Roles -->
-      <div class="md:col-span-2">
-        <label class="block text-sm font-medium text-gray-700 mb-1">User Roles</label>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {% for rol in roles %}
-  <label class="inline-flex items-center gap-1">
-    <input type="checkbox" name="roles" value="{{ rol.id }}"
-           {% if rol.id|stringformat:"s" in roles_seleccionados %}checked{% endif %}>
-    <span>{{ rol.label_en|default:rol.nombre }}</span>
-  </label>
-{% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <!-- Status & permissions -->
-    <div class="flex flex-wrap gap-4 pt-4">
-      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_active" class="rounded border-gray-300 text-blue-600"
-               {% if usuario and usuario.is_active %}checked{% endif %}>
-        Active
-      </label>
-      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_staff" class="rounded border-gray-300 text-blue-600"
-               {% if usuario and usuario.is_staff %}checked{% endif %}>
-        Staff
-      </label>
-      <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-        <input type="checkbox" name="is_superuser" class="rounded border-gray-300 text-blue-600"
-               {% if usuario and usuario.is_superuser %}checked{% endif %}>
-        Superuser
-      </label>
-    </div>
-
-    <!-- Groups -->
-    <div>
-      <label class="block text-sm font-semibold text-gray-700 mb-2">Available Groups:</label>
-      <div class="flex flex-wrap gap-3">
-        {% for grupo in grupos %}
-          <label class="inline-flex items-center bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 shadow-sm">
-            <input type="checkbox" name="groups" value="{{ grupo.id }}"
-              {% if grupo.id in grupo_ids_post %}checked{% endif %} class="mr-2">
-            {{ grupo.name }}
-          </label>
-        {% empty %}
-          <p class="text-gray-400 text-sm">No groups available.</p>
-        {% endfor %}
-      </div>
-    </div>
-
-    <!-- Projects (NO CAMBIADO) -->
-    <div class="space-y-3">
-      <h2 class="text-lg font-semibold text-gray-800">Project Visibility</h2>
-
-      <style>
-        details.dropdown > summary{
-          display:flex;align-items:center;justify-content:space-between;
-          cursor:pointer;user-select:none;padding:.75rem 1rem;background:#f8fafc;
-          border-radius:.75rem;font-weight:600;color:#111827
-        }
-        details.dropdown .caret{display:inline-block;transition:transform .2s}
-        details.dropdown[open] .caret{transform:rotate(90deg)}
-      </style>
-
-      <details class="dropdown rounded-lg border border-gray-200">
-        <summary>
-          Assigned Projects
-          <span class="caret">▶</span>
-        </summary>
-
-        <div class="p-4 space-y-3 projects-wrapper">
-          <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
-            <input type="checkbox" class="check-all-projects rounded border-gray-300">
-            Select all projects
-          </label>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {% for p in proyectos %}
-              <label class="inline-flex items-start gap-2 text-sm text-gray-800">
-                <input type="checkbox" name="proyectos" value="{{ p.id }}"
-                       class="proj-checkbox rounded border-gray-300 text-blue-600 mt-0.5"
-                       {% if p.id in proyectos_seleccionados %}checked{% endif %}>
-                <span>
-                  <span class="font-medium">{{ p.nombre }}</span>
-                  <span class="text-gray-500"> — {{ p.mandante }} ({{ p.ciudad }}, {{ p.estado }})</span>
-                </span>
-              </label>
-            {% endfor %}
+          <div class="w-14 h-14 rounded-2xl
+                      bg-gradient-to-br from-blue-600 to-indigo-600
+                      text-white flex items-center justify-center text-2xl
+                      shadow-lg shadow-blue-500/20">
+            ✏️
           </div>
+
+          <div>
+
+            <div class="flex flex-wrap items-center gap-2 mb-1">
+
+              <h1 class="text-3xl font-bold tracking-tight text-slate-900">
+                Edit User
+              </h1>
+
+              <span class="inline-flex items-center rounded-full bg-blue-50
+                           px-3 py-1 text-xs font-semibold text-blue-700
+                           ring-1 ring-inset ring-blue-600/20">
+                {{ usuario.username }}
+              </span>
+
+            </div>
+
+            <p class="text-sm sm:text-base text-slate-500 max-w-2xl">
+              Update account information, roles, permissions and groups.
+              Project assignments are managed separately.
+            </p>
+
+          </div>
+
         </div>
-      </details>
 
-      <!-- Visibility mode -->
-      <div class="flex items-center gap-6">
-        <label class="inline-flex items-center gap-2">
-          <input type="radio" name="project_visibility" value="history"
-                 {% if project_visibility != 'from_now' %}checked{% endif %}>
-          Full history
-        </label>
-        <label class="inline-flex items-center gap-2">
-          <input type="radio" name="project_visibility" value="from_now"
-                 {% if project_visibility == 'from_now' %}checked{% endif %}>
-          From date
-        </label>
-        <input type="text" name="project_start_date"
-               id="project_start_date_edit"
-               lang="en" placeholder="mm/dd/yyyy"
-               class="rounded border-gray-300 px-3 py-2"
-               value="{{ project_start_date|default_if_none:'' }}">
+
+        <a href="{% url 'dashboard_admin:listar_usuarios' %}"
+           class="inline-flex items-center justify-center gap-2 rounded-xl
+                  border border-slate-200 bg-white px-4 py-2.5
+                  text-sm font-semibold text-slate-700 shadow-sm
+                  transition hover:bg-slate-50 hover:border-slate-300">
+
+          <span>←</span>
+          Back to Users
+
+        </a>
+
       </div>
+
     </div>
 
-    <!-- Actions -->
-    <div class="pt-6 flex items-center gap-4">
-      <a href="{% url 'dashboard_admin:listar_usuarios' %}"
-         class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-6 rounded-lg">
-        ← Back
-      </a>
-      <button type="submit"
-        class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg">
-        {% if usuario %}💾 Save Changes{% else %}➕ Create User{% endif %}
-      </button>
-    </div>
-  </form>
+
+    <!-- ============================================================
+         FORM
+         ============================================================ -->
+
+    <form method="POST"
+          id="editUserForm"
+          class="space-y-6">
+
+      {% csrf_token %}
+
+
+      <!-- ==========================================================
+           ACCOUNT INFORMATION
+           ========================================================== -->
+
+      <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
+        <div class="border-b border-slate-100 px-6 py-5">
+
+          <div class="flex items-center gap-3">
+
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-lg">
+              🪪
+            </div>
+
+            <div>
+
+              <h2 class="text-lg font-bold text-slate-900">
+                Account Information
+              </h2>
+
+              <p class="text-sm text-slate-500">
+                Identification and login information.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-6">
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+
+            <!-- Username -->
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                Username
+                <span class="text-red-500">*</span>
+              </label>
+
+              <input type="text"
+                     name="username"
+                     required
+                     autocomplete="username"
+                     placeholder="E.g.: john123"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                     value="{{ usuario.username|default_if_none:'' }}">
+
+            </div>
+
+
+            <!-- Email -->
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                Email
+                <span class="text-red-500">*</span>
+              </label>
+
+              <input type="email"
+                     name="email"
+                     required
+                     autocomplete="email"
+                     placeholder="E.g.: email@domain.com"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                     value="{{ usuario.email|default_if_none:'' }}">
+
+            </div>
+
+
+            <!-- ID -->
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                ID / Identification Number
+                <span class="text-red-500">*</span>
+              </label>
+
+              <input type="text"
+                     name="identidad"
+                     required
+                     placeholder="E.g.: 12345678-9"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                     value="{{ usuario.identidad|default_if_none:'' }}">
+
+            </div>
+
+
+            <!-- First Name -->
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                First Name
+                <span class="text-red-500">*</span>
+              </label>
+
+              <input type="text"
+                     name="first_name"
+                     required
+                     autocomplete="given-name"
+                     placeholder="E.g.: John"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                     value="{{ usuario.first_name|default_if_none:'' }}">
+
+            </div>
+
+
+            <!-- Last Name -->
+            <div class="md:col-span-2">
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                Last Name
+                <span class="text-red-500">*</span>
+              </label>
+
+              <input type="text"
+                     name="last_name"
+                     required
+                     autocomplete="family-name"
+                     placeholder="E.g.: Doe"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                     value="{{ usuario.last_name|default_if_none:'' }}">
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ==========================================================
+           PASSWORD
+           ========================================================== -->
+
+      <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
+        <div class="border-b border-slate-100 px-6 py-5">
+
+          <div class="flex items-center justify-between gap-4">
+
+            <div class="flex items-center gap-3">
+
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-lg">
+                🔐
+              </div>
+
+              <div>
+
+                <div class="flex flex-wrap items-center gap-2">
+
+                  <h2 class="text-lg font-bold text-slate-900">
+                    Change Password
+                  </h2>
+
+                  <span class="inline-flex items-center rounded-full bg-slate-100
+                               px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    Optional
+                  </span>
+
+                </div>
+
+                <p class="text-sm text-slate-500">
+                  Leave both fields empty to keep the current password.
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-6">
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                New Password
+              </label>
+
+              <input type="password"
+                     name="password1"
+                     autocomplete="new-password"
+                     placeholder="Leave blank to keep current password"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10">
+
+            </div>
+
+
+            <div>
+
+              <label class="block text-sm font-semibold text-slate-700 mb-2">
+                Confirm New Password
+              </label>
+
+              <input type="password"
+                     name="password2"
+                     autocomplete="new-password"
+                     placeholder="Repeat new password"
+                     class="w-full rounded-xl border border-slate-300 bg-white
+                            px-4 py-3 text-slate-900 placeholder-slate-400
+                            shadow-sm outline-none transition
+                            focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10">
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ==========================================================
+           ROLES
+           ========================================================== -->
+
+      <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
+        <div class="border-b border-slate-100 px-6 py-5">
+
+          <div class="flex items-center gap-3">
+
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-lg">
+              🛡️
+            </div>
+
+            <div>
+
+              <h2 class="text-lg font-bold text-slate-900">
+                User Roles
+              </h2>
+
+              <p class="text-sm text-slate-500">
+                At least one role must remain assigned.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-6">
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+
+            {% for rol in roles %}
+
+              <label class="group flex cursor-pointer items-center gap-3
+                            rounded-xl border border-slate-200 bg-slate-50/60
+                            px-4 py-3 transition
+                            hover:border-indigo-300 hover:bg-indigo-50/50">
+
+                <input type="checkbox"
+                       name="roles"
+                       value="{{ rol.id }}"
+                       class="h-4 w-4 rounded border-slate-300 text-indigo-600
+                              focus:ring-indigo-500"
+                       {% if rol.id|stringformat:"s" in roles_seleccionados %}checked{% endif %}>
+
+                <span class="text-sm font-semibold text-slate-700 group-hover:text-indigo-700">
+                  {{ rol.label_en|default:rol.nombre }}
+                </span>
+
+              </label>
+
+            {% empty %}
+
+              <div class="sm:col-span-2 lg:col-span-3 rounded-xl border border-dashed
+                          border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">
+                No roles available.
+              </div>
+
+            {% endfor %}
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ==========================================================
+           STATUS
+           ========================================================== -->
+
+      <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
+        <div class="border-b border-slate-100 px-6 py-5">
+
+          <div class="flex items-center gap-3">
+
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-lg">
+              ⚙️
+            </div>
+
+            <div>
+
+              <h2 class="text-lg font-bold text-slate-900">
+                Status & Permissions
+              </h2>
+
+              <p class="text-sm text-slate-500">
+                Current account access and administrative privileges.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-6">
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+            <!-- Active -->
+            <label class="group flex cursor-pointer items-center gap-4 rounded-xl
+                          border border-slate-200 bg-slate-50/70 p-4 transition
+                          hover:border-emerald-300 hover:bg-emerald-50/50">
+
+              <input type="checkbox"
+                     name="is_active"
+                     class="h-5 w-5 rounded border-slate-300 text-emerald-600
+                            focus:ring-emerald-500"
+                     {% if usuario and usuario.is_active %}checked{% endif %}>
+
+              <div>
+
+                <div class="text-sm font-bold text-slate-800">
+                  Active
+                </div>
+
+                <div class="text-xs text-slate-500 mt-0.5">
+                  Can access the platform.
+                </div>
+
+              </div>
+
+            </label>
+
+
+            <!-- Staff -->
+            <label class="group flex cursor-pointer items-center gap-4 rounded-xl
+                          border border-slate-200 bg-slate-50/70 p-4 transition
+                          hover:border-blue-300 hover:bg-blue-50/50">
+
+              <input type="checkbox"
+                     name="is_staff"
+                     class="h-5 w-5 rounded border-slate-300 text-blue-600
+                            focus:ring-blue-500"
+                     {% if usuario and usuario.is_staff %}checked{% endif %}>
+
+              <div>
+
+                <div class="text-sm font-bold text-slate-800">
+                  Staff
+                </div>
+
+                <div class="text-xs text-slate-500 mt-0.5">
+                  Administrative platform access.
+                </div>
+
+              </div>
+
+            </label>
+
+
+            <!-- Superuser -->
+            <label class="group flex cursor-pointer items-center gap-4 rounded-xl
+                          border border-slate-200 bg-slate-50/70 p-4 transition
+                          hover:border-violet-300 hover:bg-violet-50/50">
+
+              <input type="checkbox"
+                     name="is_superuser"
+                     class="h-5 w-5 rounded border-slate-300 text-violet-600
+                            focus:ring-violet-500"
+                     {% if usuario and usuario.is_superuser %}checked{% endif %}>
+
+              <div>
+
+                <div class="text-sm font-bold text-slate-800">
+                  Superuser
+                </div>
+
+                <div class="text-xs text-slate-500 mt-0.5">
+                  Full system privileges.
+                </div>
+
+              </div>
+
+            </label>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ==========================================================
+           GROUPS
+           ========================================================== -->
+
+      <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
+        <div class="border-b border-slate-100 px-6 py-5">
+
+          <div class="flex items-center gap-3">
+
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-50 text-lg">
+              👥
+            </div>
+
+            <div>
+
+              <h2 class="text-lg font-bold text-slate-900">
+                Available Groups
+              </h2>
+
+              <p class="text-sm text-slate-500">
+                Optional Django permission groups associated with this account.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="p-6">
+
+          <div class="flex flex-wrap gap-3">
+
+            {% for grupo in grupos %}
+
+              <label class="group inline-flex cursor-pointer items-center gap-2
+                            rounded-full border border-slate-200 bg-slate-50
+                            px-4 py-2 text-sm font-medium text-slate-700
+                            transition hover:border-cyan-300 hover:bg-cyan-50">
+
+                <input type="checkbox"
+                       name="groups"
+                       value="{{ grupo.id }}"
+                       {% if grupo.id in grupo_ids_post %}checked{% endif %}
+                       class="h-4 w-4 rounded border-slate-300 text-cyan-600
+                              focus:ring-cyan-500">
+
+                {{ grupo.name }}
+
+              </label>
+
+            {% empty %}
+
+              <div class="w-full rounded-xl border border-dashed border-slate-300
+                          bg-slate-50 p-5 text-sm text-slate-500">
+                No groups available.
+              </div>
+
+            {% endfor %}
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ==========================================================
+           ACTIONS
+           ========================================================== -->
+
+      <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between
+                  gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+
+        <div class="text-xs text-slate-500">
+          Project assignments are not modified when saving this form.
+        </div>
+
+
+        <div class="flex flex-col sm:flex-row gap-3">
+
+          <a href="{% url 'dashboard_admin:listar_usuarios' %}"
+             class="inline-flex items-center justify-center rounded-xl
+                    border border-slate-300 bg-white px-5 py-2.5
+                    text-sm font-semibold text-slate-700 transition
+                    hover:bg-slate-50">
+            ← Cancel
+          </a>
+
+
+          <button type="submit"
+                  class="inline-flex items-center justify-center gap-2 rounded-xl
+                         bg-gradient-to-r from-blue-600 to-indigo-600
+                         px-6 py-2.5 text-sm font-bold text-white
+                         shadow-lg shadow-blue-600/20 transition
+                         hover:from-blue-700 hover:to-indigo-700
+                         focus:outline-none focus:ring-4 focus:ring-blue-500/20">
+
+            <span>💾</span>
+            Save Changes
+
+          </button>
+
+        </div>
+
+      </div>
+
+    </form>
+
+  </div>
+
 </div>
 
-<!-- Flatpickr (English) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
 
-<!-- JS: radios + select-all + datepicker -->
-<script>
-(function(){
-  const radios  = document.querySelectorAll('input[name="project_visibility"]');
-  const input   = document.getElementById('project_start_date_edit');
-  if (!input) return;
+<!-- ==============================================================
+     HTML5 VALIDATION
+     ============================================================== -->
 
-  const fp = flatpickr(input, {
-    locale: "en",
-    dateFormat: "Y-m-d",
-    altInput: true,
-    altFormat: "m/d/Y",
-    allowInput: true,
-    clickOpens: true
-  });
-
-  function sync(){
-    const val = [...radios].find(r => r.checked)?.value || 'history';
-    const enable = (val === 'from_now');
-    input.disabled = !enable;
-    if (fp && fp.altInput) fp.altInput.disabled = !enable;
-    fp.set('clickOpens', enable);
-    if (!enable) fp.close();
-  }
-
-  radios.forEach(r => r.addEventListener('change', sync));
-  if (fp && fp.altInput) {
-    fp.altInput.addEventListener('focus', () => { if (fp.config.clickOpens) fp.open(); });
-    fp.altInput.addEventListener('click',  () => { if (fp.config.clickOpens) fp.open(); });
-  }
-  sync();
-
-  // --- Select-all projects (FIX) ---
-  document.querySelectorAll('.projects-wrapper').forEach(wrap=>{
-    const master = wrap.querySelector('.check-all-projects');
-    const items  = Array.from(wrap.querySelectorAll('.proj-checkbox'));
-    const first  = items[0];
-    const PROJECT_MSG = 'Please select at least one project.';
-
-    function updateValidity(){
-      if (!first) return;
-      const any = items.some(i => i.checked);
-      first.required = !any;
-      first.setCustomValidity(any ? '' : PROJECT_MSG);
-    }
-
-    function syncMasterFromItems(){
-      const all  = items.length > 0 && items.every(i => i.checked);
-      const some = items.some(i => i.checked);
-      if (master){
-        master.checked = all;
-        master.indeterminate = !all && some;
-      }
-      updateValidity();
-    }
-
-    // Usamos 'input' para reaccionar inmediato y limpiamos 'indeterminate'
-    if (master){
-      master.addEventListener('input', ()=>{
-        const shouldCheck = master.checked; // true -> marcar todo, false -> desmarcar todo
-        items.forEach(i => { i.checked = shouldCheck; });
-        master.indeterminate = false;
-        updateValidity();
-      });
-    }
-
-    // Mantener el estado del master cuando cambian los ítems
-    items.forEach(i => i.addEventListener('input', syncMasterFromItems));
-
-    // Estado inicial
-    syncMasterFromItems();
-  });
-})();
-</script>
 <script>
 (function () {
-  // Mensajes en inglés para HTML5 required/typeMismatch
-  const REQ_MSG   = 'This field is required.';
-  const EMAIL_MSG = 'Please enter a valid email address.';
-  const PW_MISM   = 'Passwords do not match.';
 
-  // Aplica a todos los controles con "required"
-  document.querySelectorAll('input[required], select[required], textarea[required]')
-    .forEach(function (el) {
-      el.addEventListener('invalid', function () {
-        el.setCustomValidity('');
-        if (el.validity.valueMissing) {
-          el.setCustomValidity(REQ_MSG);
-        } else if (el.type === 'email' && el.validity.typeMismatch) {
-          el.setCustomValidity(EMAIL_MSG);
+  const REQ_MSG =
+    'This field is required.';
+
+  const EMAIL_MSG =
+    'Please enter a valid email address.';
+
+  const PW_MISM =
+    'Passwords do not match.';
+
+
+  document
+  .querySelectorAll(
+    'input[required], select[required], textarea[required]'
+  )
+  .forEach(
+    function (el) {
+
+      el.addEventListener(
+        'invalid',
+        function () {
+
+          el.setCustomValidity('');
+
+          if (el.validity.valueMissing) {
+
+            el.setCustomValidity(
+              REQ_MSG
+            );
+
+          } else if (
+            el.type === 'email'
+            && el.validity.typeMismatch
+          ) {
+
+            el.setCustomValidity(
+              EMAIL_MSG
+            );
+
+          }
+
         }
-      });
-      el.addEventListener('input', function () {
-        el.setCustomValidity('');
-      });
-    });
+      );
 
-  // Validación de confirmación de contraseña en inglés
-  const pw1 = document.querySelector('input[name="password1"]');
-  const pw2 = document.querySelector('input[name="password2"]');
-  function checkPw() {
-    if (!pw1 || !pw2) return;
-    pw2.setCustomValidity('');
-    if (pw1.value && pw2.value && pw1.value !== pw2.value) {
-      pw2.setCustomValidity(PW_MISM);
+
+      el.addEventListener(
+        'input',
+        function () {
+
+          el.setCustomValidity('');
+
+        }
+      );
+
     }
+  );
+
+
+  const pw1 =
+    document.querySelector(
+      'input[name="password1"]'
+    );
+
+  const pw2 =
+    document.querySelector(
+      'input[name="password2"]'
+    );
+
+
+  function checkPw() {
+
+    if (!pw1 || !pw2) {
+      return;
+    }
+
+
+    pw2.setCustomValidity('');
+
+
+    if (
+      pw1.value
+      && pw2.value
+      && pw1.value !== pw2.value
+    ) {
+
+      pw2.setCustomValidity(
+        PW_MISM
+      );
+
+    }
+
   }
+
+
   if (pw1 && pw2) {
-    pw1.addEventListener('input', checkPw);
-    pw2.addEventListener('input', checkPw);
-    pw2.addEventListener('invalid', function () {
-      if (pw2.validity.valid) checkPw();
-    });
+
+    pw1.addEventListener(
+      'input',
+      checkPw
+    );
+
+    pw2.addEventListener(
+      'input',
+      checkPw
+    );
+
+    pw2.addEventListener(
+      'invalid',
+      function () {
+
+        if (pw2.validity.valid) {
+          checkPw();
+        }
+
+      }
+    );
+
   }
+
 })();
 </script>
+
+
+<!-- ==============================================================
+     FORM VALIDATION
+     ============================================================== -->
+
 <script>
-(function(){
-  const form = document.querySelector('form.bg-white');
-  if (!form) return;
+(function () {
 
-  // ---- ROLES (obligatorio al menos uno) ----
-  const roleBoxes = Array.from(form.querySelectorAll('input[name="roles"]'));
-  const firstRole = roleBoxes[0] || null;
-  const ROLE_MSG  = 'Please select at least one role.';
+  const form =
+    document.getElementById(
+      'editUserForm'
+    );
 
-  function validateRoles(){
-    const any = roleBoxes.some(cb => cb.checked);
-    if (firstRole){
-      firstRole.required = !any;
-      firstRole.setCustomValidity(any ? '' : ROLE_MSG);
-    }
-    return any;
+  if (!form) {
+    return;
   }
 
-  roleBoxes.forEach(cb => cb.addEventListener('change', validateRoles));
+
+  // ===============================================================
+  // ROLES
+  // ===============================================================
+
+  const roleBoxes =
+    Array.from(
+      form.querySelectorAll(
+        'input[name="roles"]'
+      )
+    );
+
+  const firstRole =
+    roleBoxes[0]
+    || null;
+
+  const ROLE_MSG =
+    'Please select at least one role.';
+
+
+  function validateRoles() {
+
+    const any =
+      roleBoxes.some(
+        cb => cb.checked
+      );
+
+    if (firstRole) {
+
+      firstRole.required =
+        !any;
+
+      firstRole.setCustomValidity(
+        any
+          ? ''
+          : ROLE_MSG
+      );
+
+    }
+
+    return any;
+
+  }
+
+
+  roleBoxes.forEach(
+    cb =>
+      cb.addEventListener(
+        'change',
+        validateRoles
+      )
+  );
+
+
   validateRoles();
 
- 
-  // ---- PROJECTS ----
-  const projectBoxes = Array.from(document.querySelectorAll('.proj-checkbox'));
-  const PROJECT_MSG  = 'Please select at least one project.';
 
-  function validateProjects(){
-    const any = projectBoxes.some(cb => cb.checked);
-    if (projectBoxes[0]) projectBoxes[0].setCustomValidity(any ? '' : PROJECT_MSG);
-    return any;
-  }
-  projectBoxes.forEach(cb => cb.addEventListener('change', validateProjects));
-  validateProjects();
+  // ===============================================================
+  // PASSWORD
+  // ===============================================================
 
-  // ---- PASSWORD MATCH (si existe) ----
-  const pw1 = form.querySelector('input[name="password1"]');
-  const pw2 = form.querySelector('input[name="password2"]');
-  const PW_MISM = 'Passwords do not match.';
-  function validatePw(){
-    if (!pw1 || !pw2) return true;
+  const pw1 =
+    form.querySelector(
+      'input[name="password1"]'
+    );
+
+  const pw2 =
+    form.querySelector(
+      'input[name="password2"]'
+    );
+
+  const PW_MISM =
+    'Passwords do not match.';
+
+
+  function validatePw() {
+
+    if (!pw1 || !pw2) {
+      return true;
+    }
+
+
+    pw1.setCustomValidity('');
+
     pw2.setCustomValidity('');
-    if (pw1.value && pw2.value && pw1.value !== pw2.value){
-      pw2.setCustomValidity(PW_MISM);
+
+
+    /*
+     * Editing:
+     * both empty = keep current password.
+     */
+    if (
+      !pw1.value
+      && !pw2.value
+    ) {
+
+      return true;
+
+    }
+
+
+    if (!pw1.value) {
+
+      pw1.setCustomValidity(
+        'Please enter the new password.'
+      );
+
       return false;
+
     }
+
+
+    if (!pw2.value) {
+
+      pw2.setCustomValidity(
+        'Please confirm the password.'
+      );
+
+      return false;
+
+    }
+
+
+    if (
+      pw1.value !== pw2.value
+    ) {
+
+      pw2.setCustomValidity(
+        PW_MISM
+      );
+
+      return false;
+
+    }
+
+
     return true;
-  }
-  if (pw1 && pw2){
-    pw1.addEventListener('input', validatePw);
-    pw2.addEventListener('input', validatePw);
+
   }
 
-  // ---- SUBMIT (unificado, en inglés) ----
-  form.addEventListener('submit', function(e){
-    form.querySelectorAll('input,select,textarea').forEach(function(el){
-      if (el === firstRole) return;
-      if (el.willValidate) el.setCustomValidity('');
-      if (el.required && el.validity.valueMissing) el.setCustomValidity('This field is required.');
-      if (el.type === 'email' && el.validity.typeMismatch) el.setCustomValidity('Please enter a valid email address.');
-    });
 
-    
+  if (pw1 && pw2) {
 
-    const okRoles  = validateRoles();
-    const okProj   = validateProjects();
-    const okPw     = validatePw();
+    pw1.addEventListener(
+      'input',
+      validatePw
+    );
 
-      if (!form.checkValidity() || !okRoles || !okProj || !okPw){
-      e.preventDefault();
-      form.reportValidity();
+    pw2.addEventListener(
+      'input',
+      validatePw
+    );
+
+  }
+
+
+  // ===============================================================
+  // SUBMIT FINAL
+  // ===============================================================
+
+  form.addEventListener(
+    'submit',
+    function (e) {
+
+      form
+      .querySelectorAll(
+        'input,select,textarea'
+      )
+      .forEach(
+        function (el) {
+
+          if (
+            el === firstRole
+            || el === pw1
+            || el === pw2
+          ) {
+            return;
+          }
+
+
+          if (el.willValidate) {
+
+            el.setCustomValidity('');
+
+          }
+
+
+          if (
+            el.required
+            && el.validity.valueMissing
+          ) {
+
+            el.setCustomValidity(
+              'This field is required.'
+            );
+
+          }
+
+
+          if (
+            el.type === 'email'
+            && el.validity.typeMismatch
+          ) {
+
+            el.setCustomValidity(
+              'Please enter a valid email address.'
+            );
+
+          }
+
+        }
+      );
+
+
+      const okRoles =
+        validateRoles();
+
+      const okPw =
+        validatePw();
+
+
+      if (
+        !form.checkValidity()
+        || !okRoles
+        || !okPw
+      ) {
+
+        e.preventDefault();
+
+        form.reportValidity();
+
+      }
+
     }
-  });
+  );
+
 })();
 </script>
+
 {% endblock %}
 
+
 {% if messages %}
-  <div id="mensajes" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-xl space-y-2 px-4">
+
+  <div id="mensajes"
+       class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50
+              w-full max-w-xl space-y-2 px-4">
+
     {% for message in messages %}
-      <div class="flex items-center justify-between p-4 rounded-md shadow text-white
-                  {% if message.tags == 'success' %}bg-green-600
+
+      <div class="flex items-center justify-between gap-4
+                  rounded-xl p-4 shadow-xl text-white
+                  {% if message.tags == 'success' %}bg-emerald-600
                   {% elif message.tags == 'error' %}bg-red-600
-                  {% elif message.tags == 'warning' %}bg-yellow-500
+                  {% elif message.tags == 'warning' %}bg-amber-500
                   {% else %}bg-blue-600{% endif %}">
-        <span>{{ message }}</span>
-        <button onclick="this.parentElement.remove()" class="text-white font-bold text-lg">&times;</button>
+
+        <span class="font-medium">
+          {{ message }}
+        </span>
+
+        <button type="button"
+                onclick="this.parentElement.remove()"
+                class="text-white/80 hover:text-white font-bold text-xl">
+          &times;
+        </button>
+
       </div>
+
     {% endfor %}
+
   </div>
-  <script>setTimeout(()=>{const m=document.getElementById('mensajes');if(m)m.remove()},5000);</script>
+
+  <script>
+    setTimeout(
+      () => {
+
+        const m =
+          document.getElementById(
+            'mensajes'
+          );
+
+        if (m) {
+          m.remove();
+        }
+
+      },
+      5000
+    );
+  </script>
+
 {% endif %}

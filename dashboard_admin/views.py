@@ -224,464 +224,1296 @@ def grupos_view(request):
     grupos = Group.objects.all().order_by('name')
     return render(request, 'dashboard_admin/grupos.html', {'grupos': grupos})
 
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm', 'rrhh')
+
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm")
 def editar_usuario_view(request, user_id):
+    from django.db import transaction
+    from django.utils import timezone
+
     usuario = get_object_or_404(User, id=user_id)
     grupos = Group.objects.all()
     roles_disponibles = Rol.objects.all()
 
-    if request.method == 'POST':
-        # --- update basic data ---
-        usuario.username = request.POST.get('username', usuario.username)
-        usuario.first_name = request.POST.get('first_name', usuario.first_name)
-        usuario.last_name = request.POST.get('last_name', usuario.last_name)
-        usuario.email = request.POST.get('email', usuario.email)
-        usuario.is_active = 'is_active' in request.POST
-        usuario.is_staff = 'is_staff' in request.POST
-        usuario.is_superuser = 'is_superuser' in request.POST
-        usuario.identidad = request.POST.get('identidad', usuario.identidad)
+    # ==============================================================
+    # SEGURIDAD
+    # ==============================================================
 
-        # --- groups ---
-        grupo_ids = request.POST.getlist('groups')          # 👉 ya vienen como strings
-        usuario.groups.set(grupo_ids)
+    actor_is_admin = (
+        request.user.is_superuser
+        or request.user.roles.filter(nombre__iexact="admin").exists()
+    )
 
-        # --- roles (M2M) ---
-        roles_ids = request.POST.getlist('roles')           # 👉 también strings
-        usuario.roles.set(roles_ids)
+    target_has_admin_role = usuario.roles.filter(nombre__iexact="admin").exists()
 
-        # --- password (optional) ---
-        password1 = request.POST.get('password1') or ''
-        password2 = request.POST.get('password2') or ''
-        if password1 or password2:
-            if password1 != password2:
-                messages.error(request, 'Passwords do not match.')
-                # Re-render con lo que el usuario marcó
-                return render(request, 'dashboard_admin/editar_usuario.html', {
-                    'usuario': usuario,
-                    'grupos': grupos,
-                    'roles': roles_disponibles,
-                    'roles_seleccionados': set(roles_ids),     # ids como strings
-                    'grupo_ids_post': set(grupo_ids),          # ids como strings
-                    # proyectos se mantienen como estaban
-                    'proyectos': Proyecto.objects.all().order_by('nombre'),
-                })
-            usuario.set_password(password1)
+    target_is_privileged = (
+        usuario.is_superuser or usuario.is_staff or target_has_admin_role
+    )
 
-        # --- Proyectos seleccionados y modo visibilidad ---
-        proy_ids = [int(pid) for pid in request.POST.getlist('proyectos')]
-        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()
-        start_date_str = (request.POST.get('project_start_date') or '').strip()
-        start_dt = None
-        if visibility_mode == 'from_now':
-            try:
-                start_dt = timezone.make_aware(
-                    timezone.datetime.fromisoformat(start_date_str)
-                ) if start_date_str else timezone.now()
-            except Exception:
-                start_dt = timezone.now()
-
-        usuario.save()
-
-        # --- Guardar asignaciones de proyecto ---
-        if ProyectoAsignacion:
-            ProyectoAsignacion.objects.filter(usuario=usuario).delete()
-            include_history = (visibility_mode == 'history')
-            objetos = []
-            for pid in proy_ids:
-                objetos.append(ProyectoAsignacion(
-                    usuario=usuario,
-                    proyecto_id=pid,
-                    include_history=include_history,
-                    start_at=None if include_history else (start_dt or timezone.now()),
-                ))
-            if objetos:
-                ProyectoAsignacion.objects.bulk_create(objetos)
-        elif hasattr(usuario, 'proyectos'):
-            usuario.proyectos.set(proy_ids)
-
-        messages.success(request, "User updated successfully.")
-        return redirect('dashboard_admin:listar_usuarios')
-
-    # --- GET: preload current selections ---
-    # 👉 LO IMPORTANTE: convertir ids a STRING para que el template pueda marcar los checkboxes
-    roles_seleccionados = [
-        str(pk) for pk in usuario.roles.values_list('id', flat=True)
-    ]
-    grupo_ids_post = [
-        str(gid) for gid in usuario.groups.values_list('id', flat=True)
-    ]
-
-    # Precarga de proyectos + modo/fecha visibilidad
-    proyectos_all = Proyecto.objects.all().order_by('nombre')
-    proyectos_seleccionados = []
-    project_visibility = 'history'
-    project_start_date = ''
-
-    if ProyectoAsignacion:
-        asignaciones = list(
-            ProyectoAsignacion.objects.filter(usuario=usuario).select_related('proyecto')
+    # Un usuario no-admin no puede administrar cuentas privilegiadas.
+    if not actor_is_admin and target_is_privileged:
+        messages.error(
+            request,
+            "You do not have permission to modify this privileged account.",
         )
-        proyectos_seleccionados = [a.proyecto_id for a in asignaciones]
-        any_from_now = any(not a.include_history for a in asignaciones)
-        project_visibility = 'from_now' if any_from_now else 'history'
-        if any_from_now:
-            fechas = [a.start_at for a in asignaciones if a.start_at]
-            if fechas:
-                project_start_date = fechas and fechas[0].date().isoformat()
-    elif hasattr(usuario, 'proyectos'):
-        proyectos_seleccionados = list(usuario.proyectos.values_list('id', flat=True))
 
-    return render(request, 'dashboard_admin/editar_usuario.html', {
-        'usuario': usuario,
-        'grupos': grupos,
-        'roles': roles_disponibles,
-        'roles_seleccionados': roles_seleccionados,           # <- strings
-        'grupo_ids_post': grupo_ids_post,                     # <- strings
-        'proyectos': proyectos_all,
-        'proyectos_seleccionados': proyectos_seleccionados,
-        'project_visibility': project_visibility,
-        'project_start_date': project_start_date,
-    })
+        return redirect("dashboard_admin:listar_usuarios")
 
+    # ==============================================================
+    # DESBLOQUEO DE EDICIÓN
+    #
+    # La palabra se solicita ANTES de mostrar el formulario.
+    # Se guarda únicamente un desbloqueo temporal en sesión.
+    # La palabra nunca se guarda.
+    # ==============================================================
 
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm', 'rrhh')
-def crear_usuario_view(request, identidad=None):
-    grupos = Group.objects.all()
-    usuario = get_object_or_404(User, identidad=identidad) if identidad else None
+    session_key = f"user_management_edit_unlock_{usuario.id}"
 
-    if request.method == 'POST':
-        username = request.POST['username']
-        email = request.POST['email']
-        password1 = request.POST.get('password1')
-        password2 = request.POST.get('password2')
-        first_name = request.POST['first_name']
-        last_name = request.POST['last_name']
-        is_active = request.POST.get('is_active') == 'on'
-        is_staff = 'is_staff' in request.POST
-        is_superuser = 'is_superuser' in request.POST
-        grupo_ids = [int(gid) for gid in request.POST.getlist('groups')]
-        identidad_post = request.POST.get('identidad')
-        roles_ids = request.POST.getlist('roles')
+    unlock_data = request.session.get(session_key)
 
-        # --- Proyectos seleccionados y modo de visibilidad ---
-        proy_ids = [int(pid) for pid in request.POST.getlist('proyectos')]
-        visibility_mode = (request.POST.get('project_visibility') or 'history').strip()
-        start_date_str = (request.POST.get('project_start_date') or '').strip()
-        start_dt = None
-        if visibility_mode == 'from_now':
-            try:
-                start_dt = timezone.make_aware(
-                    timezone.datetime.fromisoformat(start_date_str)
-                ) if start_date_str else timezone.now()
-            except Exception:
-                start_dt = timezone.now()
+    edit_unlocked = False
 
-        # Campos jerárquicos
-        def get_user_or_none(uid):
-            return CustomUser.objects.filter(id=uid).first() if uid else None
+    if isinstance(
+        unlock_data,
+        dict,
+    ):
+        try:
+            unlocked_at = float(
+                unlock_data.get(
+                    "timestamp",
+                    0,
+                )
+            )
 
-        supervisor = get_user_or_none(request.POST.get('supervisor'))
-        pm = get_user_or_none(request.POST.get('pm'))
-        rrhh_encargado = get_user_or_none(request.POST.get('rrhh_encargado'))
-        prevencionista = get_user_or_none(request.POST.get('prevencionista'))
-        logistica_encargado = get_user_or_none(request.POST.get('logistica_encargado'))
-        encargado_flota = get_user_or_none(request.POST.get('encargado_flota'))
-        encargado_subcontrato = get_user_or_none(request.POST.get('encargado_subcontrato'))
-        encargado_facturacion = get_user_or_none(request.POST.get('encargado_facturacion'))
+            unlocked_by = int(
+                unlock_data.get(
+                    "actor_id",
+                    0,
+                )
+            )
 
-        # Validaciones
+            elapsed = timezone.now().timestamp() - unlocked_at
+
+            edit_unlocked = unlocked_by == request.user.id and elapsed <= 300
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            edit_unlocked = False
+
+    # Si el desbloqueo expiró o es inválido, lo limpiamos.
+    if unlock_data and not edit_unlocked:
+        request.session.pop(
+            session_key,
+            None,
+        )
+
+        request.session.modified = True
+
+    # ==============================================================
+    # POST ESPECIAL:
+    # desbloquear edición antes de entrar al formulario.
+    # ==============================================================
+
+    if request.method == "POST" and "unlock_user_edit" in request.POST:
+        confirmation_word = request.POST.get("management_confirmation_word") or ""
+
+        if not _valid_user_management_confirmation(confirmation_word):
+            messages.error(
+                request,
+                "Invalid security confirmation word. "
+                "Access to user editing was denied.",
+            )
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+        request.session[session_key] = {
+            "actor_id": request.user.id,
+            "timestamp": timezone.now().timestamp(),
+        }
+
+        request.session.modified = True
+
+        return redirect(
+            "dashboard_admin:editar_usuario",
+            user_id=usuario.id,
+        )
+
+    # ==============================================================
+    # SIN DESBLOQUEO:
+    # no mostrar formulario.
+    # ==============================================================
+
+    if not edit_unlocked:
+        messages.error(
+            request,
+            "Security confirmation is required " "before editing this user.",
+        )
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # POST NORMAL:
+    # guardar edición.
+    #
+    # IMPORTANTE:
+    # Esta vista NO administra proyectos.
+    # ProyectoAsignacion no se modifica aquí.
+    # ==============================================================
+
+    if request.method == "POST":
+        username = (request.POST.get("username") or usuario.username).strip()
+
+        # ==========================================================
+        # Username reservado.
+        # ==========================================================
+
+        if username.lower() == "admin":
+            messages.error(
+                request,
+                'The username "admin" is reserved ' "and cannot be used.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # Username único sin importar mayúsculas/minúsculas.
+        # ==========================================================
+
+        if (
+            User.objects.filter(username__iexact=username)
+            .exclude(id=usuario.id)
+            .exists()
+        ):
+            messages.error(
+                request,
+                "Username already exists.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # SUPERUSER:
+        # puede editarse, pero su estado no puede cambiar.
+        # ==========================================================
+
+        requested_is_superuser = "is_superuser" in request.POST
+
+        if requested_is_superuser != usuario.is_superuser:
+            messages.error(
+                request,
+                "Superuser status cannot be changed " "from Planix.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # Roles.
+        # ==========================================================
+
+        roles_ids = request.POST.getlist("roles")
+
+        roles_solicitados = list(Rol.objects.filter(id__in=roles_ids))
+
+        submitted_role_ids = {str(rol.id) for rol in roles_solicitados}
+
+        requested_role_ids = {str(role_id) for role_id in roles_ids}
+
+        if submitted_role_ids != requested_role_ids:
+            messages.error(
+                request,
+                "One or more selected roles are invalid.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        if not roles_solicitados:
+            messages.error(
+                request,
+                "Please select at least one role.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        requested_admin_role = any(
+            (rol.nombre or "").strip().lower() == "admin" for rol in roles_solicitados
+        )
+
+        if requested_admin_role and not actor_is_admin:
+            messages.error(
+                request,
+                "You do not have permission " "to assign the Admin role.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # Staff solamente Admin.
+        # ==========================================================
+
+        requested_is_staff = "is_staff" in request.POST
+
+        if not actor_is_admin and requested_is_staff != usuario.is_staff:
+            messages.error(
+                request,
+                "You do not have permission " "to modify Staff privileges.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # Password.
+        #
+        # EDIT:
+        # ambos vacíos = conservar password actual.
+        # Si se escribe alguno, ambos deben existir y coincidir.
+        # ==========================================================
+
+        password1 = request.POST.get("password1") or ""
+
+        password2 = request.POST.get("password2") or ""
+
         if password1 or password2:
+            if not password1:
+                messages.error(
+                    request,
+                    "Please enter the new password.",
+                )
+
+                return redirect(
+                    "dashboard_admin:editar_usuario",
+                    user_id=usuario.id,
+                )
+
+            if not password2:
+                messages.error(
+                    request,
+                    "Please confirm the password.",
+                )
+
+                return redirect(
+                    "dashboard_admin:editar_usuario",
+                    user_id=usuario.id,
+                )
+
             if password1 != password2:
-                messages.error(request, 'Passwords do not match.')
-                return redirect(request.path)
+                messages.error(
+                    request,
+                    "Passwords do not match.",
+                )
 
-        if identidad_post and not re.match(r'^[A-Za-z0-9\.\-]+$', identidad_post):
-            messages.error(request, 'ID may contain only letters, numbers, dots, or hyphens.')
-            return redirect(request.path)
+                return redirect(
+                    "dashboard_admin:editar_usuario",
+                    user_id=usuario.id,
+                )
 
-        if usuario:
-            # Edición
+        # ==========================================================
+        # Datos POST.
+        # ==========================================================
+
+        grupo_ids = request.POST.getlist("groups")
+
+        identidad_post = (request.POST.get("identidad") or "").strip()
+
+        if identidad_post and not re.match(
+            r"^[A-Za-z0-9\.\-]+$",
+            identidad_post,
+        ):
+            messages.error(
+                request,
+                "ID may contain only letters, numbers, " "dots, or hyphens.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        if (
+            identidad_post
+            and User.objects.filter(identidad=identidad_post)
+            .exclude(id=usuario.id)
+            .exists()
+        ):
+            messages.error(
+                request,
+                "ID number is already registered.",
+            )
+
+            return redirect(
+                "dashboard_admin:editar_usuario",
+                user_id=usuario.id,
+            )
+
+        # ==========================================================
+        # Escritura atómica.
+        #
+        # NO SE TOCAN PROYECTOS.
+        # ==============================================================
+
+        with transaction.atomic():
             usuario.username = username
-            usuario.email = email
-            usuario.first_name = first_name
-            usuario.last_name = last_name
-            usuario.is_active = is_active
-            usuario.is_staff = is_staff
-            usuario.is_superuser = is_superuser
-            usuario.identidad = identidad_post
-            usuario.groups.set(grupo_ids)
-            usuario.roles.set(roles_ids)
 
-            # Jerarquías
-            usuario.supervisor = supervisor
-            usuario.pm = pm
-            usuario.rrhh_encargado = rrhh_encargado
-            usuario.prevencionista = prevencionista
-            usuario.logistica_encargado = logistica_encargado
-            usuario.encargado_flota = encargado_flota
-            usuario.encargado_subcontrato = encargado_subcontrato
-            usuario.encargado_facturacion = encargado_facturacion
+            usuario.first_name = request.POST.get(
+                "first_name",
+                usuario.first_name,
+            )
+
+            usuario.last_name = request.POST.get(
+                "last_name",
+                usuario.last_name,
+            )
+
+            usuario.email = request.POST.get(
+                "email",
+                usuario.email,
+            )
+
+            usuario.is_active = "is_active" in request.POST
+
+            if actor_is_admin:
+                usuario.is_staff = requested_is_staff
+
+            # is_superuser NO se modifica.
+            usuario.identidad = identidad_post
 
             if password1:
                 usuario.set_password(password1)
+
             usuario.save()
 
-            # Asignación de proyectos (reemplaza actuales por POST)
-            if ProyectoAsignacion:
-                ProyectoAsignacion.objects.filter(usuario=usuario).delete()
-                objetos = []
-                include_history = (visibility_mode == 'history')
-                for pid in proy_ids:
-                    objetos.append(ProyectoAsignacion(
-                        usuario=usuario,
-                        proyecto_id=pid,
-                        include_history=include_history,
-                        start_at=None if include_history else (start_dt or timezone.now()),
-                    ))
-                if objetos:
-                    ProyectoAsignacion.objects.bulk_create(objetos)
-            elif hasattr(usuario, 'proyectos'):
-                usuario.proyectos.set(proy_ids)
-
-            messages.success(request, 'User updated successfully.')
-        else:
-            # Creación
-            if User.objects.filter(username=username).exists():
-                messages.error(request, 'Username already exists.')
-                return redirect('dashboard_admin:crear_usuario')
-
-            if identidad_post and User.objects.filter(identidad=identidad_post).exists():
-                messages.error(request, 'ID number is already registered.')
-                return redirect('dashboard_admin:crear_usuario')
-
-            usuario = User.objects.create_user(
-                username=username,
-                email=email,
-                password=password1,
-                first_name=first_name,
-                last_name=last_name,
-                is_active=is_active,
-                is_staff=is_staff,
-                is_superuser=is_superuser,
-                identidad=identidad_post,
-                supervisor=supervisor,
-                pm=pm,
-                rrhh_encargado=rrhh_encargado,
-                prevencionista=prevencionista,
-                logistica_encargado=logistica_encargado,
-                encargado_flota=encargado_flota,
-                encargado_subcontrato=encargado_subcontrato,
-                encargado_facturacion=encargado_facturacion,
-            )
             usuario.groups.set(grupo_ids)
+
             usuario.roles.set(roles_ids)
 
-            # Asignación de proyectos al crear
-            if ProyectoAsignacion:
-                include_history = (visibility_mode == 'history')
-                objetos = []
-                for pid in proy_ids:
-                    objetos.append(ProyectoAsignacion(
-                        usuario=usuario,
-                        proyecto_id=pid,
-                        include_history=include_history,
-                        start_at=None if include_history else (start_dt or timezone.now()),
-                    ))
-                if objetos:
-                    ProyectoAsignacion.objects.bulk_create(objetos)
-            elif hasattr(usuario, 'proyectos'):
-                usuario.proyectos.set(proy_ids)
+            # ======================================================
+            # IMPORTANTE:
+            # ProyectoAsignacion NO se modifica aquí.
+            #
+            # Todas las asignaciones existentes permanecen intactas.
+            # La administración de proyectos se realiza únicamente
+            # desde gestionar_asignaciones_proyectos_view.
+            # ======================================================
 
-            messages.success(request, 'User created successfully.')
+        # ==========================================================
+        # El desbloqueo es de un solo uso después de guardar.
+        # ==========================================================
 
-        return redirect('dashboard_admin:listar_usuarios')
+        request.session.pop(
+            session_key,
+            None,
+        )
 
-    # --- GET: precarga de selecciones ---
-    grupo_ids_post = request.POST.getlist('groups') if request.method == 'POST' else []
+        request.session.modified = True
+
+        messages.success(
+            request,
+            "User updated successfully.",
+        )
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # GET
+    # ==============================================================
+
+    roles_seleccionados = [
+        str(pk)
+        for pk in usuario.roles.values_list(
+            "id",
+            flat=True,
+        )
+    ]
+
+    grupo_ids_post = [
+        str(gid)
+        for gid in usuario.groups.values_list(
+            "id",
+            flat=True,
+        )
+    ]
+
+    return render(
+        request,
+        "dashboard_admin/editar_usuario.html",
+        {
+            "usuario": usuario,
+            "grupos": grupos,
+            "roles": roles_disponibles,
+            "roles_seleccionados": roles_seleccionados,
+            "grupo_ids_post": grupo_ids_post,
+        },
+    )
+
+
+def _valid_user_management_confirmation(value):
+    import hmac
+    import os
+
+    expected = (
+        os.environ.get(
+            "USER_MANAGEMENT_CONFIRMATION_WORD",
+            "",
+        )
+        or ""
+    )
+
+    received = value or ""
+
+    # Fail closed:
+    # si la variable no está configurada, nunca autoriza.
+    if not expected:
+        return False
+
+    return hmac.compare_digest(
+        received,
+        expected,
+    )
+
+
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm", "rrhh")
+def crear_usuario_view(request, identidad=None):
+    from django.db import transaction
+
+    grupos = Group.objects.all()
+
+    usuario = (
+        get_object_or_404(
+            User,
+            identidad=identidad,
+        )
+        if identidad
+        else None
+    )
+
+    # ==============================================================
+    # SEGURIDAD
+    # ==============================================================
+
+    actor_is_admin = (
+        request.user.is_superuser
+        or request.user.roles.filter(nombre__iexact="admin").exists()
+    )
+
+    if usuario:
+        target_has_admin_role = usuario.roles.filter(nombre__iexact="admin").exists()
+
+        target_is_privileged = (
+            usuario.is_superuser or usuario.is_staff or target_has_admin_role
+        )
+
+        if not actor_is_admin and target_is_privileged:
+            messages.error(
+                request,
+                "You do not have permission " "to modify this privileged account.",
+            )
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+        if usuario.is_superuser:
+            messages.error(
+                request,
+                "Superuser accounts cannot be modified "
+                "from this user creation view.",
+            )
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+    if request.method == "POST":
+        username = (request.POST.get("username") or "").strip()
+
+        email = (request.POST.get("email") or "").strip()
+
+        password1 = request.POST.get("password1") or ""
+
+        password2 = request.POST.get("password2") or ""
+
+        first_name = (request.POST.get("first_name") or "").strip()
+
+        last_name = (request.POST.get("last_name") or "").strip()
+
+        is_active = request.POST.get("is_active") == "on"
+
+        requested_is_staff = "is_staff" in request.POST
+
+        grupo_ids_raw = request.POST.getlist("groups")
+
+        try:
+            grupo_ids = [int(gid) for gid in grupo_ids_raw]
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            messages.error(
+                request,
+                "One or more selected groups are invalid.",
+            )
+
+            return redirect(request.path)
+
+        identidad_post = (request.POST.get("identidad") or "").strip()
+
+        roles_ids = request.POST.getlist("roles")
+
+        # ==========================================================
+        # Campos obligatorios.
+        # ==========================================================
+
+        if not username:
+            messages.error(
+                request,
+                "Username is required.",
+            )
+
+            return redirect(request.path)
+
+        if not email:
+            messages.error(
+                request,
+                "Email is required.",
+            )
+
+            return redirect(request.path)
+
+        if not first_name:
+            messages.error(
+                request,
+                "First name is required.",
+            )
+
+            return redirect(request.path)
+
+        if not last_name:
+            messages.error(
+                request,
+                "Last name is required.",
+            )
+
+            return redirect(request.path)
+
+        if not identidad_post:
+            messages.error(
+                request,
+                "ID / Identification Number is required.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # Username reservado.
+        # ==========================================================
+
+        if username.lower() == "admin":
+            messages.error(
+                request,
+                'The username "admin" is reserved ' "and cannot be used.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # is_superuser nunca puede asignarse desde Planix.
+        # ==========================================================
+
+        if "is_superuser" in request.POST:
+            messages.error(
+                request,
+                "Superuser privileges cannot be assigned " "from Planix.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # Validación de roles.
+        # ==========================================================
+
+        roles_solicitados = list(Rol.objects.filter(id__in=roles_ids))
+
+        submitted_role_ids = {str(rol.id) for rol in roles_solicitados}
+
+        requested_role_ids = {str(role_id) for role_id in roles_ids}
+
+        if submitted_role_ids != requested_role_ids:
+            messages.error(
+                request,
+                "One or more selected roles are invalid.",
+            )
+
+            return redirect(request.path)
+
+        if not roles_solicitados:
+            messages.error(
+                request,
+                "Please select at least one role.",
+            )
+
+            return redirect(request.path)
+
+        requested_admin_role = any(
+            (rol.nombre or "").strip().lower() == "admin" for rol in roles_solicitados
+        )
+
+        if requested_admin_role and not actor_is_admin:
+            messages.error(
+                request,
+                "You do not have permission " "to assign the Admin role.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # is_staff solamente Admin.
+        # ==========================================================
+
+        if requested_is_staff and not actor_is_admin:
+            messages.error(
+                request,
+                "You do not have permission " "to assign Staff privileges.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # Campos jerárquicos.
+        # ==============================================================
+
+        def get_user_or_none(uid):
+            return CustomUser.objects.filter(id=uid).first() if uid else None
+
+        supervisor = get_user_or_none(request.POST.get("supervisor"))
+
+        pm = get_user_or_none(request.POST.get("pm"))
+
+        rrhh_encargado = get_user_or_none(request.POST.get("rrhh_encargado"))
+
+        prevencionista = get_user_or_none(request.POST.get("prevencionista"))
+
+        logistica_encargado = get_user_or_none(request.POST.get("logistica_encargado"))
+
+        encargado_flota = get_user_or_none(request.POST.get("encargado_flota"))
+
+        encargado_subcontrato = get_user_or_none(
+            request.POST.get("encargado_subcontrato")
+        )
+
+        encargado_facturacion = get_user_or_none(
+            request.POST.get("encargado_facturacion")
+        )
+
+        # ==========================================================
+        # Password.
+        #
+        # CREATE:
+        # obligatorio.
+        #
+        # EDIT DESDE ESTA VISTA LEGACY:
+        # opcional.
+        # ==============================================================
+
+        if usuario is None:
+            if not password1:
+                messages.error(
+                    request,
+                    "Password is required to create a user.",
+                )
+
+                return redirect(request.path)
+
+            if not password2:
+                messages.error(
+                    request,
+                    "Please confirm the password.",
+                )
+
+                return redirect(request.path)
+
+            if password1 != password2:
+                messages.error(
+                    request,
+                    "Passwords do not match.",
+                )
+
+                return redirect(request.path)
+
+        else:
+            if password1 or password2:
+                if not password1:
+                    messages.error(
+                        request,
+                        "Please enter the new password.",
+                    )
+
+                    return redirect(request.path)
+
+                if not password2:
+                    messages.error(
+                        request,
+                        "Please confirm the password.",
+                    )
+
+                    return redirect(request.path)
+
+                if password1 != password2:
+                    messages.error(
+                        request,
+                        "Passwords do not match.",
+                    )
+
+                    return redirect(request.path)
+
+        # ==========================================================
+        # Validación ID.
+        # ==============================================================
+
+        if identidad_post and not re.match(
+            r"^[A-Za-z0-9\.\-]+$",
+            identidad_post,
+        ):
+            messages.error(
+                request,
+                "ID may contain only letters, numbers, " "dots, or hyphens.",
+            )
+
+            return redirect(request.path)
+
+        # ==========================================================
+        # Edición desde esta misma vista.
+        #
+        # Se conserva por compatibilidad con identidad=None/identity.
+        # NO administra proyectos.
+        # ==============================================================
+
+        if usuario:
+            if (
+                User.objects.filter(username__iexact=username)
+                .exclude(id=usuario.id)
+                .exists()
+            ):
+                messages.error(
+                    request,
+                    "Username already exists.",
+                )
+
+                return redirect(request.path)
+
+            if (
+                identidad_post
+                and User.objects.filter(identidad=identidad_post)
+                .exclude(id=usuario.id)
+                .exists()
+            ):
+                messages.error(
+                    request,
+                    "ID number is already registered.",
+                )
+
+                return redirect(request.path)
+
+            with transaction.atomic():
+                usuario.username = username
+                usuario.email = email
+                usuario.first_name = first_name
+                usuario.last_name = last_name
+                usuario.is_active = is_active
+
+                if actor_is_admin:
+                    usuario.is_staff = requested_is_staff
+
+                # IMPORTANTE:
+                # is_superuser no se toca.
+                usuario.identidad = identidad_post
+
+                usuario.supervisor = supervisor
+                usuario.pm = pm
+
+                usuario.rrhh_encargado = rrhh_encargado
+
+                usuario.prevencionista = prevencionista
+
+                usuario.logistica_encargado = logistica_encargado
+
+                usuario.encargado_flota = encargado_flota
+
+                usuario.encargado_subcontrato = encargado_subcontrato
+
+                usuario.encargado_facturacion = encargado_facturacion
+
+                if password1:
+                    usuario.set_password(password1)
+
+                usuario.save()
+
+                usuario.groups.set(grupo_ids)
+
+                usuario.roles.set(roles_ids)
+
+                # ==================================================
+                # ProyectoAsignacion NO se modifica aquí.
+                # ==================================================
+
+            messages.success(
+                request,
+                "User updated successfully.",
+            )
+
+        else:
+            # ======================================================
+            # Creación.
+            # ======================================================
+
+            if User.objects.filter(username__iexact=username).exists():
+                messages.error(
+                    request,
+                    "Username already exists.",
+                )
+
+                return redirect("dashboard_admin:crear_usuario")
+
+            if (
+                identidad_post
+                and User.objects.filter(identidad=identidad_post).exists()
+            ):
+                messages.error(
+                    request,
+                    "ID number is already registered.",
+                )
+
+                return redirect("dashboard_admin:crear_usuario")
+
+            with transaction.atomic():
+                usuario = User.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password1,
+                    first_name=first_name,
+                    last_name=last_name,
+                    is_active=is_active,
+                    # Staff únicamente si quien crea es Admin.
+                    is_staff=(requested_is_staff if actor_is_admin else False),
+                    # NUNCA desde Planix.
+                    is_superuser=False,
+                    identidad=identidad_post,
+                    supervisor=supervisor,
+                    pm=pm,
+                    rrhh_encargado=(rrhh_encargado),
+                    prevencionista=(prevencionista),
+                    logistica_encargado=(logistica_encargado),
+                    encargado_flota=(encargado_flota),
+                    encargado_subcontrato=(encargado_subcontrato),
+                    encargado_facturacion=(encargado_facturacion),
+                )
+
+                usuario.groups.set(grupo_ids)
+
+                usuario.roles.set(roles_ids)
+
+                # ==================================================
+                # IMPORTANTE:
+                # El usuario se crea SIN proyectos.
+                #
+                # Las asignaciones se realizan exclusivamente desde:
+                # Project Assignments.
+                # ==================================================
+
+            messages.success(
+                request,
+                "User created successfully.",
+            )
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # GET
+    # ==============================================================
+
+    grupo_ids_post = request.POST.getlist("groups") if request.method == "POST" else []
+
     if not grupo_ids_post and usuario:
         grupo_ids_post = [str(g.id) for g in usuario.groups.all()]
 
-    # 👉 Roles: solo queryset, sin asignar label_en
     roles_disponibles = Rol.objects.all()
-    roles_seleccionados = usuario.roles.values_list('id', flat=True) if usuario else []
-    roles_seleccionados = [str(id) for id in roles_seleccionados]
 
-    usuarios_activos = CustomUser.objects.filter(is_active=True).order_by('first_name', 'last_name')
+    roles_seleccionados = (
+        usuario.roles.values_list(
+            "id",
+            flat=True,
+        )
+        if usuario
+        else []
+    )
 
-    # Proyectos + modo/fecha visibilidad
-    proyectos_all = Proyecto.objects.all().order_by('nombre')
-    proyectos_seleccionados = []
-    project_visibility = 'history'
-    project_start_date = ''
+    roles_seleccionados = [str(role_id) for role_id in roles_seleccionados]
 
-    if usuario:
-        if ProyectoAsignacion:
-            asignaciones = list(
-                ProyectoAsignacion.objects.filter(usuario=usuario)
-                .select_related('proyecto')
-            )
-            proyectos_seleccionados = [a.proyecto_id for a in asignaciones]
-            any_from_now = any(not a.include_history for a in asignaciones)
-            project_visibility = 'from_now' if any_from_now else 'history'
-            if any_from_now:
-                fechas = [a.start_at for a in asignaciones if a.start_at]
-                if fechas:
-                    project_start_date = fechas and fechas[0].date().isoformat()
-        elif hasattr(usuario, 'proyectos'):
-            proyectos_seleccionados = list(usuario.proyectos.values_list('id', flat=True))
+    usuarios_activos = CustomUser.objects.filter(is_active=True).order_by(
+        "first_name",
+        "last_name",
+    )
 
     contexto = {
-        'grupos': grupos,
-        'grupo_ids_post': grupo_ids_post,
-        'usuario': usuario,
-        'roles': roles_disponibles,
-        'roles_seleccionados': roles_seleccionados,
-        'usuarios': usuarios_activos,
-        'proyectos': proyectos_all,
-        'proyectos_seleccionados': proyectos_seleccionados,
-        'project_visibility': project_visibility,
-        'project_start_date': project_start_date,
+        "grupos": grupos,
+        "grupo_ids_post": grupo_ids_post,
+        "usuario": usuario,
+        "roles": roles_disponibles,
+        "roles_seleccionados": roles_seleccionados,
+        "usuarios": usuarios_activos,
     }
-    return render(request, 'dashboard_admin/crear_usuario.html', contexto)
+
+    return render(
+        request,
+        "dashboard_admin/crear_usuario.html",
+        contexto,
+    )
 
 
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm', 'rrhh')
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin", "pm", "rrhh")
 def listar_usuarios(request):
-    # --- Acciones POST ---
+    # ==============================================================
+    # ¿El usuario actual puede eliminar cuentas?
+    #
+    # Delete es exclusivo del rol Admin.
+    # is_superuser también se considera administrador del sistema.
+    # ==============================================================
+
+    can_delete_users = (
+        request.user.is_superuser
+        or request.user.roles.filter(nombre__iexact="admin").exists()
+    )
+
+    # ==============================================================
+    # ACCIONES POST
+    # ==============================================================
+
     if request.method == "POST":
         user_id = request.POST.get("user_id")
 
-        # 1) Eliminar usuario
-        if "delete_user" in request.POST:
+        # ----------------------------------------------------------
+        # 1) ACTIVAR / DESACTIVAR USUARIO
+        # ----------------------------------------------------------
+
+        if "toggle_user_status" in request.POST:
             try:
                 usuario = User.objects.get(id=user_id)
-                username = usuario.username
-                usuario.delete()
-                messages.success(request, f'User "{username}" deleted successfully.')
             except User.DoesNotExist:
                 messages.error(request, "User not found.")
-            return redirect('dashboard_admin:listar_usuarios')
+                return redirect("dashboard_admin:listar_usuarios")
 
-        # 2) Reset 2FA
+            # Nadie puede desactivarse a sí mismo desde esta pantalla.
+            if usuario.id == request.user.id:
+                messages.error(
+                    request,
+                    "You cannot activate or deactivate your own account from this screen.",
+                )
+                return redirect("dashboard_admin:listar_usuarios")
+
+            action = (request.POST.get("user_status_action") or "").strip().lower()
+
+            if action == "deactivate":
+                usuario.is_active = False
+                usuario.save(update_fields=["is_active"])
+
+                messages.success(
+                    request, f'User "{usuario.username}" has been deactivated.'
+                )
+
+            elif action == "activate":
+                usuario.is_active = True
+                usuario.save(update_fields=["is_active"])
+
+                messages.success(
+                    request, f'User "{usuario.username}" has been activated.'
+                )
+
+            else:
+                messages.error(request, "Invalid user status action.")
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+        # ----------------------------------------------------------
+        # 2) RESET 2FA
+        # ----------------------------------------------------------
+
         if "reset_2fa" in request.POST:
             try:
                 usuario = User.objects.get(id=user_id)
             except User.DoesNotExist:
                 messages.error(request, "User not found.")
-                return redirect('dashboard_admin:listar_usuarios')
+                return redirect("dashboard_admin:listar_usuarios")
 
-            # Limpiar secreto y bandera de 2FA si existen esos campos
             update_fields = []
-            if hasattr(usuario, "two_factor_secret"):
+
+            if hasattr(
+                usuario,
+                "two_factor_secret",
+            ):
                 usuario.two_factor_secret = ""
                 update_fields.append("two_factor_secret")
-            if hasattr(usuario, "two_factor_enabled"):
+
+            if hasattr(
+                usuario,
+                "two_factor_enabled",
+            ):
                 usuario.two_factor_enabled = False
                 update_fields.append("two_factor_enabled")
 
             if update_fields:
                 usuario.save(update_fields=update_fields)
             else:
-                # por si acaso tu modelo no tiene esos campos en algún entorno
                 usuario.save()
 
-            # Borrar dispositivos de confianza asociados
             try:
                 TrustedDevice.objects.filter(user=usuario).delete()
             except Exception:
-                # No rompemos la vista si algo falla aquí
                 pass
 
             messages.success(
                 request,
-                f'2FA has been reset for user "{usuario.username}". They must configure it again.'
+                f'2FA has been reset for user "{usuario.username}". '
+                "They must configure it again.",
             )
-            return redirect('dashboard_admin:listar_usuarios')
 
-    # --- Filtros GET ---
-    rol_filtrado = (request.GET.get('rol') or '').strip()
-    first_q = (request.GET.get('first') or '').strip()
-    last_q  = (request.GET.get('last') or '').strip()
-    id_q    = (request.GET.get('id') or '').strip()
+            return redirect("dashboard_admin:listar_usuarios")
 
-    qs = User.objects.all().order_by('id').prefetch_related('roles', 'groups')
+    # ==============================================================
+    # FILTROS GET
+    # ==============================================================
+
+    rol_filtrado = (request.GET.get("rol") or "").strip()
+
+    first_q = (request.GET.get("first") or "").strip()
+
+    last_q = (request.GET.get("last") or "").strip()
+
+    id_q = (request.GET.get("id") or "").strip()
+
+    qs = (
+        User.objects.all()
+        .order_by("id")
+        .prefetch_related(
+            "roles",
+            "groups",
+        )
+    )
 
     # Prefetch de proyectos según exista through o M2M directo
     if ProyectoAsignacion:
         qs = qs.prefetch_related(
             Prefetch(
-                'proyectoasignacion_set',
-                queryset=ProyectoAsignacion.objects.select_related('proyecto'),
+                "proyectoasignacion_set",
+                queryset=(ProyectoAsignacion.objects.select_related("proyecto")),
             )
         )
-    elif hasattr(User, 'proyectos'):
-        qs = qs.prefetch_related('proyectos')
+
+    elif hasattr(User, "proyectos"):
+        qs = qs.prefetch_related("proyectos")
 
     if rol_filtrado:
         qs = qs.filter(roles__nombre=rol_filtrado).distinct()
+
     if first_q:
         qs = qs.filter(first_name__icontains=first_q)
+
     if last_q:
         qs = qs.filter(last_name__icontains=last_q)
+
     if id_q:
         qs = qs.filter(identidad__icontains=id_q)
 
-    # Pagination (soporta per_page=all/todos y el hidden "cantidad")
-    per_page_raw = str(request.GET.get('per_page', request.GET.get('cantidad', '20'))).strip().lower()
-    if per_page_raw in ('all', 'todos'):
-        per_page = max(qs.count(), 1)
+    # ==============================================================
+    # PAGINACIÓN
+    # ==============================================================
+
+    per_page_raw = (
+        str(
+            request.GET.get(
+                "per_page",
+                request.GET.get(
+                    "cantidad",
+                    "20",
+                ),
+            )
+        )
+        .strip()
+        .lower()
+    )
+
+    if per_page_raw in (
+        "all",
+        "todos",
+    ):
+        per_page = max(
+            qs.count(),
+            1,
+        )
+
     else:
         try:
             per_page = int(per_page_raw or 20)
         except ValueError:
             per_page = 20
-        per_page = max(5, min(per_page, 100))
 
-    paginator = Paginator(qs, per_page)
-    page_number = request.GET.get('page', 1)
+        per_page = max(
+            5,
+            min(
+                per_page,
+                100,
+            ),
+        )
+
+    paginator = Paginator(
+        qs,
+        per_page,
+    )
+
+    page_number = request.GET.get(
+        "page",
+        1,
+    )
+
     try:
         usuarios_page = paginator.get_page(page_number)
-    except (PageNotAnInteger, EmptyPage):
+
+    except (
+        PageNotAnInteger,
+        EmptyPage,
+    ):
         usuarios_page = paginator.get_page(1)
 
-    # Preserva querystring (excepto page) para mantener filtros
+    # Preserva querystring excepto page
     params = request.GET.copy()
-    params.pop('page', None)
+    params.pop(
+        "page",
+        None,
+    )
+
     querystring = params.urlencode()
 
     roles_disponibles = Rol.objects.all()
 
-    return render(request, 'dashboard_admin/listar_usuarios.html', {
-        'usuarios': usuarios_page,
-        'page_obj': usuarios_page,
-        'roles': roles_disponibles,
-        'rol_filtrado': rol_filtrado,
-        'per_page': per_page,
-        'querystring': querystring,
-        'first_q': first_q,
-        'last_q': last_q,
-        'id_q': id_q,
-        'cantidad': request.GET.get('cantidad', None),
-    })
+    return render(
+        request,
+        "dashboard_admin/listar_usuarios.html",
+        {
+            "usuarios": usuarios_page,
+            "page_obj": usuarios_page,
+            "roles": roles_disponibles,
+            "rol_filtrado": rol_filtrado,
+            "per_page": per_page,
+            "querystring": querystring,
+            "first_q": first_q,
+            "last_q": last_q,
+            "id_q": id_q,
+            "cantidad": request.GET.get(
+                "cantidad",
+                None,
+            ),
+            # Hace funcionar la condición del HTML.
+            "can_delete_users": can_delete_users,
+        },
+    )
 
 
-@login_required(login_url='usuarios:login')
-@rol_requerido('admin', 'pm', 'rrhh')
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin")
 def eliminar_usuario_view(request, user_id):
-    usuario = get_object_or_404(User, id=user_id)
+    from django.db.models.deletion import ProtectedError
 
-    if request.method == 'POST':
-        usuario.delete()
-        messages.success(
-            request, f'Usuario {usuario.username} eliminado correctamente.'
-        )
-        return redirect('dashboard_admin:listar_usuarios')
+    usuario = get_object_or_404(
+        User,
+        id=user_id,
+    )
 
-    # GET → mostrar confirmación
-    return render(request, 'dashboard_admin/eliminar_usuario_confirmacion.html', {'usuario': usuario})
+    # ==============================================================
+    # BLINDAJE 1:
+    # Nunca permitir borrar la cuenta reservada "admin".
+    # ==============================================================
+
+    if (usuario.username or "").strip().lower() == "admin":
+        messages.error(request, 'The reserved "admin" account cannot be deleted.')
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # BLINDAJE 2:
+    # Nunca permitir que un usuario se elimine a sí mismo.
+    # ==============================================================
+
+    if usuario.id == request.user.id:
+        messages.error(request, "You cannot delete your own account.")
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # DELETE
+    # ==============================================================
+
+    if request.method == "POST":
+        confirmation_word = request.POST.get("management_confirmation_word") or ""
+
+        # ==========================================================
+        # BLINDAJE 3:
+        # Confirmación privada del lado servidor.
+        # ==========================================================
+
+        if not _valid_user_management_confirmation(confirmation_word):
+            messages.error(
+                request,
+                "Invalid security confirmation word. " "The user was not deleted.",
+            )
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+        username = usuario.username
+
+        try:
+            usuario.delete()
+
+        except ProtectedError:
+            messages.error(
+                request,
+                f'User "{username}" cannot be deleted because '
+                "historical records are still linked to this account. "
+                "Deactivate the user instead or reassign the protected "
+                "historical records first.",
+            )
+
+            return redirect("dashboard_admin:listar_usuarios")
+
+        messages.success(request, f'User "{username}" deleted successfully.')
+
+        return redirect("dashboard_admin:listar_usuarios")
+
+    return render(
+        request,
+        "dashboard_admin/eliminar_usuario_confirmacion.html",
+        {
+            "usuario": usuario,
+        },
+    )
 
 
 # Vista para usuarios no autorizados
@@ -1031,3 +1863,355 @@ def exportar_formato_nuevo_usuario_docx(request):
         'attachment; filename="user_creation_request.docx"'
     )
     return response
+
+
+@login_required(login_url="usuarios:login")
+@rol_requerido("admin")
+def gestionar_asignaciones_proyectos_view(request):
+    from django.db import transaction
+    from django.utils import timezone
+
+    from facturacion.models import Proyecto
+    from usuarios.models import ProyectoAsignacion
+
+    # ==============================================================
+    # SEGURIDAD
+    # ==============================================================
+
+    actor_is_admin = (
+        request.user.is_superuser
+        or request.user.roles.filter(nombre__iexact="admin").exists()
+    )
+
+    if not actor_is_admin:
+        messages.error(
+            request, "You do not have permission to manage project assignments."
+        )
+        return redirect("dashboard_admin:listar_usuarios")
+
+    # ==============================================================
+    # SOLO PROYECTOS ACTIVOS
+    # ==============================================================
+
+    proyectos = Proyecto.objects.filter(activo=True).order_by(
+        "nombre",
+        "codigo",
+    )
+
+    # ==============================================================
+    # PROYECTO SELECCIONADO
+    # ==============================================================
+
+    proyecto_id = (
+        request.POST.get("proyecto_id")
+        if request.method == "POST"
+        else request.GET.get("proyecto")
+    )
+
+    proyecto_seleccionado = None
+
+    if proyecto_id:
+        try:
+            proyecto_seleccionado = Proyecto.objects.get(
+                id=proyecto_id,
+                activo=True,
+            )
+        except (
+            Proyecto.DoesNotExist,
+            ValueError,
+            TypeError,
+        ):
+            messages.error(request, "The selected project is invalid or inactive.")
+
+            return redirect("dashboard_admin:gestionar_asignaciones_proyectos")
+
+    # ==============================================================
+    # GUARDAR ASIGNACIONES
+    # ==============================================================
+
+    if request.method == "POST" and "save_project_assignments" in request.POST:
+        if not proyecto_seleccionado:
+            messages.error(request, "Please select an active project.")
+
+            return redirect("dashboard_admin:gestionar_asignaciones_proyectos")
+
+        # ==========================================================
+        # PALABRA DE SEGURIDAD
+        # ==========================================================
+
+        confirmation_word = request.POST.get("management_confirmation_word") or ""
+
+        if not _valid_user_management_confirmation(confirmation_word):
+            messages.error(
+                request,
+                "Invalid security confirmation word. "
+                "No project assignments were changed.",
+            )
+
+            return redirect(
+                "{}?proyecto={}".format(
+                    reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                    proyecto_seleccionado.id,
+                )
+            )
+
+        # ==========================================================
+        # SOLO USUARIOS ACTIVOS SON OPERABLES
+        # ==========================================================
+
+        active_user_ids = set(
+            User.objects.filter(is_active=True).values_list(
+                "id",
+                flat=True,
+            )
+        )
+
+        requested_user_ids_raw = request.POST.getlist("usuarios")
+
+        requested_user_ids = set()
+
+        try:
+            requested_user_ids = {int(user_id) for user_id in requested_user_ids_raw}
+        except (
+            TypeError,
+            ValueError,
+        ):
+            messages.error(request, "One or more selected users are invalid.")
+
+            return redirect(
+                "{}?proyecto={}".format(
+                    reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                    proyecto_seleccionado.id,
+                )
+            )
+
+        # No permitir manipular IDs de usuarios inactivos
+        # ni inexistentes mediante POST falsificado.
+        if not requested_user_ids.issubset(active_user_ids):
+            messages.error(
+                request, "One or more selected users are invalid or inactive."
+            )
+
+            return redirect(
+                "{}?proyecto={}".format(
+                    reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                    proyecto_seleccionado.id,
+                )
+            )
+
+        # ==========================================================
+        # VISIBILIDAD PARA NUEVAS ASIGNACIONES
+        # ==========================================================
+
+        visibility_mode = (request.POST.get("project_visibility") or "history").strip()
+
+        if visibility_mode not in {
+            "history",
+            "from_now",
+        }:
+            messages.error(request, "Invalid project visibility mode.")
+
+            return redirect(
+                "{}?proyecto={}".format(
+                    reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                    proyecto_seleccionado.id,
+                )
+            )
+
+        start_date_str = (request.POST.get("project_start_date") or "").strip()
+
+        start_dt = None
+
+        if visibility_mode == "from_now":
+            try:
+                if start_date_str:
+                    parsed_date = timezone.datetime.fromisoformat(start_date_str)
+
+                    if timezone.is_naive(parsed_date):
+                        start_dt = timezone.make_aware(parsed_date)
+                    else:
+                        start_dt = parsed_date
+
+                else:
+                    start_dt = timezone.now()
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                messages.error(request, "The start date is invalid.")
+
+                return redirect(
+                    "{}?proyecto={}".format(
+                        reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                        proyecto_seleccionado.id,
+                    )
+                )
+
+        include_history = visibility_mode == "history"
+
+        # ==========================================================
+        # ESTADO ACTUAL
+        #
+        # IMPORTANTE:
+        # solamente consideramos usuarios ACTIVOS para determinar
+        # altas y bajas.
+        #
+        # Las asignaciones de usuarios inactivos quedan intactas.
+        # ==========================================================
+
+        current_active_assignments = list(
+            ProyectoAsignacion.objects.filter(
+                proyecto=proyecto_seleccionado,
+                usuario__is_active=True,
+            ).select_related("usuario")
+        )
+
+        current_active_ids = {
+            assignment.usuario_id for assignment in current_active_assignments
+        }
+
+        ids_to_add = requested_user_ids - current_active_ids
+
+        ids_to_remove = current_active_ids - requested_user_ids
+
+        ids_unchanged = current_active_ids & requested_user_ids
+
+        # ==========================================================
+        # ESCRITURA ATÓMICA
+        # ==============================================================
+
+        with transaction.atomic():
+
+            # ------------------------------------------------------
+            # QUITAR
+            #
+            # SOLO usuarios activos desmarcados.
+            # Usuarios inactivos NO se tocan.
+            # ------------------------------------------------------
+
+            if ids_to_remove:
+                ProyectoAsignacion.objects.filter(
+                    proyecto=proyecto_seleccionado,
+                    usuario_id__in=ids_to_remove,
+                    usuario__is_active=True,
+                ).delete()
+
+            # ------------------------------------------------------
+            # AGREGAR
+            # ------------------------------------------------------
+
+            nuevos = []
+
+            for user_id in sorted(ids_to_add):
+                nuevos.append(
+                    ProyectoAsignacion(
+                        usuario_id=user_id,
+                        proyecto=proyecto_seleccionado,
+                        include_history=include_history,
+                        start_at=(
+                            None if include_history else (start_dt or timezone.now())
+                        ),
+                    )
+                )
+
+            if nuevos:
+                ProyectoAsignacion.objects.bulk_create(nuevos)
+
+        messages.success(
+            request,
+            (
+                f'Project "{proyecto_seleccionado.nombre}" updated successfully. '
+                f"Added: {len(ids_to_add)}. "
+                f"Removed: {len(ids_to_remove)}. "
+                f"Unchanged: {len(ids_unchanged)}."
+            ),
+        )
+
+        return redirect(
+            "{}?proyecto={}".format(
+                reverse("dashboard_admin:gestionar_asignaciones_proyectos"),
+                proyecto_seleccionado.id,
+            )
+        )
+
+    # ==============================================================
+    # USUARIOS ACTIVOS
+    # ==============================================================
+
+    usuarios = (
+        User.objects.filter(is_active=True)
+        .prefetch_related("roles")
+        .order_by(
+            "first_name",
+            "last_name",
+            "username",
+        )
+    )
+
+    # ==============================================================
+    # ASIGNACIONES ACTUALES DEL PROYECTO
+    # ==============================================================
+
+    asignaciones_por_usuario = {}
+
+    usuarios_asignados_ids = set()
+
+    if proyecto_seleccionado:
+        asignaciones_actuales = ProyectoAsignacion.objects.filter(
+            proyecto=proyecto_seleccionado,
+            usuario__is_active=True,
+        ).select_related("usuario")
+
+        for asignacion in asignaciones_actuales:
+            usuarios_asignados_ids.add(asignacion.usuario_id)
+
+            asignaciones_por_usuario[asignacion.usuario_id] = asignacion
+
+    # ==============================================================
+    # CONSTRUIR FILAS PARA TEMPLATE
+    # ==============================================================
+
+    usuarios_rows = []
+
+    for usuario in usuarios:
+        asignacion = asignaciones_por_usuario.get(usuario.id)
+
+        usuarios_rows.append(
+            {
+                "usuario": usuario,
+                "asignado": (usuario.id in usuarios_asignados_ids),
+                "asignacion": asignacion,
+            }
+        )
+
+    # ==============================================================
+    # CONTADORES
+    # ==============================================================
+
+    total_usuarios_activos = len(usuarios_rows)
+
+    total_asignados_activos = len(usuarios_asignados_ids)
+
+    # Solo auditoría informativa.
+    # No se muestran ni se manipulan.
+    total_asignados_inactivos = 0
+
+    if proyecto_seleccionado:
+        total_asignados_inactivos = ProyectoAsignacion.objects.filter(
+            proyecto=proyecto_seleccionado,
+            usuario__is_active=False,
+        ).count()
+
+    return render(
+        request,
+        "dashboard_admin/gestionar_asignaciones_proyectos.html",
+        {
+            "proyectos": proyectos,
+            "proyecto_seleccionado": proyecto_seleccionado,
+            "usuarios_rows": usuarios_rows,
+            "total_usuarios_activos": total_usuarios_activos,
+            "total_asignados_activos": total_asignados_activos,
+            "total_asignados_inactivos": total_asignados_inactivos,
+        },
+    )

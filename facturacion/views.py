@@ -934,59 +934,122 @@ def listar_saldos_usuarios(request):
     cantidad = request.GET.get('cantidad', '5')
 
     USER_PENDING = ['pendiente_abono_usuario']
-    SUP_PENDING  = ['pendiente_supervisor']
-    PM_PENDING   = ['aprobado_supervisor']
-    FIN_PENDING  = ['aprobado_pm']
+    SUP_PENDING = ['pendiente_supervisor']
+    PM_PENDING = ['aprobado_supervisor']
+    FIN_PENDING = ['aprobado_pm']
 
-    DEC = DecimalField(max_digits=12, decimal_places=2)
-    V0  = Value(Decimal('0.00'), output_field=DEC)
+    DEC = DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
+
+    V0 = Value(
+        Decimal('0.00'),
+        output_field=DEC,
+    )
+
+    # =====================================================================
+    # AGREGADOS PENDIENTES
+    # =====================================================================
 
     pend_user_abonos = Sum(
         Case(
-            When(Q(abonos__gt=0) & Q(status__in=USER_PENDING), then=F('abonos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(abonos__gt=0)
+                & Q(status__in=USER_PENDING),
+                then=F('abonos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_sup_abonos = Sum(
         Case(
-            When(Q(abonos__gt=0) & Q(status__in=SUP_PENDING), then=F('abonos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(abonos__gt=0)
+                & Q(status__in=SUP_PENDING),
+                then=F('abonos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_sup_cargos = Sum(
         Case(
-            When(Q(cargos__gt=0) & Q(status__in=SUP_PENDING), then=F('cargos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(cargos__gt=0)
+                & Q(status__in=SUP_PENDING),
+                then=F('cargos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_pm_abonos = Sum(
         Case(
-            When(Q(abonos__gt=0) & Q(status__in=PM_PENDING), then=F('abonos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(abonos__gt=0)
+                & Q(status__in=PM_PENDING),
+                then=F('abonos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_pm_cargos = Sum(
         Case(
-            When(Q(cargos__gt=0) & Q(status__in=PM_PENDING), then=F('cargos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(cargos__gt=0)
+                & Q(status__in=PM_PENDING),
+                then=F('cargos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_fin_abonos = Sum(
         Case(
-            When(Q(abonos__gt=0) & Q(status__in=FIN_PENDING), then=F('abonos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(abonos__gt=0)
+                & Q(status__in=FIN_PENDING),
+                then=F('abonos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
     pend_fin_cargos = Sum(
         Case(
-            When(Q(cargos__gt=0) & Q(status__in=FIN_PENDING), then=F('cargos')),
-            default=V0, output_field=DEC,
+            When(
+                Q(cargos__gt=0)
+                & Q(status__in=FIN_PENDING),
+                then=F('cargos'),
+            ),
+            default=V0,
+            output_field=DEC,
         )
     )
+
+    # =====================================================================
+    # BASE
+    #
+    # Se mantiene el blindaje actual por:
+    #
+    # - proyecto
+    # - include_history
+    # - start_at
+    #
+    # tanto para usuarios activos como inactivos.
+    # =====================================================================
 
     base = CartolaMovimiento.objects.all()
 
-    # ✅ BLINDADO: proyecto + include_history/start_at también para agregados
     base = filter_queryset_by_assignment_history(
         base,
         request.user,
@@ -994,55 +1057,180 @@ def listar_saldos_usuarios(request):
         date_field="fecha",
     )
 
-    qs = (
-        base
-        .values('usuario__id', 'usuario__first_name', 'usuario__last_name', 'usuario__email')
-        .annotate(
-            monto_rendido = Coalesce(Sum('cargos'), V0, output_field=DEC),
-            monto_asignado = Coalesce(Sum('abonos'), V0, output_field=DEC),
+    # =====================================================================
+    # CONSTRUCTOR COMÚN DE SALDOS
+    #
+    # Se utiliza exactamente el mismo cálculo financiero para activos
+    # e inactivos. Solo cambia usuario__is_active.
+    # =====================================================================
 
-            pend_user = pend_user_abonos,
+    def build_saldos_queryset(queryset):
+        return (
+            queryset
+            .values(
+                'usuario__id',
+                'usuario__first_name',
+                'usuario__last_name',
+                'usuario__email',
+                'usuario__is_active',
+            )
+            .annotate(
+                monto_rendido=Coalesce(
+                    Sum('cargos'),
+                    V0,
+                    output_field=DEC,
+                ),
+                monto_asignado=Coalesce(
+                    Sum('abonos'),
+                    V0,
+                    output_field=DEC,
+                ),
 
-            _pend_sup_abonos = pend_sup_abonos,
-            _pend_sup_cargos = pend_sup_cargos,
-            _pend_pm_abonos  = pend_pm_abonos,
-            _pend_pm_cargos  = pend_pm_cargos,
-            _pend_fin_abonos = pend_fin_abonos,
-            _pend_fin_cargos = pend_fin_cargos,
+                pend_user=pend_user_abonos,
+
+                _pend_sup_abonos=pend_sup_abonos,
+                _pend_sup_cargos=pend_sup_cargos,
+                _pend_pm_abonos=pend_pm_abonos,
+                _pend_pm_cargos=pend_pm_cargos,
+                _pend_fin_abonos=pend_fin_abonos,
+                _pend_fin_cargos=pend_fin_cargos,
+            )
+            .annotate(
+                pend_sup=ExpressionWrapper(
+                    Coalesce(
+                        F('_pend_sup_abonos'),
+                        V0,
+                        output_field=DEC,
+                    )
+                    +
+                    Coalesce(
+                        F('_pend_sup_cargos'),
+                        V0,
+                        output_field=DEC,
+                    ),
+                    output_field=DEC,
+                ),
+
+                pend_pm=ExpressionWrapper(
+                    Coalesce(
+                        F('_pend_pm_abonos'),
+                        V0,
+                        output_field=DEC,
+                    )
+                    +
+                    Coalesce(
+                        F('_pend_pm_cargos'),
+                        V0,
+                        output_field=DEC,
+                    ),
+                    output_field=DEC,
+                ),
+
+                pend_fin=ExpressionWrapper(
+                    Coalesce(
+                        F('_pend_fin_abonos'),
+                        V0,
+                        output_field=DEC,
+                    )
+                    +
+                    Coalesce(
+                        F('_pend_fin_cargos'),
+                        V0,
+                        output_field=DEC,
+                    ),
+                    output_field=DEC,
+                ),
+
+                monto_disponible=ExpressionWrapper(
+                    Coalesce(
+                        F('monto_asignado'),
+                        V0,
+                        output_field=DEC,
+                    )
+                    -
+                    Coalesce(
+                        F('monto_rendido'),
+                        V0,
+                        output_field=DEC,
+                    ),
+                    output_field=DEC,
+                ),
+            )
+            .order_by(
+                'usuario__first_name',
+                'usuario__last_name',
+            )
         )
-        .annotate(
-            pend_sup = ExpressionWrapper(
-                Coalesce(F('_pend_sup_abonos'), V0, output_field=DEC) +
-                Coalesce(F('_pend_sup_cargos'), V0, output_field=DEC),
-                output_field=DEC,
-            ),
-            pend_pm = ExpressionWrapper(
-                Coalesce(F('_pend_pm_abonos'), V0, output_field=DEC) +
-                Coalesce(F('_pend_pm_cargos'), V0, output_field=DEC),
-                output_field=DEC,
-            ),
-            pend_fin = ExpressionWrapper(
-                Coalesce(F('_pend_fin_abonos'), V0, output_field=DEC) +
-                Coalesce(F('_pend_fin_cargos'), V0, output_field=DEC),
-                output_field=DEC,
-            ),
-            monto_disponible = ExpressionWrapper(
-                Coalesce(F('monto_asignado'), V0, output_field=DEC) -
-                Coalesce(F('monto_rendido'), V0, output_field=DEC),
-                output_field=DEC,
-            ),
+
+    # =====================================================================
+    # USUARIOS ACTIVOS
+    #
+    # ÚNICOS que aparecerán en la tabla principal.
+    # =====================================================================
+
+    saldos_activos = build_saldos_queryset(
+        base.filter(
+            usuario__is_active=True,
         )
-        .order_by('usuario__first_name', 'usuario__last_name')
     )
 
-    paginator = Paginator(qs, qs.count() or 1) if cantidad == 'todos' else Paginator(qs, int(cantidad))
-    pagina = paginator.get_page(request.GET.get('page'))
+    # =====================================================================
+    # USUARIOS INACTIVOS
+    #
+    # Se conservan solamente para auditoría.
+    #
+    # Como parten de CartolaMovimiento, solo aparecerán usuarios que
+    # realmente tengan historial financiero.
+    # =====================================================================
 
-    return render(request, 'facturacion/listar_saldos_usuarios.html', {
-        'saldos': pagina,
-        'pagina': pagina,
-        'cantidad': cantidad,
-    })
+    saldos_inactivos = build_saldos_queryset(
+        base.filter(
+            usuario__is_active=False,
+        )
+    )
+
+    # =====================================================================
+    # PAGINACIÓN TABLA PRINCIPAL
+    # =====================================================================
+
+    if cantidad == 'todos':
+        paginator = Paginator(
+            saldos_activos,
+            saldos_activos.count() or 1,
+        )
+    else:
+        try:
+            cantidad_int = int(cantidad)
+        except (TypeError, ValueError):
+            cantidad_int = 5
+            cantidad = '5'
+
+        paginator = Paginator(
+            saldos_activos,
+            cantidad_int,
+        )
+
+    pagina = paginator.get_page(
+        request.GET.get('page')
+    )
+
+    # =====================================================================
+    # RENDER
+    # =====================================================================
+
+    return render(
+        request,
+        'facturacion/listar_saldos_usuarios.html',
+        {
+            'saldos': pagina,
+            'pagina': pagina,
+            'cantidad': cantidad,
+
+            # Auditoría
+            'saldos_inactivos': saldos_inactivos,
+            'total_inactivos': saldos_inactivos.count(),
+        },
+    )
 
 
 from datetime import datetime, time, timedelta
@@ -1525,22 +1713,40 @@ def exportar_saldos(request):
 
             base = base.filter(id__in=ids_ok)
 
-    balances = (
-        base.values("usuario__first_name", "usuario__last_name")
-        .annotate(
-            rendered_amount=Sum("cargos", default=0),
-            assigned_amount=Sum("abonos", default=0),
-            available_amount=Sum(F("abonos") - F("cargos"), default=0),
-            pending_user=_sum_pending_abonos(USER_PENDING),
-            sup_abonos=_sum_pending_abonos(SUP_PENDING),
-            sup_cargos=_sum_pending_cargos(SUP_PENDING),
-            pm_abonos=_sum_pending_abonos(PM_PENDING),
-            pm_cargos=_sum_pending_cargos(PM_PENDING),
-            fin_abonos=_sum_pending_abonos(FIN_PENDING),
-            fin_cargos=_sum_pending_cargos(FIN_PENDING),
+    # =====================================================================
+    # BALANCES
+    #
+    # Mismo cálculo de siempre.
+    # Solo separamos activos e inactivos.
+    # =====================================================================
+
+    def _build_balances(queryset):
+        return (
+            queryset.values(
+                "usuario__first_name",
+                "usuario__last_name",
+            )
+            .annotate(
+                rendered_amount=Sum("cargos", default=0),
+                assigned_amount=Sum("abonos", default=0),
+                available_amount=Sum(F("abonos") - F("cargos"), default=0),
+                pending_user=_sum_pending_abonos(USER_PENDING),
+                sup_abonos=_sum_pending_abonos(SUP_PENDING),
+                sup_cargos=_sum_pending_cargos(SUP_PENDING),
+                pm_abonos=_sum_pending_abonos(PM_PENDING),
+                pm_cargos=_sum_pending_cargos(PM_PENDING),
+                fin_abonos=_sum_pending_abonos(FIN_PENDING),
+                fin_cargos=_sum_pending_cargos(FIN_PENDING),
+            )
+            .order_by(
+                "usuario__first_name",
+                "usuario__last_name",
+            )
         )
-        .order_by("usuario__first_name", "usuario__last_name")
-    )
+
+    balances_activos = _build_balances(base.filter(usuario__is_active=True))
+
+    balances_inactivos = _build_balances(base.filter(usuario__is_active=False))
 
     wb = Workbook()
     ws = wb.active
@@ -1570,6 +1776,10 @@ def exportar_saldos(request):
         "Pending (Finance)",
     ]
 
+    # =====================================================================
+    # ACTIVE USERS
+    # =====================================================================
+
     ws.append(columns)
 
     for col_num, title in enumerate(columns, start=1):
@@ -1579,26 +1789,59 @@ def exportar_saldos(request):
         cell.alignment = header_alignment
         cell.border = border_all
 
-    for r, b in enumerate(balances, start=2):
+    current_row = 2
+
+    for b in balances_activos:
         pend_sup = float((b["sup_abonos"] or 0) + (b["sup_cargos"] or 0))
         pend_pm = float((b["pm_abonos"] or 0) + (b["pm_cargos"] or 0))
         pend_fin = float((b["fin_abonos"] or 0) + (b["fin_cargos"] or 0))
 
         ws.cell(
-            row=r,
+            row=current_row,
             column=1,
             value=f"{b['usuario__first_name']} {b['usuario__last_name']}",
         )
-        ws.cell(row=r, column=2, value=float(b["rendered_amount"] or 0))
-        ws.cell(row=r, column=3, value=float(b["assigned_amount"] or 0))
-        ws.cell(row=r, column=4, value=float(b["available_amount"] or 0))
-        ws.cell(row=r, column=5, value=float(b["pending_user"] or 0))
-        ws.cell(row=r, column=6, value=pend_sup)
-        ws.cell(row=r, column=7, value=pend_pm)
-        ws.cell(row=r, column=8, value=pend_fin)
+        ws.cell(
+            row=current_row,
+            column=2,
+            value=float(b["rendered_amount"] or 0),
+        )
+        ws.cell(
+            row=current_row,
+            column=3,
+            value=float(b["assigned_amount"] or 0),
+        )
+        ws.cell(
+            row=current_row,
+            column=4,
+            value=float(b["available_amount"] or 0),
+        )
+        ws.cell(
+            row=current_row,
+            column=5,
+            value=float(b["pending_user"] or 0),
+        )
+        ws.cell(
+            row=current_row,
+            column=6,
+            value=pend_sup,
+        )
+        ws.cell(
+            row=current_row,
+            column=7,
+            value=pend_pm,
+        )
+        ws.cell(
+            row=current_row,
+            column=8,
+            value=pend_fin,
+        )
 
         for col in range(1, 9):
-            c = ws.cell(row=r, column=col)
+            c = ws.cell(
+                row=current_row,
+                column=col,
+            )
             c.border = border_all
 
             if col == 1:
@@ -1606,6 +1849,142 @@ def exportar_saldos(request):
             else:
                 c.alignment = right
                 c.number_format = "$#,##0.00"
+
+        current_row += 1
+
+    # =====================================================================
+    # INACTIVE USERS
+    # =====================================================================
+
+    inactive_list = list(balances_inactivos)
+
+    if inactive_list:
+
+        # Una fila vacía entre ambas secciones
+        current_row += 1
+
+        # Título de auditoría
+        ws.merge_cells(
+            start_row=current_row,
+            start_column=1,
+            end_row=current_row,
+            end_column=8,
+        )
+
+        inactive_title = ws.cell(
+            row=current_row,
+            column=1,
+            value="Inactive Users",
+        )
+
+        inactive_title.font = Font(
+            bold=True,
+            color="991B1B",
+        )
+
+        inactive_title.fill = PatternFill(
+            "solid",
+            fgColor="FEE2E2",
+        )
+
+        inactive_title.alignment = Alignment(
+            horizontal="left",
+            vertical="center",
+        )
+
+        current_row += 1
+
+        # Encabezados de usuarios inactivos
+        inactive_header_row = current_row
+
+        for col_num, title in enumerate(columns, start=1):
+            cell = ws.cell(
+                row=inactive_header_row,
+                column=col_num,
+                value=title,
+            )
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = border_all
+
+        current_row += 1
+
+        # Datos históricos de usuarios inactivos
+        for b in inactive_list:
+            pend_sup = float((b["sup_abonos"] or 0) + (b["sup_cargos"] or 0))
+
+            pend_pm = float((b["pm_abonos"] or 0) + (b["pm_cargos"] or 0))
+
+            pend_fin = float((b["fin_abonos"] or 0) + (b["fin_cargos"] or 0))
+
+            ws.cell(
+                row=current_row,
+                column=1,
+                value=f"{b['usuario__first_name']} {b['usuario__last_name']}",
+            )
+
+            ws.cell(
+                row=current_row,
+                column=2,
+                value=float(b["rendered_amount"] or 0),
+            )
+
+            ws.cell(
+                row=current_row,
+                column=3,
+                value=float(b["assigned_amount"] or 0),
+            )
+
+            ws.cell(
+                row=current_row,
+                column=4,
+                value=float(b["available_amount"] or 0),
+            )
+
+            ws.cell(
+                row=current_row,
+                column=5,
+                value=float(b["pending_user"] or 0),
+            )
+
+            ws.cell(
+                row=current_row,
+                column=6,
+                value=pend_sup,
+            )
+
+            ws.cell(
+                row=current_row,
+                column=7,
+                value=pend_pm,
+            )
+
+            ws.cell(
+                row=current_row,
+                column=8,
+                value=pend_fin,
+            )
+
+            for col in range(1, 9):
+                c = ws.cell(
+                    row=current_row,
+                    column=col,
+                )
+
+                c.border = border_all
+
+                if col == 1:
+                    c.alignment = left
+                else:
+                    c.alignment = right
+                    c.number_format = "$#,##0.00"
+
+            current_row += 1
+
+    # =====================================================================
+    # COLUMN WIDTHS
+    # =====================================================================
 
     widths = {
         1: 28,
@@ -1622,7 +2001,16 @@ def exportar_saldos(request):
         ws.column_dimensions[get_column_letter(col)].width = width
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    # El filtro continúa correspondiendo a la tabla principal
+    active_last_row = max(
+        1,
+        1 + balances_activos.count(),
+    )
+
+    ws.auto_filter.ref = (
+        f"A1:" f"{get_column_letter(len(columns))}" f"{active_last_row}"
+    )
 
     bio = BytesIO()
     wb.save(bio)
@@ -1630,8 +2018,11 @@ def exportar_saldos(request):
 
     response = HttpResponse(
         bio.getvalue(),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        content_type=(
+            "application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"
+        ),
     )
+
     response["Content-Disposition"] = 'attachment; filename="available_balances.xlsx"'
 
     return response

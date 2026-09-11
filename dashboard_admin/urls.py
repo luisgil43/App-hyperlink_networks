@@ -21,6 +21,11 @@ urlpatterns = [
         name="exportar_formato_nuevo_usuario_docx",
     ),
     path(
+        "usuarios/asignaciones-proyectos/",
+        views.gestionar_asignaciones_proyectos_view,
+        name="gestionar_asignaciones_proyectos",
+    ),
+    path(
         "usuarios/editar/<int:user_id>/",
         views.editar_usuario_view,
         name="editar_usuario",
@@ -34,6 +39,8 @@ urlpatterns = [
     path("vacaciones/", views.redireccionar_vacaciones, name="vacaciones_admin"),
     path("feriados/", views.listar_feriados, name="listar_feriados"),
     path(
-        "feriados/eliminar/<int:pk>/", views.eliminar_feriado, name="eliminar_feriado"
+        "feriados/eliminar/<int:pk>/",
+        views.eliminar_feriado,
+        name="eliminar_feriado",
     ),
 ]

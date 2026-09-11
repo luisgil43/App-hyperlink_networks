@@ -4,10 +4,10 @@
 {% block title %}Users - Admin{% endblock %}
 
 {% block dashboard_content %}
+
 <div class="bg-white shadow mt-3 -mx-3 sm:mx-0 rounded-none sm:rounded-2xl px-3 py-4 sm:p-6">
 
 <style>
-  /* === Estilos de tabla y filtros (como el ledger) === */
   .campo-filtro{
     border:2px solid #1f2937;
     padding:.25rem .75rem;
@@ -48,7 +48,6 @@
     min-width:1200px;
   }
 
-  /* === Mejoras visuales tabla usuarios === */
   .users-table{
     border-collapse:separate;
     border-spacing:0;
@@ -91,7 +90,6 @@
     font-weight:600;
   }
 
-  /* === Celdas compactas para Roles y Projects === */
   .chips-cell{
     white-space:normal !important;
     vertical-align:top;
@@ -199,6 +197,22 @@
     color:#b91c1c;
   }
 
+  .chip-current-user{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:9999px;
+    font-size:.65rem;
+    font-weight:800;
+    line-height:1rem;
+    padding:.15rem .45rem;
+    margin-left:.25rem;
+    background:#e0f2fe;
+    color:#0369a1;
+    border:1px solid #bae6fd;
+    vertical-align:middle;
+  }
+
   .action-pill{
     display:inline-flex;
     align-items:center;
@@ -210,6 +224,8 @@
     padding:.35rem .75rem;
     transition:background-color .15s ease, transform .15s ease;
     white-space:nowrap;
+    border:0;
+    cursor:pointer;
   }
 
   .action-pill:hover{
@@ -242,13 +258,36 @@
   .action-2fa:hover{
     background:#fde68a;
   }
+
+  .action-deactivate{
+    background:#ffedd5;
+    color:#c2410c;
+  }
+
+  .action-deactivate:hover{
+    background:#fed7aa;
+  }
+
+  .action-activate{
+    background:#dcfce7;
+    color:#15803d;
+  }
+
+  .action-activate:hover{
+    background:#bbf7d0;
+  }
 </style>
+
 
 <!-- Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👤 User List</h2>
+
+  <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+    👤 User List
+  </h2>
 
   <div class="flex flex-wrap gap-2">
+
     <button id="btn-export-new-user-docx"
             type="button"
             class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm shadow">
@@ -261,34 +300,86 @@
       ⬇ Export
     </button>
 
+    <a href="{% url 'dashboard_admin:gestionar_asignaciones_proyectos' %}"
+       class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-full text-sm shadow">
+      👥 Project Assignments
+    </a>
+
     <a href="{% url 'dashboard_admin:crear_usuario' %}"
        class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-full text-sm shadow">
       ➕ Add User
     </a>
-  </div>
+
 </div>
 
+</div>
+
+
 <!-- Filtros -->
-<form id="form-filtros" method="get" class="filtros-compactos mb-6">
+<form id="form-filtros"
+      method="get"
+      class="filtros-compactos mb-6">
+
   <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
-    <label class="sr-only" for="first">First name</label>
-    <input id="first" name="first" class="campo-filtro filtro" type="text" placeholder="First name" value="{{ first_q|default:'' }}"/>
 
-    <label class="sr-only" for="last">Last name</label>
-    <input id="last" name="last" class="campo-filtro filtro" type="text" placeholder="Last name" value="{{ last_q|default:'' }}"/>
+    <label class="sr-only"
+           for="first">
+      First name
+    </label>
 
-    <label class="sr-only" for="id">ID</label>
-    <input id="id" name="id" class="campo-filtro filtro" type="text" placeholder="ID" value="{{ id_q|default:'' }}"/>
+    <input id="first"
+           name="first"
+           class="campo-filtro filtro"
+           type="text"
+           placeholder="First name"
+           value="{{ first_q|default:'' }}"/>
 
-    <label class="sr-only" for="rol">Filter by role</label>
-    <select name="rol" id="rol" class="campo-filtro filtro">
-      <option value="">All roles</option>
+    <label class="sr-only"
+           for="last">
+      Last name
+    </label>
+
+    <input id="last"
+           name="last"
+           class="campo-filtro filtro"
+           type="text"
+           placeholder="Last name"
+           value="{{ last_q|default:'' }}"/>
+
+    <label class="sr-only"
+           for="id">
+      ID
+    </label>
+
+    <input id="id"
+           name="id"
+           class="campo-filtro filtro"
+           type="text"
+           placeholder="ID"
+           value="{{ id_q|default:'' }}"/>
+
+    <label class="sr-only"
+           for="rol">
+      Filter by role
+    </label>
+
+    <select name="rol"
+            id="rol"
+            class="campo-filtro filtro">
+
+      <option value="">
+        All roles
+      </option>
+
       {% for rol in roles %}
+
         <option value="{{ rol.nombre }}"
                 {% if rol_filtrado == rol.nombre %}selected{% endif %}>
           {{ rol.label_en|default:rol.nombre }}
         </option>
+
       {% endfor %}
+
     </select>
 
     <a href="{% url 'dashboard_admin:listar_usuarios' %}"
@@ -296,18 +387,27 @@
       ❌ Clear
     </a>
 
-    <input type="hidden" name="cantidad" value="{{ cantidad|default:per_page }}">
+    <input type="hidden"
+           name="cantidad"
+           value="{{ cantidad|default:per_page }}">
+
   </div>
+
 </form>
+
 
 <!-- Zona reemplazable por AJAX -->
 <div id="zonaTabla">
+
   {% with pagina=page_obj %}
   {% with base_qs=querystring|default:request.GET.urlencode %}
 
   <div class="rounded-xl border border-gray-200 tabla-responsive">
+
     <table class="users-table table-auto border border-gray-300 rounded-xl text-sm w-full">
+
       <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
+
         <tr>
           <th class="p-2 border">Username</th>
           <th class="p-2 border">First Name</th>
@@ -320,429 +420,1539 @@
           <th class="p-2 border">Active</th>
           <th class="p-2 border">Actions</th>
         </tr>
+
       </thead>
 
+
       <tbody class="text-center">
+
         {% for usuario in pagina %}
+
         <tr class="border-t">
-          <td class="p-2 border users-main-cell">{{ usuario.username }}</td>
-          <td class="p-2 border">{{ usuario.first_name }}</td>
-          <td class="p-2 border">{{ usuario.last_name }}</td>
-          <td class="p-2 border">{{ usuario.identidad }}</td>
-          <td class="p-2 border">{{ usuario.email }}</td>
+
+          <td class="p-2 border users-main-cell">
+
+            {{ usuario.username }}
+
+            {% if usuario.id == request.user.id %}
+              <span class="chip-current-user">
+                You
+              </span>
+            {% endif %}
+
+          </td>
+
+
+          <td class="p-2 border">
+            {{ usuario.first_name }}
+          </td>
+
+
+          <td class="p-2 border">
+            {{ usuario.last_name }}
+          </td>
+
+
+          <td class="p-2 border">
+            {{ usuario.identidad }}
+          </td>
+
+
+          <td class="p-2 border">
+            {{ usuario.email }}
+          </td>
+
 
           <!-- Roles -->
           <td class="p-2 border chips-cell">
+
             <div class="chips-wrap">
+
               {% for rol in usuario.roles.all %}
+
                 <span class="chip-role">
                   {{ rol.label_en|default:rol.nombre }}
                 </span>
+
               {% empty %}
-                <span class="users-muted">No roles</span>
+
+                <span class="users-muted">
+                  No roles
+                </span>
+
               {% endfor %}
+
             </div>
+
           </td>
 
-          <!-- Proyectos -->
+
+          <!-- Projects -->
           <td class="p-2 border chips-cell">
+
             <div class="chips-wrap">
+
               {% with pas=usuario.proyectoasignacion_set.all %}
+
                 {% if pas %}
+
                   {% for a in pas %}
+
                     <span class="chip-project {% if a.include_history %}chip-project-history{% else %}chip-project-limited{% endif %}">
+
                       {{ a.proyecto.nombre }}
+
                       {% if not a.include_history %}
                         (from {{ a.start_at|date:"Y-m-d" }})
                       {% else %}
                         (history)
                       {% endif %}
+
                     </span>
+
                   {% empty %}
-                    <span class="users-muted">—</span>
+
+                    <span class="users-muted">
+                      —
+                    </span>
+
                   {% endfor %}
+
                 {% else %}
+
                   {% with pms=usuario.proyectos.all %}
+
                     {% if pms %}
+
                       {% for p in pms %}
+
                         <span class="chip-project">
                           {{ p.nombre }}
                         </span>
+
                       {% empty %}
-                        <span class="users-muted">—</span>
+
+                        <span class="users-muted">
+                          —
+                        </span>
+
                       {% endfor %}
+
                     {% else %}
-                      <span class="users-muted">—</span>
+
+                      <span class="users-muted">
+                        —
+                      </span>
+
                     {% endif %}
+
                   {% endwith %}
+
                 {% endif %}
+
               {% endwith %}
+
             </div>
+
           </td>
+
 
           <!-- 2FA -->
           <td class="p-2 border">
+
             {% if usuario.two_factor_enabled %}
+
               <span class="chip-status chip-2fa-enabled">
                 Enabled
               </span>
+
             {% else %}
+
               <span class="chip-status chip-2fa-disabled">
                 Disabled
               </span>
+
             {% endif %}
+
           </td>
+
 
           <!-- Active -->
           <td class="p-2 border">
+
             {% if usuario.is_active %}
-              <span class="chip-status chip-active-yes">✔ Yes</span>
+
+              <span class="chip-status chip-active-yes">
+                ✔ Yes
+              </span>
+
             {% else %}
-              <span class="chip-status chip-active-no">✖ No</span>
+
+              <span class="chip-status chip-active-no">
+                ✖ No
+              </span>
+
             {% endif %}
+
           </td>
+
 
           <!-- Actions -->
           <td class="p-2 border">
-            <div class="flex flex-col sm:flex-row gap-1 justify-center">
+
+            <div class="flex flex-col sm:flex-row flex-wrap gap-1 justify-center">
+
               <!-- Edit -->
-              <a href="{% url 'dashboard_admin:editar_usuario' usuario.id %}"
-                 class="action-pill action-edit">
-                ✏️ Edit
-              </a>
-
-              <!-- Delete -->
-              <a href="#" onclick="openModal('{{ usuario.id }}','{{ usuario.username }}')"
-                 class="action-pill action-delete">
-                🗑️ Delete
-              </a>
-
-              <!-- Reset 2FA (solo si tiene 2FA activado) -->
-              {% if usuario.two_factor_enabled %}
               <button type="button"
-                      onclick="openReset2faModal('{{ usuario.id }}','{{ usuario.username }}')"
-                      class="action-pill action-2fa">
-                🔄 Reset 2FA
+                      onclick="openEditSecurityModal(
+                        '{% url 'dashboard_admin:editar_usuario' usuario.id %}',
+                        '{{ usuario.username|escapejs }}'
+                      )"
+                      class="action-pill action-edit">
+                ✏️ Edit
               </button>
+
+
+              <!-- Activate / Deactivate -->
+              {% if usuario.id != request.user.id %}
+
+                {% if usuario.is_active %}
+
+                  <button type="button"
+                          onclick="openStatusModal(
+                            '{{ usuario.id }}',
+                            '{{ usuario.username|escapejs }}',
+                            'deactivate'
+                          )"
+                          class="action-pill action-deactivate">
+                    ⛔ Deactivate
+                  </button>
+
+                {% else %}
+
+                  <button type="button"
+                          onclick="openStatusModal(
+                            '{{ usuario.id }}',
+                            '{{ usuario.username|escapejs }}',
+                            'activate'
+                          )"
+                          class="action-pill action-activate">
+                    ✅ Activate
+                  </button>
+
+                {% endif %}
+
               {% endif %}
+
+
+              <!-- Delete: SOLO ADMIN autorizado -->
+              {% if can_delete_users and usuario.id != request.user.id %}
+
+                <button type="button"
+                        onclick="openModal(
+                          '{{ usuario.id }}',
+                          '{{ usuario.username|escapejs }}'
+                        )"
+                        class="action-pill action-delete">
+                  🗑️ Delete
+                </button>
+
+              {% endif %}
+
+
+              <!-- Reset 2FA -->
+              {% if usuario.two_factor_enabled %}
+
+                <button type="button"
+                        onclick="openReset2faModal(
+                          '{{ usuario.id }}',
+                          '{{ usuario.username|escapejs }}'
+                        )"
+                        class="action-pill action-2fa">
+                  🔄 Reset 2FA
+                </button>
+
+              {% endif %}
+
             </div>
+
           </td>
+
         </tr>
 
         {% empty %}
+
         <tr>
-          <td colspan="10" class="p-4 text-center">No users registered.</td>
+
+          <td colspan="10"
+              class="p-4 text-center">
+            No users registered.
+          </td>
+
         </tr>
+
         {% endfor %}
+
       </tbody>
+
     </table>
+
   </div>
+
 
   <!-- Selector de cantidad -->
   <div class="mt-4 flex flex-wrap justify-between items-center text-sm">
-    <form id="formCantidad" class="flex items-center gap-2">
-      <label for="cantidad" class="text-sm font-medium text-gray-700">Show:</label>
-      <select name="cantidad" id="cantidad" class="border rounded-lg px-3 py-1">
+
+    <form id="formCantidad"
+          class="flex items-center gap-2">
+
+      <label for="cantidad"
+             class="text-sm font-medium text-gray-700">
+        Show:
+      </label>
+
+      <select name="cantidad"
+              id="cantidad"
+              class="border rounded-lg px-3 py-1">
+
         {% with cval=cantidad|default:per_page %}
-          <option value="5"    {% if cval|stringformat:"s" == '5' %}selected{% endif %}>5</option>
-          <option value="10"   {% if not cval or cval|stringformat:"s" == '10' %}selected{% endif %}>10</option>
-          <option value="20"   {% if cval|stringformat:"s" == '20' %}selected{% endif %}>20</option>
-          <option value="todos"{% if cval|stringformat:"s" == 'todos' or cval|stringformat:"s" == 'all' %}selected{% endif %}>All</option>
+
+          <option value="5"
+                  {% if cval|stringformat:"s" == '5' %}selected{% endif %}>
+            5
+          </option>
+
+          <option value="10"
+                  {% if not cval or cval|stringformat:"s" == '10' %}selected{% endif %}>
+            10
+          </option>
+
+          <option value="20"
+                  {% if cval|stringformat:"s" == '20' %}selected{% endif %}>
+            20
+          </option>
+
+          <option value="todos"
+                  {% if cval|stringformat:"s" == 'todos' or cval|stringformat:"s" == 'all' %}selected{% endif %}>
+            All
+          </option>
+
         {% endwith %}
+
       </select>
+
     </form>
+
   </div>
 
-  <!-- Indicador de página -->
+
+  <!-- Indicador -->
   <div class="mt-2 flex justify-center text-sm">
+
     {% with cval=cantidad|default:per_page %}
+
       {% if cval|stringformat:"s" == 'todos' or cval|stringformat:"s" == 'all' %}
-        <span>Page 1 of 1</span>
+
+        <span>
+          Page 1 of 1
+        </span>
+
       {% else %}
-        <span>Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}</span>
+
+        <span>
+          Page {{ pagina.number }} of {{ pagina.paginator.num_pages }}
+        </span>
+
       {% endif %}
+
     {% endwith %}
+
   </div>
 
-  <!-- Navegación paginada -->
+
+  <!-- Paginación -->
   <div class="mt-2 flex justify-center gap-2 text-sm">
+
     {% if pagina.has_previous %}
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page=1">« First</a>
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.previous_page_number }}">‹ Previous</a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{% if base_qs %}{{ base_qs }}&{% endif %}page=1">
+        « First
+      </a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.previous_page_number }}">
+        ‹ Previous
+      </a>
+
     {% endif %}
+
 
     {% if pagina.has_next %}
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.next_page_number }}">Next ›</a>
-      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.paginator.num_pages }}">Last »</a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.next_page_number }}">
+        Next ›
+      </a>
+
+      <a class="pg-link px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+         href="?{% if base_qs %}{{ base_qs }}&{% endif %}page={{ pagina.paginator.num_pages }}">
+        Last »
+      </a>
+
     {% endif %}
+
   </div>
 
   {% endwith %}
   {% endwith %}
+
 </div>
 
-<!-- Modal de eliminación -->
-<div id="confirmModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
+<!-- ===============================================================
+     MODAL EDIT SECURITY
+     =============================================================== -->
+
+<div id="editAccessModal"
+     class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
   <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-    <h2 class="text-xl font-semibold mb-4">Confirm Deletion</h2>
-    <p id="modalMessage" class="mb-6 text-gray-700"></p>
+
+    <h2 class="text-xl font-semibold mb-4">
+      Security Confirmation
+    </h2>
+
+    <p id="editAccessMessage"
+       class="mb-5 text-gray-700">
+    </p>
+
+    <form id="editAccessForm"
+          method="POST">
+
+      {% csrf_token %}
+
+      <input type="hidden"
+             name="unlock_user_edit"
+             value="1">
+
+      <div class="mb-6">
+
+        <label for="editAccessConfirmationWord"
+               class="block text-sm font-semibold text-gray-700 mb-2">
+          Confirmation word
+        </label>
+
+        <p class="text-sm text-gray-500 mb-3">
+          Enter the authorized confirmation word to edit this user.
+        </p>
+
+        <input type="password"
+               id="editAccessConfirmationWord"
+               name="management_confirmation_word"
+               required
+               autocomplete="off"
+               spellcheck="false"
+               class="w-full rounded-lg border border-gray-400 bg-white px-4 py-2
+                      shadow-sm
+                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Confirmation word">
+
+      </div>
+
+      <div class="flex justify-end gap-3">
+
+        <button type="button"
+                onclick="closeEditSecurityModal()"
+                class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
+          Cancel
+        </button>
+
+        <button type="submit"
+                class="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+          Continue
+        </button>
+
+      </div>
+
+    </form>
+
+  </div>
+
+</div>
+
+
+<!-- ===============================================================
+     MODAL ACTIVATE / DEACTIVATE
+     =============================================================== -->
+
+<div id="statusModal"
+     class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+
+    <h2 id="statusModalTitle"
+        class="text-xl font-semibold mb-4">
+      Change User Status
+    </h2>
+
+    <p id="statusModalMessage"
+       class="mb-6 text-gray-700">
+    </p>
 
     <div class="flex justify-end space-x-4">
-      <button onclick="closeModal()" class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
+
+      <button type="button"
+              onclick="closeStatusModal()"
+              class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
         Cancel
       </button>
 
-      <form id="deleteForm" method="POST">
+      <form id="statusForm"
+            method="POST"
+            action="{% url 'dashboard_admin:listar_usuarios' %}">
+
         {% csrf_token %}
-        <button type="submit" name="delete_user"
+
+        <input type="hidden"
+               name="user_id"
+               id="statusUserId">
+
+        <input type="hidden"
+               name="user_status_action"
+               id="statusAction">
+
+        <button type="submit"
+                name="toggle_user_status"
+                id="statusSubmitButton"
+                class="px-4 py-2 rounded-full text-white font-semibold">
+          Confirm
+        </button>
+
+      </form>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- ===============================================================
+     MODAL DELETE
+     =============================================================== -->
+
+<div id="confirmModal"
+     class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+
+    <h2 class="text-xl font-semibold mb-4">
+      Confirm Deletion
+    </h2>
+
+    <p id="modalMessage"
+       class="mb-6 text-gray-700">
+    </p>
+
+
+    <div class="mb-6 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
+
+      <strong>
+        Permanent action.
+      </strong>
+
+      Deleting a user is intended only for accounts created by mistake,
+      duplicates, or accounts that must be permanently removed.
+
+      Historical employee accounts should normally be deactivated instead.
+
+    </div>
+
+
+    <div class="mb-5">
+
+      <label for="deleteConfirmationWord"
+             class="block text-sm font-semibold text-gray-700 mb-2">
+        Security confirmation
+      </label>
+
+      <p class="text-sm text-gray-500 mb-3">
+        Enter the authorized confirmation word to permanently delete this user.
+      </p>
+
+      <input type="password"
+             id="deleteConfirmationWord"
+             name="management_confirmation_word"
+             form="deleteForm"
+             required
+             autocomplete="off"
+             spellcheck="false"
+             class="w-full rounded-lg border border-gray-400 bg-white px-4 py-2
+                    shadow-sm
+                    focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+             placeholder="Confirmation word">
+
+    </div>
+
+
+    <div class="flex justify-end space-x-4">
+
+      <button type="button"
+              onclick="closeModal()"
+              class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
+        Cancel
+      </button>
+
+      <form id="deleteForm"
+            method="POST">
+
+        {% csrf_token %}
+
+        <button type="submit"
+                name="delete_user"
                 class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold">
           Delete
         </button>
+
       </form>
+
     </div>
+
   </div>
+
 </div>
 
-<!-- Modal Reset 2FA -->
-<div id="reset2faModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
+<!-- ===============================================================
+     MODAL RESET 2FA
+     =============================================================== -->
+
+<div id="reset2faModal"
+     class="fixed inset-0 hidden bg-black bg-opacity-50 flex items-center justify-center z-50">
+
   <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-    <h2 class="text-xl font-semibold mb-4">Reset Two-Factor Authentication</h2>
-    <p id="reset2faMessage" class="mb-6 text-gray-700"></p>
+
+    <h2 class="text-xl font-semibold mb-4">
+      Reset Two-Factor Authentication
+    </h2>
+
+    <p id="reset2faMessage"
+       class="mb-6 text-gray-700">
+    </p>
 
     <div class="flex justify-end space-x-4">
+
       <button type="button"
               onclick="closeReset2faModal()"
               class="px-4 py-2 rounded-full bg-gray-200 hover:bg-gray-300 font-semibold">
         Cancel
       </button>
 
-      <form id="reset2faForm" method="POST">
-        {% csrf_token %}
-        <input type="hidden" name="user_id" id="reset2faUserId">
+      <form id="reset2faForm"
+            method="POST">
 
-        <button type="submit" name="reset_2fa"
+        {% csrf_token %}
+
+        <input type="hidden"
+               name="user_id"
+               id="reset2faUserId">
+
+        <button type="submit"
+                name="reset_2fa"
                 class="px-4 py-2 rounded-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold">
           Reset 2FA
         </button>
+
       </form>
+
     </div>
+
   </div>
+
 </div>
 
-<!-- Mensajes del sistema -->
+
+<!-- Messages -->
 {% if messages %}
+
   <ul class="mb-4 mt-4">
+
     {% for message in messages %}
+
       <li class="p-2 rounded {{ message.tags }} bg-blue-100 text-blue-800">
         {{ message }}
       </li>
+
     {% endfor %}
+
   </ul>
+
 {% endif %}
+
 
 <script>
 (function(){
-  const zona        = document.getElementById('zonaTabla');
-  const filtrosForm = document.getElementById('form-filtros');
-  let debounceTimer = null, controller = null;
 
-  const SCROLL_KEY = 'usersScrollX:' + location.pathname;
+  const zona =
+    document.getElementById(
+      'zonaTabla'
+    );
+
+  const filtrosForm =
+    document.getElementById(
+      'form-filtros'
+    );
+
+  let debounceTimer =
+    null;
+
+  let controller =
+    null;
+
+  const SCROLL_KEY =
+    'usersScrollX:'
+    + location.pathname;
+
 
   function getScrollBox(){
-    return zona.querySelector('.tabla-responsive');
+
+    return zona.querySelector(
+      '.tabla-responsive'
+    );
+
   }
+
 
   function readSavedX(){
-    return Number(sessionStorage.getItem(SCROLL_KEY) || 0);
+
+    return Number(
+      sessionStorage.getItem(
+        SCROLL_KEY
+      )
+      || 0
+    );
+
   }
+
 
   function saveX(x){
-    sessionStorage.setItem(SCROLL_KEY, String(x));
+
+    sessionStorage.setItem(
+      SCROLL_KEY,
+      String(x)
+    );
+
   }
+
 
   function hookScrollSaver(){
-    const box = getScrollBox();
-    if(!box) return;
 
-    let t=null;
+    const box =
+      getScrollBox();
 
-    box.addEventListener('scroll', ()=>{
-      if(t) return;
+    if(!box){
+      return;
+    }
 
-      t=setTimeout(()=>{
-        t=null;
-        saveX(box.scrollLeft);
-      }, 120);
-    }, {passive:true});
+    let t =
+      null;
+
+
+    box.addEventListener(
+      'scroll',
+      () => {
+
+        if(t){
+          return;
+        }
+
+        t =
+          setTimeout(
+            () => {
+
+              t =
+                null;
+
+              saveX(
+                box.scrollLeft
+              );
+
+            },
+            120
+          );
+
+      },
+      {
+        passive:true
+      }
+    );
+
   }
+
 
   function restoreX(x){
-    const box = getScrollBox();
-    if(!box) return;
 
-    requestAnimationFrame(()=>{
-      box.scrollLeft = x;
-    });
+    const box =
+      getScrollBox();
+
+    if(!box){
+      return;
+    }
+
+    requestAnimationFrame(
+      () => {
+
+        box.scrollLeft =
+          x;
+
+      }
+    );
+
   }
+
 
   function paramsFromFilters(resetPage){
-    const p = new URLSearchParams(new FormData(filtrosForm));
-    if (resetPage) p.set('page','1');
+
+    const p =
+      new URLSearchParams(
+        new FormData(
+          filtrosForm
+        )
+      );
+
+    if(resetPage){
+
+      p.set(
+        'page',
+        '1'
+      );
+
+    }
+
     return p;
+
   }
 
-  async function cargarTablaCon(qs, push=true){
-    const prevX = (getScrollBox()?.scrollLeft) ?? readSavedX();
-    saveX(prevX);
 
-    const url = `${location.pathname}?${qs}`;
+  async function cargarTablaCon(
+    qs,
+    push=true
+  ){
 
-    if (push) {
-      history.replaceState(null, '', url);
+    const prevX =
+      (
+        getScrollBox()
+        ?.scrollLeft
+      )
+      ?? readSavedX();
+
+
+    saveX(
+      prevX
+    );
+
+
+    const url =
+      `${location.pathname}?${qs}`;
+
+
+    if(push){
+
+      history.replaceState(
+        null,
+        '',
+        url
+      );
+
     }
 
-    if (controller) {
+
+    if(controller){
+
       controller.abort();
+
     }
 
-    controller = new AbortController();
 
-    const resp = await fetch(url, { signal: controller.signal });
-    const html = await resp.text();
-    const doc  = new DOMParser().parseFromString(html, 'text/html');
-    const nuevaZona = doc.getElementById('zonaTabla');
+    controller =
+      new AbortController();
 
-    if (!nuevaZona) return;
 
-    zona.innerHTML = nuevaZona.innerHTML;
+    const resp =
+      await fetch(
+        url,
+        {
+          signal:
+            controller.signal
+        }
+      );
+
+
+    const html =
+      await resp.text();
+
+
+    const doc =
+      new DOMParser()
+      .parseFromString(
+        html,
+        'text/html'
+      );
+
+
+    const nuevaZona =
+      doc.getElementById(
+        'zonaTabla'
+      );
+
+
+    if(!nuevaZona){
+      return;
+    }
+
+
+    zona.innerHTML =
+      nuevaZona.innerHTML;
+
 
     engancharPaginacion();
+
     engancharCantidad();
 
-    restoreX(prevX);
+    restoreX(
+      prevX
+    );
+
     hookScrollSaver();
+
   }
 
-  function refiltrar(resetPage=true){
-    clearTimeout(debounceTimer);
 
-    debounceTimer = setTimeout(()=>{
-      const p = paramsFromFilters(resetPage);
-      cargarTablaCon(p.toString(), true);
-    }, 250);
+  function refiltrar(
+    resetPage=true
+  ){
+
+    clearTimeout(
+      debounceTimer
+    );
+
+
+    debounceTimer =
+      setTimeout(
+        () => {
+
+          const p =
+            paramsFromFilters(
+              resetPage
+            );
+
+          cargarTablaCon(
+            p.toString(),
+            true
+          );
+
+        },
+        250
+      );
+
   }
 
-  filtrosForm.querySelectorAll('.filtro, #rol').forEach(el=>{
-    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
 
-    el.addEventListener(evt, ()=>refiltrar(true));
+  filtrosForm
+  .querySelectorAll(
+    '.filtro, #rol'
+  )
+  .forEach(
+    el => {
 
-    el.addEventListener('keydown', e=>{
-      if(e.key==='Enter'){
-        e.preventDefault();
-        refiltrar(true);
-      }
-    });
-  });
+      const evt =
+        el.tagName === 'SELECT'
+          ? 'change'
+          : 'input';
+
+
+      el.addEventListener(
+        evt,
+        () => refiltrar(
+          true
+        )
+      );
+
+
+      el.addEventListener(
+        'keydown',
+        e => {
+
+          if(e.key === 'Enter'){
+
+            e.preventDefault();
+
+            refiltrar(
+              true
+            );
+
+          }
+
+        }
+      );
+
+    }
+  );
+
 
   function engancharPaginacion(){
-    zona.querySelectorAll('a.pg-link').forEach(a=>{
-      a.addEventListener('click', ev=>{
-        ev.preventDefault();
 
-        const href = new URL(a.getAttribute('href'), location.href);
-        const p = paramsFromFilters(false);
+    zona
+    .querySelectorAll(
+      'a.pg-link'
+    )
+    .forEach(
+      a => {
 
-        p.set('page', href.searchParams.get('page') || '1');
+        a.addEventListener(
+          'click',
+          ev => {
 
-        cargarTablaCon(p.toString(), true);
-      });
-    });
+            ev.preventDefault();
+
+
+            const href =
+              new URL(
+                a.getAttribute(
+                  'href'
+                ),
+                location.href
+              );
+
+
+            const p =
+              paramsFromFilters(
+                false
+              );
+
+
+            p.set(
+              'page',
+              href.searchParams.get(
+                'page'
+              )
+              || '1'
+            );
+
+
+            cargarTablaCon(
+              p.toString(),
+              true
+            );
+
+          }
+        );
+
+      }
+    );
+
   }
+
 
   function engancharCantidad(){
-    const sel = zona.querySelector('#cantidad');
-    if(!sel) return;
 
-    sel.addEventListener('change', ()=>{
-      const val = sel.value;
-      const hidden = filtrosForm.querySelector('input[name="cantidad"]');
+    const sel =
+      zona.querySelector(
+        '#cantidad'
+      );
 
-      if (hidden) {
-        hidden.value = val;
+    if(!sel){
+      return;
+    }
+
+
+    sel.addEventListener(
+      'change',
+      () => {
+
+        const val =
+          sel.value;
+
+
+        const hidden =
+          filtrosForm.querySelector(
+            'input[name="cantidad"]'
+          );
+
+
+        if(hidden){
+
+          hidden.value =
+            val;
+
+        }
+
+
+        const p =
+          paramsFromFilters(
+            true
+          );
+
+
+        if(val === 'todos'){
+
+          p.set(
+            'per_page',
+            'all'
+          );
+
+        }else{
+
+          p.set(
+            'per_page',
+            val
+          );
+
+        }
+
+
+        p.set(
+          'cantidad',
+          val
+        );
+
+
+        cargarTablaCon(
+          p.toString(),
+          true
+        );
+
       }
+    );
 
-      const p = paramsFromFilters(true);
-
-      if (val === 'todos') {
-        p.set('per_page', 'all');
-      } else {
-        p.set('per_page', val);
-      }
-
-      p.set('cantidad', val);
-
-      cargarTablaCon(p.toString(), true);
-    });
   }
 
+
   engancharPaginacion();
+
   engancharCantidad();
-  restoreX(readSavedX());
+
+  restoreX(
+    readSavedX()
+  );
+
   hookScrollSaver();
+
 })();
 
-function openModal(userId, username) {
-  const modal = document.getElementById('confirmModal');
 
-  document.getElementById('modalMessage').textContent =
-    `Are you sure you want to delete the user "${username}"?`;
+/* ===============================================================
+   EDIT SECURITY
+   =============================================================== */
 
-  document.getElementById('deleteForm').action = `/dashboard_admin/usuarios/eliminar/${userId}/`;
+function openEditSecurityModal(
+  editUrl,
+  username
+){
 
-  modal.classList.remove('hidden');
+  const modal =
+    document.getElementById(
+      'editAccessModal'
+    );
+
+  const form =
+    document.getElementById(
+      'editAccessForm'
+    );
+
+  const message =
+    document.getElementById(
+      'editAccessMessage'
+    );
+
+  const confirmationInput =
+    document.getElementById(
+      'editAccessConfirmationWord'
+    );
+
+
+  message.textContent =
+    `Enter the security confirmation word to edit user "${username}".`;
+
+
+  form.action =
+    editUrl;
+
+
+  confirmationInput.value =
+    '';
+
+  confirmationInput.setCustomValidity(
+    ''
+  );
+
+
+  modal.classList.remove(
+    'hidden'
+  );
+
+
+  setTimeout(
+    () => {
+
+      confirmationInput.focus();
+
+    },
+    50
+  );
+
 }
 
-function closeModal() {
-  document.getElementById('confirmModal').classList.add('hidden');
+
+function closeEditSecurityModal(){
+
+  const modal =
+    document.getElementById(
+      'editAccessModal'
+    );
+
+  const confirmationInput =
+    document.getElementById(
+      'editAccessConfirmationWord'
+    );
+
+
+  confirmationInput.value =
+    '';
+
+  confirmationInput.setCustomValidity(
+    ''
+  );
+
+
+  modal.classList.add(
+    'hidden'
+  );
+
 }
 
-function openReset2faModal(userId, username) {
-  const modal = document.getElementById('reset2faModal');
-  const msg   = document.getElementById('reset2faMessage');
-  const input = document.getElementById('reset2faUserId');
 
-  msg.textContent = `Reset 2FA for user "${username}"? This will remove their 2FA secret and trusted devices.`;
-  input.value = userId;
+/* ===============================================================
+   ACTIVATE / DEACTIVATE
+   =============================================================== */
 
-  modal.classList.remove('hidden');
+function openStatusModal(
+  userId,
+  username,
+  action
+){
+
+  const modal =
+    document.getElementById(
+      'statusModal'
+    );
+
+  const title =
+    document.getElementById(
+      'statusModalTitle'
+    );
+
+  const message =
+    document.getElementById(
+      'statusModalMessage'
+    );
+
+  const userIdInput =
+    document.getElementById(
+      'statusUserId'
+    );
+
+  const actionInput =
+    document.getElementById(
+      'statusAction'
+    );
+
+  const submitButton =
+    document.getElementById(
+      'statusSubmitButton'
+    );
+
+
+  userIdInput.value =
+    userId;
+
+  actionInput.value =
+    action;
+
+
+  if(action === 'deactivate'){
+
+    title.textContent =
+      'Deactivate User';
+
+    message.textContent =
+      `Deactivate "${username}"? The user will no longer be able to access the platform, but their historical records will be preserved.`;
+
+    submitButton.textContent =
+      'Deactivate';
+
+    submitButton.className =
+      'px-4 py-2 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-semibold';
+
+  }else{
+
+    title.textContent =
+      'Activate User';
+
+    message.textContent =
+      `Activate "${username}"? The user will regain access according to their current roles and permissions.`;
+
+    submitButton.textContent =
+      'Activate';
+
+    submitButton.className =
+      'px-4 py-2 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold';
+
+  }
+
+
+  modal.classList.remove(
+    'hidden'
+  );
+
 }
 
-function closeReset2faModal() {
-  document.getElementById('reset2faModal').classList.add('hidden');
+
+function closeStatusModal(){
+
+  document
+  .getElementById(
+    'statusModal'
+  )
+  .classList.add(
+    'hidden'
+  );
+
 }
 
-const btnExport = document.getElementById('btn-export-users');
 
-if (btnExport) {
-  btnExport.addEventListener('click', function () {
-    const base = "{% url 'dashboard_admin:exportar_usuarios' %}";
-    const qs = window.location.search;
-    const url = qs ? (base + qs) : base;
+/* ===============================================================
+   DELETE
+   =============================================================== */
 
-    window.location.href = url;
-  });
+function openModal(
+  userId,
+  username
+){
+
+  const modal =
+    document.getElementById(
+      'confirmModal'
+    );
+
+
+  document
+  .getElementById(
+    'modalMessage'
+  )
+  .textContent =
+    `Are you sure you want to permanently delete the user "${username}"?`;
+
+
+  document
+  .getElementById(
+    'deleteForm'
+  )
+  .action =
+    `/dashboard_admin/usuarios/eliminar/${userId}/`;
+
+
+  const confirmationInput =
+    document.getElementById(
+      'deleteConfirmationWord'
+    );
+
+
+  if(confirmationInput){
+
+    confirmationInput.value =
+      '';
+
+    confirmationInput.setCustomValidity(
+      ''
+    );
+
+  }
+
+
+  modal.classList.remove(
+    'hidden'
+  );
+
+
+  setTimeout(
+    () => {
+
+      if(confirmationInput){
+        confirmationInput.focus();
+      }
+
+    },
+    50
+  );
+
 }
 
-const btnNewUserDocx = document.getElementById('btn-export-new-user-docx');
 
-if (btnNewUserDocx) {
-  btnNewUserDocx.addEventListener('click', function () {
-    const url = "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
-    window.location.href = url;
-  });
+function closeModal(){
+
+  const confirmationInput =
+    document.getElementById(
+      'deleteConfirmationWord'
+    );
+
+
+  if(confirmationInput){
+
+    confirmationInput.value =
+      '';
+
+    confirmationInput.setCustomValidity(
+      ''
+    );
+
+  }
+
+
+  document
+  .getElementById(
+    'confirmModal'
+  )
+  .classList.add(
+    'hidden'
+  );
+
+}
+
+
+/* ===============================================================
+   RESET 2FA
+   =============================================================== */
+
+function openReset2faModal(
+  userId,
+  username
+){
+
+  const modal =
+    document.getElementById(
+      'reset2faModal'
+    );
+
+  const msg =
+    document.getElementById(
+      'reset2faMessage'
+    );
+
+  const input =
+    document.getElementById(
+      'reset2faUserId'
+    );
+
+
+  msg.textContent =
+    `Reset 2FA for user "${username}"? This will remove their 2FA secret and trusted devices.`;
+
+
+  input.value =
+    userId;
+
+
+  modal.classList.remove(
+    'hidden'
+  );
+
+}
+
+
+function closeReset2faModal(){
+
+  document
+  .getElementById(
+    'reset2faModal'
+  )
+  .classList.add(
+    'hidden'
+  );
+
+}
+
+
+/* ===============================================================
+   EXPORT USERS
+   =============================================================== */
+
+const btnExport =
+  document.getElementById(
+    'btn-export-users'
+  );
+
+
+if(btnExport){
+
+  btnExport.addEventListener(
+    'click',
+    function(){
+
+      const base =
+        "{% url 'dashboard_admin:exportar_usuarios' %}";
+
+      const qs =
+        window.location.search;
+
+      const url =
+        qs
+          ? (
+              base
+              + qs
+            )
+          : base;
+
+
+      window.location.href =
+        url;
+
+    }
+  );
+
+}
+
+
+/* ===============================================================
+   EXPORT NEW USER FORM
+   =============================================================== */
+
+const btnNewUserDocx =
+  document.getElementById(
+    'btn-export-new-user-docx'
+  );
+
+
+if(btnNewUserDocx){
+
+  btnNewUserDocx.addEventListener(
+    'click',
+    function(){
+
+      const url =
+        "{% url 'dashboard_admin:exportar_formato_nuevo_usuario_docx' %}";
+
+
+      window.location.href =
+        url;
+
+    }
+  );
+
 }
 </script>
 
 </div>
+
 {% endblock %}
