@@ -1,0 +1,121 @@
+<!-- =========================================================
+     PORTFOLIO + WORK PERSPECTIVE
+========================================================== -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-200 px-4 py-3">
+
+  <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+
+
+    <!-- =====================================================
+         TITLE
+    ====================================================== -->
+    <div class="flex items-center gap-2 min-w-0">
+
+      <span class="text-sm font-extrabold text-gray-900 whitespace-nowrap">
+        Portfolio View
+      </span>
+
+      <span class="hidden lg:inline text-xs text-gray-400 truncate">
+        Analyze globally, by client or by market.
+      </span>
+
+    </div>
+
+
+    <!-- =====================================================
+         COMBINED FILTER CONTROLS
+    ====================================================== -->
+    <div class="flex flex-wrap items-center justify-end gap-2">
+
+
+      <!-- PORTFOLIO -->
+      <div class="inline-flex items-center gap-1">
+
+        <span class="hidden 2xl:inline text-[10px] font-extrabold uppercase tracking-wide text-gray-400 mr-1">
+          Portfolio
+        </span>
+
+        <a
+          href="?view=general{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition
+                 {% if perspective == 'general' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          General
+        </a>
+
+        <a
+          href="?view=client{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition
+                 {% if perspective == 'client' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          By Client
+        </a>
+
+        <a
+          href="?view=market{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition
+                 {% if perspective == 'market' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          By Market
+        </a>
+
+      </div>
+
+
+      <!-- SEPARATOR -->
+      <div class="hidden sm:block w-px h-6 bg-gray-200"></div>
+
+
+      <!-- WORK TYPE -->
+      <div class="inline-flex items-center gap-1">
+
+        <span class="hidden 2xl:inline text-[10px] font-extrabold uppercase tracking-wide text-gray-400 mr-1">
+          Work
+        </span>
+
+        <button
+          type="button"
+          class="planning-work-type-btn px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] font-bold transition"
+          data-work-type="all"
+        >
+          All Work
+        </button>
+
+        <button
+          type="button"
+          class="planning-work-type-btn px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-[11px] font-bold transition"
+          data-work-type="cabling"
+        >
+          Cabling
+        </button>
+
+        <button
+          type="button"
+          class="planning-work-type-btn px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-[11px] font-bold transition"
+          data-work-type="splicing"
+        >
+          Splicing
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>

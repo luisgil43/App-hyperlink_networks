@@ -1,0 +1,108 @@
+<!-- =========================================================
+     TIMELINE RANGE
+========================================================== -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+  <div class="flex flex-col 2xl:flex-row 2xl:items-end 2xl:justify-between gap-5">
+
+    <div>
+
+      <h2 class="font-extrabold text-gray-900">
+        Timeline
+      </h2>
+
+      <p class="text-sm text-gray-500 mt-1">
+        Display specific planning weeks or analyze a custom week range.
+      </p>
+
+    </div>
+
+
+    <div class="flex flex-col xl:flex-row xl:items-end gap-4">
+
+      <div>
+
+        <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
+          Quick Range
+        </label>
+
+        <div class="flex flex-wrap gap-2">
+
+          <button
+            type="button"
+            class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+            data-weeks="1"
+          >
+            This Week
+          </button>
+
+          <button
+            type="button"
+            class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+            data-weeks="4"
+          >
+            Next 4 Weeks
+          </button>
+
+          <button
+            type="button"
+            class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+            data-weeks="8"
+          >
+            Next 8 Weeks
+          </button>
+
+        </div>
+
+      </div>
+
+
+      <div>
+
+        <label
+          for="timeline-from-week"
+          class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2"
+        >
+          From Week
+        </label>
+
+        <input
+          id="timeline-from-week"
+          type="week"
+          class="rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+
+      </div>
+
+
+      <div>
+
+        <label
+          for="timeline-to-week"
+          class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2"
+        >
+          To Week
+        </label>
+
+        <input
+          id="timeline-to-week"
+          type="week"
+          class="rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+
+      </div>
+
+
+      <button
+        id="timeline-apply"
+        type="button"
+        class="inline-flex justify-center items-center px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition"
+      >
+        Show Range
+      </button>
+
+    </div>
+
+  </div>
+
+</div>

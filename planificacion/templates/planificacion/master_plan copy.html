@@ -1,0 +1,4248 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block dashboard_content %}
+
+<div class="space-y-6 w-full max-w-full min-w-0 overflow-x-hidden">
+
+
+  <!-- =========================================================
+       HEADER
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+
+      <div class="flex items-center gap-3">
+
+        <div class="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+          <span class="text-2xl">📊</span>
+        </div>
+
+        <div>
+
+          <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900">
+            Master Plan
+          </h1>
+
+          <p class="text-gray-500 mt-1">
+            Client Baseline, High-Level Plan and Real / Forecast across the planning portfolio.
+          </p>
+
+        </div>
+
+      </div>
+
+
+      <div class="flex flex-wrap items-center gap-2">
+
+        <a
+          href="{% url 'planificacion:productivity_list' %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 font-semibold hover:bg-gray-50 transition"
+        >
+          <span>⚙️</span>
+          Productivity
+        </a>
+
+        <a
+          href="{% url 'planificacion:assignment_list' %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 font-semibold hover:bg-gray-50 transition"
+        >
+          <span>📋</span>
+          Assignment List
+        </a>
+
+        <a
+          href="{% url 'planificacion:assignment_create' %}"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition shadow-sm"
+        >
+          <span>＋</span>
+          New Assignment
+        </a>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       PLANNING AREA NAVIGATION
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-2">
+
+    <div class="flex flex-wrap gap-2">
+
+      <a
+        href="{% url 'planificacion:master_plan' %}"
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-bold"
+      >
+        📊 Master Plan
+      </a>
+
+      <span
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-gray-400 font-semibold cursor-not-allowed"
+      >
+        🗓 Plan
+      </span>
+
+      <span
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-gray-400 font-semibold cursor-not-allowed"
+      >
+        📈 Real Plan
+      </span>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       PORTFOLIO PERSPECTIVE
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+
+      <div>
+
+        <h2 class="text-lg font-extrabold text-gray-900">
+          Portfolio View
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Analyze the same planning portfolio globally, by client or by market.
+        </p>
+
+      </div>
+
+
+      <div class="flex flex-wrap gap-2">
+
+        <a
+          href="?view=general{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-4 py-2.5 rounded-xl font-bold transition
+                 {% if perspective == 'general' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          General
+        </a>
+
+        <a
+          href="?view=client{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-4 py-2.5 rounded-xl font-bold transition
+                 {% if perspective == 'client' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          By Client
+        </a>
+
+        <a
+          href="?view=market{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_market %}&market={{ selected_market|urlencode }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+          data-preserve-master-scroll="1"
+          class="px-4 py-2.5 rounded-xl font-bold transition
+                 {% if perspective == 'market' %}
+                   bg-blue-600 text-white
+                 {% else %}
+                   bg-gray-100 text-gray-600 hover:bg-gray-200
+                 {% endif %}"
+        >
+          By Market
+        </a>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       MASTER PLAN FILTERS
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+    <div class="px-5 py-4 border-b border-gray-200">
+
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+        <div>
+
+          <h2 class="font-extrabold text-gray-900">
+            Planning Filters
+          </h2>
+
+          <p class="text-sm text-gray-500 mt-1">
+            Filter the portfolio and select the timeline period you want to analyze.
+          </p>
+
+        </div>
+
+
+        <div class="flex flex-wrap gap-2">
+
+          <button
+            type="button"
+            class="planning-work-type-btn px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold"
+            data-work-type="all"
+          >
+            All Work
+          </button>
+
+          <button
+            type="button"
+            class="planning-work-type-btn px-4 py-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-bold transition"
+            data-work-type="cabling"
+          >
+            Cabling
+          </button>
+
+          <button
+            type="button"
+            class="planning-work-type-btn px-4 py-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-bold transition"
+            data-work-type="splicing"
+          >
+            Splicing
+          </button>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <form
+      method="get"
+      id="master-plan-filter-form"
+      class="p-5"
+    >
+
+      <input
+        type="hidden"
+        name="view"
+        value="{{ perspective }}"
+      >
+
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+
+
+        <!-- CLIENT -->
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            Client
+          </label>
+
+          <select
+            name="client"
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+            <option value="">
+              All Clients
+            </option>
+
+            {% for client in clients %}
+
+              <option
+                value="{{ client.id }}"
+                {% if selected_client == client.id|stringformat:"s" %}selected{% endif %}
+              >
+                {{ client.name }}
+              </option>
+
+            {% endfor %}
+
+          </select>
+
+        </div>
+
+
+        <!-- MARKET -->
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            Market
+          </label>
+
+          <select
+            name="market"
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+            <option value="">
+              All Markets
+            </option>
+
+            {% for market in markets %}
+
+              <option
+                value="{{ market }}"
+                {% if selected_market == market %}selected{% endif %}
+              >
+                {{ market }}
+              </option>
+
+            {% endfor %}
+
+          </select>
+
+        </div>
+
+
+        <!-- SEARCH -->
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+            Search
+          </label>
+
+          <input
+            type="text"
+            name="q"
+            value="{{ search }}"
+            placeholder="Assignment, DFN, activity..."
+            class="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+        </div>
+
+
+        <!-- ACTIONS -->
+        <div class="flex items-end gap-2">
+
+          <button
+            type="submit"
+            class="flex-1 inline-flex justify-center items-center px-4 py-2.5 rounded-xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition"
+          >
+            Apply
+          </button>
+
+          <a
+            href="{% url 'planificacion:master_plan' %}"
+            data-preserve-master-scroll="1"
+            class="inline-flex justify-center items-center px-4 py-2.5 rounded-xl border border-gray-300 text-gray-600 font-bold hover:bg-gray-50 transition"
+          >
+            Reset
+          </a>
+
+        </div>
+
+      </div>
+
+    </form>
+
+  </div>
+
+
+  <!-- =========================================================
+       TIMELINE RANGE
+  ========================================================== -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+    <div class="flex flex-col 2xl:flex-row 2xl:items-end 2xl:justify-between gap-5">
+
+      <div>
+
+        <h2 class="font-extrabold text-gray-900">
+          Timeline
+        </h2>
+
+        <p class="text-sm text-gray-500 mt-1">
+          Display specific planning weeks or analyze a custom week range.
+        </p>
+
+      </div>
+
+
+      <div class="flex flex-col xl:flex-row xl:items-end gap-4">
+
+        <div>
+
+          <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
+            Quick Range
+          </label>
+
+          <div class="flex flex-wrap gap-2">
+
+            <button
+              type="button"
+              class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+              data-weeks="1"
+            >
+              This Week
+            </button>
+
+            <button
+              type="button"
+              class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+              data-weeks="4"
+            >
+              Next 4 Weeks
+            </button>
+
+            <button
+              type="button"
+              class="timeline-preset-btn px-3 py-2 rounded-xl border border-gray-300 bg-white text-gray-600 text-sm font-bold hover:bg-gray-50 transition"
+              data-weeks="8"
+            >
+              Next 8 Weeks
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <div>
+
+          <label
+            for="timeline-from-week"
+            class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2"
+          >
+            From Week
+          </label>
+
+          <input
+            id="timeline-from-week"
+            type="week"
+            class="rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+        </div>
+
+
+        <div>
+
+          <label
+            for="timeline-to-week"
+            class="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-2"
+          >
+            To Week
+          </label>
+
+          <input
+            id="timeline-to-week"
+            type="week"
+            class="rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+
+        </div>
+
+
+        <button
+          id="timeline-apply"
+          type="button"
+          class="inline-flex justify-center items-center px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition"
+        >
+          Show Range
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       SUMMARY
+  ========================================================== -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            Assignments
+          </p>
+
+          <p class="text-3xl font-extrabold text-gray-900 mt-2">
+            {{ active_assignments }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center text-xl">
+          📁
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            On Track
+          </p>
+
+          <p class="text-3xl font-extrabold text-green-600 mt-2">
+            {{ on_track }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center text-xl">
+          ✓
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            At Risk
+          </p>
+
+          <p class="text-3xl font-extrabold text-amber-500 mt-2">
+            {{ at_risk }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center text-xl">
+          ⚠
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+
+      <div class="flex items-start justify-between">
+
+        <div>
+
+          <p class="text-sm font-semibold text-gray-500">
+            Baseline Miss
+          </p>
+
+          <p class="text-3xl font-extrabold text-red-600 mt-2">
+            {{ baseline_miss }}
+          </p>
+
+        </div>
+
+        <div class="w-11 h-11 rounded-xl bg-red-50 flex items-center justify-center text-xl">
+          !
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       MASTER PLAN MATRIX
+  ========================================================== -->
+  <div
+    id="master-plan-matrix"
+    class="w-full max-w-full min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden"
+  >
+
+
+    <div class="px-6 py-5 border-b border-gray-200">
+
+      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+
+        <div>
+
+          <h2 class="text-xl font-extrabold text-gray-900">
+            Master Plan Matrix
+          </h2>
+
+          <p class="text-sm text-gray-500 mt-1">
+            Every activity is planned independently while remaining linked to its Assignment and DFN.
+          </p>
+
+        </div>
+
+
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold">
+
+          <div class="flex items-center gap-2">
+
+            <span class="w-4 h-3 rounded-sm bg-emerald-200 border border-emerald-300"></span>
+
+            <span class="text-gray-600">
+              Client Baseline
+            </span>
+
+          </div>
+
+
+          <div class="flex items-center gap-2">
+
+            <span class="w-4 h-3 rounded-sm bg-blue-500"></span>
+
+            <span class="text-gray-600">
+              High-Level Plan
+            </span>
+
+          </div>
+
+
+          <div class="flex items-center gap-2">
+
+            <span class="w-4 h-3 rounded-sm bg-amber-400"></span>
+
+            <span class="text-gray-600">
+              Real / Forecast
+            </span>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    {% if master_plan_rows %}
+
+      <!-- =====================================================
+           FIXED DATA + INDEPENDENT TIMELINE
+      ====================================================== -->
+      <div
+        id="planning-matrix-layout"
+        class="w-full max-w-full min-w-0 overflow-hidden"
+        style="display:grid; grid-template-columns:auto minmax(0, 1fr);"
+      >
+
+
+        <!-- ===================================================
+             FIXED LEFT SIDE
+        ==================================================== -->
+        <div
+          id="planning-fixed-pane"
+          class="relative z-20 shrink-0 bg-white border-r-2 border-gray-300 shadow-[5px_0_10px_-8px_rgba(0,0,0,0.35)] overflow-hidden"
+        >
+
+          <table
+            id="planning-fixed-table"
+            class="table-fixed border-collapse text-[11px]"
+          >
+
+            <colgroup>
+
+              <col
+                data-column-col="activity"
+                data-expanded-width="150"
+              >
+
+              <col
+                data-column-col="market"
+                data-expanded-width="100"
+              >
+
+              <col
+                data-column-col="quantity"
+                data-expanded-width="68"
+              >
+
+              <col
+                data-column-col="unit"
+                data-expanded-width="68"
+              >
+
+              <col
+                data-column-col="dfn"
+                data-expanded-width="100"
+              >
+
+              <col
+                data-column-col="client_start"
+                data-expanded-width="84"
+              >
+
+              <col
+                data-column-col="client_finish"
+                data-expanded-width="84"
+              >
+
+              <col
+                data-column-col="internal_start"
+                data-expanded-width="84"
+              >
+
+              <col
+                data-column-col="internal_finish"
+                data-expanded-width="84"
+              >
+
+              <col
+                data-column-col="variance"
+                data-expanded-width="92"
+              >
+
+            </colgroup>
+
+
+            <thead>
+
+              <tr
+                id="planning-fixed-header-row"
+                class="bg-gray-100 text-gray-600"
+              >
+
+
+                <!-- ACTIVITY -->
+                <th
+                  data-column-cell="activity"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="activity"
+                      class="truncate"
+                    >
+                      Activity
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="activity"
+                      title="Collapse Activity"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- MARKET -->
+                <th
+                  data-column-cell="market"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="market"
+                      class="truncate"
+                    >
+                      Market
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="market"
+                      title="Collapse Market"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- QUANTITY -->
+                <th
+                  data-column-cell="quantity"
+                  class="px-2 py-2 text-right align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="quantity"
+                      class="whitespace-nowrap"
+                    >
+                      Qty
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="quantity"
+                      title="Collapse Quantity"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- UNIT -->
+                <th
+                  data-column-cell="unit"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="unit"
+                      class="whitespace-nowrap"
+                    >
+                      Unit
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="unit"
+                      title="Collapse Unit"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- DFN -->
+                <th
+                  data-column-cell="dfn"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="dfn"
+                      class="truncate"
+                    >
+                      DFN
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="dfn"
+                      title="Collapse DFN"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- CLIENT START -->
+                <th
+                  data-column-cell="client_start"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="client_start"
+                      class="leading-tight"
+                    >
+                      Client<br>Start
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="client_start"
+                      title="Collapse Client Start"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- CLIENT FINISH -->
+                <th
+                  data-column-cell="client_finish"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="client_finish"
+                      class="leading-tight"
+                    >
+                      Client<br>Finish
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="client_finish"
+                      title="Collapse Client Finish"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- INTERNAL START -->
+                <th
+                  data-column-cell="internal_start"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="internal_start"
+                      class="leading-tight"
+                    >
+                      Internal<br>Start
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="internal_start"
+                      title="Collapse Internal Start"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- INTERNAL FINISH -->
+                <th
+                  data-column-cell="internal_finish"
+                  class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="internal_finish"
+                      class="leading-tight"
+                    >
+                      Internal<br>Finish
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="internal_finish"
+                      title="Collapse Internal Finish"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+
+                <!-- VARIANCE -->
+                <th
+                  data-column-cell="variance"
+                  class="px-2 py-2 text-center align-middle font-extrabold border-b border-gray-200 overflow-hidden"
+                >
+
+                  <div class="flex items-center justify-between gap-1">
+
+                    <span
+                      data-column-label="variance"
+                      class="whitespace-nowrap"
+                    >
+                      Variance
+                    </span>
+
+                    <button
+                      type="button"
+                      class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+                      data-column="variance"
+                      title="Collapse Variance"
+                    >
+                      −
+                    </button>
+
+                  </div>
+
+                </th>
+
+              </tr>
+
+            </thead>
+
+
+            <tbody>
+
+              {% for row in master_plan_rows %}
+
+                <tr
+                  class="planning-fixed-row planning-activity-row-fixed bg-white border-b border-gray-200"
+                  data-row-index="{{ forloop.counter0 }}"
+                  data-assignment-id="{{ row.assignment.id }}"
+                  data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
+                >
+
+
+                  <!-- ACTIVITY -->
+                  <td
+                    data-column-cell="activity"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="activity">
+
+                      <a
+                        href="{% url 'planificacion:assignment_detail' row.assignment.id %}"
+                        class="font-extrabold text-gray-900 hover:text-blue-600"
+                      >
+                        {{ row.activity_type.code }}
+                      </a>
+
+                      <div class="text-[10px] font-semibold text-gray-700 mt-0.5 leading-tight">
+                        {{ row.activity_type.name }}
+                      </div>
+
+                      <div class="text-[9px] text-gray-400 mt-1 truncate">
+                        {{ row.assignment.name }}
+                      </div>
+
+                      <div class="text-[9px] font-semibold text-blue-600 truncate">
+                        {{ row.assignment.client.name }}
+                      </div>
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- MARKET -->
+                  <td
+                    data-column-cell="market"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="market">
+
+                      {% if row.assignment.location %}
+
+                        {% if row.assignment.location.market %}
+                          <div class="font-bold text-gray-800 truncate">
+                            {{ row.assignment.location.market }}
+                          </div>
+                        {% else %}
+                          <div class="text-gray-400">
+                            —
+                          </div>
+                        {% endif %}
+
+                        {% if row.assignment.location.city %}
+                          <div class="text-[10px] text-gray-500 mt-0.5 truncate">
+                            {{ row.assignment.location.city }}
+                          </div>
+                        {% endif %}
+
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- QUANTITY -->
+                  <td
+                    data-column-cell="quantity"
+                    class="px-2 py-2 text-right font-bold text-gray-700 border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="quantity">
+
+                      {% if row.quantity != None %}
+                        {{ row.quantity|floatformat:"-4" }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- UNIT -->
+                  <td
+                    data-column-cell="unit"
+                    class="px-2 py-2 text-gray-700 font-semibold border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="unit">
+
+                      {% if row.quantity != None %}
+                        {{ row.unit }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- DFN -->
+                  <td
+                    data-column-cell="dfn"
+                    class="px-2 py-2 border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="dfn">
+
+                      {% if row.dfn %}
+
+                        <span class="inline-flex px-1.5 py-1 rounded-md bg-gray-100 text-gray-700 font-extrabold whitespace-nowrap">
+                          {{ row.dfn.code }}
+                        </span>
+
+                      {% else %}
+
+                        <span class="text-gray-400">
+                          —
+                        </span>
+
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- CLIENT START -->
+                  <td
+                    data-column-cell="client_start"
+                    class="px-2 py-2 text-gray-700 whitespace-nowrap align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="client_start">
+
+                      {% if row.client_start %}
+                        {{ row.client_start|date:"M d, Y" }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- CLIENT FINISH -->
+                  <td
+                    data-column-cell="client_finish"
+                    class="px-2 py-2 text-gray-700 whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="client_finish">
+
+                      {% if row.client_finish %}
+                        {{ row.client_finish|date:"M d, Y" }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- INTERNAL START -->
+                  <td
+                    data-column-cell="internal_start"
+                    class="px-2 py-2 text-purple-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="internal_start">
+
+                      {% if row.planned_start %}
+                        {{ row.planned_start|date:"M d, Y" }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- INTERNAL FINISH -->
+                  <td
+                    data-column-cell="internal_finish"
+                    class="px-2 py-2 text-blue-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="internal_finish">
+
+                      {% if row.planned_finish %}
+                        {{ row.planned_finish|date:"M d, Y" }}
+                      {% else %}
+                        —
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+
+                  <!-- VARIANCE -->
+                  <td
+                    data-column-cell="variance"
+                    class="px-2 py-2 text-center font-extrabold align-middle overflow-hidden"
+                  >
+
+                    <div data-column-content="variance">
+
+                      {% if row.variance_days == None %}
+
+                        <span class="text-gray-400">
+                          —
+                        </span>
+
+                      {% elif row.variance_days <= 0 %}
+
+                        <span class="inline-flex px-1.5 py-1 rounded-md bg-green-50 text-green-700 whitespace-nowrap">
+                          {{ row.variance_days }}d
+                        </span>
+
+                      {% else %}
+
+                        <span class="inline-flex px-1.5 py-1 rounded-md bg-red-50 text-red-700 whitespace-nowrap">
+                          +{{ row.variance_days }}d
+                        </span>
+
+                      {% endif %}
+
+                    </div>
+
+                  </td>
+
+                </tr>
+
+              {% endfor %}
+
+            </tbody>
+
+          </table>
+
+        </div>
+
+
+        <!-- ===================================================
+             TIMELINE VIEWPORT
+        ==================================================== -->
+        <div
+          id="planning-timeline-viewport"
+          class="relative z-10 w-full min-w-0 max-w-full overflow-hidden bg-white"
+        >
+
+          <div
+            id="planning-timeline-scroll"
+            class="w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden bg-white"
+            style="overscroll-behavior-x:contain;"
+          >
+
+            <table
+              id="planning-timeline-table"
+              class="border-collapse text-xs"
+              style="table-layout:fixed;"
+            >
+
+              <thead>
+
+                <tr
+                  id="timeline-months-header"
+                  class="h-[22px] bg-blue-100 text-blue-800"
+                >
+                </tr>
+
+
+                <tr>
+
+                  <th
+                    id="timeline-header-title"
+                    class="h-[34px] px-3 text-center font-extrabold text-blue-800 bg-blue-50 border-b border-blue-100 whitespace-nowrap"
+                  >
+                    Planning Timeline
+                  </th>
+
+                </tr>
+
+
+                <tr
+                  id="timeline-days-header"
+                  class="h-[44px] bg-gray-50 text-gray-500"
+                >
+                </tr>
+
+              </thead>
+
+
+              <tbody>
+
+                {% for row in master_plan_rows %}
+
+                  <tr
+                    class="planning-timeline-row border-b border-gray-200"
+                    data-row-index="{{ forloop.counter0 }}"
+                    data-assignment-id="{{ row.assignment.id }}"
+                    data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
+                  >
+
+                    <td
+                      class="p-0 planning-timeline-container align-middle"
+                      data-client-start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% endif %}"
+                      data-client-finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% endif %}"
+                      data-plan-start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% endif %}"
+                      data-plan-finish="{% if row.planned_finish %}{{ row.planned_finish|date:'Y-m-d' }}{% endif %}"
+                      data-plan-working-days="{{ row.plan_working_days }}"
+                    >
+
+                      <div class="planning-layer-grid"></div>
+
+                    </td>
+
+                  </tr>
+
+                {% endfor %}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- =====================================================
+           TIMELINE SCROLL INFORMATION
+      ====================================================== -->
+      <div class="px-4 py-3 border-t border-gray-200 bg-gray-50">
+
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+
+          <p class="text-xs text-gray-500">
+            Client Baseline shows the client's committed window. High-Level Plan respects each Assignment's working calendar.
+          </p>
+
+          <div class="text-xs font-semibold text-gray-500 whitespace-nowrap">
+            ← Previous weeks · Timeline scroll · Future weeks →
+          </div>
+
+        </div>
+
+      </div>
+
+
+    {% else %}
+
+      <div class="px-6 py-20 text-center">
+
+        <div class="max-w-xl mx-auto">
+
+          <div class="w-16 h-16 mx-auto rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">
+            📊
+          </div>
+
+          <h3 class="text-lg font-extrabold text-gray-900 mt-4">
+            No activities in the Master Plan yet
+          </h3>
+
+          <p class="text-gray-500 mt-2">
+            Create an Assignment with at least one activity to begin building the planning portfolio.
+          </p>
+
+          <a
+            href="{% url 'planificacion:assignment_create' %}"
+            class="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition shadow-sm"
+          >
+            <span>＋</span>
+            Add First Assignment
+          </a>
+
+        </div>
+
+      </div>
+
+    {% endif %}
+
+  </div>
+
+</div>
+
+
+<!-- =========================================================
+     MASTER PLAN TIMELINE ENGINE
+========================================================== -->
+<script>
+document.addEventListener(
+  "DOMContentLoaded",
+  function () {
+
+    const CELL_WIDTH = 30;
+
+    const COLLAPSED_COLUMN_WIDTH = 30;
+
+    const COLUMN_STORAGE_KEY =
+      "planning_master_plan_collapsed_columns_v1";
+
+    const PAGE_SCROLL_STORAGE_KEY =
+      "planning_master_plan_page_scroll_v1";
+
+
+    const timelineMonthsHeader =
+      document.getElementById(
+        "timeline-months-header"
+      );
+
+    const timelineHeaderTitle =
+      document.getElementById(
+        "timeline-header-title"
+      );
+
+    const timelineDaysHeader =
+      document.getElementById(
+        "timeline-days-header"
+      );
+
+    const timelineTable =
+      document.getElementById(
+        "planning-timeline-table"
+      );
+
+    const timelineScroll =
+      document.getElementById(
+        "planning-timeline-scroll"
+      );
+
+    const timelineViewport =
+      document.getElementById(
+        "planning-timeline-viewport"
+      );
+
+    const fixedPane =
+      document.getElementById(
+        "planning-fixed-pane"
+      );
+
+    const fixedTable =
+      document.getElementById(
+        "planning-fixed-table"
+      );
+
+    const fixedHeaderRow =
+      document.getElementById(
+        "planning-fixed-header-row"
+      );
+
+    const fromWeekInput =
+      document.getElementById(
+        "timeline-from-week"
+      );
+
+    const toWeekInput =
+      document.getElementById(
+        "timeline-to-week"
+      );
+
+    const applyButton =
+      document.getElementById(
+        "timeline-apply"
+      );
+
+    const filterForm =
+      document.getElementById(
+        "master-plan-filter-form"
+      );
+
+
+    /* =========================================================
+       CURRENT TIMELINE MODE
+    ========================================================== */
+
+    let timelineMode =
+      "auto";
+
+
+    /* =========================================================
+       PAGE POSITION
+    ========================================================== */
+
+    function savePagePosition() {
+
+      try {
+
+        sessionStorage.setItem(
+          PAGE_SCROLL_STORAGE_KEY,
+          String(
+            window.scrollY
+          )
+        );
+
+      } catch (error) {
+      }
+
+    }
+
+
+    function restorePagePosition() {
+
+      let storedPosition = null;
+
+      try {
+
+        storedPosition =
+          sessionStorage.getItem(
+            PAGE_SCROLL_STORAGE_KEY
+          );
+
+        sessionStorage.removeItem(
+          PAGE_SCROLL_STORAGE_KEY
+        );
+
+      } catch (error) {
+        return;
+      }
+
+
+      if (
+        storedPosition === null
+      ) {
+        return;
+      }
+
+
+      const position =
+        Number(
+          storedPosition
+        );
+
+
+      if (
+        !Number.isFinite(
+          position
+        )
+      ) {
+        return;
+      }
+
+
+      window.requestAnimationFrame(
+        function () {
+
+          window.scrollTo(
+            {
+              top: position,
+              left: 0,
+              behavior: "auto",
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    document.querySelectorAll(
+      "[data-preserve-master-scroll='1']"
+    ).forEach(
+      function (link) {
+
+        link.addEventListener(
+          "click",
+          function () {
+
+            savePagePosition();
+
+          }
+        );
+
+      }
+    );
+
+
+    if (
+      filterForm
+    ) {
+
+      filterForm.addEventListener(
+        "submit",
+        function () {
+
+          savePagePosition();
+
+        }
+      );
+
+    }
+
+
+    restorePagePosition();
+
+
+    /* =========================================================
+       KEEP POSITION FOR LOCAL BUTTONS
+    ========================================================== */
+
+    function preservePosition(
+      callback
+    ) {
+
+      const currentY =
+        window.scrollY;
+
+      callback();
+
+      window.requestAnimationFrame(
+        function () {
+
+          window.scrollTo(
+            {
+              top: currentY,
+              left: 0,
+              behavior: "auto",
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    /* =========================================================
+       DATE HELPERS
+    ========================================================== */
+
+    function normalizeDate(date) {
+
+      const normalized =
+        new Date(
+          date
+        );
+
+      normalized.setHours(
+        12,
+        0,
+        0,
+        0
+      );
+
+      return normalized;
+
+    }
+
+
+    function addDays(
+      date,
+      days
+    ) {
+
+      const result =
+        new Date(
+          date
+        );
+
+      result.setDate(
+        result.getDate()
+        +
+        days
+      );
+
+      return normalizeDate(
+        result
+      );
+
+    }
+
+
+    function dateKey(date) {
+
+      const year =
+        date.getFullYear();
+
+      const month =
+        String(
+          date.getMonth() + 1
+        ).padStart(
+          2,
+          "0"
+        );
+
+      const day =
+        String(
+          date.getDate()
+        ).padStart(
+          2,
+          "0"
+        );
+
+      return (
+        year
+        +
+        "-"
+        +
+        month
+        +
+        "-"
+        +
+        day
+      );
+
+    }
+
+
+    function parseDate(value) {
+
+      if (
+        !value
+      ) {
+        return null;
+      }
+
+
+      const parts =
+        value.split(
+          "-"
+        );
+
+
+      if (
+        parts.length !== 3
+      ) {
+        return null;
+      }
+
+
+      return normalizeDate(
+        new Date(
+          Number(
+            parts[0]
+          ),
+          Number(
+            parts[1]
+          )
+          -
+          1,
+          Number(
+            parts[2]
+          )
+        )
+      );
+
+    }
+
+
+    function parseWorkingDays(value) {
+
+      if (
+        !value
+      ) {
+
+        return new Set(
+          [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+          ]
+        );
+
+      }
+
+
+      const result =
+        new Set();
+
+
+      value.split(
+        ","
+      ).forEach(
+        function (item) {
+
+          const day =
+            Number(
+              item
+            );
+
+
+          if (
+            Number.isInteger(
+              day
+            )
+            &&
+            day >= 0
+            &&
+            day <= 6
+          ) {
+
+            result.add(
+              day
+            );
+
+          }
+
+        }
+      );
+
+
+      return result;
+
+    }
+
+
+    /* =========================================================
+       ISO WEEK HELPERS
+    ========================================================== */
+
+    function getISOWeek(date) {
+
+      const temp =
+        new Date(
+          Date.UTC(
+            date.getFullYear(),
+            date.getMonth(),
+            date.getDate()
+          )
+        );
+
+
+      const dayNumber =
+        temp.getUTCDay()
+        ||
+        7;
+
+
+      temp.setUTCDate(
+        temp.getUTCDate()
+        +
+        4
+        -
+        dayNumber
+      );
+
+
+      const yearStart =
+        new Date(
+          Date.UTC(
+            temp.getUTCFullYear(),
+            0,
+            1
+          )
+        );
+
+
+      const weekNumber =
+        Math.ceil(
+          (
+            (
+              temp
+              -
+              yearStart
+            )
+            /
+            86400000
+            +
+            1
+          )
+          /
+          7
+        );
+
+
+      return {
+        year: temp.getUTCFullYear(),
+        week: weekNumber,
+      };
+
+    }
+
+
+    function getMonday(date) {
+
+      const result =
+        normalizeDate(
+          date
+        );
+
+
+      const day =
+        result.getDay()
+        ||
+        7;
+
+
+      result.setDate(
+        result.getDate()
+        -
+        day
+        +
+        1
+      );
+
+
+      return normalizeDate(
+        result
+      );
+
+    }
+
+
+    function getSunday(date) {
+
+      return addDays(
+        getMonday(
+          date
+        ),
+        6
+      );
+
+    }
+
+
+    function isoWeekToMonday(value) {
+
+      if (
+        !value
+      ) {
+        return null;
+      }
+
+
+      const match =
+        value.match(
+          /^(\d{4})-W(\d{2})$/
+        );
+
+
+      if (
+        !match
+      ) {
+        return null;
+      }
+
+
+      const year =
+        Number(
+          match[1]
+        );
+
+
+      const week =
+        Number(
+          match[2]
+        );
+
+
+      const januaryFourth =
+        new Date(
+          year,
+          0,
+          4
+        );
+
+
+      const firstMonday =
+        getMonday(
+          januaryFourth
+        );
+
+
+      return addDays(
+        firstMonday,
+        (
+          week
+          -
+          1
+        )
+        *
+        7
+      );
+
+    }
+
+
+    function dateToWeekInput(date) {
+
+      const iso =
+        getISOWeek(
+          date
+        );
+
+
+      return (
+        iso.year
+        +
+        "-W"
+        +
+        String(
+          iso.week
+        ).padStart(
+          2,
+          "0"
+        )
+      );
+
+    }
+
+
+    /* =========================================================
+       TODAY
+    ========================================================== */
+
+    const today =
+      normalizeDate(
+        new Date()
+      );
+
+
+    const currentMonday =
+      getMonday(
+        today
+      );
+
+
+    if (
+      fromWeekInput
+      &&
+      !fromWeekInput.value
+    ) {
+
+      fromWeekInput.value =
+        dateToWeekInput(
+          currentMonday
+        );
+
+    }
+
+
+    if (
+      toWeekInput
+      &&
+      !toWeekInput.value
+    ) {
+
+      toWeekInput.value =
+        dateToWeekInput(
+          currentMonday
+        );
+
+    }
+
+
+    /* =========================================================
+       COLLAPSIBLE FIXED COLUMNS
+    ========================================================== */
+
+    function loadCollapsedColumns() {
+
+      try {
+
+        const value =
+          localStorage.getItem(
+            COLUMN_STORAGE_KEY
+          );
+
+
+        if (
+          !value
+        ) {
+          return new Set();
+        }
+
+
+        const parsed =
+          JSON.parse(
+            value
+          );
+
+
+        if (
+          !Array.isArray(
+            parsed
+          )
+        ) {
+          return new Set();
+        }
+
+
+        return new Set(
+          parsed
+        );
+
+      } catch (error) {
+
+        return new Set();
+
+      }
+
+    }
+
+
+    let collapsedColumns =
+      loadCollapsedColumns();
+
+
+    function saveCollapsedColumns() {
+
+      try {
+
+        localStorage.setItem(
+          COLUMN_STORAGE_KEY,
+          JSON.stringify(
+            Array.from(
+              collapsedColumns
+            )
+          )
+        );
+
+      } catch (error) {
+      }
+
+    }
+
+
+    function updateFixedPaneWidth() {
+
+      if (
+        !fixedPane
+        ||
+        !fixedTable
+      ) {
+        return;
+      }
+
+
+      let totalWidth =
+        0;
+
+
+      fixedTable.querySelectorAll(
+        "col[data-column-col]"
+      ).forEach(
+        function (col) {
+
+          const column =
+            col.dataset.columnCol;
+
+
+          const expandedWidth =
+            Number(
+              col.dataset.expandedWidth
+            )
+            ||
+            COLLAPSED_COLUMN_WIDTH;
+
+
+          const width =
+            collapsedColumns.has(
+              column
+            )
+              ?
+              COLLAPSED_COLUMN_WIDTH
+              :
+              expandedWidth;
+
+
+          col.style.width =
+            width
+            +
+            "px";
+
+
+          totalWidth +=
+            width;
+
+        }
+      );
+
+
+      fixedTable.style.width =
+        totalWidth
+        +
+        "px";
+
+
+      fixedTable.style.minWidth =
+        totalWidth
+        +
+        "px";
+
+
+      fixedTable.style.maxWidth =
+        totalWidth
+        +
+        "px";
+
+
+      fixedPane.style.width =
+        totalWidth
+        +
+        "px";
+
+
+      fixedPane.style.minWidth =
+        totalWidth
+        +
+        "px";
+
+
+      fixedPane.style.maxWidth =
+        totalWidth
+        +
+        "px";
+
+    }
+
+
+    function renderColumnState(column) {
+
+      const collapsed =
+        collapsedColumns.has(
+          column
+        );
+
+
+      document.querySelectorAll(
+        "[data-column-content='"
+        +
+        column
+        +
+        "']"
+      ).forEach(
+        function (element) {
+
+          if (
+            collapsed
+          ) {
+
+            element.classList.add(
+              "hidden"
+            );
+
+          } else {
+
+            element.classList.remove(
+              "hidden"
+            );
+
+          }
+
+        }
+      );
+
+
+      document.querySelectorAll(
+        "[data-column-label='"
+        +
+        column
+        +
+        "']"
+      ).forEach(
+        function (element) {
+
+          if (
+            collapsed
+          ) {
+
+            element.classList.add(
+              "hidden"
+            );
+
+          } else {
+
+            element.classList.remove(
+              "hidden"
+            );
+
+          }
+
+        }
+      );
+
+
+      document.querySelectorAll(
+        ".planning-column-toggle[data-column='"
+        +
+        column
+        +
+        "']"
+      ).forEach(
+        function (button) {
+
+          button.textContent =
+            collapsed
+              ?
+              "+"
+              :
+              "−";
+
+
+          button.title =
+            collapsed
+              ?
+              "Expand column"
+              :
+              "Collapse column";
+
+
+          if (
+            collapsed
+          ) {
+
+            button.classList.add(
+              "mx-auto"
+            );
+
+          } else {
+
+            button.classList.remove(
+              "mx-auto"
+            );
+
+          }
+
+        }
+      );
+
+
+      document.querySelectorAll(
+        "[data-column-cell='"
+        +
+        column
+        +
+        "']"
+      ).forEach(
+        function (cell) {
+
+          if (
+            collapsed
+          ) {
+
+            cell.classList.remove(
+              "px-2"
+            );
+
+            cell.classList.add(
+              "px-1"
+            );
+
+          } else {
+
+            cell.classList.remove(
+              "px-1"
+            );
+
+            cell.classList.add(
+              "px-2"
+            );
+
+          }
+
+        }
+      );
+
+    }
+
+
+    function renderAllColumnStates() {
+
+      if (
+        !fixedTable
+      ) {
+        return;
+      }
+
+
+      fixedTable.querySelectorAll(
+        "col[data-column-col]"
+      ).forEach(
+        function (col) {
+
+          renderColumnState(
+            col.dataset.columnCol
+          );
+
+        }
+      );
+
+
+      updateFixedPaneWidth();
+
+    }
+
+
+    /* =========================================================
+       SYNCHRONIZE FIXED TABLE + TIMELINE HEIGHTS
+    ========================================================== */
+
+    function synchronizeMatrixHeights() {
+
+      if (
+        !fixedTable
+        ||
+        !timelineTable
+      ) {
+        return;
+      }
+
+
+      const timelineHead =
+        timelineTable.querySelector(
+          "thead"
+        );
+
+
+      if (
+        fixedHeaderRow
+        &&
+        timelineHead
+      ) {
+
+        fixedHeaderRow.style.height =
+          "";
+
+
+        fixedHeaderRow.querySelectorAll(
+          "th"
+        ).forEach(
+          function (cell) {
+
+            cell.style.height =
+              "";
+
+          }
+        );
+
+
+        const timelineHeaderHeight =
+          Math.ceil(
+            timelineHead.getBoundingClientRect().height
+          );
+
+
+        fixedHeaderRow.style.height =
+          timelineHeaderHeight
+          +
+          "px";
+
+
+        fixedHeaderRow.querySelectorAll(
+          "th"
+        ).forEach(
+          function (cell) {
+
+            cell.style.height =
+              timelineHeaderHeight
+              +
+              "px";
+
+          }
+        );
+
+      }
+
+
+      document.querySelectorAll(
+        ".planning-activity-row-fixed"
+      ).forEach(
+        function (fixedRow) {
+
+          const rowIndex =
+            fixedRow.dataset.rowIndex;
+
+
+          const timelineRow =
+            document.querySelector(
+              ".planning-timeline-row[data-row-index='"
+              +
+              rowIndex
+              +
+              "']"
+            );
+
+
+          if (
+            !timelineRow
+          ) {
+            return;
+          }
+
+
+          fixedRow.style.height =
+            "";
+
+
+          timelineRow.style.height =
+            "";
+
+
+          fixedRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                "";
+
+            }
+          );
+
+
+          timelineRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                "";
+
+            }
+          );
+
+
+          if (
+            fixedRow.classList.contains(
+              "hidden"
+            )
+            ||
+            timelineRow.classList.contains(
+              "hidden"
+            )
+          ) {
+            return;
+          }
+
+
+          const fixedHeight =
+            Math.ceil(
+              fixedRow.getBoundingClientRect().height
+            );
+
+
+          const timelineHeight =
+            Math.ceil(
+              timelineRow.getBoundingClientRect().height
+            );
+
+
+          const rowHeight =
+            Math.max(
+              72,
+              fixedHeight,
+              timelineHeight
+            );
+
+
+          fixedRow.style.height =
+            rowHeight
+            +
+            "px";
+
+
+          timelineRow.style.height =
+            rowHeight
+            +
+            "px";
+
+
+          fixedRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                rowHeight
+                +
+                "px";
+
+            }
+          );
+
+
+          timelineRow.querySelectorAll(
+            "td"
+          ).forEach(
+            function (cell) {
+
+              cell.style.height =
+                rowHeight
+                +
+                "px";
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    function scheduleMatrixHeightSync() {
+
+      window.requestAnimationFrame(
+        function () {
+
+          synchronizeMatrixHeights();
+
+
+          window.requestAnimationFrame(
+            function () {
+
+              synchronizeMatrixHeights();
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    document.querySelectorAll(
+      ".planning-column-toggle"
+    ).forEach(
+      function (button) {
+
+        button.addEventListener(
+          "click",
+          function () {
+
+            preservePosition(
+              function () {
+
+                const column =
+                  button.dataset.column;
+
+
+                if (
+                  collapsedColumns.has(
+                    column
+                  )
+                ) {
+
+                  collapsedColumns.delete(
+                    column
+                  );
+
+                } else {
+
+                  collapsedColumns.add(
+                    column
+                  );
+
+                }
+
+
+                saveCollapsedColumns();
+
+
+                renderColumnState(
+                  column
+                );
+
+
+                updateFixedPaneWidth();
+
+
+                scheduleMatrixHeightSync();
+
+              }
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+    renderAllColumnStates();
+
+
+    /* =========================================================
+       PLANNING BOUNDS FOR AUTOMATIC MODE
+    ========================================================== */
+
+    function getAutomaticPlanningBounds() {
+
+      const dates =
+        [];
+
+
+      document.querySelectorAll(
+        ".planning-timeline-row:not(.hidden) .planning-timeline-container"
+      ).forEach(
+        function (container) {
+
+          [
+            container.dataset.clientStart,
+            container.dataset.clientFinish,
+            container.dataset.planStart,
+            container.dataset.planFinish,
+          ].forEach(
+            function (value) {
+
+              const date =
+                parseDate(
+                  value
+                );
+
+
+              if (
+                date
+              ) {
+
+                dates.push(
+                  date
+                );
+
+              }
+
+            }
+          );
+
+        }
+      );
+
+
+      if (
+        dates.length === 0
+      ) {
+
+        return {
+          start: currentMonday,
+          end: getSunday(
+            currentMonday
+          ),
+        };
+
+      }
+
+
+      const earliest =
+        new Date(
+          Math.min.apply(
+            null,
+            dates.map(
+              function (date) {
+
+                return date.getTime();
+
+              }
+            )
+          )
+        );
+
+
+      const latest =
+        new Date(
+          Math.max.apply(
+            null,
+            dates.map(
+              function (date) {
+
+                return date.getTime();
+
+              }
+            )
+          )
+        );
+
+
+      const firstPlanningWeek =
+        getMonday(
+          earliest
+        );
+
+
+      const lastPlanningWeek =
+        getMonday(
+          latest
+        );
+
+
+      return {
+        start: addDays(
+          firstPlanningWeek,
+          -7
+        ),
+        end: addDays(
+          lastPlanningWeek,
+          13
+        ),
+      };
+
+    }
+
+
+    /* =========================================================
+       MONTH HEADER
+    ========================================================== */
+
+    function buildMonthHeader(
+      dates
+    ) {
+
+      if (
+        !timelineMonthsHeader
+      ) {
+        return;
+      }
+
+
+      timelineMonthsHeader.innerHTML =
+        "";
+
+
+      if (
+        dates.length === 0
+      ) {
+        return;
+      }
+
+
+      let groupStart =
+        0;
+
+
+      while (
+        groupStart
+        <
+        dates.length
+      ) {
+
+        const firstDate =
+          dates[
+            groupStart
+          ];
+
+
+        const month =
+          firstDate.getMonth();
+
+
+        const year =
+          firstDate.getFullYear();
+
+
+        let groupEnd =
+          groupStart
+          +
+          1;
+
+
+        while (
+          groupEnd
+          <
+          dates.length
+          &&
+          dates[
+            groupEnd
+          ].getMonth()
+          ===
+          month
+          &&
+          dates[
+            groupEnd
+          ].getFullYear()
+          ===
+          year
+        ) {
+
+          groupEnd +=
+            1;
+
+        }
+
+
+        const span =
+          groupEnd
+          -
+          groupStart;
+
+
+        const th =
+          document.createElement(
+            "th"
+          );
+
+
+        th.colSpan =
+          span;
+
+
+        th.style.width =
+          (
+            span
+            *
+            CELL_WIDTH
+          )
+          +
+          "px";
+
+
+        th.style.minWidth =
+          th.style.width;
+
+
+        th.style.maxWidth =
+          th.style.width;
+
+
+        th.className =
+          "h-[22px] px-2 text-center text-[10px] font-extrabold bg-blue-100 text-blue-800 border-r border-b border-blue-200 whitespace-nowrap";
+
+
+        th.textContent =
+          firstDate.toLocaleDateString(
+            "en-US",
+            {
+              month: "long",
+              year: "numeric",
+            }
+          );
+
+
+        timelineMonthsHeader.appendChild(
+          th
+        );
+
+
+        groupStart =
+          groupEnd;
+
+      }
+
+    }
+
+
+    /* =========================================================
+       BUILD TIMELINE HEADER
+    ========================================================== */
+
+    function buildTimelineHeader(
+      startDate,
+      endDate
+    ) {
+
+      if (
+        !timelineDaysHeader
+      ) {
+        return [];
+      }
+
+
+      timelineDaysHeader.innerHTML =
+        "";
+
+
+      const dates =
+        [];
+
+
+      let cursor =
+        normalizeDate(
+          startDate
+        );
+
+
+      while (
+        cursor <= endDate
+      ) {
+
+        dates.push(
+          normalizeDate(
+            cursor
+          )
+        );
+
+
+        cursor =
+          addDays(
+            cursor,
+            1
+          );
+
+      }
+
+
+      buildMonthHeader(
+        dates
+      );
+
+
+      if (
+        timelineHeaderTitle
+      ) {
+
+        timelineHeaderTitle.colSpan =
+          dates.length;
+
+      }
+
+
+      dates.forEach(
+        function (date) {
+
+          const iso =
+            getISOWeek(
+              date
+            );
+
+
+          const isMonday =
+            date.getDay()
+            ===
+            1;
+
+
+          const isSunday =
+            date.getDay()
+            ===
+            0;
+
+
+          const th =
+            document.createElement(
+              "th"
+            );
+
+
+          th.style.width =
+            CELL_WIDTH
+            +
+            "px";
+
+
+          th.style.minWidth =
+            CELL_WIDTH
+            +
+            "px";
+
+
+          th.style.maxWidth =
+            CELL_WIDTH
+            +
+            "px";
+
+
+          th.className =
+            "border-r border-b border-gray-200 text-center px-0 py-0";
+
+
+          const weekLabel =
+            isMonday
+              ?
+              (
+                "<div class='bg-blue-50 text-blue-700 font-extrabold text-[9px] py-1 border-b border-blue-100'>"
+                +
+                "W"
+                +
+                String(
+                  iso.week
+                ).padStart(
+                  2,
+                  "0"
+                )
+                +
+                "</div>"
+              )
+              :
+              (
+                "<div class='h-[21px] bg-blue-50 border-b border-blue-100'></div>"
+              );
+
+
+          const weekday =
+            date.toLocaleDateString(
+              "en-US",
+              {
+                weekday: "short",
+              }
+            ).slice(
+              0,
+              2
+            );
+
+
+          th.innerHTML =
+            weekLabel
+            +
+            "<div class='"
+            +
+            (
+              isSunday
+                ?
+                "bg-gray-100"
+                :
+                "bg-white"
+            )
+            +
+            " py-1'>"
+            +
+            "<div class='font-bold text-[9px] text-gray-500'>"
+            +
+            weekday
+            +
+            "</div>"
+            +
+            "<div class='font-extrabold text-[10px] text-gray-700'>"
+            +
+            String(
+              date.getDate()
+            ).padStart(
+              2,
+              "0"
+            )
+            +
+            "</div>"
+            +
+            "</div>";
+
+
+          if (
+            isMonday
+          ) {
+
+            th.classList.add(
+              "border-l-2",
+              "border-l-blue-200"
+            );
+
+          }
+
+
+          timelineDaysHeader.appendChild(
+            th
+          );
+
+        }
+      );
+
+
+      const timelineWidth =
+        dates.length
+        *
+        CELL_WIDTH;
+
+
+      if (
+        timelineTable
+      ) {
+
+        timelineTable.style.width =
+          timelineWidth
+          +
+          "px";
+
+
+        timelineTable.style.minWidth =
+          timelineWidth
+          +
+          "px";
+
+
+        timelineTable.style.maxWidth =
+          timelineWidth
+          +
+          "px";
+
+      }
+
+
+      return dates;
+
+    }
+
+
+    /* =========================================================
+       LAYER CELL
+    ========================================================== */
+
+    function createLayerCell(
+      date,
+      startDate,
+      finishDate,
+      layer,
+      workingDays
+    ) {
+
+      const cell =
+        document.createElement(
+          "div"
+        );
+
+
+      cell.style.width =
+        CELL_WIDTH
+        +
+        "px";
+
+
+      cell.style.minWidth =
+        CELL_WIDTH
+        +
+        "px";
+
+
+      cell.style.maxWidth =
+        CELL_WIDTH
+        +
+        "px";
+
+
+      cell.className =
+        "h-5 border-r border-gray-100 relative";
+
+
+      const isSunday =
+        date.getDay()
+        ===
+        0;
+
+
+      if (
+        isSunday
+      ) {
+
+        cell.classList.add(
+          "bg-gray-50"
+        );
+
+      }
+
+
+      const insideRange =
+        (
+          startDate
+          &&
+          finishDate
+          &&
+          date >= startDate
+          &&
+          date <= finishDate
+        );
+
+
+      let shouldDraw =
+        insideRange;
+
+
+      if (
+        layer === "plan"
+        &&
+        shouldDraw
+        &&
+        workingDays
+        &&
+        !workingDays.has(
+          date.getDay()
+        )
+      ) {
+
+        shouldDraw =
+          false;
+
+      }
+
+
+      if (
+        shouldDraw
+      ) {
+
+        const bar =
+          document.createElement(
+            "div"
+          );
+
+
+        bar.className =
+          "absolute inset-y-1 left-0 right-0";
+
+
+        if (
+          layer === "baseline"
+        ) {
+
+          bar.classList.add(
+            "bg-emerald-200",
+            "border-y",
+            "border-emerald-300"
+          );
+
+        } else if (
+          layer === "plan"
+        ) {
+
+          bar.classList.add(
+            "bg-blue-500"
+          );
+
+        } else if (
+          layer === "real"
+        ) {
+
+          bar.classList.add(
+            "bg-amber-400"
+          );
+
+        }
+
+
+        if (
+          dateKey(
+            date
+          )
+          ===
+          dateKey(
+            startDate
+          )
+        ) {
+
+          bar.classList.add(
+            "rounded-l-md"
+          );
+
+        }
+
+
+        if (
+          dateKey(
+            date
+          )
+          ===
+          dateKey(
+            finishDate
+          )
+        ) {
+
+          bar.classList.add(
+            "rounded-r-md"
+          );
+
+        }
+
+
+        cell.appendChild(
+          bar
+        );
+
+      }
+
+
+      return cell;
+
+    }
+
+
+    /* =========================================================
+       BUILD ACTIVITY TIMELINES
+    ========================================================== */
+
+    function buildActivityTimelines(
+      dates
+    ) {
+
+      const containers =
+        document.querySelectorAll(
+          ".planning-timeline-container"
+        );
+
+
+      containers.forEach(
+        function (container) {
+
+          const clientStart =
+            parseDate(
+              container.dataset.clientStart
+            );
+
+
+          const clientFinish =
+            parseDate(
+              container.dataset.clientFinish
+            );
+
+
+          const planStart =
+            parseDate(
+              container.dataset.planStart
+            );
+
+
+          const planFinish =
+            parseDate(
+              container.dataset.planFinish
+            );
+
+
+          const planWorkingDays =
+            parseWorkingDays(
+              container.dataset.planWorkingDays
+            );
+
+
+          container.colSpan =
+            dates.length;
+
+
+          const wrapper =
+            container.querySelector(
+              ".planning-layer-grid"
+            );
+
+
+          if (
+            !wrapper
+          ) {
+            return;
+          }
+
+
+          wrapper.innerHTML =
+            "";
+
+
+          wrapper.style.width =
+            (
+              dates.length
+              *
+              CELL_WIDTH
+            )
+            +
+            "px";
+
+
+          wrapper.style.minWidth =
+            wrapper.style.width;
+
+
+          wrapper.style.maxWidth =
+            wrapper.style.width;
+
+
+          const layers = [
+            {
+              type: "baseline",
+              start: clientStart,
+              finish: clientFinish,
+              workingDays: null,
+            },
+            {
+              type: "plan",
+              start: planStart,
+              finish: planFinish,
+              workingDays: planWorkingDays,
+            },
+            {
+              type: "real",
+              start: null,
+              finish: null,
+              workingDays: null,
+            },
+          ];
+
+
+          layers.forEach(
+            function (layer) {
+
+              const layerRow =
+                document.createElement(
+                  "div"
+                );
+
+
+              layerRow.className =
+                "flex h-5";
+
+
+              layerRow.style.width =
+                wrapper.style.width;
+
+
+              layerRow.style.minWidth =
+                wrapper.style.width;
+
+
+              layerRow.style.maxWidth =
+                wrapper.style.width;
+
+
+              dates.forEach(
+                function (date) {
+
+                  layerRow.appendChild(
+                    createLayerCell(
+                      date,
+                      layer.start,
+                      layer.finish,
+                      layer.type,
+                      layer.workingDays
+                    )
+                  );
+
+                }
+              );
+
+
+              wrapper.appendChild(
+                layerRow
+              );
+
+            }
+          );
+
+        }
+      );
+
+
+      scheduleMatrixHeightSync();
+
+    }
+
+
+    /* =========================================================
+       SCROLL TIMELINE TO DATE
+    ========================================================== */
+
+    function scrollTimelineToDate(
+      timelineStart,
+      targetDate
+    ) {
+
+      if (
+        !timelineScroll
+        ||
+        !timelineStart
+        ||
+        !targetDate
+      ) {
+        return;
+      }
+
+
+      const timelineStartUTC =
+        Date.UTC(
+          timelineStart.getFullYear(),
+          timelineStart.getMonth(),
+          timelineStart.getDate()
+        );
+
+
+      const targetUTC =
+        Date.UTC(
+          targetDate.getFullYear(),
+          targetDate.getMonth(),
+          targetDate.getDate()
+        );
+
+
+      const differenceDays =
+        Math.round(
+          (
+            targetUTC
+            -
+            timelineStartUTC
+          )
+          /
+          86400000
+        );
+
+
+      const targetLeft =
+        Math.max(
+          0,
+          differenceDays
+          *
+          CELL_WIDTH
+        );
+
+
+      timelineScroll.scrollLeft =
+        targetLeft;
+
+    }
+
+
+    /* =========================================================
+       RENDER EXPLICIT RANGE
+    ========================================================== */
+
+    function renderExplicitRange(
+      startDate,
+      endDate
+    ) {
+
+      if (
+        !startDate
+        ||
+        !endDate
+        ||
+        endDate < startDate
+      ) {
+        return;
+      }
+
+
+      const dates =
+        buildTimelineHeader(
+          startDate,
+          endDate
+        );
+
+
+      buildActivityTimelines(
+        dates
+      );
+
+
+      window.requestAnimationFrame(
+        function () {
+
+          if (
+            timelineScroll
+          ) {
+
+            timelineScroll.scrollLeft =
+              0;
+
+          }
+
+
+          scheduleMatrixHeightSync();
+
+        }
+      );
+
+    }
+
+
+    /* =========================================================
+       RENDER AUTO RANGE
+    ========================================================== */
+
+    function renderAutomaticTimeline() {
+
+      timelineMode =
+        "auto";
+
+
+      setActivePreset(
+        null
+      );
+
+
+      const bounds =
+        getAutomaticPlanningBounds();
+
+
+      const dates =
+        buildTimelineHeader(
+          bounds.start,
+          bounds.end
+        );
+
+
+      buildActivityTimelines(
+        dates
+      );
+
+
+      window.requestAnimationFrame(
+        function () {
+
+          if (
+            !timelineScroll
+          ) {
+            return;
+          }
+
+
+          if (
+            currentMonday >= bounds.start
+            &&
+            currentMonday <= bounds.end
+          ) {
+
+            scrollTimelineToDate(
+              bounds.start,
+              currentMonday
+            );
+
+          } else if (
+            currentMonday < bounds.start
+          ) {
+
+            timelineScroll.scrollLeft =
+              0;
+
+          } else {
+
+            timelineScroll.scrollLeft =
+              timelineScroll.scrollWidth
+              -
+              timelineScroll.clientWidth;
+
+          }
+
+
+          scheduleMatrixHeightSync();
+
+        }
+      );
+
+    }
+
+
+    /* =========================================================
+       ACTIVE QUICK RANGE BUTTON
+    ========================================================== */
+
+    function setActivePreset(activeButton) {
+
+      document.querySelectorAll(
+        ".timeline-preset-btn"
+      ).forEach(
+        function (button) {
+
+          button.classList.remove(
+            "border-blue-600",
+            "bg-blue-50",
+            "text-blue-700",
+            "hover:bg-blue-100"
+          );
+
+
+          button.classList.add(
+            "border-gray-300",
+            "bg-white",
+            "text-gray-600",
+            "hover:bg-gray-50"
+          );
+
+        }
+      );
+
+
+      if (
+        !activeButton
+      ) {
+        return;
+      }
+
+
+      activeButton.classList.remove(
+        "border-gray-300",
+        "bg-white",
+        "text-gray-600",
+        "hover:bg-gray-50"
+      );
+
+
+      activeButton.classList.add(
+        "border-blue-600",
+        "bg-blue-50",
+        "text-blue-700",
+        "hover:bg-blue-100"
+      );
+
+    }
+
+
+    /* =========================================================
+       SHOW CUSTOM RANGE
+    ========================================================== */
+
+    if (
+      applyButton
+    ) {
+
+      applyButton.addEventListener(
+        "click",
+        function () {
+
+          preservePosition(
+            function () {
+
+              const requestedStart =
+                isoWeekToMonday(
+                  fromWeekInput.value
+                );
+
+
+              const requestedEndMonday =
+                isoWeekToMonday(
+                  toWeekInput.value
+                );
+
+
+              if (
+                !requestedStart
+                ||
+                !requestedEndMonday
+              ) {
+                return;
+              }
+
+
+              const requestedEnd =
+                addDays(
+                  requestedEndMonday,
+                  6
+                );
+
+
+              if (
+                requestedEnd
+                <
+                requestedStart
+              ) {
+                return;
+              }
+
+
+              timelineMode =
+                "custom";
+
+
+              setActivePreset(
+                null
+              );
+
+
+              renderExplicitRange(
+                requestedStart,
+                requestedEnd
+              );
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+
+    /* =========================================================
+       QUICK RANGE
+    ========================================================== */
+
+    document.querySelectorAll(
+      ".timeline-preset-btn"
+    ).forEach(
+      function (button) {
+
+        button.addEventListener(
+          "click",
+          function () {
+
+            preservePosition(
+              function () {
+
+                const weeks =
+                  Number(
+                    button.dataset.weeks
+                  );
+
+
+                if (
+                  !Number.isFinite(
+                    weeks
+                  )
+                  ||
+                  weeks < 1
+                ) {
+                  return;
+                }
+
+
+                const start =
+                  currentMonday;
+
+
+                const end =
+                  addDays(
+                    start,
+                    (
+                      weeks
+                      *
+                      7
+                    )
+                    -
+                    1
+                  );
+
+
+                fromWeekInput.value =
+                  dateToWeekInput(
+                    start
+                  );
+
+
+                toWeekInput.value =
+                  dateToWeekInput(
+                    getMonday(
+                      end
+                    )
+                  );
+
+
+                timelineMode =
+                  "preset";
+
+
+                setActivePreset(
+                  button
+                );
+
+
+                renderExplicitRange(
+                  start,
+                  end
+                );
+
+              }
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+    /* =========================================================
+       WORK TYPE FILTER
+    ========================================================== */
+
+    function rowMatchesWorkType(
+      row,
+      workType
+    ) {
+
+      if (
+        workType === "all"
+      ) {
+        return true;
+      }
+
+
+      const text =
+        (
+          row.dataset.activityText
+          ||
+          ""
+        ).toLowerCase();
+
+
+      if (
+        workType === "cabling"
+      ) {
+
+        return (
+          text.includes(
+            "cabl"
+          )
+          ||
+          text.includes(
+            "fiber placement"
+          )
+          ||
+          text.includes(
+            "placement"
+          )
+        );
+
+      }
+
+
+      if (
+        workType === "splicing"
+      ) {
+
+        return (
+          text.includes(
+            "splic"
+          )
+          ||
+          text.includes(
+            "test"
+          )
+        );
+
+      }
+
+
+      return true;
+
+    }
+
+
+    document.querySelectorAll(
+      ".planning-work-type-btn"
+    ).forEach(
+      function (button) {
+
+        button.addEventListener(
+          "click",
+          function () {
+
+            preservePosition(
+              function () {
+
+                document.querySelectorAll(
+                  ".planning-work-type-btn"
+                ).forEach(
+                  function (item) {
+
+                    item.classList.remove(
+                      "bg-gray-900",
+                      "text-white"
+                    );
+
+
+                    item.classList.add(
+                      "bg-gray-100",
+                      "text-gray-600"
+                    );
+
+                  }
+                );
+
+
+                button.classList.remove(
+                  "bg-gray-100",
+                  "text-gray-600"
+                );
+
+
+                button.classList.add(
+                  "bg-gray-900",
+                  "text-white"
+                );
+
+
+                const workType =
+                  button.dataset.workType;
+
+
+                document.querySelectorAll(
+                  ".planning-activity-row-fixed"
+                ).forEach(
+                  function (row) {
+
+                    const rowIndex =
+                      row.dataset.rowIndex;
+
+
+                    const timelineRow =
+                      document.querySelector(
+                        ".planning-timeline-row[data-row-index='"
+                        +
+                        rowIndex
+                        +
+                        "']"
+                      );
+
+
+                    const visible =
+                      rowMatchesWorkType(
+                        row,
+                        workType
+                      );
+
+
+                    if (
+                      visible
+                    ) {
+
+                      row.classList.remove(
+                        "hidden"
+                      );
+
+
+                      if (
+                        timelineRow
+                      ) {
+
+                        timelineRow.classList.remove(
+                          "hidden"
+                        );
+
+                      }
+
+                    } else {
+
+                      row.classList.add(
+                        "hidden"
+                      );
+
+
+                      if (
+                        timelineRow
+                      ) {
+
+                        timelineRow.classList.add(
+                          "hidden"
+                        );
+
+                      }
+
+                    }
+
+                  }
+                );
+
+
+                if (
+                  timelineMode
+                  ===
+                  "auto"
+                ) {
+
+                  renderAutomaticTimeline();
+
+                } else {
+
+                  scheduleMatrixHeightSync();
+
+                }
+
+              }
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+    /* =========================================================
+       PREVENT TIMELINE FROM CHANGING PAGE WIDTH
+    ========================================================== */
+
+    function constrainTimelineViewport() {
+
+      if (
+        !timelineViewport
+        ||
+        !timelineScroll
+      ) {
+        return;
+      }
+
+
+      timelineViewport.style.minWidth =
+        "0";
+
+
+      timelineViewport.style.maxWidth =
+        "100%";
+
+
+      timelineViewport.style.overflow =
+        "hidden";
+
+
+      timelineScroll.style.width =
+        "100%";
+
+
+      timelineScroll.style.minWidth =
+        "0";
+
+
+      timelineScroll.style.maxWidth =
+        "100%";
+
+    }
+
+
+    constrainTimelineViewport();
+
+
+    window.addEventListener(
+      "resize",
+      function () {
+
+        constrainTimelineViewport();
+
+
+        scheduleMatrixHeightSync();
+
+      }
+    );
+
+
+    /* =========================================================
+       INITIAL RENDER
+    ========================================================== */
+
+    renderAutomaticTimeline();
+
+
+    scheduleMatrixHeightSync();
+
+  }
+);
+</script>
+
+{% endblock %}

@@ -1,0 +1,866 @@
+<!-- =========================================================
+     FIXED LEFT SIDE
+========================================================== -->
+<div
+  id="planning-fixed-pane"
+  class="relative z-20 shrink-0 bg-white border-r-2 border-gray-300 shadow-[5px_0_10px_-8px_rgba(0,0,0,0.35)] overflow-hidden"
+>
+
+  <table
+    id="planning-fixed-table"
+    class="table-fixed border-collapse text-[11px]"
+  >
+
+    <colgroup>
+
+      <col data-column-col="activity" data-expanded-width="130">
+
+      <col data-column-col="market" data-expanded-width="110">
+
+      <col data-column-col="quantity" data-expanded-width="78">
+
+      <col data-column-col="unit" data-expanded-width="78">
+
+      <col data-column-col="dfn" data-expanded-width="110">
+
+      <col data-column-col="client_start" data-expanded-width="96">
+
+      <col data-column-col="client_finish" data-expanded-width="96">
+
+      <col data-column-col="internal_start" data-expanded-width="96">
+
+      <col data-column-col="internal_finish" data-expanded-width="96">
+
+      <col data-column-col="variance" data-expanded-width="102">
+
+    </colgroup>
+
+
+    <thead>
+
+      <tr
+        id="planning-fixed-header-row"
+        class="bg-gray-100 text-gray-600"
+      >
+
+
+        <!-- =================================================
+             ACTIVITY
+        ================================================== -->
+        <th
+          data-column-cell="activity"
+          data-excel-column="activity"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="activity"
+              data-excel-label="Activity"
+              title="Filter Activity"
+            >
+
+              <span
+                data-column-label="activity"
+                class="truncate"
+              >
+                Activity
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="activity"
+              title="Collapse Activity"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             MARKET
+        ================================================== -->
+        <th
+          data-column-cell="market"
+          data-excel-column="market"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="market"
+              data-excel-label="Market"
+              title="Filter Market"
+            >
+
+              <span
+                data-column-label="market"
+                class="truncate"
+              >
+                Market
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="market"
+              title="Collapse Market"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             QUANTITY
+        ================================================== -->
+        <th
+          data-column-cell="quantity"
+          data-excel-column="quantity"
+          class="px-2 py-2 text-right align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="quantity"
+              data-excel-label="Qty"
+              title="Filter Quantity"
+            >
+
+              <span
+                data-column-label="quantity"
+                class="whitespace-nowrap"
+              >
+                Qty
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="quantity"
+              title="Collapse Quantity"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             UNIT
+        ================================================== -->
+        <th
+          data-column-cell="unit"
+          data-excel-column="unit"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="unit"
+              data-excel-label="Unit"
+              title="Filter Unit"
+            >
+
+              <span
+                data-column-label="unit"
+                class="whitespace-nowrap"
+              >
+                Unit
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="unit"
+              title="Collapse Unit"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             DFN
+        ================================================== -->
+        <th
+          data-column-cell="dfn"
+          data-excel-column="dfn"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="dfn"
+              data-excel-label="DFN"
+              title="Filter DFN"
+            >
+
+              <span
+                data-column-label="dfn"
+                class="truncate"
+              >
+                DFN
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="dfn"
+              title="Collapse DFN"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             CLIENT START
+        ================================================== -->
+        <th
+          data-column-cell="client_start"
+          data-excel-column="client_start"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="client_start"
+              data-excel-label="Client Start"
+              title="Filter Client Start"
+            >
+
+              <span
+                data-column-label="client_start"
+                class="leading-tight"
+              >
+                Client<br>Start
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="client_start"
+              title="Collapse Client Start"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             CLIENT FINISH
+        ================================================== -->
+        <th
+          data-column-cell="client_finish"
+          data-excel-column="client_finish"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="client_finish"
+              data-excel-label="Client Finish"
+              title="Filter Client Finish"
+            >
+
+              <span
+                data-column-label="client_finish"
+                class="leading-tight"
+              >
+                Client<br>Finish
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="client_finish"
+              title="Collapse Client Finish"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             INTERNAL START
+        ================================================== -->
+        <th
+          data-column-cell="internal_start"
+          data-excel-column="internal_start"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="internal_start"
+              data-excel-label="Internal Start"
+              title="Filter Internal Start"
+            >
+
+              <span
+                data-column-label="internal_start"
+                class="leading-tight"
+              >
+                Internal<br>Start
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="internal_start"
+              title="Collapse Internal Start"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             INTERNAL FINISH
+        ================================================== -->
+        <th
+          data-column-cell="internal_finish"
+          data-excel-column="internal_finish"
+          class="px-2 py-2 text-left align-middle font-extrabold border-r border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="internal_finish"
+              data-excel-label="Internal Finish"
+              title="Filter Internal Finish"
+            >
+
+              <span
+                data-column-label="internal_finish"
+                class="leading-tight"
+              >
+                Internal<br>Finish
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="internal_finish"
+              title="Collapse Internal Finish"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+
+        <!-- =================================================
+             VARIANCE
+        ================================================== -->
+        <th
+          data-column-cell="variance"
+          data-excel-column="variance"
+          class="px-2 py-2 text-center align-middle font-extrabold border-b border-gray-200 overflow-hidden"
+        >
+
+          <div class="flex items-center justify-between gap-1">
+
+            <button
+              type="button"
+              class="master-plan-excel-header-btn flex flex-1 items-center gap-1 min-w-0 hover:text-blue-600"
+              data-excel-key="variance"
+              data-excel-label="Variance"
+              title="Filter Variance"
+            >
+
+              <span
+                data-column-label="variance"
+                class="whitespace-nowrap"
+              >
+                Variance
+              </span>
+
+              <span class="master-plan-excel-arrow text-[8px] text-gray-400">
+                ▼
+              </span>
+
+            </button>
+
+
+            <button
+              type="button"
+              class="planning-column-toggle shrink-0 w-5 h-5 rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-extrabold leading-none"
+              data-column="variance"
+              title="Collapse Variance"
+            >
+              −
+            </button>
+
+          </div>
+
+        </th>
+
+      </tr>
+
+    </thead>
+
+
+    <tbody>
+
+      {% for row in master_plan_rows %}
+
+        <tr
+          class="planning-fixed-row planning-activity-row-fixed bg-white border-b border-gray-200"
+
+          data-row-index="{{ forloop.counter0 }}"
+
+          data-assignment-id="{{ row.assignment.id }}"
+
+          data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
+
+          data-filter-activity="{{ row.activity_type.code }} — {{ row.activity_type.name }}"
+
+          data-filter-market="{% if row.assignment.location and row.assignment.location.market %}{{ row.assignment.location.market }}{% else %}—{% endif %}"
+
+          data-filter-quantity="{% if row.quantity != None %}{{ row.quantity|floatformat:'-4' }}{% else %}—{% endif %}"
+
+          data-filter-unit="{% if row.quantity != None %}{{ row.unit }}{% else %}—{% endif %}"
+
+          data-filter-dfn="{% if row.dfn %}{{ row.dfn.code }}{% else %}—{% endif %}"
+
+          data-filter-client_start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% else %}—{% endif %}"
+
+          data-filter-client_finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% else %}—{% endif %}"
+
+          data-filter-internal_start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% else %}—{% endif %}"
+
+          data-filter-internal_finish="{% if row.planned_finish %}{{ row.planned_finish|date:'Y-m-d' }}{% else %}—{% endif %}"
+
+          data-filter-variance="{% if row.variance_days == None %}—{% elif row.variance_days <= 0 %}{{ row.variance_days }}d{% else %}+{{ row.variance_days }}d{% endif %}"
+        >
+
+
+          <!-- =================================================
+               ACTIVITY
+          ================================================== -->
+          <td
+            data-column-cell="activity"
+            class="px-2 py-1 border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div
+              data-column-content="activity"
+              class="min-w-0"
+            >
+
+
+              <!-- COMPACT ACTIVITY ROW -->
+              <div class="flex items-center justify-between gap-1 min-w-0">
+
+                <a
+                  href="{% url 'planificacion:assignment_detail' row.assignment.id %}"
+                  class="font-extrabold text-gray-900 hover:text-blue-600 truncate"
+                >
+                  {{ row.activity_type.code }}
+                </a>
+
+
+                <button
+                  type="button"
+                  class="planning-activity-details-toggle shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-blue-600 transition"
+                  data-row-index="{{ forloop.counter0 }}"
+                  aria-expanded="false"
+                  title="Show activity details"
+                >
+                  <span
+                    class="planning-activity-details-arrow text-[10px] font-extrabold leading-none"
+                  >
+                    ▸
+                  </span>
+                </button>
+
+              </div>
+
+
+              <!-- EXPANDABLE ACTIVITY DETAILS -->
+              <div
+                class="planning-activity-details hidden mt-1 min-w-0"
+                data-row-index="{{ forloop.counter0 }}"
+              >
+
+                <div class="text-[10px] font-semibold text-gray-700 leading-tight">
+                  {{ row.activity_type.name }}
+                </div>
+
+                <div class="text-[9px] text-gray-400 mt-1 truncate">
+                  {{ row.assignment.name }}
+                </div>
+
+                <div class="text-[9px] font-semibold text-blue-600 truncate">
+                  {{ row.assignment.client.name }}
+                </div>
+
+              </div>
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               MARKET
+          ================================================== -->
+          <td
+            data-column-cell="market"
+            class="px-2 py-1 border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="market">
+
+              {% if row.assignment.location %}
+
+                {% if row.assignment.location.market %}
+
+                  <div class="font-bold text-gray-800 truncate">
+                    {{ row.assignment.location.market }}
+                  </div>
+
+                {% else %}
+
+                  <div class="text-gray-400">
+                    —
+                  </div>
+
+                {% endif %}
+
+
+                {% if row.assignment.location.city %}
+
+                  <div class="text-[10px] text-gray-500 mt-0.5 truncate">
+                    {{ row.assignment.location.city }}
+                  </div>
+
+                {% endif %}
+
+              {% else %}
+
+                —
+
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               QUANTITY
+          ================================================== -->
+          <td
+            data-column-cell="quantity"
+            class="px-2 py-1 text-right font-bold text-gray-700 border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="quantity">
+
+              {% if row.quantity != None %}
+                {{ row.quantity|floatformat:"-4" }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               UNIT
+          ================================================== -->
+          <td
+            data-column-cell="unit"
+            class="px-2 py-1 text-gray-700 font-semibold border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="unit">
+
+              {% if row.quantity != None %}
+                {{ row.unit }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               DFN
+          ================================================== -->
+          <td
+            data-column-cell="dfn"
+            class="px-2 py-1 border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="dfn">
+
+              {% if row.dfn %}
+
+                <span class="inline-flex px-1.5 py-1 rounded-md bg-gray-100 text-gray-700 font-extrabold whitespace-nowrap">
+                  {{ row.dfn.code }}
+                </span>
+
+              {% else %}
+
+                <span class="text-gray-400">
+                  —
+                </span>
+
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               CLIENT START
+          ================================================== -->
+          <td
+            data-column-cell="client_start"
+            class="px-2 py-1 text-gray-700 whitespace-nowrap align-middle overflow-hidden"
+          >
+
+            <div data-column-content="client_start">
+
+              {% if row.client_start %}
+                {{ row.client_start|date:"M d, Y" }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               CLIENT FINISH
+          ================================================== -->
+          <td
+            data-column-cell="client_finish"
+            class="px-2 py-1 text-gray-700 whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="client_finish">
+
+              {% if row.client_finish %}
+                {{ row.client_finish|date:"M d, Y" }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               INTERNAL START
+          ================================================== -->
+          <td
+            data-column-cell="internal_start"
+            class="px-2 py-1 text-purple-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="internal_start">
+
+              {% if row.planned_start %}
+                {{ row.planned_start|date:"M d, Y" }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               INTERNAL FINISH
+          ================================================== -->
+          <td
+            data-column-cell="internal_finish"
+            class="px-2 py-1 text-blue-700 font-bold whitespace-nowrap border-r border-gray-200 align-middle overflow-hidden"
+          >
+
+            <div data-column-content="internal_finish">
+
+              {% if row.planned_finish %}
+                {{ row.planned_finish|date:"M d, Y" }}
+              {% else %}
+                —
+              {% endif %}
+
+            </div>
+
+          </td>
+
+
+          <!-- =================================================
+               VARIANCE
+          ================================================== -->
+          <td
+            data-column-cell="variance"
+            class="px-2 py-1 text-center font-extrabold align-middle overflow-hidden"
+          >
+
+            <div data-column-content="variance">
+
+              {% if row.variance_days == None %}
+
+                <span class="text-gray-400">
+                  —
+                </span>
+
+              {% elif row.variance_days <= 0 %}
+
+                <span class="inline-flex px-1.5 py-1 rounded-md bg-green-50 text-green-700 whitespace-nowrap">
+                  {{ row.variance_days }}d
+                </span>
+
+              {% else %}
+
+                <span class="inline-flex px-1.5 py-1 rounded-md bg-red-50 text-red-700 whitespace-nowrap">
+                  +{{ row.variance_days }}d
+                </span>
+
+              {% endif %}
+
+            </div>
+
+          </td>
+
+        </tr>
+
+      {% endfor %}
+
+    </tbody>
+
+  </table>
+
+</div>

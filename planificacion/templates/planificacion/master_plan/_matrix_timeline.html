@@ -1,0 +1,87 @@
+<!-- =========================================================
+     TIMELINE VIEWPORT
+========================================================== -->
+<div
+  id="planning-timeline-viewport"
+  class="relative z-10 w-full min-w-0 max-w-full overflow-hidden bg-white"
+>
+
+  <div
+    id="planning-timeline-scroll"
+    class="w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden bg-white"
+    style="overscroll-behavior-x:contain;"
+  >
+
+    <table
+      id="planning-timeline-table"
+      class="border-collapse text-xs"
+      style="table-layout:fixed;"
+    >
+
+      <thead>
+
+        <tr
+          id="timeline-months-header"
+          class="h-[22px] bg-blue-100 text-blue-800"
+        >
+        </tr>
+
+
+        <tr>
+
+          <th
+            id="timeline-header-title"
+            class="h-[34px] px-3 text-center font-extrabold text-blue-800 bg-blue-50 border-b border-blue-100 whitespace-nowrap"
+          >
+            Planning Timeline
+          </th>
+
+        </tr>
+
+
+        <tr
+          id="timeline-days-header"
+          class="h-[44px] bg-gray-50 text-gray-500"
+        >
+        </tr>
+
+      </thead>
+
+
+      <tbody>
+
+        {% for row in master_plan_rows %}
+
+          <tr
+            class="planning-timeline-row border-b border-gray-200"
+            data-row-index="{{ forloop.counter0 }}"
+            data-assignment-id="{{ row.assignment.id }}"
+            data-activity-text="{{ row.activity_type.code|lower }} {{ row.activity_type.name|lower }}"
+          >
+
+            <td
+            class="p-0 planning-timeline-container align-middle"
+            data-client-start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% endif %}"
+            data-client-finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% endif %}"
+            data-plan-start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% endif %}"
+            data-plan-finish="{% if row.planned_finish %}{{ row.planned_finish|date:'Y-m-d' }}{% endif %}"
+            data-plan-working-days="{{ row.plan_working_days }}"
+          >
+
+            <div
+              class="planning-layer-grid h-full"
+            ></div>
+
+          </td>
+
+          </tr>
+
+        {% endfor %}
+
+      </tbody>
+
+    </table>
+
+  </div>
+
+</div>
