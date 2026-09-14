@@ -1,0 +1,192 @@
+<div
+  class="real-plan-project-card {% if not card.can_move %}real-plan-project-card-locked{% endif %}"
+  data-real-plan-card
+  data-billing-id="{{ card.billing_id }}"
+  data-work-type="{{ card.work_type }}"
+  data-project-id="{{ card.project_id }}"
+  data-current-date="{{ card.date_iso }}"
+  data-status="{{ card.status }}"
+  data-can-move="{% if card.can_move %}1{% else %}0{% endif %}"
+  data-move-url="{% url 'planificacion:real_plan_move_project' card.billing_id %}"
+  draggable="{% if card.can_move %}true{% else %}false{% endif %}"
+>
+
+  <div class="real-plan-card-topline">
+
+    <div class="real-plan-card-topline-left">
+
+      <span
+        class="real-plan-work-type real-plan-work-type-{{ card.work_type }}"
+      >
+        {{ card.work_type_label }}
+      </span>
+
+      {% if card.priority_label %}
+
+        <span
+          class="real-plan-priority"
+          title="Execution priority"
+        >
+          {{ card.priority_label }}
+        </span>
+
+      {% endif %}
+
+    </div>
+
+    <button
+      type="button"
+      class="real-plan-card-menu"
+      title="Project details"
+      data-real-plan-card-toggle
+      draggable="false"
+    >
+      ⋮
+    </button>
+
+  </div>
+
+
+  <div
+    class="real-plan-project-id"
+    title="{{ card.project_id }}"
+  >
+    {{ card.project_id }}
+  </div>
+
+
+  <div class="mt-1.5 flex min-w-0 items-center justify-between gap-1">
+
+    <span
+      class="real-plan-status real-plan-status-{{ card.status_tone }}"
+      title="{{ card.status_label }}"
+    >
+      {{ card.status_label }}
+    </span>
+
+    {% if card.technician_count > 1 %}
+
+      <span
+        class="real-plan-people-count"
+        title="{{ card.technician_names|join:', ' }}"
+      >
+        {{ card.technician_count }}p
+      </span>
+
+    {% endif %}
+
+  </div>
+
+
+  <div
+    class="real-plan-card-details hidden"
+    data-real-plan-card-details
+  >
+
+    {% if card.date %}
+
+      <div>
+        <span>Date</span>
+        <strong data-real-plan-detail-date>
+          {{ card.date|date:"Y-m-d" }}
+        </strong>
+      </div>
+
+    {% endif %}
+
+
+    {% if card.priority_rows %}
+
+      <div>
+        <span>Priority</span>
+        <strong>
+          {% for priority_row in card.priority_rows %}
+            {{ priority_row.technician_name }} #{{ priority_row.position }}{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </strong>
+      </div>
+
+    {% elif card.priority_label %}
+
+      <div>
+        <span>Priority</span>
+        <strong>
+          {{ card.priority_label }}
+        </strong>
+      </div>
+
+    {% endif %}
+
+
+    {% if card.dfn %}
+
+      <div>
+        <span>DFN</span>
+        <strong>
+          {{ card.dfn }}
+        </strong>
+      </div>
+
+    {% endif %}
+
+
+    <div>
+      <span>Client</span>
+      <strong>
+        {{ card.client|default:"—" }}
+      </strong>
+    </div>
+
+
+    <div>
+      <span>City</span>
+      <strong>
+        {{ card.city|default:"—" }}
+      </strong>
+    </div>
+
+
+    <div>
+      <span>Project</span>
+      <strong>
+        {{ card.project|default:"—" }}
+      </strong>
+    </div>
+
+
+    <div>
+      <span>Office</span>
+      <strong>
+        {{ card.office|default:"—" }}
+      </strong>
+    </div>
+
+
+    {% if card.technician_names %}
+
+      <div>
+        <span>Assigned</span>
+        <strong>
+          {{ card.technician_names|join:", " }}
+        </strong>
+      </div>
+
+    {% endif %}
+
+
+    <div>
+      <span>Move</span>
+
+      <strong>
+        {% if card.can_move %}
+          Allowed
+        {% else %}
+          Locked by status
+        {% endif %}
+      </strong>
+
+    </div>
+
+  </div>
+
+</div>

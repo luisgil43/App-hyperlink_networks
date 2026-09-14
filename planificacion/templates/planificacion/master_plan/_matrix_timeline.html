@@ -60,19 +60,22 @@
           >
 
             <td
-            class="p-0 planning-timeline-container align-middle"
-            data-client-start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% endif %}"
-            data-client-finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% endif %}"
-            data-plan-start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% endif %}"
-            data-plan-finish="{% if row.planned_finish %}{{ row.planned_finish|date:'Y-m-d' }}{% endif %}"
-            data-plan-working-days="{{ row.plan_working_days }}"
-          >
+              class="p-0 planning-timeline-container align-middle"
+              data-client-start="{% if row.client_start %}{{ row.client_start|date:'Y-m-d' }}{% endif %}"
+              data-client-finish="{% if row.client_finish %}{{ row.client_finish|date:'Y-m-d' }}{% endif %}"
+              data-plan-start="{% if row.planned_start %}{{ row.planned_start|date:'Y-m-d' }}{% endif %}"
+              data-plan-finish="{% if row.planned_finish %}{{ row.planned_finish|date:'Y-m-d' }}{% endif %}"
+              data-real-start="{% if row.real_start %}{{ row.real_start|date:'Y-m-d' }}{% endif %}"
+              data-real-finish="{% if row.real_finish %}{{ row.real_finish|date:'Y-m-d' }}{% endif %}"
+              data-real-billing-count="{{ row.real_billing_count|default:0 }}"
+              data-plan-working-days="{{ row.plan_working_days }}"
+            >
 
-            <div
-              class="planning-layer-grid h-full"
-            ></div>
+              <div
+                class="planning-layer-grid h-full"
+              ></div>
 
-          </td>
+            </td>
 
           </tr>
 

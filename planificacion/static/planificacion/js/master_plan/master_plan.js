@@ -1829,6 +1829,8 @@ document.addEventListener(
             container.dataset.clientFinish,
             container.dataset.planStart,
             container.dataset.planFinish,
+            container.dataset.realStart,
+            container.dataset.realFinish,
           ].forEach(
             function (value) {
 
@@ -1923,7 +1925,6 @@ document.addEventListener(
       };
 
     }
-
 
     /* =========================================================
        MONTH HEADER
@@ -2493,9 +2494,8 @@ document.addEventListener(
           layer === "real"
         ) {
 
-          bar.classList.add(
-            "bg-amber-400"
-          );
+          bar.style.backgroundColor =
+            "#fbbf24";
 
         }
 
@@ -2585,6 +2585,18 @@ document.addEventListener(
             parseDate(
               container.dataset.planFinish
             );
+  
+
+          const realStart =
+            parseDate(
+              container.dataset.realStart
+            );
+
+
+          const realFinish =
+            parseDate(
+              container.dataset.realFinish
+            );
 
 
           const planWorkingDays =
@@ -2667,12 +2679,12 @@ document.addEventListener(
 
 
           /*
-           * Full-height calendar background.
-           *
-           * The day grid is independent from Baseline / Plan / Real.
-           * This makes Sunday shading and day separators occupy the
-           * complete activity-row height.
-           */
+          * Full-height calendar background.
+          *
+          * The day grid is independent from Baseline / Plan / Real.
+          * Sunday shading and day separators occupy the complete
+          * synchronized activity-row height.
+          */
           const backgroundGrid =
             document.createElement(
               "div"
@@ -2720,8 +2732,8 @@ document.addEventListener(
 
 
           /*
-           * Actual planning bars.
-           */
+          * Actual planning bars.
+          */
           const layersContainer =
             document.createElement(
               "div"
@@ -2765,8 +2777,8 @@ document.addEventListener(
             },
             {
               type: "real",
-              start: null,
-              finish: null,
+              start: realStart,
+              finish: realFinish,
               workingDays: null,
             },
           ];
@@ -2889,7 +2901,6 @@ document.addEventListener(
       scheduleMatrixHeightSync();
 
     }
-
 
     /* =========================================================
        SCROLL TIMELINE TO DATE

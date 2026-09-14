@@ -1,0 +1,136 @@
+<div
+  class="real-plan-person-row"
+  data-row-type="{{ row.row_type }}"
+  data-row-key="{{ row.key }}"
+  {% if row.technician_id %}
+    data-technician-id="{{ row.technician_id }}"
+  {% endif %}
+>
+
+  <div class="real-plan-person-cell">
+
+    <div class="min-w-0 w-full">
+
+      <div class="flex items-center gap-2">
+
+        {% if row.row_type == "unassigned" %}
+
+          <span class="real-plan-avatar real-plan-avatar-unassigned">
+            ?
+          </span>
+
+        {% elif row.row_type == "team" %}
+
+          <span class="real-plan-avatar real-plan-avatar-team">
+            +
+          </span>
+
+        {% else %}
+
+          <span class="real-plan-avatar">
+            {{ row.name|slice:":1"|upper }}
+          </span>
+
+        {% endif %}
+
+        <div class="min-w-0 flex-1">
+
+          <div
+            class="truncate text-[12px] font-extrabold text-gray-800"
+            title="{{ row.full_name }}"
+          >
+            {{ row.name }}
+          </div>
+
+          <div class="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-gray-400">
+
+            {% if row.row_type == "team" %}
+
+              <span>
+                {{ row.technician_count }} people
+              </span>
+
+              <span>·</span>
+
+            {% endif %}
+
+            <span>
+              {{ row.project_count }}
+              project{{ row.project_count|pluralize }}
+            </span>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div
+    class="real-plan-drop-cell real-plan-backlog-cell"
+    data-real-plan-zone="backlog"
+    data-row-key="{{ row.key }}"
+  >
+
+    <div class="real-plan-card-stack">
+
+      {% for card in row.backlog %}
+
+        {% include "planificacion/real_plan/partials/_project_card.html" with card=card %}
+
+      {% empty %}
+
+        <div
+          class="real-plan-empty-cell"
+          data-real-plan-empty
+        >
+          —
+        </div>
+
+      {% endfor %}
+
+    </div>
+
+  </div>
+
+
+  {% for cell in row.cells %}
+
+    <div
+      class="real-plan-drop-cell {% if cell.date.weekday == 5 or cell.date.weekday == 6 %}real-plan-weekend-cell{% endif %}"
+      data-real-plan-zone="day"
+      data-row-key="{{ row.key }}"
+      data-date="{{ cell.date|date:'Y-m-d' }}"
+    >
+
+      <div
+        class="real-plan-card-stack"
+        data-real-plan-stack
+      >
+
+        {% for card in cell.cards %}
+
+          {% include "planificacion/real_plan/partials/_project_card.html" with card=card %}
+
+        {% empty %}
+
+          <div
+            class="real-plan-empty-cell"
+            data-real-plan-empty
+          >
+            —
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+    </div>
+
+  {% endfor %}
+
+</div>

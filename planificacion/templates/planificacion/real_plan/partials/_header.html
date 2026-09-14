@@ -1,0 +1,114 @@
+<div
+  class="rounded-2xl border border-gray-200 bg-white shadow-sm"
+>
+
+  <div
+    class="flex flex-col gap-4 px-5 py-5 xl:flex-row xl:items-center xl:justify-between"
+  >
+
+    <div class="min-w-0">
+
+      <div class="flex flex-wrap items-center gap-2">
+
+        <h1 class="text-2xl font-extrabold tracking-tight text-gray-900">
+          Real Plan
+        </h1>
+
+        <span
+          class="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-700"
+        >
+          Operational Planning
+        </span>
+
+      </div>
+
+      <p class="mt-1 text-sm text-gray-500">
+        Project-level execution planning by person and day.
+      </p>
+
+    </div>
+
+
+    <div class="flex flex-wrap items-center gap-2">
+
+      <a
+        href="?week={{ previous_week|date:'Y-m-d' }}"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-lg font-bold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+        title="Previous week"
+      >
+        ‹
+      </a>
+
+      <a
+        href="?week={{ today_week|date:'Y-m-d' }}"
+        class="inline-flex h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+      >
+        Today
+      </a>
+
+      <a
+        href="?week={{ next_week|date:'Y-m-d' }}"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-lg font-bold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+        title="Next week"
+      >
+        ›
+      </a>
+
+      <div
+        class="mx-1 hidden h-8 w-px bg-gray-200 sm:block"
+      ></div>
+
+      <div
+        class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-bold text-gray-700"
+      >
+        {{ week_start|date:"M d" }}
+        <span class="mx-1 text-gray-300">—</span>
+        {{ week_end|date:"M d, Y" }}
+      </div>
+
+      <button
+        type="button"
+        class="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-blue-700"
+        data-real-plan-recalculate
+      >
+        <span>↻</span>
+        <span>Recalculate Plan</span>
+      </button>
+
+    </div>
+
+  </div>
+
+
+  <div
+    class="flex items-center gap-1 border-t border-gray-100 px-5 py-2"
+  >
+
+    <button
+      type="button"
+      class="rounded-lg bg-gray-900 px-3 py-2 text-xs font-extrabold text-white"
+    >
+      Board
+    </button>
+
+    <button
+      type="button"
+      class="rounded-lg px-3 py-2 text-xs font-bold text-gray-400"
+      disabled
+      title="Timeline will be added after the operational board."
+    >
+      Timeline
+    </button>
+
+    <div class="flex-1"></div>
+
+    <a
+      href="{% url 'planificacion:master_plan' %}"
+      class="rounded-lg px-3 py-2 text-xs font-bold text-gray-600 transition hover:bg-gray-100"
+    >
+      Master Plan
+    </a>
+
+  </div>
+
+</div>

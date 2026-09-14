@@ -1527,3 +1527,117 @@ class MasterPlanActivityDependency(models.Model):
 
     def __str__(self):
         return f"{self.predecessor} -> " f"{self.successor}"
+
+# ============================================================
+# REAL PLAN PROJECT STATE
+# ============================================================
+
+
+class RealPlanProjectState(models.Model):
+    """
+    Estado operacional propio del Real Plan para un Billing.
+
+    IMPORTANTE:
+    - NO reemplaza SesionBilling.
+    - NO modifica BillingAssignmentQueue.queue_position.
+    - NO modifica SesionBilling.queue_priority.
+    - board_position representa únicamente el orden visual /
+      operacional dentro del Real Plan.
+    - La fecha operacional continúa viviendo en
+      SesionBilling.creado_en para mantener Billing y Real Plan
+      sincronizados.
+    """
+
+    PLANNING_MODE_AUTO = "auto"
+    PLANNING_MODE_MANUAL = "manual"
+
+    PLANNING_MODE_CHOICES = (
+        (
+            PLANNING_MODE_AUTO,
+            "Auto",
+        ),
+        (
+            PLANNING_MODE_MANUAL,
+            "Manual",
+        ),
+    )
+
+    billing = models.OneToOneField(
+        "operaciones.SesionBilling",
+        on_delete=models.CASCADE,
+        related_name="real_plan_state",
+    )
+
+    board_position = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    planning_mode = models.CharField(
+        max_length=16,
+        choices=PLANNING_MODE_CHOICES,
+        default=PLANNING_MODE_AUTO,
+        db_index=True,
+    )
+
+    original_planned_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    carried_over = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    carry_over_count = models.PositiveIntegerField(
+        default=0,
+    )
+
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="real_plan_project_updates",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = (
+            "board_position",
+            "billing_id",
+        )
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "planning_mode",
+                    "board_position",
+                ],
+                name="realplan_mode_pos_idx",
+            ),
+            models.Index(
+                fields=[
+                    "carried_over",
+                    "updated_at",
+                ],
+                name="realplan_carry_idx",
+            ),
+        ]
+
+        verbose_name = "Real Plan Project State"
+        verbose_name_plural = "Real Plan Project States"
+
+    def __str__(self):
+        return (
+            f"Real Plan {self.billing_id} / " f"position {self.board_position or '-'}"
+        )

@@ -1,0 +1,106 @@
+<div
+  class="real-plan-board-shell overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
+>
+
+  <div
+    class="border-b border-gray-200 bg-gray-50 px-4 py-3"
+  >
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+
+      <div>
+        <div class="text-sm font-extrabold text-gray-900">
+          Weekly Execution Board
+        </div>
+
+        <div class="mt-0.5 text-xs text-gray-500">
+          Drag movable projects between days. Person and Backlog stay fixed while navigating the schedule.
+        </div>
+      </div>
+
+      <div
+        class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-500"
+      >
+        {{ summary.total_projects }} projects
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div
+    id="real-plan-board-scroll"
+    class="real-plan-board-scroll"
+  >
+
+    <div class="real-plan-board">
+
+      <div class="real-plan-board-header">
+
+        <div class="real-plan-person-header">
+          Person
+        </div>
+
+        <div class="real-plan-backlog-header">
+
+          <div class="font-extrabold text-gray-700">
+            Backlog
+          </div>
+
+          <div class="mt-0.5 text-[10px] font-medium text-gray-400">
+            Not scheduled
+          </div>
+
+        </div>
+
+        {% for day in days %}
+
+          <div
+            class="real-plan-day-header {% if day.is_weekend %}real-plan-day-header-weekend{% endif %}"
+          >
+
+            <div class="text-[10px] font-extrabold tracking-wider text-gray-400">
+              {{ day.weekday }}
+            </div>
+
+            <div class="mt-0.5 text-lg font-extrabold text-gray-800">
+              {{ day.day_number }}
+            </div>
+
+            <div class="text-[10px] font-semibold text-gray-400">
+              {{ day.month }}
+            </div>
+
+          </div>
+
+        {% endfor %}
+
+      </div>
+
+
+      {% for row in board_rows %}
+
+        {% include "planificacion/real_plan/partials/_person_row.html" with row=row %}
+
+      {% empty %}
+
+        <div class="px-6 py-16 text-center">
+
+          <div class="text-base font-extrabold text-gray-700">
+            No projects found
+          </div>
+
+          <div class="mt-1 text-sm text-gray-400">
+            Try changing the current filters or week.
+          </div>
+
+        </div>
+
+      {% endfor %}
+
+    </div>
+
+  </div>
+
+</div>

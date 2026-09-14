@@ -5,6 +5,9 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Max, OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+
+from operaciones.models import SesionBilling
 
 from .forms import (PlanningActivityFormSet, PlanningAssignmentForm,
                     PlanningDFNFormSet, ProductivityProfileForm)
@@ -615,8 +618,335 @@ def _latest_plan_entry(assignment):
     )
 
 
+# ============================================================
+# REAL PLAN / FORECAST FOR MASTER PLAN
+# ============================================================
+
+
+MASTER_PLAN_REAL_WORK_TYPE_BY_ACTIVITY_CODE = {
+    "C-107": "fiber",
+    "C-108": "cable",
+}
+
+
+def _real_plan_local_date(session):
+    if not session.creado_en:
+        return None
+
+    try:
+        return timezone.localtime(session.creado_en).date()
+
+    except Exception:
+        return session.creado_en.date()
+
+
+def _real_plan_project_matches_dfn(
+    project_id,
+    dfn_code,
+):
+    project_id = (project_id or "").strip().upper()
+
+    dfn_code = (dfn_code or "").strip().upper()
+
+    if not project_id or not dfn_code:
+        return False
+
+    if project_id == dfn_code:
+        return True
+
+    if project_id.startswith(f"{dfn_code}_"):
+        return True
+
+    if project_id.startswith(f"{dfn_code}-"):
+        return True
+
+    return False
+
+
+def _build_real_plan_forecast_index(
+    assignments,
+):
+    """
+    Construye una sola vez el índice Real / Forecast usado
+    por el Master Plan.
+
+    Clave:
+        (DFN, work_type)
+
+    Ejemplo:
+        ("0913TA_04", "fiber")
+        ("0913TA_04", "cable")
+
+    Fuente de fecha:
+        SesionBilling.creado_en
+
+    Esa es la misma fecha que actualmente modifica Real Plan,
+    por lo tanto cualquier movimiento de día en Real Plan
+    afecta automáticamente este Forecast.
+
+    Este cálculo NO modifica:
+    - Client Baseline
+    - High-Level Plan
+    - prioridades Billing
+    - board_position del Real Plan
+    """
+
+    dfn_codes = set()
+
+    for assignment in assignments:
+
+        for dfn in assignment.dfns.all():
+
+            code = (dfn.code or "").strip()
+
+            if code:
+                dfn_codes.add(code)
+
+    if not dfn_codes:
+        return {}
+
+    ordered_dfn_codes = sorted(
+        dfn_codes,
+        key=len,
+        reverse=True,
+    )
+
+    project_filter = Q(pk__in=[])
+
+    for dfn_code in ordered_dfn_codes:
+
+        project_filter |= Q(proyecto_id__iexact=dfn_code)
+
+        project_filter |= Q(proyecto_id__istartswith=(f"{dfn_code}_"))
+
+        project_filter |= Q(proyecto_id__istartswith=(f"{dfn_code}-"))
+
+    billings = (
+        SesionBilling.objects.filter(
+            project_filter,
+            is_direct_discount=False,
+        )
+        .exclude(proyecto_id="")
+        .only(
+            "id",
+            "proyecto_id",
+            "creado_en",
+            "is_cable_installation",
+        )
+    )
+
+    forecast_index = {}
+
+    for session in billings:
+
+        session_date = _real_plan_local_date(session)
+
+        if session_date is None:
+            continue
+
+        matched_dfn = None
+
+        for dfn_code in ordered_dfn_codes:
+
+            if _real_plan_project_matches_dfn(
+                session.proyecto_id,
+                dfn_code,
+            ):
+
+                matched_dfn = dfn_code
+
+                break
+
+        if not matched_dfn:
+            continue
+
+        work_type = "cable" if session.is_cable_installation else "fiber"
+
+        key = (
+            matched_dfn.upper(),
+            work_type,
+        )
+
+        current = forecast_index.get(key)
+
+        if current is None:
+
+            forecast_index[key] = {
+                "start": session_date,
+                "finish": session_date,
+                "billing_count": 1,
+            }
+
+            continue
+
+        if session_date < current["start"]:
+            current["start"] = session_date
+
+        if session_date > current["finish"]:
+            current["finish"] = session_date
+
+        current["billing_count"] += 1
+
+    return forecast_index
+
+
+def _master_plan_real_dates(
+    baseline_activity,
+    forecast_index,
+):
+    """
+    Devuelve las fechas Real / Forecast que corresponden
+    a una actividad del Master Plan.
+
+    C-107 -> Fiber
+    C-108 -> Cable
+    """
+
+    empty_result = {
+        "start": None,
+        "finish": None,
+        "billing_count": 0,
+    }
+
+    if baseline_activity is None:
+        return empty_result
+
+    if not baseline_activity.dfn_id:
+        return empty_result
+
+    if not baseline_activity.activity_type_id:
+        return empty_result
+
+    activity_code = (baseline_activity.activity_type.code or "").strip().upper()
+
+    work_type = MASTER_PLAN_REAL_WORK_TYPE_BY_ACTIVITY_CODE.get(activity_code)
+
+    if not work_type:
+        return empty_result
+
+    dfn_code = (baseline_activity.dfn.code or "").strip().upper()
+
+    if not dfn_code:
+        return empty_result
+
+    return forecast_index.get(
+        (
+            dfn_code,
+            work_type,
+        ),
+        empty_result,
+    )
+
+
 def _build_master_plan_rows(assignments):
     rows = []
+
+    real_forecast_index = _build_real_plan_forecast_index(assignments)
+
+    for assignment in assignments:
+
+        plan_entry = _latest_plan_entry(assignment)
+
+        plan_by_baseline = {}
+
+        if plan_entry is not None:
+
+            plan_activities = plan_entry.activities.select_related(
+                "activity_type",
+                "baseline_activity",
+                "baseline_activity__dfn",
+            ).order_by(
+                "sequence",
+                "activity_type__code",
+                "id",
+            )
+
+            for plan_activity in plan_activities:
+
+                if plan_activity.baseline_activity_id:
+                    plan_by_baseline[plan_activity.baseline_activity_id] = plan_activity
+
+        effective_calendar = (
+            plan_entry.effective_calendar if plan_entry is not None else None
+        )
+
+        plan_working_days = _calendar_working_days(effective_calendar)
+
+        baseline_activities = assignment.baseline_activities.select_related(
+            "activity_type",
+            "dfn",
+        ).order_by(
+            "sequence",
+            "activity_type__code",
+            "id",
+        )
+
+        for baseline_activity in baseline_activities:
+
+            plan_activity = plan_by_baseline.get(baseline_activity.id)
+
+            planned_start = (
+                plan_activity.planned_start_date if plan_activity is not None else None
+            )
+
+            planned_finish = (
+                plan_activity.planned_end_date if plan_activity is not None else None
+            )
+
+            real_dates = _master_plan_real_dates(
+                baseline_activity,
+                real_forecast_index,
+            )
+
+            real_start = real_dates["start"]
+
+            real_finish = real_dates["finish"]
+
+            real_billing_count = real_dates["billing_count"]
+
+            variance_days = None
+
+            if baseline_activity.client_end_date and planned_finish:
+                variance_days = (
+                    planned_finish - baseline_activity.client_end_date
+                ).days
+
+            planning_status = None
+
+            if variance_days is not None:
+
+                planning_status = "on_track" if variance_days <= 0 else "late"
+
+            rows.append(
+                {
+                    "assignment": (assignment),
+                    "baseline": (baseline_activity),
+                    "plan": (plan_activity),
+                    "activity_type": (baseline_activity.activity_type),
+                    "quantity": (baseline_activity.quantity),
+                    "unit": (baseline_activity.get_unit_display()),
+                    "dfn": (baseline_activity.dfn),
+                    "client_start": (baseline_activity.client_start_date),
+                    "client_finish": (baseline_activity.client_end_date),
+                    "planned_start": (planned_start),
+                    "planned_finish": (planned_finish),
+                    "real_start": (real_start),
+                    "real_finish": (real_finish),
+                    "real_billing_count": (real_billing_count),
+                    "variance_days": (variance_days),
+                    "planning_status": (planning_status),
+                    "master_plan_entry": (plan_entry),
+                    "plan_working_days": (plan_working_days),
+                }
+            )
+
+    return rows
+
+
+def _build_master_plan_rows(assignments):
+    rows = []
+
+    real_forecast_index = _build_real_plan_forecast_index(assignments)
 
     for assignment in assignments:
         plan_entry = _latest_plan_entry(assignment)
@@ -664,6 +994,17 @@ def _build_master_plan_rows(assignments):
                 plan_activity.planned_end_date if plan_activity is not None else None
             )
 
+            real_dates = _master_plan_real_dates(
+                baseline_activity,
+                real_forecast_index,
+            )
+
+            real_start = real_dates["start"]
+
+            real_finish = real_dates["finish"]
+
+            real_billing_count = real_dates["billing_count"]
+
             variance_days = None
 
             if baseline_activity.client_end_date and planned_finish:
@@ -681,18 +1022,21 @@ def _build_master_plan_rows(assignments):
                     "assignment": assignment,
                     "baseline": baseline_activity,
                     "plan": plan_activity,
-                    "activity_type": baseline_activity.activity_type,
-                    "quantity": baseline_activity.quantity,
-                    "unit": baseline_activity.get_unit_display(),
-                    "dfn": baseline_activity.dfn,
-                    "client_start": baseline_activity.client_start_date,
-                    "client_finish": baseline_activity.client_end_date,
-                    "planned_start": planned_start,
-                    "planned_finish": planned_finish,
-                    "variance_days": variance_days,
-                    "planning_status": planning_status,
-                    "master_plan_entry": plan_entry,
-                    "plan_working_days": plan_working_days,
+                    "activity_type": (baseline_activity.activity_type),
+                    "quantity": (baseline_activity.quantity),
+                    "unit": (baseline_activity.get_unit_display()),
+                    "dfn": (baseline_activity.dfn),
+                    "client_start": (baseline_activity.client_start_date),
+                    "client_finish": (baseline_activity.client_end_date),
+                    "planned_start": (planned_start),
+                    "planned_finish": (planned_finish),
+                    "real_start": (real_start),
+                    "real_finish": (real_finish),
+                    "real_billing_count": (real_billing_count),
+                    "variance_days": (variance_days),
+                    "planning_status": (planning_status),
+                    "master_plan_entry": (plan_entry),
+                    "plan_working_days": (plan_working_days),
                 }
             )
 

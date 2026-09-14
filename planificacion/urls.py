@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import real_plan_views, views
 
 app_name = "planificacion"
 
@@ -10,6 +10,16 @@ urlpatterns = [
         "",
         views.master_plan,
         name="master_plan",
+    ),
+    path(
+        "real-plan/",
+        real_plan_views.real_plan_board,
+        name="real_plan",
+    ),
+    path(
+        "real-plan/move/<int:sesion_id>/",
+        real_plan_views.real_plan_move_project,
+        name="real_plan_move_project",
     ),
     path(
         "assignments/",
