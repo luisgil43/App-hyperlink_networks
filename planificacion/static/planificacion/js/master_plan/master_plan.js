@@ -94,6 +94,140 @@ document.addEventListener(
 
 
     /* =========================================================
+       TIMELINE LAYER VISIBILITY
+    ========================================================== */
+
+    const visibleTimelineLayers =
+      {
+        baseline: true,
+        plan: true,
+        real: true,
+      };
+
+
+    function applyTimelineLayerVisibility() {
+
+      document.querySelectorAll(
+        ".planning-layer-row"
+      ).forEach(
+        function (layerRow) {
+
+          const layer =
+            layerRow.dataset.layer;
+
+
+          const hasData =
+            layerRow.dataset.hasData
+            ===
+            "1";
+
+
+          const layerVisible =
+            visibleTimelineLayers[
+              layer
+            ]
+            !==
+            false;
+
+
+          if (
+            hasData
+            &&
+            layerVisible
+          ) {
+
+            layerRow.classList.remove(
+              "hidden"
+            );
+
+
+            layerRow.classList.add(
+              "h-5"
+            );
+
+          } else {
+
+            layerRow.classList.add(
+              "hidden"
+            );
+
+
+            layerRow.classList.remove(
+              "h-5"
+            );
+
+          }
+
+        }
+      );
+
+
+      document.dispatchEvent(
+        new CustomEvent(
+          "master-plan-layers-changed"
+        )
+      );
+
+    }
+
+
+    document.querySelectorAll(
+      ".master-plan-layer-toggle"
+    ).forEach(
+      function (checkbox) {
+
+        const layer =
+          checkbox.dataset.layerToggle;
+
+
+        if (
+          !layer
+          ||
+          !Object.prototype.hasOwnProperty.call(
+            visibleTimelineLayers,
+            layer
+          )
+        ) {
+          return;
+        }
+
+
+        visibleTimelineLayers[
+          layer
+        ] =
+          checkbox.checked;
+
+
+        checkbox.addEventListener(
+          "change",
+          function () {
+
+            visibleTimelineLayers[
+              layer
+            ] =
+              checkbox.checked;
+
+
+            applyTimelineLayerVisibility();
+
+          }
+        );
+
+      }
+    );
+
+
+    document.addEventListener(
+      "master-plan-timeline-rebuilt",
+      function () {
+
+        applyTimelineLayerVisibility();
+
+      }
+    );
+
+
+    /* =========================================================
        PAGE POSITION
     ========================================================== */
 
@@ -3437,6 +3571,9 @@ document.addEventListener(
     ========================================================== */
 
     renderAutomaticTimeline();
+
+
+    applyTimelineLayerVisibility();
 
 
     scheduleMatrixHeightSync();

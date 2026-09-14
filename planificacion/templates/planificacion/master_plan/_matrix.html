@@ -30,40 +30,70 @@
       <div class="flex flex-wrap items-center justify-end gap-4">
 
 
-        <!-- LEGEND -->
+        <!-- =================================================
+             TIMELINE LAYERS
+        ================================================== -->
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-bold">
 
-          <div class="flex items-center gap-2">
 
-            <span class="w-4 h-3 rounded-sm bg-emerald-200 border border-emerald-300"></span>
+          <!-- CLIENT BASELINE -->
+          <label
+            class="flex items-center gap-2 cursor-pointer select-none"
+            title="Show or hide Client Baseline"
+          >
+
+            <input
+              type="checkbox"
+              class="master-plan-layer-toggle w-4 h-4 rounded border-gray-300 accent-emerald-500 cursor-pointer"
+              data-layer-toggle="baseline"
+              checked
+            >
 
             <span class="text-gray-600">
               Client Baseline
             </span>
 
-          </div>
+          </label>
 
 
-          <div class="flex items-center gap-2">
+          <!-- HIGH-LEVEL PLAN -->
+          <label
+            class="flex items-center gap-2 cursor-pointer select-none"
+            title="Show or hide High-Level Plan"
+          >
 
-            <span class="w-4 h-3 rounded-sm bg-blue-500"></span>
+            <input
+              type="checkbox"
+              class="master-plan-layer-toggle w-4 h-4 rounded border-gray-300 accent-blue-500 cursor-pointer"
+              data-layer-toggle="plan"
+              checked
+            >
 
             <span class="text-gray-600">
               High-Level Plan
             </span>
 
-          </div>
+          </label>
 
 
-          <div class="flex items-center gap-2">
+          <!-- REAL / FORECAST -->
+          <label
+            class="flex items-center gap-2 cursor-pointer select-none"
+            title="Show or hide Real / Forecast"
+          >
 
-            <span class="w-4 h-3 rounded-sm bg-amber-400"></span>
+            <input
+              type="checkbox"
+              class="master-plan-layer-toggle w-4 h-4 rounded border-gray-300 accent-amber-500 cursor-pointer"
+              data-layer-toggle="real"
+              checked
+            >
 
             <span class="text-gray-600">
               Real / Forecast
             </span>
 
-          </div>
+          </label>
 
         </div>
 
