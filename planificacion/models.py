@@ -1694,3 +1694,59 @@ class RealPlanUserPreference(models.Model):
 
     def __str__(self):
         return f"Real Plan preferences / {self.user_id}"
+
+
+# ============================================================
+# REAL PLAN DAILY ROLLOVER
+# ============================================================
+
+
+class RealPlanDailyRollover(models.Model):
+    """
+    Registro persistente de ejecuciones diarias del rollover
+    automático del Real Plan.
+
+    Cada source_date puede ejecutarse una sola vez.
+
+    Ejemplo:
+
+        source_date = 2026-09-14
+        target_date = 2026-09-15
+
+    Esto permite que el Background Worker:
+
+    - ejecute el rollover cuando quede disponible;
+    - recupere un rollover pendiente después de un reinicio;
+    - no dependa de ejecutar exactamente a las 23:59;
+    - no repita un rollover ya completado.
+    """
+
+    source_date = models.DateField(
+        unique=True,
+        db_index=True,
+    )
+
+    target_date = models.DateField(
+        db_index=True,
+    )
+
+    moved_count = models.PositiveIntegerField(
+        default=0,
+    )
+
+    completed_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ("-source_date",)
+
+        verbose_name = "Real Plan Daily Rollover"
+        verbose_name_plural = "Real Plan Daily Rollovers"
+
+    def __str__(self):
+        return (
+            f"Real Plan rollover "
+            f"{self.source_date} -> {self.target_date} "
+            f"({self.moved_count})"
+        )

@@ -13,6 +13,7 @@ from django.utils.text import slugify
 
 from operaciones.models import (EvidenciaFotoBilling, ReporteFotograficoJob,
                                 SesionBilling)
+from planificacion.models import RealPlanDailyRollover
 
 # ============================================================
 # REAL PLAN DAILY ROLLOVER
@@ -37,7 +38,10 @@ def _real_plan_iso_week(value):
     return f"{iso_calendar.year}-W{iso_calendar.week:02d}"
 
 
-def _real_plan_set_local_date(session, target_date):
+def _real_plan_set_local_date(
+    session,
+    target_date,
+):
     """
     Cambia únicamente la FECHA operacional del Billing.
 
@@ -51,10 +55,12 @@ def _real_plan_set_local_date(session, target_date):
             session.creado_en,
             tz,
         )
+
         current_time = current_local.time().replace(
             second=0,
             microsecond=0,
         )
+
     else:
         current_time = time.min
 
@@ -69,30 +75,142 @@ def _real_plan_set_local_date(session, target_date):
     )
 
 
+def _real_plan_rollover_dates(
+    source_date,
+    target_date,
+):
+    """
+    Ejecuta exactamente un cierre operacional:
+
+        source_date -> target_date
+
+    Mueve únicamente Billing elegibles cuya fecha operacional sea
+    source_date o anterior.
+
+    El registro RealPlanDailyRollover garantiza que cada source_date
+    quede completado una sola vez.
+    """
+    tz = timezone.get_current_timezone()
+
+    target_start = timezone.make_aware(
+        datetime.combine(
+            target_date,
+            time.min,
+        ),
+        tz,
+    )
+
+    target_week = _real_plan_iso_week(
+        target_date,
+    )
+
+    with transaction.atomic():
+        existing_rollover = (
+            RealPlanDailyRollover.objects.select_for_update()
+            .filter(
+                source_date=source_date,
+            )
+            .first()
+        )
+
+        if existing_rollover is not None:
+            return {
+                "executed": False,
+                "source_date": source_date,
+                "target_date": target_date,
+                "moved_count": existing_rollover.moved_count,
+            }
+
+        sessions = list(
+            SesionBilling.objects.select_for_update()
+            .filter(
+                estado__in=REAL_PLAN_ROLLOVER_STATUSES,
+                is_direct_discount=False,
+                creado_en__lt=target_start,
+            )
+            .only(
+                "id",
+                "creado_en",
+                "estado",
+                "semana_pago_proyectada",
+            )
+        )
+
+        moved_count = 0
+
+        for session in sessions:
+            if not session.creado_en:
+                continue
+
+            session_date = timezone.localtime(
+                session.creado_en,
+                tz,
+            ).date()
+
+            if session_date > source_date:
+                continue
+
+            session.creado_en = _real_plan_set_local_date(
+                session,
+                target_date,
+            )
+
+            session.semana_pago_proyectada = target_week
+
+            session.save(
+                update_fields=[
+                    "creado_en",
+                    "semana_pago_proyectada",
+                ]
+            )
+
+            moved_count += 1
+
+        RealPlanDailyRollover.objects.create(
+            source_date=source_date,
+            target_date=target_date,
+            moved_count=moved_count,
+        )
+
+    print(
+        "[REAL PLAN ROLLOVER] "
+        f"source_through={source_date.isoformat()} "
+        f"target={target_date.isoformat()} "
+        f"week={target_week} "
+        f"moved={moved_count}"
+    )
+
+    return {
+        "executed": True,
+        "source_date": source_date,
+        "target_date": target_date,
+        "moved_count": moved_count,
+    }
+
+
 def rollover_real_plan_projects():
     """
-    Rollover automático diario del Real Plan.
+    Ejecuta los cierres pendientes del Real Plan.
 
-    Se ejecuta a las 23:59.
+    Esta función NO depende de ejecutarse exactamente a las 23:59.
 
-    Todo Billing cuya fecha operacional sea HOY o anterior pasa a MAÑANA
-    únicamente cuando se encuentra en uno de estos estados:
+    Ejemplo:
 
-        - asignado
-        - en_proceso
-        - rechazado_supervisor
-        - rechazado_pm
+        Día actual: 2026-09-15
 
-    Estos estados permanecen congelados en su fecha:
+        Si 2026-09-14 todavía no tiene registro de rollover:
 
-        - en_revision_supervisor
-        - aprobado_supervisor
-        - aprobado_pm
+            2026-09-14 -> 2026-09-15
 
-    También sincroniza semana_pago_proyectada con la semana ISO
-    correspondiente a la nueva fecha.
+    Si el worker estuvo detenido varios días, procesa en orden todos
+    los cierres pendientes necesarios hasta dejar cerrado el día
+    inmediatamente anterior al día operacional actual.
+
+    En la primera ejecución de una instalación nueva, comienza
+    únicamente con ayer -> hoy. No reconstruye cierres históricos.
 
     NO modifica:
+
         - estado
         - técnicos
         - prioridades
@@ -107,76 +225,49 @@ def rollover_real_plan_projects():
         pass
 
     try:
-        tz = timezone.get_current_timezone()
-
         today = timezone.localdate()
-        target_date = today + timedelta(days=1)
 
-        target_start = timezone.make_aware(
-            datetime.combine(
+        last_rollover = RealPlanDailyRollover.objects.order_by(
+            "-source_date",
+        ).first()
+
+        if last_rollover is not None:
+            source_date = last_rollover.source_date + timedelta(days=1)
+
+        else:
+            source_date = today - timedelta(days=1)
+
+        final_source_date = today - timedelta(days=1)
+
+        if source_date > final_source_date:
+            return 0
+
+        total_moved = 0
+        executed_count = 0
+
+        while source_date <= final_source_date:
+            target_date = source_date + timedelta(days=1)
+
+            result = _real_plan_rollover_dates(
+                source_date,
                 target_date,
-                time.min,
-            ),
-            tz,
-        )
-
-        target_week = _real_plan_iso_week(target_date)
-
-        moved_count = 0
-
-        with transaction.atomic():
-            sessions = list(
-                SesionBilling.objects.select_for_update()
-                .filter(
-                    estado__in=REAL_PLAN_ROLLOVER_STATUSES,
-                    is_direct_discount=False,
-                    creado_en__lt=target_start,
-                )
-                .only(
-                    "id",
-                    "creado_en",
-                    "estado",
-                    "semana_pago_proyectada",
-                )
             )
 
-            for session in sessions:
-                if not session.creado_en:
-                    continue
+            if result["executed"]:
+                total_moved += result["moved_count"]
+                executed_count += 1
 
-                session_date = timezone.localtime(
-                    session.creado_en,
-                    tz,
-                ).date()
+            source_date += timedelta(days=1)
 
-                if session_date > today:
-                    continue
+        if executed_count:
+            print(
+                "[REAL PLAN ROLLOVER CATCH-UP] "
+                f"through={final_source_date.isoformat()} "
+                f"executions={executed_count} "
+                f"moved={total_moved}"
+            )
 
-                session.creado_en = _real_plan_set_local_date(
-                    session,
-                    target_date,
-                )
-
-                session.semana_pago_proyectada = target_week
-
-                session.save(
-                    update_fields=[
-                        "creado_en",
-                        "semana_pago_proyectada",
-                    ]
-                )
-
-                moved_count += 1
-
-        print(
-            "[REAL PLAN ROLLOVER] "
-            f"source_through={today.isoformat()} "
-            f"target={target_date.isoformat()} "
-            f"week={target_week} "
-            f"moved={moved_count}"
-        )
-
-        return moved_count
+        return total_moved
 
     finally:
         try:
@@ -191,28 +282,21 @@ def rollover_real_plan_projects():
 def iniciar_scheduler():
     """
     Arranca un BackgroundScheduler y lo cuelga en settings.APP_SCHEDULER.
-    apps.py se encarga de no iniciarlo dos veces con el autoreloader.
 
-    También registra el rollover automático diario del Real Plan.
+    Se conserva para los trabajos existentes que utilizan
+    settings.APP_SCHEDULER.
+
+    El rollover del Real Plan NO se registra aquí.
+    Su ejecución corresponde al Background Worker compartido.
     """
     scheduler = BackgroundScheduler(
         timezone=timezone.get_current_timezone(),
     )
 
-    scheduler.add_job(
-        func=rollover_real_plan_projects,
-        trigger="cron",
-        hour=23,
-        minute=59,
-        id="real-plan-daily-rollover",
-        replace_existing=True,
-        misfire_grace_time=3600,
-        max_instances=1,
-        coalesce=True,
-    )
-
     scheduler.start()
+
     settings.APP_SCHEDULER = scheduler
+
     return scheduler
 
 
@@ -221,7 +305,10 @@ def iniciar_scheduler():
 
 def _stable_report_key(s: SesionBilling) -> str:
     proj_slug = slugify(s.proyecto_id or f"billing-{s.id}") or f"billing-{s.id}"
-    return f"operaciones/reporte_fotografico/{proj_slug}-{s.id}/project/{proj_slug}-{s.id}.xlsx"
+    return (
+        f"operaciones/reporte_fotografico/"
+        f"{proj_slug}-{s.id}/project/{proj_slug}-{s.id}.xlsx"
+    )
 
 
 class ReportCancelled(Exception):
@@ -234,10 +321,18 @@ def _make_should_cancel(job_id: int):
     def should_cancel(n_processed: int = 0) -> bool:
         if n_processed and (n_processed - last_check["n"] < 10):
             return False
+
         last_check["n"] = n_processed
+
         return (
-            ReporteFotograficoJob.objects.filter(pk=job_id, cancel_requested=True)
-            .values_list("cancel_requested", flat=True)
+            ReporteFotograficoJob.objects.filter(
+                pk=job_id,
+                cancel_requested=True,
+            )
+            .values_list(
+                "cancel_requested",
+                flat=True,
+            )
             .first()
         ) or False
 
@@ -246,13 +341,20 @@ def _make_should_cancel(job_id: int):
 
 def _compute_next_monday_iso_week(now=None) -> str:
     now = now or timezone.now()
+
     days_to_next_monday = (7 - now.weekday()) % 7 or 7
-    next_monday = now + timedelta(days=days_to_next_monday)
+
+    next_monday = now + timedelta(
+        days=days_to_next_monday,
+    )
+
     y, w, _ = next_monday.isocalendar()
+
     return f"{int(y)}-W{int(w):02d}"
 
 
 compute_next_monday_iso_week = _compute_next_monday_iso_week
+
 
 # ---------------- FINAL ----------------
 
@@ -267,17 +369,35 @@ def procesar_reporte_fotografico_job(job_id: int):
     from operaciones.views_billing_exec import \
         _xlsx_path_reporte_fotografico_qs
 
-    job = ReporteFotograficoJob.objects.select_related("sesion").get(pk=job_id)
-    if job.estado in ("procesando", "ok"):
+    job = ReporteFotograficoJob.objects.select_related(
+        "sesion",
+    ).get(
+        pk=job_id,
+    )
+
+    if job.estado in (
+        "procesando",
+        "ok",
+    ):
         return
 
     job.estado = "procesando"
     job.iniciado_en = timezone.now()
+
     job.total = EvidenciaFotoBilling.objects.filter(
-        tecnico_sesion__sesion=job.sesion
+        tecnico_sesion__sesion=job.sesion,
     ).count()
+
     job.procesadas = 0
-    job.save(update_fields=["estado", "iniciado_en", "total", "procesadas"])
+
+    job.save(
+        update_fields=[
+            "estado",
+            "iniciado_en",
+            "total",
+            "procesadas",
+        ]
+    )
 
     s = job.sesion
     should_cancel = _make_should_cancel(job.id)
@@ -287,8 +407,13 @@ def procesar_reporte_fotografico_job(job_id: int):
         def _progress(n: int):
             if should_cancel(n):
                 raise ReportCancelled()
+
             if n == 1 or n % 10 == 0 or n == job.total:
-                ReporteFotograficoJob.objects.filter(pk=job.pk).update(procesadas=n)
+                ReporteFotograficoJob.objects.filter(
+                    pk=job.pk,
+                ).update(
+                    procesadas=n,
+                )
 
         xlsx_path = _xlsx_path_reporte_fotografico_qs(
             s,
@@ -298,29 +423,59 @@ def procesar_reporte_fotografico_job(job_id: int):
         )
 
         stable_key = _stable_report_key(s)
+
         try:
-            storage.delete(stable_key)
-        except Exception:
-            pass
-        try:
-            if s.reporte_fotografico and getattr(s.reporte_fotografico, "name", ""):
-                s.reporte_fotografico.delete(save=False)
+            storage.delete(
+                stable_key,
+            )
         except Exception:
             pass
 
-        with open(xlsx_path, "rb") as f:
-            s.reporte_fotografico.save(stable_key, File(f), save=True)
+        try:
+            if s.reporte_fotografico and getattr(
+                s.reporte_fotografico,
+                "name",
+                "",
+            ):
+                s.reporte_fotografico.delete(
+                    save=False,
+                )
+        except Exception:
+            pass
+
+        with open(
+            xlsx_path,
+            "rb",
+        ) as f:
+            s.reporte_fotografico.save(
+                stable_key,
+                File(f),
+                save=True,
+            )
 
         now = timezone.now()
+
         with transaction.atomic():
             s.estado = "aprobado_supervisor"
+
             if not s.semana_pago_real:
-                s.semana_pago_real = _compute_next_monday_iso_week(now)
-            s.save(update_fields=["reporte_fotografico", "estado", "semana_pago_real"])
+                s.semana_pago_real = _compute_next_monday_iso_week(
+                    now,
+                )
+
+            s.save(
+                update_fields=[
+                    "reporte_fotografico",
+                    "estado",
+                    "semana_pago_real",
+                ]
+            )
+
             for a in s.tecnicos_sesion.all():
                 a.estado = "aprobado_supervisor"
                 a.supervisor_revisado_en = now
                 a.reintento_habilitado = False
+
                 a.save(
                     update_fields=[
                         "estado",
@@ -333,6 +488,7 @@ def procesar_reporte_fotografico_job(job_id: int):
         job.procesadas = job.total
         job.estado = "ok"
         job.terminado_en = timezone.now()
+
         job.save(
             update_fields=[
                 "resultado_key",
@@ -346,16 +502,39 @@ def procesar_reporte_fotografico_job(job_id: int):
         job.error = "Cancelled by user"
         job.estado = "error"
         job.terminado_en = timezone.now()
-        job.save(update_fields=["error", "estado", "terminado_en"])
+
+        job.save(
+            update_fields=[
+                "error",
+                "estado",
+                "terminado_en",
+            ]
+        )
+
     except Exception as e:
         job.error = str(e)
         job.estado = "error"
         job.terminado_en = timezone.now()
-        job.save(update_fields=["error", "estado", "terminado_en"])
+
+        job.save(
+            update_fields=[
+                "error",
+                "estado",
+                "terminado_en",
+            ]
+        )
 
 
-def _run_in_thread(fn, *args):
-    t = threading.Thread(target=fn, args=args, daemon=True)
+def _run_in_thread(
+    fn,
+    *args,
+):
+    t = threading.Thread(
+        target=fn,
+        args=args,
+        daemon=True,
+    )
+
     t.start()
 
 
@@ -364,7 +543,12 @@ def enqueue_reporte_fotografico(job_id: int):
     Intenta APScheduler; si no hay, cae a un hilo en background.
     Así el request responde de inmediato SIEMPRE.
     """
-    scheduler = getattr(settings, "APP_SCHEDULER", None)
+    scheduler = getattr(
+        settings,
+        "APP_SCHEDULER",
+        None,
+    )
+
     if scheduler:
         scheduler.add_job(
             func=procesar_reporte_fotografico_job,
@@ -376,8 +560,12 @@ def enqueue_reporte_fotografico(job_id: int):
             coalesce=True,
             next_run_time=timezone.now(),
         )
+
     else:
-        _run_in_thread(procesar_reporte_fotografico_job, job_id)
+        _run_in_thread(
+            procesar_reporte_fotografico_job,
+            job_id,
+        )
 
 
 # ---------------- PARCIAL ----------------
@@ -392,33 +580,73 @@ def procesar_reporte_parcial_job(job_id: int):
     from operaciones.views_billing_exec import \
         _xlsx_path_reporte_fotografico_qs
 
-    job = ReporteFotograficoJob.objects.select_related("sesion").get(pk=job_id)
-    if job.estado in ("procesando", "ok"):
+    job = ReporteFotograficoJob.objects.select_related(
+        "sesion",
+    ).get(
+        pk=job_id,
+    )
+
+    if job.estado in (
+        "procesando",
+        "ok",
+    ):
         return
 
     job.estado = "procesando"
     job.iniciado_en = timezone.now()
     job.log = (job.log or "") + "[partial] start\n"
-    job.total = EvidenciaFotoBilling.objects.filter(
-        tecnico_sesion__sesion=job.sesion
-    ).count()
-    job.procesadas = 0
-    job.save(update_fields=["estado", "iniciado_en", "log", "total", "procesadas"])
 
-    last_flush = {"n": 0}
+    job.total = EvidenciaFotoBilling.objects.filter(
+        tecnico_sesion__sesion=job.sesion,
+    ).count()
+
+    job.procesadas = 0
+
+    job.save(
+        update_fields=[
+            "estado",
+            "iniciado_en",
+            "log",
+            "total",
+            "procesadas",
+        ]
+    )
+
+    last_flush = {
+        "n": 0,
+    }
 
     def _on_progress(n: int):
         if ReporteFotograficoJob.objects.filter(
-            pk=job.pk, cancel_requested=True
+            pk=job.pk,
+            cancel_requested=True,
         ).exists():
             job.log = (job.log or "") + "[partial] cancel requested\n"
+
             job.error = "Cancelled by user"
             job.estado = "error"
             job.terminado_en = timezone.now()
-            job.save(update_fields=["log", "error", "estado", "terminado_en"])
-            raise RuntimeError("cancelled")
+
+            job.save(
+                update_fields=[
+                    "log",
+                    "error",
+                    "estado",
+                    "terminado_en",
+                ]
+            )
+
+            raise RuntimeError(
+                "cancelled",
+            )
+
         if n - last_flush["n"] >= 10 or n == job.total:
-            ReporteFotograficoJob.objects.filter(pk=job.pk).update(procesadas=n)
+            ReporteFotograficoJob.objects.filter(
+                pk=job.pk,
+            ).update(
+                procesadas=n,
+            )
+
             last_flush["n"] = n
 
     try:
@@ -427,10 +655,12 @@ def procesar_reporte_parcial_job(job_id: int):
             ev_qs=None,
             progress_cb=_on_progress,
         )
+
         job.resultado_key = xlsx_path
         job.estado = "ok"
         job.terminado_en = timezone.now()
         job.log = (job.log or "") + "[partial] done\n"
+
         job.save(
             update_fields=[
                 "resultado_key",
@@ -440,18 +670,34 @@ def procesar_reporte_parcial_job(job_id: int):
                 "procesadas",
             ]
         )
+
     except RuntimeError:
         pass
+
     except Exception as e:
         job.error = str(e)
         job.estado = "error"
         job.terminado_en = timezone.now()
+
         job.log = (job.log or "") + f"[partial] error: {e}\n"
-        job.save(update_fields=["error", "estado", "terminado_en", "log"])
+
+        job.save(
+            update_fields=[
+                "error",
+                "estado",
+                "terminado_en",
+                "log",
+            ]
+        )
 
 
 def enqueue_reporte_parcial(job_id: int):
-    scheduler = getattr(settings, "APP_SCHEDULER", None)
+    scheduler = getattr(
+        settings,
+        "APP_SCHEDULER",
+        None,
+    )
+
     if scheduler:
         scheduler.add_job(
             func=procesar_reporte_parcial_job,
@@ -463,8 +709,12 @@ def enqueue_reporte_parcial(job_id: int):
             coalesce=True,
             next_run_time=timezone.now(),
         )
+
     else:
-        _run_in_thread(procesar_reporte_parcial_job, job_id)
+        _run_in_thread(
+            procesar_reporte_parcial_job,
+            job_id,
+        )
 
 
 # ---------------- CABLE FINAL ----------------
@@ -484,33 +734,75 @@ def procesar_cable_photo_report_job(job_id: int):
             CableReportCancelled, _cable_report_evidences_qs,
             _cable_report_project_key, _xlsx_path_cable_photo_report)
 
-        job = ReporteFotograficoJob.objects.select_related("sesion").get(pk=job_id)
-        if job.estado in ("procesando", "ok"):
+        job = ReporteFotograficoJob.objects.select_related(
+            "sesion",
+        ).get(
+            pk=job_id,
+        )
+
+        if job.estado in (
+            "procesando",
+            "ok",
+        ):
             return
 
         billing = job.sesion
 
         job.estado = "procesando"
         job.iniciado_en = timezone.now()
-        job.total = _cable_report_evidences_qs(billing).count()
+
+        job.total = _cable_report_evidences_qs(
+            billing,
+        ).count()
+
         job.procesadas = 0
         job.error = ""
+
         job.save(
-            update_fields=["estado", "iniciado_en", "total", "procesadas", "error"]
+            update_fields=[
+                "estado",
+                "iniciado_en",
+                "total",
+                "procesadas",
+                "error",
+            ]
         )
 
-        def progress_cb(done, total_count):
-            fresh = ReporteFotograficoJob.objects.get(pk=job.pk)
-            if getattr(fresh, "cancel_requested", False):
+        def progress_cb(
+            done,
+            total_count,
+        ):
+            fresh = ReporteFotograficoJob.objects.get(
+                pk=job.pk,
+            )
+
+            if getattr(
+                fresh,
+                "cancel_requested",
+                False,
+            ):
                 raise CableReportCancelled()
+
             fresh.procesadas = done
             fresh.total = total_count
-            fresh.save(update_fields=["procesadas", "total"])
+
+            fresh.save(
+                update_fields=[
+                    "procesadas",
+                    "total",
+                ]
+            )
 
         def should_cancel(_done):
             return (
-                ReporteFotograficoJob.objects.filter(pk=job.pk, cancel_requested=True)
-                .values_list("cancel_requested", flat=True)
+                ReporteFotograficoJob.objects.filter(
+                    pk=job.pk,
+                    cancel_requested=True,
+                )
+                .values_list(
+                    "cancel_requested",
+                    flat=True,
+                )
                 .first()
             ) or False
 
@@ -520,22 +812,33 @@ def procesar_cable_photo_report_job(job_id: int):
             should_cancel=should_cancel,
         )
 
-        key_name = _cable_report_project_key(billing)
+        key_name = _cable_report_project_key(
+            billing,
+        )
 
         try:
-            storage.delete(key_name)
+            storage.delete(
+                key_name,
+            )
         except Exception:
             pass
 
         try:
             if billing.reporte_fotografico and getattr(
-                billing.reporte_fotografico, "name", ""
+                billing.reporte_fotografico,
+                "name",
+                "",
             ):
-                billing.reporte_fotografico.delete(save=False)
+                billing.reporte_fotografico.delete(
+                    save=False,
+                )
         except Exception:
             pass
 
-        with open(tmp_path, "rb") as fh:
+        with open(
+            tmp_path,
+            "rb",
+        ) as fh:
             billing.reporte_fotografico.save(
                 key_name,
                 File(fh),
@@ -543,34 +846,75 @@ def procesar_cable_photo_report_job(job_id: int):
             )
 
         now = timezone.now()
+
         with transaction.atomic():
             billing.estado = "aprobado_supervisor"
+
             if not billing.semana_pago_real:
-                billing.semana_pago_real = _compute_next_monday_iso_week(now)
+                billing.semana_pago_real = _compute_next_monday_iso_week(
+                    now,
+                )
+
             billing.save(
-                update_fields=["reporte_fotografico", "estado", "semana_pago_real"]
+                update_fields=[
+                    "reporte_fotografico",
+                    "estado",
+                    "semana_pago_real",
+                ]
             )
 
             for a in billing.tecnicos_sesion.all():
-                update_fields = ["estado"]
+                update_fields = [
+                    "estado",
+                ]
+
                 a.estado = "aprobado_supervisor"
 
-                if hasattr(a, "supervisor_revisado_en"):
+                if hasattr(
+                    a,
+                    "supervisor_revisado_en",
+                ):
                     a.supervisor_revisado_en = now
-                    update_fields.append("supervisor_revisado_en")
 
-                if hasattr(a, "reintento_habilitado"):
+                    update_fields.append(
+                        "supervisor_revisado_en",
+                    )
+
+                if hasattr(
+                    a,
+                    "reintento_habilitado",
+                ):
                     a.reintento_habilitado = False
-                    update_fields.append("reintento_habilitado")
 
-                a.save(update_fields=update_fields)
+                    update_fields.append(
+                        "reintento_habilitado",
+                    )
+
+                a.save(
+                    update_fields=update_fields,
+                )
 
         job.estado = "ok"
         job.terminado_en = timezone.now()
-        job.resultado_key = getattr(billing.reporte_fotografico, "name", "") or key_name
+
+        job.resultado_key = (
+            getattr(
+                billing.reporte_fotografico,
+                "name",
+                "",
+            )
+            or key_name
+        )
+
         job.procesadas = job.total
+
         job.save(
-            update_fields=["estado", "terminado_en", "resultado_key", "procesadas"]
+            update_fields=[
+                "estado",
+                "terminado_en",
+                "resultado_key",
+                "procesadas",
+            ]
         )
 
     except Exception as e:
@@ -578,14 +922,24 @@ def procesar_cable_photo_report_job(job_id: int):
             job.estado = "error"
             job.terminado_en = timezone.now()
             job.error = str(e)
-            job.save(update_fields=["estado", "terminado_en", "error"])
+
+            job.save(
+                update_fields=[
+                    "estado",
+                    "terminado_en",
+                    "error",
+                ]
+            )
 
     finally:
         try:
             if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+                os.unlink(
+                    tmp_path,
+                )
         except Exception:
             pass
+
         try:
             connection.close()
         except Exception:
@@ -593,7 +947,12 @@ def procesar_cable_photo_report_job(job_id: int):
 
 
 def enqueue_cable_photo_report(job_id: int):
-    scheduler = getattr(settings, "APP_SCHEDULER", None)
+    scheduler = getattr(
+        settings,
+        "APP_SCHEDULER",
+        None,
+    )
+
     if scheduler:
         scheduler.add_job(
             func=procesar_cable_photo_report_job,
@@ -605,11 +964,19 @@ def enqueue_cable_photo_report(job_id: int):
             coalesce=True,
             next_run_time=timezone.now(),
         )
+
     else:
-        _run_in_thread(procesar_cable_photo_report_job, job_id)
+        _run_in_thread(
+            procesar_cable_photo_report_job,
+            job_id,
+        )
 
 
-def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False):
+def procesar_light_levels_backfill_job(
+    sesion_id: int,
+    user_id=None,
+    force=False,
+):
     """
     Procesa en segundo plano las fotos del billing para extraer light levels.
 
@@ -643,21 +1010,34 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
             _power_meta_from_title, _power_port_no_from_evidence)
 
         user = None
+
         if user_id:
             try:
                 User = get_user_model()
-                user = User.objects.filter(pk=user_id).first()
+
+                user = User.objects.filter(
+                    pk=user_id,
+                ).first()
+
             except Exception:
                 user = None
 
-        s = SesionBilling.objects.get(pk=sesion_id)
+        s = SesionBilling.objects.get(
+            pk=sesion_id,
+        )
 
         evidencias = (
             EvidenciaFotoBilling.objects.filter(
                 tecnico_sesion__sesion=s,
             )
-            .select_related("requisito", "tecnico_sesion", "tecnico_sesion__sesion")
-            .order_by("id")
+            .select_related(
+                "requisito",
+                "tecnico_sesion",
+                "tecnico_sesion__sesion",
+            )
+            .order_by(
+                "id",
+            )
         )
 
         for ev in evidencias:
@@ -670,38 +1050,69 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
 
                 if ev.requisito_id:
                     titulo_req = (ev.requisito.titulo or "").strip()
+
                     titulo_req_upper = titulo_req.upper()
 
-                    needs_power, _port_no = _power_meta_from_title(titulo_req)
+                    needs_power, _port_no = _power_meta_from_title(
+                        titulo_req,
+                    )
 
                     is_light_source = (
-                        bool(getattr(ev.requisito, "needs_light_source_reading", False))
-                        or _light_source_meta_from_title(titulo_req)
-                        or titulo_req_upper.startswith("LIGHT SOURCE")
+                        bool(
+                            getattr(
+                                ev.requisito,
+                                "needs_light_source_reading",
+                                False,
+                            )
+                        )
+                        or _light_source_meta_from_title(
+                            titulo_req,
+                        )
+                        or titulo_req_upper.startswith(
+                            "LIGHT SOURCE",
+                        )
                         or ev.light_source_dbm is not None
                         or "type=light_source"
                         in ((ev.power_extract_note or "").lower())
                     )
 
                     is_power_port = (
-                        bool(getattr(ev.requisito, "needs_power_reading", False))
+                        bool(
+                            getattr(
+                                ev.requisito,
+                                "needs_power_reading",
+                                False,
+                            )
+                        )
                         or needs_power
-                        or titulo_req_upper.startswith("POWER PORT")
+                        or titulo_req_upper.startswith(
+                            "POWER PORT",
+                        )
                         or ev.power_dbm is not None
-                        or _power_port_no_from_evidence(ev)
+                        or _power_port_no_from_evidence(
+                            ev,
+                        )
                         or "type=power_port" in ((ev.power_extract_note or "").lower())
                     )
 
                 else:
                     titulo_manual = (ev.titulo_manual or "").strip()
+
                     nota = (ev.nota or "").strip()
+
                     hint = f"{titulo_manual} {nota}".lower()
 
-                    needs_power, _port_no = _power_meta_from_title(titulo_manual)
+                    needs_power, _port_no = _power_meta_from_title(
+                        titulo_manual,
+                    )
 
                     is_light_source = (
-                        _light_source_meta_from_title(titulo_manual)
-                        or titulo_manual.upper().startswith("LIGHT SOURCE")
+                        _light_source_meta_from_title(
+                            titulo_manual,
+                        )
+                        or titulo_manual.upper().startswith(
+                            "LIGHT SOURCE",
+                        )
                         or ev.light_source_dbm is not None
                         or "type=light_source"
                         in ((ev.power_extract_note or "").lower())
@@ -710,9 +1121,15 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
                     is_power_port = (
                         needs_power
                         or ev.power_dbm is not None
-                        or _power_port_no_from_evidence(ev)
+                        or _power_port_no_from_evidence(
+                            ev,
+                        )
                         or "type=power_port" in ((ev.power_extract_note or "").lower())
-                        or titulo_manual.lower() in {"", "extra"}
+                        or titulo_manual.lower()
+                        in {
+                            "",
+                            "extra",
+                        }
                         or any(
                             x in hint
                             for x in [
@@ -741,7 +1158,9 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
                     if (
                         is_power_port
                         and ev.power_dbm is not None
-                        and _power_port_no_from_evidence(ev)
+                        and _power_port_no_from_evidence(
+                            ev,
+                        )
                     ):
                         continue
 
@@ -759,10 +1178,13 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
         try:
             import logging
 
-            logging.getLogger(__name__).exception(
+            logging.getLogger(
+                __name__,
+            ).exception(
                 "Light levels backfill failed for SesionBilling %s",
                 sesion_id,
             )
+
         except Exception:
             pass
 
@@ -773,7 +1195,11 @@ def procesar_light_levels_backfill_job(sesion_id: int, user_id=None, force=False
             pass
 
 
-def enqueue_light_levels_backfill(sesion_id: int, user_id=None, force=False):
+def enqueue_light_levels_backfill(
+    sesion_id: int,
+    user_id=None,
+    force=False,
+):
     """
     Encola el backfill de light levels en background.
 
@@ -781,12 +1207,20 @@ def enqueue_light_levels_backfill(sesion_id: int, user_id=None, force=False):
     Si APScheduler está disponible, lo usa.
     Si no, cae a un thread daemon para no bloquear el request.
     """
-    scheduler = getattr(settings, "APP_SCHEDULER", None)
+    scheduler = getattr(
+        settings,
+        "APP_SCHEDULER",
+        None,
+    )
 
     if scheduler:
         scheduler.add_job(
             func=procesar_light_levels_backfill_job,
-            args=[sesion_id, user_id, force],
+            args=[
+                sesion_id,
+                user_id,
+                force,
+            ],
             id=f"light-levels-backfill-{sesion_id}",
             replace_existing=True,
             misfire_grace_time=300,
@@ -794,5 +1228,11 @@ def enqueue_light_levels_backfill(sesion_id: int, user_id=None, force=False):
             coalesce=True,
             next_run_time=timezone.now(),
         )
+
     else:
-        _run_in_thread(procesar_light_levels_backfill_job, sesion_id, user_id, force)
+        _run_in_thread(
+            procesar_light_levels_backfill_job,
+            sesion_id,
+            user_id,
+            force,
+        )

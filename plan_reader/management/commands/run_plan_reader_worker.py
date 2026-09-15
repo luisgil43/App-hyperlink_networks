@@ -14,6 +14,7 @@ from django.utils import timezone
 from client_submissions.automation.worker import \
     run_once as run_client_submission_once
 from plan_reader.models import PlanReaderJob
+from usuarios.schedulers import rollover_real_plan_projects
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,30 @@ class Command(BaseCommand):
                 processed_any = False
 
                 close_old_connections()
+
+                # ====================================================
+                # Real Plan — cierres operacionales pendientes
+                # ====================================================
+
+                try:
+                    rollover_real_plan_projects()
+
+                except Exception:
+                    logger.exception(
+                        "Unexpected Real Plan rollover error."
+                    )
+
+                    self.stderr.write(
+                        self.style.ERROR(
+                            (
+                                "Real Plan rollover check failed. "
+                                "Worker will continue normally."
+                            )
+                        )
+                    )
+
+                finally:
+                    close_old_connections()
 
                 # ====================================================
                 # 1. Client Submissions
