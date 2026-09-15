@@ -2,43 +2,149 @@
     --real-plan-person-width: 185px;
     --real-plan-backlog-width: 130px;
     --real-plan-day-width: 150px;
-}
 
-.real-plan-board-shell {
-    min-width: 0;
-    width: 100%;
-}
-
-.real-plan-board-scroll {
-    position: relative;
+    /*
+     * IMPORTANT:
+     *
+     * Real Plan lives inside a flex item in dashboard_admin/base.html.
+     * The 21-day board must never define the width of the page.
+     */
     width: 100%;
     max-width: 100%;
-    max-height: calc(100vh - 330px);
-    overflow-x: auto;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
-.real-plan-board {
-    width: max-content;
-    min-width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (7 * var(--real-plan-day-width)));
-    background: #ffffff;
+#real-plan-workspace {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: opacity 120ms ease;
 }
+
+#real-plan-workspace.is-loading {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+
+/*
+ * IMPORTANT:
+ *
+ * main-content is a flex item in the global dashboard layout.
+ * min-width:auto would allow the 21-day board to expand the
+ * complete application horizontally.
+ *
+ * This rule is intentionally scoped through :has() so it only
+ * affects main-content while Real Plan is being displayed.
+ */
+#main-content:has(#real-plan-page) {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+
+/* =========================================================
+   BOARD OUTER SHELL
+========================================================= */
+
+.real-plan-board-shell {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+
+/*
+ * This is the ONLY horizontal viewport.
+ *
+ * The page does not scroll horizontally.
+ * The 21 planning days scroll inside this element.
+ */
+.real-plan-board-scroll {
+    position: relative;
+    display: block;
+
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+
+    max-height: calc(100vh - 330px);
+
+    overflow-x: auto;
+    overflow-y: auto;
+
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+
+    -webkit-overflow-scrolling: touch;
+
+    box-sizing: border-box;
+}
+
+
+/*
+ * The board itself IS intentionally wider than the viewport.
+ *
+ * 185px Person
+ * 130px Backlog
+ * 21 × 150px days
+ *
+ * Its width must remain inside .real-plan-board-scroll.
+ */
+.real-plan-board {
+    width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+
+    min-width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+
+    max-width: none;
+
+    background: #ffffff;
+
+    box-sizing: border-box;
+}
+
+
+/* =========================================================
+   BOARD GRID
+========================================================= */
 
 .real-plan-board-header,
 .real-plan-person-row {
     display: grid;
+
     grid-template-columns:
-        var(--real-plan-person-width) var(--real-plan-backlog-width) repeat(7,
+        var(--real-plan-person-width) var(--real-plan-backlog-width) repeat(21,
             var(--real-plan-day-width));
-    width: max-content;
+
+    grid-template-rows: auto;
+
+    width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+
+    min-width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+
+    max-width: none;
+
+    box-sizing: border-box;
 }
+
+
+/* =========================================================
+   HEADER
+========================================================= */
 
 .real-plan-board-header {
     position: sticky;
     top: 0;
     z-index: 50;
+
     border-bottom: 1px solid #e5e7eb;
     background: #ffffff;
 }
@@ -47,42 +153,75 @@
 .real-plan-backlog-header,
 .real-plan-day-header {
     min-height: 52px;
+
     border-right: 1px solid #e5e7eb;
+
     display: flex;
     flex-direction: column;
     justify-content: center;
+
     padding: 7px 9px;
+
+    box-sizing: border-box;
 }
+
+
+/* =========================================================
+   STICKY PERSON
+========================================================= */
 
 .real-plan-person-header {
     position: sticky;
     left: 0;
+
     z-index: 90;
+
     background: #f9fafb;
+
     font-size: 10px;
     font-weight: 800;
+
     color: #6b7280;
+
     text-transform: uppercase;
     letter-spacing: 0.06em;
+
     box-shadow:
         1px 0 0 #e5e7eb;
 }
 
+
+/* =========================================================
+   STICKY BACKLOG
+========================================================= */
+
 .real-plan-backlog-header {
     position: sticky;
+
     left: var(--real-plan-person-width);
+
     z-index: 85;
+
     background: #f9fafb;
+
     box-shadow:
         1px 0 0 #e5e7eb;
 }
+
+
+/* =========================================================
+   DAY HEADERS
+========================================================= */
 
 .real-plan-day-header {
     position: sticky;
     top: 0;
+
     z-index: 55;
+
     align-items: center;
     text-align: center;
+
     background: #ffffff;
 }
 
@@ -90,8 +229,14 @@
     background: #f9fafb;
 }
 
+
+/* =========================================================
+   PERSON ROW
+========================================================= */
+
 .real-plan-person-row {
     min-height: 82px;
+
     border-bottom: 1px solid #e5e7eb;
 }
 
@@ -99,38 +244,73 @@
     border-bottom: 0;
 }
 
+
+/* =========================================================
+   PERSON CELL
+========================================================= */
+
 .real-plan-person-cell {
     position: sticky;
+
     left: 0;
+
     z-index: 40;
+
     display: flex;
     align-items: flex-start;
+
     padding: 10px;
+
     border-right: 1px solid #e5e7eb;
+
     background: #ffffff;
+
     box-shadow:
         1px 0 0 #e5e7eb;
+
+    box-sizing: border-box;
 }
+
+
+/* =========================================================
+   BACKLOG CELL
+========================================================= */
 
 .real-plan-backlog-cell {
     position: sticky;
+
     left: var(--real-plan-person-width);
+
     z-index: 35;
+
     background: #f9fafb;
+
     box-shadow:
         1px 0 0 #e5e7eb;
+
+    box-sizing: border-box;
 }
+
+
+/* =========================================================
+   AVATARS
+========================================================= */
 
 .real-plan-avatar {
     width: 28px;
     height: 28px;
     min-width: 28px;
+
     border-radius: 8px;
+
     display: inline-flex;
+
     align-items: center;
     justify-content: center;
+
     background: #eff6ff;
     color: #1d4ed8;
+
     font-size: 10px;
     font-weight: 900;
 }
@@ -145,19 +325,35 @@
     color: #1d4ed8;
 }
 
+
+/* =========================================================
+   DAY / DROP CELLS
+========================================================= */
+
 .real-plan-drop-cell {
     min-height: 82px;
+
     padding: 5px;
+
     border-right: 1px solid #e5e7eb;
+
     background: #ffffff;
+
     transition:
         background 120ms ease,
         box-shadow 120ms ease;
+
+    box-sizing: border-box;
 }
 
 .real-plan-weekend-cell {
     background: #fafafa;
 }
+
+
+/* =========================================================
+   SPECIAL ROWS
+========================================================= */
 
 .real-plan-person-row[ data-row-type="unassigned"
 ] .real-plan-person-cell,
@@ -173,18 +369,35 @@
     background: #f8fbff;
 }
 
+
+/* =========================================================
+   CARD STACK
+========================================================= */
+
 .real-plan-card-stack {
     display: flex;
+
     flex-direction: column;
+
     gap: 5px;
+
     min-height: 26px;
 }
 
+
+/* =========================================================
+   PROJECT CARD
+========================================================= */
+
 .real-plan-project-card {
     border: 1px solid #e5e7eb;
+
     border-radius: 8px;
+
     background: #ffffff;
+
     padding: 6px 7px;
+
     box-shadow:
         0 1px 2px rgba(15,
             23,
@@ -194,6 +407,7 @@
             23,
             42,
             0.02);
+
     transition:
         border-color 140ms ease,
         box-shadow 140ms ease,
@@ -215,6 +429,7 @@
 
 .real-plan-project-card:hover {
     border-color: #bfdbfe;
+
     box-shadow:
         0 3px 8px rgba(15,
             23,
@@ -224,6 +439,7 @@
             23,
             42,
             0.04);
+
     transform: translateY(-1px);
 }
 
@@ -237,216 +453,363 @@
 
 .real-plan-project-card.is-dragging {
     opacity: 0.35;
+
     transform: scale(0.98);
 }
 
 .real-plan-project-card.is-saving {
     opacity: 0.55;
+
     pointer-events: none;
 }
 
+
+/* =========================================================
+   CARD TOP LINE
+========================================================= */
+
 .real-plan-card-topline {
     display: flex;
+
     min-width: 0;
+
     align-items: center;
+
     justify-content: space-between;
+
     gap: 4px;
 }
 
 .real-plan-card-topline-left {
     display: flex;
+
     min-width: 0;
+
     flex: 1;
+
     align-items: center;
+
     gap: 4px;
+
     overflow: hidden;
 }
+
+
+/* =========================================================
+   PROJECT ID
+========================================================= */
 
 .real-plan-project-id {
     margin-top: 5px;
+
     overflow: hidden;
+
     text-overflow: ellipsis;
+
     white-space: nowrap;
+
     font-size: 10px;
     line-height: 1.25;
+
     font-weight: 800;
+
     color: #111827;
 }
 
+
+/* =========================================================
+   PRIORITY
+========================================================= */
+
 .real-plan-priority {
     display: inline-flex;
+
     min-width: 0;
     max-width: 58px;
+
     align-items: center;
+
     overflow: hidden;
+
     text-overflow: ellipsis;
+
     white-space: nowrap;
+
     border-radius: 5px;
+
     background: #111827;
+
     padding: 1px 5px;
+
     font-size: 8px;
     line-height: 1.4;
+
     font-weight: 900;
+
     color: #ffffff;
 }
 
+
+/* =========================================================
+   WORK TYPE
+========================================================= */
+
 .real-plan-work-type {
     display: inline-flex;
+
     flex-shrink: 0;
+
     align-items: center;
+
     border-radius: 5px;
+
     padding: 1px 5px;
+
     font-size: 8px;
     line-height: 1.4;
+
     font-weight: 800;
+
     text-transform: uppercase;
+
     letter-spacing: 0.02em;
 }
 
 .real-plan-work-type-fiber {
     background: #ecfdf5;
+
     color: #047857;
 }
 
 .real-plan-work-type-cable {
     background: #f5f3ff;
+
     color: #6d28d9;
 }
 
+
+/* =========================================================
+   STATUS
+========================================================= */
+
 .real-plan-status {
     display: inline-flex;
+
     min-width: 0;
     max-width: 105px;
+
     align-items: center;
+
     overflow: hidden;
+
     text-overflow: ellipsis;
+
     white-space: nowrap;
+
     border-radius: 5px;
+
     padding: 1px 5px;
+
     font-size: 8px;
     line-height: 1.4;
+
     font-weight: 800;
 }
 
 .real-plan-status-assigned {
     background: #eff6ff;
+
     color: #1d4ed8;
 }
 
 .real-plan-status-progress {
     background: #ecfeff;
+
     color: #0e7490;
 }
 
 .real-plan-status-review {
     background: #fefce8;
+
     color: #a16207;
 }
 
 .real-plan-status-rejected {
     background: #fef2f2;
+
     color: #b91c1c;
 }
 
 .real-plan-status-completed {
     background: #ecfdf5;
+
     color: #047857;
 }
 
 .real-plan-status-neutral {
     background: #f3f4f6;
+
     color: #4b5563;
 }
 
+
+/* =========================================================
+   PEOPLE COUNT
+========================================================= */
+
 .real-plan-people-count {
     display: inline-flex;
+
     align-items: center;
     justify-content: center;
+
     border-radius: 5px;
+
     background: #eff6ff;
+
     padding: 1px 5px;
+
     font-size: 8px;
     line-height: 1.4;
+
     font-weight: 900;
+
     color: #1d4ed8;
 }
+
+
+/* =========================================================
+   CARD MENU
+========================================================= */
 
 .real-plan-card-menu {
     width: 18px;
     height: 18px;
+
     min-width: 18px;
+
     border-radius: 5px;
+
     color: #9ca3af;
+
     font-size: 13px;
+
     font-weight: 900;
+
     line-height: 1;
 }
 
 .real-plan-card-menu:hover {
     background: #f3f4f6;
+
     color: #374151;
 }
 
+
+/* =========================================================
+   CARD DETAILS
+========================================================= */
+
 .real-plan-card-details {
     margin-top: 6px;
+
     padding-top: 6px;
+
     border-top: 1px solid #f3f4f6;
 }
 
 .real-plan-card-details>div {
     display: grid;
+
     grid-template-columns:
         42px minmax(0,
             1fr);
+
     gap: 4px;
+
     margin-top: 3px;
+
     font-size: 8px;
     line-height: 1.35;
 }
 
 .real-plan-card-details span {
     color: #9ca3af;
+
     font-weight: 700;
 }
 
 .real-plan-card-details strong {
     min-width: 0;
+
     overflow: hidden;
+
     text-overflow: ellipsis;
+
     color: #4b5563;
+
     font-weight: 700;
 }
+
+
+/* =========================================================
+   EMPTY CELL
+========================================================= */
 
 .real-plan-empty-cell {
     display: flex;
+
     min-height: 26px;
+
     align-items: center;
     justify-content: center;
+
     border: 1px dashed #e5e7eb;
+
     border-radius: 7px;
+
     color: #d1d5db;
+
     font-size: 8px;
+
     font-weight: 700;
 }
 
+
+/* =========================================================
+   DRAG STATES
+========================================================= */
+
 .real-plan-drop-cell.is-drag-over {
     background: #eff6ff;
+
     box-shadow:
         inset 0 0 0 2px #93c5fd;
 }
 
 .real-plan-drop-cell.is-drag-invalid {
     background: #fef2f2;
+
     box-shadow:
         inset 0 0 0 2px #fecaca;
 }
 
+
+/* =========================================================
+   DROP INDICATOR
+========================================================= */
+
 .real-plan-drop-indicator {
     height: 4px;
+
     min-height: 4px;
+
     margin: 1px 0;
+
     border-radius: 999px;
+
     background: #2563eb;
+
     box-shadow:
         0 0 0 1px rgba(37,
             99,
@@ -456,37 +819,60 @@
             99,
             235,
             0.20);
+
     pointer-events: none;
 }
 
+
+/* =========================================================
+   TOAST
+========================================================= */
+
 .real-plan-move-toast {
     position: fixed;
+
     right: 24px;
     bottom: 24px;
+
     z-index: 9999;
+
     max-width: 360px;
+
     border-radius: 10px;
+
     padding: 10px 14px;
+
     box-shadow:
         0 10px 30px rgba(15,
             23,
             42,
             0.18);
+
     font-size: 12px;
+
     font-weight: 700;
 }
 
 .real-plan-move-toast-success {
     background: #ecfdf5;
+
     border: 1px solid #a7f3d0;
+
     color: #047857;
 }
 
 .real-plan-move-toast-error {
     background: #fef2f2;
+
     border: 1px solid #fecaca;
+
     color: #b91c1c;
 }
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
 
 @media (max-width: 1024px) {
     #real-plan-page {

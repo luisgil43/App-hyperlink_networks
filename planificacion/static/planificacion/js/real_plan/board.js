@@ -9,6 +9,7 @@
 
   let dropStarted = false;
   let saveInProgress = false;
+  let workspaceRequestInProgress = false;
 
 
   function getCsrfToken() {
@@ -83,6 +84,514 @@
   }
 
 
+  function captureScrollPosition() {
+    const boardScroll = document.getElementById(
+      "real-plan-board-scroll"
+    );
+
+    return {
+      boardLeft: (
+        boardScroll
+          ? boardScroll.scrollLeft
+          : 0
+      ),
+      boardTop: (
+        boardScroll
+          ? boardScroll.scrollTop
+          : 0
+      ),
+      pageX: window.scrollX,
+      pageY: window.scrollY,
+    };
+  }
+
+
+  function restoreScrollPosition(position) {
+    if (!position) {
+      return;
+    }
+
+    const boardScroll = document.getElementById(
+      "real-plan-board-scroll"
+    );
+
+    if (boardScroll) {
+      boardScroll.scrollLeft =
+        position.boardLeft;
+
+      boardScroll.scrollTop =
+        position.boardTop;
+    }
+
+    window.scrollTo(
+      position.pageX,
+      position.pageY
+    );
+  }
+
+
+  function resetBoardHorizontalPosition(
+    position
+  ) {
+    const boardScroll = document.getElementById(
+      "real-plan-board-scroll"
+    );
+
+    if (boardScroll) {
+      boardScroll.scrollLeft = 0;
+
+      boardScroll.scrollTop =
+        position
+          ? position.boardTop
+          : 0;
+    }
+
+    if (position) {
+      window.scrollTo(
+        position.pageX,
+        position.pageY
+      );
+    }
+  }
+
+
+  function normalizeWorkspaceUrl(
+    rawUrl
+  ) {
+    return new URL(
+      rawUrl,
+      window.location.href
+    );
+  }
+
+
+  async function loadWorkspace(
+    rawUrl,
+    options
+  ) {
+    if (workspaceRequestInProgress) {
+      return;
+    }
+
+    const settings =
+      options
+      || {};
+
+    const scrollMode =
+      settings.scrollMode
+      || "preserve";
+
+    const updateHistory =
+      settings.updateHistory
+      !== false;
+
+    const workspace = document.getElementById(
+      "real-plan-workspace"
+    );
+
+    if (!workspace) {
+      window.location.href = rawUrl;
+      return;
+    }
+
+    const position =
+      captureScrollPosition();
+
+    const url =
+      normalizeWorkspaceUrl(
+        rawUrl
+      );
+
+    workspaceRequestInProgress = true;
+
+    workspace.classList.add(
+      "is-loading"
+    );
+
+    try {
+      const response = await fetch(
+        url.toString(),
+        {
+          method: "GET",
+          credentials: "same-origin",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Real Plan could not be refreshed."
+        );
+      }
+
+      const html =
+        await response.text();
+
+      const parser =
+        new DOMParser();
+
+      const documentFragment =
+        parser.parseFromString(
+          html,
+          "text/html"
+        );
+
+      const replacement =
+        documentFragment.getElementById(
+          "real-plan-workspace"
+        );
+
+      if (!replacement) {
+        throw new Error(
+          "Real Plan returned an invalid workspace."
+        );
+      }
+
+      workspace.replaceWith(
+        replacement
+      );
+
+      if (updateHistory) {
+        window.history.pushState(
+          {
+            realPlan: true,
+          },
+          "",
+          url.pathname
+          + url.search
+          + url.hash
+        );
+      }
+
+      if (
+        scrollMode === "start"
+      ) {
+        resetBoardHorizontalPosition(
+          position
+        );
+      } else {
+        restoreScrollPosition(
+          position
+        );
+      }
+
+    } catch (error) {
+      workspace.classList.remove(
+        "is-loading"
+      );
+
+      showToast(
+        error.message
+        || "Real Plan could not be refreshed.",
+        "error"
+      );
+
+    } finally {
+      workspaceRequestInProgress = false;
+    }
+  }
+
+
+  function initializeWorkspaceNavigation() {
+    document.addEventListener(
+      "click",
+      function (event) {
+        const link = event.target.closest(
+          "[data-real-plan-navigation]"
+        );
+
+        if (!link) {
+          return;
+        }
+
+        if (
+          event.metaKey
+          || event.ctrlKey
+          || event.shiftKey
+          || event.altKey
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const href =
+          link.getAttribute(
+            "href"
+          );
+
+        if (!href) {
+          return;
+        }
+
+        loadWorkspace(
+          href,
+          {
+            scrollMode:
+              link.dataset.realPlanScrollMode
+              || "preserve",
+          }
+        );
+      }
+    );
+
+
+    document.addEventListener(
+      "submit",
+      function (event) {
+        const form = event.target.closest(
+          "[data-real-plan-filter-form]"
+        );
+
+        if (!form) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const formData =
+          new FormData(
+            form
+          );
+
+        const params =
+          new URLSearchParams();
+
+        formData.forEach(
+          function (
+            value,
+            key
+          ) {
+            if (
+              value !== null
+              && String(value).trim() !== ""
+            ) {
+              params.append(
+                key,
+                value
+              );
+            }
+          }
+        );
+
+        const url =
+          window.location.pathname
+          + "?"
+          + params.toString();
+
+        loadWorkspace(
+          url,
+          {
+            scrollMode: "preserve",
+          }
+        );
+      }
+    );
+
+
+    window.addEventListener(
+      "popstate",
+      function () {
+        loadWorkspace(
+          window.location.href,
+          {
+            scrollMode: "start",
+            updateHistory: false,
+          }
+        );
+      }
+    );
+  }
+
+
+  function initializeWeekSelector() {
+    document.addEventListener(
+      "change",
+      function (event) {
+        const selector =
+          event.target.closest(
+            "[data-real-plan-week-selector]"
+          );
+
+        if (!selector) {
+          return;
+        }
+
+        const rawDate =
+          (
+            selector.value
+            || ""
+          ).trim();
+
+        if (!rawDate) {
+          return;
+        }
+
+
+        /*
+         * Parse manually so timezone conversion
+         * cannot move the selected calendar date.
+         */
+        const parts =
+          rawDate.split("-");
+
+        if (
+          parts.length !== 3
+        ) {
+          return;
+        }
+
+        const year =
+          Number(
+            parts[0]
+          );
+
+        const month =
+          Number(
+            parts[1]
+          );
+
+        const day =
+          Number(
+            parts[2]
+          );
+
+
+        const selectedDate =
+          new Date(
+            year,
+            month - 1,
+            day
+          );
+
+
+        if (
+          Number.isNaN(
+            selectedDate.getTime()
+          )
+        ) {
+          return;
+        }
+
+
+        /*
+         * Real Plan always starts on Monday.
+         *
+         * JS:
+         * Sunday = 0
+         * Monday = 1
+         * ...
+         * Saturday = 6
+         */
+        const javascriptDay =
+          selectedDate.getDay();
+
+
+        const daysFromMonday =
+          javascriptDay === 0
+            ? 6
+            : javascriptDay - 1;
+
+
+        selectedDate.setDate(
+          selectedDate.getDate()
+          - daysFromMonday
+        );
+
+
+        const mondayYear =
+          selectedDate.getFullYear();
+
+
+        const mondayMonth =
+          String(
+            selectedDate.getMonth()
+            + 1
+          ).padStart(
+            2,
+            "0"
+          );
+
+
+        const mondayDay =
+          String(
+            selectedDate.getDate()
+          ).padStart(
+            2,
+            "0"
+          );
+
+
+        const monday =
+          mondayYear
+          + "-"
+          + mondayMonth
+          + "-"
+          + mondayDay;
+
+
+        const params =
+          new URLSearchParams();
+
+
+        params.set(
+          "week",
+          monday
+        );
+
+
+        const search =
+          (
+            selector.dataset.realPlanSearch
+            || ""
+          ).trim();
+
+
+        const workType =
+          (
+            selector.dataset.realPlanWorkType
+            || "all"
+          ).trim();
+
+
+        if (search) {
+          params.set(
+            "q",
+            search
+          );
+        }
+
+
+        if (
+          workType
+          && workType !== "all"
+        ) {
+          params.set(
+            "work_type",
+            workType
+          );
+        }
+
+
+        const url =
+          window.location.pathname
+          + "?"
+          + params.toString();
+
+
+        loadWorkspace(
+          url,
+          {
+            scrollMode: "start",
+          }
+        );
+      }
+    );
+  }
+
+
   function initializeCardDetails() {
     document.addEventListener(
       "click",
@@ -123,17 +632,20 @@
 
 
   function initializeRecalculateButton() {
-    const button = document.querySelector(
-      "[data-real-plan-recalculate]"
-    );
-
-    if (!button) {
-      return;
-    }
-
-    button.addEventListener(
+    document.addEventListener(
       "click",
-      function () {
+      function (event) {
+        const button =
+          event.target.closest(
+            "[data-real-plan-recalculate]"
+          );
+
+        if (!button) {
+          return;
+        }
+
+        event.preventDefault();
+
         window.alert(
           "Automatic rollover and capacity recalculation will be connected next."
         );
@@ -222,9 +734,10 @@
 
     if (cards.length === 0) {
       if (!empty) {
-        const placeholder = document.createElement(
-          "div"
-        );
+        const placeholder =
+          document.createElement(
+            "div"
+          );
 
         placeholder.className =
           "real-plan-empty-cell";
@@ -234,7 +747,8 @@
           ""
         );
 
-        placeholder.textContent = "—";
+        placeholder.textContent =
+          "—";
 
         stack.appendChild(
           placeholder
@@ -331,9 +845,10 @@
       return dropIndicator;
     }
 
-    dropIndicator = document.createElement(
-      "div"
-    );
+    dropIndicator =
+      document.createElement(
+        "div"
+      );
 
     dropIndicator.className =
       "real-plan-drop-indicator";
@@ -363,7 +878,8 @@
     ) {
       const card = cards[i];
 
-      const rect = card.getBoundingClientRect();
+      const rect =
+        card.getBoundingClientRect();
 
       const midpoint =
         rect.top
@@ -386,9 +902,10 @@
     zone,
     clientY
   ) {
-    const stack = getStack(
-      zone
-    );
+    const stack =
+      getStack(
+        zone
+      );
 
     if (!stack) {
       return;
@@ -398,12 +915,14 @@
       zone
     );
 
-    const indicator = createDropIndicator();
+    const indicator =
+      createDropIndicator();
 
-    const reference = getInsertionReference(
-      stack,
-      clientY
-    );
+    const reference =
+      getInsertionReference(
+        stack,
+        clientY
+      );
 
     if (reference) {
       stack.insertBefore(
@@ -426,9 +945,10 @@
       return;
     }
 
-    const stack = getStack(
-      sourceZone
-    );
+    const stack =
+      getStack(
+        sourceZone
+      );
 
     if (!stack) {
       return;
@@ -440,7 +960,8 @@
 
     if (
       sourceNextSibling
-      && sourceNextSibling.parentNode === stack
+      && sourceNextSibling.parentNode
+      === stack
     ) {
       stack.insertBefore(
         draggedCard,
@@ -458,59 +979,14 @@
   }
 
 
-  function captureScrollPosition() {
-    const boardScroll = document.getElementById(
-      "real-plan-board-scroll"
-    );
-
-    return {
-      boardLeft: (
-        boardScroll
-          ? boardScroll.scrollLeft
-          : 0
-      ),
-      boardTop: (
-        boardScroll
-          ? boardScroll.scrollTop
-          : 0
-      ),
-      pageX: window.scrollX,
-      pageY: window.scrollY,
-    };
-  }
-
-
-  function restoreScrollPosition(position) {
-    if (!position) {
-      return;
-    }
-
-    const boardScroll = document.getElementById(
-      "real-plan-board-scroll"
-    );
-
-    if (boardScroll) {
-      boardScroll.scrollLeft =
-        position.boardLeft;
-
-      boardScroll.scrollTop =
-        position.boardTop;
-    }
-
-    window.scrollTo(
-      position.pageX,
-      position.pageY
-    );
-  }
-
-
   async function persistMove(
     card,
     targetDate,
     sourceOrder,
     targetOrder
   ) {
-    const url = card.dataset.moveUrl;
+    const url =
+      card.dataset.moveUrl;
 
     if (!url) {
       throw new Error(
@@ -541,7 +1017,8 @@
     let data = null;
 
     try {
-      data = await response.json();
+      data =
+        await response.json();
     } catch (error) {
       data = null;
     }
@@ -583,9 +1060,10 @@
           return;
         }
 
-        const card = event.target.closest(
-          "[data-real-plan-card]"
-        );
+        const card =
+          event.target.closest(
+            "[data-real-plan-card]"
+          );
 
         if (!card) {
           return;
@@ -623,7 +1101,8 @@
 
           event.dataTransfer.setData(
             "text/plain",
-            card.dataset.billingId || ""
+            card.dataset.billingId
+            || ""
           );
         }
       }
@@ -640,9 +1119,10 @@
           return;
         }
 
-        const zone = event.target.closest(
-          "[data-real-plan-zone='day']"
-        );
+        const zone =
+          event.target.closest(
+            "[data-real-plan-zone='day']"
+          );
 
         if (!zone) {
           return;
@@ -699,9 +1179,10 @@
           return;
         }
 
-        const targetZone = event.target.closest(
-          "[data-real-plan-zone='day']"
-        );
+        const targetZone =
+          event.target.closest(
+            "[data-real-plan-zone='day']"
+          );
 
         if (!targetZone) {
           return;
@@ -742,7 +1223,8 @@
           return;
         }
 
-        const card = draggedCard;
+        const card =
+          draggedCard;
 
         const originalSourceZone =
           sourceZone;
@@ -897,14 +1379,9 @@
       "dragend",
       function () {
         /*
-         * IMPORTANTE:
-         *
-         * Si el evento drop ya comenzó,
-         * NO restauramos la tarjeta aquí.
-         *
-         * El fetch puede seguir esperando al servidor.
-         * El bloque drop decidirá si la tarjeta queda
-         * en destino o vuelve al origen.
+         * If drop already started, the async request
+         * decides whether the card remains at destination
+         * or returns to its original position.
          */
         if (
           dropStarted
@@ -917,14 +1394,16 @@
           }
 
           removeDropIndicator();
+
           clearDropState();
 
           return;
         }
 
+
         /*
-         * Si nunca ocurrió un drop válido,
-         * sí regresamos la tarjeta.
+         * No valid drop occurred.
+         * Return the card to its original position.
          */
         if (draggedCard) {
           draggedCard.classList.remove(
@@ -935,6 +1414,7 @@
         }
 
         removeDropIndicator();
+
         clearDropState();
 
         draggedCard = null;
@@ -946,6 +1426,8 @@
 
 
   function initialize() {
+    initializeWorkspaceNavigation();
+    initializeWeekSelector();
     initializeCardDetails();
     initializeRecalculateButton();
     initializeDragAndDrop();
@@ -962,4 +1444,5 @@
   } else {
     initialize();
   }
+
 })();

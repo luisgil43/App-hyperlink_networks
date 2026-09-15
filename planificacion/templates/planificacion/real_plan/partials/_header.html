@@ -32,39 +32,70 @@
     <div class="flex flex-wrap items-center gap-2">
 
       <a
-        href="?week={{ previous_week|date:'Y-m-d' }}"
+        href="?week={{ previous_week|date:'Y-m-d' }}{% if search %}&q={{ search|urlencode }}{% endif %}{% if work_type != 'all' %}&work_type={{ work_type|urlencode }}{% endif %}"
         class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-lg font-bold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
         title="Previous week"
+        data-real-plan-navigation
+        data-real-plan-scroll-mode="start"
       >
         ‹
       </a>
 
       <a
-        href="?week={{ today_week|date:'Y-m-d' }}"
+        href="?week={{ today_week|date:'Y-m-d' }}{% if search %}&q={{ search|urlencode }}{% endif %}{% if work_type != 'all' %}&work_type={{ work_type|urlencode }}{% endif %}"
         class="inline-flex h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+        data-real-plan-navigation
+        data-real-plan-scroll-mode="start"
       >
         Today
       </a>
 
+
+      <div
+        class="relative"
+        title="Select planning week"
+      >
+
+        <select
+          class="h-10 min-w-[175px] appearance-none rounded-xl border border-gray-200 bg-white pl-3 pr-9 text-sm font-extrabold text-gray-700 outline-none transition hover:border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          data-real-plan-week-selector
+          data-real-plan-search="{{ search }}"
+          data-real-plan-work-type="{{ work_type }}"
+          aria-label="Select planning week"
+        >
+
+          {% for week_option in week_options %}
+
+            <option
+              value="{{ week_option.start|date:'Y-m-d' }}"
+              {% if week_option.selected %}selected{% endif %}
+            >
+              {{ week_option.full_label }}{% if week_option.is_current %} · Today{% endif %}
+            </option>
+
+          {% endfor %}
+
+        </select>
+
+
+        <div
+          class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[10px] font-black text-gray-400"
+        >
+          ▼
+        </div>
+
+      </div>
+
+
       <a
-        href="?week={{ next_week|date:'Y-m-d' }}"
+        href="?week={{ next_week|date:'Y-m-d' }}{% if search %}&q={{ search|urlencode }}{% endif %}{% if work_type != 'all' %}&work_type={{ work_type|urlencode }}{% endif %}"
         class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-lg font-bold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
         title="Next week"
+        data-real-plan-navigation
+        data-real-plan-scroll-mode="start"
       >
         ›
       </a>
-
-      <div
-        class="mx-1 hidden h-8 w-px bg-gray-200 sm:block"
-      ></div>
-
-      <div
-        class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-bold text-gray-700"
-      >
-        {{ week_start|date:"M d" }}
-        <span class="mx-1 text-gray-300">—</span>
-        {{ week_end|date:"M d, Y" }}
-      </div>
 
       <button
         type="button"

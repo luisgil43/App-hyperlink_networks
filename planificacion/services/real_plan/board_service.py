@@ -64,9 +64,11 @@ def _technician_short_name(user):
 
 
 def _build_week_days(week_start):
+
     result = []
 
-    for offset in range(7):
+    for offset in range(21):
+
         day = week_start + timedelta(days=offset)
 
         result.append(
@@ -501,7 +503,7 @@ def build_real_plan_board(
 ):
     days = _build_week_days(week_start)
 
-    week_end = week_start + timedelta(days=6)
+    week_end = week_start + timedelta(days=20)
 
     queryset = (
         SesionBilling.objects.filter(

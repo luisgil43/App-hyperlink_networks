@@ -247,25 +247,110 @@ def real_plan_board(request):
         work_type=work_type,
     )
 
-    week_end = week_start + timedelta(days=6)
+    week_end = week_start + timedelta(days=20)
+
+    today_week = _monday_for_day(
+        date.today()
+    )
+
+  
+    selector_start = today_week - timedelta(
+        weeks=12
+    )
+
+    selector_end = today_week + timedelta(
+        weeks=52
+    )
+
+ 
+    if week_start < selector_start:
+        selector_start = week_start - timedelta(
+            weeks=4
+        )
+
+    if week_start > selector_end:
+        selector_end = week_start + timedelta(
+            weeks=12
+        )
+
+    week_options = []
+
+    current_week = selector_start
+
+    while current_week <= selector_end:
+        iso_calendar = current_week.isocalendar()
+
+        week_options.append(
+            {
+                "start": current_week,
+                "year": iso_calendar.year,
+                "week": iso_calendar.week,
+                "label": (
+                    f"W{iso_calendar.week:02d}"
+                ),
+                "full_label": (
+                    f"W{iso_calendar.week:02d} "
+                    f"· "
+                    f"{current_week.strftime('%b %d')}"
+                    f" — "
+                    f"{(current_week + timedelta(days=6)).strftime('%b %d')}"
+                ),
+                "selected": (
+                    current_week
+                    == week_start
+                ),
+                "is_current": (
+                    current_week
+                    == today_week
+                ),
+            }
+        )
+
+        current_week += timedelta(
+            weeks=1
+        )
+
+    context = {
+        "page_title": ("Real Plan"),
+        "filter_form": (filter_form),
+        "search": search,
+        "work_type": (work_type),
+        "week_start": (week_start),
+        "week_end": (week_end),
+        "previous_week": (
+            week_start
+            - timedelta(days=7)
+        ),
+        "next_week": (
+            week_start
+            + timedelta(days=7)
+        ),
+        "today_week": (today_week),
+        "week_options": (week_options),
+        "current_week_number": (
+            week_start.isocalendar().week
+        ),
+        "current_week_year": (
+            week_start.isocalendar().year
+        ),
+        "days": (board["days"]),
+        "board_rows": (board["rows"]),
+        "summary": (board["summary"]),
+    }
+
+    if request.headers.get(
+        "X-Requested-With"
+    ) == "XMLHttpRequest":
+        return render(
+            request,
+            "planificacion/real_plan/partials/_workspace.html",
+            context,
+        )
 
     return render(
         request,
         "planificacion/real_plan/board.html",
-        {
-            "page_title": ("Real Plan"),
-            "filter_form": (filter_form),
-            "search": search,
-            "work_type": (work_type),
-            "week_start": (week_start),
-            "week_end": (week_end),
-            "previous_week": (week_start - timedelta(days=7)),
-            "next_week": (week_start + timedelta(days=7)),
-            "today_week": (_monday_for_day(date.today())),
-            "days": (board["days"]),
-            "board_rows": (board["rows"]),
-            "summary": (board["summary"]),
-        },
+        context,
     )
 
 

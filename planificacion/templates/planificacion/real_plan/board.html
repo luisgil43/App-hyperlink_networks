@@ -5,7 +5,7 @@
 
 <link
   rel="stylesheet"
-  href="{% static 'planificacion/css/real_plan/board.css' %}?v=20260914_03"
+  href="{% static 'planificacion/css/real_plan/board.css' %}?v=20260914_06"
 >
 
 <div
@@ -13,16 +13,10 @@
   class="space-y-5 w-full max-w-full min-w-0"
 >
 
-  {% include "planificacion/real_plan/partials/_header.html" %}
-
-  {% include "planificacion/real_plan/partials/_summary.html" %}
-
-  {% include "planificacion/real_plan/partials/_filters.html" %}
-
-  {% include "planificacion/real_plan/partials/_board.html" %}
+  {% include "planificacion/real_plan/partials/_workspace.html" %}
 
 </div>
 
-<script src="{% static 'planificacion/js/real_plan/board.js' %}?v=20260914_04"></script>
+<script src="{% static 'planificacion/js/real_plan/board.js' %}?v=20260914_06"></script>
 
 {% endblock %}
