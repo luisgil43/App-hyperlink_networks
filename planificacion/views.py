@@ -624,8 +624,8 @@ def _latest_plan_entry(assignment):
 
 
 MASTER_PLAN_REAL_WORK_TYPE_BY_ACTIVITY_CODE = {
-    "C-107": "fiber",
-    "C-108": "cable",
+    "C-107": "cabling",
+    "C-108": "splicing",
 }
 
 
@@ -674,11 +674,15 @@ def _build_real_plan_forecast_index(
         (DFN, work_type)
 
     Ejemplo:
-        ("0913TA_04", "fiber")
-        ("0913TA_04", "cable")
+        ("0913TA_04", "cabling")
+        ("0913TA_04", "splicing")
 
     Fuente de fecha:
         SesionBilling.creado_en
+
+    Clasificación operativa:
+        is_cable_installation=True  -> cabling
+        is_cable_installation=False -> splicing
 
     Esa es la misma fecha que actualmente modifica Real Plan,
     por lo tanto cualquier movimiento de día en Real Plan
@@ -760,7 +764,7 @@ def _build_real_plan_forecast_index(
         if not matched_dfn:
             continue
 
-        work_type = "cable" if session.is_cable_installation else "fiber"
+        work_type = "cabling" if session.is_cable_installation else "splicing"
 
         key = (
             matched_dfn.upper(),
@@ -798,8 +802,8 @@ def _master_plan_real_dates(
     Devuelve las fechas Real / Forecast que corresponden
     a una actividad del Master Plan.
 
-    C-107 -> Fiber
-    C-108 -> Cable
+    C-107 -> Cabling / Fiber Placement
+    C-108 -> Splicing / Testing
     """
 
     empty_result = {
