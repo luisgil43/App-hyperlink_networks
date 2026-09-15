@@ -4,7 +4,7 @@
 
   <form
     method="get"
-    class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_auto]"
+    class="space-y-3"
     data-real-plan-filter-form
   >
 
@@ -14,33 +14,80 @@
       value="{{ week_start|date:'Y-m-d' }}"
     >
 
-    <div>
-      {{ filter_form.q }}
-    </div>
+    <input
+      type="hidden"
+      name="status_filter"
+      value="1"
+    >
 
-    <div>
-      {{ filter_form.work_type }}
-    </div>
+    <div
+      class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_auto]"
+    >
 
-    <div class="flex items-center gap-2">
+      <div>
+        {{ filter_form.q }}
+      </div>
 
-      <button
-        type="submit"
-        class="h-[42px] rounded-xl bg-gray-900 px-5 text-sm font-extrabold text-white transition hover:bg-gray-800"
-      >
-        Apply
-      </button>
+      <div>
+        {{ filter_form.work_type }}
+      </div>
 
-      {% if search or work_type != "all" %}
-        <a
-          href="?week={{ week_start|date:'Y-m-d' }}"
-          class="inline-flex h-[42px] items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
-          data-real-plan-navigation
-          data-real-plan-scroll-mode="preserve"
+      <div class="flex items-center gap-2">
+
+        <button
+          type="submit"
+          class="h-[42px] rounded-xl bg-gray-900 px-5 text-sm font-extrabold text-white transition hover:bg-gray-800"
         >
-          Clear
-        </a>
-      {% endif %}
+          Apply
+        </button>
+
+        {% if search or work_type != "all" or status_filter_present %}
+          <a
+            href="?week={{ week_start|date:'Y-m-d' }}"
+            class="inline-flex h-[42px] items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
+            data-real-plan-navigation
+            data-real-plan-scroll-mode="preserve"
+          >
+            Clear
+          </a>
+        {% endif %}
+
+      </div>
+
+    </div>
+
+
+    <div
+      class="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-3"
+    >
+
+      <div
+        class="text-[11px] font-extrabold uppercase tracking-wide text-gray-400"
+      >
+        Status
+      </div>
+
+      {% for status_option in status_options %}
+
+        <label
+          class="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-gray-600"
+        >
+
+          <input
+            type="checkbox"
+            name="statuses"
+            value="{{ status_option.value }}"
+            {% if status_option.checked %}checked{% endif %}
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          >
+
+          <span>
+            {{ status_option.label }}
+          </span>
+
+        </label>
+
+      {% endfor %}
 
     </div>
 

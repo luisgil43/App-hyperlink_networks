@@ -1,6 +1,5 @@
 #real-plan-page {
     --real-plan-person-width: 185px;
-    --real-plan-backlog-width: 130px;
     --real-plan-day-width: 150px;
 
     /*
@@ -30,17 +29,6 @@
     pointer-events: none;
 }
 
-
-/*
- * IMPORTANT:
- *
- * main-content is a flex item in the global dashboard layout.
- * min-width:auto would allow the 21-day board to expand the
- * complete application horizontally.
- *
- * This rule is intentionally scoped through :has() so it only
- * affects main-content while Real Plan is being displayed.
- */
 #main-content:has(#real-plan-page) {
     min-width: 0;
     max-width: 100%;
@@ -61,13 +49,6 @@
     box-sizing: border-box;
 }
 
-
-/*
- * This is the ONLY horizontal viewport.
- *
- * The page does not scroll horizontally.
- * The 21 planning days scroll inside this element.
- */
 .real-plan-board-scroll {
     position: relative;
     display: block;
@@ -89,20 +70,10 @@
     box-sizing: border-box;
 }
 
-
-/*
- * The board itself IS intentionally wider than the viewport.
- *
- * 185px Person
- * 130px Backlog
- * 21 × 150px days
- *
- * Its width must remain inside .real-plan-board-scroll.
- */
 .real-plan-board {
-    width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+    width: calc(var(--real-plan-person-width) + (21 * var(--real-plan-day-width)));
 
-    min-width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+    min-width: calc(var(--real-plan-person-width) + (21 * var(--real-plan-day-width)));
 
     max-width: none;
 
@@ -121,14 +92,14 @@
     display: grid;
 
     grid-template-columns:
-        var(--real-plan-person-width) var(--real-plan-backlog-width) repeat(21,
+        var(--real-plan-person-width) repeat(21,
             var(--real-plan-day-width));
 
     grid-template-rows: auto;
 
-    width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+    width: calc(var(--real-plan-person-width) + (21 * var(--real-plan-day-width)));
 
-    min-width: calc(var(--real-plan-person-width) + var(--real-plan-backlog-width) + (21 * var(--real-plan-day-width)));
+    min-width: calc(var(--real-plan-person-width) + (21 * var(--real-plan-day-width)));
 
     max-width: none;
 
@@ -150,7 +121,6 @@
 }
 
 .real-plan-person-header,
-.real-plan-backlog-header,
 .real-plan-day-header {
     min-height: 52px;
 
@@ -185,24 +155,6 @@
 
     text-transform: uppercase;
     letter-spacing: 0.06em;
-
-    box-shadow:
-        1px 0 0 #e5e7eb;
-}
-
-
-/* =========================================================
-   STICKY BACKLOG
-========================================================= */
-
-.real-plan-backlog-header {
-    position: sticky;
-
-    left: var(--real-plan-person-width);
-
-    z-index: 85;
-
-    background: #f9fafb;
 
     box-shadow:
         1px 0 0 #e5e7eb;
@@ -273,22 +225,36 @@
 
 
 /* =========================================================
-   BACKLOG CELL
+   TEAM NAMES
 ========================================================= */
 
-.real-plan-backlog-cell {
-    position: sticky;
+.real-plan-team-names {
+    display: grid;
 
-    left: var(--real-plan-person-width);
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
 
-    z-index: 35;
+    gap: 2px 6px;
 
-    background: #f9fafb;
+    width: 100%;
+    min-width: 0;
 
-    box-shadow:
-        1px 0 0 #e5e7eb;
+    font-size: 10px;
+    line-height: 1.35;
 
-    box-sizing: border-box;
+    font-weight: 800;
+
+    color: #374151;
+}
+
+.real-plan-team-name {
+    min-width: 0;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
 }
 
 
@@ -355,17 +321,11 @@
    SPECIAL ROWS
 ========================================================= */
 
-.real-plan-person-row[ data-row-type="unassigned"
-] .real-plan-person-cell,
-.real-plan-person-row[ data-row-type="unassigned"
-
-] .real-plan-backlog-cell {
+.real-plan-person-row[data-row-type="unassigned"] .real-plan-person-cell {
     background: #fffdf5;
 }
 
-.real-plan-person-row[ data-row-type="team"
-
-] .real-plan-person-cell {
+.real-plan-person-row[data-row-type="team"] .real-plan-person-cell {
     background: #f8fbff;
 }
 
@@ -399,14 +359,8 @@
     padding: 6px 7px;
 
     box-shadow:
-        0 1px 2px rgba(15,
-            23,
-            42,
-            0.04),
-        0 1px 1px rgba(15,
-            23,
-            42,
-            0.02);
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 1px 1px rgba(15, 23, 42, 0.02);
 
     transition:
         border-color 140ms ease,
@@ -415,15 +369,11 @@
         opacity 140ms ease;
 }
 
-.real-plan-project-card[ data-can-move="1"
-
-] {
+.real-plan-project-card[data-can-move="1"] {
     cursor: grab;
 }
 
-.real-plan-project-card[ data-can-move="1"
-
-]:active {
+.real-plan-project-card[data-can-move="1"]:active {
     cursor: grabbing;
 }
 
@@ -431,14 +381,8 @@
     border-color: #bfdbfe;
 
     box-shadow:
-        0 3px 8px rgba(15,
-            23,
-            42,
-            0.07),
-        0 1px 2px rgba(15,
-            23,
-            42,
-            0.04);
+        0 3px 8px rgba(15, 23, 42, 0.07),
+        0 1px 2px rgba(15, 23, 42, 0.04);
 
     transform: translateY(-1px);
 }
@@ -722,8 +666,7 @@
     display: grid;
 
     grid-template-columns:
-        42px minmax(0,
-            1fr);
+        42px minmax(0, 1fr);
 
     gap: 4px;
 
@@ -811,14 +754,8 @@
     background: #2563eb;
 
     box-shadow:
-        0 0 0 1px rgba(37,
-            99,
-            235,
-            0.08),
-        0 1px 3px rgba(37,
-            99,
-            235,
-            0.20);
+        0 0 0 1px rgba(37, 99, 235, 0.08),
+        0 1px 3px rgba(37, 99, 235, 0.20);
 
     pointer-events: none;
 }
@@ -843,10 +780,7 @@
     padding: 10px 14px;
 
     box-shadow:
-        0 10px 30px rgba(15,
-            23,
-            42,
-            0.18);
+        0 10px 30px rgba(15, 23, 42, 0.18);
 
     font-size: 12px;
 
@@ -877,7 +811,6 @@
 @media (max-width: 1024px) {
     #real-plan-page {
         --real-plan-person-width: 170px;
-        --real-plan-backlog-width: 120px;
         --real-plan-day-width: 145px;
     }
 

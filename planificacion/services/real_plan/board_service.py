@@ -55,7 +55,7 @@ def _technician_short_name(user):
     ).strip()
 
     if first_name and last_name:
-        return f"{first_name} {last_name}"
+        return f"{first_name} {last_name[:1].upper()}"
 
     if first_name:
         return first_name
@@ -500,17 +500,25 @@ def build_real_plan_board(
     week_start,
     search="",
     work_type="all",
+    statuses=None,
 ):
     days = _build_week_days(week_start)
 
     week_end = week_start + timedelta(days=20)
 
+    if statuses is None:
+        statuses = [
+            "asignado",
+            "en_proceso",
+            "en_revision_supervisor",
+            "rechazado_supervisor",
+            "aprobado_supervisor",
+        ]
+
     queryset = (
         SesionBilling.objects.filter(
             is_direct_discount=False,
-        )
-        .exclude(
-            estado="aprobado_pm",
+            estado__in=statuses,
         )
         .select_related(
             "real_plan_state",
@@ -576,17 +584,20 @@ def build_real_plan_board(
             row_name = "Unassigned"
             row_full_name = "No active technician " "assigned"
             technician_ids = []
+            technician_short_names = []
 
         elif len(active_assignments) == 1:
             row_type = "technician"
 
             technician = active_assignments[0].tecnico
 
-            row_name = _technician_name(technician)
+            row_name = _technician_short_name(technician)
 
-            row_full_name = row_name
+            row_full_name = _technician_name(technician)
 
             technician_ids = [technician.id]
+
+            technician_short_names = [_technician_short_name(technician)]
 
             individual_technician_ids.add(technician.id)
 
@@ -597,11 +608,24 @@ def build_real_plan_board(
 
             row_full_name = _team_full_name(active_assignments)
 
+            ordered_assignments = sorted(
+                active_assignments,
+                key=lambda assignment: (
+                    _technician_name(assignment.tecnico).lower(),
+                    assignment.tecnico_id or 0,
+                ),
+            )
+
             technician_ids = sorted(
                 assignment.tecnico_id
                 for assignment in active_assignments
                 if assignment.tecnico_id
             )
+
+            technician_short_names = [
+                _technician_short_name(assignment.tecnico)
+                for assignment in ordered_assignments
+            ]
 
             individual_technician_ids.update(technician_ids)
 
@@ -617,6 +641,8 @@ def build_real_plan_board(
             rows[row_key]["technician_count"] = len(technician_ids)
 
             rows[row_key]["technician_ids"] = technician_ids
+
+            rows[row_key]["technician_short_names"] = technician_short_names
 
             if len(technician_ids) == 1:
                 rows[row_key]["technician_id"] = technician_ids[0]

@@ -14,6 +14,23 @@ class RealPlanBoardFilterForm(forms.Form):
         ("cable", "Cable"),
     )
 
+    STATUS_CHOICES = (
+        ("asignado", "Assigned"),
+        ("en_proceso", "In progress"),
+        (
+            "en_revision_supervisor",
+            "Submitted — supervisor review",
+        ),
+        (
+            "rechazado_supervisor",
+            "Rejected by supervisor",
+        ),
+        (
+            "aprobado_supervisor",
+            "Approved by supervisor",
+        ),
+    )
+
     q = forms.CharField(
         required=False,
         widget=forms.TextInput(
@@ -36,6 +53,12 @@ class RealPlanBoardFilterForm(forms.Form):
         ),
     )
 
+    statuses = forms.MultipleChoiceField(
+        required=False,
+        choices=STATUS_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+    )
+
     def clean_q(self):
         return (self.cleaned_data.get("q") or "").strip()
 
@@ -50,3 +73,15 @@ class RealPlanBoardFilterForm(forms.Form):
             return "all"
 
         return value
+
+    def clean_statuses(self):
+        valid_statuses = {value for value, _label in self.STATUS_CHOICES}
+
+        return [
+            status
+            for status in self.cleaned_data.get(
+                "statuses",
+                [],
+            )
+            if status in valid_statuses
+        ]

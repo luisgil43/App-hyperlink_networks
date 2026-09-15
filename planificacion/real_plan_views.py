@@ -223,6 +223,18 @@ def real_plan_board(request):
     search = ""
     work_type = "all"
 
+    default_statuses = [
+        "asignado",
+        "en_proceso",
+        "en_revision_supervisor",
+        "rechazado_supervisor",
+        "aprobado_supervisor",
+    ]
+
+    statuses = list(default_statuses)
+
+    status_filter_present = "status_filter" in request.GET
+
     if filter_form.is_valid():
         search = filter_form.cleaned_data.get(
             "q",
@@ -233,6 +245,12 @@ def real_plan_board(request):
             "work_type",
             "all",
         )
+
+        if status_filter_present:
+            statuses = filter_form.cleaned_data.get(
+                "statuses",
+                [],
+            )
 
     week_start = _parse_week_start(
         request.GET.get(
@@ -245,31 +263,22 @@ def real_plan_board(request):
         week_start=week_start,
         search=search,
         work_type=work_type,
+        statuses=statuses,
     )
 
     week_end = week_start + timedelta(days=20)
 
-    today_week = _monday_for_day(
-        date.today()
-    )
+    today_week = _monday_for_day(date.today())
 
-    selector_start = today_week - timedelta(
-        weeks=12
-    )
+    selector_start = today_week - timedelta(weeks=12)
 
-    selector_end = today_week + timedelta(
-        weeks=52
-    )
+    selector_end = today_week + timedelta(weeks=52)
 
     if week_start < selector_start:
-        selector_start = week_start - timedelta(
-            weeks=4
-        )
+        selector_start = week_start - timedelta(weeks=4)
 
     if week_start > selector_end:
-        selector_end = week_start + timedelta(
-            weeks=12
-        )
+        selector_end = week_start + timedelta(weeks=12)
 
     week_options = []
 
@@ -283,9 +292,7 @@ def real_plan_board(request):
                 "start": current_week,
                 "year": iso_calendar.year,
                 "week": iso_calendar.week,
-                "label": (
-                    f"W{iso_calendar.week:02d}"
-                ),
+                "label": (f"W{iso_calendar.week:02d}"),
                 "full_label": (
                     f"W{iso_calendar.week:02d} "
                     f"· "
@@ -293,52 +300,44 @@ def real_plan_board(request):
                     f" — "
                     f"{(current_week + timedelta(days=6)).strftime('%b %d')}"
                 ),
-                "selected": (
-                    current_week
-                    == week_start
-                ),
-                "is_current": (
-                    current_week
-                    == today_week
-                ),
+                "selected": (current_week == week_start),
+                "is_current": (current_week == today_week),
             }
         )
 
-        current_week += timedelta(
-            weeks=1
-        )
+        current_week += timedelta(weeks=1)
+
+    status_options = [
+        {
+            "value": value,
+            "label": label,
+            "checked": value in statuses,
+        }
+        for value, label in RealPlanBoardFilterForm.STATUS_CHOICES
+    ]
 
     context = {
         "page_title": ("Real Plan"),
         "filter_form": (filter_form),
         "search": search,
         "work_type": (work_type),
+        "statuses": (statuses),
+        "status_options": (status_options),
+        "status_filter_present": (status_filter_present),
         "week_start": (week_start),
         "week_end": (week_end),
-        "previous_week": (
-            week_start
-            - timedelta(days=7)
-        ),
-        "next_week": (
-            week_start
-            + timedelta(days=7)
-        ),
+        "previous_week": (week_start - timedelta(days=7)),
+        "next_week": (week_start + timedelta(days=7)),
         "today_week": (today_week),
         "week_options": (week_options),
-        "current_week_number": (
-            week_start.isocalendar().week
-        ),
-        "current_week_year": (
-            week_start.isocalendar().year
-        ),
+        "current_week_number": (week_start.isocalendar().week),
+        "current_week_year": (week_start.isocalendar().year),
         "days": (board["days"]),
         "board_rows": (board["rows"]),
         "summary": (board["summary"]),
     }
 
-    if request.headers.get(
-        "X-Requested-With"
-    ) == "XMLHttpRequest":
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return render(
             request,
             "planificacion/real_plan/partials/_workspace.html",

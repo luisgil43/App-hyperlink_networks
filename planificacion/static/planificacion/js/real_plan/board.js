@@ -406,6 +406,68 @@
   }
 
 
+    function initializeStatusFilters() {
+    document.addEventListener(
+      "change",
+      function (event) {
+        const checkbox =
+          event.target.closest(
+            "input[name='statuses']"
+          );
+
+        if (!checkbox) {
+          return;
+        }
+
+        const form =
+          checkbox.closest(
+            "[data-real-plan-filter-form]"
+          );
+
+        if (!form) {
+          return;
+        }
+
+        const formData =
+          new FormData(
+            form
+          );
+
+        const params =
+          new URLSearchParams();
+
+        formData.forEach(
+          function (
+            value,
+            key
+          ) {
+            if (
+              value !== null
+              && String(value).trim() !== ""
+            ) {
+              params.append(
+                key,
+                value
+              );
+            }
+          }
+        );
+
+        const url =
+          window.location.pathname
+          + "?"
+          + params.toString();
+
+        loadWorkspace(
+          url,
+          {
+            scrollMode: "preserve",
+          }
+        );
+      }
+    );
+  }
+
   function initializeWeekSelector() {
     document.addEventListener(
       "change",
@@ -556,6 +618,31 @@
           ).trim();
 
 
+        const statusFilter =
+          (
+            selector.dataset.realPlanStatusFilter
+            || "0"
+          ).trim();
+
+
+        const statuses =
+          (
+            selector.dataset.realPlanStatuses
+            || ""
+          )
+            .split(",")
+            .map(
+              function (status) {
+                return status.trim();
+              }
+            )
+            .filter(
+              function (status) {
+                return Boolean(status);
+              }
+            );
+
+
         if (search) {
           params.set(
             "q",
@@ -575,6 +662,25 @@
         }
 
 
+        if (
+          statusFilter === "1"
+        ) {
+          params.set(
+            "status_filter",
+            "1"
+          );
+
+          statuses.forEach(
+            function (status) {
+              params.append(
+                "statuses",
+                status
+              );
+            }
+          );
+        }
+
+
         const url =
           window.location.pathname
           + "?"
@@ -590,7 +696,6 @@
       }
     );
   }
-
 
   function initializeCardDetails() {
     document.addEventListener(
@@ -1427,6 +1532,7 @@
 
   function initialize() {
     initializeWorkspaceNavigation();
+    initializeStatusFilters();
     initializeWeekSelector();
     initializeCardDetails();
     initializeRecalculateButton();

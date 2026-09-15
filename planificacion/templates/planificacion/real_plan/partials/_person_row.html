@@ -11,7 +11,7 @@
 
     <div class="min-w-0 w-full">
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-start gap-2">
 
         {% if row.row_type == "unassigned" %}
 
@@ -35,12 +35,35 @@
 
         <div class="min-w-0 flex-1">
 
-          <div
-            class="truncate text-[12px] font-extrabold text-gray-800"
-            title="{{ row.full_name }}"
-          >
-            {{ row.name }}
-          </div>
+          {% if row.row_type == "team" %}
+
+            <div
+              class="real-plan-team-names"
+              title="{{ row.full_name }}"
+            >
+
+              {% for technician_name in row.technician_short_names %}
+
+                <span class="real-plan-team-name">
+
+                  {{ technician_name }}{% if not forloop.last %} +{% endif %}
+
+                </span>
+
+              {% endfor %}
+
+            </div>
+
+          {% else %}
+
+            <div
+              class="truncate text-[12px] font-extrabold text-gray-800"
+              title="{{ row.full_name }}"
+            >
+              {{ row.name }}
+            </div>
+
+          {% endif %}
 
           <div class="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-gray-400">
 
@@ -64,34 +87,6 @@
         </div>
 
       </div>
-
-    </div>
-
-  </div>
-
-
-  <div
-    class="real-plan-drop-cell real-plan-backlog-cell"
-    data-real-plan-zone="backlog"
-    data-row-key="{{ row.key }}"
-  >
-
-    <div class="real-plan-card-stack">
-
-      {% for card in row.backlog %}
-
-        {% include "planificacion/real_plan/partials/_project_card.html" with card=card %}
-
-      {% empty %}
-
-        <div
-          class="real-plan-empty-cell"
-          data-real-plan-empty
-        >
-          —
-        </div>
-
-      {% endfor %}
 
     </div>
 
