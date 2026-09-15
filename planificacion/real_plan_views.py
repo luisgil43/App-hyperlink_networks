@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST
 
 from operaciones.models import SesionBilling
 
-from .models import RealPlanProjectState
+from .models import RealPlanProjectState, RealPlanUserPreference
 from .real_plan_forms import RealPlanBoardFilterForm
 from .services.real_plan.board_service import build_real_plan_board
 
@@ -231,7 +231,22 @@ def real_plan_board(request):
         "aprobado_supervisor",
     ]
 
-    statuses = list(default_statuses)
+    allowed_statuses = {
+        value for value, _label in RealPlanBoardFilterForm.STATUS_CHOICES
+    }
+
+    preference = RealPlanUserPreference.objects.filter(
+        user=request.user,
+    ).first()
+
+    if preference is None:
+        statuses = list(default_statuses)
+    else:
+        statuses = [
+            status
+            for status in preference.selected_statuses
+            if status in allowed_statuses
+        ]
 
     status_filter_present = "status_filter" in request.GET
 
@@ -247,10 +262,30 @@ def real_plan_board(request):
         )
 
         if status_filter_present:
-            statuses = filter_form.cleaned_data.get(
-                "statuses",
-                [],
-            )
+            statuses = [
+                status
+                for status in filter_form.cleaned_data.get(
+                    "statuses",
+                    [],
+                )
+                if status in allowed_statuses
+            ]
+
+            if preference is None:
+                preference = RealPlanUserPreference.objects.create(
+                    user=request.user,
+                    selected_statuses=statuses,
+                )
+
+            elif preference.selected_statuses != statuses:
+                preference.selected_statuses = statuses
+
+                preference.save(
+                    update_fields=[
+                        "selected_statuses",
+                        "updated_at",
+                    ]
+                )
 
     week_start = _parse_week_start(
         request.GET.get(

@@ -1641,3 +1641,56 @@ class RealPlanProjectState(models.Model):
         return (
             f"Real Plan {self.billing_id} / " f"position {self.board_position or '-'}"
         )
+
+
+# ============================================================
+# REAL PLAN USER PREFERENCE
+# ============================================================
+
+
+class RealPlanUserPreference(models.Model):
+    """
+    Preferencias personales de visualización del Real Plan.
+
+    IMPORTANTE:
+    - Son preferencias propias de cada usuario.
+    - NO modifican SesionBilling.
+    - NO modifican estados de proyectos.
+    - NO modifican prioridades ni asignaciones.
+    - selected_statuses controla únicamente qué estados
+      desea visualizar el usuario en el Real Plan.
+    """
+
+    DEFAULT_SELECTED_STATUSES = [
+        "asignado",
+        "en_proceso",
+        "en_revision_supervisor",
+        "rechazado_supervisor",
+        "aprobado_supervisor",
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="real_plan_preference",
+    )
+
+    selected_statuses = models.JSONField(
+        default=list,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = "Real Plan User Preference"
+        verbose_name_plural = "Real Plan User Preferences"
+
+    def __str__(self):
+        return f"Real Plan preferences / {self.user_id}"
