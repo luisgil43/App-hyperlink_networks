@@ -1,7 +1,7 @@
 # usuarios/schedulers.py
 import os
 import threading
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from django.conf import settings
@@ -14,6 +14,177 @@ from django.utils.text import slugify
 from operaciones.models import (EvidenciaFotoBilling, ReporteFotograficoJob,
                                 SesionBilling)
 
+# ============================================================
+# REAL PLAN DAILY ROLLOVER
+# ============================================================
+
+REAL_PLAN_ROLLOVER_STATUSES = {
+    "asignado",
+    "en_proceso",
+    "rechazado_supervisor",
+    "rechazado_pm",
+}
+
+REAL_PLAN_FROZEN_STATUSES = {
+    "en_revision_supervisor",
+    "aprobado_supervisor",
+    "aprobado_pm",
+}
+
+
+def _real_plan_iso_week(value):
+    iso_calendar = value.isocalendar()
+    return f"{iso_calendar.year}-W{iso_calendar.week:02d}"
+
+
+def _real_plan_set_local_date(session, target_date):
+    """
+    Cambia únicamente la FECHA operacional del Billing.
+
+    Conserva la hora/minuto local original de creado_en para mantener
+    el mismo comportamiento que el movimiento manual del Real Plan.
+    """
+    tz = timezone.get_current_timezone()
+
+    if session.creado_en:
+        current_local = timezone.localtime(
+            session.creado_en,
+            tz,
+        )
+        current_time = current_local.time().replace(
+            second=0,
+            microsecond=0,
+        )
+    else:
+        current_time = time.min
+
+    new_datetime = datetime.combine(
+        target_date,
+        current_time,
+    )
+
+    return timezone.make_aware(
+        new_datetime,
+        tz,
+    )
+
+
+def rollover_real_plan_projects():
+    """
+    Rollover automático diario del Real Plan.
+
+    Se ejecuta a las 23:59.
+
+    Todo Billing cuya fecha operacional sea HOY o anterior pasa a MAÑANA
+    únicamente cuando se encuentra en uno de estos estados:
+
+        - asignado
+        - en_proceso
+        - rechazado_supervisor
+        - rechazado_pm
+
+    Estos estados permanecen congelados en su fecha:
+
+        - en_revision_supervisor
+        - aprobado_supervisor
+        - aprobado_pm
+
+    También sincroniza semana_pago_proyectada con la semana ISO
+    correspondiente a la nueva fecha.
+
+    NO modifica:
+        - estado
+        - técnicos
+        - prioridades
+        - timers
+        - board_position
+        - evidencias
+        - semana_pago_real
+    """
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+    try:
+        tz = timezone.get_current_timezone()
+
+        today = timezone.localdate()
+        target_date = today + timedelta(days=1)
+
+        target_start = timezone.make_aware(
+            datetime.combine(
+                target_date,
+                time.min,
+            ),
+            tz,
+        )
+
+        target_week = _real_plan_iso_week(target_date)
+
+        moved_count = 0
+
+        with transaction.atomic():
+            sessions = list(
+                SesionBilling.objects.select_for_update()
+                .filter(
+                    estado__in=REAL_PLAN_ROLLOVER_STATUSES,
+                    is_direct_discount=False,
+                    creado_en__lt=target_start,
+                )
+                .only(
+                    "id",
+                    "creado_en",
+                    "estado",
+                    "semana_pago_proyectada",
+                )
+            )
+
+            for session in sessions:
+                if not session.creado_en:
+                    continue
+
+                session_date = timezone.localtime(
+                    session.creado_en,
+                    tz,
+                ).date()
+
+                if session_date > today:
+                    continue
+
+                session.creado_en = _real_plan_set_local_date(
+                    session,
+                    target_date,
+                )
+
+                session.semana_pago_proyectada = target_week
+
+                session.save(
+                    update_fields=[
+                        "creado_en",
+                        "semana_pago_proyectada",
+                    ]
+                )
+
+                moved_count += 1
+
+        print(
+            "[REAL PLAN ROLLOVER] "
+            f"source_through={today.isoformat()} "
+            f"target={target_date.isoformat()} "
+            f"week={target_week} "
+            f"moved={moved_count}"
+        )
+
+        return moved_count
+
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+
 # ---------------- Scheduler ----------------
 
 
@@ -21,8 +192,25 @@ def iniciar_scheduler():
     """
     Arranca un BackgroundScheduler y lo cuelga en settings.APP_SCHEDULER.
     apps.py se encarga de no iniciarlo dos veces con el autoreloader.
+
+    También registra el rollover automático diario del Real Plan.
     """
-    scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler(
+        timezone=timezone.get_current_timezone(),
+    )
+
+    scheduler.add_job(
+        func=rollover_real_plan_projects,
+        trigger="cron",
+        hour=23,
+        minute=59,
+        id="real-plan-daily-rollover",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        max_instances=1,
+        coalesce=True,
+    )
+
     scheduler.start()
     settings.APP_SCHEDULER = scheduler
     return scheduler

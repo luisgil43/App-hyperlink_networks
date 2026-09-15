@@ -253,7 +253,6 @@ def real_plan_board(request):
         date.today()
     )
 
-  
     selector_start = today_week - timedelta(
         weeks=12
     )
@@ -262,7 +261,6 @@ def real_plan_board(request):
         weeks=52
     )
 
- 
     if week_start < selector_start:
         selector_start = week_start - timedelta(
             weeks=4
@@ -354,9 +352,6 @@ def real_plan_board(request):
     )
 
 
-@login_required
-@csrf_protect
-@require_POST
 def real_plan_move_project(
     request,
     sesion_id: int,
@@ -584,9 +579,14 @@ def real_plan_move_project(
                 target_date,
             )
 
+            iso_year, iso_week, _iso_weekday = target_date.isocalendar()
+
+            moved_session.semana_pago_proyectada = f"{iso_year}-W{iso_week:02d}"
+
             moved_session.save(
                 update_fields=[
                     "creado_en",
+                    "semana_pago_proyectada",
                 ]
             )
 
@@ -611,6 +611,7 @@ def real_plan_move_project(
             "project_id": (moved_session.proyecto_id),
             "previous_date": (previous_date.isoformat() if previous_date else ""),
             "date": (target_date.isoformat()),
+            "semana_pago_proyectada": (moved_session.semana_pago_proyectada or ""),
             "target_order": (target_order),
             "source_order": (source_order),
         }
