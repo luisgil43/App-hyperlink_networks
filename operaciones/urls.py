@@ -9,8 +9,8 @@ from . import views_billing_camera as cam  # ✅ NUEVO
 from . import views_billing_exec as b
 from . import views_billing_masivo
 from . import views_billing_queue as billing_queue_views
-from . import (views_fotos_zip, views_plans, views_requirement_lists,
-               views_resumen)
+from . import (views_fotos_zip, views_plans, views_project_downloads,
+               views_requirement_lists, views_resumen)
 
 app_name = 'operaciones'  # requerido para namespaces
 
@@ -532,5 +532,11 @@ urlpatterns = [
         "billing/technician/<int:technician_id>/queue-preview/",
         billing_queue_views.billing_technician_queue_preview,
         name="billing_technician_queue_preview",
+    ),
+    # ---------------- Project Downloads ----------------
+    path(
+        "project-downloads/",
+        views_project_downloads.project_downloads,
+        name="project_downloads",
     ),
 ]

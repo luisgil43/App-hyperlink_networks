@@ -381,13 +381,19 @@
           {% endif %}
 
           <li>
-            <a href="{% url 'operaciones:listar_billing' %}">
-              📋 Create Billing
-            </a>
-          </li>
+              <a href="{% url 'operaciones:listar_billing' %}">
+                📋 Create Billing
+              </a>
+            </li>
 
-          {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion%}
-            <li class="group">
+            <li>
+              <a href="{% url 'operaciones:project_downloads' %}">
+                📥 Project Downloads
+              </a>
+            </li>
+
+            {% if request.user.es_admin_general or request.user.es_pm or request.user.es_facturacion %}
+              <li class="group">
               <div class="flex justify-between items-center cursor-pointer"
                    onclick="toggleMenu(this)">
                 <span class="flex items-center gap-2">
