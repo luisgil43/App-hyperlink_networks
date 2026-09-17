@@ -356,13 +356,16 @@ def map_home(request):
 
     selected_scope = (request.GET.get("scope") or "all").strip()
 
+    include_mapped_history = request.GET.get("include_mapped_history") == "1"
+
     # ============================================================
     # Universo completo
     #
     # Tomamos la SesionBilling más reciente de cada Project ID.
-    # Este universo completo se conserva para poder reconstruir
-    # y visualizar cada DFN aunque algunos proyectos ya hayan
-    # salido de List Billing.
+    #
+    # Este universo completo se conserva porque sigue siendo
+    # necesario para reconstruir un DFN completo cuando el usuario
+    # selecciona un DFN que ya comenzó a utilizar Maps.
     # ============================================================
 
     sessions = _latest_billing_sessions_by_project()
@@ -370,30 +373,75 @@ def map_home(request):
     all_projects = [_build_project_record(session) for session in sessions]
 
     # ============================================================
-    # DFNs disponibles
+    # DFNs actualmente operativos
     #
-    # IMPORTANTE:
-    # El selector de DFN se construye usando TODO el universo,
-    # no solamente los proyectos que permanecen en List Billing.
+    # Por defecto, el selector solamente muestra DFNs que tengan
+    # al menos un proyecto que todavía pertenezca al flujo de
+    # List Billing.
     #
-    # Así un DFN continúa disponible aunque sus proyectos ya
-    # hayan avanzado hacia Invoice / Finance.
+    # Esto evita llenar el selector con DFNs históricos que ya
+    # avanzaron completamente hacia Invoice / Finance.
     # ============================================================
 
-    dfn_codes = sorted(
-        {
-            project["dfn"]
-            for project in all_projects
-            if (project["has_dfn"] and project["dfn"])
-        }
-    )
+    current_dfn_codes = {
+        project["dfn"]
+        for project in all_projects
+        if (project["has_dfn"] and project["dfn"] and project["in_billing_list"])
+    }
+
+    # ============================================================
+    # DFNs históricos realmente mapeados
+    #
+    # Un DFN histórico solamente merece aparecer en Maps si tiene
+    # al menos una Box / CTO con ubicación oficial actualmente
+    # guardada.
+    #
+    # No mostramos todos los DFNs antiguos de Invoice / Finance.
+    # Solamente conservamos como histórico navegable aquellos que
+    # realmente contienen información geográfica útil.
+    # ============================================================
+
+    mapped_history_dfn_codes = {
+        project["dfn"]
+        for project in all_projects
+        if (
+            project["has_dfn"]
+            and project["dfn"]
+            and project["located"]
+            and not project["in_billing_list"]
+        )
+    }
+
+    # ============================================================
+    # DFNs disponibles en el selector
+    #
+    # Vista normal:
+    #   List Billing solamente.
+    #
+    # Include mapped history:
+    #   List Billing
+    #   +
+    #   DFNs históricos que tengan ubicaciones oficiales.
+    # ============================================================
+
+    if include_mapped_history:
+        dfn_codes = sorted(current_dfn_codes | mapped_history_dfn_codes)
+    else:
+        dfn_codes = sorted(current_dfn_codes)
 
     # ============================================================
     # Scope: All Projects
     #
-    # En All Projects mostramos solamente las sesiones que
-    # actualmente cumplen la misma regla base de visibilidad
-    # operacional de List Billing.
+    # All Projects conserva exactamente su comportamiento actual:
+    # solamente las sesiones que cumplen la regla base de
+    # visibilidad operacional de List Billing.
+    #
+    # Activar Include mapped history NO convierte All Projects
+    # en una vista gigante del histórico.
+    #
+    # El checkbox solamente amplía los DFNs disponibles para que
+    # el usuario pueda entrar explícitamente a un DFN histórico
+    # que sí tenga información geográfica.
     # ============================================================
 
     if selected_scope == "all":
@@ -405,12 +453,14 @@ def map_home(request):
     # ============================================================
     # Scope: DFN específico
     #
-    # Cuando se selecciona un DFN mostramos el DFN completo:
-    # proyectos todavía en List Billing + proyectos que ya
-    # avanzaron hacia Invoice / Finance.
+    # Cuando se selecciona un DFN válido mostramos el DFN completo:
     #
-    # Esto permite conservar la visualización geográfica completa
-    # del DFN.
+    #   List Billing
+    #   +
+    #   Invoice / Finance
+    #
+    # Esto conserva la visualización geográfica completa que ya
+    # teníamos y no modifica el comportamiento interno del DFN.
     # ============================================================
 
     elif selected_scope in dfn_codes:
@@ -422,8 +472,11 @@ def map_home(request):
     # ============================================================
     # Scope inválido
     #
-    # Volvemos de forma segura a All Projects y aplicamos la regla
-    # de List Billing.
+    # Si un DFN histórico estaba seleccionado y el usuario
+    # desactiva Include mapped history, ese DFN deja de pertenecer
+    # al selector.
+    #
+    # Volvemos de forma segura a All Projects.
     # ============================================================
 
     else:
@@ -437,8 +490,7 @@ def map_home(request):
     # ============================================================
     # Candidatos para primera ubicación
     #
-    # El modal Add Project Location mantiene una regla más
-    # restrictiva:
+    # Conservamos exactamente la regla existente:
     #
     #   Assigned / In progress
     #   +
@@ -468,6 +520,7 @@ def map_home(request):
     context = {
         "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
         "selected_scope": selected_scope,
+        "include_mapped_history": include_mapped_history,
         "dfn_codes": dfn_codes,
         "projects": filtered_projects,
         "location_candidates": location_candidates,

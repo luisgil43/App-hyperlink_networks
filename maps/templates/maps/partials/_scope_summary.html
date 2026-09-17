@@ -5,10 +5,12 @@
         class="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-3 items-end">
 
     <div>
+
       <label for="scope"
              class="block text-xs font-semibold text-gray-600 mb-1">
         Project Scope
       </label>
+
 
       <select id="scope"
               name="scope"
@@ -21,34 +23,73 @@
         </option>
 
         {% for dfn in dfn_codes %}
+
           <option value="{{ dfn }}"
                   {% if selected_scope == dfn %}selected{% endif %}>
             DFN {{ dfn }}
           </option>
+
         {% endfor %}
 
       </select>
+
+
+      <label class="mt-2 inline-flex items-center gap-2 cursor-pointer select-none">
+
+        <input type="checkbox"
+               name="include_mapped_history"
+               value="1"
+               {% if include_mapped_history %}checked{% endif %}
+               onchange="this.form.submit()"
+               class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+
+        <span class="text-xs font-semibold text-gray-600">
+          Include mapped history
+        </span>
+
+      </label>
+
+
+      <div class="text-[10px] text-gray-400 mt-1 leading-tight">
+
+        {% if include_mapped_history %}
+
+          Current DFNs plus historical DFNs with saved map locations.
+
+        {% else %}
+
+          Showing DFNs currently available in List Billing.
+
+        {% endif %}
+
+      </div>
+
     </div>
 
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 
       <div class="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2">
+
         <div class="text-[10px] uppercase tracking-wide font-semibold text-gray-400">
           Context
         </div>
 
         <div class="text-sm font-bold text-gray-800 mt-0.5 truncate">
+
           {% if selected_scope == "all" %}
             All Projects
           {% else %}
             {{ selected_scope }}
           {% endif %}
+
         </div>
+
       </div>
 
 
       <div class="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2">
+
         <div class="text-[10px] uppercase tracking-wide font-semibold text-gray-400">
           Projects
         </div>
@@ -56,10 +97,12 @@
         <div class="text-sm font-bold text-gray-800 mt-0.5">
           {{ project_count }}
         </div>
+
       </div>
 
 
       <div class="rounded-xl bg-green-50 border border-green-200 px-3 py-2">
+
         <div class="text-[10px] uppercase tracking-wide font-semibold text-green-600">
           Located
         </div>
@@ -67,10 +110,12 @@
         <div class="text-sm font-bold text-green-800 mt-0.5">
           {{ located_count }}
         </div>
+
       </div>
 
 
       <div class="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+
         <div class="text-[10px] uppercase tracking-wide font-semibold text-amber-600">
           Not located
         </div>
@@ -78,6 +123,7 @@
         <div class="text-sm font-bold text-amber-800 mt-0.5">
           {{ unlocated_count }}
         </div>
+
       </div>
 
     </div>
