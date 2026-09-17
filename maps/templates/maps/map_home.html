@@ -1,0 +1,31 @@
+{% extends "dashboard_admin/base.html" %}
+
+{% block title %}Create Map{% endblock %}
+
+{% block dashboard_content %}
+
+<div class="w-full px-2 sm:px-3 lg:px-4 py-3">
+
+  {% include "maps/partials/_header.html" %}
+
+  {% include "maps/partials/_scope_summary.html" %}
+
+  <div class="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-3 items-stretch">
+
+    {% include "maps/partials/_project_list.html" %}
+
+    {% include "maps/partials/_map_panel.html" %}
+
+  </div>
+
+</div>
+
+{% include "maps/partials/_location_modal.html" %}
+
+{% include "maps/partials/_remove_location_modal.html" %}
+
+{% include "maps/assets/_styles.html" %}
+
+{% include "maps/assets/_scripts.html" %}
+
+{% endblock %}

@@ -320,23 +320,56 @@
     </span>
   </a>
 
-  <a href="{% url 'operaciones:requirement_list_list' %}"
-     class="inline-flex flex-1 sm:flex-none min-w-[160px] items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white px-3 sm:px-4 py-2 rounded-full text-sm font-semibold shadow-sm hover:shadow-md transition-all duration-150">
+   <a href="{% url 'operaciones:requirement_list_list' %}"
+        class="inline-flex flex-1 sm:flex-none min-w-[160px] items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white px-3 sm:px-4 py-2 rounded-full text-sm font-semibold shadow-sm hover:shadow-md transition-all duration-150">
 
-    <span class="inline-flex flex-shrink-0 items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white font-bold">
-      ☑
-    </span>
+        <span class="inline-flex flex-shrink-0 items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white font-bold">
+          ☑
+        </span>
 
-    <span class="whitespace-normal text-center leading-tight">
-      Requirement Lists
-    </span>
-  </a>
-{% endif %}
+        <span class="whitespace-normal text-center leading-tight">
+          Requirement Lists
+        </span>
+      </a>
+
+      {% if request.user.is_superuser %}
+
+        <a href="{% url 'maps:home' %}"
+          class="inline-flex flex-1 sm:flex-none min-w-[140px] items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white px-3 sm:px-4 py-2 rounded-full text-sm font-semibold shadow-sm hover:shadow-md transition-all duration-150">
+
+          <span class="inline-flex flex-shrink-0 items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white font-bold">
+            🗺️
+          </span>
+
+          <span class="whitespace-normal text-center leading-tight">
+            Create Map
+          </span>
+
+        </a>
+
+      {% else %}
+
+        <button type="button"
+                onclick="alert('Coming soon! You will be able to create and manage project maps directly from here.')"
+                class="inline-flex flex-1 sm:flex-none min-w-[140px] items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white px-3 sm:px-4 py-2 rounded-full text-sm font-semibold shadow-sm hover:shadow-md transition-all duration-150">
+
+          <span class="inline-flex flex-shrink-0 items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white font-bold">
+            🗺️
+          </span>
+
+          <span class="whitespace-normal text-center leading-tight">
+            Create Map
+          </span>
+
+        </button>
+
+      {% endif %}
+    {% endif %}
       </div>
     </div>
   </div>
 
- 
+
 
 <div class="flex justify-start mb-2">
   <details class="relative">
@@ -470,8 +503,8 @@
     data-total-count="{{ pagina.paginator.count }}">
   <div class="rounded-xl border border-gray-200 overflow-x-auto">
   <table id="billing-table"
-         data-columns-table="billing"     
-         data-columns-offset="2"          
+         data-columns-table="billing"
+         data-columns-offset="2"
          class="table-auto border border-gray-300 rounded-xl text-sm w-full min-w-[1950px]"
          style="white-space: nowrap;">
     <thead class="bg-gray-100 text-gray-800 font-semibold text-center">
@@ -613,14 +646,14 @@
             data-date="{{ s.creado_en|date:'Y-m-d H:i'|lower }}"
             data-projid="{{ s.proyecto_id|default:''|lower }}"
             data-week="{{ s.semana_pago_proyectada|default:''|lower }}"
-            data-status="{% if s.is_direct_discount %}descuento discount direct descuento directo{% 
-elif s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{% 
-elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{% 
-elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{% 
-elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{% 
-elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{% 
-elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{% 
-elif s.estado == 'en_proceso' %}en proceso in progress progress{% 
+            data-status="{% if s.is_direct_discount %}descuento discount direct descuento directo{%
+elif s.estado == 'aprobado_pm' %}aprobado pm approved by pm approved aprobado{%
+elif s.estado == 'rechazado_pm' %}rechazado pm rejected by pm rejected rechazado{%
+elif s.estado == 'aprobado_supervisor' %}aprobado supervisor approved by supervisor approved aprobado supervisor{%
+elif s.estado == 'rechazado_supervisor' %}rechazado supervisor rejected by supervisor rejected rechazado supervisor{%
+elif s.estado == 'en_revision_supervisor' %}en revision supervisor in supervisor review review revisión supervisor{%
+elif s.estado == 'finalizado' %}finalizado finished pending review finished pendiente revision revisión{%
+elif s.estado == 'en_proceso' %}en proceso in progress progress{%
 else %}asignado assigned{% endif %}"
             data-client="{{ s.cliente|default:''|lower }}"
             data-tech="{% for st in s.tecnicos_sesion.all %}{{ st.tecnico.get_full_name|default:st.tecnico.username }}{% if not forloop.last %}, {% endif %}{% endfor %}">
@@ -771,7 +804,7 @@ else %}asignado assigned{% endif %}"
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800">Assigned</span>
             {% endif %}
           </td>
-          
+
           <!-- Technicians -->
           <td class="p-2 border">
                       {% for st in s.tecnicos_sesion.all %}
@@ -1194,7 +1227,7 @@ else %}asignado assigned{% endif %}"
     <span class="text-gray-400">—</span>
   {% endif %}
 </td>
-          
+
           <!-- Actions -->
 <td class="p-2 border text-center">
 
@@ -4186,7 +4219,7 @@ btnClearAll?.addEventListener('click', async () => {
     }
 
     zona.innerHTML = nuevaZona.innerHTML;
-    zona.dataset.excelGlobal = '{}';    
+    zona.dataset.excelGlobal = '{}';
     zona.dataset.totalCount = nuevaZona.dataset.totalCount || '0';
 
     updateBillingTotalCount();

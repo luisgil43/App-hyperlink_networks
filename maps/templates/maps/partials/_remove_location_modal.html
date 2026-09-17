@@ -1,0 +1,92 @@
+<!-- REMOVE LOCATION MODAL -->
+<div id="remove-modal"
+     class="hidden fixed inset-0 z-[110] bg-black/40 items-center justify-center p-4">
+
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+
+    <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+
+      <div>
+
+        <h3 class="font-bold text-lg text-gray-800">
+          Remove Project Location
+        </h3>
+
+        <p class="text-xs text-gray-500 mt-0.5">
+          The project and Billing will not be deleted.
+        </p>
+
+      </div>
+
+      <button id="remove-modal-close"
+              type="button"
+              class="w-9 h-9 rounded-full hover:bg-gray-100 text-gray-500 text-xl">
+        ×
+      </button>
+
+    </div>
+
+
+    <div class="p-5">
+
+      <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+
+        <div class="text-[11px] uppercase tracking-wide font-semibold text-gray-400">
+          Project
+        </div>
+
+        <div id="remove-project-name"
+             class="font-bold text-gray-800 mt-1">
+          —
+        </div>
+
+      </div>
+
+
+      <div class="mt-4">
+
+        <label class="block text-xs font-semibold text-gray-600 mb-1">
+          Reason
+        </label>
+
+        <input id="remove-reason"
+               type="text"
+               placeholder="Why is this location being removed?"
+               class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200">
+
+        <div class="text-[11px] text-gray-400 mt-1">
+          Required. The previous coordinates remain in the audit history.
+        </div>
+
+      </div>
+
+
+      <div id="remove-error"
+           class="hidden mt-3 rounded-xl bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">
+      </div>
+
+    </div>
+
+
+    <div class="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+
+      <button id="remove-cancel"
+              type="button"
+              class="px-4 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700">
+        Cancel
+      </button>
+
+      <button id="remove-confirm"
+              type="button"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
+
+        <span>🗑️</span>
+        <span>Remove Location</span>
+
+      </button>
+
+    </div>
+
+  </div>
+
+</div>

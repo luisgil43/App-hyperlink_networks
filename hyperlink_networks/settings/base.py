@@ -93,6 +93,8 @@ INSTALLED_APPS = [
     "client_submissions",
     "client_submission_remote.apps.ClientSubmissionRemoteConfig",
     "dashboard_admin.apps.DashboardAdminConfig",
+    # Maps / Geographic infrastructure
+    "maps.apps.MapsConfig",
     # Planning
     "planificacion.apps.PlanificacionConfig",
 ]
@@ -311,6 +313,9 @@ SIMPLE_JWT = {
     "SIGNING_KEY": SECRET_KEY,
     "LEEWAY": 0,
 }
+
+# Google Maps
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
 # ==============================
 

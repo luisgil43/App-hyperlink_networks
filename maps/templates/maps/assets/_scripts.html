@@ -1,0 +1,3318 @@
+{% if google_maps_api_key %}
+
+<script>
+
+  let hyperlinkMap = null;
+  let infoWindow = null;
+
+  const projectMarkers = new Map();
+
+const PROJECT_LABELS_STORAGE_KEY =
+  "hyperlink_maps_show_project_ids";
+
+const MAP_VIEWPORT_STORAGE_KEY =
+  "hyperlink_maps_viewport";
+
+let showProjectLabels = true;
+
+  let pendingMode = "add";
+  let pendingLatitude = null;
+  let pendingLongitude = null;
+  let pendingBillingId = null;
+  let pendingProjectId = null;
+
+  /*
+   * Move preview state.
+   *
+   * Dragging NEVER persists coordinates.
+   * Database persistence happens only after:
+   *
+   * Move -> Drag -> Anchor -> Reason -> Move Location
+   */
+  let activeMove = null;
+
+  let removeBillingId = null;
+  let removeProjectId = null;
+
+
+  function getCookie(name) {
+
+    let cookieValue = null;
+
+    if (
+      document.cookie &&
+      document.cookie !== ""
+    ) {
+
+      const cookies =
+        document.cookie.split(";");
+
+      for (
+        let i = 0;
+        i < cookies.length;
+        i++
+      ) {
+
+        const cookie =
+          cookies[i].trim();
+
+        if (
+          cookie.substring(
+            0,
+            name.length + 1
+          ) ===
+          (name + "=")
+        ) {
+
+          cookieValue =
+            decodeURIComponent(
+              cookie.substring(
+                name.length + 1
+              )
+            );
+
+          break;
+        }
+      }
+    }
+
+    return cookieValue;
+  }
+
+
+  function projectButtons() {
+
+    return Array.from(
+      document.querySelectorAll(
+        ".js-project"
+      )
+    );
+  }
+
+
+  function modalProjectButtons() {
+
+    return Array.from(
+      document.querySelectorAll(
+        ".js-modal-project"
+      )
+    );
+  }
+
+
+  function projectButtonByFullId(
+    fullId
+  ) {
+
+    return projectButtons().find(
+      (item) =>
+        item.dataset.fullId === fullId
+    );
+  }
+
+
+  function projectSearchText(button) {
+
+    return (
+      (button.dataset.fullId || "") +
+      " " +
+      (button.dataset.displayId || "") +
+      " " +
+      (button.dataset.dfn || "")
+    ).toLowerCase();
+  }
+
+
+  function markerDisplayId(button) {
+
+    const selectedScope =
+      "{{ selected_scope|escapejs }}";
+
+    if (
+      selectedScope &&
+      selectedScope !== "all"
+    ) {
+
+      return (
+        button.dataset.displayId ||
+        button.dataset.fullId ||
+        ""
+      );
+    }
+
+    return (
+      button.dataset.fullId ||
+      button.dataset.displayId ||
+      ""
+    );
+  }
+
+  function readProjectLabelsPreference() {
+
+  try {
+
+    const stored =
+      window.localStorage.getItem(
+        PROJECT_LABELS_STORAGE_KEY
+      );
+
+    /*
+     * Default = visible.
+     *
+     * Only the explicit stored value "false"
+     * turns labels off.
+     */
+    return stored !== "false";
+  }
+  catch (error) {
+
+    return true;
+  }
+}
+
+
+function saveProjectLabelsPreference(
+  visible
+) {
+
+  try {
+
+    window.localStorage.setItem(
+      PROJECT_LABELS_STORAGE_KEY,
+      visible ? "true" : "false"
+    );
+  }
+  catch (error) {
+
+    /*
+     * localStorage may be unavailable in some
+     * browser/privacy configurations.
+     *
+     * The current-page toggle still works.
+     */
+  }
+}
+
+
+function markerLabelForButton(
+  button
+) {
+
+  if (!showProjectLabels) {
+    return null;
+  }
+
+  return {
+    text:
+      markerDisplayId(
+        button
+      ),
+
+    color: "#111827",
+
+    fontSize: "11px",
+
+    fontWeight: "700",
+
+    className:
+      "project-map-marker-label",
+  };
+}
+
+
+function applyProjectLabelsVisibility() {
+
+  projectMarkers.forEach(
+    (marker, fullId) => {
+
+      const button =
+        projectButtonByFullId(
+          fullId
+        );
+
+      if (!button) {
+        return;
+      }
+
+      marker.setLabel(
+        markerLabelForButton(
+          button
+        )
+      );
+    }
+  );
+}
+
+
+function bindProjectLabelsToggle() {
+
+  const checkbox =
+    document.getElementById(
+      "map-show-project-labels"
+    );
+
+  if (!checkbox) {
+    return;
+  }
+
+
+  showProjectLabels =
+    readProjectLabelsPreference();
+
+  checkbox.checked =
+    showProjectLabels;
+
+
+  checkbox.addEventListener(
+    "change",
+    function () {
+
+      showProjectLabels =
+        checkbox.checked;
+
+      saveProjectLabelsPreference(
+        showProjectLabels
+      );
+
+      applyProjectLabelsVisibility();
+    }
+  );
+}
+
+    function preserveMapViewportForReload() {
+
+  if (!hyperlinkMap) {
+    return;
+  }
+
+  const center =
+    hyperlinkMap.getCenter();
+
+  const zoom =
+    hyperlinkMap.getZoom();
+
+  if (
+    !center ||
+    !Number.isFinite(zoom)
+  ) {
+    return;
+  }
+
+  try {
+
+    window.sessionStorage.setItem(
+      MAP_VIEWPORT_STORAGE_KEY,
+      JSON.stringify({
+        lat: center.lat(),
+        lng: center.lng(),
+        zoom: zoom,
+      })
+    );
+  }
+  catch (error) {
+    // Reload can continue normally.
+  }
+}
+
+
+function consumePreservedMapViewport() {
+
+  try {
+
+    const raw =
+      window.sessionStorage.getItem(
+        MAP_VIEWPORT_STORAGE_KEY
+      );
+
+    if (!raw) {
+      return null;
+    }
+
+    /*
+     * One-use viewport.
+     *
+     * It is only intended to survive the reload caused
+     * by Save / Move / Remove.
+     */
+    window.sessionStorage.removeItem(
+      MAP_VIEWPORT_STORAGE_KEY
+    );
+
+    const viewport =
+      JSON.parse(raw);
+
+    const latitude =
+      Number(viewport.lat);
+
+    const longitude =
+      Number(viewport.lng);
+
+    const zoom =
+      Number(viewport.zoom);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(zoom)
+    ) {
+      return null;
+    }
+
+    return {
+      lat: latitude,
+      lng: longitude,
+      zoom: zoom,
+    };
+  }
+  catch (error) {
+
+    return null;
+  }
+}
+
+
+  /*
+   * Vector Box / CTO icon.
+   *
+   * No external image is required.
+   * The fill color remains tied to SesionBilling.estado.
+   */
+  function markerSymbol(color) {
+
+    return {
+      path: [
+        "M -9 -15",
+        "Q -9 -18 -6 -18",
+        "L 6 -18",
+        "Q 9 -18 9 -15",
+        "L 9 7",
+        "Q 9 10 6 10",
+        "L 4 10",
+        "L 4 14",
+        "L 1.5 14",
+        "L 1.5 10",
+        "L -1.5 10",
+        "L -1.5 14",
+        "L -4 14",
+        "L -4 10",
+        "L -6 10",
+        "Q -9 10 -9 7",
+        "Z"
+      ].join(" "),
+
+      fillColor:
+        color || "#6b7280",
+
+      fillOpacity: 1,
+
+      strokeColor: "#ffffff",
+      strokeOpacity: 1,
+      strokeWeight: 2,
+
+      scale: 1.05,
+
+      anchor:
+        new google.maps.Point(
+          0,
+          14
+        ),
+
+      labelOrigin:
+        new google.maps.Point(
+          0,
+          -23
+        ),
+    };
+  }
+
+
+  function initHyperlinkMap() {
+
+    const mapElement =
+      document.getElementById(
+        "google-map"
+      );
+
+    const loadingElement =
+      document.getElementById(
+        "map-loading"
+      );
+
+    if (!mapElement) {
+      return;
+    }
+
+    const preservedViewport =
+      consumePreservedMapViewport();
+
+    showProjectLabels =
+      readProjectLabelsPreference();
+
+    const labelsCheckbox =
+      document.getElementById(
+        "map-show-project-labels"
+      );
+
+    if (labelsCheckbox) {
+      labelsCheckbox.checked =
+        showProjectLabels;
+    }
+
+    hyperlinkMap =
+      new google.maps.Map(
+        mapElement,
+        {
+          center: {
+            lat: 39.8283,
+            lng: -98.5795
+          },
+
+          zoom: 4,
+
+          mapTypeControl: true,
+
+          streetViewControl: false,
+
+          fullscreenControl: true,
+        }
+      );
+
+
+    infoWindow =
+      new google.maps.InfoWindow();
+
+
+    if (loadingElement) {
+
+      loadingElement.classList.add(
+        "hidden"
+      );
+    }
+
+
+    const bounds =
+      new google.maps.LatLngBounds();
+
+    let locatedCount = 0;
+
+
+    projectButtons().forEach(
+      (button) => {
+
+        button.addEventListener(
+          "click",
+          () => {
+
+            /*
+             * Do not interrupt an active drag
+             * merely by clicking the sidebar.
+             */
+            selectProject(
+              button,
+              true
+            );
+          }
+        );
+
+
+        const lat =
+          parseFloat(
+            button.dataset.lat
+          );
+
+        const lng =
+          parseFloat(
+            button.dataset.lng
+          );
+
+
+        if (
+          Number.isFinite(lat) &&
+          Number.isFinite(lng)
+        ) {
+
+          locatedCount += 1;
+
+          const position = {
+            lat: lat,
+            lng: lng
+          };
+
+          bounds.extend(
+            position
+          );
+
+          createOrReplaceProjectMarker(
+            button,
+            position
+          );
+        }
+      }
+    );
+
+
+    if (preservedViewport) {
+
+      hyperlinkMap.setCenter({
+        lat: preservedViewport.lat,
+        lng: preservedViewport.lng,
+      });
+
+      hyperlinkMap.setZoom(
+        preservedViewport.zoom
+      );
+    }
+    else if (locatedCount > 0) {
+
+      hyperlinkMap.fitBounds(
+        bounds
+      );
+
+      if (locatedCount === 1) {
+
+        hyperlinkMap.setZoom(
+          18
+        );
+      }
+    }
+
+
+    /*
+     * Right-click is EXCLUSIVELY for the first location.
+     *
+     * Move no longer uses right-click.
+     */
+    hyperlinkMap.addListener(
+      "rightclick",
+      function (event) {
+
+        if (!event.latLng) {
+          return;
+        }
+
+        /*
+         * While a Box / CTO is being moved,
+         * right-click does nothing.
+         *
+         * This prevents accidentally opening
+         * Add Project Location during a move.
+         */
+        if (activeMove) {
+          return;
+        }
+
+        openAddLocationModal(
+          event.latLng.lat(),
+          event.latLng.lng()
+        );
+      }
+    );
+
+
+    bindProjectListSearch();
+    bindUniversalSearch();
+    bindModal();
+    bindRemoveModal();
+    bindMoveControls();
+    bindProjectLabelsToggle();
+  }
+
+
+  function createOrReplaceProjectMarker(
+    button,
+    position
+  ) {
+
+    const fullId =
+      button.dataset.fullId;
+
+    const existing =
+      projectMarkers.get(
+        fullId
+      );
+
+    if (existing) {
+
+      existing.setMap(
+        null
+      );
+    }
+
+
+    const marker =
+      new google.maps.Marker({
+        map: hyperlinkMap,
+
+        position: position,
+
+        title: fullId,
+
+        icon: markerSymbol(
+          button.dataset.statusColor
+        ),
+
+        label:
+        markerLabelForButton(
+          button
+        ),
+
+        optimized: false,
+
+        draggable: false,
+
+        zIndex: 10,
+      });
+
+
+    marker.addListener(
+      "click",
+      function () {
+
+        /*
+         * While this marker is being moved,
+         * clicking it should not reopen
+         * the regular InfoWindow.
+         */
+        if (
+          activeMove &&
+          activeMove.marker === marker
+        ) {
+          return;
+        }
+
+        selectProject(
+          button,
+          false
+        );
+
+        showProjectInfo(
+          marker,
+          button
+        );
+      }
+    );
+
+
+    marker.addListener(
+      "dragstart",
+      function () {
+
+        if (
+          !activeMove ||
+          activeMove.marker !== marker
+        ) {
+          return;
+        }
+
+        activeMove.hasDragged =
+          true;
+
+        setMoveAnchorEnabled(
+          false
+        );
+      }
+    );
+
+
+    marker.addListener(
+      "drag",
+      function () {
+
+        if (
+          !activeMove ||
+          activeMove.marker !== marker
+        ) {
+          return;
+        }
+
+        const position =
+          marker.getPosition();
+
+        if (!position) {
+          return;
+        }
+
+        updateSelectedPreviewCoordinates(
+          position.lat(),
+          position.lng()
+        );
+      }
+    );
+
+
+    marker.addListener(
+      "dragend",
+      function () {
+
+        if (
+          !activeMove ||
+          activeMove.marker !== marker
+        ) {
+          return;
+        }
+
+        const position =
+          marker.getPosition();
+
+        if (!position) {
+          return;
+        }
+
+        activeMove.previewLatitude =
+          position.lat();
+
+        activeMove.previewLongitude =
+          position.lng();
+
+        updateSelectedPreviewCoordinates(
+          activeMove.previewLatitude,
+          activeMove.previewLongitude
+        );
+
+        setMoveAnchorEnabled(
+          hasMovePreviewChanged()
+        );
+      }
+    );
+
+
+    projectMarkers.set(
+      fullId,
+      marker
+    );
+  }
+
+
+  function showProjectInfo(
+    marker,
+    button
+  ) {
+
+    const displayId =
+      markerDisplayId(
+        button
+      );
+
+    const status =
+      button.dataset.statusLabel || "";
+
+    const lat =
+      button.dataset.lat || "";
+
+    const lng =
+      button.dataset.lng || "";
+
+    const billingId =
+      button.dataset.billingId || "";
+
+    const fullId =
+      button.dataset.fullId || "";
+
+
+    infoWindow.setContent(`
+      <div style="
+        min-width:220px;
+        padding:4px 2px 2px 2px;
+      ">
+
+        <div style="
+          font-weight:700;
+          font-size:14px;
+          color:#111827;
+        ">
+          ${escapeHtml(displayId)}
+        </div>
+
+        <div style="
+          margin-top:5px;
+          font-size:12px;
+          font-weight:600;
+          color:${escapeHtml(
+            button.dataset.statusColor ||
+            "#6b7280"
+          )};
+        ">
+          ■ ${escapeHtml(status)}
+        </div>
+
+        <div style="
+          margin-top:7px;
+          font-size:11px;
+          color:#6b7280;
+        ">
+          ${escapeHtml(lat)},
+          ${escapeHtml(lng)}
+        </div>
+
+        <div style="
+          display:flex;
+          align-items:center;
+          justify-content:flex-end;
+          gap:7px;
+          margin-top:10px;
+          padding-top:8px;
+          border-top:1px solid #e5e7eb;
+        ">
+
+          <button
+            type="button"
+            class="map-info-action map-info-remove"
+            onclick="window.hyperlinkRemoveLocation(
+              '${escapeJsAttribute(billingId)}',
+              '${escapeJsAttribute(fullId)}'
+            )"
+            title="Remove location">
+            🗑️
+          </button>
+
+          <button
+            type="button"
+            class="map-info-action map-info-move"
+            onclick="window.hyperlinkStartMove(
+              '${escapeJsAttribute(fullId)}'
+            )">
+            Move
+          </button>
+
+        </div>
+
+      </div>
+    `);
+
+
+    infoWindow.open(
+      hyperlinkMap,
+      marker
+    );
+  }
+
+
+  function selectProject(
+    button,
+    moveMap
+  ) {
+
+    projectButtons().forEach(
+      (item) => {
+
+        item.classList.remove(
+          "border-blue-500",
+          "bg-blue-50",
+          "ring-2",
+          "ring-blue-100"
+        );
+      }
+    );
+
+
+    button.classList.add(
+      "border-blue-500",
+      "bg-blue-50",
+      "ring-2",
+      "ring-blue-100"
+    );
+
+
+    const lat =
+      parseFloat(
+        button.dataset.lat
+      );
+
+    const lng =
+      parseFloat(
+        button.dataset.lng
+      );
+
+
+    document.getElementById(
+      "selected-project"
+    ).textContent =
+      markerDisplayId(button) || "—";
+
+
+    const statusElement =
+      document.getElementById(
+        "selected-status"
+      );
+
+    statusElement.textContent =
+      button.dataset.statusLabel || "—";
+
+    statusElement.style.color =
+      button.dataset.statusColor || "";
+
+
+    document.getElementById(
+      "selected-lat"
+    ).textContent =
+      Number.isFinite(lat)
+        ? lat.toFixed(7)
+        : "Not located";
+
+
+    document.getElementById(
+      "selected-lng"
+    ).textContent =
+      Number.isFinite(lng)
+        ? lng.toFixed(7)
+        : "Not located";
+
+
+    document.getElementById(
+      "selected-radius"
+    ).textContent =
+      (button.dataset.radius || "30") +
+      " m";
+
+
+    if (
+      moveMap &&
+      hyperlinkMap &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+
+      hyperlinkMap.panTo({
+        lat: lat,
+        lng: lng
+      });
+
+      hyperlinkMap.setZoom(
+        19
+      );
+
+
+      const marker =
+        projectMarkers.get(
+          button.dataset.fullId
+        );
+
+      if (
+        marker &&
+        !activeMove
+      ) {
+
+        showProjectInfo(
+          marker,
+          button
+        );
+      }
+    }
+  }
+
+
+  function updateSelectedPreviewCoordinates(
+    latitude,
+    longitude
+  ) {
+
+    const latElement =
+      document.getElementById(
+        "selected-lat"
+      );
+
+    const lngElement =
+      document.getElementById(
+        "selected-lng"
+      );
+
+    if (latElement) {
+
+      latElement.textContent =
+        Number(latitude).toFixed(
+          7
+        );
+    }
+
+    if (lngElement) {
+
+      lngElement.textContent =
+        Number(longitude).toFixed(
+          7
+        );
+    }
+  }
+
+
+  function restoreSelectedOfficialCoordinates(
+    button
+  ) {
+
+    const latitude =
+      parseFloat(
+        button.dataset.lat
+      );
+
+    const longitude =
+      parseFloat(
+        button.dataset.lng
+      );
+
+    document.getElementById(
+      "selected-lat"
+    ).textContent =
+      Number.isFinite(latitude)
+        ? latitude.toFixed(7)
+        : "Not located";
+
+    document.getElementById(
+      "selected-lng"
+    ).textContent =
+      Number.isFinite(longitude)
+        ? longitude.toFixed(7)
+        : "Not located";
+  }
+
+
+  function bindProjectListSearch() {
+
+    const input =
+      document.getElementById(
+        "project-list-search"
+      );
+
+    if (!input) {
+      return;
+    }
+
+
+    input.addEventListener(
+      "input",
+      function () {
+
+        const query =
+          input.value
+            .trim()
+            .toLowerCase();
+
+
+        projectButtons().forEach(
+          (button) => {
+
+            const visible =
+              !query ||
+              projectSearchText(
+                button
+              ).includes(
+                query
+              );
+
+            button.classList.toggle(
+              "hidden",
+              !visible
+            );
+          }
+        );
+      }
+    );
+  }
+
+
+  function bindUniversalSearch() {
+
+    const input =
+      document.getElementById(
+        "map-search"
+      );
+
+    const results =
+      document.getElementById(
+        "map-search-results"
+      );
+
+    if (
+      !input ||
+      !results
+    ) {
+      return;
+    }
+
+
+    input.addEventListener(
+      "input",
+      function () {
+
+        const query =
+          input.value
+            .trim()
+            .toLowerCase();
+
+        results.innerHTML = "";
+
+        if (!query) {
+
+          results.classList.add(
+            "hidden"
+          );
+
+          return;
+        }
+
+
+        const matches =
+          projectButtons()
+            .filter(
+              (button) =>
+                projectSearchText(
+                  button
+                ).includes(
+                  query
+                )
+            )
+            .slice(
+              0,
+              12
+            );
+
+
+        matches.forEach(
+          (button) => {
+
+            const item =
+              document.createElement(
+                "button"
+              );
+
+            item.type =
+              "button";
+
+            item.className =
+              "w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-b-0";
+
+
+            item.innerHTML = `
+              <div class="text-sm font-semibold text-gray-800">
+                ${escapeHtml(
+                  markerDisplayId(
+                    button
+                  )
+                )}
+              </div>
+
+              <div class="text-[11px] text-gray-500">
+                Project ID ·
+                ${escapeHtml(
+                  button.dataset.statusLabel ||
+                  ""
+                )}
+              </div>
+            `;
+
+
+            item.addEventListener(
+              "click",
+              function () {
+
+                results.classList.add(
+                  "hidden"
+                );
+
+                input.value =
+                  markerDisplayId(
+                    button
+                  );
+
+
+                const lat =
+                  parseFloat(
+                    button.dataset.lat
+                  );
+
+                const lng =
+                  parseFloat(
+                    button.dataset.lng
+                  );
+
+
+                selectProject(
+                  button,
+                  true
+                );
+
+
+                if (
+                  !Number.isFinite(lat) ||
+                  !Number.isFinite(lng)
+                ) {
+
+                  alert(
+                    "Project found, but its location has not been assigned yet."
+                  );
+                }
+              }
+            );
+
+
+            results.appendChild(
+              item
+            );
+          }
+        );
+
+
+        results.classList.toggle(
+          "hidden",
+          matches.length === 0
+        );
+      }
+    );
+
+
+    input.addEventListener(
+      "keydown",
+      function (event) {
+
+        if (
+          event.key !== "Enter"
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const query =
+          input.value.trim();
+
+        if (!query) {
+          return;
+        }
+
+
+        const exactProject =
+          projectButtons().find(
+            (button) => {
+
+              const full =
+                (
+                  button.dataset.fullId ||
+                  ""
+                ).toLowerCase();
+
+              const display =
+                (
+                  button.dataset.displayId ||
+                  ""
+                ).toLowerCase();
+
+              return (
+                full ===
+                  query.toLowerCase() ||
+                display ===
+                  query.toLowerCase()
+              );
+            }
+          );
+
+
+        if (exactProject) {
+
+          results.classList.add(
+            "hidden"
+          );
+
+          selectProject(
+            exactProject,
+            true
+          );
+
+
+          const lat =
+            parseFloat(
+              exactProject.dataset.lat
+            );
+
+          const lng =
+            parseFloat(
+              exactProject.dataset.lng
+            );
+
+
+          if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lng)
+          ) {
+
+            alert(
+              "Project found, but its location has not been assigned yet."
+            );
+          }
+
+          return;
+        }
+
+
+        results.classList.add(
+          "hidden"
+        );
+
+        geocodeAddress(
+          query
+        );
+      }
+    );
+  }
+
+
+  function geocodeAddress(
+    address
+  ) {
+
+    const geocoder =
+      new google.maps.Geocoder();
+
+
+    geocoder.geocode(
+      {
+        address: address,
+
+        componentRestrictions: {
+          country: "US"
+        }
+      },
+
+      function (
+        results,
+        status
+      ) {
+
+        if (
+          status === "OK" &&
+          results &&
+          results.length > 0
+        ) {
+
+          hyperlinkMap.fitBounds(
+            results[0]
+              .geometry
+              .viewport
+          );
+
+          if (
+            hyperlinkMap.getZoom() >
+            18
+          ) {
+
+            hyperlinkMap.setZoom(
+              18
+            );
+          }
+
+          return;
+        }
+
+
+        alert(
+          "No matching Project ID or U.S. address was found."
+        );
+      }
+    );
+  }
+
+
+  function resetLocationModal() {
+
+    pendingLatitude = null;
+    pendingLongitude = null;
+    pendingBillingId = null;
+    pendingProjectId = null;
+
+    const search =
+      document.getElementById(
+        "modal-project-search"
+      );
+
+    const reason =
+      document.getElementById(
+        "modal-reason"
+      );
+
+    const error =
+      document.getElementById(
+        "modal-error"
+      );
+
+    const selected =
+      document.getElementById(
+        "modal-selected-project"
+      );
+
+    const save =
+      document.getElementById(
+        "modal-save"
+      );
+
+
+    if (search) {
+      search.value = "";
+    }
+
+    if (reason) {
+      reason.value = "";
+    }
+
+    if (error) {
+      error.classList.add(
+        "hidden"
+      );
+    }
+
+    if (selected) {
+      selected.textContent =
+        "No project selected";
+    }
+
+    if (save) {
+      save.disabled = true;
+    }
+
+
+    /*
+    * Reset selection styling only.
+    *
+    * IMPORTANT:
+    * Do NOT remove "hidden" here.
+    *
+    * A candidate may have been hidden dynamically
+    * because its official location was just added.
+    * Showing every candidate again would make a
+    * located CTO incorrectly available for placement.
+    */
+    modalProjectButtons().forEach(
+      (button) => {
+
+        button.classList.remove(
+          "bg-blue-100"
+        );
+      }
+    );
+  }
+
+  function openAddLocationModal(
+    latitude,
+    longitude
+  ) {
+
+    pendingMode =
+      "add";
+
+    resetLocationModal();
+
+    pendingLatitude =
+      latitude;
+
+    pendingLongitude =
+      longitude;
+
+
+    document.getElementById(
+      "location-modal-title"
+    ).textContent =
+      "Add Project Location";
+
+
+    document.getElementById(
+      "location-modal-subtitle"
+    ).textContent =
+      "Select an Assigned or In progress Project ID to place at this point.";
+
+
+    document.getElementById(
+      "modal-project-picker"
+    ).classList.remove(
+      "hidden"
+    );
+
+
+    document.getElementById(
+      "modal-lat"
+    ).value =
+      latitude.toFixed(7);
+
+
+    document.getElementById(
+      "modal-lng"
+    ).value =
+      longitude.toFixed(7);
+
+
+    document.getElementById(
+      "modal-reason-label"
+    ).textContent =
+      "Reason / Note";
+
+
+    document.getElementById(
+      "modal-reason"
+    ).placeholder =
+      "Optional note...";
+
+
+    document.getElementById(
+      "modal-reason-help"
+    ).textContent =
+      "Optional for the first location.";
+
+
+    document.getElementById(
+      "modal-save"
+    ).textContent =
+      "Save Location";
+
+
+    openLocationModalElement();
+
+
+    setTimeout(
+      function () {
+
+        document.getElementById(
+          "modal-project-search"
+        ).focus();
+      },
+      50
+    );
+  }
+
+
+  function openMoveLocationModal(
+    button,
+    latitude,
+    longitude
+  ) {
+
+    pendingMode =
+      "move";
+
+    resetLocationModal();
+
+    pendingLatitude =
+      latitude;
+
+    pendingLongitude =
+      longitude;
+
+    pendingBillingId =
+      button.dataset.billingId;
+
+    pendingProjectId =
+      button.dataset.fullId;
+
+
+    document.getElementById(
+      "location-modal-title"
+    ).textContent =
+      "Move Project Location";
+
+
+    document.getElementById(
+      "location-modal-subtitle"
+    ).textContent =
+      "Confirm the new location for this Project ID.";
+
+
+    document.getElementById(
+      "modal-project-picker"
+    ).classList.add(
+      "hidden"
+    );
+
+
+    document.getElementById(
+      "modal-lat"
+    ).value =
+      latitude.toFixed(7);
+
+
+    document.getElementById(
+      "modal-lng"
+    ).value =
+      longitude.toFixed(7);
+
+
+    document.getElementById(
+      "modal-selected-project"
+    ).textContent =
+      markerDisplayId(
+        button
+      );
+
+
+    document.getElementById(
+      "modal-reason-label"
+    ).textContent =
+      "Reason";
+
+
+    document.getElementById(
+      "modal-reason"
+    ).placeholder =
+      "Why is this location being moved?";
+
+
+    document.getElementById(
+      "modal-reason-help"
+    ).textContent =
+      "Required for location changes.";
+
+
+    document.getElementById(
+      "modal-save"
+    ).disabled =
+      false;
+
+
+    document.getElementById(
+      "modal-save"
+    ).textContent =
+      "Move Location";
+
+
+    openLocationModalElement();
+
+
+    setTimeout(
+      function () {
+
+        document.getElementById(
+          "modal-reason"
+        ).focus();
+      },
+      50
+    );
+  }
+
+
+  function openLocationModalElement() {
+
+    const modal =
+      document.getElementById(
+        "location-modal"
+      );
+
+    modal.classList.remove(
+      "hidden"
+    );
+
+    modal.classList.add(
+      "flex"
+    );
+  }
+
+
+  function closeLocationModal(
+    restoreMovePreview = true
+  ) {
+
+    const modal =
+      document.getElementById(
+        "location-modal"
+      );
+
+    modal.classList.add(
+      "hidden"
+    );
+
+    modal.classList.remove(
+      "flex"
+    );
+
+
+    /*
+     * Closing/cancelling the move confirmation means
+     * the preview was NOT accepted.
+     *
+     * Return the marker to the official coordinates.
+     */
+    if (
+      restoreMovePreview &&
+      pendingMode === "move" &&
+      activeMove
+    ) {
+
+      cancelActiveMove();
+    }
+  }
+
+
+  function bindModal() {
+
+    document.getElementById(
+      "modal-close"
+    ).addEventListener(
+      "click",
+      function () {
+        closeLocationModal(
+          true
+        );
+      }
+    );
+
+
+    document.getElementById(
+      "modal-cancel"
+    ).addEventListener(
+      "click",
+      function () {
+        closeLocationModal(
+          true
+        );
+      }
+    );
+
+
+    const search =
+      document.getElementById(
+        "modal-project-search"
+      );
+
+
+    search.addEventListener(
+      "input",
+      function () {
+
+        const query =
+          search.value
+            .trim()
+            .toLowerCase();
+
+
+        modalProjectButtons().forEach(
+          (button) => {
+
+            const text =
+              (
+                (
+                  button.dataset.fullId ||
+                  ""
+                ) +
+                " " +
+                (
+                  button.dataset.displayId ||
+                  ""
+                )
+              ).toLowerCase();
+
+
+            button.classList.toggle(
+              "hidden",
+              Boolean(
+                query &&
+                !text.includes(
+                  query
+                )
+              )
+            );
+          }
+        );
+      }
+    );
+
+
+    modalProjectButtons().forEach(
+      (button) => {
+
+        button.addEventListener(
+          "click",
+          function () {
+
+            modalProjectButtons()
+              .forEach(
+                (item) => {
+
+                  item.classList.remove(
+                    "bg-blue-100"
+                  );
+                }
+              );
+
+
+            button.classList.add(
+              "bg-blue-100"
+            );
+
+
+            pendingBillingId =
+              button.dataset.billingId;
+
+            pendingProjectId =
+              button.dataset.fullId;
+
+
+            document.getElementById(
+              "modal-selected-project"
+            ).textContent =
+              button.dataset.displayId ||
+              button.dataset.fullId;
+
+
+            document.getElementById(
+              "modal-save"
+            ).disabled =
+              false;
+          }
+        );
+      }
+    );
+
+
+    document.getElementById(
+      "modal-save"
+    ).addEventListener(
+      "click",
+      saveLocation
+    );
+  }
+
+
+  function bindMoveControls() {
+
+    const anchorButton =
+      document.getElementById(
+        "map-move-anchor"
+      );
+
+    const cancelButton =
+      document.getElementById(
+        "map-move-cancel"
+      );
+
+
+    if (anchorButton) {
+
+      anchorButton.addEventListener(
+        "click",
+        anchorActiveMove
+      );
+    }
+
+
+    if (cancelButton) {
+
+      cancelButton.addEventListener(
+        "click",
+        cancelActiveMove
+      );
+    }
+  }
+
+
+  function showMoveControl(
+    button
+  ) {
+
+    const control =
+      document.getElementById(
+        "map-move-control"
+      );
+
+    const project =
+      document.getElementById(
+        "map-move-project"
+      );
+
+
+    if (project) {
+
+      project.textContent =
+        markerDisplayId(
+          button
+        );
+    }
+
+
+    if (control) {
+
+      control.classList.remove(
+        "hidden"
+      );
+    }
+
+
+    setMoveAnchorEnabled(
+      false
+    );
+  }
+
+
+  function hideMoveControl() {
+
+    const control =
+      document.getElementById(
+        "map-move-control"
+      );
+
+    if (control) {
+
+      control.classList.add(
+        "hidden"
+      );
+    }
+
+
+    setMoveAnchorEnabled(
+      false
+    );
+  }
+
+
+  function setMoveAnchorEnabled(
+    enabled
+  ) {
+
+    const button =
+      document.getElementById(
+        "map-move-anchor"
+      );
+
+    if (button) {
+
+      button.disabled =
+        !enabled;
+    }
+  }
+
+
+  function hasMovePreviewChanged() {
+
+    if (!activeMove) {
+      return false;
+    }
+
+    if (
+      !Number.isFinite(
+        activeMove.previewLatitude
+      ) ||
+      !Number.isFinite(
+        activeMove.previewLongitude
+      )
+    ) {
+      return false;
+    }
+
+
+    const tolerance =
+      0.0000001;
+
+
+    return (
+      Math.abs(
+        activeMove.previewLatitude -
+        activeMove.originalLatitude
+      ) > tolerance
+      ||
+      Math.abs(
+        activeMove.previewLongitude -
+        activeMove.originalLongitude
+      ) > tolerance
+    );
+  }
+
+
+  function startMove(
+    button,
+    marker
+  ) {
+
+    /*
+     * Only one marker may be in move mode.
+     *
+     * If another one was already active,
+     * restore it before starting the new one.
+     */
+    if (activeMove) {
+
+      cancelActiveMove();
+    }
+
+
+    const position =
+      marker.getPosition();
+
+    if (!position) {
+      return;
+    }
+
+
+    const originalLatitude =
+      position.lat();
+
+    const originalLongitude =
+      position.lng();
+
+
+    activeMove = {
+      button: button,
+      marker: marker,
+
+      originalLatitude:
+        originalLatitude,
+
+      originalLongitude:
+        originalLongitude,
+
+      previewLatitude:
+        originalLatitude,
+
+      previewLongitude:
+        originalLongitude,
+
+      hasDragged: false,
+    };
+
+
+    marker.setDraggable(
+      true
+    );
+
+    marker.setZIndex(
+      1000
+    );
+
+
+    if (infoWindow) {
+
+      infoWindow.close();
+    }
+
+
+    selectProject(
+      button,
+      false
+    );
+
+
+    updateSelectedPreviewCoordinates(
+      originalLatitude,
+      originalLongitude
+    );
+
+
+    showMoveControl(
+      button
+    );
+  }
+
+
+  function cancelActiveMove() {
+
+    if (!activeMove) {
+
+      hideMoveControl();
+
+      return;
+    }
+
+
+    const move =
+      activeMove;
+
+
+    /*
+     * Clear state first so marker listeners
+     * cannot treat the reset as another preview.
+     */
+    activeMove =
+      null;
+
+
+    move.marker.setDraggable(
+      false
+    );
+
+    move.marker.setZIndex(
+      10
+    );
+
+    move.marker.setPosition({
+      lat:
+        move.originalLatitude,
+
+      lng:
+        move.originalLongitude,
+    });
+
+
+    restoreSelectedOfficialCoordinates(
+      move.button
+    );
+
+
+    hideMoveControl();
+  }
+
+
+  function anchorActiveMove() {
+
+    if (!activeMove) {
+      return;
+    }
+
+
+    if (
+      !hasMovePreviewChanged()
+    ) {
+
+      setMoveAnchorEnabled(
+        false
+      );
+
+      return;
+    }
+
+
+    const move =
+      activeMove;
+
+
+    /*
+     * Anchor means:
+     *
+     * - stop physical dragging;
+     * - keep marker at preview position;
+     * - do NOT save anything yet;
+     * - request the mandatory reason.
+     */
+    move.marker.setDraggable(
+      false
+    );
+
+    move.marker.setZIndex(
+      1000
+    );
+
+
+    hideMoveControl();
+
+
+    openMoveLocationModal(
+      move.button,
+      move.previewLatitude,
+      move.previewLongitude
+    );
+  }
+
+
+  window.hyperlinkStartMove =
+    function (fullId) {
+
+      const button =
+        projectButtonByFullId(
+          fullId
+        );
+
+      if (!button) {
+        return;
+      }
+
+
+      const marker =
+        projectMarkers.get(
+          fullId
+        );
+
+      if (!marker) {
+        return;
+      }
+
+
+      startMove(
+        button,
+        marker
+      );
+    };
+
+
+  window.hyperlinkRemoveLocation =
+    function (
+      billingId,
+      fullId
+    ) {
+
+      /*
+       * Do not mix remove with an unsaved move.
+       */
+      if (activeMove) {
+
+        cancelActiveMove();
+      }
+
+
+      const button =
+        projectButtonByFullId(
+          fullId
+        );
+
+      if (!button) {
+        return;
+      }
+
+
+      removeBillingId =
+        billingId;
+
+      removeProjectId =
+        fullId;
+
+
+      document.getElementById(
+        "remove-project-name"
+      ).textContent =
+        markerDisplayId(
+          button
+        );
+
+
+      document.getElementById(
+        "remove-reason"
+      ).value = "";
+
+
+      document.getElementById(
+        "remove-error"
+      ).classList.add(
+        "hidden"
+      );
+
+
+      const modal =
+        document.getElementById(
+          "remove-modal"
+        );
+
+
+      modal.classList.remove(
+        "hidden"
+      );
+
+      modal.classList.add(
+        "flex"
+      );
+
+
+      if (infoWindow) {
+
+        infoWindow.close();
+      }
+
+
+      setTimeout(
+        function () {
+
+          document.getElementById(
+            "remove-reason"
+          ).focus();
+        },
+        50
+      );
+    };
+
+
+  function closeRemoveModal() {
+
+    const modal =
+      document.getElementById(
+        "remove-modal"
+      );
+
+    modal.classList.add(
+      "hidden"
+    );
+
+    modal.classList.remove(
+      "flex"
+    );
+
+    removeBillingId =
+      null;
+
+    removeProjectId =
+      null;
+  }
+
+
+  function bindRemoveModal() {
+
+    document.getElementById(
+      "remove-modal-close"
+    ).addEventListener(
+      "click",
+      closeRemoveModal
+    );
+
+
+    document.getElementById(
+      "remove-cancel"
+    ).addEventListener(
+      "click",
+      closeRemoveModal
+    );
+
+
+    document.getElementById(
+      "remove-confirm"
+    ).addEventListener(
+      "click",
+      removeLocation
+    );
+  }
+
+
+  async function saveLocation() {
+
+    const errorElement =
+      document.getElementById(
+        "modal-error"
+      );
+
+    const saveButton =
+      document.getElementById(
+        "modal-save"
+      );
+
+    const reason =
+      document.getElementById(
+        "modal-reason"
+      ).value.trim();
+
+
+    errorElement.classList.add(
+      "hidden"
+    );
+
+
+    if (
+      !pendingBillingId ||
+      pendingLatitude === null ||
+      pendingLongitude === null
+    ) {
+
+      errorElement.textContent =
+        "Select a project first.";
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+
+      return;
+    }
+
+
+    if (
+      pendingMode === "move" &&
+      !reason
+    ) {
+
+      errorElement.textContent =
+        "A reason is required to move the location.";
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+
+      return;
+    }
+
+
+    saveButton.disabled =
+      true;
+
+
+    saveButton.textContent =
+      pendingMode === "move"
+        ? "Moving..."
+        : "Saving...";
+
+
+    const body =
+      new URLSearchParams();
+
+
+    body.append(
+      "billing_id",
+      pendingBillingId
+    );
+
+    body.append(
+      "latitude",
+      pendingLatitude.toFixed(7)
+    );
+
+    body.append(
+      "longitude",
+      pendingLongitude.toFixed(7)
+    );
+
+    body.append(
+      "reason",
+      reason
+    );
+
+    body.append(
+      "mode",
+      pendingMode
+    );
+
+
+    try {
+
+      const response =
+        await fetch(
+          "{% url 'maps:save_project_location' %}",
+          {
+            method: "POST",
+
+            headers: {
+              "X-CSRFToken":
+                getCookie(
+                  "csrftoken"
+                ),
+
+              "Content-Type":
+                "application/x-www-form-urlencoded;charset=UTF-8",
+            },
+
+            body:
+              body.toString(),
+          }
+        );
+
+
+      const data =
+        await response.json();
+
+
+      if (
+        !response.ok ||
+        !data.ok
+      ) {
+
+        throw new Error(
+          data.error ||
+          "Unable to save location."
+        );
+      }
+
+
+      const project =
+        data.project || {};
+
+      const fullId =
+        project.full_id ||
+        pendingProjectId ||
+        "";
+
+      const button =
+        projectButtonByFullId(
+          fullId
+        );
+
+
+      if (!button) {
+
+        throw new Error(
+          "Location was saved, but the project could not be updated on the map."
+        );
+      }
+
+
+      const latitude =
+        parseFloat(
+          project.latitude
+        );
+
+      const longitude =
+        parseFloat(
+          project.longitude
+        );
+
+
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+      ) {
+
+        throw new Error(
+          "Location was saved, but the returned coordinates are invalid."
+        );
+      }
+
+
+      /*
+      * Update the project's in-page source of truth.
+      */
+      button.dataset.lat =
+        latitude.toFixed(7);
+
+      button.dataset.lng =
+        longitude.toFixed(7);
+
+      if (project.validation_radius_m != null) {
+
+        button.dataset.radius =
+          String(
+            project.validation_radius_m
+          );
+      }
+
+      if (project.estado) {
+
+        button.dataset.status =
+          project.estado;
+      }
+
+      if (project.status_label) {
+
+        button.dataset.statusLabel =
+          project.status_label;
+      }
+
+      if (project.status_color) {
+
+        button.dataset.statusColor =
+          project.status_color;
+      }
+
+
+      /*
+      * Update the existing marker for Move,
+      * or create it immediately for Add.
+      */
+      createOrReplaceProjectMarker(
+        button,
+        {
+          lat: latitude,
+          lng: longitude,
+        }
+      );
+
+
+      /*
+      * Update the visible selected-project coordinates.
+      */
+      selectProject(
+        button,
+        false
+      );
+
+
+      /*
+      * The project is no longer eligible for
+      * Add Project Location because it is now located.
+      */
+      const modalCandidate =
+        modalProjectButtons().find(
+          (item) =>
+            item.dataset.fullId === fullId
+        );
+
+      if (modalCandidate) {
+
+        modalCandidate.classList.add(
+          "hidden"
+        );
+      }
+
+
+      /*
+      * Update the Located / Not located text
+      * in the left project card without reloading.
+      */
+      const statusRow =
+        button.querySelector(
+          ".mt-2.flex.flex-wrap.items-center.gap-2"
+        );
+
+      if (
+        statusRow &&
+        statusRow.children.length >= 2
+      ) {
+
+        const locationLabel =
+          statusRow.children[1];
+
+        locationLabel.className =
+          "text-[11px] text-gray-400";
+
+        locationLabel.textContent =
+          "Located";
+      }
+
+
+      /*
+      * Update the small location indicator
+      * in the upper-right of the project card.
+      */
+      const projectHeader =
+        button.querySelector(
+          ".flex.items-start.justify-between.gap-2"
+        );
+
+      if (
+        projectHeader &&
+        projectHeader.children.length >= 2
+      ) {
+
+        const indicator =
+          projectHeader.children[
+            projectHeader.children.length - 1
+          ];
+
+        indicator.className =
+          "flex-shrink-0 w-2.5 h-2.5 rounded-sm mt-1.5";
+
+        indicator.style.background =
+          button.dataset.statusColor ||
+          "#6b7280";
+
+        indicator.title =
+          button.dataset.statusLabel ||
+          "";
+
+        indicator.textContent =
+          "";
+      }
+
+
+      /*
+      * Move preview is now officially persisted.
+      */
+      activeMove =
+        null;
+
+      hideMoveControl();
+
+
+      closeLocationModal(
+        false
+      );
+
+
+      /*
+      * No page reload.
+      *
+      * The map therefore keeps exactly the current
+      * center and zoom and there is no Google Maps flash.
+      */
+    }
+    catch (error) {
+
+      errorElement.textContent =
+        error.message;
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+
+      saveButton.disabled =
+        false;
+    }
+    finally {
+
+      saveButton.textContent =
+        pendingMode === "move"
+          ? "Move Location"
+          : "Save Location";
+    }
+  }
+
+
+  async function removeLocation() {
+
+    const reasonInput =
+      document.getElementById(
+        "remove-reason"
+      );
+
+    const errorElement =
+      document.getElementById(
+        "remove-error"
+      );
+
+    const button =
+      document.getElementById(
+        "remove-confirm"
+      );
+
+    const reason =
+      reasonInput.value.trim();
+
+
+    errorElement.classList.add(
+      "hidden"
+    );
+
+
+    if (!removeBillingId) {
+
+      errorElement.textContent =
+        "Project location was not identified.";
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+
+      return;
+    }
+
+
+    if (!reason) {
+
+      errorElement.textContent =
+        "A reason is required to remove the location.";
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+
+      reasonInput.focus();
+
+      return;
+    }
+
+
+    button.disabled =
+      true;
+
+    button.innerHTML =
+      "<span>Removing...</span>";
+
+
+    const billingId =
+      removeBillingId;
+
+    const fullId =
+      removeProjectId;
+
+
+    const body =
+      new URLSearchParams();
+
+
+    body.append(
+      "billing_id",
+      billingId
+    );
+
+    body.append(
+      "reason",
+      reason
+    );
+
+
+    try {
+
+      const response =
+        await fetch(
+          "{% url 'maps:remove_project_location' %}",
+          {
+            method: "POST",
+
+            headers: {
+              "X-CSRFToken":
+                getCookie(
+                  "csrftoken"
+                ),
+
+              "Content-Type":
+                "application/x-www-form-urlencoded;charset=UTF-8",
+            },
+
+            body:
+              body.toString(),
+          }
+        );
+
+
+      const data =
+        await response.json();
+
+
+      if (
+        !response.ok ||
+        !data.ok
+      ) {
+
+        throw new Error(
+          data.error ||
+          "Unable to remove location."
+        );
+      }
+
+
+      const project =
+        data.project || {};
+
+      const resolvedFullId =
+        project.full_id ||
+        fullId ||
+        "";
+
+
+      const projectButton =
+        projectButtonByFullId(
+          resolvedFullId
+        );
+
+
+      /*
+      * Remove marker from the map.
+      */
+      const marker =
+        projectMarkers.get(
+          resolvedFullId
+        );
+
+
+      if (marker) {
+
+        marker.setMap(
+          null
+        );
+
+        projectMarkers.delete(
+          resolvedFullId
+        );
+      }
+
+
+      if (infoWindow) {
+
+        infoWindow.close();
+      }
+
+
+      if (projectButton) {
+
+        /*
+        * Official location no longer exists.
+        */
+        projectButton.dataset.lat =
+          "";
+
+        projectButton.dataset.lng =
+          "";
+
+
+        /*
+        * Update Located -> Not located
+        * in the project card.
+        */
+        const statusRow =
+          projectButton.querySelector(
+            ".mt-2.flex.flex-wrap.items-center.gap-2"
+          );
+
+        if (
+          statusRow &&
+          statusRow.children.length >= 2
+        ) {
+
+          const locationLabel =
+            statusRow.children[1];
+
+          locationLabel.className =
+            "text-[11px] font-semibold text-amber-600";
+
+          locationLabel.textContent =
+            "Not located";
+        }
+
+
+        /*
+        * Restore the unlocated circle indicator.
+        */
+        const projectHeader =
+          projectButton.querySelector(
+            ".flex.items-start.justify-between.gap-2"
+          );
+
+        if (
+          projectHeader &&
+          projectHeader.children.length >= 2
+        ) {
+
+          const indicator =
+            projectHeader.children[
+              projectHeader.children.length - 1
+            ];
+
+          indicator.className =
+            "flex-shrink-0 text-amber-500 text-sm";
+
+          indicator.style.background =
+            "";
+
+          indicator.title =
+            "Not located";
+
+          indicator.textContent =
+            "○";
+        }
+
+
+        /*
+        * Update selected project coordinates.
+        */
+        const selectedProject =
+          document.getElementById(
+            "selected-project"
+          );
+
+        if (
+          selectedProject &&
+          selectedProject.textContent.trim() ===
+            markerDisplayId(
+              projectButton
+            ).trim()
+        ) {
+
+          document.getElementById(
+            "selected-lat"
+          ).textContent =
+            "Not located";
+
+          document.getElementById(
+            "selected-lng"
+          ).textContent =
+            "Not located";
+        }
+
+
+        /*
+        * Assigned / In progress projects become
+        * immediately available for placement again.
+        */
+        if (
+          projectButton.dataset.status ===
+            "asignado" ||
+          projectButton.dataset.status ===
+            "en_proceso"
+        ) {
+
+          const modalList =
+            document.getElementById(
+              "modal-project-list"
+            );
+
+
+          let modalCandidate =
+            modalProjectButtons().find(
+              (item) =>
+                item.dataset.fullId ===
+                resolvedFullId
+            );
+
+
+          /*
+          * Candidate already exists:
+          * simply make it available again.
+          */
+          if (modalCandidate) {
+
+            modalCandidate.classList.remove(
+              "hidden",
+              "bg-blue-100"
+            );
+          }
+
+          /*
+          * Candidate does not exist in the current DOM:
+          * recreate it without reloading the page.
+          */
+          else if (modalList) {
+
+            modalCandidate =
+              document.createElement(
+                "button"
+              );
+
+            modalCandidate.type =
+              "button";
+
+            modalCandidate.className =
+              "js-modal-project w-full text-left px-3 py-2.5 hover:bg-blue-50 transition";
+
+
+            modalCandidate.dataset.billingId =
+              projectButton.dataset.billingId ||
+              billingId;
+
+            modalCandidate.dataset.fullId =
+              projectButton.dataset.fullId ||
+              resolvedFullId;
+
+            modalCandidate.dataset.displayId =
+              projectButton.dataset.displayId ||
+              project.display_id ||
+              resolvedFullId;
+
+            modalCandidate.dataset.statusLabel =
+              projectButton.dataset.statusLabel ||
+              "";
+
+            modalCandidate.dataset.statusColor =
+              projectButton.dataset.statusColor ||
+              "#6b7280";
+
+
+            const selectedScope =
+              "{{ selected_scope|escapejs }}";
+
+
+            const visibleProjectId =
+              selectedScope &&
+              selectedScope !== "all"
+                ? (
+                    projectButton.dataset.displayId ||
+                    resolvedFullId
+                  )
+                : resolvedFullId;
+
+
+            const dfn =
+              projectButton.dataset.dfn ||
+              "";
+
+
+            const dfnHtml =
+              (
+                selectedScope === "all" &&
+                dfn
+              )
+                ? `
+                    <div class="text-[11px] text-gray-400">
+                      DFN ${escapeHtml(dfn)}
+                    </div>
+                  `
+                : "";
+
+
+            modalCandidate.innerHTML = `
+              <div class="flex items-center justify-between gap-3">
+
+                <div>
+
+                  <div class="text-sm font-semibold text-gray-800">
+                    ${escapeHtml(
+                      visibleProjectId
+                    )}
+                  </div>
+
+                  ${dfnHtml}
+
+                </div>
+
+                <span
+                  class="text-[11px] font-semibold"
+                  style="color: ${escapeHtml(
+                    projectButton.dataset.statusColor ||
+                    "#6b7280"
+                  )};">
+                  ● ${escapeHtml(
+                    projectButton.dataset.statusLabel ||
+                    ""
+                  )}
+                </span>
+
+              </div>
+            `;
+
+
+            /*
+            * Same selection behavior used by
+            * the server-rendered modal candidates.
+            */
+            modalCandidate.addEventListener(
+              "click",
+              function () {
+
+                modalProjectButtons()
+                  .forEach(
+                    (item) => {
+
+                      item.classList.remove(
+                        "bg-blue-100"
+                      );
+                    }
+                  );
+
+
+                modalCandidate.classList.add(
+                  "bg-blue-100"
+                );
+
+
+                pendingBillingId =
+                  modalCandidate.dataset.billingId;
+
+                pendingProjectId =
+                  modalCandidate.dataset.fullId;
+
+
+                document.getElementById(
+                  "modal-selected-project"
+                ).textContent =
+                  modalCandidate.dataset.displayId ||
+                  modalCandidate.dataset.fullId;
+
+
+                document.getElementById(
+                  "modal-save"
+                ).disabled =
+                  false;
+              }
+            );
+
+
+            /*
+            * Remove the server-rendered empty message,
+            * if this was previously the last candidate.
+            */
+            Array.from(
+              modalList.children
+            ).forEach(
+              (child) => {
+
+                if (
+                  !child.classList.contains(
+                    "js-modal-project"
+                  )
+                ) {
+
+                  child.remove();
+                }
+              }
+            );
+
+
+            modalList.appendChild(
+              modalCandidate
+            );
+          }
+        }
+      }
+
+
+      closeRemoveModal();
+
+
+      /*
+      * No reload.
+      *
+      * The removed CTO is now immediately available
+      * in Add Project Location when its status allows it.
+      */
+    }
+    catch (error) {
+
+      errorElement.textContent =
+        error.message;
+
+      errorElement.classList.remove(
+        "hidden"
+      );
+    }
+    finally {
+
+      button.disabled =
+        false;
+
+      button.innerHTML =
+        "<span>🗑️</span><span>Remove Location</span>";
+    }
+  }
+
+  function escapeHtml(value) {
+
+    const div =
+      document.createElement(
+        "div"
+      );
+
+    div.textContent =
+      value == null
+        ? ""
+        : String(value);
+
+    return div.innerHTML;
+  }
+
+
+  function escapeJsAttribute(value) {
+
+    return String(
+      value == null
+        ? ""
+        : value
+    )
+      .replace(
+        /\\/g,
+        "\\\\"
+      )
+      .replace(
+        /'/g,
+        "\\'"
+      )
+      .replace(
+        /"/g,
+        "&quot;"
+      )
+      .replace(
+        /\r/g,
+        ""
+      )
+      .replace(
+        /\n/g,
+        ""
+      );
+  }
+
+</script>
+
+
+<script async
+        src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key|urlencode }}&callback=initHyperlinkMap">
+</script>
+
+
+{% else %}
+
+<script>
+
+  document.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+      const loadingElement =
+        document.getElementById(
+          "map-loading"
+        );
+
+      if (!loadingElement) {
+        return;
+      }
+
+
+      loadingElement.innerHTML = `
+        <div class="text-center px-5">
+
+          <div class="text-4xl mb-3">
+            ⚠️
+          </div>
+
+          <div class="font-semibold text-red-700">
+            Google Maps API key is not configured.
+          </div>
+
+          <div class="text-xs text-gray-500 mt-1">
+            GOOGLE_MAPS_API_KEY is empty.
+          </div>
+
+        </div>
+      `;
+    }
+  );
+
+</script>
+
+{% endif %}

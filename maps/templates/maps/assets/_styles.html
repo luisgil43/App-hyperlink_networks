@@ -1,0 +1,75 @@
+<style>
+
+  .map-workspace-height {
+    height: calc(100vh - 245px);
+    min-height: 560px;
+  }
+
+  .map-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #9ca3af;
+    font-weight: 600;
+  }
+
+  .map-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-top: 2px;
+    word-break: break-word;
+  }
+
+  /*
+   * Permanent Project ID.
+   * It stays immediately above the Box / CTO marker.
+   */
+  .project-map-marker-label {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(55, 65, 81, 0.22);
+    border-radius: 5px;
+    color: #111827 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 15px !important;
+    padding: 1px 5px !important;
+    white-space: nowrap !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+    transform: translateY(-2px);
+  }
+
+  .map-info-action {
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+  }
+
+  .map-info-move {
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+
+  .map-info-remove {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  @media (max-width: 1279px) {
+
+    .map-workspace-height {
+      height: auto;
+      min-height: 560px;
+    }
+
+    section.map-workspace-height {
+      height: 70vh;
+      min-height: 560px;
+    }
+
+  }
+
+</style>
