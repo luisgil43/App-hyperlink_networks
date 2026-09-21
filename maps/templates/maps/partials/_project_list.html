@@ -55,7 +55,8 @@
               data-status-color="{{ project.status_color }}"
               data-lat="{{ project.latitude }}"
               data-lng="{{ project.longitude }}"
-              data-radius="{{ project.validation_radius_m }}">
+              data-radius="{{ project.validation_radius_m }}"
+              data-location-validation-enabled="{% if project.location_validation_enabled %}true{% else %}false{% endif %}">
 
         <div class="flex items-start justify-between gap-2">
 

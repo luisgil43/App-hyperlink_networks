@@ -808,6 +808,13 @@ function consumePreservedMapViewport() {
     const fullId =
       button.dataset.fullId || "";
 
+    const locationValidationEnabled =
+      button.dataset.locationValidationEnabled
+      === "true";
+
+    const validationRadius =
+      button.dataset.radius || "20";
+
 
     infoWindow.setContent(`
       <div style="
@@ -842,6 +849,72 @@ function consumePreservedMapViewport() {
         ">
           ${escapeHtml(lat)},
           ${escapeHtml(lng)}
+        </div>
+
+        <div style="
+          margin-top:9px;
+          padding:8px 9px;
+          border-radius:8px;
+          background:#f9fafb;
+          border:1px solid #e5e7eb;
+        ">
+
+          <div style="
+            font-size:11px;
+            color:#6b7280;
+          ">
+            Location validation
+          </div>
+
+          <div style="
+            margin-top:2px;
+            font-size:12px;
+            font-weight:700;
+            color:${
+              locationValidationEnabled
+                ? "#16a34a"
+                : "#6b7280"
+            };
+          ">
+            ${
+              locationValidationEnabled
+                ? "Enabled · " +
+                  escapeHtml(
+                    validationRadius
+                  ) +
+                  " m"
+                : "Disabled"
+            }
+          </div>
+
+          <button
+            type="button"
+            onclick="window.hyperlinkToggleLocationValidation(
+              '${escapeJsAttribute(billingId)}',
+              ${
+                locationValidationEnabled
+                  ? "false"
+                  : "true"
+              }
+            )"
+            style="
+              margin-top:6px;
+              padding:5px 9px;
+              border:1px solid #d1d5db;
+              border-radius:7px;
+              background:#ffffff;
+              color:#374151;
+              font-size:11px;
+              font-weight:600;
+              cursor:pointer;
+            ">
+            ${
+              locationValidationEnabled
+                ? "Disable validation"
+                : "Enable validation"
+            }
+          </button>
+
         </div>
 
         <div style="
@@ -961,7 +1034,7 @@ function consumePreservedMapViewport() {
     document.getElementById(
       "selected-radius"
     ).textContent =
-      (button.dataset.radius || "30") +
+      (button.dataset.radius || "20") +
       " m";
 
 
@@ -2221,6 +2294,98 @@ function consumePreservedMapViewport() {
       );
     };
 
+  window.hyperlinkToggleLocationValidation =
+  async function(
+    billingId,
+    enabled
+  ) {
+
+    const button =
+      projectButtons().find(
+        (item) =>
+          String(
+            item.dataset.billingId
+          ) === String(billingId)
+      );
+
+    if (!button) {
+      return;
+    }
+
+    const body =
+      new URLSearchParams();
+
+    body.append(
+      "billing_id",
+      billingId
+    );
+
+    body.append(
+      "enabled",
+      enabled ? "true" : "false"
+    );
+
+    try {
+
+      const response = await fetch(
+        "{% url 'maps:toggle_location_validation' %}",
+        {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCsrfToken(),
+            "Content-Type":
+              "application/x-www-form-urlencoded; charset=UTF-8",
+          },
+          body: body.toString(),
+          credentials: "same-origin",
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok
+        || !data.ok
+      ) {
+        window.alert(
+          data.error ||
+          "Unable to update location validation."
+        );
+
+        return;
+      }
+
+      button.dataset.locationValidationEnabled =
+        data.location_validation_enabled
+          ? "true"
+          : "false";
+
+      if (
+        data.validation_radius_m != null
+      ) {
+        button.dataset.radius =
+          String(
+            data.validation_radius_m
+          );
+      }
+
+      if (infoWindow) {
+        infoWindow.close();
+      }
+
+      selectProject(
+        button,
+        false
+      );
+
+    } catch (error) {
+
+      window.alert(
+        "Unable to update location validation."
+      );
+    }
+  };
 
   window.hyperlinkRemoveLocation =
     function (

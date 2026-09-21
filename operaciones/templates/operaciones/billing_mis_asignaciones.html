@@ -411,6 +411,8 @@
                     <button type="button"
                             class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                             data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                            data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                             data-start-mode="accept">
                       ✅ Accept & Start
                     </button>
@@ -422,6 +424,8 @@
                     <button type="button"
                             class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                             data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                            data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                             data-start-mode="continue">
                       ▶ Continue work
                     </button>
@@ -449,6 +453,8 @@
                   <button type="button"
                           class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                           data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                          data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                          data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                           data-start-mode="continue">
                     Start
                   </button>
@@ -463,6 +469,8 @@
                     <button type="button"
                             class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                             data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                            data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                             data-start-mode="accept">
                       ✅ Accept & Start
                     </button>
@@ -474,6 +482,8 @@
                     <button type="button"
                             class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                             data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                            data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                            data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                             data-start-mode="continue">
                       ▶ Continue work
                     </button>
@@ -499,6 +509,8 @@
                   <button type="button"
                           class="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 btn-accept-start"
                           data-action="{% url 'operaciones:start_assignment' a.pk %}"
+                          data-location-check="{% url 'maps:technician_location_check' a.pk %}"
+                          data-location-verify="{% url 'maps:technician_location_verify' a.pk %}"
                           data-start-mode="continue">
                     Start
                   </button>
@@ -604,7 +616,7 @@
 
   <div class="absolute inset-0 bg-black/40" data-close-modal></div>
 
-  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+  <div class="relative max-w-2xl mx-auto mt-8 md:mt-16 bg-white rounded-2xl shadow p-6 max-h-[90vh] overflow-y-auto">
 
     <h3 id="start-modal-title" class="text-lg font-semibold">
       Accept assignment?
@@ -614,6 +626,82 @@
       This will mark the task as <b>In progress</b>.
       Work time will be tracked automatically.
     </p>
+
+    <div id="location-validation-panel"
+         class="hidden mt-4">
+
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+
+          <div>
+            <div class="text-xs uppercase tracking-wide text-gray-500">
+              Assigned Project / CTO
+            </div>
+
+            <div id="location-project-id"
+                 class="font-semibold text-gray-900">
+              —
+            </div>
+          </div>
+
+          <a id="location-navigation-link"
+             href="#"
+             target="_blank"
+             rel="noopener"
+             class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+            Navigate with Google Maps
+          </a>
+
+        </div>
+
+        <div id="technician-location-map"
+             class="mt-4 rounded-xl border border-gray-200 overflow-hidden"
+             style="height: 320px;">
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+
+          <div class="rounded-lg bg-white border border-gray-200 p-3">
+            <div class="text-gray-500">
+              Distance
+            </div>
+            <div id="location-distance"
+                 class="font-semibold">
+              Waiting for GPS…
+            </div>
+          </div>
+
+          <div class="rounded-lg bg-white border border-gray-200 p-3">
+            <div class="text-gray-500">
+              GPS accuracy
+            </div>
+            <div id="location-accuracy"
+                 class="font-semibold">
+              —
+            </div>
+          </div>
+
+          <div class="rounded-lg bg-white border border-gray-200 p-3">
+            <div class="text-gray-500">
+              Required radius
+            </div>
+            <div id="location-radius"
+                 class="font-semibold">
+              —
+            </div>
+          </div>
+
+        </div>
+
+        <div id="location-status"
+             class="mt-3 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
+          Getting your current location…
+        </div>
+
+      </div>
+
+    </div>
 
     <form id="form-accept"
           method="post"
@@ -637,8 +725,6 @@
     </form>
   </div>
 </div>
-
-
 <!-- =========================================================
      FINISH MODAL
      ========================================================= -->
@@ -817,9 +903,13 @@
 </script>
 
 
+
+
 <!-- =========================================================
      START / CONTINUE
      ========================================================= -->
+
+<script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key|urlencode }}"></script>
 
 <script>
 (function(){
@@ -831,51 +921,892 @@
   const text = document.getElementById('start-modal-text');
   const submit = document.getElementById('start-modal-submit');
 
-  document.addEventListener('click', (e)=>{
+  const locationPanel =
+    document.getElementById('location-validation-panel');
 
-    const btn = e.target.closest('.btn-accept-start');
+  const projectIdEl =
+    document.getElementById('location-project-id');
 
-    if(!btn) return;
+  const distanceEl =
+    document.getElementById('location-distance');
 
-    formAccept.action = btn.getAttribute('data-action');
+  const accuracyEl =
+    document.getElementById('location-accuracy');
 
-    const mode = btn.getAttribute('data-start-mode') || 'accept';
+  const radiusEl =
+    document.getElementById('location-radius');
 
-    if (mode === 'continue') {
+  const statusEl =
+    document.getElementById('location-status');
 
-      title.textContent = 'Continue assignment?';
+  const navigationLink =
+    document.getElementById('location-navigation-link');
 
-      text.innerHTML =
-        'This project will become your active work. ' +
-        'Work time will continue automatically.';
+  const mapEl =
+    document.getElementById('technician-location-map');
 
-      submit.textContent = 'Continue work';
+  let locationCheckUrl = '';
+  let locationVerifyUrl = '';
+
+  let watchId = null;
+
+  let map = null;
+  let ctoMarker = null;
+  let technicianMarker = null;
+  let radiusCircle = null;
+
+  let officialLatitude = null;
+  let officialLongitude = null;
+  let validationRadius = null;
+
+  let verificationRequired = false;
+  let serverVerified = false;
+  let verificationInFlight = false;
+  let pendingVerificationPosition = null;
+
+  let originalSubmitText = 'Accept & Start';
+
+
+  function csrfToken() {
+
+    const input = formAccept.querySelector(
+      'input[name="csrfmiddlewaretoken"]'
+    );
+
+    return input ? input.value : '';
+  }
+
+
+  function stopLocationWatch() {
+
+    if (
+      watchId !== null
+      && navigator.geolocation
+    ) {
+      navigator.geolocation.clearWatch(
+        watchId
+      );
+    }
+
+    watchId = null;
+  }
+
+
+  function resetLocationState() {
+
+    stopLocationWatch();
+
+    locationPanel.classList.add('hidden');
+
+    projectIdEl.textContent = '—';
+    distanceEl.textContent = 'Waiting for GPS…';
+    accuracyEl.textContent = '—';
+    radiusEl.textContent = '—';
+
+    statusEl.textContent =
+      'Getting your current location…';
+
+    navigationLink.href = '#';
+
+    officialLatitude = null;
+    officialLongitude = null;
+    validationRadius = null;
+
+    verificationRequired = false;
+    serverVerified = false;
+    verificationInFlight = false;
+    pendingVerificationPosition = null;
+
+    map = null;
+    ctoMarker = null;
+    technicianMarker = null;
+    radiusCircle = null;
+
+    if (mapEl) {
+      mapEl.innerHTML = '';
+    }
+
+    submit.disabled = false;
+
+    submit.classList.remove(
+      'opacity-50',
+      'cursor-not-allowed'
+    );
+  }
+
+
+  function setSubmitEnabled(enabled) {
+
+    submit.disabled = !enabled;
+
+    if (enabled) {
+
+      submit.classList.remove(
+        'opacity-50',
+        'cursor-not-allowed'
+      );
 
     } else {
 
-      title.textContent = 'Accept assignment?';
+      submit.classList.add(
+        'opacity-50',
+        'cursor-not-allowed'
+      );
+    }
+  }
 
-      text.innerHTML =
-        'This will mark the task as <b>In progress</b>. ' +
-        'Work time will be tracked automatically.';
+  function formatDistance(
+    distanceMeters
+  ) {
 
-      submit.textContent = 'Accept & Start';
+    const distance =
+      Number(distanceMeters);
+
+    if (!Number.isFinite(distance)) {
+      return '—';
     }
 
-    modalAccept.classList.remove('hidden');
-  });
-
-  document.addEventListener('click', (e)=>{
-    if (e.target.hasAttribute('data-close-modal')) {
-      modalAccept.classList.add('hidden');
+    if (distance >= 1000) {
+      return (
+        (distance / 1000).toFixed(1) +
+        ' km'
+      );
     }
-  });
 
-  document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape') {
-      modalAccept.classList.add('hidden');
+    return (
+      Math.round(distance) +
+      ' m'
+    );
+  }
+
+  function haversineDistanceMeters(
+    lat1,
+    lng1,
+    lat2,
+    lng2
+  ) {
+
+    const earthRadius = 6371000;
+
+    const toRadians = (degrees) =>
+      degrees * Math.PI / 180;
+
+    const phi1 = toRadians(lat1);
+    const phi2 = toRadians(lat2);
+
+    const deltaPhi =
+      toRadians(lat2 - lat1);
+
+    const deltaLambda =
+      toRadians(lng2 - lng1);
+
+    const a =
+      Math.sin(deltaPhi / 2) *
+      Math.sin(deltaPhi / 2)
+      +
+      Math.cos(phi1) *
+      Math.cos(phi2) *
+      Math.sin(deltaLambda / 2) *
+      Math.sin(deltaLambda / 2);
+
+    const c =
+      2 * Math.atan2(
+        Math.sqrt(a),
+        Math.sqrt(1 - a)
+      );
+
+    return earthRadius * c;
+  }
+
+
+  function initializeMap() {
+
+    if (
+      !window.google
+      || !google.maps
+      || officialLatitude === null
+      || officialLongitude === null
+    ) {
+      return;
     }
-  });
+
+    const ctoPosition = {
+      lat: officialLatitude,
+      lng: officialLongitude
+    };
+
+    map = new google.maps.Map(
+      mapEl,
+      {
+        center: ctoPosition,
+        zoom: 19,
+        mapTypeId: 'roadmap',
+        streetViewControl: false,
+        fullscreenControl: true,
+        mapTypeControl: true
+      }
+    );
+
+    ctoMarker = new google.maps.Marker({
+      position: ctoPosition,
+      map: map,
+      title: projectIdEl.textContent,
+      label: {
+        text: 'CTO',
+        fontWeight: 'bold'
+      }
+    });
+
+    radiusCircle = new google.maps.Circle({
+      map: map,
+      center: ctoPosition,
+      radius: validationRadius,
+      fillOpacity: 0.12,
+      strokeOpacity: 0.8,
+      strokeWeight: 2
+    });
+  }
+
+
+  function updateTechnicianMarker(
+    latitude,
+    longitude
+  ) {
+
+    if (!map) return;
+
+    const position = {
+      lat: latitude,
+      lng: longitude
+    };
+
+    if (!technicianMarker) {
+
+      technicianMarker =
+        new google.maps.Marker({
+          position: position,
+          map: map,
+          title: 'Your current location'
+        });
+
+    } else {
+
+      technicianMarker.setPosition(
+        position
+      );
+    }
+
+    const bounds =
+      new google.maps.LatLngBounds();
+
+    bounds.extend({
+      lat: officialLatitude,
+      lng: officialLongitude
+    });
+
+    bounds.extend(position);
+
+    map.fitBounds(
+      bounds,
+      70
+    );
+  }
+
+
+  async function verifyWithServer(
+    latitude,
+    longitude,
+    accuracy
+  ) {
+
+    /*
+    * Always preserve the newest GPS reading.
+    *
+    * If a request is already running, the newest reading remains
+    * pending and will be verified immediately after the current
+    * request finishes.
+    */
+    pendingVerificationPosition = {
+      latitude: latitude,
+      longitude: longitude,
+      accuracy: accuracy
+    };
+
+    if (verificationInFlight) {
+      return;
+    }
+
+    verificationInFlight = true;
+
+    try {
+
+      while (
+        pendingVerificationPosition
+        && verificationRequired
+      ) {
+
+        const currentPosition =
+          pendingVerificationPosition;
+
+        pendingVerificationPosition = null;
+
+        const body =
+          new URLSearchParams();
+
+        body.append(
+          'latitude',
+          String(
+            currentPosition.latitude
+          )
+        );
+
+        body.append(
+          'longitude',
+          String(
+            currentPosition.longitude
+          )
+        );
+
+        body.append(
+          'accuracy',
+          String(
+            currentPosition.accuracy
+          )
+        );
+
+        try {
+
+          const response = await fetch(
+            locationVerifyUrl,
+            {
+              method: 'POST',
+              headers: {
+                'X-CSRFToken': csrfToken(),
+                'Content-Type':
+                  'application/x-www-form-urlencoded; charset=UTF-8'
+              },
+              body: body.toString(),
+              credentials: 'same-origin'
+            }
+          );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok
+            || !data.ok
+          ) {
+
+            serverVerified = false;
+
+            setSubmitEnabled(
+              false
+            );
+
+            statusEl.textContent =
+              data.error ||
+              'Location could not be verified.';
+
+            continue;
+          }
+
+          if (
+            !data.requires_verification
+          ) {
+
+            verificationRequired =
+              false;
+
+            serverVerified = true;
+
+            pendingVerificationPosition =
+              null;
+
+            setSubmitEnabled(
+              true
+            );
+
+            statusEl.textContent =
+              'Location verification is not required for this project.';
+
+            break;
+          }
+
+          const verification =
+            data.verification || {};
+
+          serverVerified =
+            verification.verified === true;
+
+          const serverDistance =
+            Number(
+              verification.distance_m
+            );
+
+          const serverAccuracy =
+            Number(
+              verification.gps_accuracy_m
+            );
+
+          if (
+            Number.isFinite(
+              serverDistance
+            )
+          ) {
+            distanceEl.textContent =
+              formatDistance(
+                serverDistance
+              );
+          }
+
+          if (
+            Number.isFinite(
+              serverAccuracy
+            )
+          ) {
+            accuracyEl.textContent =
+              Math.round(
+                serverAccuracy
+              ) + ' m';
+          }
+
+          if (serverVerified) {
+
+            setSubmitEnabled(
+              true
+            );
+
+            if (
+              Number.isFinite(
+                serverDistance
+              )
+              && serverDistance <= 5
+            ) {
+              statusEl.textContent =
+                'Your assigned CTO is here.';
+            } else {
+              statusEl.textContent =
+                'Location verified. You can start work.';
+            }
+
+          } else {
+
+            setSubmitEnabled(
+              false
+            );
+
+            if (
+              verification.result
+              === 'insufficient_accuracy'
+            ) {
+              statusEl.textContent =
+                'GPS accuracy is not sufficient yet. ' +
+                'Keep the location screen open while the phone improves the reading.';
+
+            } else {
+
+              statusEl.textContent =
+                'You are outside the allowed CTO radius. ' +
+                'Move closer to your assigned CTO.';
+            }
+          }
+        } catch (error) {
+
+          serverVerified = false;
+
+          setSubmitEnabled(
+            false
+          );
+
+          statusEl.textContent =
+            'Location verification could not reach the server.';
+        }
+      }
+
+    } finally {
+
+      verificationInFlight =
+        false;
+
+      /*
+      * A GPS reading can arrive at the exact moment the loop is
+      * finishing. If that happened, process the newest reading
+      * immediately instead of waiting for another GPS event.
+      */
+      if (
+        pendingVerificationPosition
+        && verificationRequired
+      ) {
+
+        const latestPosition =
+          pendingVerificationPosition;
+
+        pendingVerificationPosition =
+          null;
+
+        verifyWithServer(
+          latestPosition.latitude,
+          latestPosition.longitude,
+          latestPosition.accuracy
+        );
+      }
+    }
+  }
+
+  function handlePosition(position) {
+
+    if (!verificationRequired) {
+      return;
+    }
+
+    const latitude =
+      position.coords.latitude;
+
+    const longitude =
+      position.coords.longitude;
+
+    const accuracy =
+      position.coords.accuracy;
+
+    const distance =
+      haversineDistanceMeters(
+        officialLatitude,
+        officialLongitude,
+        latitude,
+        longitude
+      );
+
+    distanceEl.textContent =
+      formatDistance(
+        distance
+      );
+
+    accuracyEl.textContent =
+      Math.round(
+        accuracy
+      ) + ' m';
+
+    updateTechnicianMarker(
+      latitude,
+      longitude
+    );
+
+    if (distance <= 5) {
+
+      statusEl.textContent =
+        'Your assigned CTO is here. Verifying…';
+
+    } else {
+
+      statusEl.textContent =
+        'You are ' +
+        formatDistance(
+          distance
+        ) +
+        ' away from your assigned CTO.';
+    }
+
+    /*
+    * The browser calculation is only visual guidance.
+    * The server makes the authorization decision.
+    *
+    * Every new GPS reading is passed to the verification queue.
+    * If the server is already processing one reading, only the
+    * newest pending reading is preserved.
+    */
+    verifyWithServer(
+      latitude,
+      longitude,
+      accuracy
+    );
+  }
+  function handleLocationError(error) {
+
+    serverVerified = false;
+    setSubmitEnabled(false);
+
+    if (
+      error
+      && error.code === 1
+    ) {
+      statusEl.textContent =
+        'Location permission is required to start this project.';
+    } else if (
+      error
+      && error.code === 2
+    ) {
+      statusEl.textContent =
+        'Your current location is unavailable.';
+    } else if (
+      error
+      && error.code === 3
+    ) {
+      statusEl.textContent =
+        'Location request timed out. Trying again…';
+    } else {
+      statusEl.textContent =
+        'Unable to obtain your current location.';
+    }
+  }
+
+
+  function startLocationWatch() {
+
+    if (!navigator.geolocation) {
+
+      setSubmitEnabled(false);
+
+      statusEl.textContent =
+        'This device does not provide browser location services.';
+
+      return;
+    }
+
+    stopLocationWatch();
+
+    watchId =
+      navigator.geolocation.watchPosition(
+        handlePosition,
+        handleLocationError,
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 15000
+        }
+      );
+  }
+
+
+  async function prepareLocationValidation() {
+
+    if (!locationCheckUrl) {
+      return;
+    }
+
+    setSubmitEnabled(false);
+
+    try {
+
+      const response = await fetch(
+        locationCheckUrl,
+        {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: {
+            'X-Requested-With':
+              'XMLHttpRequest'
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+
+        statusEl.textContent =
+          'Unable to check project location requirements.';
+
+        return;
+      }
+
+      if (!data.requires_verification) {
+
+        verificationRequired = false;
+
+        locationPanel.classList.add(
+          'hidden'
+        );
+
+        setSubmitEnabled(true);
+
+        return;
+      }
+
+      verificationRequired = true;
+      serverVerified = false;
+
+      const project =
+        data.project || {};
+
+      officialLatitude =
+        Number(project.latitude);
+
+      officialLongitude =
+        Number(project.longitude);
+
+      validationRadius =
+        Number(
+          project.validation_radius_m
+        );
+
+      projectIdEl.textContent =
+        project.project_id || '—';
+
+      radiusEl.textContent =
+        validationRadius + ' m';
+
+      navigationLink.href =
+        'https://www.google.com/maps/dir/?api=1&destination='
+        + encodeURIComponent(
+          officialLatitude
+          + ','
+          + officialLongitude
+        );
+
+      locationPanel.classList.remove(
+        'hidden'
+      );
+
+      setSubmitEnabled(false);
+
+      initializeMap();
+
+      startLocationWatch();
+
+    } catch (error) {
+
+      locationPanel.classList.remove(
+        'hidden'
+      );
+
+      setSubmitEnabled(false);
+
+      statusEl.textContent =
+        'Unable to check project location requirements.';
+    }
+  }
+
+
+  document.addEventListener(
+    'click',
+    (e) => {
+
+      const btn =
+        e.target.closest(
+          '.btn-accept-start'
+        );
+
+      if (!btn) return;
+
+      resetLocationState();
+
+      formAccept.action =
+        btn.getAttribute(
+          'data-action'
+        );
+
+      locationCheckUrl =
+        btn.getAttribute(
+          'data-location-check'
+        ) || '';
+
+      locationVerifyUrl =
+        btn.getAttribute(
+          'data-location-verify'
+        ) || '';
+
+      const mode =
+        btn.getAttribute(
+          'data-start-mode'
+        ) || 'accept';
+
+      if (mode === 'continue') {
+
+        title.textContent =
+          'Continue assignment?';
+
+        text.innerHTML =
+          'This project will become your active work. ' +
+          'Work time will continue automatically.';
+
+        originalSubmitText =
+          'Continue work';
+
+      } else {
+
+        title.textContent =
+          'Accept assignment?';
+
+        text.innerHTML =
+          'This will mark the task as <b>In progress</b>. ' +
+          'Work time will be tracked automatically.';
+
+        originalSubmitText =
+          'Accept & Start';
+      }
+
+      submit.textContent =
+        originalSubmitText;
+
+      modalAccept.classList.remove(
+        'hidden'
+      );
+
+      prepareLocationValidation();
+    }
+  );
+
+
+  document.addEventListener(
+    'click',
+    (e) => {
+
+      if (
+        e.target.hasAttribute(
+          'data-close-modal'
+        )
+      ) {
+        stopLocationWatch();
+
+        modalAccept.classList.add(
+          'hidden'
+        );
+      }
+    }
+  );
+
+
+  document.addEventListener(
+    'keydown',
+    (e) => {
+
+      if (e.key === 'Escape') {
+
+        stopLocationWatch();
+
+        modalAccept.classList.add(
+          'hidden'
+        );
+      }
+    }
+  );
+
+
+  formAccept.addEventListener(
+    'submit',
+    (e) => {
+
+      if (
+        verificationRequired
+        && !serverVerified
+      ) {
+        e.preventDefault();
+
+        statusEl.textContent =
+          'Your location must be verified before starting work.';
+
+        return;
+      }
+
+      stopLocationWatch();
+
+      submit.disabled = true;
+
+      submit.textContent =
+        'Starting…';
+    }
+  );
 
 })();
 </script>

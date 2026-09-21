@@ -226,7 +226,10 @@ def _build_project_record(session):
             if (box and box.official_longitude is not None)
             else ""
         ),
-        "validation_radius_m": (box.validation_radius_m if box else 30),
+        "validation_radius_m": (box.validation_radius_m if box else 20),
+        "location_validation_enabled": (
+            box.location_validation_enabled if box else True
+        ),
         "located": located,
         "can_add_location": can_add_location,
         "in_billing_list": in_billing_list,
@@ -274,26 +277,19 @@ def _ensure_box_for_session(
     session,
     user,
 ):
-    parsed = parse_project_identifier(
-        session.proyecto_id
-    )
+    parsed = parse_project_identifier(session.proyecto_id)
 
     if not parsed["full"]:
-        raise ValidationError(
-            "This billing has no Project ID."
-        )
+        raise ValidationError("This billing has no Project ID.")
 
     dfn = None
 
     if parsed["has_dfn"]:
-        dfn, _ = (
-            GeographicDFN.objects
-            .get_or_create(
-                code=parsed["dfn"],
-                defaults={
-                    "active": True,
-                },
-            )
+        dfn, _ = GeographicDFN.objects.get_or_create(
+            code=parsed["dfn"],
+            defaults={
+                "active": True,
+            },
         )
 
         if not dfn.active:
@@ -305,23 +301,18 @@ def _ensure_box_for_session(
                 ]
             )
 
-    box, created = (
-        GeographicBox.objects
-        .get_or_create(
-            identifier=parsed["full"],
-            defaults={
-                "dfn": dfn,
-                "validation_radius_m": 30,
-                "active": True,
-            },
-        )
+    box, created = GeographicBox.objects.get_or_create(
+        identifier=parsed["full"],
+        defaults={
+            "dfn": dfn,
+            "validation_radius_m": 20,
+            "active": True,
+        },
     )
 
     fields_to_update = []
 
-    if box.dfn_id != (
-        dfn.id if dfn else None
-    ):
+    if box.dfn_id != (dfn.id if dfn else None):
         box.dfn = dfn
         fields_to_update.append("dfn")
 
@@ -332,9 +323,7 @@ def _ensure_box_for_session(
     if fields_to_update:
         fields_to_update.append("updated_at")
 
-        box.save(
-            update_fields=fields_to_update
-        )
+        box.save(update_fields=fields_to_update)
 
     _ensure_assignment(
         session=session,
@@ -714,6 +703,87 @@ def save_project_location(request):
                 "validation_radius_m":
                     box.validation_radius_m,
             },
+        }
+    )
+
+
+@login_required
+@require_POST
+def toggle_location_validation(request):
+    if not _user_can_manage_map(request.user):
+        return _permission_denied_json()
+
+    billing_id = (request.POST.get("billing_id") or "").strip()
+
+    enabled_raw = (request.POST.get("enabled") or "").strip().lower()
+
+    if not billing_id:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Billing session is required.",
+            },
+            status=400,
+        )
+
+    if enabled_raw not in {
+        "true",
+        "false",
+    }:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Invalid location validation state.",
+            },
+            status=400,
+        )
+
+    session = get_object_or_404(
+        SesionBilling,
+        pk=billing_id,
+    )
+
+    parsed = parse_project_identifier(session.proyecto_id)
+
+    box = _box_for_project_id(parsed["full"])
+
+    if not box:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "This project has no geographic Box / CTO.",
+            },
+            status=400,
+        )
+
+    if not box.has_official_location:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "This Box / CTO has no official location.",
+            },
+            status=400,
+        )
+
+    enabled = enabled_raw == "true"
+
+    if box.location_validation_enabled != enabled:
+        box.location_validation_enabled = enabled
+
+        box.save(
+            update_fields=[
+                "location_validation_enabled",
+                "updated_at",
+            ]
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "billing_id": session.id,
+            "project_id": parsed["full"],
+            "location_validation_enabled": (box.location_validation_enabled),
+            "validation_radius_m": (box.validation_radius_m),
         }
     )
 

@@ -123,8 +123,18 @@ class GeographicBox(models.Model):
     )
 
     validation_radius_m = models.PositiveIntegerField(
-        default=30,
-        help_text=("Maximum distance in meters accepted for " "location verification."),
+        default=20,
+        help_text=(
+            "Maximum distance in meters accepted for location verification."
+        ),
+    )
+
+    location_validation_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Require technician location verification before starting work "
+            "when this Box / CTO has an official location."
+        ),
     )
 
     active = models.BooleanField(

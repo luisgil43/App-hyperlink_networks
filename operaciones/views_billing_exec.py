@@ -1372,6 +1372,7 @@ def mis_assignments(request):
             "cantidad": str(per_page),
             "base_qs": base_qs,
             "excel_global_json": excel_global_json,
+            "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
         },
     )
 
@@ -1583,6 +1584,12 @@ def start_assignment(request, pk):
     - Un proyecto rechazado/reintento puede reanudarse aunque ya no
       pertenezca a la cola numerada.
 
+    Ubicación:
+    - sin CTO oficial -> conserva el Start histórico
+    - validación deshabilitada -> conserva el Start histórico
+    - CTO oficial + validación habilitada -> exige una verificación
+      geográfica válida y reciente para este Start / Continue
+
     Cronómetro:
     - si ya está en_proceso, actúa como Resume
     - pausa automáticamente cualquier otro Billing activo del técnico
@@ -1590,8 +1597,12 @@ def start_assignment(request, pk):
     """
     from django.db import transaction
 
+    from maps.views_technician import (consume_start_location_authorization,
+                                       validate_start_location_authorization)
     from operaciones.models_billing_queue import BillingAssignmentQueue
     from operaciones.services.billing_work_timer import start_or_resume
+
+    location_authorization_required = False
 
     with transaction.atomic():
 
@@ -1675,6 +1686,50 @@ def start_assignment(request, pk):
 
             return redirect("operaciones:mis_assignments")
 
+        # ======================================================
+        # VALIDACIÓN GEOGRÁFICA
+        #
+        # El frontend solamente guía al técnico.
+        #
+        # El servidor exige una BoxLocationVerification:
+        # - del mismo técnico
+        # - del mismo Billing
+        # - de la misma Box / CTO
+        # - resultado verified
+        # - ubicación oficial todavía vigente
+        # - radio todavía vigente
+        # - suficientemente reciente
+        #
+        # Si el proyecto no tiene ubicación oficial o el admin
+        # deshabilitó la validación, el flujo histórico continúa
+        # exactamente igual.
+        # ======================================================
+
+        (
+            location_authorized,
+            location_verification,
+        ) = validate_start_location_authorization(
+            request,
+            a,
+        )
+
+        if not location_authorized:
+            messages.error(
+                request,
+                (
+                    "Your current location must be verified "
+                    "before starting this assignment."
+                ),
+            )
+
+            return redirect(
+                "operaciones:mis_assignments"
+            )
+
+        location_authorization_required = (
+            location_verification is not None
+        )
+
         if not is_resume:
 
             a.estado = "en_proceso"
@@ -1718,6 +1773,12 @@ def start_assignment(request, pk):
                     "estado",
                 ]
             )
+
+    if location_authorization_required:
+        consume_start_location_authorization(
+            request,
+            a,
+        )
 
     if is_resume:
 
