@@ -137,54 +137,55 @@ def verify_technician_location(
         gps_accuracy_m,
     )
 
-    locked_box = GeographicBox.objects.select_for_update().get(pk=box.pk)
+    with transaction.atomic():
+        locked_box = GeographicBox.objects.select_for_update().get(pk=box.pk)
 
-    if not locked_box.active:
-        raise ValidationError({"box": "This Box / CTO is not active."})
+        if not locked_box.active:
+            raise ValidationError({"box": "This Box / CTO is not active."})
 
-    if not locked_box.location_validation_enabled:
-        raise ValidationError(
-            {
-                "location_validation": "Location verification is disabled "
-                "for this Box / CTO."
-            }
+        if not locked_box.location_validation_enabled:
+            raise ValidationError(
+                {
+                    "location_validation": "Location verification is disabled "
+                    "for this Box / CTO."
+                }
+            )
+
+        if not locked_box.has_official_location:
+            raise ValidationError(
+                {"location": "This Box / CTO does not have an " "official location."}
+            )
+
+        official_latitude = locked_box.official_latitude
+        official_longitude = locked_box.official_longitude
+        validation_radius_m = locked_box.validation_radius_m
+
+        distance_m = calculate_distance_m(
+            latitude_a=official_latitude,
+            longitude_a=official_longitude,
+            latitude_b=captured_latitude,
+            longitude_b=captured_longitude,
         )
 
-    if not locked_box.has_official_location:
-        raise ValidationError(
-            {"location": "This Box / CTO does not have an " "official location."}
+        if gps_accuracy_m > MAX_GPS_ACCURACY_M:
+            result = BoxLocationVerification.RESULT_INSUFFICIENT_ACCURACY
+        elif distance_m <= Decimal(str(validation_radius_m)):
+            result = BoxLocationVerification.RESULT_VERIFIED
+        else:
+            result = BoxLocationVerification.RESULT_OUTSIDE_RADIUS
+
+        verification = BoxLocationVerification.objects.create(
+            billing_session=billing_session,
+            box=locked_box,
+            technician=technician,
+            official_latitude=official_latitude,
+            official_longitude=official_longitude,
+            captured_latitude=captured_latitude,
+            captured_longitude=captured_longitude,
+            gps_accuracy_m=gps_accuracy_m,
+            distance_m=distance_m,
+            validation_radius_m=validation_radius_m,
+            result=result,
         )
-
-    official_latitude = locked_box.official_latitude
-    official_longitude = locked_box.official_longitude
-    validation_radius_m = locked_box.validation_radius_m
-
-    distance_m = calculate_distance_m(
-        latitude_a=official_latitude,
-        longitude_a=official_longitude,
-        latitude_b=captured_latitude,
-        longitude_b=captured_longitude,
-    )
-
-    if gps_accuracy_m > MAX_GPS_ACCURACY_M:
-        result = BoxLocationVerification.RESULT_INSUFFICIENT_ACCURACY
-    elif distance_m <= Decimal(str(validation_radius_m)):
-        result = BoxLocationVerification.RESULT_VERIFIED
-    else:
-        result = BoxLocationVerification.RESULT_OUTSIDE_RADIUS
-
-    verification = BoxLocationVerification.objects.create(
-        billing_session=billing_session,
-        box=locked_box,
-        technician=technician,
-        official_latitude=official_latitude,
-        official_longitude=official_longitude,
-        captured_latitude=captured_latitude,
-        captured_longitude=captured_longitude,
-        gps_accuracy_m=gps_accuracy_m,
-        distance_m=distance_m,
-        validation_radius_m=validation_radius_m,
-        result=result,
-    )
 
     return verification
