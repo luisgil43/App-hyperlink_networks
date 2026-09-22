@@ -1883,174 +1883,195 @@
   }
 
 
-  async function prepareLocationValidation() {
+    async function prepareLocationValidation() {
 
-    if (!locationCheckUrl) {
-      return;
-    }
+      if (!locationCheckUrl) {
 
-    setSubmitEnabled(false);
-
-    try {
-
-      const response = await fetch(
-        locationCheckUrl,
-        {
-          method: 'GET',
-          credentials: 'same-origin',
-          headers: {
-            'X-Requested-With':
-              'XMLHttpRequest'
-          }
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || !data.ok) {
-
-        statusEl.textContent =
-          'Unable to check project location requirements.';
-
-        return;
-      }
-
-      if (!data.requires_verification) {
-
-        verificationRequired = false;
-
-        locationPanel.classList.add(
+        modalAccept.classList.remove(
           'hidden'
         );
 
-        setSubmitEnabled(true);
-
         return;
       }
 
-      verificationRequired = true;
-      serverVerified = false;
-
-      const project =
-        data.project || {};
-
-      officialLatitude =
-        Number(project.latitude);
-
-      officialLongitude =
-        Number(project.longitude);
-
-      validationRadius =
-        Number(
-          project.validation_radius_m
-        );
-
-      projectIdEl.textContent =
-        project.project_id || '—';
-
-      radiusEl.textContent =
-        validationRadius + ' m';
-
-      navigationLink.href =
-        'https://www.google.com/maps/dir/?api=1&destination='
-        + encodeURIComponent(
-          officialLatitude
-          + ','
-          + officialLongitude
-        );
-
-      locationPanel.classList.remove(
-        'hidden'
-      );
-
       setSubmitEnabled(false);
 
-      initializeMap();
+      try {
 
-      startLocationWatch();
-
-    } catch (error) {
-
-      locationPanel.classList.remove(
-        'hidden'
-      );
-
-      setSubmitEnabled(false);
-
-      statusEl.textContent =
-        'Unable to check project location requirements.';
-    }
-  }
-
-
-  document.addEventListener(
-    'click',
-    (e) => {
-
-      const btn =
-        e.target.closest(
-          '.btn-accept-start'
+        const response = await fetch(
+          locationCheckUrl,
+          {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+              'X-Requested-With':
+                'XMLHttpRequest'
+            }
+          }
         );
 
-      if (!btn) return;
+        const data = await response.json();
 
-      resetLocationState();
+        if (!response.ok || !data.ok) {
 
-      formAccept.action =
-        btn.getAttribute(
-          'data-action'
+          modalAccept.classList.remove(
+            'hidden'
+          );
+
+          locationPanel.classList.remove(
+            'hidden'
+          );
+
+          statusEl.textContent =
+            'Unable to check project location requirements.';
+
+          return;
+        }
+
+        if (!data.requires_verification) {
+
+          verificationRequired = false;
+
+          locationPanel.classList.add(
+            'hidden'
+          );
+
+          setSubmitEnabled(true);
+
+          modalAccept.classList.remove(
+            'hidden'
+          );
+
+          return;
+        }
+
+        verificationRequired = true;
+        serverVerified = false;
+
+        const project =
+          data.project || {};
+
+        officialLatitude =
+          Number(project.latitude);
+
+        officialLongitude =
+          Number(project.longitude);
+
+        validationRadius =
+          Number(
+            project.validation_radius_m
+          );
+
+        projectIdEl.textContent =
+          project.project_id || '—';
+
+        radiusEl.textContent =
+          validationRadius + ' m';
+
+        navigationLink.href =
+          'https://www.google.com/maps/dir/?api=1&destination='
+          + encodeURIComponent(
+            officialLatitude
+            + ','
+            + officialLongitude
+          );
+
+        locationPanel.classList.remove(
+          'hidden'
         );
 
-      locationCheckUrl =
-        btn.getAttribute(
-          'data-location-check'
-        ) || '';
+        setSubmitEnabled(false);
 
-      locationVerifyUrl =
-        btn.getAttribute(
-          'data-location-verify'
-        ) || '';
+        modalAccept.classList.remove(
+          'hidden'
+        );
 
-      const mode =
-        btn.getAttribute(
-          'data-start-mode'
-        ) || 'accept';
+        initializeMap();
 
-      if (mode === 'continue') {
+        startLocationWatch();
 
-        title.textContent =
-          'Continue assignment?';
+      } catch (error) {
 
-        text.innerHTML =
-          'This project will become your active work. ' +
-          'Work time will continue automatically.';
+        modalAccept.classList.remove(
+          'hidden'
+        );
 
-        originalSubmitText =
-          'Continue work';
+        locationPanel.classList.remove(
+          'hidden'
+        );
 
-      } else {
+        setSubmitEnabled(false);
 
-        title.textContent =
-          'Accept assignment?';
-
-        text.innerHTML =
-          'This will mark the task as <b>In progress</b>. ' +
-          'Work time will be tracked automatically.';
-
-        originalSubmitText =
-          'Accept & Start';
+        statusEl.textContent =
+          'Unable to check project location requirements.';
       }
-
-      submit.textContent =
-        originalSubmitText;
-
-      modalAccept.classList.remove(
-        'hidden'
-      );
-
-      prepareLocationValidation();
     }
-  );
+
+
+    document.addEventListener(
+      'click',
+      (e) => {
+
+        const btn =
+          e.target.closest(
+            '.btn-accept-start'
+          );
+
+        if (!btn) return;
+
+        resetLocationState();
+
+        formAccept.action =
+          btn.getAttribute(
+            'data-action'
+          );
+
+        locationCheckUrl =
+          btn.getAttribute(
+            'data-location-check'
+          ) || '';
+
+        locationVerifyUrl =
+          btn.getAttribute(
+            'data-location-verify'
+          ) || '';
+
+        const mode =
+          btn.getAttribute(
+            'data-start-mode'
+          ) || 'accept';
+
+        if (mode === 'continue') {
+
+          title.textContent =
+            'Continue assignment?';
+
+          text.innerHTML =
+            'This project will become your active work. ' +
+            'Work time will continue automatically.';
+
+          originalSubmitText =
+            'Continue work';
+
+        } else {
+
+          title.textContent =
+            'Accept assignment?';
+
+          text.innerHTML =
+            'This will mark the task as <b>In progress</b>. ' +
+            'Work time will be tracked automatically.';
+
+          originalSubmitText =
+            'Accept & Start';
+        }
+
+        submit.textContent =
+          originalSubmitText;
+
+        prepareLocationValidation();
+      }
+    );
 
 
   document.addEventListener(
