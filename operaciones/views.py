@@ -10908,6 +10908,19 @@ def eliminar_billing(request, sesion_id: int):
             request.META.get("HTTP_REFERER", "/operaciones/billing/listar/")
         )
 
+    # 🗺️ Maps:
+    # Estos registros pertenecen específicamente a esta sesión de Billing
+    # y usan PROTECT sobre SesionBilling, por lo que deben eliminarse antes
+    # de borrar la sesión.
+    #
+    # IMPORTANTE:
+    # NO se elimina GeographicBox, su ubicación oficial ni su historial.
+    from maps.models import BillingBoxAssignment, BoxLocationVerification
+
+    BoxLocationVerification.objects.filter(billing_session=sesion).delete()
+
+    BillingBoxAssignment.objects.filter(billing_session=sesion).delete()
+
     sesion.delete()
 
     messages.success(request, "Billing deleted.")
