@@ -56,6 +56,20 @@
     .excel-col-filtered .excel-arrow{
       color:#2563eb !important;
     }
+
+    .project-map-marker-label {
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(55, 65, 81, 0.22);
+      border-radius: 5px;
+      color: #111827 !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      line-height: 15px !important;
+      padding: 1px 5px !important;
+      white-space: nowrap !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+      transform: translateY(-2px);
+    }
   </style>
 
   <div class="flex justify-start mb-2 gap-2">
@@ -656,8 +670,8 @@
         </div>
 
         <div id="technician-location-map"
-             class="mt-4 rounded-xl border border-gray-200 overflow-hidden"
-             style="height: 320px;">
+            class="mt-4 rounded-xl border border-gray-200 overflow-hidden"
+            style="height: min(62dvh, 620px); min-height: 460px;">
         </div>
 
         <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -1147,14 +1161,88 @@
       }
     );
 
+    /*
+    * Same vector Box / CTO icon used by the Admin map.
+    *
+    * The technician map intentionally uses the neutral gray
+    * fallback because this screen is focused on identifying
+    * the assigned Box / CTO, not displaying operational status.
+    */
+    const ctoSymbol = {
+      path: [
+        "M -9 -15",
+        "Q -9 -18 -6 -18",
+        "L 6 -18",
+        "Q 9 -18 9 -15",
+        "L 9 7",
+        "Q 9 10 6 10",
+        "L 4 10",
+        "L 4 14",
+        "L 1.5 14",
+        "L 1.5 10",
+        "L -1.5 10",
+        "L -1.5 14",
+        "L -4 14",
+        "L -4 10",
+        "L -6 10",
+        "Q -9 10 -9 7",
+        "Z"
+      ].join(" "),
+
+      fillColor: "#6b7280",
+      fillOpacity: 1,
+
+      strokeColor: "#ffffff",
+      strokeOpacity: 1,
+      strokeWeight: 2,
+
+      scale: 1.05,
+
+      anchor:
+        new google.maps.Point(
+          0,
+          14
+        ),
+
+      labelOrigin:
+        new google.maps.Point(
+          0,
+          -23
+        )
+    };
+
     ctoMarker = new google.maps.Marker({
       position: ctoPosition,
       map: map,
-      title: projectIdEl.textContent,
+
+      title:
+        projectIdEl.textContent.trim(),
+
+      icon:
+        ctoSymbol,
+
       label: {
-        text: 'CTO',
-        fontWeight: 'bold'
-      }
+        text:
+          projectIdEl.textContent.trim(),
+
+        color:
+          "#111827",
+
+        fontSize:
+          "11px",
+
+        fontWeight:
+          "700",
+
+        className:
+          "project-map-marker-label"
+      },
+
+      optimized: false,
+
+      draggable: false,
+
+      zIndex: 10
     });
 
     radiusCircle = new google.maps.Circle({
