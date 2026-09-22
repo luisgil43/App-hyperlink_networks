@@ -968,6 +968,8 @@
   let ctoMarker = null;
   let technicianMarker = null;
   let radiusCircle = null;
+  let hasInitialMapFit = false;
+  let lastTechnicianPosition = null;
 
   let officialLatitude = null;
   let officialLongitude = null;
@@ -1035,6 +1037,9 @@
     ctoMarker = null;
     technicianMarker = null;
     radiusCircle = null;
+
+    hasInitialMapFit = false;
+    lastTechnicianPosition = null;
 
     if (mapEl) {
       mapEl.innerHTML = '';
@@ -1253,8 +1258,171 @@
       strokeOpacity: 0.8,
       strokeWeight: 2
     });
-  }
 
+    /*
+    * Small map controls.
+    *
+    * 📍 = technician's latest GPS position.
+    * ▣ = assigned Box / CTO.
+    *
+    * They control only the camera. They do not affect
+    * GPS tracking or server-side location verification.
+    */
+    const locationControls =
+      document.createElement(
+        'div'
+      );
+
+    locationControls.style.display =
+      'flex';
+
+    locationControls.style.flexDirection =
+      'column';
+
+    locationControls.style.gap =
+      '5px';
+
+    locationControls.style.margin =
+      '10px';
+
+
+    function createMapControlButton(
+      symbol,
+      title
+    ) {
+
+      const button =
+        document.createElement(
+          'button'
+        );
+
+      button.type =
+        'button';
+
+      button.textContent =
+        symbol;
+
+      button.title =
+        title;
+
+      button.setAttribute(
+        'aria-label',
+        title
+      );
+
+      button.style.width =
+        '32px';
+
+      button.style.height =
+        '32px';
+
+      button.style.padding =
+        '0';
+
+      button.style.border =
+        '0';
+
+      button.style.borderRadius =
+        '4px';
+
+      button.style.background =
+        '#ffffff';
+
+      button.style.boxShadow =
+        '0 1px 4px rgba(0,0,0,0.30)';
+
+      button.style.cursor =
+        'pointer';
+
+      button.style.fontSize =
+        '16px';
+
+      button.style.lineHeight =
+        '32px';
+
+      button.style.textAlign =
+        'center';
+
+      return button;
+    }
+
+
+    const technicianControl =
+      createMapControlButton(
+        '📍',
+        'My location'
+      );
+
+    technicianControl.addEventListener(
+      'click',
+      function () {
+
+        if (!lastTechnicianPosition) {
+          return;
+        }
+
+        map.panTo(
+          lastTechnicianPosition
+        );
+
+        const currentZoom =
+          map.getZoom();
+
+        if (
+          !Number.isFinite(currentZoom)
+          || currentZoom < 17
+        ) {
+          map.setZoom(
+            19
+          );
+        }
+      }
+    );
+
+
+    const ctoControl =
+      createMapControlButton(
+        '▣',
+        'Assigned Project'
+      );
+
+    ctoControl.addEventListener(
+      'click',
+      function () {
+
+        map.panTo(
+          ctoPosition
+        );
+
+        const currentZoom =
+          map.getZoom();
+
+        if (
+          !Number.isFinite(currentZoom)
+          || currentZoom < 17
+        ) {
+          map.setZoom(
+            19
+          );
+        }
+      }
+    );
+
+
+    locationControls.appendChild(
+      technicianControl
+    );
+
+    locationControls.appendChild(
+      ctoControl
+    );
+
+    map.controls[
+      google.maps.ControlPosition.RIGHT_BOTTOM
+    ].push(
+      locationControls
+    );
+  }
 
   function updateTechnicianMarker(
     latitude,
@@ -1264,6 +1432,17 @@
     if (!map) return;
 
     const position = {
+      lat: latitude,
+      lng: longitude
+    };
+
+    /*
+    * Always remember the newest technician position.
+    *
+    * This allows the technician to move freely around the map
+    * and return to the latest GPS position only when requested.
+    */
+    lastTechnicianPosition = {
       lat: latitude,
       lng: longitude
     };
@@ -1284,50 +1463,60 @@
       );
     }
 
-    const bounds =
-      new google.maps.LatLngBounds();
-
-    bounds.extend({
-      lat: officialLatitude,
-      lng: officialLongitude
-    });
-
-    bounds.extend(position);
-
-    map.fitBounds(
-      bounds,
-      70
-    );
-
     /*
-    * When the technician is already very close to the assigned
-    * Box / CTO, fitBounds can zoom in excessively because the
-    * two geographic points are only a few meters apart.
+    * Automatically frame the assigned Box / CTO and technician
+    * only when the first GPS position arrives.
     *
-    * Keep the automatic bounds behavior for longer distances,
-    * but never allow it to zoom closer than level 19.
+    * After this initial fit, watchPosition continues updating
+    * the technician marker without moving the map camera.
     */
-    google.maps.event.addListenerOnce(
-      map,
-      'idle',
-      function () {
+    if (!hasInitialMapFit) {
 
-        const currentZoom =
-          map.getZoom();
+      hasInitialMapFit = true;
 
-        if (
-          Number.isFinite(currentZoom)
-          && currentZoom > 19
-        ) {
+      const bounds =
+        new google.maps.LatLngBounds();
 
-          map.setZoom(
-            19
-          );
+      bounds.extend({
+        lat: officialLatitude,
+        lng: officialLongitude
+      });
+
+      bounds.extend(
+        position
+      );
+
+      map.fitBounds(
+        bounds,
+        70
+      );
+
+      /*
+      * When both points are very close, fitBounds may select an
+      * excessive zoom level. Keep enough geographic context
+      * visible around the assigned project.
+      */
+      google.maps.event.addListenerOnce(
+        map,
+        'idle',
+        function () {
+
+          const currentZoom =
+            map.getZoom();
+
+          if (
+            Number.isFinite(currentZoom)
+            && currentZoom > 19
+          ) {
+
+            map.setZoom(
+              19
+            );
+          }
         }
-      }
-    );
+      );
+    }
   }
-
 
   async function verifyWithServer(
     latitude,
