@@ -1298,6 +1298,34 @@
       bounds,
       70
     );
+
+    /*
+    * When the technician is already very close to the assigned
+    * Box / CTO, fitBounds can zoom in excessively because the
+    * two geographic points are only a few meters apart.
+    *
+    * Keep the automatic bounds behavior for longer distances,
+    * but never allow it to zoom closer than level 19.
+    */
+    google.maps.event.addListenerOnce(
+      map,
+      'idle',
+      function () {
+
+        const currentZoom =
+          map.getZoom();
+
+        if (
+          Number.isFinite(currentZoom)
+          && currentZoom > 19
+        ) {
+
+          map.setZoom(
+            19
+          );
+        }
+      }
+    );
   }
 
 
