@@ -743,59 +743,70 @@
      FINISH MODAL
      ========================================================= -->
 
-<div id="modal-finish" class="fixed inset-0 hidden z-50">
+<div id="modal-finish"
+     class="fixed inset-0 hidden z-50 overflow-hidden">
 
-  <div class="absolute inset-0 bg-black/40" data-close-finish></div>
+  <div class="absolute inset-0 bg-black/40"
+       data-close-finish>
+  </div>
 
-  <div class="relative max-w-md mx-auto mt-40 bg-white rounded-2xl shadow p-6">
+  <div id="modal-finish-viewport"
+       class="absolute inset-x-0 top-0 flex items-center justify-center p-3 sm:p-4"
+       style="height: 100dvh;">
 
-    <h3 class="text-lg font-semibold">
-      Finish assignment
-    </h3>
+    <div id="modal-finish-card"
+         class="relative w-full max-w-md bg-white rounded-2xl shadow p-5 sm:p-6 overflow-y-auto"
+         style="max-height: calc(100% - 1rem);">
 
-    <p class="mt-1 text-sm text-gray-600">
-      Please enter a comment. This will submit the whole team for supervisor review if validations pass.
-    </p>
+      <h3 class="text-lg font-semibold">
+        Finish assignment
+      </h3>
 
-    <form id="form-finish"
-          method="post"
-          action="#"
-          class="mt-4">
+      <p class="mt-1 text-sm text-gray-600">
+        Please enter a comment. This will submit the whole team for supervisor review if validations pass.
+      </p>
 
-      {% csrf_token %}
+      <form id="form-finish"
+            method="post"
+            action="#"
+            class="mt-4">
 
-      <label class="block text-sm font-medium mb-1">
-        Comment
-      </label>
+        {% csrf_token %}
 
-      <textarea
-        name="comentario"
-        id="finish-comentario"
-        rows="4"
-        class="w-full border rounded-xl p-2"
-        placeholder="Write your comment..."
-        required
-      ></textarea>
+        <label class="block text-sm font-medium mb-1">
+          Comment
+        </label>
 
-      <div class="mt-4 flex justify-end gap-2">
+        <textarea
+          name="comentario"
+          id="finish-comentario"
+          rows="4"
+          class="w-full border rounded-xl p-2"
+          placeholder="Write your comment..."
+          required
+        ></textarea>
 
-        <button type="button"
-                class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200"
-                data-close-finish>
-          Cancel
-        </button>
+        <div class="mt-4 flex justify-end gap-2">
 
-        <button type="submit"
-                class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">
-          Finish
-        </button>
+          <button type="button"
+                  class="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200"
+                  data-close-finish>
+            Cancel
+          </button>
 
-      </div>
-    </form>
+          <button type="submit"
+                  class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">
+            Finish
+          </button>
+
+        </div>
+
+      </form>
+
+    </div>
+
   </div>
 </div>
-
-
 <!-- =========================================================
      EXCEL FILTER
      ========================================================= -->
@@ -2145,73 +2156,221 @@
 <script>
 (function(){
 
-  const modal = document.getElementById('modal-finish');
-  const form = document.getElementById('form-finish');
-  const txt = document.getElementById('finish-comentario');
+  const modal =
+    document.getElementById(
+      'modal-finish'
+    );
 
-  document.addEventListener('click', (e)=>{
+  const modalViewport =
+    document.getElementById(
+      'modal-finish-viewport'
+    );
 
-    const btn = e.target.closest('.btn-finish');
+  const modalCard =
+    document.getElementById(
+      'modal-finish-card'
+    );
 
-    if(!btn) return;
+  const form =
+    document.getElementById(
+      'form-finish'
+    );
 
-    form.action = btn.getAttribute('data-action');
+  const txt =
+    document.getElementById(
+      'finish-comentario'
+    );
 
-    if (txt) {
-      txt.value = "";
-    }
 
-    modal.classList.remove('hidden');
-
-    if (txt) {
-      setTimeout(
-        ()=>txt.focus(),
-        50
-      );
-    }
-  });
-
-  document.addEventListener('click', (e)=>{
+  function updateFinishModalViewport() {
 
     if (
-      e.target.hasAttribute(
-        'data-close-finish'
+      !modal
+      || modal.classList.contains(
+        'hidden'
       )
+      || !modalViewport
     ) {
-      modal.classList.add('hidden');
+      return;
     }
-  });
 
-  document.addEventListener('keydown', (e)=>{
+    const visualViewport =
+      window.visualViewport;
 
-    if (e.key === 'Escape') {
-      modal.classList.add('hidden');
+    if (visualViewport) {
+
+      const viewportHeight =
+        visualViewport.height;
+
+      const viewportTop =
+        visualViewport.offsetTop;
+
+      modalViewport.style.top =
+        viewportTop + 'px';
+
+      modalViewport.style.height =
+        viewportHeight + 'px';
+
+    } else {
+
+      modalViewport.style.top =
+        '0px';
+
+      modalViewport.style.height =
+        window.innerHeight + 'px';
     }
-  });
 
-  form.addEventListener('submit', (e)=>{
+    if (modalCard) {
 
-    const val = (
-      txt?.value || ""
-    ).trim();
+      modalCard.style.maxHeight =
+        'calc(100% - 1rem)';
+    }
+  }
 
-    if (!val) {
 
-      e.preventDefault();
+  function openFinishModal(
+    action
+  ) {
 
-      alert(
-        "Please enter a comment to finish."
+    form.action =
+      action;
+
+    if (txt) {
+      txt.value = '';
+    }
+
+    modal.classList.remove(
+      'hidden'
+    );
+
+    updateFinishModalViewport();
+
+    requestAnimationFrame(
+      () => {
+        updateFinishModalViewport();
+      }
+    );
+  }
+
+
+  function closeFinishModal() {
+
+    if (txt) {
+      txt.blur();
+    }
+
+    modal.classList.add(
+      'hidden'
+    );
+  }
+
+
+  document.addEventListener(
+    'click',
+    (e) => {
+
+      const btn =
+        e.target.closest(
+          '.btn-finish'
+        );
+
+      if (!btn) {
+        return;
+      }
+
+      openFinishModal(
+        btn.getAttribute(
+          'data-action'
+        )
       );
+    }
+  );
 
-      if (txt) {
-        txt.focus();
+
+  document.addEventListener(
+    'click',
+    (e) => {
+
+      if (
+        e.target.hasAttribute(
+          'data-close-finish'
+        )
+      ) {
+        closeFinishModal();
       }
     }
-  });
+  );
+
+
+  document.addEventListener(
+    'keydown',
+    (e) => {
+
+      if (
+        e.key === 'Escape'
+        && !modal.classList.contains(
+          'hidden'
+        )
+      ) {
+        closeFinishModal();
+      }
+    }
+  );
+
+
+  form.addEventListener(
+    'submit',
+    (e) => {
+
+      const val = (
+        txt?.value || ''
+      ).trim();
+
+      if (!val) {
+
+        e.preventDefault();
+
+        alert(
+          'Please enter a comment to finish.'
+        );
+
+        if (txt) {
+
+          txt.focus();
+
+          requestAnimationFrame(
+            () => {
+              updateFinishModalViewport();
+            }
+          );
+        }
+      }
+    }
+  );
+
+
+  if (window.visualViewport) {
+
+    window.visualViewport.addEventListener(
+      'resize',
+      updateFinishModalViewport
+    );
+
+    window.visualViewport.addEventListener(
+      'scroll',
+      updateFinishModalViewport
+    );
+
+  } else {
+
+    window.addEventListener(
+      'resize',
+      updateFinishModalViewport
+    );
+  }
 
 })();
 </script>
-
 
 <!-- =========================================================
      RESTORE HORIZONTAL SCROLL

@@ -241,95 +241,266 @@
         transform: scale(1.06);
       }
     }
+
+        /* ===== Header responsive ===== */
+    .app-header-inner {
+      width: 100%;
+    }
+
+    .app-header-main {
+      width: 100%;
+    }
+
+    .app-header-brand {
+      min-width: 0;
+    }
+
+    .app-header-user-name {
+      min-width: 0;
+    }
+
+    
+
+    @media (max-width: 639px) {
+      #app-header {
+        padding: 8px 12px;
+      }
+
+      .app-header-main {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .app-header-top-row {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .app-header-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .app-header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .app-header-user-name {
+        flex: 1;
+        min-width: 0;
+        max-width: none;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .app-header-action-buttons {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .app-header-action-buttons button {
+        padding: 4px 9px;
+        font-size: 0.75rem;
+        line-height: 1rem;
+      }
+
+      .app-header-notifications {
+        position: relative;
+        top: auto;
+        right: auto;
+        flex-shrink: 0;
+        margin-left: 8px;
+      }
+
+      .app-header-notifications #notification-panel {
+        position: fixed;
+        top: var(--app-header-h, 100px);
+        right: 8px;
+        width: min(18rem, calc(100vw - 16px));
+        margin-top: 4px;
+      }
+
+      .brand-logo {
+        height: 2.5rem;
+      }
+    }
 </style>
 </head>
 
 <body class="bg-gray-100 text-gray-900 min-h-screen">
 
 <!-- HEADER SUPERIOR FIJO -->
-<header id="app-header" class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
-  <div class="relative flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
+<header id="app-header"
+        class="bg-white shadow-md fixed top-0 left-0 w-full z-50 px-4 py-2">
 
-    <!-- Campanita de notificaciones -->
-    <div class="absolute top-2 right-4 z-50">
-      <button onclick="toggleNotifications()" class="relative text-gray-700">
-        <i data-lucide="bell" class="w-6 h-6"></i>
-        {% if notificaciones_no_leidas > 0 %}
-          <span class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
-            {{ notificaciones_no_leidas }}
+  <div class="app-header-inner relative w-full">
+
+    <div class="app-header-main flex flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+
+      <!-- FILA PRINCIPAL / MARCA -->
+      <div class="app-header-top-row">
+
+        <div class="app-header-brand flex items-center gap-3 min-w-0">
+
+          <button onclick="toggleSidebar()"
+                  class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900 flex-shrink-0">
+            ☰
+          </button>
+
+          <span class="brand-logo-wrap flex-shrink-0">
+            <img src="{% static 'images/logoh.png' %}"
+                 alt="Logo"
+                 class="brand-logo">
           </span>
-        {% endif %}
-      </button>
 
-      <!-- Panel desplegable de notificaciones -->
-      <div id="notification-panel"
-           class="hidden absolute right-0 mt-2 w-72 bg-white border rounded-lg shadow-lg z-50">
-        <div class="p-2 max-h-80 overflow-y-auto">
-          {% for n in notificaciones_recientes %}
-            <div id="notificacion-{{ n.id }}">
-              <a href="{% url 'usuarios:leer_notificacion' n.id %}"
-                 class="block p-2 text-sm border-b w-full text-left {% if not n.leido %}bg-yellow-100{% else %}hover:bg-gray-100{% endif %}">
-                <div class="flex flex-col">
-                  <span>{{ n.mensaje }}</span>
-                  <span class="text-xs text-gray-400">{{ n.fecha|naturaltime }}</span>
-                </div>
-              </a>
-            </div>
-          {% empty %}
-            <p class="text-sm text-gray-500 p-2">No notification history.</p>
-          {% endfor %}
+          <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
+            HYPERLINK NETWORKS
+          </strong>
+
         </div>
+
+        <!-- CAMPANA -->
+        <div class="app-header-notifications absolute top-2 right-0 z-50">
+
+          <button onclick="toggleNotifications()"
+                  class="relative text-gray-700 flex items-center justify-center"
+                  type="button"
+                  aria-label="Notifications">
+
+            <i data-lucide="bell" class="w-6 h-6"></i>
+
+            {% if notificaciones_no_leidas > 0 %}
+              <span class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {{ notificaciones_no_leidas }}
+              </span>
+            {% endif %}
+
+          </button>
+
+          <!-- Panel desplegable de notificaciones -->
+          <div id="notification-panel"
+               class="hidden absolute right-0 mt-2 w-72 bg-white border rounded-lg shadow-lg z-50">
+
+            <div class="p-2 max-h-80 overflow-y-auto">
+
+              {% for n in notificaciones_recientes %}
+
+                <div id="notificacion-{{ n.id }}">
+
+                  <a href="{% url 'usuarios:leer_notificacion' n.id %}"
+                     class="block p-2 text-sm border-b w-full text-left {% if not n.leido %}bg-yellow-100{% else %}hover:bg-gray-100{% endif %}">
+
+                    <div class="flex flex-col">
+
+                      <span>
+                        {{ n.mensaje }}
+                      </span>
+
+                      <span class="text-xs text-gray-400">
+                        {{ n.fecha|naturaltime }}
+                      </span>
+
+                    </div>
+
+                  </a>
+
+                </div>
+
+              {% empty %}
+
+                <p class="text-sm text-gray-500 p-2">
+                  No notification history.
+                </p>
+
+              {% endfor %}
+
+            </div>
+
+          </div>
+
+        </div>
+
       </div>
-    </div>
 
-    <!-- Contenido principal del header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full pr-16 gap-2 sm:gap-0 mt-[-8px]">
+      <!-- USUARIO + ACCIONES -->
+      <div class="app-header-actions flex items-center gap-2 sm:gap-3 sm:pr-10 flex-shrink-0">
 
-      <!-- IZQUIERDA: Logo y nombre -->
-      <div class="flex items-center gap-3 min-w-0">
-        <button onclick="toggleSidebar()" class="text-black text-2xl md:text-xl mr-1 hover:text-gray-900">☰</button>
-
-        <span class="brand-logo-wrap">
-          <img src="{% static 'images/logoh.png' %}" alt="Logo" class="brand-logo">
-        </span>
-
-        <strong class="text-gray-800 text-sm md:text-base font-semibold truncate">
-          HYPERLINK NETWORKS PLATFORM
-        </strong>
-      </div>
-
-      <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-        <span class="text-gray-900 font-bold max-w-[32vw] sm:max-w-none truncate">
+        <span class="app-header-user-name text-gray-900 font-bold sm:max-w-none truncate">
           {{ request.user.get_full_name|default:request.user.username }}
         </span>
 
-        <div class="flex items-center gap-2">
+        <div class="app-header-action-buttons flex items-center gap-2">
+
           {% if can_switch_ui_mode %}
-            <form method="post" action="{% url 'usuarios:toggle_ui_mode' %}" class="inline-block">
+
+            <form method="post"
+                  action="{% url 'usuarios:toggle_ui_mode' %}"
+                  class="inline-block">
+
               {% csrf_token %}
-              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+
+              <input type="hidden"
+                     name="next"
+                     value="{{ request.get_full_path }}">
+
               <button type="submit"
                       class="px-3 py-1 rounded-full border border-blue-600 text-blue-600 font-semibold
                              hover:bg-blue-50 hover:text-blue-700 hover:border-blue-700
                              whitespace-nowrap transition">
-                {% if ui_mode_is_admin %}Switch to User{% else %}Switch to Admin{% endif %}
+
+                {% if ui_mode_is_admin %}
+                  Switch to User
+                {% else %}
+                  Switch to Admin
+                {% endif %}
+
               </button>
+
             </form>
+
           {% endif %}
 
-          <form method="post" action="{% url 'dashboard_admin:logout' %}" class="inline-block">
+          <form method="post"
+                action="{% url 'dashboard_admin:logout' %}"
+                class="inline-block">
+
             {% csrf_token %}
+
             <button type="submit"
                     class="px-3 py-1 rounded-full border border-red-600 text-red-600 font-semibold
                            hover:bg-red-50 hover:text-red-700 hover:border-red-700
                            whitespace-nowrap transition">
+
               Log Out
+
             </button>
+
           </form>
+
         </div>
+
       </div>
+
     </div>
+
   </div>
+
 </header>
 
 <!-- CONTENEDOR PRINCIPAL -->
@@ -768,7 +939,32 @@
     if (panel) panel.classList.toggle('hidden');
   }
 
-  document.addEventListener('DOMContentLoaded', applySidebarState);
+    // En móvil, cerrar el sidebar cuando se selecciona una opción real.
+  // Los encabezados que solo despliegan submenús NO lo cierran.
+  function closeMobileSidebarOnNavigation() {
+    const nav = document.getElementById('side-nav');
+
+    if (!nav) return;
+
+    nav.addEventListener('click', function (event) {
+      const link = event.target.closest('a[href]');
+
+      if (!link) return;
+
+      const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+
+      if (isDesktop) return;
+
+      nav.classList.add('-translate-x-full');
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, '1');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    applySidebarState();
+    closeMobileSidebarOnNavigation();
+  });
+
   window.addEventListener('resize', applySidebarState);
   window.addEventListener('orientationchange', applySidebarState);
 </script>

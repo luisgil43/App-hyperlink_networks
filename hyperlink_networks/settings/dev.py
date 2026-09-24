@@ -15,6 +15,7 @@ from .base import *
 DEBUG = True
 
 # Hosts permitidos en desarrollo
+
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
@@ -31,14 +32,15 @@ ALLOWED_HOSTS = [
     "192.168.1.44",
     "192.168.1.39",
     "192.168.1.51",
-    
     ".ngrok-free.app",
     ".ngrok-free.dev",
+    ".trycloudflare.com",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.app",
     "https://*.ngrok-free.dev",
+    "https://*.trycloudflare.com",
 ]
 
 # Permitir mostrar errores detallados en navegador
