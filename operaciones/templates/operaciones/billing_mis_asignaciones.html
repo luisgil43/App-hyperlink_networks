@@ -57,6 +57,34 @@
       color:#2563eb !important;
     }
 
+    /* Keep assignment row content anchored to the top.
+       A row can become taller because of Status/Actions, but its
+       content must never be vertically distributed inside cells. */
+    #myassign-table tbody td {
+      vertical-align: top !important;
+    }
+
+    #myassign-table .assignment-comments-cell {
+      vertical-align: top !important;
+    }
+
+    #myassign-table .assignment-comments-stack {
+      display: block !important;
+      height: auto !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    #myassign-table .assignment-comments-stack > * {
+      margin-top: 0 !important;
+      margin-bottom: 4px !important;
+    }
+
+    #myassign-table .assignment-comments-stack > *:last-child {
+      margin-bottom: 0 !important;
+    }
+
     .project-map-marker-label {
       background: rgba(255, 255, 255, 0.96);
       border: 1px solid rgba(55, 65, 81, 0.22);
@@ -374,12 +402,11 @@
               </div>
             </td>
 
-            <td class="p-2 border text-sm min-w-[380px] max-w-[520px] align-top text-left"
-              style="white-space: normal; vertical-align: top;"
+            <td class="assignment-comments-cell p-2 border text-sm min-w-[380px] max-w-[520px] text-left"
+              style="white-space: normal; vertical-align: top !important;"
               data-excel-value="{% if a.tecnico_comentario %}{{ a.tecnico_comentario }}{% endif %}{% if a.supervisor_comentario %}{% if a.tecnico_comentario %} | {% endif %}Supervisor: {{ a.supervisor_comentario }}{% endif %}{% if a.pm_comentario %}{% if a.tecnico_comentario or a.supervisor_comentario %} | {% endif %}PM: {{ a.pm_comentario }}{% endif %}{% if a.sesion.is_cable_installation and a.cable_rejection_comment %}{% if a.tecnico_comentario or a.supervisor_comentario or a.pm_comentario %} | {% endif %}Cable review: {{ a.cable_rejection_comment }}{% endif %}">
 
-            <div class="flex flex-col justify-start items-stretch gap-1 w-full"
-                 style="margin:0; padding:0; justify-content:flex-start; align-items:stretch;">
+            <div class="assignment-comments-stack w-full">
 
               {% if a.tecnico_comentario %}
                 <div class="text-gray-700 whitespace-pre-wrap break-words m-0 p-0">
