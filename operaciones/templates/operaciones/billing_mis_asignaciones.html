@@ -374,8 +374,8 @@
               </div>
             </td>
 
-            <td class="p-2 border text-sm min-w-[380px] max-w-[520px]"
-              style="white-space: normal;"
+            <td class="p-2 border text-sm min-w-[380px] max-w-[520px] align-top text-left"
+              style="white-space: normal; vertical-align: top;"
               data-excel-value="{% if a.tecnico_comentario %}{{ a.tecnico_comentario }}{% endif %}{% if a.supervisor_comentario %}{% if a.tecnico_comentario %} | {% endif %}Supervisor: {{ a.supervisor_comentario }}{% endif %}{% if a.pm_comentario %}{% if a.tecnico_comentario or a.supervisor_comentario %} | {% endif %}PM: {{ a.pm_comentario }}{% endif %}{% if a.sesion.is_cable_installation and a.cable_rejection_comment %}{% if a.tecnico_comentario or a.supervisor_comentario or a.pm_comentario %} | {% endif %}Cable review: {{ a.cable_rejection_comment }}{% endif %}">
 
             {% if a.tecnico_comentario %}
