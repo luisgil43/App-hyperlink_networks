@@ -1186,41 +1186,68 @@ def mis_assignments(request):
 
         if col_idx == 9:
 
-            comentario = (
+            comments = []
+
+            tecnico_comentario = (
                 getattr(
                     a,
                     "tecnico_comentario",
                     "",
                 )
                 or ""
-            )
+            ).strip()
 
-            if getattr(
-                a,
-                "sesion",
-                None,
-            ) and getattr(
-                a.sesion,
-                "is_cable_installation",
-                False,
-            ):
+            supervisor_comentario = (
+                getattr(
+                    a,
+                    "supervisor_comentario",
+                    "",
+                )
+                or ""
+            ).strip()
 
-                rechazo = (
-                    getattr(
-                        a,
-                        "cable_rejection_comment",
-                        "",
-                    )
-                    or ""
+            pm_comentario = (
+                getattr(
+                    a,
+                    "pm_comentario",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            cable_rejection_comment = (
+                getattr(
+                    a,
+                    "cable_rejection_comment",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if tecnico_comentario:
+                comments.append(
+                    tecnico_comentario
                 )
 
-                if comentario and rechazo:
-                    return f"{comentario} | " f"Review: {rechazo}"
+            if supervisor_comentario:
+                comments.append(
+                    f"Supervisor: {supervisor_comentario}"
+                )
 
-                if rechazo:
-                    return rechazo
+            if pm_comentario:
+                comments.append(
+                    f"PM: {pm_comentario}"
+                )
 
-            return vac(comentario)
+            if cable_rejection_comment:
+                comments.append(
+                    f"Cable review: {cable_rejection_comment}"
+                )
+
+            if comments:
+                return " | ".join(comments)
+
+            return "(Vacías)"
 
         if col_idx == 10:
 
