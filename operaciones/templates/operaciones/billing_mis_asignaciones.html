@@ -126,7 +126,7 @@
             <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Office</span><span class="excel-arrow text-gray-500">▼</span></button></th>
             <th class="p-2 border text-right" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>My Billing</span><span class="excel-arrow text-gray-500">▼</span></button></th>
             <th class="p-2 border text-center" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Status</span><span class="excel-arrow text-gray-500">▼</span></button></th>
-            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1" style="justify-content:flex-start;"><span>Comments</span><span class="excel-arrow text-gray-500">▼</span></button></th>
+            <th class="p-2 border text-left" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Comments</span><span class="excel-arrow text-gray-500">▼</span></button></th>
             <th class="p-2 border text-center" data-excel-col><button type="button" class="excel-header-btn flex items-center gap-1"><span>Photo Report</span><span class="excel-arrow text-gray-500">▼</span></button></th>
             <th class="p-2 border text-center">Actions</th>
           </tr>
@@ -378,37 +378,42 @@
               style="white-space: normal; vertical-align: top;"
               data-excel-value="{% if a.tecnico_comentario %}{{ a.tecnico_comentario }}{% endif %}{% if a.supervisor_comentario %}{% if a.tecnico_comentario %} | {% endif %}Supervisor: {{ a.supervisor_comentario }}{% endif %}{% if a.pm_comentario %}{% if a.tecnico_comentario or a.supervisor_comentario %} | {% endif %}PM: {{ a.pm_comentario }}{% endif %}{% if a.sesion.is_cable_installation and a.cable_rejection_comment %}{% if a.tecnico_comentario or a.supervisor_comentario or a.pm_comentario %} | {% endif %}Cable review: {{ a.cable_rejection_comment }}{% endif %}">
 
-            {% if a.tecnico_comentario %}
-              <div class="text-gray-700 whitespace-pre-wrap break-words">
-                <strong>Comments:</strong>
-                {{ a.tecnico_comentario }}
-              </div>
-            {% endif %}
+            <div class="flex flex-col justify-start items-stretch gap-1 w-full"
+                 style="margin:0; padding:0; justify-content:flex-start; align-items:stretch;">
 
-            {% if a.supervisor_comentario %}
-              <div class="mt-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
-                <strong>Supervisor review:</strong>
-                {{ a.supervisor_comentario }}
-              </div>
-            {% endif %}
+              {% if a.tecnico_comentario %}
+                <div class="text-gray-700 whitespace-pre-wrap break-words m-0 p-0">
+                  <strong>Comments:</strong>
+                  {{ a.tecnico_comentario }}
+                </div>
+              {% endif %}
 
-            {% if a.pm_comentario %}
-              <div class="mt-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-orange-800 whitespace-pre-wrap break-words">
-                <strong>PM review:</strong>
-                {{ a.pm_comentario }}
-              </div>
-            {% endif %}
+              {% if a.supervisor_comentario %}
+                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
+                  <strong>Supervisor review:</strong>
+                  {{ a.supervisor_comentario }}
+                </div>
+              {% endif %}
 
-            {% if a.sesion.is_cable_installation and a.cable_rejection_comment %}
-              <div class="mt-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
-                <strong>Cable review:</strong>
-                {{ a.cable_rejection_comment }}
-              </div>
-            {% endif %}
+              {% if a.pm_comentario %}
+                <div class="rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-orange-800 whitespace-pre-wrap break-words">
+                  <strong>PM review:</strong>
+                  {{ a.pm_comentario }}
+                </div>
+              {% endif %}
 
-            {% if not a.tecnico_comentario and not a.supervisor_comentario and not a.pm_comentario and not a.cable_rejection_comment %}
-              <span class="text-gray-400">—</span>
-            {% endif %}
+              {% if a.sesion.is_cable_installation and a.cable_rejection_comment %}
+                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
+                  <strong>Cable review:</strong>
+                  {{ a.cable_rejection_comment }}
+                </div>
+              {% endif %}
+
+              {% if not a.tecnico_comentario and not a.supervisor_comentario and not a.pm_comentario and not a.cable_rejection_comment %}
+                <span class="text-gray-400">—</span>
+              {% endif %}
+
+            </div>
           </td>
 
             <td class="p-2 border text-center"
