@@ -409,28 +409,28 @@
             <div class="assignment-comments-stack w-full">
 
               {% if a.tecnico_comentario %}
-                <div class="text-gray-700 whitespace-pre-wrap break-words m-0 p-0">
+                <div class="text-gray-700 whitespace-normal break-words m-0 p-0">
                   <strong>Comments:</strong>
                   {{ a.tecnico_comentario }}
                 </div>
               {% endif %}
 
               {% if a.supervisor_comentario %}
-                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
+                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-normal break-words">
                   <strong>Supervisor review:</strong>
                   {{ a.supervisor_comentario }}
                 </div>
               {% endif %}
 
               {% if a.pm_comentario %}
-                <div class="rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-orange-800 whitespace-pre-wrap break-words">
+                <div class="rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-orange-800 whitespace-normal break-words">
                   <strong>PM review:</strong>
                   {{ a.pm_comentario }}
                 </div>
               {% endif %}
 
               {% if a.sesion.is_cable_installation and a.cable_rejection_comment %}
-                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-pre-wrap break-words">
+                <div class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-800 whitespace-normal break-words">
                   <strong>Cable review:</strong>
                   {{ a.cable_rejection_comment }}
                 </div>
