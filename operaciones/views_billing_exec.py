@@ -309,6 +309,14 @@ def mis_assignments(request):
         tecnico=request.user,
         estado__in=visibles,
         sesion__is_direct_discount=False,
+    ).exclude(
+        # The parent Billing session is authoritative for completed work.
+        # Historical/stale technician assignments must not reappear in
+        # My Assignments after the project has already been approved.
+        sesion__estado__in=[
+            "aprobado_supervisor",
+            "aprobado_pm",
+        ],
     )
 
     try:
