@@ -242,6 +242,19 @@ def _ensure_assignment(
     box,
     user,
 ):
+    # A Billing session represents one exact Project ID.
+    # Keep historical map assignments, but only the assignment
+    # matching the current Box may remain active.
+    (
+        BillingBoxAssignment.objects
+        .filter(
+            billing_session=session,
+            active=True,
+        )
+        .exclude(box=box)
+        .update(active=False)
+    )
+
     assignment, _ = (
         BillingBoxAssignment.objects
         .get_or_create(

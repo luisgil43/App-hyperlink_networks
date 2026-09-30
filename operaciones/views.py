@@ -16705,8 +16705,26 @@ def billing_update_project_id(request, sesion_id: int):
     if not proyecto_id:
         return JsonResponse({"ok": False, "error": "Project ID is required."}, status=400)
 
-    s.proyecto_id = proyecto_id
-    s.save(update_fields=["proyecto_id"])
+    with transaction.atomic():
+        s.proyecto_id = proyecto_id
+        s.save(update_fields=["proyecto_id"])
+
+        # Billing is the source of truth for the exact Project ID.
+        # Preserve historical map assignments, but they must not
+        # remain active after the Billing Project ID changes.
+        from maps.models import BillingBoxAssignment
+
+        (
+            BillingBoxAssignment.objects
+            .filter(
+                billing_session=s,
+                active=True,
+            )
+            .exclude(
+                box__identifier=proyecto_id,
+            )
+            .update(active=False)
+        )
 
     return JsonResponse({
         "ok": True,
