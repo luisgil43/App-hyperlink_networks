@@ -3318,10 +3318,9 @@ def revisar_sesion(request, sesion_id):
         .all()
     )
 
-    # Mantener sincronizado el estado del proyecto
-    # según las asignaciones.
-    s.recomputar_estado_desde_asignaciones()
-
+    # Review must be read-only on GET.
+    # The persisted SesionBilling state is the source of truth here.
+    # Opening or refreshing Review must never recompute/downgrade it.
     can_review = s.estado in {
         "en_revision_supervisor",
     }
