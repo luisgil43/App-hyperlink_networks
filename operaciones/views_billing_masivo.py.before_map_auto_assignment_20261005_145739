@@ -4950,19 +4950,6 @@ def billing_masivo_confirm(request):
                         ]
                     )
 
-                    # Maps:
-                    # Reuse an already-located physical Box / CTO when
-                    # this is a new Billing cycle for the exact same
-                    # Project ID. Older Billing assignments remain intact.
-                    from maps.services.billing_assignments import (
-                        associate_existing_located_box_to_billing,
-                    )
-
-                    associate_existing_located_box_to_billing(
-                        session=sesion,
-                        user=request.user,
-                    )
-
                     created_ids.append(sesion.id)
 
                     technicians = b.get("technicians") or []

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_verification
+from . import views, views_ox_fiber, views_verification
 
 app_name = "client_submissions"
 
@@ -120,5 +120,13 @@ urlpatterns = [
         "submission/<uuid:public_id>/delete/",
         views.submission_delete,
         name="submission_delete",
+    ),
+    # ========================================================
+    # OX-FIBER
+    # ========================================================
+    path(
+        "ox-fiber/from-invoices/",
+        views_ox_fiber.start_from_invoices,
+        name="ox_fiber_from_invoices",
     ),
 ]

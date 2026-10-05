@@ -11634,6 +11634,19 @@ def _guardar_billing(request, sesion=None):
                 tech_payment_mode,
         )
 
+        # Maps:
+        # Reuse an already-located physical Box / CTO for a new
+        # Billing cycle with the exact same Project ID.
+        # Historical Billing assignments remain untouched.
+        from maps.services.billing_assignments import (
+            associate_existing_located_box_to_billing,
+        )
+
+        associate_existing_located_box_to_billing(
+            session=sesion,
+            user=request.user,
+        )
+
     else:
 
         sesion.proyecto_id = project_code
