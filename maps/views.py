@@ -434,22 +434,30 @@ def map_home(request):
     # ============================================================
     # Scope: All Projects
     #
-    # All Projects conserva exactamente su comportamiento actual:
-    # solamente las sesiones que cumplen la regla base de
-    # visibilidad operacional de List Billing.
+    # Por defecto, All Projects muestra solamente las sesiones
+    # que cumplen la regla base de visibilidad operacional de
+    # List Billing.
     #
-    # Activar Include mapped history NO convierte All Projects
-    # en una vista gigante del histórico.
+    # Con Include mapped history también incorporamos proyectos
+    # históricos que tengan una Box / CTO con ubicación oficial.
     #
-    # El checkbox solamente amplía los DFNs disponibles para que
-    # el usuario pueda entrar explícitamente a un DFN histórico
-    # que sí tenga información geográfica.
+    # Los proyectos históricos sin ubicación permanecen fuera,
+    # evitando convertir All Projects en todo el archivo histórico.
     # ============================================================
 
     if selected_scope == "all":
 
         filtered_projects = [
-            project for project in all_projects if project["in_billing_list"]
+            project
+            for project in all_projects
+            if (
+                project["in_billing_list"]
+                or (
+                    include_mapped_history
+                    and project["located"]
+                    and not project["in_billing_list"]
+                )
+            )
         ]
 
     # ============================================================
