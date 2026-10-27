@@ -118,7 +118,7 @@
         <span class="font-semibold text-xs">Show all columns</span>
       </label>
 
-      <!-- ✅ índices 0..15 (Actions = 15) -->
+      <!-- Índices 0..16 (Actions = 16) -->
       <div class="space-y-1 text-sm">
         <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="0" checked> <span>User</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="1" checked> <span>Date</span></label>
@@ -132,10 +132,11 @@
         <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="9" checked> <span>Remarks</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="10" checked> <span>Transfer Nº</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="11" checked> <span>Receipt(s)</span></label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="12" checked> <span>Expenses</span></label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="13" checked> <span>Credits</span></label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="14" checked> <span>Status</span></label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="15" checked> <span>Actions</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="12" checked> <span>Odometer (miles)</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="13" checked> <span>Expenses</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="14" checked> <span>Credits</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="15" checked> <span>Status</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="col-toggle" data-col="16" checked> <span>Actions</span></label>
       </div>
     </div>
   </details>
@@ -224,6 +225,12 @@
           <th class="p-2 border" data-excel-col>
             <button type="button" class="excel-header-btn flex items-center gap-1">
               <span>Receipt(s)</span><span class="excel-arrow text-gray-500">▼</span>
+            </button>
+          </th>
+
+          <th class="p-2 border text-right" data-excel-col>
+            <button type="button" class="excel-header-btn flex items-center gap-1">
+              <span>Odometer (miles)</span><span class="excel-arrow text-gray-500">▼</span>
             </button>
           </th>
 
@@ -351,17 +358,27 @@
             {% endif %}
           </td>
 
-          <!-- 12 Cargos -->
+          <!-- 12 Odometer (miles) -->
+          <td class="p-2 border text-right"
+              data-excel-value="{% if mov.kilometraje is not None %}{{ mov.kilometraje|intcomma }}{% else %}(Vacías){% endif %}">
+            {% if mov.kilometraje is not None %}
+              {{ mov.kilometraje|intcomma }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <!-- 13 Cargos -->
           <td class="p-2 border text-right" data-excel-value="{{ mov.cargos|default:0|formato_usd }}">
             {{ mov.cargos|default:0|formato_usd }}
           </td>
 
-          <!-- 13 Abonos -->
+          <!-- 14 Abonos -->
           <td class="p-2 border text-right" data-excel-value="{{ mov.abonos|default:0|formato_usd }}">
             {{ mov.abonos|default:0|formato_usd }}
           </td>
 
-          <!-- 14 Status (display) -->
+          <!-- 15 Status (display) -->
           <td class="p-2 text-sm" data-excel-value="{{ mov.get_status_display }}">
             <div class="flex flex-col gap-1 text-left leading-tight">
               {% if mov.status == 'pendiente_supervisor' %}
@@ -396,7 +413,7 @@
             </div>
           </td>
 
-          <!-- 15 Actions -->
+          <!-- 16 Actions -->
           <td class="p-2 border">
             {% if user.is_superuser %}
               <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
@@ -454,7 +471,7 @@
 
         {% empty %}
         <tr data-empty-row="1">
-          <td colspan="16" class="p-4 text-center text-gray-600">
+          <td colspan="17" class="p-4 text-center text-gray-600">
             No results found for the current filters.
           </td>
         </tr>
@@ -546,7 +563,7 @@
 
   function loadExcelFilters(){
     try{
-      const key = 'ledgerExcelFilters:' + location.pathname;
+      const key = 'ledgerExcelFilters:v2:' + location.pathname;
       const raw = sessionStorage.getItem(key);
       if(!raw) return {};
       const obj = JSON.parse(raw);
@@ -562,7 +579,7 @@
 
   function saveExcelFilters(active){
     try{
-      const key = 'ledgerExcelFilters:' + location.pathname;
+      const key = 'ledgerExcelFilters:v2:' + location.pathname;
       const plain = {};
       Object.entries(active).forEach(([col, set])=>{
         plain[col] = Array.from(set);
@@ -636,7 +653,7 @@
     requestAnimationFrame(()=>{ box.scrollLeft = x; });
   }
 
-  const COL_KEY = 'ledgerCols:' + location.pathname;
+  const COL_KEY = 'ledgerCols:v2:' + location.pathname;
 
   function loadColsState(){
     try{

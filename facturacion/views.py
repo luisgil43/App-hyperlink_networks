@@ -299,9 +299,10 @@ def listar_cartola(request):
                 # 9 Observaciones
                 # 10 N° Transferencia
                 # 11 Comprobante
-                # 12 Cargos
-                # 13 Abonos
-                # 14 Status
+                # 12 Odometer (miles)
+                # 13 Cargos
+                # 14 Abonos
+                # 15 Status
                 if col == "0":
                     label = str(m.usuario) if m.usuario else ""
 
@@ -344,12 +345,16 @@ def listar_cartola(request):
                     label = "Ver" if getattr(m, "comprobante", None) else "—"
 
                 elif col == "12":
-                    label = format_clp(getattr(m, "cargos", 0) or 0)
+                    odometer = getattr(m, "kilometraje", None)
+                    label = f"{odometer:,}" if odometer is not None else "(Vacías)"
 
                 elif col == "13":
-                    label = format_clp(getattr(m, "abonos", 0) or 0)
+                    label = format_clp(getattr(m, "cargos", 0) or 0)
 
                 elif col == "14":
+                    label = format_clp(getattr(m, "abonos", 0) or 0)
+
+                elif col == "15":
                     label = m.get_status_display() if getattr(m, "status", None) else ""
 
                 else:
@@ -431,22 +436,28 @@ def listar_cartola(request):
         for m in movimientos_list
     })
 
-    # 12 Cargos
+    # 12 Odometer (miles)
     excel_global[12] = sorted({
+        f"{m.kilometraje:,}" if m.kilometraje is not None else "(Vacías)"
+        for m in movimientos_list
+    })
+
+    # 13 Expenses
+    excel_global[13] = sorted({
         format_clp(getattr(m, "cargos", 0) or 0)
         for m in movimientos_list
     })
 
-    # 13 Abonos
-    excel_global[13] = sorted({
+    # 14 Credits
+    excel_global[14] = sorted({
         format_clp(getattr(m, "abonos", 0) or 0)
         for m in movimientos_list
     })
 
-    # 14 Status (display)
+    # 15 Status (display)
     estado_map = dict(CartolaMovimiento.ESTADOS)
     status_codes = {m.status for m in movimientos_list if getattr(m, "status", None)}
-    excel_global[14] = sorted(estado_map.get(c, c) for c in status_codes)
+    excel_global[15] = sorted(estado_map.get(c, c) for c in status_codes)
 
     excel_global_json = json.dumps(excel_global)
 
@@ -1460,18 +1471,22 @@ def exportar_cartola(request):
             return "Ver" if getattr(mov, "comprobante", None) else "—"
 
         if col_idx == 12:
+            odometer = getattr(mov, "kilometraje", None)
+            return f"{odometer:,}" if odometer is not None else "(Vacías)"
+
+        if col_idx == 13:
             try:
                 return f"${float(getattr(mov, 'cargos', 0) or 0):,.2f}"
             except Exception:
                 return "$0.00"
 
-        if col_idx == 13:
+        if col_idx == 14:
             try:
                 return f"${float(getattr(mov, 'abonos', 0) or 0):,.2f}"
             except Exception:
                 return "$0.00"
 
-        if col_idx == 14:
+        if col_idx == 15:
             return str(mov.get_status_display() or "").strip() or "(Vacías)"
 
         return "(Vacías)"
@@ -1602,7 +1617,7 @@ def exportar_cartola(request):
         "Type",
         "Remarks",
         "Transfer Number",
-        "Odometer (km)",
+        "Odometer (miles)",
         "Debits",
         "Credits",
         "Status",
@@ -3990,7 +4005,7 @@ def _to_excel_dt(value):
 @rol_requerido("facturacion", "admin", "pm")
 def invoices_export(request):
     """
-    
+
 Exporta a Excel los invoices de Finanzas.
 
 - Respeta el scope: open | paid | all.
