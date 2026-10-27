@@ -17,7 +17,7 @@ from cloudinary.uploader import upload, destroy
 
 from PIL import Image as PilImage, UnidentifiedImageError
 
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 from reportlab.lib import colors
 from reportlab.lib.colors import black

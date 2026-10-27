@@ -13,7 +13,7 @@ from django.http import HttpResponse, Http404
 from .models import UserSignature
 from .forms import SignatureCaptureForm
 import fitz  # PyMuPDF
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 from usuarios.decoradores import rol_requerido  # tu decorador de roles
 from .forms import RateSheetForm  # del punto 2
 from .models import RateSheet
