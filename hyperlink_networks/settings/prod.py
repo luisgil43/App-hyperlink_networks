@@ -83,7 +83,7 @@ AUTHENTICATION_BACKENDS = [
 
 
 # 2FA
-TWO_FACTOR_ENFORCE_DATE = date(2025, 11, 28)  # fecha para producción
+TWO_FACTOR_ENFORCE_DATE = date(2026, 12, 28)  # fecha para producción
 
 # ==============================
 # Configuración de Axes

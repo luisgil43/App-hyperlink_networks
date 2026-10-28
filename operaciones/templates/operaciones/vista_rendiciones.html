@@ -299,6 +299,13 @@
 
             <!-- Acciones (misma UI, pero las aprobaciones irán por AJAX) -->
             <td class="p-2 border text-center">
+        {% if request.user.is_superuser or request.user.es_admin_general %}
+          <a href="{% url 'facturacion:editar_movimiento' mov.id %}?next={{ request.get_full_path|urlencode }}"
+             class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-blue-200 transition">
+            ✏️ Edit
+          </a>
+        {% endif %}
+
               {% if not mov.tipo or mov.tipo.categoria != 'abono' %}
                 {% if user.es_supervisor and mov.status == "pendiente_supervisor" %}
                   <form action="{% url 'operaciones:aprobar_rendicion' mov.id %}" method="post" class="inline js-approve-form">

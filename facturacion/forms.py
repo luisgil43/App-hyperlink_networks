@@ -351,3 +351,204 @@ class ProyectoForm(forms.ModelForm):
                     self.add_error(f, msg)
                 raise forms.ValidationError(msg)
         return cleaned
+
+
+class CartolaMovimientoEdicionForm(forms.ModelForm):
+    """
+    Formulario exclusivo de edición administrativa.
+
+    No modifica aprobaciones ni datos relacionados con Fleet.
+    """
+
+    fecha_edicion = forms.SplitDateTimeField(
+        label="Date",
+        required=True,
+        input_date_formats=["%Y-%m-%d"],
+        input_time_formats=["%H:%M", "%H:%M:%S"],
+        widget=forms.SplitDateTimeWidget(
+            date_attrs={"type": "date"},
+            time_attrs={"type": "time"},
+            date_format="%Y-%m-%d",
+            time_format="%H:%M",
+        ),
+    )
+
+    class Meta:
+        model = CartolaMovimiento
+
+        fields = [
+            "usuario",
+            "proyecto",
+            "tipo",
+            "real_consumption_date",
+            "observaciones",
+            "numero_transferencia",
+            "comprobante",
+            "cargos",
+            "abonos",
+            "service_type_obj",
+            "vehicle",
+            "service_date",
+            "service_time",
+            "kilometraje",
+            "foto_tablero",
+        ]
+
+        widgets = {
+            "real_consumption_date": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "date"},
+            ),
+            "observaciones": forms.Textarea(
+                attrs={"rows": 3},
+            ),
+            "comprobante": forms.ClearableFileInput(
+                attrs={
+                    "accept": ".pdf,.jpg,.jpeg,.png",
+                    "class": "hidden",
+                },
+            ),
+            "foto_tablero": forms.ClearableFileInput(
+                attrs={
+                    "accept": "image/jpeg,image/png",
+                    "class": "hidden",
+                },
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        from django.utils import timezone
+
+        movimiento = self.instance
+
+        self.es_abono = bool(
+            movimiento.pk
+            and movimiento.tipo
+            and movimiento.tipo.categoria == "abono"
+        )
+
+        if movimiento.pk and movimiento.fecha:
+            fecha_local = timezone.localtime(movimiento.fecha)
+
+            self.initial["fecha_edicion"] = [
+                fecha_local.date(),
+                fecha_local.time().replace(
+                    second=0,
+                    microsecond=0,
+                ),
+            ]
+
+        if "tipo" in self.fields:
+            categorias_permitidas = (
+                ["abono"]
+                if self.es_abono
+                else ["gasto", "costo", "inversion"]
+            )
+
+            from django.db.models import Q
+
+            filtro = Q(
+                categoria__in=categorias_permitidas,
+                is_active=True,
+            )
+
+            if movimiento.pk and movimiento.tipo_id:
+                filtro |= Q(
+                    pk=movimiento.tipo_id,
+                    categoria__in=categorias_permitidas,
+                )
+
+            self.fields["tipo"].queryset = (
+                TipoGasto.objects.filter(filtro).order_by("nombre")
+            )
+
+        for nombre in (
+            "observaciones",
+            "numero_transferencia",
+            "comprobante",
+            "real_consumption_date",
+        ):
+            if nombre in self.fields:
+                self.fields[nombre].required = False
+
+        if self.es_abono:
+            self.fields.pop("cargos", None)
+        else:
+            self.fields.pop("abonos", None)
+
+        for nombre in ("usuario", "proyecto", "tipo"):
+            if nombre in self.fields:
+                self.fields[nombre].required = True
+
+    def clean_fecha_edicion(self):
+        from django.utils import timezone
+
+        fecha = self.cleaned_data["fecha_edicion"]
+
+        if timezone.is_naive(fecha):
+            fecha = timezone.make_aware(
+                fecha,
+                timezone.get_current_timezone(),
+            )
+
+        return fecha
+
+    def clean(self):
+        cleaned = super().clean()
+
+        tipo = cleaned.get("tipo")
+
+        if tipo:
+            categorias_permitidas = (
+                {"abono"}
+                if self.es_abono
+                else {"gasto", "costo", "inversion"}
+            )
+
+            if tipo.categoria not in categorias_permitidas:
+                self.add_error(
+                    "tipo",
+                    "Transaction cannot be converted between expense and deposit.",
+                )
+
+            tipo_original = (
+                self.instance.tipo
+                if self.instance.pk
+                else None
+            )
+
+            original_es_service = bool(
+                tipo_original
+                and (tipo_original.nombre or "").strip().lower() in {"service", "services"}
+            )
+
+            nuevo_es_service = (
+                (tipo.nombre or "").strip().lower() in {"service", "services"}
+            )
+
+            if (
+                original_es_service != nuevo_es_service
+                or (
+                    original_es_service
+                    and tipo_original.pk != tipo.pk
+                )
+            ):
+                self.add_error(
+                    "tipo",
+                    "Service transactions cannot change their type "
+                    "from this editor because Fleet history must be preserved.",
+                )
+
+        monto = cleaned.get(
+            "abonos" if self.es_abono else "cargos"
+        )
+
+        if monto is not None and monto < 0:
+            self.add_error(
+                "abonos" if self.es_abono else "cargos",
+                "Amount cannot be negative.",
+            )
+
+        return cleaned

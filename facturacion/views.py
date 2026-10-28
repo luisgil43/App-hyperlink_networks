@@ -47,7 +47,8 @@ from usuarios.decoradores import rol_requerido
 from usuarios.models import ProyectoAsignacion
 
 from .forms import (CartolaAbonoForm, CartolaGastoForm,
-                    CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm)
+                    CartolaMovimientoCompletoForm, ProyectoForm, TipoGastoForm,
+                    CartolaMovimientoEdicionForm)
 from .models import CartolaMovimiento, Proyecto, TipoGasto
 
 User = get_user_model()
@@ -952,82 +953,263 @@ from django import forms  # 👈 agregar este import arriba
 
 @login_required
 @rol_requerido('facturacion', 'admin')
-@project_object_access_required(model='facturacion.CartolaMovimiento', object_kw='pk', project_attr='proyecto_id')
+@project_object_access_required(
+    model='facturacion.CartolaMovimiento',
+    object_kw='pk',
+    project_attr='proyecto_id',
+)
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
-    # ¿Es abono o gasto?
-    es_abono = bool(movimiento.tipo and movimiento.tipo.categoria == "abono")
-    FormClass = CartolaAbonoForm if es_abono else MovimientoUsuarioForm
-    estado_restaurado = 'pendiente_abono_usuario' if es_abono else 'pendiente_supervisor'
-
-    def ensure_real_consumption_date_field(form):
-        """
-        Asegura que el form tenga real_consumption_date para precargar y guardar,
-        sin depender de cómo esté declarado el ModelForm.
-        """
-        if hasattr(movimiento, "real_consumption_date") and "real_consumption_date" not in form.fields:
-            form.fields["real_consumption_date"] = forms.DateField(
-                required=False,
-                widget=forms.DateInput(attrs={"type": "date"})
-            )
-            # precarga
-            if movimiento.real_consumption_date:
-                val = movimiento.real_consumption_date
-                # por si fuera datetime
-                if hasattr(val, "date"):
-                    try:
-                        val = timezone.localtime(val).date()
-                    except Exception:
-                        val = val.date()
-                form.initial["real_consumption_date"] = val
-        return form
-
-    if request.method == 'POST':
-        form = FormClass(request.POST, request.FILES, instance=movimiento)
-        form = ensure_real_consumption_date_field(form)
+    if request.method == "POST":
+        form = CartolaMovimientoEdicionForm(
+            request.POST,
+            request.FILES,
+            instance=movimiento,
+        )
 
         if form.is_valid():
-            movimiento = form.save(commit=False)
+            proyecto_destino = form.cleaned_data["proyecto"]
 
-            # ✅ guardar nuevo campo si viene en el form
-            if "real_consumption_date" in form.cleaned_data:
-                movimiento.real_consumption_date = form.cleaned_data.get("real_consumption_date")
+            if not user_has_project_access(
+                request.user,
+                proyecto_destino.pk,
+            ):
+                form.add_error(
+                    "proyecto",
+                    "You do not have access to the selected project.",
+                )
+            else:
+                fecha_original = movimiento.fecha
+                fecha_nueva = form.cleaned_data["fecha_edicion"]
 
-            # Reemplazo explícito del comprobante si viene un archivo nuevo
-            if 'comprobante' in request.FILES:
-                movimiento.comprobante = request.FILES['comprobante']
+                # El editor muestra fecha y hora con precisión de minutos.
+                # Si el usuario no las cambió, conservar también los
+                # segundos y microsegundos originales.
+                if fecha_original is not None:
+                    fecha_original_minuto = fecha_original.replace(
+                        second=0,
+                        microsecond=0,
+                    )
+                    fecha_nueva_minuto = fecha_nueva.replace(
+                        second=0,
+                        microsecond=0,
+                    )
 
-            # Reemplazo explícito de la foto del tablero (solo si viene)
-            if 'foto_tablero' in request.FILES:
-                movimiento.foto_tablero = request.FILES['foto_tablero']
+                    if fecha_nueva_minuto == fecha_original_minuto:
+                        fecha_nueva = fecha_original
 
-            # ----- Reset de estado -----
-            if es_abono and movimiento.status == 'rechazado_abono_usuario':
-                movimiento.status = 'pendiente_abono_usuario'
-                movimiento.motivo_rechazo = ""
-            elif form.changed_data:
-                movimiento.status = estado_restaurado
-                movimiento.motivo_rechazo = ""
+                # Conservar la lectura original antes de editar.
+                kilometraje_anterior = movimiento.kilometraje
+                vehiculo_anterior_id = movimiento.vehicle_id
 
-            movimiento.save()
-            messages.success(request, "Expense updated successfully.")
+                movimiento = form.save(commit=False)
 
-            next_url = (
-                request.GET.get('next')
-                or request.POST.get('next')
-                or request.META.get('HTTP_REFERER')
-                or reverse('facturacion:listar_cartola')
-            )
-            return redirect(next_url)
+                # Lista blanca: no incluir estado, aprobaciones,
+                # rechazo, historial ni información de Fleet.
+                campos_permitidos = [
+                    "usuario",
+                    "proyecto",
+                    "tipo",
+                    "real_consumption_date",
+                    "rut_factura",
+                    "tipo_doc",
+                    "numero_doc",
+                    "observaciones",
+                    "numero_transferencia",
+                    "comprobante",
+                    "abonos" if form.es_abono else "cargos",
+                    "service_type_obj",
+                    "vehicle",
+                    "service_date",
+                    "service_time",
+                    "kilometraje",
+                    "foto_tablero",
+                ]
+
+                if fecha_nueva != fecha_original:
+                    movimiento.fecha = fecha_nueva
+                    campos_permitidos.append("fecha")
+
+                # El comprobante anterior nunca se elimina aquí.
+                # Si hay un archivo nuevo, se guarda primero en S3
+                # con la fecha definitiva de la transacción.
+                nuevo_comprobante = request.FILES.get("comprobante")
+                archivo_nuevo_guardado = None
+
+                try:
+                    if nuevo_comprobante is not None:
+                        movimiento.comprobante.save(
+                            nuevo_comprobante.name,
+                            nuevo_comprobante,
+                            save=False,
+                        )
+                        archivo_nuevo_guardado = movimiento.comprobante.name
+
+                    with transaction.atomic():
+                        from fleet.models import Vehicle, VehicleOdometerEvent, VehicleService
+
+                        kilometraje_nuevo = movimiento.kilometraje
+                        cambio_odometro = (
+                            kilometraje_nuevo != kilometraje_anterior
+                        )
+
+                        evento_vinculado = None
+                        servicio_vinculado = None
+                        vehiculo_actual = None
+
+                        if cambio_odometro and vehiculo_anterior_id:
+                            referencia = (
+                                f"[CartolaMovimiento#{movimiento.pk}]"
+                            )
+
+                            eventos = list(
+                                VehicleOdometerEvent.objects
+                                .select_for_update()
+                                .filter(
+                                    vehicle_id=vehiculo_anterior_id,
+                                    notes__contains=referencia,
+                                )[:2]
+                            )
+
+                            if len(eventos) != 1:
+                                raise ValueError(
+                                    "Cannot safely synchronize odometer: "
+                                    "the transaction does not have exactly "
+                                    "one linked Fleet event."
+                                )
+
+                            evento_vinculado = eventos[0]
+
+                            if (
+                                evento_vinculado.odometer
+                                != kilometraje_anterior
+                            ):
+                                raise ValueError(
+                                    "Cannot synchronize odometer: "
+                                    "Fleet and Cartola already have "
+                                    "different readings."
+                                )
+
+                            if kilometraje_nuevo is None:
+                                raise ValueError(
+                                    "Odometer cannot be empty when "
+                                    "a linked Fleet event exists."
+                                )
+
+                            # Vinculación exacta con el servicio original.
+                            servicios = list(
+                                VehicleService.objects
+                                .select_for_update()
+                                .filter(
+                                    vehicle_id=vehiculo_anterior_id,
+                                    title=f"Expense Report #{movimiento.pk}",
+                                )[:2]
+                            )
+
+                            if len(servicios) != 1:
+                                raise ValueError(
+                                    "Cannot safely synchronize Fleet Service: "
+                                    "expected exactly one linked service."
+                                )
+
+                            servicio_vinculado = servicios[0]
+
+                            if (
+                                servicio_vinculado.kilometraje_declarado
+                                != kilometraje_anterior
+                            ):
+                                raise ValueError(
+                                    "Cannot synchronize Fleet Service: "
+                                    "its odometer differs from the "
+                                    "previous transaction reading."
+                                )
+
+                            vehiculo_actual = (
+                                Vehicle.objects
+                                .select_for_update()
+                                .get(pk=vehiculo_anterior_id)
+                            )
+
+                        movimiento.save(
+                            update_fields=campos_permitidos,
+                        )
+
+                        if evento_vinculado is not None:
+                            evento_vinculado.odometer = kilometraje_nuevo
+                            evento_vinculado.save(
+                                update_fields=["odometer"]
+                            )
+
+                            # QuerySet.update evita ejecutar
+                            # VehicleService.save(), que generaría
+                            # eventos adicionales de odómetro.
+                            servicio_vinculado.kilometraje_declarado = (
+                                kilometraje_nuevo
+                            )
+
+                            servicio_vinculado.recompute_next_due(
+                                save_self=False
+                            )
+
+                            VehicleService.objects.filter(
+                                pk=servicio_vinculado.pk
+                            ).update(
+                                kilometraje_declarado=kilometraje_nuevo,
+                                next_due_km=servicio_vinculado.next_due_km,
+                                next_due_date=servicio_vinculado.next_due_date,
+                            )
+
+                            if (
+                                vehiculo_actual.kilometraje_actual
+                                == kilometraje_anterior
+                            ):
+                                vehiculo_actual.kilometraje_actual = (
+                                    kilometraje_nuevo
+                                )
+                                vehiculo_actual.save(
+                                    update_fields=["kilometraje_actual"]
+                                )
+
+                except Exception:
+                    # Compensación: eliminar únicamente el archivo
+                    # recién subido si falló el guardado en BD.
+                    if archivo_nuevo_guardado:
+                        try:
+                            movimiento._meta.get_field(
+                                "comprobante"
+                            ).storage.delete(archivo_nuevo_guardado)
+                        except Exception:
+                            # No ocultar el error original.
+                            pass
+
+                    raise
+
+                messages.success(
+                    request,
+                    "Transaction updated successfully.",
+                )
+
+                next_url = (
+                    request.GET.get("next")
+                    or request.POST.get("next")
+                    or reverse("facturacion:listar_cartola")
+                )
+
+                return redirect(next_url)
     else:
-        form = FormClass(instance=movimiento)
-        form = ensure_real_consumption_date_field(form)
+        form = CartolaMovimientoEdicionForm(
+            instance=movimiento,
+        )
 
-    return render(request, 'facturacion/editar_movimiento.html', {
-        'form': form,
-        'movimiento': movimiento
-    })
+    return render(
+        request,
+        "facturacion/editar_movimiento.html",
+        {
+            "form": form,
+            "movimiento": movimiento,
+        },
+    )
 
 
 @login_required
