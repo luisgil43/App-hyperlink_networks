@@ -1083,19 +1083,203 @@ def service_create(request):
 @login_required
 @rol_requerido("supervisor", "admin", "pm")
 def service_edit(request, pk: int):
+    import re
+
+    from facturacion.models import CartolaMovimiento
+    from fleet.models import VehicleOdometerEvent
+    from core.permissions import user_has_project_access
+
     obj = get_object_or_404(VehicleService, pk=pk)
+
+    original_vehicle_id = obj.vehicle_id
+    original_title = obj.title
+    original_odometer = obj.kilometraje_declarado
 
     if request.method == "POST":
         form = VehicleServiceForm(request.POST, instance=obj)
+
         if form.is_valid():
-            form.save()
-            messages.success(request, "Service updated.")
-            return redirect("fleet:service_list")
+            linked_match = re.fullmatch(
+                "Expense Report #(\\d+)",
+                original_title or "",
+            )
+
+            if linked_match:
+                if form.cleaned_data["vehicle"].pk != original_vehicle_id:
+                    form.add_error(
+                        "vehicle",
+                        "Vehicle cannot be changed for a linked Expense Report.",
+                    )
+
+                if form.cleaned_data.get("title") != original_title:
+                    form.add_error(
+                        "title",
+                        "Title cannot be changed for a linked Expense Report.",
+                    )
+
+            if not form.errors:
+                if not linked_match:
+                    form.save()
+                    messages.success(request, "Service updated.")
+                    return redirect("fleet:service_list")
+
+                movement_id = int(linked_match.group(1))
+                new_odometer = form.cleaned_data["kilometraje_declarado"]
+
+                try:
+                    with transaction.atomic():
+                        service = (
+                            VehicleService.objects
+                            .select_for_update()
+                            .get(pk=pk)
+                        )
+
+                        movement = (
+                            CartolaMovimiento.objects
+                            .select_for_update()
+                            .filter(pk=movement_id)
+                            .first()
+                        )
+
+                        if movement is None:
+                            raise ValueError(
+                                "Linked Expense Report was not found."
+                            )
+
+                        if not user_has_project_access(
+                            request.user,
+                            movement.proyecto_id,
+                        ):
+                            raise ValueError(
+                                "You do not have access to the linked project."
+                            )
+
+                        if (
+                            movement.vehicle_id != original_vehicle_id
+                            or service.vehicle_id != original_vehicle_id
+                            or service.title != original_title
+                        ):
+                            raise ValueError(
+                                "Linked Expense Report and Fleet Service "
+                                "must reference the same vehicle."
+                            )
+
+                        if VehicleService.objects.filter(
+                            title=original_title,
+                        ).exclude(pk=pk).exists():
+                            raise ValueError(
+                                "More than one Fleet Service references "
+                                "this Expense Report."
+                            )
+
+                        if (
+                            service.kilometraje_declarado
+                            != original_odometer
+                        ):
+                            raise ValueError(
+                                "The service was modified by another request."
+                            )
+
+                        marker = f"[CartolaMovimiento#{movement_id}]"
+
+                        events = list(
+                            VehicleOdometerEvent.objects
+                            .select_for_update()
+                            .filter(
+                                vehicle_id=original_vehicle_id,
+                                notes__contains=marker,
+                            )[:2]
+                        )
+
+                        if len(events) > 1:
+                            raise ValueError(
+                                "Multiple odometer events reference "
+                                "this Expense Report."
+                            )
+
+                        if new_odometer != original_odometer:
+                            financial_role = (
+                                request.user.is_superuser
+                                or request.user.roles.filter(
+                                    nombre__in=["admin", "facturacion"]
+                                ).exists()
+                            )
+
+                            if not financial_role:
+                                raise ValueError(
+                                    "Only Finance or Admin users may "
+                                    "change the odometer of a linked "
+                                    "Expense Report."
+                                )
+
+                            if new_odometer is None:
+                                raise ValueError(
+                                    "Linked odometer cannot be empty."
+                                )
+
+                            if movement.kilometraje != original_odometer:
+                                raise ValueError(
+                                    "Expense Report and Fleet already have "
+                                    "different odometer readings."
+                                )
+
+                            if (
+                                events
+                                and events[0].odometer != original_odometer
+                            ):
+                                raise ValueError(
+                                    "The linked odometer event has "
+                                    "a different reading."
+                                )
+
+                        updated = form.save(commit=False)
+                        updated.pk = service.pk
+                        updated.vehicle_id = original_vehicle_id
+                        updated.title = original_title
+
+                        updated.recompute_next_due(save_self=False)
+
+                        VehicleService.objects.filter(
+                            pk=service.pk
+                        ).update(
+                            service_type_obj=updated.service_type_obj,
+                            service_date=updated.service_date,
+                            kilometraje_declarado=updated.kilometraje_declarado,
+                            monto=updated.monto,
+                            notes=updated.notes,
+                            next_due_km=updated.next_due_km,
+                            next_due_date=updated.next_due_date,
+                        )
+
+                        if new_odometer != original_odometer:
+                            CartolaMovimiento.objects.filter(
+                                pk=movement_id
+                            ).update(kilometraje=new_odometer)
+
+                            if events:
+                                VehicleOdometerEvent.objects.filter(
+                                    pk=events[0].pk
+                                ).update(odometer=new_odometer)
+
+                except ValueError as error:
+                    form.add_error(
+                        "kilometraje_declarado",
+                        str(error),
+                    )
+                else:
+                    messages.success(request, "Service updated.")
+                    return redirect("fleet:service_list")
+
         messages.error(request, "Please correct the errors.")
+
     else:
         form = VehicleServiceForm(instance=obj)
 
-    return render(request, "fleet/service_form.html", {"form": form, "mode": "edit"})
+    return render(
+        request,
+        "fleet/service_form.html",
+        {"form": form, "mode": "edit"},
+    )
 
 
 @login_required

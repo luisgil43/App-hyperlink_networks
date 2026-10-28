@@ -1047,7 +1047,7 @@ def editar_movimiento(request, pk):
                         archivo_nuevo_guardado = movimiento.comprobante.name
 
                     with transaction.atomic():
-                        from fleet.models import Vehicle, VehicleOdometerEvent, VehicleService
+                        from fleet.models import VehicleOdometerEvent, VehicleService
 
                         kilometraje_nuevo = movimiento.kilometraje
                         cambio_odometro = (
@@ -1056,14 +1056,58 @@ def editar_movimiento(request, pk):
 
                         evento_vinculado = None
                         servicio_vinculado = None
-                        vehiculo_actual = None
 
-                        if cambio_odometro and vehiculo_anterior_id:
-                            referencia = (
-                                f"[CartolaMovimiento#{movimiento.pk}]"
+                        if cambio_odometro:
+                            if movimiento.vehicle_id != vehiculo_anterior_id:
+                                raise ValueError(
+                                    "Cannot change vehicle and odometer "
+                                    "in the same transaction."
+                                )
+
+                            if vehiculo_anterior_id is None:
+                                raise ValueError(
+                                    "Cannot synchronize odometer without "
+                                    "a linked vehicle."
+                                )
+
+                            if kilometraje_nuevo is None:
+                                raise ValueError(
+                                    "Linked odometer cannot be empty."
+                                )
+
+                            services = list(
+                                VehicleService.objects
+                                .select_for_update()
+                                .filter(
+                                    title=f"Expense Report #{movimiento.pk}",
+                                )[:2]
                             )
 
-                            eventos = list(
+                            if len(services) != 1:
+                                raise ValueError(
+                                    "Expected exactly one linked Fleet Service."
+                                )
+
+                            servicio_vinculado = services[0]
+
+                            if servicio_vinculado.vehicle_id != vehiculo_anterior_id:
+                                raise ValueError(
+                                    "Expense Report and Fleet Service "
+                                    "reference different vehicles."
+                                )
+
+                            if (
+                                servicio_vinculado.kilometraje_declarado
+                                != kilometraje_anterior
+                            ):
+                                raise ValueError(
+                                    "Expense Report and Fleet Service already "
+                                    "have different odometer readings."
+                                )
+
+                            referencia = f"[CartolaMovimiento#{movimiento.pk}]"
+
+                            events = list(
                                 VehicleOdometerEvent.objects
                                 .select_for_update()
                                 .filter(
@@ -1072,78 +1116,29 @@ def editar_movimiento(request, pk):
                                 )[:2]
                             )
 
-                            if len(eventos) != 1:
+                            if len(events) > 1:
                                 raise ValueError(
-                                    "Cannot safely synchronize odometer: "
-                                    "the transaction does not have exactly "
-                                    "one linked Fleet event."
+                                    "Multiple odometer events reference "
+                                    "this Expense Report."
                                 )
 
-                            evento_vinculado = eventos[0]
+                            if events:
+                                evento_vinculado = events[0]
 
-                            if (
-                                evento_vinculado.odometer
-                                != kilometraje_anterior
-                            ):
-                                raise ValueError(
-                                    "Cannot synchronize odometer: "
-                                    "Fleet and Cartola already have "
-                                    "different readings."
-                                )
-
-                            if kilometraje_nuevo is None:
-                                raise ValueError(
-                                    "Odometer cannot be empty when "
-                                    "a linked Fleet event exists."
-                                )
-
-                            # Vinculación exacta con el servicio original.
-                            servicios = list(
-                                VehicleService.objects
-                                .select_for_update()
-                                .filter(
-                                    vehicle_id=vehiculo_anterior_id,
-                                    title=f"Expense Report #{movimiento.pk}",
-                                )[:2]
-                            )
-
-                            if len(servicios) != 1:
-                                raise ValueError(
-                                    "Cannot safely synchronize Fleet Service: "
-                                    "expected exactly one linked service."
-                                )
-
-                            servicio_vinculado = servicios[0]
-
-                            if (
-                                servicio_vinculado.kilometraje_declarado
-                                != kilometraje_anterior
-                            ):
-                                raise ValueError(
-                                    "Cannot synchronize Fleet Service: "
-                                    "its odometer differs from the "
-                                    "previous transaction reading."
-                                )
-
-                            vehiculo_actual = (
-                                Vehicle.objects
-                                .select_for_update()
-                                .get(pk=vehiculo_anterior_id)
-                            )
+                                if (
+                                    evento_vinculado.odometer
+                                    != kilometraje_anterior
+                                ):
+                                    raise ValueError(
+                                        "Linked odometer event already "
+                                        "has a different reading."
+                                    )
 
                         movimiento.save(
                             update_fields=campos_permitidos,
                         )
 
-                        if evento_vinculado is not None:
-                            evento_vinculado.odometer = kilometraje_nuevo
-                            evento_vinculado.save(
-                                update_fields=["odometer"]
-                            )
-
-                            # QuerySet.update evita ejecutar
-                            # VehicleService.save(), que generaría
-                            # eventos adicionales de odómetro.
+                        if servicio_vinculado is not None:
                             servicio_vinculado.kilometraje_declarado = (
                                 kilometraje_nuevo
                             )
@@ -1160,17 +1155,12 @@ def editar_movimiento(request, pk):
                                 next_due_date=servicio_vinculado.next_due_date,
                             )
 
-                            if (
-                                vehiculo_actual.kilometraje_actual
-                                == kilometraje_anterior
-                            ):
-                                vehiculo_actual.kilometraje_actual = (
-                                    kilometraje_nuevo
-                                )
-                                vehiculo_actual.save(
-                                    update_fields=["kilometraje_actual"]
-                                )
-
+                        if evento_vinculado is not None:
+                            VehicleOdometerEvent.objects.filter(
+                                pk=evento_vinculado.pk
+                            ).update(
+                                odometer=kilometraje_nuevo,
+                            )
                 except Exception:
                     # Compensación: eliminar únicamente el archivo
                     # recién subido si falló el guardado en BD.
