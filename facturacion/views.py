@@ -961,6 +961,11 @@ from django import forms  # 👈 agregar este import arriba
 def editar_movimiento(request, pk):
     movimiento = get_object_or_404(CartolaMovimiento, pk=pk)
 
+    # Conservar los valores persistidos ANTES de validar el ModelForm.
+    # is_valid() puede modificar la instancia en memoria.
+    kilometraje_anterior = movimiento.kilometraje
+    vehiculo_anterior_id = movimiento.vehicle_id
+
     if request.method == "POST":
         form = CartolaMovimientoEdicionForm(
             request.POST,
@@ -998,10 +1003,6 @@ def editar_movimiento(request, pk):
 
                     if fecha_nueva_minuto == fecha_original_minuto:
                         fecha_nueva = fecha_original
-
-                # Conservar la lectura original antes de editar.
-                kilometraje_anterior = movimiento.kilometraje
-                vehiculo_anterior_id = movimiento.vehicle_id
 
                 movimiento = form.save(commit=False)
 
