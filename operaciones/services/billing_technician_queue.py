@@ -806,6 +806,107 @@ def apply_assignment_priority(
     }
 
 
+
+@transaction.atomic
+def remove_assignment_priority(assignment_id: int):
+    """
+    Elimina la prioridad numérica de una sola asignación.
+
+    No ejecuta Show Now.
+    Conserva el estado In progress y pausa su cronómetro activo.
+    No modifica las colas de otros técnicos.
+    """
+
+    assignment = (
+        SesionBillingTecnico.objects.select_for_update()
+        .select_related("sesion", "tecnico")
+        .filter(
+            pk=assignment_id,
+            is_active=True,
+        )
+        .first()
+    )
+
+    if assignment is None:
+        raise ValueError(
+            "Billing technician assignment not found."
+        )
+
+    if assignment.sesion.is_direct_discount:
+        raise ValueError(
+            "Direct Discounts do not use work priority."
+        )
+
+    if assignment.estado != "en_proceso":
+        raise ValueError(
+            "Priority can only be removed from an "
+            "In progress technician assignment."
+        )
+
+    if assignment.sesion.estado != "en_proceso":
+        raise ValueError(
+            "Priority cannot be removed because the Billing "
+            "is not In progress."
+        )
+
+    technician_id = assignment.tecnico_id
+
+    _lock_technician_assignments([technician_id])
+
+    entry = (
+        BillingAssignmentQueue.objects.select_for_update()
+        .filter(
+            assignment=assignment,
+            technician_id=technician_id,
+        )
+        .first()
+    )
+
+    if entry is None or entry.queue_position is None:
+        raise ValueError(
+            "This technician assignment has no numbered priority."
+        )
+
+    old_priority = entry.queue_position
+
+    # Cerrar únicamente el cronómetro activo de esta asignación.
+    # La transacción externa protege pausa y renumeración.
+    from operaciones.services.billing_work_timer import pause_assignment
+
+    paused_session = pause_assignment(assignment)
+
+    entry.queue_position = None
+    entry.is_released = False
+    entry.released_manually = False
+    entry.released_at = None
+    entry.released_by = None
+
+    entry.save(
+        update_fields=[
+            "queue_position",
+            "is_released",
+            "released_manually",
+            "released_at",
+            "released_by",
+        ]
+    )
+
+    _normalize_single_technician_queue(technician_id)
+
+    return {
+        "ok": True,
+        "assignment_id": assignment.pk,
+        "session_id": assignment.sesion_id,
+        "project_id": _project_label(assignment.sesion),
+        "technician_id": technician_id,
+        "technician_name": _tech_name(assignment.tecnico),
+        "old_priority": old_priority,
+        "priority": None,
+        "removed": True,
+        "timer_paused": paused_session is not None,
+    }
+
+
 def _normalize_single_technician_queue(
     technician_id: int,
 ):

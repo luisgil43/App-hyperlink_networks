@@ -524,6 +524,11 @@ urlpatterns = [
         name="billing_assignment_set_priority",
     ),
     path(
+        "billing/assignment/<int:assignment_id>/remove-priority/",
+        billing_queue_views.billing_assignment_remove_priority,
+        name="billing_assignment_remove_priority",
+    ),
+    path(
         "billing/<int:sesion_id>/show-now/",
         billing_queue_views.billing_show_now,
         name="billing_show_now",

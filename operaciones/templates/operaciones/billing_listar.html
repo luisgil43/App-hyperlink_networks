@@ -896,6 +896,8 @@ else %}asignado assigned{% endif %}"
                           {% endif %}
                         </span>
 
+
+
                         {% if s.estado == "asignado" %}
                         <button type="button"
                                 class="priority-tech-edit
@@ -984,6 +986,35 @@ else %}asignado assigned{% endif %}"
 
                 {% endfor %}
 
+
+                <!-- ACCIONES DE PRIORIDAD SEGÚN ESTADO -->
+                {% if s.estado == "en_proceso" %}
+
+                  {% for row in s.priority_rows %}
+                    {% if row.priority %}
+
+                      <div class="pt-1.5 mt-1 border-t border-gray-100">
+
+                        <button type="button"
+                                class="priority-remove-button
+                                       inline-flex items-center gap-1
+                                       text-[11px] font-semibold
+                                       text-red-600 hover:text-red-800
+                                       hover:underline"
+                                data-assignment-id="{{ row.assignment_id }}"
+                                data-technician="{{ row.full_name }}"
+                                data-priority="{{ row.priority }}"
+                                data-url="{% url 'operaciones:billing_assignment_remove_priority' row.assignment_id %}"
+                                title="Remove {{ row.full_name }} priority">
+                          ⊖ Remove Priority
+                        </button>
+
+                      </div>
+
+                    {% endif %}
+                  {% endfor %}
+
+                {% endif %}
 
                 <!-- SHOW NOW ES DEL PROYECTO COMPLETO -->
                 {% if s.estado == "asignado" %}
@@ -2024,6 +2055,130 @@ document.addEventListener('click', function(e){
     </div>
 
   </div>
+</div>
+
+<!-- =========================================================
+     REMOVE PRIORITY MODAL — INDIVIDUAL TECHNICIAN
+     ========================================================= -->
+<div id="remove-priority-modal"
+     class="fixed inset-0 z-[10000] hidden"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="remove-priority-title"
+     aria-hidden="true">
+
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+       data-remove-priority-close></div>
+
+  <div class="relative z-10 min-h-full flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md overflow-hidden rounded-2xl
+                border border-gray-200 bg-white shadow-2xl">
+
+      <div class="flex items-start gap-3 px-6 pt-6">
+
+        <div class="flex-shrink-0 flex h-11 w-11 items-center
+                    justify-center rounded-full bg-red-100
+                    text-xl text-red-700"
+             aria-hidden="true">
+          ⊖
+        </div>
+
+        <div class="min-w-0">
+          <h3 id="remove-priority-title"
+              class="text-lg font-bold text-gray-900">
+            Remove priority?
+          </h3>
+
+          <p class="mt-1 text-sm leading-relaxed text-gray-500">
+            This action affects only the selected technician.
+          </p>
+        </div>
+
+      </div>
+
+      <div class="space-y-4 px-6 py-5">
+
+        <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+
+          <p class="text-xs font-semibold uppercase tracking-wide
+                    text-gray-500">
+            Technician
+          </p>
+
+          <p id="remove-priority-technician"
+             class="mt-1 break-words text-sm font-semibold text-gray-900">
+            —
+          </p>
+
+          <p class="mt-3 text-xs font-semibold uppercase tracking-wide
+                    text-gray-500">
+            Current priority
+          </p>
+
+          <p id="remove-priority-number"
+             class="mt-1 text-base font-bold text-red-700">
+            —
+          </p>
+
+        </div>
+
+        <div class="rounded-xl border border-amber-200
+                    bg-amber-50 p-4">
+
+          <p class="text-sm font-semibold text-amber-900">
+            What happens next?
+          </p>
+
+          <p class="mt-2 text-sm leading-relaxed text-amber-900">
+            The remaining priorities for this technician will
+            be reordered automatically.
+          </p>
+
+          <p class="mt-2 text-sm leading-relaxed text-amber-900">
+            The assignment will remain
+            <strong>In progress</strong>.
+            Its active timer will be paused, and all recorded
+            work time will be preserved.
+          </p>
+
+        </div>
+
+        <p id="remove-priority-error"
+           class="hidden text-sm font-medium text-red-600"
+           role="alert"></p>
+
+      </div>
+
+      <div class="flex items-center justify-end gap-3
+                  border-t border-gray-100 bg-gray-50 px-6 py-4">
+
+        <button type="button"
+                data-remove-priority-close
+                class="rounded-lg border border-gray-300 bg-white
+                       px-4 py-2 text-sm font-semibold text-gray-700
+                       transition hover:bg-gray-100">
+          Cancel
+        </button>
+
+        <button type="button"
+                id="remove-priority-confirm"
+                class="inline-flex items-center justify-center gap-2
+                       rounded-lg bg-red-600 px-4 py-2
+                       text-sm font-semibold text-white shadow-sm
+                       transition hover:bg-red-700
+                       focus:outline-none focus:ring-2
+                       focus:ring-red-300
+                       disabled:cursor-wait disabled:opacity-60">
+          ⊖ Remove Priority
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
 </div>
 
 <!-- JS for Info modal -->
@@ -6108,6 +6263,258 @@ const oldText =
 
 
   // ============================================================
+  // REMOVE PRIORITY — ONE TECHNICIAN
+  // ============================================================
+
+  const removePriorityRequests = new Set();
+
+  function openRemovePriorityModal(button){
+
+    return new Promise((resolve)=>{
+
+      const modal = document.getElementById(
+        'remove-priority-modal'
+      );
+      const confirmButton = document.getElementById(
+        'remove-priority-confirm'
+      );
+      const technicianElement = document.getElementById(
+        'remove-priority-technician'
+      );
+      const priorityElement = document.getElementById(
+        'remove-priority-number'
+      );
+      const errorElement = document.getElementById(
+        'remove-priority-error'
+      );
+
+      if(
+        !modal || !confirmButton || !technicianElement
+        || !priorityElement || !errorElement
+      ){
+        resolve(null);
+        return;
+      }
+
+      const closeButtons = modal.querySelectorAll(
+        '[data-remove-priority-close]'
+      );
+
+      let completed = false;
+      let processing = false;
+
+      const originalText = confirmButton.textContent;
+
+      technicianElement.textContent =
+        button.dataset.technician || 'This technician';
+
+      priorityElement.textContent =
+        '#' + (button.dataset.priority || '—');
+
+      errorElement.textContent = '';
+      errorElement.classList.add('hidden');
+
+      confirmButton.disabled = false;
+
+      function cleanup(){
+
+        document.removeEventListener('keydown', onKeyDown);
+
+        confirmButton.removeEventListener('click', onConfirm);
+
+        closeButtons.forEach((element)=>{
+          element.removeEventListener('click', onCancel);
+        });
+
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+
+        confirmButton.disabled = false;
+        confirmButton.textContent = originalText;
+
+        if(document.contains(button)){
+          button.focus();
+        }
+      }
+
+      function finish(result){
+
+        if(completed){
+          return;
+        }
+
+        completed = true;
+        cleanup();
+        resolve(result);
+      }
+
+      function onCancel(event){
+
+        if(event){
+          event.preventDefault();
+        }
+
+        if(!processing){
+          finish(null);
+        }
+      }
+
+      function onKeyDown(event){
+
+        if(event.key === 'Escape'){
+          onCancel(event);
+        }
+
+        if(event.key === 'Tab'){
+
+          const focusable = [
+            ...modal.querySelectorAll(
+              'button:not([disabled])'
+            )
+          ].filter((element)=>element.offsetParent !== null);
+
+          if(!focusable.length){
+            event.preventDefault();
+            return;
+          }
+
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+
+          if(event.shiftKey && document.activeElement === first){
+            event.preventDefault();
+            last.focus();
+          }
+          else if(
+            !event.shiftKey
+            && document.activeElement === last
+          ){
+            event.preventDefault();
+            first.focus();
+          }
+        }
+      }
+
+      async function onConfirm(){
+
+        if(processing || completed){
+          return;
+        }
+
+        processing = true;
+        confirmButton.disabled = true;
+        confirmButton.textContent = 'Removing...';
+
+        errorElement.textContent = '';
+        errorElement.classList.add('hidden');
+
+        try{
+
+          const result = await submitRemovePriority(button);
+          finish(result);
+
+        }
+        catch(error){
+
+          errorElement.textContent =
+            error.message || 'Unable to remove priority.';
+
+          errorElement.classList.remove('hidden');
+
+          processing = false;
+          confirmButton.disabled = false;
+          confirmButton.textContent = originalText;
+          confirmButton.focus();
+        }
+      }
+
+      closeButtons.forEach((element)=>{
+        element.addEventListener('click', onCancel);
+      });
+
+      confirmButton.addEventListener('click', onConfirm);
+      document.addEventListener('keydown', onKeyDown);
+
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      confirmButton.focus();
+
+    });
+  }
+
+  async function submitRemovePriority(button){
+
+    const response = await fetch(
+      button.dataset.url,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'X-CSRFToken': csrftoken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json'
+        }
+      }
+    );
+
+    let data = null;
+
+    try{
+      data = await response.json();
+    }
+    catch(_){}
+
+    if(!response.ok || !data || data.ok !== true){
+
+      throw new Error(
+        (data && (data.error || data.message))
+        || 'HTTP ' + response.status
+      );
+    }
+
+    return data;
+  }
+
+  async function removeTechnicianPriority(button){
+
+    const assignmentId = button.dataset.assignmentId;
+    const url = button.dataset.url;
+
+    if(!assignmentId || !url){
+      return;
+    }
+
+    const requestKey = String(assignmentId);
+
+    if(removePriorityRequests.has(requestKey)){
+      return;
+    }
+
+    removePriorityRequests.add(requestKey);
+
+    try{
+
+      const result = await openRemovePriorityModal(button);
+
+      if(!result){
+        return;
+      }
+
+      toast(
+        'Priority removed. Technician queue updated.',
+        'success'
+      );
+
+      window.location.reload();
+
+    }
+    finally{
+      removePriorityRequests.delete(requestKey);
+    }
+  }
+
+
+  // ============================================================
   // CLICK EVENTS
   // ============================================================
 
@@ -6292,6 +6699,23 @@ const oldText =
           conflictCancel.dataset.assignmentId
         );
 
+
+        return;
+      }
+
+
+      // --------------------------------------------------------
+      // REMOVE PRIORITY
+      // --------------------------------------------------------
+
+      const removeButton =
+        event.target.closest('.priority-remove-button');
+
+      if(removeButton){
+
+        event.preventDefault();
+
+        await removeTechnicianPriority(removeButton);
 
         return;
       }

@@ -12,7 +12,7 @@ from operaciones.models_billing_queue import (BillingAssignmentQueue,
                                               BillingWorkSession)
 from operaciones.services.billing_technician_queue import (
     _project_label, _tech_name, apply_assignment_priority,
-    preview_assignment_priority, show_now_project)
+    preview_assignment_priority, remove_assignment_priority, show_now_project)
 
 Usuario = get_user_model()
 
@@ -212,6 +212,61 @@ def billing_assignment_set_priority(
                         "The technician queue is being "
                         "updated by another request. "
                         "Please try again."
+                    ),
+                },
+                status=409,
+            )
+
+        raise
+
+
+
+@login_required
+@require_POST
+def billing_assignment_remove_priority(request, assignment_id):
+    """
+    Elimina la prioridad de una asignación individual.
+
+    No ejecuta Show Now.
+    No modifica cronómetros ni estados operativos.
+    """
+
+    if not _can_manage_billing_queue(request.user):
+        return _forbidden()
+
+    try:
+        result = remove_assignment_priority(assignment_id)
+        return JsonResponse(result)
+
+    except ValueError as exc:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": str(exc),
+            },
+            status=400,
+        )
+
+    except IntegrityError:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "The technician queue changed while priority "
+                    "was being removed. Please try again."
+                ),
+            },
+            status=409,
+        )
+
+    except OperationalError as exc:
+        if "database is locked" in str(exc).lower():
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "The technician queue is being updated "
+                        "by another request. Please try again."
                     ),
                 },
                 status=409,
