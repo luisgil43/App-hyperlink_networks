@@ -1097,14 +1097,6 @@ def editar_movimiento(request, pk):
                                     "reference different vehicles."
                                 )
 
-                            if (
-                                servicio_vinculado.kilometraje_declarado
-                                != kilometraje_anterior
-                            ):
-                                raise ValueError(
-                                    "Expense Report and Fleet Service already "
-                                    "have different odometer readings."
-                                )
 
                             referencia = f"[CartolaMovimiento#{movimiento.pk}]"
 
@@ -1126,14 +1118,6 @@ def editar_movimiento(request, pk):
                             if events:
                                 evento_vinculado = events[0]
 
-                                if (
-                                    evento_vinculado.odometer
-                                    != kilometraje_anterior
-                                ):
-                                    raise ValueError(
-                                        "Linked odometer event already "
-                                        "has a different reading."
-                                    )
 
                         movimiento.save(
                             update_fields=campos_permitidos,
@@ -1162,6 +1146,15 @@ def editar_movimiento(request, pk):
                             ).update(
                                 odometer=kilometraje_nuevo,
                             )
+                except ValueError as error:
+                    form.add_error("kilometraje", str(error))
+                    if archivo_nuevo_guardado:
+                        try:
+                            movimiento._meta.get_field(
+                                "comprobante"
+                            ).storage.delete(archivo_nuevo_guardado)
+                        except Exception:
+                            pass
                 except Exception:
                     # Compensación: eliminar únicamente el archivo
                     # recién subido si falló el guardado en BD.
@@ -1176,18 +1169,19 @@ def editar_movimiento(request, pk):
 
                     raise
 
-                messages.success(
-                    request,
-                    "Transaction updated successfully.",
-                )
+                else:
+                    messages.success(
+                        request,
+                        "Transaction updated successfully.",
+                    )
 
-                next_url = (
-                    request.GET.get("next")
-                    or request.POST.get("next")
-                    or reverse("facturacion:listar_cartola")
-                )
+                    next_url = (
+                        request.GET.get("next")
+                        or request.POST.get("next")
+                        or reverse("facturacion:listar_cartola")
+                    )
 
-                return redirect(next_url)
+                    return redirect(next_url)
     else:
         form = CartolaMovimientoEdicionForm(
             instance=movimiento,

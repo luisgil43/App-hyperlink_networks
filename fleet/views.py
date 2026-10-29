@@ -1217,20 +1217,7 @@ def service_edit(request, pk: int):
                                     "Linked odometer cannot be empty."
                                 )
 
-                            if movement.kilometraje != original_odometer:
-                                raise ValueError(
-                                    "Expense Report and Fleet already have "
-                                    "different odometer readings."
-                                )
 
-                            if (
-                                events
-                                and events[0].odometer != original_odometer
-                            ):
-                                raise ValueError(
-                                    "The linked odometer event has "
-                                    "a different reading."
-                                )
 
                         updated = form.save(commit=False)
                         updated.pk = service.pk
