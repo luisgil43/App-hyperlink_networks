@@ -156,7 +156,7 @@ class SessionExpiryMiddleware:
         if path.startswith("/dashboard/rrhh/liquidaciones/admin/"):
             admin_route = True
 
-        if not admin_route and not self._is_technician_request(request):
+        if not admin_route:
             try:
                 from django.urls import resolve
 
@@ -204,10 +204,7 @@ class SessionExpiryMiddleware:
             if not admin_valid:
                 return redirect("usuarios:admin_reauthenticate")
 
-        technician_request = (
-            not admin_route
-            and self._is_technician_request(request)
-        )
+        technician_request = not admin_route
 
         if technician_request:
             key = "technician_last_activity"
@@ -369,6 +366,8 @@ class TwoFactorEnforceMiddleware:
             and user.roles.filter(nombre="usuario").exists()
         )
 
+        # Las funciones de usuario no requieren 2FA administrativo.
+        # El middleware de sesión determina las rutas administrativas.
         if technician_role and request.session.get("ui_mode") == "user":
             return self.get_response(request)
 
