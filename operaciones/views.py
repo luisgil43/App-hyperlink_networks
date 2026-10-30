@@ -973,8 +973,8 @@ def _unmark_billings_paid_for_weekly_payment(wp):
             if new_real_week:
                 weeks_to_sync.add(new_real_week)
 
-        except Exception:
-            pass
+        except Exception as error:
+            raise RuntimeError("Billing snapshot rebuild failed during payment reversal") from error
 
     # 4) Re-sincronizar semana vieja y nueva
     for wk in list(filter(None, weeks_to_sync)):
@@ -1769,6 +1769,7 @@ def _add_weeks_to_iso_week(base_week: str, weeks_to_add: int) -> str:
     return _format_iso_week(result)
 
 
+@transaction.atomic
 def rebuild_billing_payweek_snapshot(sesion):
     """
     Reconstruye el snapshot de semanas reales por técnico/item SIN borrar
@@ -1813,7 +1814,8 @@ def rebuild_billing_payweek_snapshot(sesion):
 
     def _is_paid_snapshot(obj):
         if has_payment_status:
-            return (getattr(obj, "payment_status", "") or "").strip().lower() == "paid"
+            if (getattr(obj, "payment_status", "") or "").strip().lower() == "paid":
+                return True
         if has_paid_at and getattr(obj, "paid_at", None):
             return True
         if has_weekly_payment and getattr(obj, "weekly_payment_id", None):
@@ -1951,13 +1953,20 @@ def rebuild_billing_payweek_snapshot(sesion):
 
     reusable_by_key = {}
     protected_ids = set()
+    paid_keys = set()
 
     for snap in existing:
-        if _is_paid_snapshot(snap) or _is_adjustment_snapshot(snap):
+        if _is_adjustment_snapshot(snap):
             protected_ids.add(snap.id)
             continue
 
         key = (snap.item_id, snap.tecnico_id)
+
+        if _is_paid_snapshot(snap):
+            protected_ids.add(snap.id)
+            paid_keys.add(key)
+            continue
+
         reusable_by_key.setdefault(key, []).append(snap)
 
     touched_ids = set()
@@ -1966,6 +1975,10 @@ def rebuild_billing_payweek_snapshot(sesion):
     # 3) Update/Create de snapshots normales no pagados
     # ------------------------------------------------------------------
     for key, payload in desired_rows.items():
+        # No reconstruir una línea que ya tenga un snapshot pagado.
+        if key in paid_keys:
+            continue
+
         bucket = reusable_by_key.get(key) or []
 
         snap = bucket.pop(0) if bucket else None
@@ -2042,7 +2055,7 @@ def rebuild_billing_payweek_snapshot(sesion):
             continue
 
         key = (snap.item_id, snap.tecnico_id)
-        if key not in desired_rows and snap.id not in touched_ids:
+        if snap.id not in touched_ids:
             stale_ids.append(snap.id)
 
     if stale_ids:
@@ -10943,6 +10956,11 @@ def reasignar_tecnicos(request, sesion_id: int):
 
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
+
+    if _session_is_paid_locked(sesion):
+        return HttpResponseBadRequest(
+            "This billing cannot be reassigned because it contains paid work."
+        )
 
     ids = [int(x) for x in request.POST.getlist("tech_ids[]") if str(x).isdigit()]
     if not ids:
