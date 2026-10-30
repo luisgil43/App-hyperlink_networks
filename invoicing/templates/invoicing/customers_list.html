@@ -149,27 +149,104 @@
     </div>
 
     <form id="customer-form" class="space-y-3" data-mode="new" novalidate>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input name="name" class="border rounded-lg px-3 py-2 text-sm" placeholder="Name" required>
-        <input name="mnemonic" class="border rounded-lg px-3 py-2 text-sm uppercase" placeholder="Mnemonic (e.g., ACME)" maxlength="20" required>
+      <p class="text-xs text-slate-500">
+        Fields marked with
+        <span class="text-red-600">*</span>
+        are required.
+      </p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="min-w-0">
+          <label for="customer-field-name" class="block mb-1 text-xs font-semibold text-slate-700">
+            Company Name <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input id="customer-field-name" name="name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., Hyperlink Networks LLC" maxlength="200" required>
+        </div>
+        <div class="min-w-0">
+          <label for="customer-field-mnemonic" class="block mb-1 text-xs font-semibold text-slate-700">
+            Mnemonic <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input id="customer-field-mnemonic" name="mnemonic" class="w-full border rounded-lg px-3 py-2 text-sm uppercase" placeholder="Mnemonic (e.g., ACME)" maxlength="20" required>
+        </div>
       </div>
-      <input name="client" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Client label" required>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input name="email" class="border rounded-lg px-3 py-2 text-sm" placeholder="Email" required>
-        <input name="phone" class="border rounded-lg px-3 py-2 text-sm" placeholder="Phone (optional)">
+      <div class="min-w-0">
+        <label for="customer-field-client" class="block mb-1 text-xs font-semibold text-slate-700">
+          Client <span class="text-red-600" aria-hidden="true">*</span>
+        </label>
+        <input id="customer-field-client" name="client" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., OX-FIBER" maxlength="200" required>
       </div>
-      <input name="street_1" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Street Address" required>
-      <div class="grid grid-cols-3 gap-2">
-        <input name="city" class="border rounded-lg px-3 py-2 text-sm" placeholder="City" required>
-        <input name="state" class="border rounded-lg px-3 py-2 text-sm" placeholder="State" required>
-        <input name="zip_code" class="border rounded-lg px-3 py-2 text-sm" placeholder="ZIP" required>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="min-w-0">
+          <label for="customer-field-email" class="block mb-1 text-xs font-semibold text-slate-700">
+            Email Address <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input id="customer-field-email" name="email" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., contact@company.com" type="email" maxlength="254" required>
+        </div>
+        <div class="min-w-0">
+          <label for="customer-field-phone" class="block mb-1 text-xs font-semibold text-slate-700">
+            Phone Number
+          </label>
+          <input id="customer-field-phone" name="phone" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., +1 (305) 555-0123" maxlength="40">
+        </div>
       </div>
-      <select name="status" class="border rounded-lg px-3 py-2 text-sm" required>
+      <div class="min-w-0">
+        <label for="customer-field-street_1" class="block mb-1 text-xs font-semibold text-slate-700">
+          Street Address <span class="text-red-600" aria-hidden="true">*</span>
+        </label>
+        <input id="customer-field-street_1" name="street_1" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., 123 Main Street, Suite 200" maxlength="200" required>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="min-w-0">
+          <label for="customer-field-city" class="block mb-1 text-xs font-semibold text-slate-700">
+            City <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input id="customer-field-city" name="city" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., Miami" maxlength="100" required>
+        </div>
+        <div class="relative min-w-0" id="state-picker">
+          <label for="customer-state-search"
+                 class="block mb-1 text-xs font-semibold text-slate-700">
+            State <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input
+            id="customer-state-search"
+            type="text"
+            autocomplete="off"
+            aria-label="State"
+            aria-autocomplete="list"
+            aria-controls="customer-state-options"
+            aria-expanded="false"
+            class="w-full border rounded-lg px-3 py-2 text-sm"
+            placeholder="e.g., Florida"
+            required
+          >
+          <input type="hidden" name="state" id="customer-state-code">
+          <div
+            id="customer-state-options"
+            role="listbox"
+            class="hidden absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-xl max-h-48 overflow-y-auto z-50"
+          ></div>
+        </div>
+        <div class="min-w-0">
+          <label for="customer-field-zip_code" class="block mb-1 text-xs font-semibold text-slate-700">
+            ZIP Code <span class="text-red-600" aria-hidden="true">*</span>
+          </label>
+          <input id="customer-field-zip_code" name="zip_code" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., 33101" maxlength="10" required>
+        </div>
+      </div>
+      <div class="min-w-0">
+        <label for="customer-field-status" class="block mb-1 text-xs font-semibold text-slate-700">
+          Status <span class="text-red-600" aria-hidden="true">*</span>
+        </label>
+        <select id="customer-field-status" name="status" class="w-full border rounded-lg px-3 py-2 text-sm" required>
         <option value="active">Active</option>
         <option value="archived">Archived</option>
       </select>
+      </div>
 
-      <input type="hidden" name="id" id="customer-id-hidden">
+      <p id="customer-form-error"
+             role="alert"
+             aria-live="polite"
+             class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></p>
+       <input type="hidden" name="id" id="customer-id-hidden">
       <div class="flex items-center justify-end gap-2 pt-2">
         <button type="button" class="px-3 py-2 rounded-lg border" data-close>Cancel</button>
         <button type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white">Save</button>
@@ -321,6 +398,111 @@ const modalCustomer = document.getElementById("modal-customer");
 const modalDelete   = document.getElementById("modal-delete");
 let toDeleteId      = null;
 
+
+/* U.S. State searchable selector */
+const US_STATES = [{code:"AL",name:"Alabama"}, {code:"AK",name:"Alaska"}, {code:"AZ",name:"Arizona"}, {code:"AR",name:"Arkansas"}, {code:"CA",name:"California"}, {code:"CO",name:"Colorado"}, {code:"CT",name:"Connecticut"}, {code:"DE",name:"Delaware"}, {code:"FL",name:"Florida"}, {code:"GA",name:"Georgia"}, {code:"HI",name:"Hawaii"}, {code:"ID",name:"Idaho"}, {code:"IL",name:"Illinois"}, {code:"IN",name:"Indiana"}, {code:"IA",name:"Iowa"}, {code:"KS",name:"Kansas"}, {code:"KY",name:"Kentucky"}, {code:"LA",name:"Louisiana"}, {code:"ME",name:"Maine"}, {code:"MD",name:"Maryland"}, {code:"MA",name:"Massachusetts"}, {code:"MI",name:"Michigan"}, {code:"MN",name:"Minnesota"}, {code:"MS",name:"Mississippi"}, {code:"MO",name:"Missouri"}, {code:"MT",name:"Montana"}, {code:"NE",name:"Nebraska"}, {code:"NV",name:"Nevada"}, {code:"NH",name:"New Hampshire"}, {code:"NJ",name:"New Jersey"}, {code:"NM",name:"New Mexico"}, {code:"NY",name:"New York"}, {code:"NC",name:"North Carolina"}, {code:"ND",name:"North Dakota"}, {code:"OH",name:"Ohio"}, {code:"OK",name:"Oklahoma"}, {code:"OR",name:"Oregon"}, {code:"PA",name:"Pennsylvania"}, {code:"RI",name:"Rhode Island"}, {code:"SC",name:"South Carolina"}, {code:"SD",name:"South Dakota"}, {code:"TN",name:"Tennessee"}, {code:"TX",name:"Texas"}, {code:"UT",name:"Utah"}, {code:"VT",name:"Vermont"}, {code:"VA",name:"Virginia"}, {code:"WA",name:"Washington"}, {code:"WV",name:"West Virginia"}, {code:"WI",name:"Wisconsin"}, {code:"WY",name:"Wyoming"}, {code:"DC",name:"District of Columbia"}];
+const stateSearch = document.getElementById("customer-state-search");
+const stateCode = document.getElementById("customer-state-code");
+const stateOptions = document.getElementById("customer-state-options");
+const customerFormError = document.getElementById("customer-form-error");
+
+function customerError(message){
+  if (!customerFormError) return;
+  customerFormError.textContent = message || "";
+  customerFormError.classList.toggle("hidden", !message);
+}
+
+function selectCustomerState(code){
+  const selected = US_STATES.find(s => s.code === code);
+  stateCode.value = selected ? selected.code : "";
+  stateSearch.value = selected
+    ? `${selected.name} (${selected.code})`
+    : "";
+  stateSearch.setCustomValidity("");
+  stateOptions.classList.add("hidden");
+  stateSearch.setAttribute("aria-expanded", "false");
+}
+
+function renderCustomerStates(query){
+  const q = (query || "").trim().toLowerCase();
+  const matches = US_STATES.filter(s =>
+    s.name.toLowerCase().includes(q) ||
+    s.code.toLowerCase().includes(q)
+  );
+
+  stateOptions.replaceChildren();
+
+  matches.forEach(s => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "option");
+    item.className =
+      "block w-full text-left px-3 py-2 text-sm hover:bg-slate-100";
+    item.textContent = `${s.name} (${s.code})`;
+    item.addEventListener("mousedown", e => e.preventDefault());
+    item.addEventListener("click", () => selectCustomerState(s.code));
+    stateOptions.appendChild(item);
+  });
+
+  if (!matches.length){
+    const empty = document.createElement("p");
+    empty.className = "px-3 py-2 text-sm text-slate-500";
+    empty.textContent = "No matching U.S. state.";
+    stateOptions.appendChild(empty);
+  }
+
+  stateOptions.classList.remove("hidden");
+  stateSearch.setAttribute("aria-expanded", "true");
+}
+
+stateSearch?.addEventListener("focus", () => {
+  renderCustomerStates(stateSearch.value.replace(/\s*\([A-Z]{2}\)$/, ""));
+});
+
+stateSearch?.addEventListener("input", () => {
+  stateCode.value = "";
+  stateSearch.setCustomValidity("");
+  customerError("");
+  renderCustomerStates(stateSearch.value);
+});
+
+stateSearch?.addEventListener("keydown", e => {
+  if (e.key === "Escape"){
+    stateOptions.classList.add("hidden");
+    stateSearch.setAttribute("aria-expanded", "false");
+  }
+  if (e.key === "Enter" && !stateOptions.classList.contains("hidden")){
+    const first = stateOptions.querySelector('button[role="option"]');
+    if (first){
+      e.preventDefault();
+      first.click();
+    }
+  }
+});
+
+stateSearch?.addEventListener("blur", () => {
+  const q = stateSearch.value.trim().toLowerCase();
+  const exact = US_STATES.find(s =>
+    s.code.toLowerCase() === q ||
+    s.name.toLowerCase() === q ||
+    `${s.name} (${s.code})`.toLowerCase() === q
+  );
+
+  if (exact) selectCustomerState(exact.code);
+
+  setTimeout(() => {
+    stateOptions.classList.add("hidden");
+    stateSearch.setAttribute("aria-expanded", "false");
+  }, 150);
+});
+
+document.addEventListener("click", e => {
+  if (!document.getElementById("state-picker")?.contains(e.target)){
+    stateOptions.classList.add("hidden");
+    stateSearch.setAttribute("aria-expanded", "false");
+  }
+});
+
 /* Validaciones + uppercase mnemonic */
 (function ensureInputs() {
   const form = document.getElementById("customer-form");
@@ -336,14 +518,16 @@ let toDeleteId      = null;
     email: "Email is required.",
     street_1: "Street Address is required.",
     city: "City is required.",
-    state: "State is required.",
+    state: "Please select a valid U.S. state.",
     zip_code: "ZIP is required.",
     status: "Status is required."
   };
   Object.keys(requiredMsgs).forEach((name) => {
     const el = form.querySelector(`[name="${name}"]`);
     if (!el) return;
-    el.setAttribute("required", "required");
+    if (name !== "state") {
+      el.setAttribute("required", "required");
+    }
     el.addEventListener("invalid", (e) => { e.target.setCustomValidity(requiredMsgs[name]); });
     el.addEventListener("input",  (e) => { e.target.setCustomValidity(""); });
   });
@@ -364,14 +548,14 @@ document.querySelectorAll("[data-close]")?.forEach(b=> b.addEventListener("click
 
 if (btnNew){
   btnNew.addEventListener("click", ()=>{
-    formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+    formEl.reset(); selectCustomerState(""); customerError(""); hiddenId.value = ""; formEl.dataset.mode = "new";
     openModalCustomer("New Customer");
   });
 }
 document.addEventListener("click", (e)=>{
   const btnInline = e.target.closest("#inline-new");
   if (btnInline){
-    formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+    formEl.reset(); selectCustomerState(""); customerError(""); hiddenId.value = ""; formEl.dataset.mode = "new";
     openModalCustomer("New Customer");
   }
 });
@@ -397,7 +581,7 @@ if (root){
         formEl.phone.value     = data.customer.phone || "";
         formEl.street_1.value  = data.customer.street_1 || "";
         formEl.city.value      = data.customer.city || "";
-        formEl.state.value     = data.customer.state || "";
+        selectCustomerState(data.customer.state || "");
         formEl.zip_code.value  = data.customer.zip_code || "";
         hiddenId.value         = data.customer.id;
         formEl.dataset.mode    = "edit";
@@ -443,7 +627,17 @@ document.getElementById("btn-confirm-delete")?.addEventListener("click", async (
 if (formEl){
   formEl.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    if (!formEl.checkValidity()) { formEl.reportValidity(); return; }
+    customerError("");
+    if (!stateCode.value || !US_STATES.some(s => s.code === stateCode.value)){
+      stateSearch.setCustomValidity("Please select a valid U.S. state.");
+    } else {
+      stateSearch.setCustomValidity("");
+    }
+    if (!formEl.checkValidity()) {
+      formEl.reportValidity();
+      customerError("Please review the highlighted field and select a valid U.S. state.");
+      return;
+    }
 
     const mode = formEl.dataset.mode || "new";
     const fd   = new FormData(formEl);
@@ -458,6 +652,7 @@ if (formEl){
       });
       const data = await resp.json();
       if (!data.ok){
+        customerError(data.error || "Unable to save customer.");
         const map = {
           "Name": "name","Mnemonic": "mnemonic","Client": "client","Email": "email",
           "Street Address": "street_1","City": "city","State": "state","ZIP": "zip_code","Status": "status"
@@ -472,7 +667,8 @@ if (formEl){
       }
       closeAllModals();
       await fetchList(buildQS());
-      formEl.reset(); hiddenId.value = ""; formEl.dataset.mode = "new";
+      customerError("");
+      formEl.reset(); selectCustomerState(""); customerError(""); hiddenId.value = ""; formEl.dataset.mode = "new";
     }catch(err){
       console.error(err);
       alert("Network error.");

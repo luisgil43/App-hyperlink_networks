@@ -8,6 +8,9 @@ from usuarios.decoradores import rol_requerido
 
 from .models import Customer  # <-- modelo sólo en models.py
 
+US_STATE_CODES = frozenset({'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'})
+
+
 
 @login_required
 @rol_requerido("admin", "facturacion")
@@ -84,6 +87,8 @@ def customers_create(request):
         street_1  = _req("street_1", "Street Address")
         city      = _req("city", "City")
         state     = _req("state", "State").upper()
+        if state not in US_STATE_CODES:
+            raise ValueError("Please select a valid U.S. state.")
         zip_code  = _req("zip_code", "ZIP")
         status_in = _req("status", "Status").lower()
         if status_in not in (Customer.STATUS_ACTIVE, Customer.STATUS_ARCHIVED):
@@ -158,6 +163,8 @@ def customers_update(request):
         c.street_1 = _req("street_1", "Street Address", c.street_1 or "")
         c.city     = _req("city", "City", c.city or "")
         c.state    = _req("state", "State", c.state or "").upper()
+        if c.state not in US_STATE_CODES:
+            raise ValueError("Please select a valid U.S. state.")
         c.zip_code = _req("zip_code", "ZIP", c.zip_code or "")
         status_in  = _req("status", "Status", c.status or Customer.STATUS_ACTIVE).lower()
         if status_in not in (Customer.STATUS_ACTIVE, Customer.STATUS_ARCHIVED):
