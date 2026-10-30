@@ -216,6 +216,13 @@ class SessionExpiryMiddleware:
             previous = session.get(key)
 
             if previous is None:
+                # Sesión técnica anterior al cambio de contadores.
+                # Evitar el ciclo login -> dashboard -> login:
+                # cerrar la sesión autenticada antes de redirigir.
+                self._logout_with_message(
+                    request,
+                    "Your previous session expired. Please sign in again.",
+                )
                 return redirect(self.login_path)
 
         else:
