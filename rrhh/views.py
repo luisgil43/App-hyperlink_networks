@@ -752,6 +752,11 @@ def generar_ficha_pdf(request, ficha_id):
     return FileResponse(buffer, as_attachment=True, filename=nombre_archivo)
 
 
+from django.contrib.auth.decorators import login_required as _rrhh_export_login_required
+from usuarios.decoradores import rol_requerido as _rrhh_export_rol_requerido
+
+@_rrhh_export_login_required
+@_rrhh_export_rol_requerido("admin", "rrhh", "pm")
 def exportar_fichas_ingreso_excel(request):
     wb = openpyxl.Workbook()
     ws = wb.active

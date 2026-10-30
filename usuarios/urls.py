@@ -32,6 +32,7 @@ urlpatterns = [
     path("login/", views.login_unificado, name="login"),
     path("2fa/setup/", views.two_factor_setup, name="two_factor_setup"),
     path("2fa/verify/", views.two_factor_verify, name="two_factor_verify"),
+    path("admin/reauth/", views.admin_reauthenticate, name="admin_reauthenticate"),
     path("seleccionar-rol/", views.seleccionar_rol, name="seleccionar_rol"),
     path(
         "notificacion/<int:pk>/leer/",

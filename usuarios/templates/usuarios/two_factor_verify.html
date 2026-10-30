@@ -164,6 +164,9 @@
     <!-- Formulario de verificación 2FA -->
     <form method="post">
       {% csrf_token %}
+      {% if admin_reauth %}
+      <input type="hidden" name="reauth_2fa" value="1">
+      {% endif %}
       <p>
         <label for="code">Verification code</label>
         <input type="text"

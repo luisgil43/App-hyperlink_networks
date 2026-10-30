@@ -10,32 +10,122 @@ from django.urls import reverse
 
 class SessionExpiryMiddleware:
     """
-    Cierra sesión por INACTIVIDAD (SESSION_IDLE_TIMEOUT o IDLE_TIMEOUT_SECONDS)
-    y opcionalmente por tiempo ABSOLUTO (SESSION_ABSOLUTE_TIMEOUT).
-    Guarda 'last_activity' y 'login_time' en session.
+    Control de inactividad independiente por interfaz.
+
+    La actividad técnica nunca renueva el contador administrativo.
     """
+
+    TECHNICIAN_EXACT_PATHS = frozenset({
+        "/dashboard/",
+        "/dashboard/inicio/",
+        "/dashboard/dashboard/",
+        "/operaciones/mis-rendiciones/",
+        "/operaciones/billing/my/",
+        "/operaciones/produccion/mia/",
+        "/operaciones/mi-produccion/pagos/",
+        "/operaciones/project-downloads/",
+        "/rrhh/mis-contratos/",
+        "/rrhh/mis-documentos/",
+        "/rrhh/vacaciones/",
+        "/rrhh/fichas/ingreso/",
+        "/rrhh/adelantos/usuario/",
+        "/rrhh/my-rate-sheets/",
+    })
+
+    TECHNICIAN_PREFIXES = (
+        "/dashboard/",
+        "/api/billing/my/",
+        "/operaciones/billing/my/",
+        "/operaciones/mi-produccion/pagos/",
+        "/operaciones/mis-rendiciones/",
+        "/operaciones/mis-assignments/",
+        "/cable-installation/assignment/",
+        "/cable-installation/assignment-row/",
+        "/maps/technician/",
+    )
+
+    BACKGROUND_SUFFIXES = (
+        "/status/",
+        "/status-json/",
+        "/requirements-status/",
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.idle_timeout = int(
-            getattr(settings, "SESSION_IDLE_TIMEOUT",
-                    getattr(settings, "IDLE_TIMEOUT_SECONDS", 15 * 60))
+
+        self.admin_timeout = int(
+            getattr(
+                settings,
+                "SESSION_IDLE_TIMEOUT",
+                getattr(settings, "IDLE_TIMEOUT_SECONDS", 15 * 60),
+            )
         )
+
+        self.technician_timeout = (
+            int(getattr(settings, "TECHNICIAN_SESSION_TIMEOUT_HOURS", 6))
+            * 60 * 60
+        )
+
         self.absolute_timeout = getattr(
-            settings, "SESSION_ABSOLUTE_TIMEOUT", None)
+            settings, "SESSION_ABSOLUTE_TIMEOUT", None
+        )
 
         try:
             self.login_path = reverse(
-                getattr(settings, "LOGIN_URL_NAME", None) or settings.LOGIN_URL)
+                getattr(settings, "LOGIN_URL_NAME", None)
+                or settings.LOGIN_URL
+            )
         except Exception:
             self.login_path = "/usuarios/login/"
 
         self.excluded_prefixes = ("/static/", "/media/")
 
+    def _has_technician_role(self, user):
+        try:
+            return user.roles.filter(nombre="usuario").exists()
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _is_technician_request(self, request):
+        if request.session.get("ui_mode") != "user":
+            return False
+
+        if not self._has_technician_role(request.user):
+            return False
+
+        path = request.path or ""
+
+        return (
+            path in self.TECHNICIAN_EXACT_PATHS
+            or path.startswith(self.TECHNICIAN_PREFIXES)
+        )
+
+    def _is_background(self, request):
+        path = request.path or ""
+
+        if path.startswith("/usuarios/notificacion/"):
+            return True
+
+        return path.endswith(self.BACKGROUND_SUFFIXES)
+
     def __call__(self, request):
         path = request.path or ""
 
-        if path.startswith(self.excluded_prefixes) or path == self.login_path:
+        # El cambio de interfaz y la selección de rol no renuevan
+        # automáticamente el contador administrativo.
+        if path in (
+            "/usuarios/ui-mode/toggle/",
+            "/usuarios/seleccionar-rol/",
+            "/usuarios/admin/reauth/",
+            "/dashboard_admin/logout/",
+            "/usuarios/logout/",
+        ):
+            return self.get_response(request)
+
+        if (
+            path.startswith(self.excluded_prefixes)
+            or path == self.login_path
+        ):
             return self.get_response(request)
 
         if not request.user.is_authenticated:
@@ -43,31 +133,176 @@ class SessionExpiryMiddleware:
 
         now = int(time.time())
         session = request.session
-        session.setdefault("last_activity", now)
+
         session.setdefault("login_time", now)
 
-        # Inactividad
-        if self.idle_timeout and (now - session["last_activity"] > self.idle_timeout):
+        if self.absolute_timeout and (
+            now - int(session["login_time"])
+            > int(self.absolute_timeout)
+        ):
             self._logout_with_message(
-                request, "Your session was closed due to inactivity.")
+                request,
+                "Your session expired due to the maximum session duration.",
+            )
             return redirect(self.login_path)
 
-        # Tiempo absoluto
-        if self.absolute_timeout and (now - session["login_time"] > int(self.absolute_timeout)):
+        # Las rutas administrativas requieren autorización propia.
+        # El modo visual nunca constituye una autorización.
+        admin_route = (
+            path.startswith("/dashboard_admin/")
+            or path.startswith("/admin/")
+        )
+
+        if path.startswith("/dashboard/rrhh/liquidaciones/admin/"):
+            admin_route = True
+
+        if not admin_route and not self._is_technician_request(request):
+            try:
+                from django.urls import resolve
+
+                callback = resolve(path).func
+                visited = set()
+
+                while callback is not None and id(callback) not in visited:
+                    visited.add(id(callback))
+
+                    closure = getattr(callback, "__closure__", None)
+                    code = getattr(callback, "__code__", None)
+
+                    if closure and code:
+                        values = dict(
+                            zip(
+                                code.co_freevars,
+                                (cell.cell_contents for cell in closure),
+                            )
+                        )
+
+                        if values.get("administrative_view") is True:
+                            admin_route = True
+                            break
+
+                    callback = getattr(callback, "__wrapped__", None)
+
+            except Exception:
+                # La vista conservará sus propios controles de acceso.
+                pass
+
+        if admin_route:
+            admin_previous = session.get("admin_last_activity")
+
+            try:
+                admin_previous = int(admin_previous)
+            except (TypeError, ValueError):
+                admin_previous = None
+
+            admin_valid = (
+                admin_previous is not None
+                and admin_previous <= now
+                and now - admin_previous <= self.admin_timeout
+            )
+
+            if not admin_valid:
+                return redirect("usuarios:admin_reauthenticate")
+
+        technician_request = (
+            not admin_route
+            and self._is_technician_request(request)
+        )
+
+        if technician_request:
+            key = "technician_last_activity"
+            timeout = self.technician_timeout
+
+            previous = session.get(key)
+
+            if previous is None:
+                return redirect(self.login_path)
+
+        else:
+            key = "admin_last_activity"
+            timeout = self.admin_timeout
+
+            previous = session.get(key)
+
+            if previous is None:
+                # Nunca utilizar la actividad técnica para renovar
+                # el contador administrativo.
+                return redirect("usuarios:admin_reauthenticate")
+
+        if timeout and now - int(previous) > timeout:
+            if not technician_request:
+                session.pop("admin_last_activity", None)
+                session.modified = True
+
+            if not technician_request and self._has_technician_role(request.user):
+                technician_previous = session.get(
+                    "technician_last_activity"
+                )
+
+                technician_valid = False
+
+                try:
+                    technician_previous = int(technician_previous)
+                    technician_valid = (
+                        technician_previous <= now
+                        and now - technician_previous <= self.technician_timeout
+                    )
+                except (TypeError, ValueError):
+                    technician_valid = False
+
+                if technician_valid:
+                    session["ui_mode"] = "user"
+                    session.modified = True
+
+                    messages.warning(
+                        request,
+                        "Administrator access expired. "
+                        "Please authenticate again before returning to Administration.",
+                    )
+
+                    return redirect("usuarios:admin_reauthenticate")
+
+            if not technician_request:
+                session["ui_mode"] = "user"
+                session.modified = True
+                messages.warning(
+                    request,
+                    "Administrator access expired. "
+                    "Please authenticate again.",
+                )
+                return redirect("usuarios:admin_reauthenticate")
+
             self._logout_with_message(
-                request, "Your session expired due to the maximum session duration.")
+                request,
+                "Your session was closed due to inactivity.",
+            )
+
             return redirect(self.login_path)
 
-        session["last_activity"] = now
+        if not self._is_background(request):
+            if technician_request:
+                session["technician_last_activity"] = now
+                session["last_activity"] = now
+            elif admin_route:
+                # Solo actividad administrativa autorizada.
+                session["admin_last_activity"] = now
+
         return self.get_response(request)
 
     def _logout_with_message(self, request, msg):
-        for k in ("last_activity", "login_time"):
-            request.session.pop(k, None)
+        for key in (
+            "last_activity",
+            "login_time",
+            "technician_last_activity",
+            "admin_last_activity",
+        ):
+            request.session.pop(key, None)
+
         try:
             messages.warning(request, msg)
         except Exception:
             pass
+
         logout(request)
 
 
@@ -119,6 +354,15 @@ class TwoFactorEnforceMiddleware:
 
         # 4) Solo aplica a staff sin 2FA
         if not user.is_staff or getattr(user, "two_factor_enabled", False):
+            return self.get_response(request)
+
+        # El acceso técnico no exige configurar 2FA.
+        technician_role = (
+            hasattr(user, "roles")
+            and user.roles.filter(nombre="usuario").exists()
+        )
+
+        if technician_role and request.session.get("ui_mode") == "user":
             return self.get_response(request)
 
         # 5) Permitimos solo algunas vistas para evitar loops

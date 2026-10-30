@@ -6495,6 +6495,7 @@ def billing_mark_in_review(request, pk: int):
 
 
 @login_required
+@rol_requerido("admin", "pm")
 @require_POST
 def billing_reopen_asignado(request, pk):
     obj = get_object_or_404(SesionBilling, pk=pk)
@@ -10941,6 +10942,7 @@ def eliminar_billing(request, sesion_id: int):
 
 
 @login_required
+@rol_requerido("admin", "pm")
 @transaction.atomic
 def reasignar_tecnicos(request, sesion_id: int):
     """
@@ -15807,6 +15809,9 @@ def user_reject_payment(request, pk: int):
     return redirect(f"{reverse('operaciones:user_weekly_payments')}?skip_sync=1")
 
 
+@login_required
+@rol_requerido("admin", "pm", "facturacion")
+@require_POST
 def admin_reset_payment_status(request, pk: int):
     """
     Vuelve un registro RECHAZADO a 'pending_user' para que el técnico lo vuelva a aprobar.

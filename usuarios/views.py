@@ -356,6 +356,61 @@ def axes_post_only(view_func):
 
 # throttle por IP solo en POST
 # throttle por IP solo en POST
+
+def _initialize_session_activity(request):
+    """Inicializa autorizaciones independientes después del login."""
+    import time
+
+    now = int(time.time())
+    user = request.user
+
+    try:
+        roles = {
+            str(name).strip().lower()
+            for name in user.roles.values_list("nombre", flat=True)
+        }
+    except (AttributeError, TypeError, ValueError):
+        roles = set()
+
+    has_technician_role = "usuario" in roles
+
+    admin_roles = {
+        "admin",
+        "rrhh",
+        "pm",
+        "supervisor",
+        "facturacion",
+        "logistica",
+        "subcontrato",
+        "flota",
+        "prevencion",
+        "bodeguero",
+        "emision_facturacion",
+    }
+
+    has_admin_role = (
+        bool(roles.intersection(admin_roles))
+        or user.is_staff
+        or user.is_superuser
+    )
+
+    session = request.session
+
+    session["login_time"] = now
+    session.pop("admin_last_activity", None)
+    session.pop("technician_last_activity", None)
+    session.pop("last_activity", None)
+
+    if has_technician_role or not has_admin_role:
+        session["technician_last_activity"] = now
+        session["last_activity"] = now
+
+    if has_admin_role:
+        session["admin_last_activity"] = now
+
+    session.modified = True
+
+
 @ratelimit(key='ip', rate='10/m', block=True, method=['POST'])
 @axes_post_only
 def login_unificado(request):
@@ -400,10 +455,11 @@ def login_unificado(request):
 
             # Si no requiere 2FA, o el dispositivo ya es confiable → login normal
             login(request, user)
+            _initialize_session_activity(request)
 
             # --- Lógica de cuenta regresiva / obligatoriedad de 2FA para staff ---
             days_left = _get_2fa_days_left()
-            if user.is_staff and not getattr(user, "two_factor_enabled", False) and days_left is not None:
+            if user.is_staff and not getattr(user, 'two_factor_enabled', False) and days_left is not None:
                 if days_left > 0:
                     # Aún estamos en periodo de gracia → solo aviso
                     messages.warning(
@@ -432,6 +488,33 @@ def login_unificado(request):
         form = AuthenticationForm(request)
 
     return render(request, "usuarios/login.html", {"form": form})
+
+
+
+def _admin_access_is_current(request):
+    """Verifica el tiempo de autorización administrativa."""
+    import time
+    from django.conf import settings
+
+    now = int(time.time())
+    timeout = int(
+        getattr(settings, "IDLE_TIMEOUT_SECONDS", 15 * 60)
+    )
+
+    previous = request.session.get("admin_last_activity")
+
+    if previous is None:
+        return False
+
+    try:
+        previous = int(previous)
+    except (TypeError, ValueError):
+        return False
+
+    if previous > now:
+        return False
+
+    return now - previous <= timeout
 
 
 @login_required
@@ -483,6 +566,17 @@ def seleccionar_rol(request):
             return redirect("dashboard:inicio_tecnico")
 
         if opcion == "admin":
+
+            if not _admin_access_is_current(request):
+                request.session["ui_mode"] = "user"
+                request.session.modified = True
+                messages.warning(
+                    request,
+                    "Administrator access expired. "
+                    "Please authenticate again to return to Administration.",
+                )
+                return redirect('usuarios:admin_reauthenticate')
+
             request.session["ui_mode"] = "admin"
             request.session.modified = True
             return redirect("dashboard_admin:inicio_admin")
@@ -594,6 +688,7 @@ def two_factor_verify(request):
             user,
             backend=backend_path,
         )
+        _initialize_session_activity(request)
 
         # ============================================================
         # 4. CREAR EL RESPONSE DEFINITIVO
@@ -748,6 +843,17 @@ def toggle_ui_mode(request):
     current = (request.session.get("ui_mode") or "user").lower()
     new_mode = "admin" if current != "admin" else "user"
 
+
+    if new_mode == "admin" and not _admin_access_is_current(request):
+        request.session["ui_mode"] = "user"
+        request.session.modified = True
+        messages.warning(
+            request,
+            "Administrator access expired. "
+            "Please authenticate again to return to Administration.",
+        )
+        return redirect('usuarios:admin_reauthenticate')
+
     request.session["ui_mode"] = new_mode
     request.session.modified = True
 
@@ -778,4 +884,168 @@ def download_ready(request):
             "filename": data.get("filename", "download"),
             "content_type": data.get("content_type", ""),
         },
+    )
+
+
+@ratelimit(key='user', rate='5/m', block=True, method=['POST'])
+@login_required
+def admin_reauthenticate(request):
+    """Pantalla inicial para renovar autorización administrativa."""
+    user = request.user
+
+    admin_roles = {
+        "admin",
+        "rrhh",
+        "pm",
+        "supervisor",
+        "facturacion",
+        "logistica",
+        "subcontrato",
+        "flota",
+        "prevencion",
+        "bodeguero",
+        "emision_facturacion",
+    }
+
+    try:
+        roles = {
+            str(name).strip().lower()
+            for name in user.roles.values_list("nombre", flat=True)
+        }
+    except (AttributeError, TypeError, ValueError):
+        roles = set()
+
+    allowed = (
+        user.is_staff
+        or user.is_superuser
+        or bool(roles.intersection(admin_roles))
+    )
+
+    if not allowed:
+        messages.error(
+            request,
+            "You do not have administrative access.",
+        )
+        return redirect("dashboard:inicio_tecnico")
+
+    import time
+
+    pending_user_id = request.session.get(
+        "pending_admin_reauth_user_id"
+    )
+    pending_at = request.session.get("pending_admin_reauth_at")
+
+    pending_valid = False
+
+    if pending_user_id is not None and pending_at is not None:
+        try:
+            elapsed = time.time() - float(pending_at)
+            pending_valid = (
+                str(pending_user_id) == str(user.pk)
+                and 0 <= elapsed <= 300
+            )
+        except (TypeError, ValueError):
+            pending_valid = False
+
+    if pending_user_id is not None and not pending_valid:
+        request.session.pop("pending_admin_reauth_user_id", None)
+        request.session.pop("pending_admin_reauth_at", None)
+
+    if request.method == "POST" and request.POST.get("reauth_2fa"):
+        if not pending_valid:
+            messages.error(
+                request,
+                "Verification expired. Enter your password again.",
+            )
+            return redirect("usuarios:admin_reauthenticate")
+
+        code = request.POST.get("code", "").strip()
+
+        if not _verify_totp_code(user, code):
+            messages.error(
+                request,
+                "Invalid verification code.",
+            )
+        else:
+            request.session.pop("pending_admin_reauth_user_id", None)
+            request.session.pop("pending_admin_reauth_at", None)
+
+            request.session["admin_last_activity"] = int(time.time())
+            request.session["ui_mode"] = "admin"
+            request.session.modified = True
+
+            messages.success(
+                request,
+                "Administrative access restored successfully.",
+            )
+            return redirect("dashboard_admin:inicio_admin")
+
+    elif request.method == "POST":
+        form = AuthenticationForm(request, data=request.POST)
+
+        if form.is_valid():
+            authenticated_user = form.get_user()
+
+            if authenticated_user.pk != user.pk:
+                messages.error(
+                    request,
+                    "You must authenticate using your current account.",
+                )
+                return redirect("usuarios:admin_reauthenticate")
+
+            if (
+                _user_requires_2fa(authenticated_user)
+                and not _has_valid_trusted_device(request, authenticated_user)
+            ):
+                request.session["pending_admin_reauth_user_id"] = user.pk
+                request.session["pending_admin_reauth_at"] = __import__(
+                    "time"
+                ).time()
+
+                messages.info(
+                    request,
+                    "Two-factor verification is required "
+                    "before administrative access can be restored.",
+                )
+                return redirect("usuarios:admin_reauthenticate")
+
+            request.session.pop("pending_admin_reauth_user_id", None)
+            request.session.pop("pending_admin_reauth_at", None)
+
+            request.session["admin_last_activity"] = int(time.time())
+            request.session["ui_mode"] = "admin"
+            request.session.modified = True
+
+            messages.success(
+                request,
+                "Administrative access restored successfully.",
+            )
+            return redirect("dashboard_admin:inicio_admin")
+
+        messages.error(
+            request,
+            "Invalid credentials.",
+        )
+    else:
+        form = AuthenticationForm(request)
+
+    if pending_valid:
+        return render(
+            request,
+            "usuarios/two_factor_verify.html",
+            {
+                "admin_reauth": True,
+                "reauth_2fa": True,
+            },
+        )
+
+    messages.info(
+        request,
+        "Administrative access requires fresh authentication.",
+    )
+
+    return render(
+        request,
+        "usuarios/login.html",
+        {"form": form},
     )

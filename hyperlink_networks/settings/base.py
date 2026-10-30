@@ -429,6 +429,7 @@ CORE_PROJECT_PARAM_NAMES = ("proyecto_id", "project_id", "proyecto")
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Sesión
+TECHNICIAN_SESSION_TIMEOUT_HOURS = 6
 IDLE_TIMEOUT_SECONDS = 15 * 60          # 15 minutos de inactividad
 SESSION_ABSOLUTE_TIMEOUT = None         # Ej: 8*60*60 para 8h si lo necesitas
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
