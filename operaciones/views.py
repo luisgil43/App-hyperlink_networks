@@ -11743,7 +11743,7 @@ def _guardar_billing(request, sesion=None):
                 request.user,
             )
 
-        elif requested_priorities:
+        elif requested_priorities and sesion.estado == "asignado":
 
             active_assignments = {
                 assignment.tecnico_id: assignment
@@ -11752,6 +11752,7 @@ def _guardar_billing(request, sesion=None):
                     .filter(
                         is_active=True,
                         tecnico_id__in=final_ids,
+                        estado="asignado",
                     )
                 )
             }
