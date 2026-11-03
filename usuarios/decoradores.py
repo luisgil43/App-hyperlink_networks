@@ -43,7 +43,7 @@ def rol_requerido(*roles_esperados, url_redireccion='usuarios:no_autorizado'):
             getattr(view_func, "__module__", "")
             == "operaciones.views_billing_exec"
             and getattr(view_func, "__name__", "")
-            == "mis_assignments"
+            in ("mis_assignments", "eliminar_evidencia")
         )
 
         administrative_view = (
