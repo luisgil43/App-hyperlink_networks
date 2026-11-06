@@ -3653,11 +3653,50 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
     syncCount();
   }
 
+
+  // La expiración de sesión se resuelve fuera del modal.
+  const LOGIN_PATH = "{% url 'usuarios:login' %}";
+  const ADMIN_REAUTH_PATH = "{% url 'usuarios:admin_reauthenticate' %}";
+
+  function handleAuthResponse(resp, data = null) {
+    const destination = resp.redirected
+      ? new URL(resp.url, window.location.href).pathname
+      : '';
+
+    if (destination === LOGIN_PATH ||
+        destination === ADMIN_REAUTH_PATH) {
+      window.location.assign(destination);
+      return true;
+    }
+
+    if (data && data.reauth_required === true) {
+      window.location.assign(ADMIN_REAUTH_PATH);
+      return true;
+    }
+
+    if (resp.status === 401) {
+      window.location.assign(LOGIN_PATH);
+      return true;
+    }
+
+    return false;
+  }
+
   async function loadList(sid){
     try{
       const url = URL_LIST.replace('{sid}', sid);
       const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }});
-      const data = await resp.json();
+      if (handleAuthResponse(resp)) return;
+
+        const contentType = resp.headers.get('content-type') || '';
+
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Unexpected server response (HTTP ${resp.status}).`);
+        }
+
+        const data = await resp.json();
+
+        if (handleAuthResponse(resp, data)) return;
 
       if(!resp.ok || !data || data.ok !== true){
         throw new Error((data && (data.error || data.message)) || `HTTP ${resp.status}`);
@@ -3725,7 +3764,35 @@ const URL_SET  = "{% url 'operaciones:reasignar_tecnicos' 0 %}".replace('/0/', '
 
     // tu reasignar_tecnicos hoy responde redirect (HTML), no JSON
     // así que basta con recargar si fue OK
-    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (handleAuthResponse(resp)) return;
+
+      const responseType = resp.headers.get('content-type') || '';
+
+      if (resp.status === 403 &&
+          responseType.includes('application/json')) {
+        const authData = await resp.json();
+        if (handleAuthResponse(resp, authData)) return;
+      }
+
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      // El guardado correcto termina en Edit Billing.
+      // No interpretar login, dashboard u otra pagina como exito.
+      const expectedEditPath = new URL(
+        "{% url 'operaciones:editar_billing' 0 %}".replace('/0/', '/' + sid + '/'),
+        window.location.href
+      ).pathname;
+
+      const finalPath = new URL(
+        resp.url,
+        window.location.href
+      ).pathname;
+
+      if (!resp.redirected || finalPath !== expectedEditPath) {
+        throw new Error(
+          'The server did not confirm the reassignment. Please check your session.'
+        );
+      }
 
     closeModal();
     location.reload();
